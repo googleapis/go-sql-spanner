@@ -77,6 +77,8 @@ them in the query:
 db.QueryContext(ctx, "SELECT id, name ... WHERE email = @email", "jbd@google.com")
 ```
 
+The driver will relax this requirement in the future but it is a work-in-progress for now.
+
 ## Disclaimer
 
 This is not an officially supported Google Cloud product.
