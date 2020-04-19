@@ -1,6 +1,7 @@
 # go-sql-driver-spanner
 
-[Google Cloud Spanner](https://cloud.google.com/spanner) driver for database/sql.
+[Google Cloud Spanner](https://cloud.google.com/spanner) driver for
+Go's [database/sql](https://golang.org/pkg/database/sql/) package.
 
 
 ``` go
