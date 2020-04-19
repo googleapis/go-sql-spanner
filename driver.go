@@ -140,15 +140,16 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 			c.rwTx = nil
 		},
 	}
+
+	// TODO(jbd): Make sure we are not leaking
+	// a goroutine in connector if timeout happens.
 	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
 	case <-connector.Ready:
 		return c.rwTx, nil
 	case err := <-connector.Errors: // If received before Ready, transaction failed to start.
 		return nil, err
 	case <-time.Tick(10 * time.Second):
-		return nil, errors.New("cannot begin transaction due to timeout")
+		return nil, errors.New("cannot begin transaction, timeout after 10 seconds")
 	}
 }
 
