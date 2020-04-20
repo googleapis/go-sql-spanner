@@ -35,32 +35,46 @@ func init() {
 }
 
 // Driver represents a Google Cloud Spanner database/sql driver.
-type Driver struct{}
+type Driver struct {
+	// Config represents the optional advanced configuration to be used
+	// by the Google Cloud Spanner client.
+	Config spanner.ClientConfig
+
+	// Options represent the optional Google Cloud client options
+	// to be passed to the underlying client.
+	Options []option.ClientOption
+}
 
 // Open opens a connection to a Google Cloud Spanner database.
 // Use fully qualified string:
 //
 // Example: projects/$PROJECT/instances/$INSTANCE/databases/$DATABASE
 func (d *Driver) Open(name string) (driver.Conn, error) {
-	return openDriverConn(context.Background(), name)
+	return openDriverConn(context.Background(), d, name)
 }
 
 func (d *Driver) OpenConnector(name string) (driver.Connector, error) {
-	return &connector{name: name}, nil
+	return &connector{
+		driver: d,
+		name:   name,
+	}, nil
 }
 
 type connector struct {
-	name string
+	driver *Driver
+	name   string
 }
 
 func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
-	return openDriverConn(ctx, c.name)
+	return openDriverConn(ctx, c.driver, c.name)
 }
 
-func openDriverConn(ctx context.Context, name string) (driver.Conn, error) {
-	client, err := spanner.NewClientWithConfig(ctx, name, spanner.ClientConfig{
-		NumChannels: 1, // TODO(jbd): Explain database/sql has a high-level management.
-	}, option.WithUserAgent(userAgent))
+func openDriverConn(ctx context.Context, d *Driver, name string) (driver.Conn, error) {
+	if d.Config.NumChannels == 0 {
+		d.Config.NumChannels = 1 // TODO(jbd): Explain database/sql has a high-level management.
+	}
+	opts := append(d.Options, option.WithUserAgent(userAgent))
+	client, err := spanner.NewClientWithConfig(ctx, name, d.Config, opts...)
 	if err != nil {
 		return nil, err
 	}
