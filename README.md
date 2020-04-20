@@ -59,6 +59,16 @@ tx, err := db.BeginTx(ctx, &sql.TxOptions{
 tx, err := db.BeginTx(ctx, &sql.TxOptions{}) // Read-write transaction.
 ```
 
+## Emulator
+
+See the [Google Cloud Spanner Emulator](https://cloud.google.com/spanner/docs/emulator) support to learn how to start the emulator.
+Once the emulator is started and the host environmental flag is set, the driver should just work.
+
+```
+$ gcloud beta emulators spanner start
+$ export SPANNER_EMULATOR_HOST=localhost:9010
+```
+
 ## Troubleshooting
 
 gorm cannot use the driver as it-is but @rakyll is working on a dialect.
