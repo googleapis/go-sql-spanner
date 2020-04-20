@@ -61,6 +61,10 @@ tx, err := db.BeginTx(ctx, &sql.TxOptions{}) // Read-write transaction.
 
 ## Troubleshooting
 
+gorm cannot use the driver as it-is but @rakyll is working on a dialect.
+
+---
+
 `error = <use T(nil), not nil>`: Use a typed nil, instead of just nil.
 
 The following query returns rows with NULL likes:
