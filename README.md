@@ -71,7 +71,9 @@ $ export SPANNER_EMULATOR_HOST=localhost:9010
 
 ## Troubleshooting
 
-gorm cannot use the driver as it-is but @rakyll is working on a dialect.
+gorm cannot use the driver as it-is but @rakyll has been working on a dialect.
+She doesn't have bandwidth to ship a fully featured dialect right now but contact
+her if you would like to contribute.
 
 ---
 
