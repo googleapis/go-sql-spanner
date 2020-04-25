@@ -1,6 +1,7 @@
 # go-sql-driver-spanner
 
-[![CircleCI](https://circleci.com/gh/rakyll/go-sql-driver-spanner.svg?style=svg)](https://circleci.com/gh/rakyll/go-sql-driver-spanner)
+[![CircleCI](https://circleci.com/gh/rakyll/go-sql-driver-spanner.svg?style=svg)](https://circleci.com/gh/rakyll/go-sql-driver-spanner) [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/rakyll/go-sql-driver-spanner)
+
 
 [Google Cloud Spanner](https://cloud.google.com/spanner) driver for
 Go's [database/sql](https://golang.org/pkg/database/sql/) package.
