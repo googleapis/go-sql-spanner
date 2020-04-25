@@ -16,6 +16,7 @@ package spannerdriver
 
 import (
 	"database/sql/driver"
+	"encoding/base64"
 	"io"
 	"log"
 	"sync"
@@ -112,19 +113,27 @@ func (r *rows) Next(dest []driver.Value) error {
 				return err
 			}
 			dest[i] = v.StringVal
+		case sppb.TypeCode_BYTES:
+			// The column value is a base64 encoded string.
+			var v spanner.NullString
+			if err := col.Decode(&v); err != nil {
+				return err
+			}
+			if v.IsNull() {
+				dest[i] = []byte(nil)
+			} else {
+				b, err := base64.StdEncoding.DecodeString(v.StringVal)
+				if err != nil {
+					return err
+				}
+				dest[i] = b
+			}
 		case sppb.TypeCode_BOOL:
 			var v spanner.NullBool
 			if err := col.Decode(&v); err != nil {
 				return err
 			}
 			dest[i] = v.Bool
-		case sppb.TypeCode_BYTES:
-			var v []byte
-			// TODO(jbd): Anything needs to be done for NULL values?
-			if err := col.Decode(&v); err != nil {
-				return err
-			}
-			dest[i] = v
 		case sppb.TypeCode_DATE:
 			var v spanner.NullDate
 			if err := col.Decode(&v); err != nil {
