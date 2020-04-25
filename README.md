@@ -97,6 +97,16 @@ db.QueryContext(ctx, "SELECT id, name ... WHERE email = @email", "jbd@google.com
 
 The driver will relax this requirement in the future but it is a work-in-progress for now.
 
+---
+
+[DDLs](https://cloud.google.com/spanner/docs/data-definition-language)
+are not supported in the transactions per Cloud Spanner restriction.
+Instead, run them against the database:
+
+```go
+db.ExecContext(ctx, "CREATE TABLE ...")
+```
+
 ## Disclaimer
 
 This is not an officially supported Google Cloud product.
