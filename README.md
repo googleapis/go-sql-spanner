@@ -84,7 +84,7 @@ The following query returns rows with NULL likes:
 
 ``` go
 var nilInt64 *int64
-db.QueryContext(ctx, "SELECT id, text FROM tweets WHERE likes > @likes LIMIT 10", nilInt64)
+db.QueryContext(ctx, "SELECT id, text FROM tweets WHERE likes = @likes LIMIT 10", nilInt64)
 ```
 
 ---
