@@ -2,10 +2,11 @@
 
 [![CircleCI](https://circleci.com/gh/rakyll/go-sql-driver-spanner.svg?style=svg)](https://circleci.com/gh/rakyll/go-sql-driver-spanner) [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/rakyll/go-sql-driver-spanner)
 
-
 [Google Cloud Spanner](https://cloud.google.com/spanner) driver for
 Go's [database/sql](https://golang.org/pkg/database/sql/) package.
 
+
+THIS IS A WORK-IN-PROGRESS, DON'T USE IT IN PRODUCTION YET.
 
 ``` go
 import _ "github.com/rakyll/go-sql-driver-spanner"
@@ -71,6 +72,11 @@ $ export SPANNER_EMULATOR_HOST=localhost:9010
 ```
 
 ## Troubleshooting
+
+This driver shouldn't automatically retry the transactions but it does.
+It causes unwanted results. Don't use this library in production yet.
+
+---
 
 gorm cannot use the driver as it-is but @rakyll has been working on a dialect.
 She doesn't have bandwidth to ship a fully featured dialect right now but contact
