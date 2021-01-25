@@ -20,7 +20,7 @@ import (
 	"errors"
 
 	"cloud.google.com/go/spanner"
-	"github.com/rakyll/go-sql-driver-spanner/internal"
+	"github.com/cloudspannerecosystem/go-sql-spanner/internal"
 )
 
 type stmt struct {

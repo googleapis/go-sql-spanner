@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"log"
 
-	_ "github.com/rakyll/go-sql-driver-spanner"
+	_ "github.com/cloudspannerecosystem/go-sql-spanner"
 )
 
 func main() {

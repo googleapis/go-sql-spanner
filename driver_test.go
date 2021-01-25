@@ -18,7 +18,7 @@ import (
 	"database/sql"
 	"log"
 
-	spannerdriver "github.com/rakyll/go-sql-driver-spanner"
+	spannerdriver "github.com/cloudspannerecosystem/go-sql-spanner"
 	"google.golang.org/api/option"
 )
 
