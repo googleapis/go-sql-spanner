@@ -1,6 +1,6 @@
-# go-sql-driver-spanner
+# go-sql-spanner
 
-[![CircleCI](https://circleci.com/gh/rakyll/go-sql-driver-spanner.svg?style=svg)](https://circleci.com/gh/rakyll/go-sql-driver-spanner) [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/rakyll/go-sql-driver-spanner)
+[![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/cloudspannerecosystem/go-sql-spanner)
 
 [Google Cloud Spanner](https://cloud.google.com/spanner) driver for
 Go's [database/sql](https://golang.org/pkg/database/sql/) package.
@@ -9,7 +9,7 @@ Go's [database/sql](https://golang.org/pkg/database/sql/) package.
 THIS IS A WORK-IN-PROGRESS, DON'T USE IT IN PRODUCTION YET.
 
 ``` go
-import _ "github.com/rakyll/go-sql-driver-spanner"
+import _ "github.com/cloudspannerecosystem/go-sql-spanner"
 
 db, err := sql.Open("spanner", "projects/PROJECT/instances/INSTANCE/databases/DATABASE")
 if err != nil {
