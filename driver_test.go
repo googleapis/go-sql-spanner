@@ -21,12 +21,6 @@ import (
 	"os"
 	"reflect"
 	"testing"
-
-	// API/lib packages not imported by driver.
-	adminapi "cloud.google.com/go/spanner/admin/database/apiv1"
-	"google.golang.org/api/option"
-	adminpb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
-	"google.golang.org/grpc"
 )
 
 var (
@@ -36,17 +30,11 @@ var (
 type Connector struct {
 	ctx         context.Context
 	client      *spanner.Client
-	adminClient *adminapi.DatabaseAdminClient
 }
 
 func NewConnector() (*Connector, error) {
 
 	ctx := context.Background()
-
-	adminClient, err := CreateAdminClient(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	dataClient, err := spanner.NewClient(ctx, dsn)
 	if err != nil {
@@ -56,39 +44,12 @@ func NewConnector() (*Connector, error) {
 	conn := &Connector{
 		ctx:         ctx,
 		client:      dataClient,
-		adminClient: adminClient,
 	}
 	return conn, nil
 }
 
-func CreateAdminClient(ctx context.Context) (*adminapi.DatabaseAdminClient, error) {
-
-	var adminClient *adminapi.DatabaseAdminClient
-	var err error
-
-	// Configure emulator if set.
-	if spannerHost, ok := os.LookupEnv("SPANNER_EMULATOR_HOST"); ok {
-		adminClient, err = adminapi.NewDatabaseAdminClient(
-			ctx,
-			option.WithoutAuthentication(),
-			option.WithEndpoint(spannerHost),
-			option.WithGRPCDialOption(grpc.WithInsecure()))
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		adminClient, err = adminapi.NewDatabaseAdminClient(ctx)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return adminClient, nil
-}
-
 func (c *Connector) Close() {
 	c.client.Close()
-	c.adminClient.Close()
 }
 
 func init() {
@@ -109,22 +70,6 @@ func init() {
 
 	// Derive data source name.
 	dsn = "projects/" + projectId + "/instances/" + instanceId + "/databases/" + databaseId
-}
-
-// Executes DDL statements.
-func executeDdlApi(conn *Connector, ddls []string) error {
-
-	op, err := conn.adminClient.UpdateDatabaseDdl(conn.ctx, &adminpb.UpdateDatabaseDdlRequest{
-		Database:   dsn,
-		Statements: ddls,
-	})
-	if err != nil {
-		return err
-	}
-	if err := op.Wait(conn.ctx); err != nil {
-		return err
-	}
-	return nil
 }
 
 // Executes DML using the client library.
@@ -158,6 +103,14 @@ func ExecuteDMLClientLib(dml []string) error {
 
 func TestQueryContext(t *testing.T) {
 
+	// Open db.
+	ctx := context.Background()
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
 	// Set up test table.
 	conn, err := NewConnector()
 	if err != nil {
@@ -165,12 +118,12 @@ func TestQueryContext(t *testing.T) {
 	}
 	defer conn.Close()
 
-	err = executeDdlApi(conn, []string{
+	_, err = db.ExecContext(ctx,
 		`CREATE TABLE TestQueryContext (
 			A   STRING(1024),
 			B  STRING(1024),
 			C   STRING(1024)
-		)	 PRIMARY KEY (A)`})
+		)	 PRIMARY KEY (A)`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,13 +133,6 @@ func TestQueryContext(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Open db.
-	ctx := context.Background()
-	db, err := sql.Open("spanner", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
 
 	type testQueryContextRow struct {
 		A, B, C string
@@ -297,7 +243,7 @@ func TestQueryContext(t *testing.T) {
 	}
 
 	// Drop table.
-	err = executeDdlApi(conn, []string{`DROP TABLE TestQueryContext`})
+	_, err = db.ExecContext(ctx, `DROP TABLE TestQueryContext`)
 	if err != nil {
 		t.Error(err)
 	}
