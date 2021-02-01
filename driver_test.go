@@ -251,7 +251,7 @@ func TestQueryContext(t *testing.T) {
 		{
 			name:           "query non existent table",
 			wantErrorClose: true,
-			input:          "SELECT * FROM TestQueryContexta",
+			input:          "SELECT * FROM NonExistent",
 			want:           []testQueryContextRow{},
 		},
 	}
