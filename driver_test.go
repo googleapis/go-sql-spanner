@@ -165,11 +165,12 @@ func TestQueryContext(t *testing.T) {
 	}
 	defer conn.Close()
 
-	err = executeDdlApi(conn, []string{`CREATE TABLE TestQueryContext (
-		A   STRING(1024),
-		B  STRING(1024),
-		C   STRING(1024)
-	)	 PRIMARY KEY (A)`})
+	err = executeDdlApi(conn, []string{
+		`CREATE TABLE TestQueryContext (
+			A   STRING(1024),
+			B  STRING(1024),
+			C   STRING(1024)
+		)	 PRIMARY KEY (A)`})
 	if err != nil {
 		t.Fatal(err)
 	}
