@@ -28,8 +28,8 @@ var (
 )
 
 type Connector struct {
-	ctx         context.Context
-	client      *spanner.Client
+	ctx    context.Context
+	client *spanner.Client
 }
 
 func NewConnector() (*Connector, error) {
@@ -42,8 +42,8 @@ func NewConnector() (*Connector, error) {
 	}
 
 	conn := &Connector{
-		ctx:         ctx,
-		client:      dataClient,
+		ctx:    ctx,
+		client: dataClient,
 	}
 	return conn, nil
 }
@@ -132,7 +132,6 @@ func TestQueryContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 
 	type testQueryContextRow struct {
 		A, B, C string
