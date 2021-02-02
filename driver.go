@@ -94,7 +94,7 @@ func CreateAdminClient(ctx context.Context) (*adminapi.DatabaseAdminClient, erro
 	var adminClient *adminapi.DatabaseAdminClient
 	var err error
 
-	// Admin client will connect tp emulator if SPANNER_EMULATOR_HOST
+	// Admin client will connect to emulator if SPANNER_EMULATOR_HOST
 	// is set in the environment.
 	if spannerHost, ok := os.LookupEnv("SPANNER_EMULATOR_HOST"); ok {
 		adminClient, err = adminapi.NewDatabaseAdminClient(
