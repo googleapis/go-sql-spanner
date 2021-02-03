@@ -329,14 +329,12 @@ func TestIsDdl(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		got, err := IsDdl(tc.input)
+		got, err := isDdl(tc.input)
 		if err != nil {
 			t.Error(err)
 		}
 		if got != tc.want {
 			t.Errorf("isDdl test failed, %s: wanted %t got %t.", tc.name, tc.want, got)
 		}
-
 	}
-
 }

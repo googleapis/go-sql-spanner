@@ -86,7 +86,7 @@ func openDriverConn(ctx context.Context, d *Driver, name string) (driver.Conn, e
 	}
 
 	adminClient, err := createAdminClient(ctx)
-	if err != nil{
+	if err != nil {
 		return nil, err
 	}
 	return &conn{client: client, adminClient: adminClient, name: name}, nil
@@ -103,7 +103,7 @@ func createAdminClient(ctx context.Context) (adminClient *adminapi.DatabaseAdmin
 			option.WithEndpoint(spannerHost),
 			option.WithGRPCDialOption(grpc.WithInsecure()))
 		if err != nil {
-			return 
+			return
 		}
 	} else {
 		adminClient, err = adminapi.NewDatabaseAdminClient(ctx)
@@ -111,7 +111,7 @@ func createAdminClient(ctx context.Context) (adminClient *adminapi.DatabaseAdmin
 			return
 		}
 	}
-	return 
+	return
 }
 
 func (c *connector) Driver() driver.Driver {
@@ -142,7 +142,7 @@ func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, e
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 
 	// Use admin API if DDL statement is provided.
-	ddl, err := IsDdl(query)
+	ddl, err := isDdl(query)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +181,7 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 	return &result{rowsAffected: rowsAffected}, nil
 }
 
-func IsDdl(query string) (bool, error) {
+func isDdl(query string) (bool, error) {
 
 	matchddl, err := regexp.MatchString(`(?is)^\n*\s*(CREATE|DROP|ALTER)\s+.+$`, query)
 	if err != nil {
