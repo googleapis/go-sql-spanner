@@ -103,12 +103,12 @@ func createAdminClient(ctx context.Context) (adminClient *adminapi.DatabaseAdmin
 			option.WithEndpoint(spannerHost),
 			option.WithGRPCDialOption(grpc.WithInsecure()))
 		if err != nil {
-			return
+			adminClient = nil
 		}
 	} else {
 		adminClient, err = adminapi.NewDatabaseAdminClient(ctx)
 		if err != nil {
-			return
+			adminClient = nil
 		}
 	}
 	return
@@ -142,12 +142,12 @@ func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, e
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 
 	// Use admin API if DDL statement is provided.
-	ddl, err := isDdl(query)
+	isDdl, err := isDdl(query)
 	if err != nil {
 		return nil, err
 	}
 
-	if ddl {
+	if isDdl {
 		op, err := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
 			Database:   c.name,
 			Statements: []string{query},

@@ -216,7 +216,7 @@ func TestQueryContext(t *testing.T) {
 	}
 }
 
-// note: IsDdl function does not check validity of statement
+// note: isDdl function does not check validity of statement
 // just that the statement begins with a DDL instruction.
 // Other checking performed by database.
 func TestIsDdl(t *testing.T) {
