@@ -75,18 +75,24 @@ func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
 	return openDriverConn(ctx, c.driver, c.name)
 }
 
-func openDriverConn(ctx context.Context, d *Driver, name string) (driver.Conn, error) {
+func openDriverConn(ctx context.Context, d *Driver, name string) (drivercon driver.Conn, err error) {
 	if d.Config.NumChannels == 0 {
 		d.Config.NumChannels = 1 // TODO(jbd): Explain database/sql has a high-level management.
 	}
 	opts := append(d.Options, option.WithUserAgent(userAgent))
 	client, err := spanner.NewClientWithConfig(ctx, name, d.Config, opts...)
 	if err != nil {
-		return nil, err
+		drivercon = nil
+		return
 	}
 
 	adminClient, err := CreateAdminClient(ctx)
-	return &conn{client: client, adminClient: adminClient, name: name}, nil
+	if err != nil {
+		drivercon = nil
+		return
+	}
+	drivercon = &conn{client: client, adminClient: adminClient, name: name}
+	return
 }
 
 func CreateAdminClient(ctx context.Context) (*adminapi.DatabaseAdminClient, error) {
@@ -143,7 +149,7 @@ func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, e
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 
 	// Use admin API if DDL statement is provided.
-	ddl, err := IsDdlStatement(query)
+	ddl, err := IsDdl(query)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +188,7 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 	return &result{rowsAffected: rowsAffected}, nil
 }
 
-func IsDdlStatement(query string) (bool, error) {
+func IsDdl(query string) (bool, error) {
 
 	matchddl, err := regexp.MatchString(`(?is)^\n*\s*(CREATE|DROP|ALTER)\s+.+$`, query)
 	if err != nil {

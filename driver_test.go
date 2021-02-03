@@ -27,31 +27,6 @@ var (
 	dsn string
 )
 
-type Connector struct {
-	ctx    context.Context
-	client *spanner.Client
-}
-
-func NewConnector() (*Connector, error) {
-
-	ctx := context.Background()
-
-	dataClient, err := spanner.NewClient(ctx, dsn)
-	if err != nil {
-		return nil, err
-	}
-
-	conn := &Connector{
-		ctx:    ctx,
-		client: dataClient,
-	}
-	return conn, nil
-}
-
-func (c *Connector) Close() {
-	c.client.Close()
-}
-
 func init() {
 
 	var projectId, instanceId, databaseId string
@@ -112,12 +87,6 @@ func TestQueryContext(t *testing.T) {
 	defer db.Close()
 
 	// Set up test table.
-	conn, err := NewConnector()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
-
 	_, err = db.ExecContext(ctx,
 		`CREATE TABLE TestQueryContext (
 			A   STRING(1024),
@@ -242,8 +211,132 @@ func TestQueryContext(t *testing.T) {
 	}
 
 	// Drop table.
-	_, err = db.ExecContext(ctx, `DROP TABLE TestQueryContext`)
-	if err != nil {
+	if _, err = db.ExecContext(ctx, `DROP TABLE TestQueryContext`); err != nil {
 		t.Error(err)
 	}
+}
+
+// note: IsDdl function does not check validity of statement
+// just that the statement begins with a DDL instruction.
+// Other checking performed by database.
+func TestIsDdl(t *testing.T) {
+
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{
+			name: "valid create",
+			input: `CREATE TABLE Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "leading spaces",
+			input: `    CREATE TABLE Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "leading newlines",
+			input: `
+
+
+			CREATE TABLE Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "leading tabs",
+			input: `		CREATE TABLE Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "leading whitespace, miscelanious",
+			input: `
+							 
+			 CREATE TABLE Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "lower case",
+			input: `create table Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "mixed case, leading whitespace",
+			input: ` 
+			 cREAte taBLE Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name:  "insert (not ddl) ",
+			input: `INSERT INTO Valid`,
+			want:  false,
+		},
+		{
+			name:  "delete (not ddl) ",
+			input: `DELETE FROM Valid`,
+			want:  false,
+		},
+		{
+			name:  "upate (not ddl) ",
+			input: `UPDATE Valid`,
+			want:  false,
+		},
+		{
+			name:  "drop",
+			input: `DROP TABLE Valid`,
+			want:  true,
+		},
+		{
+			name:  "alter",
+			input: `alter TABLE Valid`,
+			want:  true,
+		},
+		{
+			name:  "typo (ccreate)",
+			input: `cCREATE TABLE Valid`,
+			want:  false,
+		},
+		{
+			name:  "typo (reate)",
+			input: `REATE TABLE Valid`,
+			want:  false,
+		},
+		{
+			name:  "typo (rx ceate)",
+			input: `x CREATE TABLE Valid`,
+			want:  false,
+		},
+		{
+			name:  "leading int",
+			input: `0CREATE TABLE Valid`,
+			want:  false,
+		},
+	}
+
+	for _, tc := range tests {
+		got, err := IsDdl(tc.input)
+		if err != nil {
+			t.Error(err)
+		}
+		if got != tc.want {
+			t.Errorf("isDdl test failed, %s: wanted %t got %t.", tc.name, tc.want, got)
+		}
+
+	}
+
 }
