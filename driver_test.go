@@ -258,7 +258,7 @@ func TestIsDdl(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "leading whitespace, miscelanious",
+			name: "leading whitespace, miscellaneous ",
 			input: `
 							 
 			 CREATE TABLE Valid (
@@ -282,17 +282,17 @@ func TestIsDdl(t *testing.T) {
 			want: true,
 		},
 		{
-			name:  "insert (not ddl) ",
+			name:  "insert (not ddl)",
 			input: `INSERT INTO Valid`,
 			want:  false,
 		},
 		{
-			name:  "delete (not ddl) ",
+			name:  "delete (not ddl)",
 			input: `DELETE FROM Valid`,
 			want:  false,
 		},
 		{
-			name:  "upate (not ddl) ",
+			name:  "update (not ddl)",
 			input: `UPDATE Valid`,
 			want:  false,
 		},

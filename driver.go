@@ -75,30 +75,24 @@ func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
 	return openDriverConn(ctx, c.driver, c.name)
 }
 
-func openDriverConn(ctx context.Context, d *Driver, name string) (drivercon driver.Conn, err error) {
+func openDriverConn(ctx context.Context, d *Driver, name string) (driver.Conn, error) {
 	if d.Config.NumChannels == 0 {
 		d.Config.NumChannels = 1 // TODO(jbd): Explain database/sql has a high-level management.
 	}
 	opts := append(d.Options, option.WithUserAgent(userAgent))
 	client, err := spanner.NewClientWithConfig(ctx, name, d.Config, opts...)
 	if err != nil {
-		drivercon = nil
-		return
+		return nil, err
 	}
 
-	adminClient, err := CreateAdminClient(ctx)
-	if err != nil {
-		drivercon = nil
-		return
+	adminClient, err := createAdminClient(ctx)
+	if err != nil{
+		return nil, err
 	}
-	drivercon = &conn{client: client, adminClient: adminClient, name: name}
-	return
+	return &conn{client: client, adminClient: adminClient, name: name}, nil
 }
 
-func CreateAdminClient(ctx context.Context) (*adminapi.DatabaseAdminClient, error) {
-
-	var adminClient *adminapi.DatabaseAdminClient
-	var err error
+func createAdminClient(ctx context.Context) (adminClient *adminapi.DatabaseAdminClient, err error) {
 
 	// Admin client will connect to emulator if SPANNER_EMULATOR_HOST
 	// is set in the environment.
@@ -109,16 +103,15 @@ func CreateAdminClient(ctx context.Context) (*adminapi.DatabaseAdminClient, erro
 			option.WithEndpoint(spannerHost),
 			option.WithGRPCDialOption(grpc.WithInsecure()))
 		if err != nil {
-			return nil, err
+			return 
 		}
 	} else {
 		adminClient, err = adminapi.NewDatabaseAdminClient(ctx)
 		if err != nil {
-			return nil, err
+			return
 		}
 	}
-
-	return adminClient, nil
+	return 
 }
 
 func (c *connector) Driver() driver.Driver {
