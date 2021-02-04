@@ -50,7 +50,7 @@ func init() {
 // Executes DML using the client library.
 func ExecuteDMLClientLib(dml []string) error {
 
-	// Open client
+	// Open client.
 	ctx := context.Background()
 	client, err := spanner.NewClient(ctx, dsn)
 	if err != nil {
@@ -258,7 +258,7 @@ func TestIsDdl(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "leading whitespace, miscellaneous ",
+			name: "leading whitespace, miscellaneous",
 			input: `
 							 
 			 CREATE TABLE Valid (
