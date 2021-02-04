@@ -21,75 +21,11 @@ import (
 	"os"
 	"reflect"
 	"testing"
-
-	// API/lib packages not imported by driver.
-	adminapi "cloud.google.com/go/spanner/admin/database/apiv1"
-	"google.golang.org/api/option"
-	adminpb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
-	"google.golang.org/grpc"
 )
 
 var (
 	dsn string
 )
-
-type Connector struct {
-	ctx         context.Context
-	client      *spanner.Client
-	adminClient *adminapi.DatabaseAdminClient
-}
-
-func NewConnector() (*Connector, error) {
-
-	ctx := context.Background()
-
-	adminClient, err := CreateAdminClient(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	dataClient, err := spanner.NewClient(ctx, dsn)
-	if err != nil {
-		return nil, err
-	}
-
-	conn := &Connector{
-		ctx:         ctx,
-		client:      dataClient,
-		adminClient: adminClient,
-	}
-	return conn, nil
-}
-
-func CreateAdminClient(ctx context.Context) (*adminapi.DatabaseAdminClient, error) {
-
-	var adminClient *adminapi.DatabaseAdminClient
-	var err error
-
-	// Configure emulator if set.
-	if spannerHost, ok := os.LookupEnv("SPANNER_EMULATOR_HOST"); ok {
-		adminClient, err = adminapi.NewDatabaseAdminClient(
-			ctx,
-			option.WithoutAuthentication(),
-			option.WithEndpoint(spannerHost),
-			option.WithGRPCDialOption(grpc.WithInsecure()))
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		adminClient, err = adminapi.NewDatabaseAdminClient(ctx)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return adminClient, nil
-}
-
-func (c *Connector) Close() {
-	c.client.Close()
-	c.adminClient.Close()
-}
 
 func init() {
 
@@ -111,26 +47,10 @@ func init() {
 	dsn = "projects/" + projectId + "/instances/" + instanceId + "/databases/" + databaseId
 }
 
-// Executes DDL statements.
-func executeDdlApi(conn *Connector, ddls []string) error {
-
-	op, err := conn.adminClient.UpdateDatabaseDdl(conn.ctx, &adminpb.UpdateDatabaseDdlRequest{
-		Database:   dsn,
-		Statements: ddls,
-	})
-	if err != nil {
-		return err
-	}
-	if err := op.Wait(conn.ctx); err != nil {
-		return err
-	}
-	return nil
-}
-
 // Executes DML using the client library.
 func ExecuteDMLClientLib(dml []string) error {
 
-	// Open client/
+	// Open client.
 	ctx := context.Background()
 	client, err := spanner.NewClient(ctx, dsn)
 	if err != nil {
@@ -158,19 +78,21 @@ func ExecuteDMLClientLib(dml []string) error {
 
 func TestQueryContext(t *testing.T) {
 
-	// Set up test table.
-	conn, err := NewConnector()
+	// Open db.
+	ctx := context.Background()
+	db, err := sql.Open("spanner", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer db.Close()
 
-	err = executeDdlApi(conn, []string{
+	// Set up test table.
+	_, err = db.ExecContext(ctx,
 		`CREATE TABLE TestQueryContext (
 			A   STRING(1024),
 			B  STRING(1024),
 			C   STRING(1024)
-		)	 PRIMARY KEY (A)`})
+		)	 PRIMARY KEY (A)`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,14 +101,6 @@ func TestQueryContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	// Open db.
-	ctx := context.Background()
-	db, err := sql.Open("spanner", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
 
 	type testQueryContextRow struct {
 		A, B, C string
@@ -297,8 +211,130 @@ func TestQueryContext(t *testing.T) {
 	}
 
 	// Drop table.
-	err = executeDdlApi(conn, []string{`DROP TABLE TestQueryContext`})
-	if err != nil {
+	if _, err = db.ExecContext(ctx, `DROP TABLE TestQueryContext`); err != nil {
 		t.Error(err)
+	}
+}
+
+// note: isDdl function does not check validity of statement
+// just that the statement begins with a DDL instruction.
+// Other checking performed by database.
+func TestIsDdl(t *testing.T) {
+
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{
+			name: "valid create",
+			input: `CREATE TABLE Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "leading spaces",
+			input: `    CREATE TABLE Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "leading newlines",
+			input: `
+
+
+			CREATE TABLE Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "leading tabs",
+			input: `		CREATE TABLE Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "leading whitespace, miscellaneous",
+			input: `
+							 
+			 CREATE TABLE Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "lower case",
+			input: `create table Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "mixed case, leading whitespace",
+			input: ` 
+			 cREAte taBLE Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name:  "insert (not ddl)",
+			input: `INSERT INTO Valid`,
+			want:  false,
+		},
+		{
+			name:  "delete (not ddl)",
+			input: `DELETE FROM Valid`,
+			want:  false,
+		},
+		{
+			name:  "update (not ddl)",
+			input: `UPDATE Valid`,
+			want:  false,
+		},
+		{
+			name:  "drop",
+			input: `DROP TABLE Valid`,
+			want:  true,
+		},
+		{
+			name:  "alter",
+			input: `alter TABLE Valid`,
+			want:  true,
+		},
+		{
+			name:  "typo (ccreate)",
+			input: `cCREATE TABLE Valid`,
+			want:  false,
+		},
+		{
+			name:  "typo (reate)",
+			input: `REATE TABLE Valid`,
+			want:  false,
+		},
+		{
+			name:  "typo (rx ceate)",
+			input: `x CREATE TABLE Valid`,
+			want:  false,
+		},
+		{
+			name:  "leading int",
+			input: `0CREATE TABLE Valid`,
+			want:  false,
+		},
+	}
+
+	for _, tc := range tests {
+		got, err := isDdl(tc.input)
+		if err != nil {
+			t.Error(err)
+		}
+		if got != tc.want {
+			t.Errorf("isDdl test failed, %s: wanted %t got %t.", tc.name, tc.want, got)
+		}
 	}
 }

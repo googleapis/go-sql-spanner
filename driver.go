@@ -19,11 +19,17 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"os"
+	"regexp"
 	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/rakyll/go-sql-driver-spanner/internal"
 	"google.golang.org/api/option"
+
+	adminapi "cloud.google.com/go/spanner/admin/database/apiv1"
+	adminpb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
+	"google.golang.org/grpc"
 )
 
 const userAgent = "go-sql-driver-spanner/0.1"
@@ -78,7 +84,34 @@ func openDriverConn(ctx context.Context, d *Driver, name string) (driver.Conn, e
 	if err != nil {
 		return nil, err
 	}
-	return &conn{client: client}, nil
+
+	adminClient, err := createAdminClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &conn{client: client, adminClient: adminClient, name: name}, nil
+}
+
+func createAdminClient(ctx context.Context) (adminClient *adminapi.DatabaseAdminClient, err error) {
+
+	// Admin client will connect to emulator if SPANNER_EMULATOR_HOST
+	// is set in the environment.
+	if spannerHost, ok := os.LookupEnv("SPANNER_EMULATOR_HOST"); ok {
+		adminClient, err = adminapi.NewDatabaseAdminClient(
+			ctx,
+			option.WithoutAuthentication(),
+			option.WithEndpoint(spannerHost),
+			option.WithGRPCDialOption(grpc.WithInsecure()))
+		if err != nil {
+			adminClient = nil
+		}
+	} else {
+		adminClient, err = adminapi.NewDatabaseAdminClient(ctx)
+		if err != nil {
+			adminClient = nil
+		}
+	}
+	return
 }
 
 func (c *connector) Driver() driver.Driver {
@@ -86,9 +119,11 @@ func (c *connector) Driver() driver.Driver {
 }
 
 type conn struct {
-	client *spanner.Client
-	roTx   *spanner.ReadOnlyTransaction
-	rwTx   *rwTx
+	client      *spanner.Client
+	adminClient *adminapi.DatabaseAdminClient
+	roTx        *spanner.ReadOnlyTransaction
+	rwTx        *rwTx
+	name        string
 }
 
 func (c *conn) Prepare(query string) (driver.Stmt, error) {
@@ -105,6 +140,27 @@ func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, e
 }
 
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+
+	// Use admin API if DDL statement is provided.
+	isDdl, err := isDdl(query)
+	if err != nil {
+		return nil, err
+	}
+
+	if isDdl {
+		op, err := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
+			Database:   c.name,
+			Statements: []string{query},
+		})
+		if err != nil {
+			return nil, err
+		}
+		if err := op.Wait(ctx); err != nil {
+			return nil, err
+		}
+		return &result{rowsAffected: 0}, nil
+	}
+
 	if c.roTx != nil {
 		return nil, errors.New("cannot write in read-only transaction")
 	}
@@ -123,6 +179,16 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 		return nil, err
 	}
 	return &result{rowsAffected: rowsAffected}, nil
+}
+
+func isDdl(query string) (bool, error) {
+
+	matchddl, err := regexp.MatchString(`(?is)^\n*\s*(CREATE|DROP|ALTER)\s+.+$`, query)
+	if err != nil {
+		return false, err
+	}
+
+	return matchddl, nil
 }
 
 func (c *conn) Close() error {
