@@ -343,7 +343,7 @@ func TestExecContextDml(t *testing.T) {
 		testBool   bool
 	}
 
-	type then struct{
+	type then struct {
 		query     string
 		wantRows  []testExecContextDmlRow
 		wantError bool
@@ -361,25 +361,26 @@ func TestExecContextDml(t *testing.T) {
 				INSERT INTO TestExecContextDml 
 				(key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (1, "one", CAST("one" as bytes), 42, 42, true ) `,
-			then:  then{ 
+			then: then{
 				query: `SELECT * FROM TestExecContextDml WHERE key = 1`,
 				wantRows: []testExecContextDmlRow{
 					{key: 1, testString: "one", testBytes: []byte("one"), testInt: 42, testFloat: 42, testBool: true},
 				},
-				wantError: false, 
+				wantError: false,
 			},
 		},
-		/*
 		{
 			name: "insert multiple tuples",
 			when: `
 				INSERT INTO TestExecContextDml 
 				(key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (2, "two", CAST("two" as bytes), 42, 42, true ), (3, "three", CAST("three" as bytes), 42, 42, true )`,
-			then.query: `SELECT * FROM TestExecContextDml ORDER BY key`,
-			then.wantRows: []testExecContextDmlRow{
-				{key: 2, testString: "two", testBytes: []byte("two"), testInt: 42, testFloat: 42, testBool: true},
-				{key: 3, testString: "three", testBytes: []byte("three"), testInt: 42, testFloat: 42, testBool: true},
+			then: then{
+				query: `SELECT * FROM TestExecContextDml ORDER BY key`,
+				wantRows: []testExecContextDmlRow{
+					{key: 2, testString: "two", testBytes: []byte("two"), testInt: 42, testFloat: 42, testBool: true},
+					{key: 3, testString: "three", testBytes: []byte("three"), testInt: 42, testFloat: 42, testBool: true},
+				},
 			},
 		},
 		{
@@ -388,172 +389,217 @@ func TestExecContextDml(t *testing.T) {
 				INSERT INSERT INTO TestExecContextDml 
 				(key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (101, "one", CAST("one" as bytes), 42, 42, true ) `,
-			then.wantError: true,
+			then: then{
+				wantError: true,
+			},
 		},
 		{
 			name: "insert lower case dml",
 			when: `
-				insert into TestExecContextDml 
-				(key, testString, testBytes, testInt, testFloat, testBool)
-				VALUES (4, "four", CAST("four" as bytes), 42, 42, true ) `,
-			then.query: `SELECT * FROM TestExecContextDml ORDER BY key`,
-			then.wantRows: []testExecContextDmlRow{
-				{key: 4, testString: "four", testBytes: []byte("four"), testInt: 42, testFloat: 42, testBool: true},
+					insert into TestExecContextDml
+					(key, testString, testBytes, testInt, testFloat, testBool)
+					VALUES (4, "four", CAST("four" as bytes), 42, 42, true ) `,
+			then: then{
+				query: `SELECT * FROM TestExecContextDml ORDER BY key`,
+				wantRows: []testExecContextDmlRow{
+					{key: 4, testString: "four", testBytes: []byte("four"), testInt: 42, testFloat: 42, testBool: true},
+				},
 			},
 		},
+
 		{
 			name: "insert lower case table name",
 			when: `
-				INSERT INTO testexeccontextdml (key, testString, testBytes, testInt, testFloat, testBool)
-				VALUES (5, "five", CAST("five" as bytes), 42, 42, true ) `,
-			then.query: `SELECT * FROM TestExecContextDml ORDER BY key`,
-			then.wantRows: []testExecContextDmlRow{
-				{key: 5, testString: "five", testBytes: []byte("five"), testInt: 42, testFloat: 42, testBool: true},
+					INSERT INTO testexeccontextdml (key, testString, testBytes, testInt, testFloat, testBool)
+					VALUES (5, "five", CAST("five" as bytes), 42, 42, true ) `,
+			then: then{
+				query: `SELECT * FROM TestExecContextDml ORDER BY key`,
+				wantRows: []testExecContextDmlRow{
+					{key: 5, testString: "five", testBytes: []byte("five"), testInt: 42, testFloat: 42, testBool: true},
+				},
 			},
 		},
+
 		{
 			name: "wrong types",
 			when: `
-				INSERT INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
-				VALUES (102, 56, 56, 42, hello, "i should be a bool" ) `,
-			then.wantError: true,
+					INSERT INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
+					VALUES (102, 56, 56, 42, hello, "i should be a bool" ) `,
+			then: then{
+				wantError: true,
+			},
 		},
+
 		{
 			name: "insert primary key duplicate",
 			when: `
-				INSERT INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
-				VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (1, "one", CAST("one" as bytes), 42, 42, true ) `,
-			then.wantError: true,
+					INSERT INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
+					VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (1, "one", CAST("one" as bytes), 42, 42, true ) `,
+			then: then{
+				wantError: true,
+			},
 		},
+
 		{
 			name: "insert null into primary key",
 			when: `
-				INSERT INSERT INTO TestExecContextDml 
-				(key, testString, testBytes, testInt, testFloat, testBool)
-				VALUES (null, "one", CAST("one" as bytes), 42, 42, true ) `,
-			then.wantError: true,
+					INSERT INSERT INTO TestExecContextDml
+					(key, testString, testBytes, testInt, testFloat, testBool)
+					VALUES (null, "one", CAST("one" as bytes), 42, 42, true ) `,
+			then: then{
+				wantError: true,
+			},
 		},
+
 		{
 			name: "insert too many values",
 			when: `
-				INSERT INSERT INTO TestExecContextDml 
-				(key, testString, testBytes, testInt, testFloat, testBool)
-				VALUES (null, "one", CAST("one" as bytes), 42, 42, true, 42 ) `,
-			then.wantError: true,
+					INSERT INSERT INTO TestExecContextDml
+					(key, testString, testBytes, testInt, testFloat, testBool)
+					VALUES (null, "one", CAST("one" as bytes), 42, 42, true, 42 ) `,
+			then: then{
+				wantError: true,
+			},
 		},
+
 		{
 			name: "insert too few values",
 			when: `
-				INSERT INSERT INTO TestExecContextDml 
-				(key, testString, testBytes, testInt, testFloat, testBool)
-				VALUES (null, "one", CAST("one" as bytes), 42 ) `,
-			then.wantError: true,
+					INSERT INSERT INTO TestExecContextDml
+					(key, testString, testBytes, testInt, testFloat, testBool)
+					VALUES (null, "one", CAST("one" as bytes), 42 ) `,
+			then: then{
+				wantError: true,
+			},
 		},
+
 		{
 			name: "delete single tuple",
 			given: `
-				INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
-				VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true )`,
-			when:       `DELETE FROM TestExecContextDml WHERE key = 1`,
-			then.query: `SELECT * FROM TestExecContextDml`,
-			then.wantRows: []testExecContextDmlRow{
-				{key: 2, testString: "two", testBytes: []byte("two"), testInt: 42, testFloat: 42, testBool: true},
+					INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
+					VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true )`,
+			when: `DELETE FROM TestExecContextDml WHERE key = 1`,
+			then: then{
+				query: `SELECT * FROM TestExecContextDml`,
+				wantRows: []testExecContextDmlRow{
+					{key: 2, testString: "two", testBytes: []byte("two"), testInt: 42, testFloat: 42, testBool: true},
+				},
 			},
 		},
+
 		{
 			name: "delete multiple tuples with subthen",
 			given: `
-				INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
-				VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true ),
-				(3, "three", CAST("three" as bytes), 42, 42, true ), (4, "four", CAST("four" as bytes), 42, 42, true )`,
+					INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
+					VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true ),
+					(3, "three", CAST("three" as bytes), 42, 42, true ), (4, "four", CAST("four" as bytes), 42, 42, true )`,
 			when: `
-				DELETE FROM TestExecContextDml WHERE key
-				IN (SELECT key FROM TestExecContextDml WHERE key != 4)`,
-			then.query: `SELECT * FROM TestExecContextDml ORDER BY key`,
-			then.wantRows: []testExecContextDmlRow{
-				{key: 4, testString: "four", testBytes: []byte("four"), testInt: 42, testFloat: 42, testBool: true},
+					DELETE FROM TestExecContextDml WHERE key
+					IN (SELECT key FROM TestExecContextDml WHERE key != 4)`,
+			then: then{
+				query: `SELECT * FROM TestExecContextDml ORDER BY key`,
+				wantRows: []testExecContextDmlRow{
+					{key: 4, testString: "four", testBytes: []byte("four"), testInt: 42, testFloat: 42, testBool: true},
+				},
 			},
 		},
+
 		{
 			name: "delete all tuples",
 			given: `
-				INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
-				VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true ),
-				(3, "three", CAST("three" as bytes), 42, 42, true ), (4, "four", CAST("four" as bytes), 42, 42, true )`,
-			when:          `DELETE FROM TestExecContextDml WHERE true`,
-			then.query:    `SELECT * FROM TestExecContextDml`,
-			then.wantRows: []testExecContextDmlRow{},
+					INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
+					VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true ),
+					(3, "three", CAST("three" as bytes), 42, 42, true ), (4, "four", CAST("four" as bytes), 42, 42, true )`,
+			when: `DELETE FROM TestExecContextDml WHERE true`,
+			then: then{
+				query:    `SELECT * FROM TestExecContextDml`,
+				wantRows: []testExecContextDmlRow{},
+			},
 		},
 		{
 			name: "update one tuple",
 			given: `
-				INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
-				VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true ),
-				(3, "three", CAST("three" as bytes), 42, 42, true )`,
-			when:       `UPDATE TestExecContextDml SET testSTring = "updated" WHERE key = 1`,
-			then.query: `SELECT * FROM TestExecContextDml ORDER BY key`,
-			then.wantRows: []testExecContextDmlRow{
-				{key: 1, testString: "updated", testBytes: []byte("one"), testInt: 42, testFloat: 42, testBool: true},
-				{key: 2, testString: "two", testBytes: []byte("two"), testInt: 42, testFloat: 42, testBool: true},
-				{key: 3, testString: "three", testBytes: []byte("three"), testInt: 42, testFloat: 42, testBool: true},
+					INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
+					VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true ),
+					(3, "three", CAST("three" as bytes), 42, 42, true )`,
+			when: `UPDATE TestExecContextDml SET testSTring = "updated" WHERE key = 1`,
+			then: then{
+				query: `SELECT * FROM TestExecContextDml ORDER BY key`,
+				wantRows: []testExecContextDmlRow{
+					{key: 1, testString: "updated", testBytes: []byte("one"), testInt: 42, testFloat: 42, testBool: true},
+					{key: 2, testString: "two", testBytes: []byte("two"), testInt: 42, testFloat: 42, testBool: true},
+					{key: 3, testString: "three", testBytes: []byte("three"), testInt: 42, testFloat: 42, testBool: true},
+				},
 			},
 		},
 		{
 			name: "update multiple tuples",
 			given: `
-				INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
-				VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true ),
-				(3, "three", CAST("three" as bytes), 42, 42, true )`,
-			when:       `UPDATE TestExecContextDml SET testSTring = "updated" WHERE key = 2 OR key = 3`,
-			then.query: `SELECT * FROM TestExecContextDml ORDER BY key`,
-			then.wantRows: []testExecContextDmlRow{
-				{key: 1, testString: "one", testBytes: []byte("one"), testInt: 42, testFloat: 42, testBool: true},
-				{key: 2, testString: "updated", testBytes: []byte("two"), testInt: 42, testFloat: 42, testBool: true},
-				{key: 3, testString: "updated", testBytes: []byte("three"), testInt: 42, testFloat: 42, testBool: true},
+					INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
+					VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true ),
+					(3, "three", CAST("three" as bytes), 42, 42, true )`,
+			when: `UPDATE TestExecContextDml SET testSTring = "updated" WHERE key = 2 OR key = 3`,
+			then: then{
+				query: `SELECT * FROM TestExecContextDml ORDER BY key`,
+				wantRows: []testExecContextDmlRow{
+					{key: 1, testString: "one", testBytes: []byte("one"), testInt: 42, testFloat: 42, testBool: true},
+					{key: 2, testString: "updated", testBytes: []byte("two"), testInt: 42, testFloat: 42, testBool: true},
+					{key: 3, testString: "updated", testBytes: []byte("three"), testInt: 42, testFloat: 42, testBool: true},
+				},
 			},
 		},
+
 		{
 			name: "update primary key",
 			given: `
-				INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
-				VALUES (1, "one", CAST("one" as bytes), 42, 42, true )`,
-			when:           `UPDATE TestExecContextDml SET key = 100 WHERE key = 1`,
-			then.wantError: true,
+					INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
+					VALUES (1, "one", CAST("one" as bytes), 42, 42, true )`,
+			when: `UPDATE TestExecContextDml SET key = 100 WHERE key = 1`,
+			then: then{
+				wantError: true,
+			},
 		},
+
 		{
 			name: "update nothing",
 			given: `
-				INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
-				VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true ),
-				(3, "three", CAST("three" as bytes), 42, 42, true )`,
-			when:       `UPDATE TestExecContextDml SET testSTring = "nothing" WHERE false`,
-			then.query: `SELECT * FROM TestExecContextDml ORDER BY key`,
-			then.wantRows: []testExecContextDmlRow{
-				{key: 1, testString: "one", testBytes: []byte("one"), testInt: 42, testFloat: 42, testBool: true},
-				{key: 2, testString: "two", testBytes: []byte("two"), testInt: 42, testFloat: 42, testBool: true},
-				{key: 3, testString: "three", testBytes: []byte("three"), testInt: 42, testFloat: 42, testBool: true},
+					INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
+					VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true ),
+					(3, "three", CAST("three" as bytes), 42, 42, true )`,
+			when: `UPDATE TestExecContextDml SET testSTring = "nothing" WHERE false`,
+			then: then{
+				query: `SELECT * FROM TestExecContextDml ORDER BY key`,
+				wantRows: []testExecContextDmlRow{
+					{key: 1, testString: "one", testBytes: []byte("one"), testInt: 42, testFloat: 42, testBool: true},
+					{key: 2, testString: "two", testBytes: []byte("two"), testInt: 42, testFloat: 42, testBool: true},
+					{key: 3, testString: "three", testBytes: []byte("three"), testInt: 42, testFloat: 42, testBool: true},
+				},
 			},
 		},
+
 		{
 			name: "update everything",
 			given: `
-				INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
-				VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true ),
-				(3, "three", CAST("three" as bytes), 42, 42, true )`,
-			when:       `UPDATE TestExecContextDml SET testSTring = "everything" WHERE true `,
-			then.query: `SELECT * FROM TestExecContextDml WHERE testString = "everything"`,
-			then.wantRows: []testExecContextDmlRow{
-				{key: 1, testString: "everything", testBytes: []byte("one"), testInt: 42, testFloat: 42, testBool: true},
-				{key: 2, testString: "everything", testBytes: []byte("two"), testInt: 42, testFloat: 42, testBool: true},
-				{key: 3, testString: "everything", testBytes: []byte("three"), testInt: 42, testFloat: 42, testBool: true},
+					INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
+					VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true ),
+					(3, "three", CAST("three" as bytes), 42, 42, true )`,
+			when: `UPDATE TestExecContextDml SET testSTring = "everything" WHERE true `,
+			then: then{
+				query: `SELECT * FROM TestExecContextDml WHERE testString = "everything"`,
+				wantRows: []testExecContextDmlRow{
+					{key: 1, testString: "everything", testBytes: []byte("one"), testInt: 42, testFloat: 42, testBool: true},
+					{key: 2, testString: "everything", testBytes: []byte("two"), testInt: 42, testFloat: 42, testBool: true},
+					{key: 3, testString: "everything", testBytes: []byte("three"), testInt: 42, testFloat: 42, testBool: true},
+				},
 			},
 		},
 		{
-			name:      "update to wrong type",
-			when:      `UPDATE TestExecContextDml SET testBool = 100 WHERE key = 1`,
-			wantError: true,
+			name: "update to wrong type",
+			when: `UPDATE TestExecContextDml SET testBool = 100 WHERE key = 1`,
+			then: then{
+				wantError: true,
+			},
 		},
-		*/
 	}
 
 	// Run tests.
@@ -562,7 +608,7 @@ func TestExecContextDml(t *testing.T) {
 		// Set up test table.
 		if tc.given != "" {
 			if _, err = db.ExecContext(ctx, tc.given); err != nil {
-				t.Error(err)
+				t.Errorf("%s: error setting up table: %v", tc.name, err)
 			}
 		}
 
