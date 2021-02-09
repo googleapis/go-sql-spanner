@@ -345,30 +345,30 @@ func TestExecContextDml(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		givenInput  string
-		whenQueried string
-		setUp       string
+		given      string
+		when  string
+		then string
 		wantRows    []testExecContextDmlRow
 		wantError   bool
 	}{
 		{
 			name: "insert single tuple",
-			givenInput: `
+			when: `
 				INSERT INTO TestExecContextDml 
 				(key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (1, "one", CAST("one" as bytes), 42, 42, true ) `,
-			whenQueried: `SELECT * FROM TestExecContextDml WHERE key = 1`,
+			then: `SELECT * FROM TestExecContextDml WHERE key = 1`,
 			wantRows: []testExecContextDmlRow{
 				{key: 1, testString: "one", testBytes: []byte("one"), testInt: 42, testFloat: 42, testBool: true},
 			},
-		},
+		},	
 		{
 			name: "insert multiple tuples",
-			givenInput: `
+			when: `
 				INSERT INTO TestExecContextDml 
 				(key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (2, "two", CAST("two" as bytes), 42, 42, true ), (3, "three", CAST("three" as bytes), 42, 42, true )`,
-			whenQueried: `SELECT * FROM TestExecContextDml ORDER BY key`,
+			then: `SELECT * FROM TestExecContextDml ORDER BY key`,
 			wantRows: []testExecContextDmlRow{
 				{key: 2, testString: "two", testBytes: []byte("two"), testInt: 42, testFloat: 42, testBool: true},
 				{key: 3, testString: "three", testBytes: []byte("three"), testInt: 42, testFloat: 42, testBool: true},
@@ -376,7 +376,7 @@ func TestExecContextDml(t *testing.T) {
 		},
 		{
 			name: "insert syntax error",
-			givenInput: `
+			when: `
 				INSERT INSERT INTO TestExecContextDml 
 				(key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (101, "one", CAST("one" as bytes), 42, 42, true ) `,
@@ -384,42 +384,42 @@ func TestExecContextDml(t *testing.T) {
 		},
 		{
 			name: "insert lower case dml",
-			givenInput: `
+			when: `
 				insert into TestExecContextDml 
 				(key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (4, "four", CAST("four" as bytes), 42, 42, true ) `,
-			whenQueried: `SELECT * FROM TestExecContextDml ORDER BY key`,
+			then: `SELECT * FROM TestExecContextDml ORDER BY key`,
 			wantRows: []testExecContextDmlRow{
 				{key: 4, testString: "four", testBytes: []byte("four"), testInt: 42, testFloat: 42, testBool: true},
 			},
 		},
 		{
 			name: "insert lower case table name",
-			givenInput: `
+			when: `
 				INSERT INTO testexeccontextdml (key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (5, "five", CAST("five" as bytes), 42, 42, true ) `,
-			whenQueried: `SELECT * FROM TestExecContextDml ORDER BY key`,
+			then: `SELECT * FROM TestExecContextDml ORDER BY key`,
 			wantRows: []testExecContextDmlRow{
 				{key: 5, testString: "five", testBytes: []byte("five"), testInt: 42, testFloat: 42, testBool: true},
 			},
 		},
 		{
 			name: "wrong types",
-			givenInput: `
+			when: `
 				INSERT INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (102, 56, 56, 42, hello, "i should be a bool" ) `,
 			wantError: true,
 		},
 		{
 			name: "insert primary key duplicate",
-			givenInput: `
+			when: `
 				INSERT INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (1, "one", CAST("one" as bytes), 42, 42, true ) `,
 			wantError: true,
 		},
 		{
 			name: "insert null into primary key",
-			givenInput: `
+			when: `
 				INSERT INSERT INTO TestExecContextDml 
 				(key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (null, "one", CAST("one" as bytes), 42, 42, true ) `,
@@ -427,7 +427,7 @@ func TestExecContextDml(t *testing.T) {
 		},
 		{
 			name: "insert too many values",
-			givenInput: `
+			when: `
 				INSERT INSERT INTO TestExecContextDml 
 				(key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (null, "one", CAST("one" as bytes), 42, 42, true, 42 ) `,
@@ -435,7 +435,7 @@ func TestExecContextDml(t *testing.T) {
 		},
 		{
 			name: "insert too few values",
-			givenInput: `
+			when: `
 				INSERT INSERT INTO TestExecContextDml 
 				(key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (null, "one", CAST("one" as bytes), 42 ) `,
@@ -443,47 +443,47 @@ func TestExecContextDml(t *testing.T) {
 		},
 		{
 			name: "delete single tuple",
-			setUp: `
+			given: `
 				INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true )`,
-			givenInput:  `DELETE FROM TestExecContextDml WHERE key = 1`,
-			whenQueried: `SELECT * FROM TestExecContextDml`,
+			when:  `DELETE FROM TestExecContextDml WHERE key = 1`,
+			then: `SELECT * FROM TestExecContextDml`,
 			wantRows: []testExecContextDmlRow{
 				{key: 2, testString: "two", testBytes: []byte("two"), testInt: 42, testFloat: 42, testBool: true},
 			},
 		},
 		{
-			name: "delete multiple tuples with subwhenQueried",
-			setUp: `
+			name: "delete multiple tuples with subthen",
+			given: `
 				INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true ),
 				(3, "three", CAST("three" as bytes), 42, 42, true ), (4, "four", CAST("four" as bytes), 42, 42, true )`,
-			givenInput: `
+			when: `
 				DELETE FROM TestExecContextDml WHERE key
 				IN (SELECT key FROM TestExecContextDml WHERE key != 4)`,
-			whenQueried: `SELECT * FROM TestExecContextDml ORDER BY key`,
+			then: `SELECT * FROM TestExecContextDml ORDER BY key`,
 			wantRows: []testExecContextDmlRow{
 				{key: 4, testString: "four", testBytes: []byte("four"), testInt: 42, testFloat: 42, testBool: true},
 			},
 		},
 		{
 			name: "delete all tuples",
-			setUp: `
+			given: `
 				INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true ),
 				(3, "three", CAST("three" as bytes), 42, 42, true ), (4, "four", CAST("four" as bytes), 42, 42, true )`,
-			givenInput:  `DELETE FROM TestExecContextDml WHERE true`,
-			whenQueried: `SELECT * FROM TestExecContextDml`,
+			when:  `DELETE FROM TestExecContextDml WHERE true`,
+			then: `SELECT * FROM TestExecContextDml`,
 			wantRows:    []testExecContextDmlRow{},
 		},
 		{
 			name: "update one tuple",
-			setUp: `
+			given: `
 				INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true ),
 				(3, "three", CAST("three" as bytes), 42, 42, true )`,
-			givenInput:  `UPDATE TestExecContextDml SET testSTring = "updated" WHERE key = 1`,
-			whenQueried: `SELECT * FROM TestExecContextDml ORDER BY key`,
+			when:  `UPDATE TestExecContextDml SET testSTring = "updated" WHERE key = 1`,
+			then: `SELECT * FROM TestExecContextDml ORDER BY key`,
 			wantRows: []testExecContextDmlRow{
 				{key: 1, testString: "updated", testBytes: []byte("one"), testInt: 42, testFloat: 42, testBool: true},
 				{key: 2, testString: "two", testBytes: []byte("two"), testInt: 42, testFloat: 42, testBool: true},
@@ -492,12 +492,12 @@ func TestExecContextDml(t *testing.T) {
 		},
 		{
 			name: "update multiple tuples",
-			setUp: `
+			given: `
 				INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true ),
 				(3, "three", CAST("three" as bytes), 42, 42, true )`,
-			givenInput:  `UPDATE TestExecContextDml SET testSTring = "updated" WHERE key = 2 OR key = 3`,
-			whenQueried: `SELECT * FROM TestExecContextDml ORDER BY key`,
+			when:  `UPDATE TestExecContextDml SET testSTring = "updated" WHERE key = 2 OR key = 3`,
+			then: `SELECT * FROM TestExecContextDml ORDER BY key`,
 			wantRows: []testExecContextDmlRow{
 				{key: 1, testString: "one", testBytes: []byte("one"), testInt: 42, testFloat: 42, testBool: true},
 				{key: 2, testString: "updated", testBytes: []byte("two"), testInt: 42, testFloat: 42, testBool: true},
@@ -506,20 +506,20 @@ func TestExecContextDml(t *testing.T) {
 		},
 		{
 			name: "update primary key",
-			setUp: `
+			given: `
 				INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (1, "one", CAST("one" as bytes), 42, 42, true )`,
-			givenInput: `UPDATE TestExecContextDml SET key = 100 WHERE key = 1`,
+			when: `UPDATE TestExecContextDml SET key = 100 WHERE key = 1`,
 			wantError:  true,
 		},
 		{
 			name: "update nothing",
-			setUp: `
+			given: `
 				INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true ),
 				(3, "three", CAST("three" as bytes), 42, 42, true )`,
-			givenInput:  `UPDATE TestExecContextDml SET testSTring = "nothing" WHERE false`,
-			whenQueried: `SELECT * FROM TestExecContextDml ORDER BY key`,
+			when:  `UPDATE TestExecContextDml SET testSTring = "nothing" WHERE false`,
+			then: `SELECT * FROM TestExecContextDml ORDER BY key`,
 			wantRows: []testExecContextDmlRow{
 				{key: 1, testString: "one", testBytes: []byte("one"), testInt: 42, testFloat: 42, testBool: true},
 				{key: 2, testString: "two", testBytes: []byte("two"), testInt: 42, testFloat: 42, testBool: true},
@@ -528,12 +528,12 @@ func TestExecContextDml(t *testing.T) {
 		},
 		{
 			name: "update everything",
-			setUp: `
+			given: `
 				INSERT INTO TestExecContextDml (key, testString, testBytes, testInt, testFloat, testBool)
 				VALUES (1, "one", CAST("one" as bytes), 42, 42, true ), (2, "two", CAST("two" as bytes), 42, 42, true ),
 				(3, "three", CAST("three" as bytes), 42, 42, true )`,
-			givenInput:  `UPDATE TestExecContextDml SET testSTring = "everything" WHERE true `,
-			whenQueried: `SELECT * FROM TestExecContextDml WHERE testString = "everything"`,
+			when:  `UPDATE TestExecContextDml SET testSTring = "everything" WHERE true `,
+			then: `SELECT * FROM TestExecContextDml WHERE testString = "everything"`,
 			wantRows: []testExecContextDmlRow{
 				{key: 1, testString: "everything", testBytes: []byte("one"), testInt: 42, testFloat: 42, testBool: true},
 				{key: 2, testString: "everything", testBytes: []byte("two"), testInt: 42, testFloat: 42, testBool: true},
@@ -542,7 +542,7 @@ func TestExecContextDml(t *testing.T) {
 		},
 		{
 			name:       "update to wrong type",
-			givenInput: `UPDATE TestExecContextDml SET testBool = 100 WHERE key = 1`,
+			when: `UPDATE TestExecContextDml SET testBool = 100 WHERE key = 1`,
 			wantError:  true,
 		},
 	}
@@ -551,14 +551,14 @@ func TestExecContextDml(t *testing.T) {
 	for _, tc := range tests {
 
 		// Set up test table.
-		if tc.setUp != "" {
-			if _, err = db.ExecContext(ctx, tc.setUp); err != nil {
+		if tc.given != "" {
+			if _, err = db.ExecContext(ctx, tc.given); err != nil {
 				t.Error(err)
 			}
 		}
 
 		// Run DML.
-		_, err = db.ExecContext(ctx, tc.givenInput)
+		_, err = db.ExecContext(ctx, tc.when)
 		if (err != nil) && (!tc.wantError) {
 			t.Errorf("%s: unexpected query error: %v", tc.name, err)
 		}
@@ -567,8 +567,8 @@ func TestExecContextDml(t *testing.T) {
 		}
 
 		// Check rows returned.
-		if tc.whenQueried != "" {
-			rows, err := db.QueryContext(ctx, tc.whenQueried)
+		if tc.then != "" {
+			rows, err := db.QueryContext(ctx, tc.then)
 			if err != nil {
 				t.Errorf("%s: error from QueryContext : %v", tc.name, err)
 			}
