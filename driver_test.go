@@ -366,7 +366,6 @@ func TestExecContextDml(t *testing.T) {
 				wantRows: []testExecContextDmlRow{
 					{key: 1, testString: "one", testBytes: []byte("one"), testInt: 42, testFloat: 42, testBool: true},
 				},
-				wantError: false,
 			},
 		},
 		{
