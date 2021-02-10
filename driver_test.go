@@ -661,3 +661,366 @@ func TestExecContextDml(t *testing.T) {
 	}
 
 }
+
+func TestExecContextDdl(t *testing.T) {
+
+	// Open db.
+	ctx := context.Background()
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// Run tests.
+	tests := []struct {
+		name          string
+		given         string
+		withInsert    string
+		when          string
+		thenWantError bool
+		drop          string
+	}{
+		{
+			name: "create table ok",
+			when: `CREATE TABLE TestTable (
+				A   STRING(1024),
+				B  STRING(1024),
+			)	 PRIMARY KEY (A)`,
+			drop: `DROP TABLE TestTable`,
+		},
+		{
+			given: `CREATE TABLE TestTable (
+				A   STRING(1024),
+				B  STRING(1024),
+			)	 PRIMARY KEY (A)`,
+			name: "create table name duplicate",
+			when: `CREATE TABLE TestTable (
+				A   STRING(1024),
+				B  STRING(1024),
+			)	 PRIMARY KEY (A)`,
+			thenWantError: true,
+			drop:          `DROP TABLE TestTable`,
+		},
+		{
+			name: "create table syntax error",
+			when: `CREATE CREATE TABLE SyntaxError (
+				A   STRING(1024),
+				B  STRING(1024),
+				C   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			thenWantError: true,
+		},
+		{
+			name: "create table no primary key",
+			when: `CREATE TABLE NoPrimaryKey (
+				A   STRING(1024),
+				B  STRING(1024),
+			)`,
+			thenWantError: true,
+		},
+		{
+			name: "create table float primary key",
+			drop: "DROP TABLE FloatPrimaryKey",
+			when: `CREATE TABLE FloatPrimaryKey (
+				A   FLOAT64,
+				B  STRING(1024),
+			)	PRIMARY KEY (A)`,
+		},
+		{
+			name: "create table bool primary key",
+			drop: "DROP TABLE BoolPrimaryKey",
+			when: `CREATE TABLE BoolPrimaryKey (
+				A   BOOL,
+				B  STRING(1024),
+			)	PRIMARY KEY (A)`,
+		},
+		{
+			name: "create table lowercase ddl",
+			drop: "DROP TABLE LowerDdl",
+			when: `create table LowerDdl (
+				A   INT64,
+				B  STRING(1024),
+			)	PRIMARY KEY (A)`,
+		},
+		{
+			name: "create table integer name",
+			when: `CREATE TABLE 42 (
+				A   INT64,
+				B  STRING(1024),
+			)	PRIMARY KEY (A)`,
+			thenWantError: true,
+		},
+		{
+			name: "drop table ok",
+			given: `CREATE TABLE TestTable (
+				A   STRING(1024),
+				B  STRING(1024),
+			)	 PRIMARY KEY (A)`,
+			when: "DROP TABLE TestTable",
+		},
+		{
+			name:          "drop non existent table",
+			when:          "DROP TABLE NonExistent",
+			thenWantError: true,
+		},
+		{
+			name: "alter table, add column ok",
+			given: `CREATE TABLE TestTable (
+				A   STRING(1024),
+				B  STRING(1024),
+			)	 PRIMARY KEY (A)`,
+			when: "ALTER TABLE TestTable ADD COLUMN C STRING(1024)",
+			drop: "DROP TABLE TestTable ",
+		},
+		{
+			name: "alter table, add column name duplicate",
+			given: `CREATE TABLE TestTable (
+				A   STRING(1024),
+				B  STRING(1024),
+			)	 PRIMARY KEY (A)`,
+			when:          "ALTER TABLE TestTable ADD COLUMN B STRING(1024)",
+			thenWantError: true,
+			drop:          "DROP TABLE TestTable ",
+		},
+		{
+			name: "alter table, drop column ok",
+			given: `CREATE TABLE TestTable (
+				A   STRING(1024),
+				B  STRING(1024),
+			)	 PRIMARY KEY (A)`,
+			when: "ALTER TABLE TestTable DROP COLUMN B",
+			drop: "DROP TABLE TestTable ",
+		},
+		{
+			name: "alter table, drop primary key",
+			given: `CREATE TABLE TestTable (
+				A   STRING(1024),
+				B  STRING(1024),
+			)	 PRIMARY KEY (A)`,
+			when:          "ALTER TABLE TestTable DROP COLUMN A",
+			thenWantError: true,
+			drop:          "DROP TABLE TestTable ",
+		},
+		{
+			name: "alter table, reduce string length safe",
+			given: `CREATE TABLE TestTable (
+				A   STRING(1024),
+				B  STRING(1024),
+			)	 PRIMARY KEY (A)`,
+			when: "ALTER TABLE TestTable ALTER COLUMN A STRING(10) ",
+			drop: "DROP TABLE TestTable ",
+		},
+		{
+			name: "alter table, reduce string length not safe",
+			given: `CREATE TABLE TestTable (
+				A   STRING(1024),
+				B  STRING(1024),
+			)	 PRIMARY KEY (A)`,
+			withInsert:    `INSERT INTO TestTable (A,B) VALUES ("aaaaaaaaaaaaaaa", "hi")`,
+			when:          "ALTER TABLE TestTable ALTER COLUMN A STRING(3) ",
+			thenWantError: true,
+			drop:          "DROP TABLE TestTable ",
+		},
+		{
+			name: "alter table, change string to bytes",
+			given: `CREATE TABLE TestTable (
+				A   STRING(1024),
+				B  STRING(1024),
+			)	 PRIMARY KEY (A)`,
+			withInsert: `INSERT INTO TestTable (A,B) VALUES ("aaaaaaaaaaaaaaa", "hi")`,
+			when:       "ALTER TABLE TestTable ALTER COLUMN A BYTES(1024) ",
+			drop:       "DROP TABLE TestTable ",
+		},
+	}
+
+	// Run tests.
+	for _, tc := range tests {
+
+		// Set up, if required
+		if tc.given != "" {
+			_, err = db.ExecContext(ctx, tc.given)
+			if err != nil {
+				t.Errorf("%s: error setting up: %v", tc.name, err)
+			}
+		}
+		if tc.withInsert != "" {
+			_, err = db.ExecContext(ctx, tc.withInsert)
+			if err != nil {
+				t.Errorf("%s: error setting up (insert): %v", tc.name, err)
+			}
+		}
+
+		// Run test.
+		_, err = db.ExecContext(ctx, tc.when)
+		if (err != nil) && (!tc.thenWantError) {
+			t.Errorf("%s: unexpected query error: %v", tc.name, err)
+		}
+		if (err == nil) && (tc.thenWantError) {
+			t.Errorf("%s: expected query error but error was %v", tc.name, err)
+		}
+
+		// Drop table, if created.
+		if tc.drop != "" {
+			_, err = db.ExecContext(ctx, tc.drop)
+			if err != nil {
+				t.Errorf("%s: error dropping table: %v", tc.name, err)
+			}
+		}
+
+	}
+}
+
+func TestExecContextReferentialIntegrity(t *testing.T) {
+
+	// Open db.
+	ctx := context.Background()
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+
+	tests := []struct {
+		name             string
+		givenParent      string
+		givenChild       string
+		withInsertParent string
+		withInsertChild  string
+		when             string
+		thenWantError    bool
+		dropParent       string
+		dropChild        string
+	}{
+		// DDL
+		{
+			name: "drop table referential integrity violation no cascade & foreign key",
+			givenParent: `
+			CREATE TABLE ParentNoCascade (
+				id   INT64,
+			)	PRIMARY KEY (id)`,
+			givenChild: `CREATE TABLE ChildNoCascade (
+				id   INT64,
+				parent_id	INT64,
+				CONSTRAINT fk_nc FOREIGN KEY (parent_id) REFERENCES ParentNoCascade (id)
+			)	PRIMARY KEY (id)`,
+			withInsertParent: `INSERT INTO  ParentNoCascade (id) VALUES (1), (2)`,
+			withInsertChild:  `INSERT INTO  ChildNoCascade (id, parent_id) VALUES (2, 1), (4, 2)`,
+			when:             `DROP TABLE ParentNoCascade`,
+			thenWantError:    true,
+			dropParent:       `DROP TABLE ParentNoCascade`,
+			dropChild:        `DROP TABLE ChildNoCascade`,
+		},
+		{
+			name: "drop table referential integrity violation cascade & interleave",
+			givenParent: `
+			CREATE TABLE ParentCascade (
+				parent_id   INT64,
+			)	PRIMARY KEY (parent_id)`,
+			givenChild: 
+			`CREATE TABLE ChildCascade (
+				parent_id	INT64,
+				id   INT64,
+			)	PRIMARY KEY (parent_id, id),
+			INTERLEAVE IN PARENT ParentCascade ON DELETE CASCADE`,
+			withInsertParent: `INSERT INTO  ParentCascade (parent_id) VALUES (1), (2)`,
+			withInsertChild:  `INSERT INTO  ChildCascade (id, parent_id) VALUES (2, 1), (4, 2)`,
+			when:             `DROP TABLE ParentCascade`,
+			thenWantError: true,
+			dropParent:       `DROP TABLE ParentCascade`,
+			dropChild:        `DROP TABLE ChildCascade`,
+		},
+		// DML
+		{
+			name: "deelte row integrity violation no cascade & foreign key",
+			givenParent: `
+			CREATE TABLE ParentNoCascade (
+				id   INT64,
+			)	PRIMARY KEY (id)`,
+			givenChild: `CREATE TABLE ChildNoCascade (
+				id   INT64,
+				parent_id	INT64,
+				CONSTRAINT fk_nc FOREIGN KEY (parent_id) REFERENCES ParentNoCascade (id)
+			)	PRIMARY KEY (id)`,
+			withInsertParent: `INSERT INTO  ParentNoCascade (id) VALUES (1), (2)`,
+			withInsertChild:  `INSERT INTO  ChildNoCascade (id, parent_id) VALUES (2, 1), (4, 2)`,
+			when:             `DELETE FROM ParentNoCascade WHERE id = 1`,
+			thenWantError:    true,
+			dropParent:       `DROP TABLE ParentNoCascade`,
+			dropChild:        `DROP TABLE ChildNoCascade`,
+		},
+		{
+			name: "deelte row integrity violation cascade & interleave",
+			givenParent: `
+			CREATE TABLE ParentCascade (
+				parent_id   INT64,
+			)	PRIMARY KEY (parent_id)`,
+			givenChild: 
+			`CREATE TABLE ChildCascade (
+				parent_id	INT64,
+				id   INT64,
+			)	PRIMARY KEY (parent_id, id),
+			INTERLEAVE IN PARENT ParentCascade ON DELETE CASCADE`,
+			withInsertParent: `INSERT INTO  ParentCascade (parent_id) VALUES (1), (2)`,
+			withInsertChild:  `INSERT INTO  ChildCascade (id, parent_id) VALUES (2, 1), (4, 2)`,
+			when:             `DELETE FROM ParentCascade WHERE parent_id = 1`,
+			dropParent:       `DROP TABLE ParentCascade`,
+			dropChild:        `DROP TABLE ChildCascade`,
+		},
+	}
+
+	for _, tc := range tests {
+
+		// Set up tables.
+		if tc.givenParent != "" {
+			_, err = db.ExecContext(ctx, tc.givenParent)
+			if err != nil {
+				t.Errorf("%s: error setting up child: %v", tc.name, err)
+			}
+		}
+		if tc.givenChild != "" {
+			_, err = db.ExecContext(ctx, tc.givenChild)
+			if err != nil {
+				t.Errorf("%s: error setting up child: %v", tc.name, err)
+			}
+		}
+		if tc.withInsertParent != "" {
+			_, err = db.ExecContext(ctx, tc.withInsertParent)
+			if err != nil {
+				t.Errorf("%s: error setting up parent: %v", tc.name, err)
+			}
+		}
+		if tc.withInsertChild != "" {
+			_, err = db.ExecContext(ctx, tc.withInsertChild)
+			if err != nil {
+				t.Errorf("%s: error setting up child: %v", tc.name, err)
+			}
+		}
+
+		// Run test.
+		_, err = db.ExecContext(ctx, tc.when)
+		if (err != nil) && (!tc.thenWantError) {
+			t.Errorf("%s: unexpected query error: %v", tc.name, err)
+		}
+		if (err == nil) && (tc.thenWantError) {
+			t.Errorf("%s: expected query error but error was %v", tc.name, err)
+		}
+
+		// Clean up.
+		if tc.dropChild != "" {
+			_, err = db.ExecContext(ctx, tc.dropChild)
+			if err != nil {
+				t.Errorf("%s: error dropping up child: %v", tc.name, err)
+			}
+		}
+		if tc.dropParent != "" {
+			_, err = db.ExecContext(ctx, tc.dropParent)
+			if err != nil {
+				t.Errorf("%s: error droppinh up parent: %v", tc.name, err)
+			}
+		}
+
+	}
+
+}
