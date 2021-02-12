@@ -143,8 +143,11 @@ func TestRowsAtomicTypes(t *testing.T) {
 	for _, tc := range tests {
 
 		rows, err := db.QueryContext(ctx, tc.input)
-		if err != nil {
-			t.Errorf("%s: error from QueryContext : %v", tc.name, err)
+		if (err != nil) && (!tc.wantError.query) {
+			t.Errorf("%s: unexpected query error: %v", tc.name, err)
+		}
+		if (err == nil) && (tc.wantError.query) {
+			t.Errorf("%s: expected query error but error was %v", tc.name, err)
 		}
 
 		got := []testAtomicTypesRow{}
@@ -153,10 +156,10 @@ func TestRowsAtomicTypes(t *testing.T) {
 			err := rows.Scan(
 				&curr.key, &curr.testString, &curr.testBytes, &curr.testInt, &curr.testFloat, &curr.testBool)
 			if (err != nil) && (!tc.wantError.scan) {
-				t.Errorf("%s: unexpected query error: %v", tc.name, err)
+				t.Errorf("%s: unexpected scan error: %v", tc.name, err)
 			}
 			if (err == nil) && (tc.wantError.scan) {
-				t.Errorf("%s: expected query error but error was %v", tc.name, err)
+				t.Errorf("%s: expected scan error but error was %v", tc.name, err)
 			}
 
 			got = append(got, curr)
@@ -165,10 +168,10 @@ func TestRowsAtomicTypes(t *testing.T) {
 		rows.Close()
 		err = rows.Err()
 		if (err != nil) && (!tc.wantError.close) {
-			t.Errorf("%s: unexpected query error: %v", tc.name, err)
+			t.Errorf("%s: unexpected rows.Err error: %v", tc.name, err)
 		}
 		if (err == nil) && (tc.wantError.close) {
-			t.Errorf("%s: expected query error but error was %v", tc.name, err)
+			t.Errorf("%s: expected rows.Err error but error was %v", tc.name, err)
 		}
 
 		if !reflect.DeepEqual(tc.want, got) {
@@ -291,10 +294,10 @@ func TestRowsOverflowRead(t *testing.T) {
 			err := rows.Scan(
 				&curr.key, &curr.testString, &curr.testBytes, &curr.testInt, &curr.testFloat, &curr.testBool)
 			if (err != nil) && (!tc.wantError.scan) {
-				t.Errorf("%s: unexpected query error: %v", tc.name, err)
+				t.Errorf("%s: unexpected scan error: %v", tc.name, err)
 			}
 			if (err == nil) && (tc.wantError.scan) {
-				t.Errorf("%s: expected query error but error was %v", tc.name, err)
+				t.Errorf("%s: expected scan error but error was %v", tc.name, err)
 			}
 
 			got = append(got, curr)
