@@ -129,14 +129,6 @@ func TestRowsAtomicTypes(t *testing.T) {
 				{key: "ninf", testString: "hello", testBytes: []byte("hello"), testInt: 42, testFloat: math.Inf(-1), testBool: true},
 			},
 		},
-		/*{
-			name:  "special float nan",
-			input: `SELECT * FROM TestAtomicTypes WHERE key = "nan"`,
-			want: []testAtomicTypesRow{
-				{key: "nan", testString: "hello", testBytes: []byte("hello"), testInt: 42, testFloat: math.NaN(), testBool: true},
-			},
-		},*/
-
 	}
 
 	// Run tests.
