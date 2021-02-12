@@ -265,8 +265,8 @@ func TestRowsOverflowRead(t *testing.T) {
 			},
 		},
 		{
-			name:  "read max uint8 into int8",
-			input: `SELECT * FROM TestOverflowRead WHERE key = "max uint8"`,
+			name:      "read max uint8 into int8",
+			input:     `SELECT * FROM TestOverflowRead WHERE key = "max uint8"`,
 			wantError: wantError{scan: true},
 			want: []testAtomicTypesRowSmallInt{
 				{key: "max uint8", testString: "hello", testBytes: []byte("hello"), testInt: 0, testFloat: 0, testBool: false},
