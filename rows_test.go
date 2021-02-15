@@ -317,3 +317,270 @@ func TestRowsOverflowRead(t *testing.T) {
 	}
 
 }
+
+func TestRowsAtomicTypePermute(t *testing.T) {
+
+	// Open db.
+	ctx := context.Background()
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	type then struct {
+		wantStr      string
+		wantErrorStr bool
+		wantByt      []byte
+		wantErrorByt bool
+		wantInt      int
+		wantErrorInt bool
+		wantFlo      float64
+		wantErrorFlo bool
+		wantBoo      bool
+		wantErrorBoo bool
+	}
+
+	tests := []struct {
+		name     string
+		typeName string
+		given    []string
+		when     string
+		then     then
+		tearDown string
+	}{
+		{
+			name:     "read spanner bytes (\"hello\") into go types",
+			typeName: "bytes",
+			given: []string{
+				`CREATE TABLE TestBadTypeInt (val BYTES(1024)) PRIMARY KEY (val)`,
+				`INSERT INTO TestBadTypeInt (val) VALUES (CAST("hello" as bytes)) `,
+			},
+			when: `SELECT * FROM TestBadTypeInt`,
+			then: then{
+				wantStr:      "hello",
+				wantByt:      []byte("hello"),
+				wantErrorInt: true,
+				wantErrorFlo: true,
+				wantErrorBoo: true,
+			},
+			tearDown: `DROP TABLE TestBadTypeInt`,
+		},
+
+		{
+			name:     "read spanner bytes (\"1\") into go types",
+			typeName: "bytes",
+			given: []string{
+				`CREATE TABLE TestBadTypeInt (val BYTES(1024)) PRIMARY KEY (val)`,
+				`INSERT INTO TestBadTypeInt (val) VALUES (CAST("1" as bytes)) `,
+			},
+			when: `SELECT * FROM TestBadTypeInt`,
+			then: then{
+				wantStr: "1",
+				wantByt: []byte("1"),
+				wantInt: 1,
+				wantFlo: 1,
+				wantBoo: true,
+			},
+			tearDown: `DROP TABLE TestBadTypeInt`,
+		},
+		{
+			name:     "read spanner string (\"hello\") into go types",
+			typeName: "string",
+			given: []string{
+				`CREATE TABLE TestBadTypeInt (val STRING(1024)) PRIMARY KEY (val)`,
+				`INSERT INTO TestBadTypeInt (val) VALUES ("hello")`,
+			},
+			when: `SELECT * FROM TestBadTypeInt`,
+			then: then{
+				wantStr:      "hello",
+				wantByt:      []byte("hello"),
+				wantErrorInt: true,
+				wantErrorFlo: true,
+				wantErrorBoo: true,
+			},
+			tearDown: `DROP TABLE TestBadTypeInt`,
+		},
+		{
+			name:     "read spanner int (1) into go types",
+			typeName: "int",
+			given: []string{
+				`CREATE TABLE TestBadTypeInt (val INT64) PRIMARY KEY (val)`,
+				`INSERT INTO TestBadTypeInt (val) VALUES (1)`,
+			},
+			when: `SELECT * FROM TestBadTypeInt`,
+			then: then{
+				wantStr: "1",
+				wantByt: []byte("1"),
+				wantInt: 1,
+				wantFlo: 1,
+				wantBoo: true,
+			},
+			tearDown: `DROP TABLE TestBadTypeInt`,
+		},
+
+		{
+			name:     "read spanner int (42) into go types",
+			typeName: "int",
+			given: []string{
+				`CREATE TABLE TestBadTypeInt (val INT64) PRIMARY KEY (val)`,
+				`INSERT INTO TestBadTypeInt (val) VALUES (42)`,
+			},
+			when: `SELECT * FROM TestBadTypeInt`,
+			then: then{
+				wantStr:      "42",
+				wantByt:      []byte("42"),
+				wantInt:      42,
+				wantFlo:      42,
+				wantErrorBoo: true,
+			},
+			tearDown: `DROP TABLE TestBadTypeInt`,
+		},
+		{
+			name:     "read spanner float (42) into go types",
+			typeName: "float",
+			given: []string{
+				`CREATE TABLE TestBadTypeInt (val FLOAT64) PRIMARY KEY (val)`,
+				`INSERT INTO TestBadTypeInt (val) VALUES (42)`,
+			},
+			when: `SELECT * FROM TestBadTypeInt`,
+			then: then{
+				wantStr:      "42",
+				wantByt:      []byte("42"),
+				wantInt:      42,
+				wantFlo:      42,
+				wantErrorBoo: true,
+			},
+			tearDown: `DROP TABLE TestBadTypeInt`,
+		},
+		{
+			name:     "read spanner float (42.5) into go types",
+			typeName: "float",
+			given: []string{
+				`CREATE TABLE TestBadTypeInt (val FLOAT64) PRIMARY KEY (val)`,
+				`INSERT INTO TestBadTypeInt (val) VALUES (42.5)`,
+			},
+			when: `SELECT * FROM TestBadTypeInt`,
+			then: then{
+				wantStr:      "42.5",
+				wantByt:      []byte("42.5"),
+				wantErrorInt: true,
+				wantFlo:      42.5,
+				wantErrorBoo: true,
+			},
+			tearDown: `DROP TABLE TestBadTypeInt`,
+		},
+		{
+			name:     "read spanner bool into go types",
+			typeName: "bool",
+			given: []string{
+				`CREATE TABLE TestBadTypeInt (val BOOL) PRIMARY KEY (val)`,
+				`INSERT INTO TestBadTypeInt (val) VALUES (TRUE)`,
+			},
+			when: `SELECT * FROM TestBadTypeInt`,
+			then: then{
+				wantStr:      "true",
+				wantByt:      []byte("true"),
+				wantErrorInt: true,
+				wantErrorFlo: true,
+				wantBoo:      true,
+			},
+			tearDown: `DROP TABLE TestBadTypeInt`,
+		},
+	}
+
+	// Run tests.
+	for _, tc := range tests {
+
+		// Set up table.
+		for _, statement := range tc.given {
+			_, err = db.ExecContext(ctx, statement)
+			if err != nil {
+				t.Fatalf("%s: error in setting up table: %v", tc.name, err)
+			}
+		}
+
+		// Attempt read.
+		rows, err := db.QueryContext(ctx, tc.when)
+		if err != nil {
+			t.Errorf("%s: unexpected query error: %v", tc.name, err)
+		}
+		for rows.Next() {
+
+			// String.
+			var strScan string
+			err := rows.Scan(&strScan)
+			if (err != nil) && (!tc.then.wantErrorStr) {
+				t.Errorf("%s: unexpected string scan error: %v", tc.name, err)
+			}
+			if (err == nil) && (tc.then.wantErrorStr) {
+				t.Errorf("%s: expected string scan error, but error was %v", tc.name, err)
+			}
+			if strScan != tc.then.wantStr {
+				t.Errorf("Unexpected %s to string conversion, want %s got %s\n", tc.typeName, tc.then.wantStr, strScan)
+			}
+
+			// Bytes.
+			var bytScan []byte
+			err = rows.Scan(&bytScan)
+			if (err != nil) && !tc.then.wantErrorByt {
+				t.Errorf("%s: unexpected bytes scan error: %v", tc.name, err)
+			}
+			if (err == nil) && (tc.then.wantErrorByt) {
+				t.Errorf("%s: expected bytes scan error, but error was %v", tc.name, err)
+			}
+			if !reflect.DeepEqual(bytScan, tc.then.wantByt) {
+				t.Errorf("Unexpected %s to bytes conversion, want %s got %s\n", tc.typeName, tc.then.wantByt, bytScan)
+			}
+
+			// Int
+			var intScan int
+			err = rows.Scan(&intScan)
+			if (err != nil) && !tc.then.wantErrorInt {
+				t.Errorf("%s: unexpected int scan error: %v", tc.name, err)
+			}
+			if (err == nil) && (tc.then.wantErrorInt) {
+				t.Errorf("%s: expected int scan error, but error was %v", tc.name, err)
+			}
+			if intScan != tc.then.wantInt {
+				t.Errorf("Unexpected %s to int conversion, want %d got %d\n", tc.typeName, tc.then.wantInt, intScan)
+			}
+
+			// Float
+			var floScan float64
+			err = rows.Scan(&floScan)
+			if (err != nil) && !tc.then.wantErrorFlo {
+				t.Errorf("%s: unexpected float scan error: %v", tc.name, err)
+			}
+			if (err == nil) && (tc.then.wantErrorFlo) {
+				t.Errorf("%s: expected float scan error, but error was %v", tc.name, err)
+			}
+			if floScan != tc.then.wantFlo {
+				t.Errorf("Unexpected %s to float conversion, want %f got %f\n", tc.typeName, tc.then.wantFlo, floScan)
+			}
+
+			// Bool
+			var booScan bool
+			err = rows.Scan(&booScan)
+			if (err != nil) && !tc.then.wantErrorBoo {
+				t.Errorf("%s: unexpected bool scan error: %v", tc.name, err)
+			}
+			if (err == nil) && (tc.then.wantErrorBoo) {
+				t.Errorf("%s: expected bool scan error, but error was %v", tc.name, err)
+			}
+			if booScan != tc.then.wantBoo {
+				t.Errorf("Unexpected int to bool conversion, want %t got %t\n", tc.then.wantBoo, booScan)
+			}
+		}
+
+		// tear down.
+		if tc.tearDown != "" {
+			_, err = db.ExecContext(ctx, tc.tearDown)
+			if err != nil {
+				t.Fatalf("%s: error in tearing down table: %v", tc.name, err)
+			}
+		}
+
+	}
+
+}
