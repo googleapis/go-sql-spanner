@@ -331,14 +331,14 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 	type then struct {
 		wantString      string
 		wantErrorString bool
-		wantBytes      []byte
-		wantErrorBytes bool
-		wantInt      int
-		wantErrorInt bool
-		wantFloat      float64
-		wantErrorFloat bool
-		wantBool      bool
-		wantErrorBool bool
+		wantBytes       []byte
+		wantErrorBytes  bool
+		wantInt         int
+		wantErrorInt    bool
+		wantFloat       float64
+		wantErrorFloat  bool
+		wantBool        bool
+		wantErrorBool   bool
 	}
 
 	tests := []struct {
@@ -358,11 +358,11 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 			},
 			when: `SELECT * FROM TestDiffTypeBytes`,
 			then: then{
-				wantString:      "hello",
+				wantString:     "hello",
 				wantBytes:      []byte("hello"),
-				wantErrorInt: true,
+				wantErrorInt:   true,
 				wantErrorFloat: true,
-				wantErrorBool: true,
+				wantErrorBool:  true,
 			},
 			tearDown: `DROP TABLE TestDiffTypeBytes`,
 		},
@@ -377,10 +377,10 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 			when: `SELECT * FROM TestDiffTypeBytes `,
 			then: then{
 				wantString: "1",
-				wantBytes: []byte("1"),
-				wantInt: 1,
-				wantFloat: 1,
-				wantBool: true,
+				wantBytes:  []byte("1"),
+				wantInt:    1,
+				wantFloat:  1,
+				wantBool:   true,
 			},
 			tearDown: `DROP TABLE TestDiffTypeBytes`,
 		},
@@ -393,11 +393,11 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 			},
 			when: `SELECT * FROM TestDiffTypeString `,
 			then: then{
-				wantString:      "hello",
+				wantString:     "hello",
 				wantBytes:      []byte("hello"),
-				wantErrorInt: true,
+				wantErrorInt:   true,
 				wantErrorFloat: true,
-				wantErrorBool: true,
+				wantErrorBool:  true,
 			},
 			tearDown: `DROP TABLE TestDiffTypeString`,
 		},
@@ -411,10 +411,10 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 			when: `SELECT * FROM TestDiffTypeInt`,
 			then: then{
 				wantString: "1",
-				wantBytes: []byte("1"),
-				wantInt: 1,
-				wantFloat: 1,
-				wantBool: true,
+				wantBytes:  []byte("1"),
+				wantInt:    1,
+				wantFloat:  1,
+				wantBool:   true,
 			},
 			tearDown: `DROP TABLE TestDiffTypeInt`,
 		},
@@ -428,10 +428,10 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 			},
 			when: `SELECT * FROM TestDiffTypeInt`,
 			then: then{
-				wantString:      "42",
-				wantBytes:      []byte("42"),
-				wantInt:      42,
-				wantFloat:      42,
+				wantString:    "42",
+				wantBytes:     []byte("42"),
+				wantInt:       42,
+				wantFloat:     42,
 				wantErrorBool: true,
 			},
 			tearDown: `DROP TABLE TestDiffTypeInt`,
@@ -445,10 +445,10 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 			},
 			when: `SELECT * FROM TestDiffTypeFloat`,
 			then: then{
-				wantString:      "42",
-				wantBytes:      []byte("42"),
-				wantInt:      42,
-				wantFloat:      42,
+				wantString:    "42",
+				wantBytes:     []byte("42"),
+				wantInt:       42,
+				wantFloat:     42,
 				wantErrorBool: true,
 			},
 			tearDown: `DROP TABLE TestDiffTypeFloat`,
@@ -462,10 +462,10 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 			},
 			when: `SELECT * FROM TestDiffTypeFloat`,
 			then: then{
-				wantString:      "42.5",
-				wantBytes:      []byte("42.5"),
-				wantErrorInt: true,
-				wantFloat:      42.5,
+				wantString:    "42.5",
+				wantBytes:     []byte("42.5"),
+				wantErrorInt:  true,
+				wantFloat:     42.5,
 				wantErrorBool: true,
 			},
 			tearDown: `DROP TABLE TestDiffTypeFloat`,
@@ -479,11 +479,11 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 			},
 			when: `SELECT * FROM TestDiffTypeBool `,
 			then: then{
-				wantString:      "true",
+				wantString:     "true",
 				wantBytes:      []byte("true"),
-				wantErrorInt: true,
+				wantErrorInt:   true,
 				wantErrorFloat: true,
-				wantBool:      true,
+				wantBool:       true,
 			},
 			tearDown: `DROP TABLE TestDiffTypeBool`,
 		},
