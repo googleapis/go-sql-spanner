@@ -329,16 +329,16 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 	defer db.Close()
 
 	type then struct {
-		wantStr      string
-		wantErrorStr bool
-		wantByt      []byte
-		wantErrorByt bool
+		wantString      string
+		wantErrorString bool
+		wantBytes      []byte
+		wantErrorBytes bool
 		wantInt      int
 		wantErrorInt bool
-		wantFlo      float64
-		wantErrorFlo bool
-		wantBoo      bool
-		wantErrorBoo bool
+		wantFloat      float64
+		wantErrorFloat bool
+		wantBool      bool
+		wantErrorBool bool
 	}
 
 	tests := []struct {
@@ -353,139 +353,139 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 			name:     "read spanner bytes (\"hello\") into go types",
 			typeName: "bytes",
 			given: []string{
-				`CREATE TABLE TestBadTypeInt (val BYTES(1024)) PRIMARY KEY (val)`,
-				`INSERT INTO TestBadTypeInt (val) VALUES (CAST("hello" as bytes)) `,
+				`CREATE TABLE TestDiffTypeBytes (val BYTES(1024)) PRIMARY KEY (val)`,
+				`INSERT INTO TestDiffTypeBytes (val) VALUES (CAST("hello" as bytes)) `,
 			},
-			when: `SELECT * FROM TestBadTypeInt`,
+			when: `SELECT * FROM TestDiffTypeBytes`,
 			then: then{
-				wantStr:      "hello",
-				wantByt:      []byte("hello"),
+				wantString:      "hello",
+				wantBytes:      []byte("hello"),
 				wantErrorInt: true,
-				wantErrorFlo: true,
-				wantErrorBoo: true,
+				wantErrorFloat: true,
+				wantErrorBool: true,
 			},
-			tearDown: `DROP TABLE TestBadTypeInt`,
+			tearDown: `DROP TABLE TestDiffTypeBytes`,
 		},
 
 		{
 			name:     "read spanner bytes (\"1\") into go types",
 			typeName: "bytes",
 			given: []string{
-				`CREATE TABLE TestBadTypeInt (val BYTES(1024)) PRIMARY KEY (val)`,
-				`INSERT INTO TestBadTypeInt (val) VALUES (CAST("1" as bytes)) `,
+				`CREATE TABLE  TestDiffTypeBytes(val BYTES(1024)) PRIMARY KEY (val)`,
+				`INSERT INTO TestDiffTypeBytes  (val) VALUES (CAST("1" as bytes)) `,
 			},
-			when: `SELECT * FROM TestBadTypeInt`,
+			when: `SELECT * FROM TestDiffTypeBytes `,
 			then: then{
-				wantStr: "1",
-				wantByt: []byte("1"),
+				wantString: "1",
+				wantBytes: []byte("1"),
 				wantInt: 1,
-				wantFlo: 1,
-				wantBoo: true,
+				wantFloat: 1,
+				wantBool: true,
 			},
-			tearDown: `DROP TABLE TestBadTypeInt`,
+			tearDown: `DROP TABLE TestDiffTypeBytes`,
 		},
 		{
 			name:     "read spanner string (\"hello\") into go types",
 			typeName: "string",
 			given: []string{
-				`CREATE TABLE TestBadTypeInt (val STRING(1024)) PRIMARY KEY (val)`,
-				`INSERT INTO TestBadTypeInt (val) VALUES ("hello")`,
+				`CREATE TABLE TestDiffTypeString (val STRING(1024)) PRIMARY KEY (val)`,
+				`INSERT INTO  TestDiffTypeString (val) VALUES ("hello")`,
 			},
-			when: `SELECT * FROM TestBadTypeInt`,
+			when: `SELECT * FROM TestDiffTypeString `,
 			then: then{
-				wantStr:      "hello",
-				wantByt:      []byte("hello"),
+				wantString:      "hello",
+				wantBytes:      []byte("hello"),
 				wantErrorInt: true,
-				wantErrorFlo: true,
-				wantErrorBoo: true,
+				wantErrorFloat: true,
+				wantErrorBool: true,
 			},
-			tearDown: `DROP TABLE TestBadTypeInt`,
+			tearDown: `DROP TABLE TestDiffTypeString`,
 		},
 		{
 			name:     "read spanner int (1) into go types",
 			typeName: "int",
 			given: []string{
-				`CREATE TABLE TestBadTypeInt (val INT64) PRIMARY KEY (val)`,
-				`INSERT INTO TestBadTypeInt (val) VALUES (1)`,
+				`CREATE TABLE TestDiffTypeInt (val INT64) PRIMARY KEY (val)`,
+				`INSERT INTO TestDiffTypeInt (val) VALUES (1)`,
 			},
-			when: `SELECT * FROM TestBadTypeInt`,
+			when: `SELECT * FROM TestDiffTypeInt`,
 			then: then{
-				wantStr: "1",
-				wantByt: []byte("1"),
+				wantString: "1",
+				wantBytes: []byte("1"),
 				wantInt: 1,
-				wantFlo: 1,
-				wantBoo: true,
+				wantFloat: 1,
+				wantBool: true,
 			},
-			tearDown: `DROP TABLE TestBadTypeInt`,
+			tearDown: `DROP TABLE TestDiffTypeInt`,
 		},
 
 		{
 			name:     "read spanner int (42) into go types",
 			typeName: "int",
 			given: []string{
-				`CREATE TABLE TestBadTypeInt (val INT64) PRIMARY KEY (val)`,
-				`INSERT INTO TestBadTypeInt (val) VALUES (42)`,
+				`CREATE TABLE  TestDiffTypeInt (val INT64) PRIMARY KEY (val)`,
+				`INSERT INTO TestDiffTypeInt (val) VALUES (42)`,
 			},
-			when: `SELECT * FROM TestBadTypeInt`,
+			when: `SELECT * FROM TestDiffTypeInt`,
 			then: then{
-				wantStr:      "42",
-				wantByt:      []byte("42"),
+				wantString:      "42",
+				wantBytes:      []byte("42"),
 				wantInt:      42,
-				wantFlo:      42,
-				wantErrorBoo: true,
+				wantFloat:      42,
+				wantErrorBool: true,
 			},
-			tearDown: `DROP TABLE TestBadTypeInt`,
+			tearDown: `DROP TABLE TestDiffTypeInt`,
 		},
 		{
 			name:     "read spanner float (42) into go types",
 			typeName: "float",
 			given: []string{
-				`CREATE TABLE TestBadTypeInt (val FLOAT64) PRIMARY KEY (val)`,
-				`INSERT INTO TestBadTypeInt (val) VALUES (42)`,
+				`CREATE TABLE  TestDiffTypeFloat (val FLOAT64) PRIMARY KEY (val)`,
+				`INSERT INTO TestDiffTypeFloat (val) VALUES (42)`,
 			},
-			when: `SELECT * FROM TestBadTypeInt`,
+			when: `SELECT * FROM TestDiffTypeFloat`,
 			then: then{
-				wantStr:      "42",
-				wantByt:      []byte("42"),
+				wantString:      "42",
+				wantBytes:      []byte("42"),
 				wantInt:      42,
-				wantFlo:      42,
-				wantErrorBoo: true,
+				wantFloat:      42,
+				wantErrorBool: true,
 			},
-			tearDown: `DROP TABLE TestBadTypeInt`,
+			tearDown: `DROP TABLE TestDiffTypeFloat`,
 		},
 		{
 			name:     "read spanner float (42.5) into go types",
 			typeName: "float",
 			given: []string{
-				`CREATE TABLE TestBadTypeInt (val FLOAT64) PRIMARY KEY (val)`,
-				`INSERT INTO TestBadTypeInt (val) VALUES (42.5)`,
+				`CREATE TABLE TestDiffTypeFloat (val FLOAT64) PRIMARY KEY (val)`,
+				`INSERT INTO TestDiffTypeFloat (val) VALUES (42.5)`,
 			},
-			when: `SELECT * FROM TestBadTypeInt`,
+			when: `SELECT * FROM TestDiffTypeFloat`,
 			then: then{
-				wantStr:      "42.5",
-				wantByt:      []byte("42.5"),
+				wantString:      "42.5",
+				wantBytes:      []byte("42.5"),
 				wantErrorInt: true,
-				wantFlo:      42.5,
-				wantErrorBoo: true,
+				wantFloat:      42.5,
+				wantErrorBool: true,
 			},
-			tearDown: `DROP TABLE TestBadTypeInt`,
+			tearDown: `DROP TABLE TestDiffTypeFloat`,
 		},
 		{
 			name:     "read spanner bool into go types",
 			typeName: "bool",
 			given: []string{
-				`CREATE TABLE TestBadTypeInt (val BOOL) PRIMARY KEY (val)`,
-				`INSERT INTO TestBadTypeInt (val) VALUES (TRUE)`,
+				`CREATE TABLE TestDiffTypeBool (val BOOL) PRIMARY KEY (val)`,
+				`INSERT INTO  TestDiffTypeBool (val) VALUES (TRUE)`,
 			},
-			when: `SELECT * FROM TestBadTypeInt`,
+			when: `SELECT * FROM TestDiffTypeBool `,
 			then: then{
-				wantStr:      "true",
-				wantByt:      []byte("true"),
+				wantString:      "true",
+				wantBytes:      []byte("true"),
 				wantErrorInt: true,
-				wantErrorFlo: true,
-				wantBoo:      true,
+				wantErrorFloat: true,
+				wantBool:      true,
 			},
-			tearDown: `DROP TABLE TestBadTypeInt`,
+			tearDown: `DROP TABLE TestDiffTypeBool`,
 		},
 	}
 
@@ -510,27 +510,27 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 			// String.
 			var strScan string
 			err := rows.Scan(&strScan)
-			if (err != nil) && (!tc.then.wantErrorStr) {
+			if (err != nil) && (!tc.then.wantErrorString) {
 				t.Errorf("%s: unexpected string scan error: %v", tc.name, err)
 			}
-			if (err == nil) && (tc.then.wantErrorStr) {
+			if (err == nil) && (tc.then.wantErrorString) {
 				t.Errorf("%s: expected string scan error, but error was %v", tc.name, err)
 			}
-			if strScan != tc.then.wantStr {
-				t.Errorf("Unexpected %s to string conversion, want %s got %s\n", tc.typeName, tc.then.wantStr, strScan)
+			if strScan != tc.then.wantString {
+				t.Errorf("Unexpected %s to string conversion, want %s got %s\n", tc.typeName, tc.then.wantString, strScan)
 			}
 
 			// Bytes.
 			var bytScan []byte
 			err = rows.Scan(&bytScan)
-			if (err != nil) && !tc.then.wantErrorByt {
+			if (err != nil) && !tc.then.wantErrorBytes {
 				t.Errorf("%s: unexpected bytes scan error: %v", tc.name, err)
 			}
-			if (err == nil) && (tc.then.wantErrorByt) {
+			if (err == nil) && (tc.then.wantErrorBytes) {
 				t.Errorf("%s: expected bytes scan error, but error was %v", tc.name, err)
 			}
-			if !reflect.DeepEqual(bytScan, tc.then.wantByt) {
-				t.Errorf("Unexpected %s to bytes conversion, want %s got %s\n", tc.typeName, tc.then.wantByt, bytScan)
+			if !reflect.DeepEqual(bytScan, tc.then.wantBytes) {
+				t.Errorf("Unexpected %s to bytes conversion, want %s got %s\n", tc.typeName, tc.then.wantBytes, bytScan)
 			}
 
 			// Int
@@ -549,27 +549,27 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 			// Float
 			var floScan float64
 			err = rows.Scan(&floScan)
-			if (err != nil) && !tc.then.wantErrorFlo {
+			if (err != nil) && !tc.then.wantErrorFloat {
 				t.Errorf("%s: unexpected float scan error: %v", tc.name, err)
 			}
-			if (err == nil) && (tc.then.wantErrorFlo) {
+			if (err == nil) && (tc.then.wantErrorFloat) {
 				t.Errorf("%s: expected float scan error, but error was %v", tc.name, err)
 			}
-			if floScan != tc.then.wantFlo {
-				t.Errorf("Unexpected %s to float conversion, want %f got %f\n", tc.typeName, tc.then.wantFlo, floScan)
+			if floScan != tc.then.wantFloat {
+				t.Errorf("Unexpected %s to float conversion, want %f got %f\n", tc.typeName, tc.then.wantFloat, floScan)
 			}
 
 			// Bool
 			var booScan bool
 			err = rows.Scan(&booScan)
-			if (err != nil) && !tc.then.wantErrorBoo {
+			if (err != nil) && !tc.then.wantErrorBool {
 				t.Errorf("%s: unexpected bool scan error: %v", tc.name, err)
 			}
-			if (err == nil) && (tc.then.wantErrorBoo) {
+			if (err == nil) && (tc.then.wantErrorBool) {
 				t.Errorf("%s: expected bool scan error, but error was %v", tc.name, err)
 			}
-			if booScan != tc.then.wantBoo {
-				t.Errorf("Unexpected int to bool conversion, want %t got %t\n", tc.then.wantBoo, booScan)
+			if booScan != tc.then.wantBool {
+				t.Errorf("Unexpected int to bool conversion, want %t got %t\n", tc.then.wantBool, booScan)
 			}
 		}
 
