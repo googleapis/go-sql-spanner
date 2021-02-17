@@ -180,144 +180,6 @@ func TestRowsAtomicTypes(t *testing.T) {
 
 }
 
-func TestRowsOverflowRead(t *testing.T) {
-
-	// Open db.
-	ctx := context.Background()
-	db, err := sql.Open("spanner", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	// Set up test table.
-	_, err = db.ExecContext(ctx,
-		`CREATE TABLE TestOverflowRead (
-			key	STRING(1024),
-			testString	STRING(1024),
-			testBytes	BYTES(1024),
-			testInt	INT64,
-			testFloat	FLOAT64,
-			testBool	BOOL
-		) PRIMARY KEY (key)`)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = db.ExecContext(ctx,
-		`INSERT INTO TestOverflowRead  (key, testString, testBytes, testInt, testFloat, testBool) VALUES
-		("general", "hello", CAST ("hello" as bytes), 42, 42, TRUE), 
-		("maxint", "hello", CAST ("hello" as bytes), 9223372036854775807 , 42, TRUE),
-		("minint", "hello", CAST ("hello" as bytes), -9223372036854775808 , 42, TRUE),
-		("max int8", "hello", CAST ("hello" as bytes), 127 , 42, TRUE),
-		("max uint8", "hello", CAST ("hello" as bytes), 255 , 42, TRUE)
-		`)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	type testAtomicTypesRowSmallInt struct {
-		key        string
-		testString string
-		testBytes  []byte
-		testInt    int8
-		testFloat  float64
-		testBool   bool
-	}
-
-	type wantError struct {
-		scan  bool
-		close bool
-		query bool
-	}
-
-	tests := []struct {
-		name      string
-		input     string
-		want      []testAtomicTypesRowSmallInt
-		wantError wantError
-	}{
-		{
-			name:  "read int64 into int8 ok",
-			input: `SELECT * FROM TestOverflowRead WHERE key = "general"`,
-			want: []testAtomicTypesRowSmallInt{
-				{key: "general", testString: "hello", testBytes: []byte("hello"), testInt: 42, testFloat: 42, testBool: true},
-			},
-		},
-		{
-			name:      "read int64 into int8 overflow",
-			input:     `SELECT * FROM TestOverflowRead WHERE key = "maxint"`,
-			wantError: wantError{scan: true},
-			want: []testAtomicTypesRowSmallInt{
-				{key: "maxint", testString: "hello", testBytes: []byte("hello"), testInt: 0, testFloat: 0, testBool: false},
-			},
-		},
-		{
-			name:  "read max int8 ",
-			input: `SELECT * FROM TestOverflowRead WHERE key = "max int8"`,
-			want: []testAtomicTypesRowSmallInt{
-				{key: "max int8", testString: "hello", testBytes: []byte("hello"), testInt: 127, testFloat: 42, testBool: true},
-			},
-		},
-		{
-			name:      "read max uint8 into int8",
-			input:     `SELECT * FROM TestOverflowRead WHERE key = "max uint8"`,
-			wantError: wantError{scan: true},
-			want: []testAtomicTypesRowSmallInt{
-				{key: "max uint8", testString: "hello", testBytes: []byte("hello"), testInt: 0, testFloat: 0, testBool: false},
-			},
-		},
-	}
-
-	// Run tests.
-	for _, tc := range tests {
-
-		rows, err := db.QueryContext(ctx, tc.input)
-		if (err != nil) && (!tc.wantError.query) {
-			t.Errorf("%s: unexpected query error: %v", tc.name, err)
-		}
-		if (err == nil) && (tc.wantError.query) {
-			t.Errorf("%s: expected query error but error was %v", tc.name, err)
-		}
-
-		got := []testAtomicTypesRowSmallInt{}
-		for rows.Next() {
-			var curr testAtomicTypesRowSmallInt
-			err := rows.Scan(
-				&curr.key, &curr.testString, &curr.testBytes, &curr.testInt, &curr.testFloat, &curr.testBool)
-			if (err != nil) && (!tc.wantError.scan) {
-				t.Errorf("%s: unexpected scan error: %v", tc.name, err)
-			}
-			if (err == nil) && (tc.wantError.scan) {
-				t.Errorf("%s: expected scan error but error was %v", tc.name, err)
-			}
-
-			got = append(got, curr)
-		}
-
-		rows.Close()
-		err = rows.Err()
-		if (err != nil) && (!tc.wantError.close) {
-			t.Errorf("%s: unexpected rows.Err error: %v", tc.name, err)
-		}
-		if (err == nil) && (tc.wantError.close) {
-			t.Errorf("%s: expected rows.Err error but error was %v", tc.name, err)
-		}
-
-		if !reflect.DeepEqual(tc.want, got) {
-			t.Errorf("%s: unexpected rows. want: %v, got: %v", tc.name, tc.want, got)
-		}
-
-	}
-
-	// Drop table.
-	_, err = db.ExecContext(ctx, `DROP TABLE TestOverflowRead`)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-}
-
 func TestRowsAtomicTypePermute(t *testing.T) {
 
 	// Open db.
@@ -339,6 +201,8 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 		wantErrorFloat  bool
 		wantBool        bool
 		wantErrorBool   bool
+		wantInt8        int8
+		wantErrorInt8   bool
 	}
 
 	tests := []struct {
@@ -363,6 +227,7 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 				wantErrorInt:   true,
 				wantErrorFloat: true,
 				wantErrorBool:  true,
+				wantErrorInt8:  true,
 			},
 			tearDown: `DROP TABLE TestDiffTypeBytes`,
 		},
@@ -381,6 +246,7 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 				wantInt:    1,
 				wantFloat:  1,
 				wantBool:   true,
+				wantInt8:   1,
 			},
 			tearDown: `DROP TABLE TestDiffTypeBytes`,
 		},
@@ -398,6 +264,7 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 				wantErrorInt:   true,
 				wantErrorFloat: true,
 				wantErrorBool:  true,
+				wantErrorInt8:  true,
 			},
 			tearDown: `DROP TABLE TestDiffTypeString`,
 		},
@@ -415,6 +282,7 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 				wantInt:    1,
 				wantFloat:  1,
 				wantBool:   true,
+				wantInt8:   1,
 			},
 			tearDown: `DROP TABLE TestDiffTypeInt`,
 		},
@@ -433,6 +301,7 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 				wantInt:       42,
 				wantFloat:     42,
 				wantErrorBool: true,
+				wantInt8:      42,
 			},
 			tearDown: `DROP TABLE TestDiffTypeInt`,
 		},
@@ -450,6 +319,7 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 				wantInt:       42,
 				wantFloat:     42,
 				wantErrorBool: true,
+				wantInt8:      42,
 			},
 			tearDown: `DROP TABLE TestDiffTypeFloat`,
 		},
@@ -467,6 +337,7 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 				wantErrorInt:  true,
 				wantFloat:     42.5,
 				wantErrorBool: true,
+				wantErrorInt8: true,
 			},
 			tearDown: `DROP TABLE TestDiffTypeFloat`,
 		},
@@ -484,8 +355,81 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 				wantErrorInt:   true,
 				wantErrorFloat: true,
 				wantBool:       true,
+				wantErrorInt8:  true,
 			},
 			tearDown: `DROP TABLE TestDiffTypeBool`,
+		},
+		{
+			name:     "read spanner max int64 into go types",
+			typeName: "int",
+			given: []string{
+				`CREATE TABLE  TestDiffTypeInt (val INT64) PRIMARY KEY (val)`,
+				`INSERT INTO TestDiffTypeInt (val) VALUES (9223372036854775807)`,
+			},
+			when: `SELECT * FROM TestDiffTypeInt`,
+			then: then{
+				wantString:    "9223372036854775807",
+				wantBytes:     []byte("9223372036854775807"),
+				wantInt:       9223372036854775807,
+				wantFloat:     9223372036854775807,
+				wantErrorBool: true,
+				wantErrorInt8: true,
+			},
+			tearDown: `DROP TABLE TestDiffTypeInt`,
+		},
+		{
+			name:     "read spanner min int64 into go types",
+			typeName: "int",
+			given: []string{
+				`CREATE TABLE  TestDiffTypeInt (val INT64) PRIMARY KEY (val)`,
+				`INSERT INTO TestDiffTypeInt (val) VALUES (-9223372036854775808)`,
+			},
+			when: `SELECT * FROM TestDiffTypeInt`,
+			then: then{
+				wantString:    "-9223372036854775808",
+				wantBytes:     []byte("-9223372036854775808"),
+				wantInt:       -9223372036854775808,
+				wantFloat:     -9223372036854775808,
+				wantErrorBool: true,
+				wantErrorInt8: true,
+			},
+			tearDown: `DROP TABLE TestDiffTypeInt`,
+		},
+		{
+			name:     "read spanner max int8 into go types",
+			typeName: "int",
+			given: []string{
+				`CREATE TABLE  TestDiffTypeInt (val INT64) PRIMARY KEY (val)`,
+				`INSERT INTO TestDiffTypeInt (val) VALUES (127)`,
+			},
+			when: `SELECT * FROM TestDiffTypeInt`,
+			then: then{
+				wantString:    "127",
+				wantBytes:     []byte("127"),
+				wantInt:       127,
+				wantFloat:     127,
+				wantErrorBool: true,
+				wantInt8:      127,
+			},
+			tearDown: `DROP TABLE TestDiffTypeInt`,
+		},
+		{
+			name:     "read spanner max uint8 into go types",
+			typeName: "int",
+			given: []string{
+				`CREATE TABLE  TestDiffTypeInt (val INT64) PRIMARY KEY (val)`,
+				`INSERT INTO TestDiffTypeInt (val) VALUES (255)`,
+			},
+			when: `SELECT * FROM TestDiffTypeInt`,
+			then: then{
+				wantString:    "255",
+				wantBytes:     []byte("255"),
+				wantInt:       255,
+				wantFloat:     255,
+				wantErrorBool: true,
+				wantErrorInt8: true,
+			},
+			tearDown: `DROP TABLE TestDiffTypeInt`,
 		},
 	}
 
@@ -559,7 +503,7 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 				t.Errorf("Unexpected %s to float conversion, want %f got %f\n", tc.typeName, tc.then.wantFloat, floScan)
 			}
 
-			// Bool
+			// Bool.
 			var booScan bool
 			err = rows.Scan(&booScan)
 			if (err != nil) && !tc.then.wantErrorBool {
@@ -570,6 +514,19 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 			}
 			if booScan != tc.then.wantBool {
 				t.Errorf("Unexpected int to bool conversion, want %t got %t\n", tc.then.wantBool, booScan)
+			}
+
+			// Int8.
+			var int8Scan int8
+			err = rows.Scan(&int8Scan)
+			if (err != nil) && !tc.then.wantErrorInt8 {
+				t.Errorf("%s: unexpected int8 scan error: %v", tc.name, err)
+			}
+			if (err == nil) && (tc.then.wantErrorInt8) {
+				t.Errorf("%s: expected int8 scan error, but error was %v", tc.name, err)
+			}
+			if int8Scan != tc.then.wantInt8 {
+				t.Errorf("Unexpected int to int8 conversion, want %d got %d\n", tc.then.wantInt8, int8Scan)
 			}
 		}
 
