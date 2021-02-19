@@ -690,11 +690,11 @@ func TestExecContextDdl(t *testing.T) {
 			drop: `DROP TABLE TestTable`,
 		},
 		{
+			name: "create table name duplicate",
 			given: `CREATE TABLE TestTable (
 				A   STRING(1024),
 				B  STRING(1024),
 			)	 PRIMARY KEY (A)`,
-			name: "create table name duplicate",
 			when: `CREATE TABLE TestTable (
 				A   STRING(1024),
 				B  STRING(1024),
@@ -721,27 +721,29 @@ func TestExecContextDdl(t *testing.T) {
 		},
 		{
 			name: "create table float primary key",
-			drop: "DROP TABLE FloatPrimaryKey",
 			when: `CREATE TABLE FloatPrimaryKey (
 				A   FLOAT64,
 				B  STRING(1024),
 			)	PRIMARY KEY (A)`,
+			drop: "DROP TABLE FloatPrimaryKey",
+
 		},
 		{
 			name: "create table bool primary key",
-			drop: "DROP TABLE BoolPrimaryKey",
 			when: `CREATE TABLE BoolPrimaryKey (
 				A   BOOL,
 				B  STRING(1024),
 			)	PRIMARY KEY (A)`,
+			drop: "DROP TABLE BoolPrimaryKey",
 		},
 		{
 			name: "create table lowercase ddl",
-			drop: "DROP TABLE LowerDdl",
 			when: `create table LowerDdl (
 				A   INT64,
 				B  STRING(1024),
 			)	PRIMARY KEY (A)`,
+			drop: "DROP TABLE LowerDdl",
+
 		},
 		{
 			name: "create table integer name",
@@ -893,7 +895,7 @@ func TestExecContextReferentialIntegrity(t *testing.T) {
 		dropParent       string
 		dropChild        string
 	}{
-		// DDL
+		// DDL.
 		{
 			name: "drop table referential integrity violation no cascade & foreign key",
 			givenParent: `
@@ -931,9 +933,9 @@ func TestExecContextReferentialIntegrity(t *testing.T) {
 			dropParent:       `DROP TABLE ParentCascade`,
 			dropChild:        `DROP TABLE ChildCascade`,
 		},
-		// DML
+		// DML.
 		{
-			name: "deelte row integrity violation no cascade & foreign key",
+			name: "delete row integrity violation no cascade & foreign key",
 			givenParent: `
 			CREATE TABLE ParentNoCascade (
 				id   INT64,
@@ -951,7 +953,7 @@ func TestExecContextReferentialIntegrity(t *testing.T) {
 			dropChild:        `DROP TABLE ChildNoCascade`,
 		},
 		{
-			name: "deelte row integrity violation cascade & interleave",
+			name: "delete row integrity violation cascade & interleave",
 			givenParent: `
 			CREATE TABLE ParentCascade (
 				parent_id   INT64,
