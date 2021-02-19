@@ -726,7 +726,6 @@ func TestExecContextDdl(t *testing.T) {
 				B  STRING(1024),
 			)	PRIMARY KEY (A)`,
 			drop: "DROP TABLE FloatPrimaryKey",
-
 		},
 		{
 			name: "create table bool primary key",
@@ -743,7 +742,6 @@ func TestExecContextDdl(t *testing.T) {
 				B  STRING(1024),
 			)	PRIMARY KEY (A)`,
 			drop: "DROP TABLE LowerDdl",
-
 		},
 		{
 			name: "create table integer name",
@@ -883,7 +881,6 @@ func TestExecContextReferentialIntegrity(t *testing.T) {
 	}
 	defer db.Close()
 
-
 	tests := []struct {
 		name             string
 		givenParent      string
@@ -920,8 +917,7 @@ func TestExecContextReferentialIntegrity(t *testing.T) {
 			CREATE TABLE ParentCascade (
 				parent_id   INT64,
 			)	PRIMARY KEY (parent_id)`,
-			givenChild: 
-			`CREATE TABLE ChildCascade (
+			givenChild: `CREATE TABLE ChildCascade (
 				parent_id	INT64,
 				id   INT64,
 			)	PRIMARY KEY (parent_id, id),
@@ -929,7 +925,7 @@ func TestExecContextReferentialIntegrity(t *testing.T) {
 			withInsertParent: `INSERT INTO  ParentCascade (parent_id) VALUES (1), (2)`,
 			withInsertChild:  `INSERT INTO  ChildCascade (id, parent_id) VALUES (2, 1), (4, 2)`,
 			when:             `DROP TABLE ParentCascade`,
-			thenWantError: true,
+			thenWantError:    true,
 			dropParent:       `DROP TABLE ParentCascade`,
 			dropChild:        `DROP TABLE ChildCascade`,
 		},
@@ -958,8 +954,7 @@ func TestExecContextReferentialIntegrity(t *testing.T) {
 			CREATE TABLE ParentCascade (
 				parent_id   INT64,
 			)	PRIMARY KEY (parent_id)`,
-			givenChild: 
-			`CREATE TABLE ChildCascade (
+			givenChild: `CREATE TABLE ChildCascade (
 				parent_id	INT64,
 				id   INT64,
 			)	PRIMARY KEY (parent_id, id),
