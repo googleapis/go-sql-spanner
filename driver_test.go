@@ -837,7 +837,7 @@ func TestExecContextDdl(t *testing.T) {
 	// Run tests.
 	for _, tc := range tests {
 
-		// Set up, if required
+		// Set up, if required.
 		if tc.given != "" {
 			_, err = db.ExecContext(ctx, tc.given)
 			if err != nil {
