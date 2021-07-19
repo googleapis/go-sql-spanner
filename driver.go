@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"log"
 	"os"
 	"regexp"
 	"time"
@@ -33,22 +34,38 @@ import (
 )
 
 const userAgent = "go-sql-driver-spanner/0.1"
+const dsnRegExpString = "((?P<HOSTGROUP>[\\w.-]+(?:\\.[\\w\\.-]+)*[\\w\\-\\._~:/?#\\[\\]@!\\$&'\\(\\)\\*\\+,;=.]+)/)?projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID)))(/instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+)(/databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?)?(?:[?|;](?P<PARAMSGROUP>.*))?"
+const paramsRegExpString = "(?is)(?P<PROPERTY>[^=]+?)=(?:.*?)"
+const propertyRegExpString = "(?is)(?:;|\\?)%s=([^=]+?)(?:;|$)"
+
+var dsnRegExp *regexp.Regexp
+var paramsRegExp *regexp.Regexp
+var propertyRegExp *regexp.Regexp
 
 var _ driver.DriverContext = &Driver{}
 
 func init() {
+	var err error
+	dsnRegExp, err = regexp.Compile(dsnRegExpString)
+	if err != nil {
+		log.Fatalf("could not compile Spanner dsn regexp: %v", err)
+		return
+	}
+	paramsRegExp, err = regexp.Compile(paramsRegExpString)
+	if err != nil {
+		log.Fatalf("could not compile Spanner params regexp: %v", err)
+		return
+	}
+	propertyRegExp, err = regexp.Compile(propertyRegExpString)
+	if err != nil {
+		log.Fatalf("could not compile Spanner property regexp: %v", err)
+		return
+	}
 	sql.Register("spanner", &Driver{})
 }
 
 // Driver represents a Google Cloud Spanner database/sql driver.
 type Driver struct {
-	// Config represents the optional advanced configuration to be used
-	// by the Google Cloud Spanner client.
-	Config spanner.ClientConfig
-
-	// Options represent the optional Google Cloud client options
-	// to be passed to the underlying client.
-	Options []option.ClientOption
 }
 
 // Open opens a connection to a Google Cloud Spanner database.
@@ -56,31 +73,95 @@ type Driver struct {
 //
 // Example: projects/$PROJECT/instances/$INSTANCE/databases/$DATABASE
 func (d *Driver) Open(name string) (driver.Conn, error) {
-	return openDriverConn(context.Background(), d, name)
+	c, err := newConnector(d, name)
+	if err != nil {
+		return nil, err
+	}
+	return openDriverConn(context.Background(), c)
 }
 
 func (d *Driver) OpenConnector(name string) (driver.Connector, error) {
-	return &connector{
-		driver: d,
-		name:   name,
+	return newConnector(d, name)
+}
+
+type connectorConfig struct {
+	host string
+	project string
+	instance string
+	database string
+	params map[string]string
+}
+
+func extractConnectorConfig(dsn string) (connectorConfig, error) {
+	match := dsnRegExp.FindStringSubmatch(dsn)
+	matches := make(map[string]string)
+	for i, name := range dsnRegExp.SubexpNames() {
+		if i != 0 && name != "" {
+			matches[name] = match[i]
+		}
+	}
+	paramsString := matches["PARAMSGROUP"]
+	params, err := extractConnectorParams(paramsString)
+	if err != nil {
+		return connectorConfig{}, err
+	}
+
+	return connectorConfig{
+		host: matches["HOSTGROUP"],
+		project: matches["PROJECTGROUP"],
+		instance: matches["INSTANCEGROUP"],
+		database: matches["DATABASEGROUP"],
+		params: params,
 	}, nil
+}
+
+func extractConnectorParams(params string) (map[string]string, error) {
+	match := paramsRegExp.FindStringSubmatch(params)
+	matches := make([]string, 0)
+	if match != nil {
+		for i, name := range paramsRegExp.SubexpNames() {
+			if i != 0 && name != "" {
+				matches = append(matches, match[i])
+			}
+		}
+	}
+	return make(map[string]string), nil
 }
 
 type connector struct {
 	driver *Driver
-	name   string
+	connectorConfig connectorConfig
+
+	// config represents the optional advanced configuration to be used
+	// by the Google Cloud Spanner client.
+	config spanner.ClientConfig
+
+	// options represent the optional Google Cloud client options
+	// to be passed to the underlying client.
+	options []option.ClientOption
+}
+
+func newConnector(d *Driver, dsn string) (*connector, error) {
+	config, err := extractConnectorConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	return &connector{
+		driver: d,
+		connectorConfig: config,
+	}, nil
 }
 
 func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
-	return openDriverConn(ctx, c.driver, c.name)
+	return openDriverConn(ctx, c)
 }
 
-func openDriverConn(ctx context.Context, d *Driver, name string) (driver.Conn, error) {
-	if d.Config.NumChannels == 0 {
-		d.Config.NumChannels = 1 // TODO(jbd): Explain database/sql has a high-level management.
+func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
+	if c.config.NumChannels == 0 {
+		c.config.NumChannels = 1 // TODO(jbd): Explain database/sql has a high-level management.
 	}
-	opts := append(d.Options, option.WithUserAgent(userAgent))
-	client, err := spanner.NewClientWithConfig(ctx, name, d.Config, opts...)
+	opts := append(c.options, option.WithUserAgent(userAgent))
+	client, err := spanner.NewClientWithConfig(ctx, c.connectorConfig.database, c.config, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +170,7 @@ func openDriverConn(ctx context.Context, d *Driver, name string) (driver.Conn, e
 	if err != nil {
 		return nil, err
 	}
-	return &conn{client: client, adminClient: adminClient, name: name}, nil
+	return &conn{client: client, adminClient: adminClient, database: c.connectorConfig.database}, nil
 }
 
 func createAdminClient(ctx context.Context) (adminClient *adminapi.DatabaseAdminClient, err error) {
@@ -123,7 +204,7 @@ type conn struct {
 	adminClient *adminapi.DatabaseAdminClient
 	roTx        *spanner.ReadOnlyTransaction
 	rwTx        *rwTx
-	name        string
+	database    string
 }
 
 func (c *conn) Prepare(query string) (driver.Stmt, error) {
@@ -149,7 +230,7 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 
 	if isDdl {
 		op, err := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
-			Database:   c.name,
+			Database:   c.database,
 			Statements: []string{query},
 		})
 		if err != nil {
