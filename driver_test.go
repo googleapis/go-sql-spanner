@@ -60,6 +60,7 @@ func TestExtractDnsParts(t *testing.T) {
 				project: "p",
 				instance: "i",
 				database: "d",
+				params: map[string]string{},
 			},
 		},
 		{
@@ -68,6 +69,7 @@ func TestExtractDnsParts(t *testing.T) {
 				project: "DEFAULT_PROJECT_ID",
 				instance: "test-instance",
 				database: "test-database",
+				params: map[string]string{},
 			},
 		},
 		{
@@ -77,6 +79,7 @@ func TestExtractDnsParts(t *testing.T) {
 				project: "p",
 				instance: "i",
 				database: "d",
+				params: map[string]string{},
 			},
 		},
 		{
@@ -86,6 +89,7 @@ func TestExtractDnsParts(t *testing.T) {
 				project: "p",
 				instance: "i",
 				database: "d",
+				params: map[string]string{},
 			},
 		},
 		{

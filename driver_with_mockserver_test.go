@@ -1,82 +1,62 @@
 package spannerdriver
 
 import (
+	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/testutil"
 	"context"
 	"database/sql"
 	"fmt"
-
-	"cloud.google.com/go/spanner"
-	"cloud.google.com/go/spanner/testutil"
-	"google.golang.org/api/iterator"
+	"github.com/google/go-cmp/cmp"
 	"google.golang.org/api/option"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"testing"
 )
+
+func setupTestDbConnection(t *testing.T) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+	server, _, serverTeardown := setupMockedTestServer(t)
+	db, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address))
+	if err != nil {
+		serverTeardown()
+		t.Fatal(err)
+	}
+	return db, server, func() {
+		db.Close()
+		serverTeardown()
+	}
+}
 
 func TestSimpleQuery(t *testing.T) {
 	t.Parallel()
 
-	_, _, teardown := setupMockedTestServer(t)
+	db, server, teardown := setupTestDbConnection(t)
 	defer teardown()
-
-	db, err := sql.Open("spanner", "projects/p/instances/i/databases/d")
+	rows, err := db.Query(testutil.SelectFooFromBar)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-}
+	defer rows.Close()
 
-func TestClient_Single(t *testing.T) {
-	t.Parallel()
-	err := testSingleQuery(t, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-func testSingleQuery(t *testing.T, serverError error) error {
-	ctx := context.Background()
-	server, client, teardown := setupMockedTestServer(t)
-	defer teardown()
-	if serverError != nil {
-		server.TestSpanner.SetError(serverError)
-	}
-	return executeSingerQuery(ctx, client.Single())
-}
-
-func executeSingerQuery(ctx context.Context, tx *spanner.ReadOnlyTransaction) error {
-	return executeSingerQueryWithRowFunc(ctx, tx, nil)
-}
-
-func executeSingerQueryWithRowFunc(ctx context.Context, tx *spanner.ReadOnlyTransaction, f func(rowCount int64) error) error {
-	iter := tx.Query(ctx, spanner.NewStatement(testutil.SelectSingerIDAlbumIDAlbumTitleFromAlbums))
-	defer iter.Stop()
-	rowCount := int64(0)
-	for {
-		row, err := iter.Next()
-		if err == iterator.Done {
-			break
-		}
+	for want := int64(1); rows.Next(); want++ {
+		cols, err := rows.Columns()
 		if err != nil {
-			return err
+			t.Fatal(err)
 		}
-		var singerID, albumID int64
-		var albumTitle string
-		if err := row.Columns(&singerID, &albumID, &albumTitle); err != nil {
-			return err
+		if !cmp.Equal(cols, []string{"FOO"}) {
+			t.Errorf("cols mismatch\nGot: %v\nWant: %v", cols, []string{"FOO"})
 		}
-		rowCount++
-		if f != nil {
-			if err := f(rowCount); err != nil {
-				return err
-			}
+		var got int64
+		err = rows.Scan(&got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("value mismatch\nGot: %v\nWant: %v", got, want)
 		}
 	}
-	if rowCount != testutil.SelectSingerIDAlbumIDAlbumTitleFromAlbumsRowCount {
-		return status.Errorf(codes.Internal, "Row count mismatch, got %v, expected %v", rowCount, testutil.SelectSingerIDAlbumIDAlbumTitleFromAlbumsRowCount)
-	}
-	return nil
+	requests := drainRequestsFromServer(server.TestSpanner)
+
+	fmt.Printf("requests: %v\n", requests)
 }
 
 func setupMockedTestServer(t *testing.T) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
@@ -100,4 +80,18 @@ func setupMockedTestServerWithConfigAndClientOptions(t *testing.T, config spanne
 		client.Close()
 		serverTeardown()
 	}
+}
+
+func drainRequestsFromServer(server testutil.InMemSpannerServer) []interface{} {
+	var reqs []interface{}
+loop:
+	for {
+		select {
+		case req := <-server.ReceivedRequests():
+			reqs = append(reqs, req)
+		default:
+			break loop
+		}
+	}
+	return reqs
 }

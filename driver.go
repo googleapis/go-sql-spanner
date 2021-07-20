@@ -19,9 +19,12 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -34,13 +37,9 @@ import (
 )
 
 const userAgent = "go-sql-driver-spanner/0.1"
-const dsnRegExpString = "((?P<HOSTGROUP>[\\w.-]+(?:\\.[\\w\\.-]+)*[\\w\\-\\._~:/?#\\[\\]@!\\$&'\\(\\)\\*\\+,;=.]+)/)?projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID)))(/instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+)(/databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?)?(?:[?|;](?P<PARAMSGROUP>.*))?"
-const paramsRegExpString = "(?is)(?P<PROPERTY>[^=]+?)=(?:.*?)"
-const propertyRegExpString = "(?is)(?:;|\\?)%s=([^=]+?)(?:;|$)"
+const dsnRegExpString = "((?P<HOSTGROUP>[\\w.-]+(?:\\.[\\w\\.-]+)*[\\w\\-\\._~:/?#\\[\\]@!\\$&'\\(\\)\\*\\+,;=.]+)/)?projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID)))(/instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+)(/databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?)?(([\\?|;])(?P<PARAMSGROUP>.*))?"
 
 var dsnRegExp *regexp.Regexp
-var paramsRegExp *regexp.Regexp
-var propertyRegExp *regexp.Regexp
 
 var _ driver.DriverContext = &Driver{}
 
@@ -49,16 +48,6 @@ func init() {
 	dsnRegExp, err = regexp.Compile(dsnRegExpString)
 	if err != nil {
 		log.Fatalf("could not compile Spanner dsn regexp: %v", err)
-		return
-	}
-	paramsRegExp, err = regexp.Compile(paramsRegExpString)
-	if err != nil {
-		log.Fatalf("could not compile Spanner params regexp: %v", err)
-		return
-	}
-	propertyRegExp, err = regexp.Compile(propertyRegExpString)
-	if err != nil {
-		log.Fatalf("could not compile Spanner property regexp: %v", err)
 		return
 	}
 	sql.Register("spanner", &Driver{})
@@ -115,17 +104,20 @@ func extractConnectorConfig(dsn string) (connectorConfig, error) {
 	}, nil
 }
 
-func extractConnectorParams(params string) (map[string]string, error) {
-	match := paramsRegExp.FindStringSubmatch(params)
-	matches := make([]string, 0)
-	if match != nil {
-		for i, name := range paramsRegExp.SubexpNames() {
-			if i != 0 && name != "" {
-				matches = append(matches, match[i])
-			}
-		}
+func extractConnectorParams(paramsString string) (map[string]string, error) {
+	params := make(map[string]string)
+	if paramsString == "" {
+		return params, nil
 	}
-	return make(map[string]string), nil
+	keyValuePairs := strings.Split(paramsString, ";")
+	for _, keyValueString := range keyValuePairs {
+		keyValue := strings.SplitN(keyValueString, "=", 2)
+		if keyValue == nil || len(keyValue) != 2 {
+			return nil, fmt.Errorf("invalid connection property: %s", keyValueString)
+		}
+		params[keyValue[0]] = keyValue[1]
+	}
+	return params, nil
 }
 
 type connector struct {
@@ -142,13 +134,27 @@ type connector struct {
 }
 
 func newConnector(d *Driver, dsn string) (*connector, error) {
-	config, err := extractConnectorConfig(dsn)
+	connectorConfig, err := extractConnectorConfig(dsn)
 	if err != nil {
 		return nil, err
 	}
+	opts := make([]option.ClientOption, 0)
+	if connectorConfig.host != "" {
+		opts = append(opts, option.WithEndpoint(connectorConfig.host))
+	}
+	if strval, ok := connectorConfig.params["useplaintext"]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil && val {
+			opts = append(opts,option.WithGRPCDialOption(grpc.WithInsecure()), option.WithoutAuthentication())
+		}
+	}
+	config := spanner.ClientConfig{
+		SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+	}
 	return &connector{
-		driver: d,
-		connectorConfig: config,
+		driver:          d,
+		connectorConfig: connectorConfig,
+		config:          config,
+		options:         opts,
 	}, nil
 }
 
@@ -158,23 +164,27 @@ func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
 
 func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 	if c.config.NumChannels == 0 {
-		c.config.NumChannels = 1 // TODO(jbd): Explain database/sql has a high-level management.
+//		c.config.NumChannels = 1 // TODO(jbd): Explain database/sql has a high-level management.
 	}
 	opts := append(c.options, option.WithUserAgent(userAgent))
-	client, err := spanner.NewClientWithConfig(ctx, c.connectorConfig.database, c.config, opts...)
+	databaseName := fmt.Sprintf(
+		"projects/%s/instances/%s/databases/%s",
+		c.connectorConfig.project,
+		c.connectorConfig.instance,
+		c.connectorConfig.database)
+	client, err := spanner.NewClientWithConfig(ctx, databaseName, c.config, opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	adminClient, err := createAdminClient(ctx)
+	adminClient, err := adminapi.NewDatabaseAdminClient(ctx, opts...)
 	if err != nil {
 		return nil, err
 	}
-	return &conn{client: client, adminClient: adminClient, database: c.connectorConfig.database}, nil
+	return &conn{client: client, adminClient: adminClient, database: databaseName}, nil
 }
 
 func createAdminClient(ctx context.Context) (adminClient *adminapi.DatabaseAdminClient, err error) {
-
 	// Admin client will connect to emulator if SPANNER_EMULATOR_HOST
 	// is set in the environment.
 	if spannerHost, ok := os.LookupEnv("SPANNER_EMULATOR_HOST"); ok {
