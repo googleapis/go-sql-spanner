@@ -126,27 +126,10 @@ func TestConnection_NoNestedTransactions(t *testing.T) {
 	}
 }
 
-func TestConn_ResetSession(t *testing.T) {
-	c := conn{
-		tx: &readOnlyTransaction{close: func() {}},
-	}
-	if err := c.ResetSession(context.Background()); err != nil {
-		t.Errorf("unexpected nil error for BeginTx call")
-	}
-	_, err := c.BeginTx(context.Background(), driver.TxOptions{})
-	if err == nil {
-		t.Errorf("unexpected error for ResetSession call: %v", err)
-	}
-	if c.tx != nil {
-		t.Errorf("ResetSession did not clear transaction")
-	}
-}
-
 // note: isDdl function does not check validity of statement
 // just that the statement begins with a DDL instruction.
 // Other checking performed by database.
 func TestIsDdl(t *testing.T) {
-
 	tests := []struct {
 		name  string
 		input string

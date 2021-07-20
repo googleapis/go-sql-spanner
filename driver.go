@@ -218,14 +218,11 @@ func (c *conn) Ping(ctx context.Context) error {
 	if c.closed {
 		return driver.ErrBadConn
 	}
-	stmt, err := c.PrepareContext(ctx, "SELECT 1")
-	if err != nil {
-		return err
-	}
-	rows, err := stmt.Query([]driver.Value{})
+	rows, err := c.QueryContext(ctx, "SELECT 1", []driver.NamedValue{})
 	if err != nil {
 		return driver.ErrBadConn
 	}
+	defer rows.Close()
 	values := make([]driver.Value, 1)
 	if err := rows.Next(values); err != nil {
 		return driver.ErrBadConn
