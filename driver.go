@@ -15,21 +15,19 @@
 package spannerdriver
 
 import (
+	"cloud.google.com/go/spanner"
 	"context"
 	"database/sql"
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"github.com/rakyll/go-sql-driver-spanner/internal"
+	"google.golang.org/api/option"
 	"log"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
-
-	"cloud.google.com/go/spanner"
-	"github.com/rakyll/go-sql-driver-spanner/internal"
-	"google.golang.org/api/option"
 
 	adminapi "cloud.google.com/go/spanner/admin/database/apiv1"
 	adminpb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
@@ -163,9 +161,6 @@ func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
 }
 
 func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
-	if c.config.NumChannels == 0 {
-//		c.config.NumChannels = 1 // TODO(jbd): Explain database/sql has a high-level management.
-	}
 	opts := append(c.options, option.WithUserAgent(userAgent))
 	databaseName := fmt.Sprintf(
 		"projects/%s/instances/%s/databases/%s",
@@ -210,15 +205,55 @@ func (c *connector) Driver() driver.Driver {
 }
 
 type conn struct {
+	closed      bool
 	client      *spanner.Client
 	adminClient *adminapi.DatabaseAdminClient
-	roTx        *spanner.ReadOnlyTransaction
-	rwTx        *rwTx
+	tx          contextTransaction
 	database    string
 }
 
+// Ping implements the Pinger interface.
+// returns ErrBadConn if the connection is no longer valid.
+func (c *conn) Ping(ctx context.Context) error {
+	if c.closed {
+		return driver.ErrBadConn
+	}
+	stmt, err := c.PrepareContext(ctx, "SELECT 1")
+	if err != nil {
+		return err
+	}
+	rows, err := stmt.Query([]driver.Value{})
+	if err != nil {
+		return driver.ErrBadConn
+	}
+	values := make([]driver.Value, 1)
+	if err := rows.Next(values); err != nil {
+		return driver.ErrBadConn
+	}
+	if values[0] != int64(1) {
+		return driver.ErrBadConn
+	}
+	return nil
+}
+
+func (c *conn) ResetSession(ctx context.Context) error {
+	if c.closed {
+		return driver.ErrBadConn
+	}
+	if c.inTransaction() {
+		if err := c.tx.Rollback(); err != nil {
+			return driver.ErrBadConn
+		}
+	}
+	return nil
+}
+
+func (c *conn) IsValid() bool {
+	return !c.closed
+}
+
 func (c *conn) Prepare(query string) (driver.Stmt, error) {
-	panic("Using PrepareContext instead")
+	return nil, fmt.Errorf("use PrepareContext instead")
 }
 
 func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
@@ -230,8 +265,21 @@ func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, e
 	return &stmt{conn: c, query: query, numArgs: len(args)}, nil
 }
 
-func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+func (c *conn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	stmt, err := prepareSpannerStmt(query, args)
+	if err != nil {
+		return nil, err
+	}
+	var iter *spanner.RowIterator
+	if c.tx == nil {
+		iter = c.client.Single().Query(ctx, stmt)
+	} else {
+		iter = c.tx.Query(ctx, stmt)
+	}
+	return &rows{it: iter}, nil
+}
 
+func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	// Use admin API if DDL statement is provided.
 	isDdl, err := isDdl(query)
 	if err != nil {
@@ -252,19 +300,16 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 		return &result{rowsAffected: 0}, nil
 	}
 
-	if c.roTx != nil {
-		return nil, errors.New("cannot write in read-only transaction")
-	}
 	ss, err := prepareSpannerStmt(query, args)
 	if err != nil {
 		return nil, err
 	}
 
 	var rowsAffected int64
-	if c.rwTx == nil {
+	if c.tx == nil {
 		rowsAffected, err = c.execContextInNewRWTransaction(ctx, ss)
 	} else {
-		rowsAffected, err = c.rwTx.ExecContext(ctx, ss)
+		rowsAffected, err = c.tx.ExecContext(ctx, ss)
 	}
 	if err != nil {
 		return nil, err
@@ -273,7 +318,6 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 }
 
 func isDdl(query string) (bool, error) {
-
 	matchddl, err := regexp.MatchString(`(?is)^\n*\s*(CREATE|DROP|ALTER)\s+.+$`, query)
 	if err != nil {
 		return false, err
@@ -288,7 +332,7 @@ func (c *conn) Close() error {
 }
 
 func (c *conn) Begin() (driver.Tx, error) {
-	panic("Using BeginTx instead")
+	return nil, fmt.Errorf("use BeginTx instead")
 }
 
 func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
@@ -297,35 +341,32 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 	}
 
 	if opts.ReadOnly {
-		c.roTx = c.client.ReadOnlyTransaction().WithTimestampBound(spanner.StrongRead())
-		return &roTx{close: func() {
-			c.roTx.Close()
-			c.roTx = nil
-		}}, nil
+		ro := c.client.ReadOnlyTransaction().WithTimestampBound(spanner.StrongRead())
+		c.tx = &readOnlyTransaction{
+			roTx: ro,
+			close: func() {
+				c.tx = nil
+			},
+		}
+		return c.tx, nil
 	}
 
-	connector := internal.NewRWConnector(ctx, c.client)
-	c.rwTx = &rwTx{
-		connector: connector,
+	tx, err := spanner.NewReadWriteStmtBasedTransaction(ctx, c.client)
+	if err != nil {
+		return nil, err
+	}
+	c.tx = &readWriteTransaction{
+		ctx:   ctx,
+		rwTx:  tx,
 		close: func() {
-			c.rwTx = nil
+			c.tx = nil
 		},
 	}
-
-	// TODO(jbd): Make sure we are not leaking
-	// a goroutine in connector if timeout happens.
-	select {
-	case <-connector.Ready:
-		return c.rwTx, nil
-	case err := <-connector.Errors: // If received before Ready, transaction failed to start.
-		return nil, err
-	case <-time.Tick(10 * time.Second):
-		return nil, errors.New("cannot begin transaction, timeout after 10 seconds")
-	}
+	return c.tx, nil
 }
 
 func (c *conn) inTransaction() bool {
-	return c.roTx != nil || c.rwTx != nil
+	return c.tx != nil
 }
 
 func (c *conn) execContextInNewRWTransaction(ctx context.Context, statement spanner.Statement) (int64, error) {
