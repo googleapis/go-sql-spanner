@@ -254,8 +254,7 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 }
 
 func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
-	// TODO(jbd): Mention emails need to be escaped.
-	args, err := internal.NamedValueParamNames(query, -1)
+	args, err := internal.FindParams(query)
 	if err != nil {
 		return nil, err
 	}

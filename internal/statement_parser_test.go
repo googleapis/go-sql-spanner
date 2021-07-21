@@ -14,7 +14,10 @@
 
 package internal
 
-import "testing"
+import (
+	"github.com/google/go-cmp/cmp"
+	"testing"
+)
 
 func TestRemoveCommentsAndTrim(t *testing.T) {
 	tests := []struct {
@@ -348,7 +351,7 @@ SELECT 1`,
 		},
 	}
 	for _, tc := range tests {
-		got, err := RemoveCommentsAndTrim(tc.input)
+		got, err := removeCommentsAndTrim(tc.input)
 		if err != nil && !tc.wantErr {
 			t.Error(err)
 			continue
@@ -358,7 +361,150 @@ SELECT 1`,
 			continue
 		}
 		if got != tc.want {
-			t.Errorf("RemoveCommentsAndTrim result mismatch\nGot: %q\nWant: %q", got, tc.want)
+			t.Errorf("removeCommentsAndTrim result mismatch\nGot: %q\nWant: %q", got, tc.want)
+		}
+	}
+}
+
+func TestRemoveStatementHint(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{
+			input: `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable`,
+			want:  `SELECT * FROM PersonsTable`,
+		},
+		{
+			input: `@ {JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable`,
+			want:  `SELECT * FROM PersonsTable`,
+		},
+		{
+			input: `@{ JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable`,
+			want:  `SELECT * FROM PersonsTable`,
+		},
+		{
+			input: `@{JOIN_METHOD=HASH_JOIN } SELECT * FROM PersonsTable`,
+			want:  `SELECT * FROM PersonsTable`,
+		},
+		{
+			input: `@{JOIN_METHOD=HASH_JOIN}
+SELECT * FROM PersonsTable`,
+			want: `SELECT * FROM PersonsTable`,
+		},
+		{
+			input: `@{
+JOIN_METHOD =  HASH_JOIN   	}
+	 SELECT * FROM PersonsTable`,
+			want: `SELECT * FROM PersonsTable`,
+		},
+		{
+			input: `@{JOIN_METHOD=HASH_JOIN}
+-- Single line comment
+SELECT * FROM PersonsTable`,
+			want: `SELECT * FROM PersonsTable`,
+		},
+		{
+			input: `@{JOIN_METHOD=HASH_JOIN}
+/* Multi line comment
+with more comments
+*/SELECT * FROM PersonsTable`,
+			want: `SELECT * FROM PersonsTable`,
+		},
+		{
+			input: `@{JOIN_METHOD=HASH_JOIN} WITH subQ1 AS (SELECT SchoolID FROM Roster),
+     subQ2 AS (SELECT OpponentID FROM PlayerStats)
+SELECT * FROM subQ1
+UNION ALL
+SELECT * FROM subQ2`,
+			want: `WITH subQ1 AS (SELECT SchoolID FROM Roster),
+     subQ2 AS (SELECT OpponentID FROM PlayerStats)
+SELECT * FROM subQ1
+UNION ALL
+SELECT * FROM subQ2`,
+		},
+		// Multiple query hints.
+		{
+			input: `@{FORCE_INDEX=index_name} @{JOIN_METHOD=HASH_JOIN} SELECT * FROM tbl`,
+			want:  `SELECT * FROM tbl`,
+		},
+		{
+			input: `@{FORCE_INDEX=index_name}
+@{JOIN_METHOD=HASH_JOIN}
+SELECT SchoolID FROM Roster`,
+			want: `SELECT SchoolID FROM Roster`,
+		},
+		// Invalid query hints.
+		{
+			input: `@{JOIN_METHOD=HASH_JOIN SELECT * FROM PersonsTable`,
+			want:  `@{JOIN_METHOD=HASH_JOIN SELECT * FROM PersonsTable`,
+		},
+		{
+			input: `@JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable`,
+			want:  `@JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable`,
+		},
+		{
+			input: `@JOIN_METHOD=HASH_JOIN SELECT * FROM PersonsTable`,
+			want:  `@JOIN_METHOD=HASH_JOIN SELECT * FROM PersonsTable`,
+		},
+	}
+	for _, tc := range tests {
+		sql, err := removeCommentsAndTrim(tc.input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := removeStatementHint(sql)
+		if got != tc.want {
+			t.Errorf("removeStatementHint result mismatch\nGot: %q\nWant: %q", got, tc.want)
+		}
+	}
+}
+
+func TestFindParams(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    []string
+		wantErr bool
+	}{
+		{
+			input: `SELECT * FROM PersonsTable WHERE id=@id`,
+			want:  []string{"id"},
+		},
+		{
+			input: `SELECT * FROM PersonsTable WHERE id=@id AND name=@name`,
+			want:  []string{"id", "name"},
+		},
+		{
+			input: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+			want:  []string{"name"},
+		},
+		{
+			input: `SELECT * FROM """strange
+ @table
+""" WHERE Name like @name AND Email='test@test.com'`,
+			want:  []string{"name"},
+		},
+		{
+			input: `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+			want:  []string{"name"},
+		},
+	}
+	for _, tc := range tests {
+		sql, err := removeCommentsAndTrim(tc.input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := FindParams(removeStatementHint(sql))
+		if err != nil && !tc.wantErr {
+			t.Error(err)
+			continue
+		}
+		if tc.wantErr {
+			t.Errorf("missing expected error for %q", tc.input)
+			continue
+		}
+		if !cmp.Equal(got, tc.want) {
+			t.Errorf("FindParams result mismatch\nGot: %s\nWant: %s", got, tc.want)
 		}
 	}
 }

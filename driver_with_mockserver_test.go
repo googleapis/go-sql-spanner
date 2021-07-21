@@ -1,6 +1,21 @@
+// Copyright 2021 Google Inc. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package spannerdriver
 
 import (
+	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/testutil"
 	"context"
@@ -12,8 +27,10 @@ import (
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
+	"math/big"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestPing(t *testing.T) {
@@ -224,7 +241,8 @@ func TestPreparedQuery(t *testing.T) {
 	server.TestSpanner.PutStatementResult(
 		"SELECT * FROM Test WHERE Id=@id",
 		&testutil.StatementResult{
-			 ResultSet: testutil.CreateSelect1ResultSet(),
+			Type: testutil.StatementResultResultSet,
+			ResultSet: testutil.CreateSelect1ResultSet(),
 		},
 	)
 
@@ -277,6 +295,85 @@ func TestPreparedQuery(t *testing.T) {
 		}
 	} else {
 		t.Fatalf("no value found for param @id")
+	}
+}
+
+func TestQueryWithAllTypes(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDbConnection(t)
+	defer teardown()
+	sql := `SELECT *
+             FROM Test
+             WHERE ColBool=@bool 
+             AND   ColString=@string
+             AND   ColBytes=@bytes
+             AND   ColInt=@int
+             AND   ColFloat=@float
+             AND   ColNumeric=@numeric
+             AND   ColDate=@date
+             AND   ColTimestamp=@timestamp`
+	server.TestSpanner.PutStatementResult(
+		sql,
+		&testutil.StatementResult{
+			Type: testutil.StatementResultResultSet,
+			ResultSet: testutil.CreateResultSetWithAllTypes(),
+		},
+	)
+
+	stmt, err := db.Prepare(sql)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stmt.Close()
+	rows, err := stmt.QueryContext(context.Background(), true, "test", []byte("test"), int64(5), float64(3.14), big.NewRat(1, 1), civil.Date{Year: 2021, Month: 7, Day: 21}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var b bool
+		var s string
+		var bt []byte
+		var i int64
+		var f float64
+		var r big.Rat
+		var d time.Time
+		var ts time.Time
+		err = rows.Scan(&b, &s, &bt, &i, &f, &r, &d, &ts)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if rows.Err() != nil {
+		t.Fatal(rows.Err())
+	}
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := len(req.ParamTypes), 8; g != w {
+		t.Fatalf("param types length mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	if pt, ok := req.ParamTypes["int"]; ok {
+		if g, w := pt.Code, sppb.TypeCode_INT64; g != w {
+			t.Fatalf("param type mismatch\nGot: %v\nWant: %v", g, w)
+		}
+	} else {
+		t.Fatalf("no param type found for @int")
+	}
+	if g, w := len(req.Params.Fields), 8; g != w {
+		t.Fatalf("params length mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	if val, ok := req.Params.Fields["int"]; ok {
+		if g, w := val.GetStringValue(), "5"; g != w {
+			t.Fatalf("param value mismatch\nGot: %v\nWant: %v", g, w)
+		}
+	} else {
+		t.Fatalf("no value found for param @int")
 	}
 }
 

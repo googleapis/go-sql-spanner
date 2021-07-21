@@ -65,10 +65,17 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 	return &rows{it: it}, nil
 }
 
+func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
+	return nil
+}
+
 func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, error) {
-	names, err := internal.NamedValueParamNames(q, len(args))
+	names, err := internal.FindParams(q)
 	if err != nil {
 		return spanner.Statement{}, err
+	}
+	if len(names) != len(args) {
+		return spanner.Statement{}, fmt.Errorf("got %v argument values, but found %v parameters in the sql string", len(args), len(names))
 	}
 	ss := spanner.NewStatement(q)
 	for i, v := range args {
