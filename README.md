@@ -73,8 +73,9 @@ $ export SPANNER_EMULATOR_HOST=localhost:9010
 
 ## Troubleshooting
 
-This driver shouldn't automatically retry the transactions but it does.
-It causes unwanted results. Don't use this library in production yet.
+The driver will propagate any Aborted error that is returned by Cloud Spanner
+during a read/write transaction, and it will currently not automatically retry
+the transaction.
 
 ---
 
@@ -82,27 +83,6 @@ gorm cannot use the driver as it-is but @rakyll has been working on a dialect.
 She doesn't have bandwidth to ship a fully featured dialect right now but contact
 her if you would like to contribute.
 
----
-
-`error = <use T(nil), not nil>`: Use a typed nil, instead of just nil.
-
-The following query returns rows with NULL likes:
-
-``` go
-var nilInt64 *int64
-db.QueryContext(ctx, "SELECT id, text FROM tweets WHERE likes = @likes LIMIT 10", nilInt64)
-```
-
----
-
-When querying and executing with emails, pass them as arguments and don't hardcode
-them in the query:
-
-``` go
-db.QueryContext(ctx, "SELECT id, name ... WHERE email = @email", "jbd@google.com")
-```
-
-The driver will relax this requirement in the future but it is a work-in-progress for now.
 
 ---
 

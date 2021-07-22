@@ -27,11 +27,11 @@ func TestRemoveCommentsAndTrim(t *testing.T) {
 	}{
 		{
 			input: ``,
-			want: ``,
+			want:  ``,
 		},
 		{
 			input: `SELECT 1;`,
-			want: `SELECT 1`,
+			want:  `SELECT 1`,
 		},
 		{
 			input: `-- This is a single line comment
@@ -105,7 +105,7 @@ SELECT 1;`,
 			input: `-- First comment
 SELECT--second comment
 1`,
-            want: `SELECT
+			want: `SELECT
 1`,
 		},
 		{
@@ -145,7 +145,7 @@ SELECT/* second comment */
 		},
 		{
 			input: `SELECT "TEST -- This is not a comment"`,
-			want: `SELECT "TEST -- This is not a comment"`,
+			want:  `SELECT "TEST -- This is not a comment"`,
 		},
 		{
 			input: `-- This is a comment
@@ -159,7 +159,7 @@ SELECT "TEST -- This is not a comment" -- This is a comment`,
 		},
 		{
 			input: `SELECT "TEST # This is not a comment"`,
-			want: `SELECT "TEST # This is not a comment"`,
+			want:  `SELECT "TEST # This is not a comment"`,
 		},
 		{
 			input: `# This is a comment
@@ -173,7 +173,7 @@ SELECT "TEST # This is not a comment" # This is a comment`,
 		},
 		{
 			input: `SELECT "TEST /* This is not a comment */"`,
-			want: `SELECT "TEST /* This is not a comment */"`,
+			want:  `SELECT "TEST /* This is not a comment */"`,
 		},
 		{
 			input: `/* This is a comment */
@@ -187,7 +187,7 @@ SELECT "TEST /* This is not a comment */" /* This is a comment */`,
 		},
 		{
 			input: `SELECT 'TEST -- This is not a comment'`,
-			want: `SELECT 'TEST -- This is not a comment'`,
+			want:  `SELECT 'TEST -- This is not a comment'`,
 		},
 		{
 			input: `-- This is a comment
@@ -201,7 +201,7 @@ SELECT 'TEST -- This is not a comment' -- This is a comment`,
 		},
 		{
 			input: `SELECT 'TEST # This is not a comment'`,
-			want: `SELECT 'TEST # This is not a comment'`,
+			want:  `SELECT 'TEST # This is not a comment'`,
 		},
 		{
 			input: `# This is a comment
@@ -215,7 +215,7 @@ SELECT 'TEST # This is not a comment' # This is a comment`,
 		},
 		{
 			input: `SELECT 'TEST /* This is not a comment */'`,
-			want: `SELECT 'TEST /* This is not a comment */'`,
+			want:  `SELECT 'TEST /* This is not a comment */'`,
 		},
 		{
 			input: `/* This is a comment */
@@ -332,7 +332,7 @@ SELECT """TEST
 		{
 			input: `/* This is a comment /* this is still a comment */
 SELECT 1`,
-            want: `SELECT 1`,
+			want: `SELECT 1`,
 		},
 		{
 			input: `/** This is a javadoc style comment /* this is still a comment */
@@ -482,7 +482,7 @@ func TestFindParams(t *testing.T) {
 			input: `SELECT * FROM """strange
  @table
 """ WHERE Name like @name AND Email='test@test.com'`,
-			want:  []string{"name"},
+			want: []string{"name"},
 		},
 		{
 			input: `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
@@ -494,7 +494,7 @@ func TestFindParams(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, err := FindParams(removeStatementHint(sql))
+		got, err := ParseNamedParameters(removeStatementHint(sql))
 		if err != nil && !tc.wantErr {
 			t.Error(err)
 			continue
@@ -504,7 +504,7 @@ func TestFindParams(t *testing.T) {
 			continue
 		}
 		if !cmp.Equal(got, tc.want) {
-			t.Errorf("FindParams result mismatch\nGot: %s\nWant: %s", got, tc.want)
+			t.Errorf("ParseNamedParameters result mismatch\nGot: %s\nWant: %s", got, tc.want)
 		}
 	}
 }

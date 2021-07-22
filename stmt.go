@@ -70,7 +70,7 @@ func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
 }
 
 func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, error) {
-	names, err := internal.FindParams(q)
+	names, err := internal.ParseNamedParameters(q)
 	if err != nil {
 		return spanner.Statement{}, err
 	}

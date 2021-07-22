@@ -150,7 +150,7 @@ func (r *rows) Next(dest []driver.Value) error {
 			if v.IsNull() {
 				dest[i] = v.Date // typed nil
 			} else {
-				dest[i] = v.Date.In(time.Local) // TODO(jbd): Add note about this.
+				dest[i] = v.Date.In(time.UTC) // TODO(jbd): Add note about this.
 			}
 		case sppb.TypeCode_TIMESTAMP:
 			var v spanner.NullTime

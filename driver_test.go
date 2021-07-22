@@ -31,75 +31,75 @@ func TestExtractDnsParts(t *testing.T) {
 		{
 			input: "projects/p/instances/i/databases/d",
 			want: connectorConfig{
-				project: "p",
+				project:  "p",
 				instance: "i",
 				database: "d",
-				params: map[string]string{},
+				params:   map[string]string{},
 			},
 		},
 		{
 			input: "projects/DEFAULT_PROJECT_ID/instances/test-instance/databases/test-database",
 			want: connectorConfig{
-				project: "DEFAULT_PROJECT_ID",
+				project:  "DEFAULT_PROJECT_ID",
 				instance: "test-instance",
 				database: "test-database",
-				params: map[string]string{},
+				params:   map[string]string{},
 			},
 		},
 		{
 			input: "localhost:9010/projects/p/instances/i/databases/d",
 			want: connectorConfig{
-				host: "localhost:9010",
-				project: "p",
+				host:     "localhost:9010",
+				project:  "p",
 				instance: "i",
 				database: "d",
-				params: map[string]string{},
+				params:   map[string]string{},
 			},
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d",
 			want: connectorConfig{
-				host: "spanner.googleapis.com",
-				project: "p",
+				host:     "spanner.googleapis.com",
+				project:  "p",
 				instance: "i",
 				database: "d",
-				params: map[string]string{},
+				params:   map[string]string{},
 			},
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?usePlainText=true",
 			want: connectorConfig{
-				host: "spanner.googleapis.com",
-				project: "p",
+				host:     "spanner.googleapis.com",
+				project:  "p",
 				instance: "i",
 				database: "d",
-				params: map[string]string {
-					"usePlainText":"true",
+				params: map[string]string{
+					"usePlainText": "true",
 				},
 			},
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d;credentials=/path/to/credentials.json",
 			want: connectorConfig{
-				host: "spanner.googleapis.com",
-				project: "p",
+				host:     "spanner.googleapis.com",
+				project:  "p",
 				instance: "i",
 				database: "d",
-				params: map[string]string {
-					"credentials":"/path/to/credentials.json",
+				params: map[string]string{
+					"credentials": "/path/to/credentials.json",
 				},
 			},
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?credentials=/path/to/credentials.json;readonly=true",
 			want: connectorConfig{
-				host: "spanner.googleapis.com",
-				project: "p",
+				host:     "spanner.googleapis.com",
+				project:  "p",
 				instance: "i",
 				database: "d",
-				params: map[string]string {
-					"credentials":"/path/to/credentials.json",
-					"readonly":"true",
+				params: map[string]string{
+					"credentials": "/path/to/credentials.json",
+					"readonly":    "true",
 				},
 			},
 		},

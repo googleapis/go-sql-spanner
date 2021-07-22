@@ -26,7 +26,7 @@ var dmlStatements = map[string]bool{"INSERT": true, "UPDATE": true, "DELETE": tr
 var selectAndDmlStatements = union(selectStatements, dmlStatements)
 
 func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
-	res := make(map[string]bool, len(m1) + len(m2))
+	res := make(map[string]bool, len(m1)+len(m2))
 	for k, v := range m1 {
 		res[k] = v
 	}
@@ -36,8 +36,12 @@ func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 	return res
 }
 
-// FindParams returns the named parameters in the given sql string.
-func FindParams(sql string) ([]string, error) {
+// ParseNamedParameters returns the named parameters in the given sql string.
+// The sql string must be a valid Cloud Spanner sql statement. It may contain
+// comments and (string) literals without any restrictions. That is, string
+// literals containing for example an email address ('test@test.com') will be
+// recognized as a string literal and not returned as a named parameter.
+func ParseNamedParameters(sql string) ([]string, error) {
 	sql, err := removeCommentsAndTrim(sql)
 	if err != nil {
 		return nil, err
@@ -77,7 +81,7 @@ func removeCommentsAndTrim(sql string) (string, error) {
 				if lastCharWasEscapeChar {
 					lastCharWasEscapeChar = false
 				} else if isTripleQuoted {
-					if len(runes) > index + 2 && runes[index+1] == startQuote && runes[index+2] == startQuote {
+					if len(runes) > index+2 && runes[index+1] == startQuote && runes[index+2] == startQuote {
 						isInQuoted = false
 						startQuote = 0
 						isTripleQuoted = false
@@ -104,15 +108,15 @@ func removeCommentsAndTrim(sql string) (string, error) {
 					res.WriteRune(c)
 				}
 			} else if isInMultiLineComment {
-				if len(runes) > index + 1 && c == asterisk && runes[index+1] == slash {
+				if len(runes) > index+1 && c == asterisk && runes[index+1] == slash {
 					isInMultiLineComment = false
 					index++
 				}
 			} else {
-				if c == dash || (len(runes) > index + 1 && c == hyphen && runes[index+1] == hyphen) {
+				if c == dash || (len(runes) > index+1 && c == hyphen && runes[index+1] == hyphen) {
 					// This is a single line comment.
 					isInSingleLineComment = true
-				} else if len(runes) > index + 1 && c == slash && runes[index+1] == asterisk {
+				} else if len(runes) > index+1 && c == slash && runes[index+1] == asterisk {
 					isInMultiLineComment = true
 					index++
 				} else {
@@ -137,12 +141,11 @@ func removeCommentsAndTrim(sql string) (string, error) {
 		return "", fmt.Errorf("statement contains an unclosed literal: %s", sql)
 	}
 	trimmed := strings.TrimSpace(res.String())
-	if len(trimmed) > 0 && trimmed[len(trimmed) - 1] == ';' {
-		return trimmed[:len(trimmed) - 1], nil
+	if len(trimmed) > 0 && trimmed[len(trimmed)-1] == ';' {
+		return trimmed[:len(trimmed)-1], nil
 	}
 	return trimmed, nil
 }
-
 
 // Removes any statement hints at the beginning of the statement.
 // It assumes that any comments have already been removed.
@@ -158,7 +161,7 @@ func removeStatementHint(sql string) string {
 	// Statement hints are allowed for both queries and DML statements.
 	startQueryIndex := -1
 	upperCaseSql := strings.ToUpper(sql)
-	for keyword, _ := range selectAndDmlStatements {
+	for keyword := range selectAndDmlStatements {
 		if startQueryIndex = strings.Index(upperCaseSql, keyword); startQueryIndex > -1 {
 			break
 		}
@@ -170,7 +173,7 @@ func removeStatementHint(sql string) string {
 			// and let the caller handle the invalid query.
 			return sql
 		}
-		return strings.TrimSpace(sql[endStatementHintIndex + 1:])
+		return strings.TrimSpace(sql[endStatementHintIndex+1:])
 	}
 	// Seems invalid, just return the original statement.
 	return sql
@@ -224,7 +227,7 @@ func findParams(sql string) ([]string, error) {
 						res = append(res, string(runes[startIndex:index]))
 						break
 					}
-					if index == len(runes) - 1 {
+					if index == len(runes)-1 {
 						res = append(res, string(runes[startIndex:]))
 						break
 					}

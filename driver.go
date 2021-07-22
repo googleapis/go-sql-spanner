@@ -72,11 +72,11 @@ func (d *Driver) OpenConnector(name string) (driver.Connector, error) {
 }
 
 type connectorConfig struct {
-	host string
-	project string
+	host     string
+	project  string
 	instance string
 	database string
-	params map[string]string
+	params   map[string]string
 }
 
 func extractConnectorConfig(dsn string) (connectorConfig, error) {
@@ -94,11 +94,11 @@ func extractConnectorConfig(dsn string) (connectorConfig, error) {
 	}
 
 	return connectorConfig{
-		host: matches["HOSTGROUP"],
-		project: matches["PROJECTGROUP"],
+		host:     matches["HOSTGROUP"],
+		project:  matches["PROJECTGROUP"],
 		instance: matches["INSTANCEGROUP"],
 		database: matches["DATABASEGROUP"],
-		params: params,
+		params:   params,
 	}, nil
 }
 
@@ -119,7 +119,7 @@ func extractConnectorParams(paramsString string) (map[string]string, error) {
 }
 
 type connector struct {
-	driver *Driver
+	driver          *Driver
 	connectorConfig connectorConfig
 
 	// config represents the optional advanced configuration to be used
@@ -142,7 +142,7 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 	}
 	if strval, ok := connectorConfig.params["useplaintext"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil && val {
-			opts = append(opts,option.WithGRPCDialOption(grpc.WithInsecure()), option.WithoutAuthentication())
+			opts = append(opts, option.WithGRPCDialOption(grpc.WithInsecure()), option.WithoutAuthentication())
 		}
 	}
 	config := spanner.ClientConfig{
@@ -254,7 +254,7 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 }
 
 func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
-	args, err := internal.FindParams(query)
+	args, err := internal.ParseNamedParameters(query)
 	if err != nil {
 		return nil, err
 	}
@@ -352,8 +352,8 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		return nil, err
 	}
 	c.tx = &readWriteTransaction{
-		ctx:   ctx,
-		rwTx:  tx,
+		ctx:  ctx,
+		rwTx: tx,
 		close: func() {
 			c.tx = nil
 		},
