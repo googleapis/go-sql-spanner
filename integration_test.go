@@ -15,14 +15,22 @@
 package spannerdriver
 
 import (
+	"cloud.google.com/go/spanner"
+	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	"context"
 	"database/sql"
 	"flag"
+	"fmt"
+	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
+	"google.golang.org/grpc/codes"
 	"log"
 	"math"
 	"os"
 	"reflect"
 	"testing"
+
+	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
+	instancepb "google.golang.org/genproto/googleapis/spanner/admin/instance/v1"
 )
 
 var (
@@ -47,6 +55,67 @@ func init() {
 
 	// Derive data source dsn.
 	dsn = "projects/" + projectId + "/instances/" + instanceId + "/databases/" + databaseId
+
+	// Automatically create test instance and database on the emulator if necessary.
+	if _, ok = os.LookupEnv("SPANNER_EMULATOR_HOST"); ok {
+		if err := initEmulator(projectId, instanceId, databaseId); err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+func initEmulator(projectId, instanceId, databaseId string) error {
+	ctx := context.Background()
+	instanceAdmin, err := instance.NewInstanceAdminClient(ctx)
+	if err != nil {
+		return err
+	}
+	defer instanceAdmin.Close()
+	op, err := instanceAdmin.CreateInstance(ctx, &instancepb.CreateInstanceRequest{
+		Parent:     fmt.Sprintf("projects/%s", projectId),
+		InstanceId: instanceId,
+		Instance: &instancepb.Instance{
+			Config:      fmt.Sprintf("projects/%s/instanceConfigs/%s", projectId, "emulator-config"),
+			DisplayName: instanceId,
+			NodeCount:   1,
+		},
+	})
+	if err != nil {
+		// Check if the instance has already been created by another (parallel) test.
+		code := spanner.ErrCode(err)
+		if code != codes.AlreadyExists {
+			return fmt.Errorf("could not create instance %s: %v", fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId), err)
+		}
+	} else {
+		// Wait for the instance creation to finish.
+		_, err := op.Wait(ctx)
+		if err != nil {
+			return fmt.Errorf("waiting for instance creation to finish failed: %v", err)
+		}
+	}
+	databaseAdminClient, err := database.NewDatabaseAdminClient(ctx)
+	if err != nil {
+		return err
+	}
+	defer databaseAdminClient.Close()
+	opDb, err := databaseAdminClient.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
+		Parent: fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId),
+		CreateStatement: fmt.Sprintf("CREATE DATABASE `%s`", databaseId,),
+	})
+	if err != nil {
+		// Check if the database has already been created by another (parallel) test.
+		code := spanner.ErrCode(err)
+		if code != codes.AlreadyExists {
+			return fmt.Errorf("could not create database %s: %v", fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId), err)
+		}
+	} else {
+		// Wait for the database creation to finish.
+		_, err := opDb.Wait(ctx)
+		if err != nil {
+			return fmt.Errorf("waiting for database creation to finish failed: %v", err)
+		}
+	}
+	return nil
 }
 
 func initIntegrationTests() (cleanup func()) {

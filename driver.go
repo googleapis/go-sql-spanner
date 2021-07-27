@@ -213,7 +213,7 @@ type conn struct {
 	database    string
 }
 
-// Ping implements the sql.Pinger interface.
+// Ping implements the driver.Pinger interface.
 // returns ErrBadConn if the connection is no longer valid.
 func (c *conn) Ping(ctx context.Context) error {
 	if c.closed {
@@ -234,7 +234,7 @@ func (c *conn) Ping(ctx context.Context) error {
 	return nil
 }
 
-// ResetSession implements the sql.SessionResetter interface.
+// ResetSession implements the driver.SessionResetter interface.
 // returns ErrBadConn if the connection is no longer valid.
 func (c *conn) ResetSession(_ context.Context) error {
 	if c.closed {
@@ -248,7 +248,7 @@ func (c *conn) ResetSession(_ context.Context) error {
 	return nil
 }
 
-// IsValid implements the sql.Validator interface.
+// IsValid implements the driver.Validator interface.
 func (c *conn) IsValid() bool {
 	return !c.closed
 }

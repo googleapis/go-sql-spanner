@@ -87,6 +87,9 @@ func (r *rows) Next(dest []driver.Value) error {
 	} else if r.dirtyErr != nil {
 		err := r.dirtyErr
 		r.dirtyErr = nil
+		if err == iterator.Done {
+			return io.EOF
+		}
 		return err
 	} else {
 		var err error
