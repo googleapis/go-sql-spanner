@@ -50,7 +50,7 @@ func ParseNamedParameters(sql string) ([]string, error) {
 	return findParams(sql)
 }
 
-// removeCommentsAndTrim removes any comments in the query string and trims any
+// RemoveCommentsAndTrim removes any comments in the query string and trims any
 // spaces at the beginning and end of the query. This makes checking what type
 // of query a string is a lot easier, as only the first word(s) need to be
 // checked after this has been removed.
@@ -251,4 +251,20 @@ func findParams(sql string) ([]string, error) {
 		return nil, fmt.Errorf("statement contains an unclosed literal: %s", sql)
 	}
 	return res, nil
+}
+
+func IsDdl(query string) (bool, error) {
+	query, err := removeCommentsAndTrim(query)
+	if err != nil {
+		return false, err
+	}
+	// We can safely check if the string starts with a specific string, as we
+	// have already removed all leading spaces, and there are no keywords that
+	// start with the same substring as one of the DDL keywords.
+	for ddl := range ddlStatements {
+		if strings.EqualFold(query[:len(ddl)], ddl) {
+			return true, nil
+		}
+	}
+	return false, nil
 }

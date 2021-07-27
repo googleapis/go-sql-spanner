@@ -15,19 +15,20 @@
 package spannerdriver
 
 import (
-	"cloud.google.com/go/spanner"
 	"context"
 	"database/sql"
 	"database/sql/driver"
 	"errors"
 	"fmt"
-	"github.com/rakyll/go-sql-driver-spanner/internal"
-	"google.golang.org/api/option"
 	"log"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"cloud.google.com/go/spanner"
+	"github.com/rakyll/go-sql-driver-spanner/internal"
+	"google.golang.org/api/option"
 
 	adminapi "cloud.google.com/go/spanner/admin/database/apiv1"
 	adminpb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
@@ -280,12 +281,16 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	// Use admin API if DDL statement is provided.
-	isDdl, err := isDdl(query)
+	isDdl, err := internal.IsDdl(query)
 	if err != nil {
 		return nil, err
 	}
 
 	if isDdl {
+		// TODO: Determine whether we want to return an error if a transaction
+		// is active. Cloud Spanner does not support DDL in transactions, but
+		// this makes it seem like the DDL statement is executed on the
+		// transaction on this connection if it has a transaction.
 		op, err := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
 			Database:   c.database,
 			Statements: []string{query},
@@ -314,15 +319,6 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 		return nil, err
 	}
 	return &result{rowsAffected: rowsAffected}, nil
-}
-
-func isDdl(query string) (bool, error) {
-	matchddl, err := regexp.MatchString(`(?is)^\n*\s*(CREATE|DROP|ALTER)\s+.+$`, query)
-	if err != nil {
-		return false, err
-	}
-
-	return matchddl, nil
 }
 
 func (c *conn) Close() error {

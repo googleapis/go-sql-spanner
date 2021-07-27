@@ -15,8 +15,9 @@
 package internal
 
 import (
-	"github.com/google/go-cmp/cmp"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestRemoveCommentsAndTrim(t *testing.T) {
@@ -505,6 +506,153 @@ func TestFindParams(t *testing.T) {
 		}
 		if !cmp.Equal(got, tc.want) {
 			t.Errorf("ParseNamedParameters result mismatch\nGot: %s\nWant: %s", got, tc.want)
+		}
+	}
+}
+
+// note: isDdl function does not check validity of statement
+// just that the statement begins with a DDL instruction.
+// Other checking performed by database.
+func TestIsDdl(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{
+			name: "valid create",
+			input: `CREATE TABLE Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "leading spaces",
+			input: `    CREATE TABLE Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "leading newlines",
+			input: `
+
+
+			CREATE TABLE Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "leading tabs",
+			input: `		CREATE TABLE Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "leading whitespace, miscellaneous",
+			input: `
+							 
+			 CREATE TABLE Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "lower case",
+			input: `create table Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "mixed case, leading whitespace",
+			input: ` 
+			 cREAte taBLE Valid (
+				A   STRING(1024)
+			)	 PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name:  "insert (not ddl)",
+			input: `INSERT INTO Valid`,
+			want:  false,
+		},
+		{
+			name:  "delete (not ddl)",
+			input: `DELETE FROM Valid`,
+			want:  false,
+		},
+		{
+			name:  "update (not ddl)",
+			input: `UPDATE Valid`,
+			want:  false,
+		},
+		{
+			name:  "drop",
+			input: `DROP TABLE Valid`,
+			want:  true,
+		},
+		{
+			name:  "alter",
+			input: `alter TABLE Valid`,
+			want:  true,
+		},
+		{
+			name:  "typo (ccreate)",
+			input: `cCREATE TABLE Valid`,
+			want:  false,
+		},
+		{
+			name:  "typo (reate)",
+			input: `REATE TABLE Valid`,
+			want:  false,
+		},
+		{
+			name:  "typo (rx ceate)",
+			input: `x CREATE TABLE Valid`,
+			want:  false,
+		},
+		{
+			name:  "leading int",
+			input: `0CREATE TABLE Valid`,
+			want:  false,
+		},
+		{
+			name: "leading single line comment",
+			input: `-- Create the Valid table
+            CREATE TABLE Valid (
+				A STRING(1024)
+			) PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "leading single line comment using hash",
+			input: `# Create the Valid table
+            CREATE TABLE Valid (
+				A STRING(1024)
+			) PRIMARY KEY (A)`,
+			want: true,
+		},
+		{
+			name: "leading multi line comment",
+			input: `/* Create the Valid table.
+            This comment will be stripped before the statement is parsed. */
+            CREATE TABLE Valid (
+				A STRING(1024)
+			) PRIMARY KEY (A)`,
+			want: true,
+		},
+	}
+
+	for _, tc := range tests {
+		got, err := IsDdl(tc.input)
+		if err != nil {
+			t.Error(err)
+		}
+		if got != tc.want {
+			t.Errorf("isDdl test failed, %s: wanted %t got %t.", tc.name, tc.want, got)
 		}
 	}
 }

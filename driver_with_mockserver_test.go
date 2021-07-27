@@ -15,14 +15,19 @@
 package spannerdriver
 
 import (
-	"cloud.google.com/go/civil"
-	"cloud.google.com/go/spanner"
-	"cloud.google.com/go/spanner/testutil"
 	"context"
 	"database/sql"
 	"database/sql/driver"
 	"encoding/base64"
 	"fmt"
+	"math/big"
+	"reflect"
+	"testing"
+	"time"
+
+	"cloud.google.com/go/civil"
+	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/testutil"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	emptypb "github.com/golang/protobuf/ptypes/empty"
@@ -30,33 +35,30 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/api/option"
 	longrunningpb "google.golang.org/genproto/googleapis/longrunning"
+	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
-	"math/big"
-	"reflect"
-	"testing"
-	"time"
 )
 
-func TestPing(t *testing.T) {
+func TestPingContext(t *testing.T) {
 	t.Parallel()
 
 	db, _, teardown := setupTestDbConnection(t)
 	defer teardown()
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(context.Background()); err != nil {
 		t.Fatalf("unexpected error for ping: %v", err)
 	}
 }
 
-func TestPing_Fails(t *testing.T) {
+func TestPingContext_Fails(t *testing.T) {
 	t.Parallel()
 
 	db, server, teardown := setupTestDbConnection(t)
 	defer teardown()
 	s := gstatus.Newf(codes.PermissionDenied, "Permission denied for database")
-	server.TestSpanner.PutStatementResult("SELECT 1", &testutil.StatementResult{Err: s.Err()})
-	if g, w := db.Ping(), driver.ErrBadConn; g != w {
+	_ = server.TestSpanner.PutStatementResult("SELECT 1", &testutil.StatementResult{Err: s.Err()})
+	if g, w := db.PingContext(context.Background()), driver.ErrBadConn; g != w {
 		t.Fatalf("ping error mismatch\nGot: %v\nWant: %v", g, w)
 	}
 }
@@ -66,7 +68,7 @@ func TestSimpleQuery(t *testing.T) {
 
 	db, server, teardown := setupTestDbConnection(t)
 	defer teardown()
-	rows, err := db.Query(testutil.SelectFooFromBar)
+	rows, err := db.QueryContext(context.Background(), testutil.SelectFooFromBar)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +246,7 @@ func TestPreparedQuery(t *testing.T) {
 
 	db, server, teardown := setupTestDbConnection(t)
 	defer teardown()
-	server.TestSpanner.PutStatementResult(
+	_ = server.TestSpanner.PutStatementResult(
 		"SELECT * FROM Test WHERE Id=@id",
 		&testutil.StatementResult{
 			Type:      testutil.StatementResultResultSet,
@@ -307,9 +309,10 @@ func TestPreparedQuery(t *testing.T) {
 func TestQueryWithAllTypes(t *testing.T) {
 	t.Parallel()
 
+	// TODO: Add ARRAY types.
 	db, server, teardown := setupTestDbConnection(t)
 	defer teardown()
-	sql := `SELECT *
+	query := `SELECT *
              FROM Test
              WHERE ColBool=@bool 
              AND   ColString=@string
@@ -319,15 +322,15 @@ func TestQueryWithAllTypes(t *testing.T) {
              AND   ColNumeric=@numeric
              AND   ColDate=@date
              AND   ColTimestamp=@timestamp`
-	server.TestSpanner.PutStatementResult(
-		sql,
+	_ = server.TestSpanner.PutStatementResult(
+		query,
 		&testutil.StatementResult{
 			Type:      testutil.StatementResultResultSet,
 			ResultSet: testutil.CreateResultSetWithAllTypes(),
 		},
 	)
 
-	stmt, err := db.Prepare(sql)
+	stmt, err := db.Prepare(query)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -479,9 +482,10 @@ func TestQueryWithAllTypes(t *testing.T) {
 func TestQueryWithNullParameters(t *testing.T) {
 	t.Parallel()
 
+	// TODO: Add ARRAY types.
 	db, server, teardown := setupTestDbConnection(t)
 	defer teardown()
-	sql := `SELECT *
+	query := `SELECT *
              FROM Test
              WHERE ColBool=@bool 
              AND   ColString=@string
@@ -491,15 +495,15 @@ func TestQueryWithNullParameters(t *testing.T) {
              AND   ColNumeric=@numeric
              AND   ColDate=@date
              AND   ColTimestamp=@timestamp`
-	server.TestSpanner.PutStatementResult(
-		sql,
+	_ = server.TestSpanner.PutStatementResult(
+		query,
 		&testutil.StatementResult{
 			Type:      testutil.StatementResultResultSet,
 			ResultSet: testutil.CreateResultSetWithAllTypes(),
 		},
 	)
 
-	stmt, err := db.Prepare(sql)
+	stmt, err := db.Prepare(query)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -629,7 +633,7 @@ func TestDdlInAutocommit(t *testing.T) {
 	db, server, teardown := setupTestDbConnection(t)
 	defer teardown()
 
-	var expectedResponse *emptypb.Empty = &emptypb.Empty{}
+	var expectedResponse = &emptypb.Empty{}
 	any, _ := ptypes.MarshalAny(expectedResponse)
 	server.TestDatabaseAdmin.SetResps([]proto.Message{
 		&longrunningpb.Operation{
@@ -638,7 +642,8 @@ func TestDdlInAutocommit(t *testing.T) {
 			Name:   "test-operation",
 		},
 	})
-	res, err := db.ExecContext(context.Background(), "CREATE TABLE Singers (SingerId INT64, FirstName STRING(100), LastName STRING(100)) PRIMARY KEY (SingerId)")
+	query := "CREATE TABLE Singers (SingerId INT64, FirstName STRING(100), LastName STRING(100)) PRIMARY KEY (SingerId)"
+	res, err := db.ExecContext(context.Background(), query)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -648,6 +653,133 @@ func TestDdlInAutocommit(t *testing.T) {
 	}
 	if affected != 0 {
 		t.Fatalf("affected rows count mismatch\nGot: %v\nWant: %v", affected, 0)
+	}
+	requests := server.TestDatabaseAdmin.Reqs()
+	if g, w := len(requests), 1; g != w {
+		t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	if req, ok := requests[0].(*databasepb.UpdateDatabaseDdlRequest); ok {
+		if g, w := len(req.Statements), 1; g != w {
+			t.Fatalf("statement count mismatch\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := req.Statements[0], query; g != w {
+			t.Fatalf("statement mismatch\nGot: %v\nWant: %v", g, w)
+		}
+	} else {
+		t.Fatalf("request type mismatch, got %v", requests[0])
+	}
+}
+
+func TestDdlInTransaction(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDbConnection(t)
+	defer teardown()
+
+	var expectedResponse = &emptypb.Empty{}
+	any, _ := ptypes.MarshalAny(expectedResponse)
+	server.TestDatabaseAdmin.SetResps([]proto.Message{
+		&longrunningpb.Operation{
+			Done:   true,
+			Result: &longrunningpb.Operation_Response{Response: any},
+			Name:   "test-operation",
+		},
+	})
+	query := "CREATE TABLE Singers (SingerId INT64, FirstName STRING(100), LastName STRING(100)) PRIMARY KEY (SingerId)"
+	tx, err := db.BeginTx(context.Background(), &sql.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := tx.ExecContext(context.Background(), query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if affected != 0 {
+		t.Fatalf("affected rows count mismatch\nGot: %v\nWant: %v", affected, 0)
+	}
+	requests := server.TestDatabaseAdmin.Reqs()
+	if g, w := len(requests), 1; g != w {
+		t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	if req, ok := requests[0].(*databasepb.UpdateDatabaseDdlRequest); ok {
+		if g, w := len(req.Statements), 1; g != w {
+			t.Fatalf("statement count mismatch\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := req.Statements[0], query; g != w {
+			t.Fatalf("statement mismatch\nGot: %v\nWant: %v", g, w)
+		}
+	} else {
+		t.Fatalf("request type mismatch, got %v", requests[0])
+	}
+}
+
+func TestBegin(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDbConnection(t)
+	defer teardown()
+
+	// Ensure that the old Begin method works.
+	_, err := db.Begin()
+	if err != nil {
+		t.Fatalf("Begin failed: %v", err)
+	}
+}
+
+func TestQuery(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDbConnection(t)
+	defer teardown()
+
+	// Ensure that the old Query method works.
+	rows, err := db.Query(testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+	defer rows.Close()
+}
+
+func TestExec(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDbConnection(t)
+	defer teardown()
+
+	// Ensure that the old Exec method works.
+	_, err := db.Exec(testutil.UpdateBarSetFoo)
+	if err != nil {
+		t.Fatalf("Exec failed: %v", err)
+	}
+}
+
+func TestPrepare(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDbConnection(t)
+	defer teardown()
+
+	// Ensure that the old Prepare method works.
+	_, err := db.Prepare(testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatalf("Prepare failed: %v", err)
+	}
+}
+
+func TestPing(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDbConnection(t)
+	defer teardown()
+
+	// Ensure that the old Ping method works.
+	err := db.Ping()
+	if err != nil {
+		t.Fatalf("Ping failed: %v", err)
 	}
 }
 
@@ -666,7 +798,7 @@ func setupTestDbConnection(t *testing.T) (db *sql.DB, server *testutil.MockedSpa
 		t.Fatal(err)
 	}
 	return db, server, func() {
-		db.Close()
+		_ = db.Close()
 		serverTeardown()
 	}
 }

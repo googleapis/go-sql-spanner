@@ -15,11 +15,14 @@
 package spannerdriver
 
 import (
-	"cloud.google.com/go/spanner"
 	"context"
 	"fmt"
+
+	"cloud.google.com/go/spanner"
 )
 
+// contextTransaction is the combination of both read/write and read-only
+// transactions.
 type contextTransaction interface {
 	Commit() error
 	Rollback() error
@@ -33,6 +36,8 @@ type readOnlyTransaction struct {
 }
 
 func (tx *readOnlyTransaction) Commit() error {
+	// Read-only transactions don't really commit, but closing the transaction
+	// will return the session to the pool.
 	if tx.roTx != nil {
 		tx.roTx.Close()
 	}
@@ -41,6 +46,8 @@ func (tx *readOnlyTransaction) Commit() error {
 }
 
 func (tx *readOnlyTransaction) Rollback() error {
+	// Read-only transactions don't really rollback, but closing the transaction
+	// will return the session to the pool.
 	if tx.roTx != nil {
 		tx.roTx.Close()
 	}
@@ -52,8 +59,8 @@ func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement
 	return tx.roTx.Query(ctx, stmt)
 }
 
-func (tx *readOnlyTransaction) ExecContext(ctx context.Context, stmt spanner.Statement) (int64, error) {
-	return 0, fmt.Errorf("Read-only transactions cannot write")
+func (tx *readOnlyTransaction) ExecContext(_ context.Context, stmt spanner.Statement) (int64, error) {
+	return 0, fmt.Errorf("read-only transactions cannot write")
 }
 
 type readWriteTransaction struct {
