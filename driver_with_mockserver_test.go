@@ -27,12 +27,12 @@ import (
 
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
-	"cloud.google.com/go/spanner/testutil"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	emptypb "github.com/golang/protobuf/ptypes/empty"
 	proto3 "github.com/golang/protobuf/ptypes/struct"
 	"github.com/google/go-cmp/cmp"
+	"github.com/rakyll/go-sql-driver-spanner/testutil"
 	"google.golang.org/api/option"
 	longrunningpb "google.golang.org/genproto/googleapis/longrunning"
 	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
