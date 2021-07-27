@@ -13,4 +13,4 @@ require (
 	google.golang.org/grpc v1.39.0
 )
 
-replace cloud.google.com/go/spanner v1.2.1 => /home/loite/go/src/cloud.google.com/spanner
+replace cloud.google.com/go/spanner v1.2.1 => /Users/loite/go/src/google-cloud-go/spanner
