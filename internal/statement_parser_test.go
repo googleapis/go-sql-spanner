@@ -489,6 +489,10 @@ func TestFindParams(t *testing.T) {
 			input: `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
 			want:  []string{"name"},
 		},
+		{
+			input: "INSERT INTO Foo (Col1, Col2, Col3) VALUES (@param1, @param2, @param3)",
+			want:  []string{"param1", "param2", "param3"},
+		},
 	}
 	for _, tc := range tests {
 		sql, err := removeCommentsAndTrim(tc.input)

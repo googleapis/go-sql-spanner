@@ -15,13 +15,13 @@
 package testutil
 
 import (
+	"encoding/base64"
 	"fmt"
 	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
 	"net"
 	"strconv"
 	"testing"
 
-	"encoding/base64"
 	structpb "github.com/golang/protobuf/ptypes/struct"
 	"google.golang.org/api/option"
 	instancepb "google.golang.org/genproto/googleapis/spanner/admin/instance/v1"
@@ -232,8 +232,8 @@ func createSingersRow(idx int64) *structpb.ListValue {
 	}
 }
 
-func CreateResultSetWithAllTypes() *spannerpb.ResultSet {
-	fields := make([]*spannerpb.StructType_Field, 8)
+func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
+	fields := make([]*spannerpb.StructType_Field, 16)
 	fields[0] = &spannerpb.StructType_Field{
 		Name: "ColBool",
 		Type: &spannerpb.Type{Code: spannerpb.TypeCode_BOOL},
@@ -266,6 +266,62 @@ func CreateResultSetWithAllTypes() *spannerpb.ResultSet {
 		Name: "ColTimestamp",
 		Type: &spannerpb.Type{Code: spannerpb.TypeCode_TIMESTAMP},
 	}
+	fields[8] = &spannerpb.StructType_Field{
+		Name: "ColBoolArray",
+		Type: &spannerpb.Type{
+			Code:             spannerpb.TypeCode_ARRAY,
+			ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_BOOL},
+		},
+	}
+	fields[9] = &spannerpb.StructType_Field{
+		Name: "ColStringArray",
+		Type: &spannerpb.Type{
+			Code:             spannerpb.TypeCode_ARRAY,
+			ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_STRING},
+		},
+	}
+	fields[10] = &spannerpb.StructType_Field{
+		Name: "ColBytesArray",
+		Type: &spannerpb.Type{
+			Code:             spannerpb.TypeCode_ARRAY,
+			ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_BYTES},
+		},
+	}
+	fields[11] = &spannerpb.StructType_Field{
+		Name: "ColIntArray",
+		Type: &spannerpb.Type{
+			Code:             spannerpb.TypeCode_ARRAY,
+			ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_INT64},
+		},
+	}
+	fields[12] = &spannerpb.StructType_Field{
+		Name: "ColFloatArray",
+		Type: &spannerpb.Type{
+			Code:             spannerpb.TypeCode_ARRAY,
+			ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_FLOAT64},
+		},
+	}
+	fields[13] = &spannerpb.StructType_Field{
+		Name: "ColNumericArray",
+		Type: &spannerpb.Type{
+			Code:             spannerpb.TypeCode_ARRAY,
+			ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_NUMERIC},
+		},
+	}
+	fields[14] = &spannerpb.StructType_Field{
+		Name: "ColDateArray",
+		Type: &spannerpb.Type{
+			Code:             spannerpb.TypeCode_ARRAY,
+			ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_DATE},
+		},
+	}
+	fields[15] = &spannerpb.StructType_Field{
+		Name: "ColTimestampArray",
+		Type: &spannerpb.Type{
+			Code:             spannerpb.TypeCode_ARRAY,
+			ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_TIMESTAMP},
+		},
+	}
 	rowType := &spannerpb.StructType{
 		Fields: fields,
 	}
@@ -273,15 +329,77 @@ func CreateResultSetWithAllTypes() *spannerpb.ResultSet {
 		RowType: rowType,
 	}
 	rows := make([]*structpb.ListValue, 1)
-	rowValue := make([]*structpb.Value, 8)
-	rowValue[0] = &structpb.Value{Kind: &structpb.Value_BoolValue{BoolValue: true}}
-	rowValue[1] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "test"}}
-	rowValue[2] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString([]byte("testbytes"))}}
-	rowValue[3] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "5"}}
-	rowValue[4] = &structpb.Value{Kind: &structpb.Value_NumberValue{NumberValue: 3.14}}
-	rowValue[5] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "6.626"}}
-	rowValue[6] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "2021-07-21"}}
-	rowValue[7] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "2021-07-21T21:07:59.339911800Z"}}
+	rowValue := make([]*structpb.Value, len(fields))
+	if nullValues {
+		for i := range fields {
+			rowValue[i] = &structpb.Value{Kind: &structpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}}
+		}
+	} else {
+		rowValue[0] = &structpb.Value{Kind: &structpb.Value_BoolValue{BoolValue: true}}
+		rowValue[1] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "test"}}
+		rowValue[2] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString([]byte("testbytes"))}}
+		rowValue[3] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "5"}}
+		rowValue[4] = &structpb.Value{Kind: &structpb.Value_NumberValue{NumberValue: 3.14}}
+		rowValue[5] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "6.626"}}
+		rowValue[6] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "2021-07-21"}}
+		rowValue[7] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "2021-07-21T21:07:59.339911800Z"}}
+		rowValue[8] = &structpb.Value{Kind: &structpb.Value_ListValue{
+			ListValue: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_BoolValue{BoolValue: true}},
+				{Kind: &structpb.Value_NullValue{}},
+				{Kind: &structpb.Value_BoolValue{BoolValue: false}},
+			}},
+		}}
+		rowValue[9] = &structpb.Value{Kind: &structpb.Value_ListValue{
+			ListValue: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: "test1"}},
+				{Kind: &structpb.Value_NullValue{}},
+				{Kind: &structpb.Value_StringValue{StringValue: "test2"}},
+			}},
+		}}
+		rowValue[10] = &structpb.Value{Kind: &structpb.Value_ListValue{
+			ListValue: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString([]byte("testbytes1"))}},
+				{Kind: &structpb.Value_NullValue{}},
+				{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString([]byte("testbytes2"))}},
+			}},
+		}}
+		rowValue[11] = &structpb.Value{Kind: &structpb.Value_ListValue{
+			ListValue: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: "1"}},
+				{Kind: &structpb.Value_NullValue{}},
+				{Kind: &structpb.Value_StringValue{StringValue: "2"}},
+			}},
+		}}
+		rowValue[12] = &structpb.Value{Kind: &structpb.Value_ListValue{
+			ListValue: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_NumberValue{NumberValue: 6.626}},
+				{Kind: &structpb.Value_NullValue{}},
+				{Kind: &structpb.Value_NumberValue{NumberValue: 10.01}},
+			}},
+		}}
+		rowValue[13] = &structpb.Value{Kind: &structpb.Value_ListValue{
+			ListValue: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: "3.14"}},
+				{Kind: &structpb.Value_NullValue{}},
+				{Kind: &structpb.Value_StringValue{StringValue: "10.01"}},
+			}},
+		}}
+		rowValue[14] = &structpb.Value{Kind: &structpb.Value_ListValue{
+			ListValue: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: "2000-02-29"}},
+				{Kind: &structpb.Value_NullValue{}},
+				{Kind: &structpb.Value_StringValue{StringValue: "2021-07-27"}},
+			}},
+		}}
+		rowValue[15] = &structpb.Value{Kind: &structpb.Value_ListValue{
+			ListValue: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: "2021-07-21T21:07:59.339911800Z"}},
+				{Kind: &structpb.Value_NullValue{}},
+				{Kind: &structpb.Value_StringValue{StringValue: "2021-07-27T21:07:59.339911800Z"}},
+			}},
+		}}
+	}
 	rows[0] = &structpb.ListValue{
 		Values: rowValue,
 	}

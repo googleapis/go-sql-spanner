@@ -15,14 +15,12 @@
 package spannerdriver
 
 import (
-	"database/sql/driver"
-	"io"
-	"sync"
-	"time"
-
 	"cloud.google.com/go/spanner"
+	"database/sql/driver"
 	"google.golang.org/api/iterator"
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
+	"io"
+	"sync"
 )
 
 type rows struct {
@@ -113,25 +111,31 @@ func (r *rows) Next(dest []driver.Value) error {
 			if err := col.Decode(&v); err != nil {
 				return err
 			}
-			dest[i] = v.Int64
+			if v.Valid {
+				dest[i] = v.Int64
+			}
 		case sppb.TypeCode_FLOAT64:
 			var v spanner.NullFloat64
 			if err := col.Decode(&v); err != nil {
 				return err
 			}
-			dest[i] = v.Float64
+			if v.Valid {
+				dest[i] = v.Float64
+			}
 		case sppb.TypeCode_NUMERIC:
 			var v spanner.NullNumeric
 			if err := col.Decode(&v); err != nil {
 				return err
 			}
-			dest[i] = v.Numeric
+			dest[i] = v
 		case sppb.TypeCode_STRING:
 			var v spanner.NullString
 			if err := col.Decode(&v); err != nil {
 				return err
 			}
-			dest[i] = v.StringVal
+			if v.Valid {
+				dest[i] = v.StringVal
+			}
 		case sppb.TypeCode_BYTES:
 			// The column value is a base64 encoded string.
 			var v []byte
@@ -144,26 +148,76 @@ func (r *rows) Next(dest []driver.Value) error {
 			if err := col.Decode(&v); err != nil {
 				return err
 			}
-			dest[i] = v.Bool
+			if v.Valid {
+				dest[i] = v.Bool
+			}
 		case sppb.TypeCode_DATE:
 			var v spanner.NullDate
 			if err := col.Decode(&v); err != nil {
 				return err
 			}
-			if v.IsNull() {
-				dest[i] = v.Date // typed nil
-			} else {
-				dest[i] = v.Date.In(time.UTC) // TODO(jbd): Add note about this.
-			}
+			dest[i] = v
 		case sppb.TypeCode_TIMESTAMP:
 			var v spanner.NullTime
 			if err := col.Decode(&v); err != nil {
 				return err
 			}
-			dest[i] = v.Time
+			if v.Valid {
+				dest[i] = v.Time
+			}
+		case sppb.TypeCode_ARRAY:
+			switch col.Type.ArrayElementType.Code {
+			case sppb.TypeCode_INT64:
+				var v []spanner.NullInt64
+				if err := col.Decode(&v); err != nil {
+					return err
+				}
+				dest[i] = v
+			case sppb.TypeCode_FLOAT64:
+				var v []spanner.NullFloat64
+				if err := col.Decode(&v); err != nil {
+					return err
+				}
+				dest[i] = v
+			case sppb.TypeCode_NUMERIC:
+				var v []spanner.NullNumeric
+				if err := col.Decode(&v); err != nil {
+					return err
+				}
+				dest[i] = v
+			case sppb.TypeCode_STRING:
+				var v []spanner.NullString
+				if err := col.Decode(&v); err != nil {
+					return err
+				}
+				dest[i] = v
+			case sppb.TypeCode_BYTES:
+				var v [][]byte
+				if err := col.Decode(&v); err != nil {
+					return err
+				}
+				dest[i] = v
+			case sppb.TypeCode_BOOL:
+				var v []spanner.NullBool
+				if err := col.Decode(&v); err != nil {
+					return err
+				}
+				dest[i] = v
+			case sppb.TypeCode_DATE:
+				var v []spanner.NullDate
+				if err := col.Decode(&v); err != nil {
+					return err
+				}
+				dest[i] = v
+			case sppb.TypeCode_TIMESTAMP:
+				var v []spanner.NullTime
+				if err := col.Decode(&v); err != nil {
+					return err
+				}
+				dest[i] = v
+			}
 		}
-		// TODO(jbd): Implement other types.
-		// How to handle array and struct?
+		// TODO: Implement struct
 	}
 	return nil
 }

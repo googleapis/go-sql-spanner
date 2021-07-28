@@ -15,19 +15,23 @@
 package spannerdriver
 
 import (
+	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	"context"
 	"database/sql"
 	"flag"
 	"fmt"
+	"github.com/google/go-cmp/cmp"
 	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
 	"google.golang.org/grpc/codes"
 	"log"
 	"math"
+	"math/big"
 	"os"
 	"reflect"
 	"testing"
+	"time"
 
 	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
 	instancepb "google.golang.org/genproto/googleapis/spanner/admin/instance/v1"
@@ -62,6 +66,13 @@ func init() {
 			log.Fatal(err)
 		}
 	}
+}
+
+func runsOnEmulator() bool {
+	if _, ok := os.LookupEnv("SPANNER_EMULATOR_HOST"); ok {
+		return true
+	}
+	return false
 }
 
 func initEmulator(projectId, instanceId, databaseId string) error {
@@ -99,8 +110,8 @@ func initEmulator(projectId, instanceId, databaseId string) error {
 	}
 	defer databaseAdminClient.Close()
 	opDb, err := databaseAdminClient.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
-		Parent: fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId),
-		CreateStatement: fmt.Sprintf("CREATE DATABASE `%s`", databaseId,),
+		Parent:          fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId),
+		CreateStatement: fmt.Sprintf("CREATE DATABASE `%s`", databaseId),
 	})
 	if err != nil {
 		// Check if the database has already been created by another (parallel) test.
@@ -931,5 +942,254 @@ func TestRowsOverflowRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
 
+func TestAllTypes(t *testing.T) {
+	skipIfShort(t)
+
+	// Open db.
+	ctx := context.Background()
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	type AllTypesRow struct {
+		key               int64
+		boolCol           sql.NullBool
+		stringCol         sql.NullString
+		bytesCol          []byte
+		int64Col          sql.NullInt64
+		float64Col        sql.NullFloat64
+		numericCol        spanner.NullNumeric
+		dateCol           spanner.NullDate
+		timestampCol      sql.NullTime
+		boolArrayCol      []spanner.NullBool
+		stringArrayCol    []spanner.NullString
+		bytesArrayCol     [][]byte
+		int64ArrayCol     []spanner.NullInt64
+		float64ArrayCol   []spanner.NullFloat64
+		numericArrayCol   []spanner.NullNumeric
+		dateArrayCol      []spanner.NullDate
+		timestampArrayCol []spanner.NullTime
+	}
+
+	// Set up test table.
+	_, err = db.ExecContext(ctx,
+		`CREATE TABLE TestAllTypes (
+			key          INT64,
+			boolCol      BOOL,
+			stringCol    STRING(MAX),
+			bytesCol     BYTES(MAX),
+			int64Col     INT64,
+			float64Col   FLOAT64,
+			numericCol   NUMERIC,
+			dateCol      DATE,
+			timestampCol TIMESTAMP,
+			boolArrayCol      ARRAY<BOOL>,
+			stringArrayCol    ARRAY<STRING(MAX)>,
+			bytesArrayCol     ARRAY<BYTES(MAX)>,
+			int64ArrayCol     ARRAY<INT64>,
+			float64ArrayCol   ARRAY<FLOAT64>,
+			numericArrayCol   ARRAY<NUMERIC>,
+			dateArrayCol      ARRAY<DATE>,
+			timestampArrayCol ARRAY<TIMESTAMP>,
+		) PRIMARY KEY (key)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.ExecContext(ctx, `DROP TABLE TestAllTypes`)
+
+	tests := []struct {
+		name           string
+		key            int64
+		input          []interface{}
+		want           AllTypesRow
+		skipOnEmulator bool
+	}{
+		{
+			name: "Non-null values",
+			key:  1,
+			input: []interface{}{
+				1, true, "test", []byte("testbytes"), int64(1), 3.14, numeric("6.626"), date("2021-07-28"), time.Date(2021, 7, 28, 15, 8, 30, 30294, time.UTC),
+				[]spanner.NullBool{{Valid: true, Bool: true}, {}, {Valid: true, Bool: false}},
+				[]spanner.NullString{{Valid: true, StringVal: "test1"}, {}, {Valid: true, StringVal: "test2"}},
+				[][]byte{[]byte("testbytes1"), nil, []byte("testbytes2")},
+				[]spanner.NullInt64{{Valid: true, Int64: 1}, {}, {Valid: true, Int64: 2}},
+				[]spanner.NullFloat64{{Valid: true, Float64: 3.14}, {}, {Valid: true, Float64: 6.626}},
+				[]spanner.NullNumeric{{Valid: true, Numeric: numeric("3.14")}, {}, {Valid: true, Numeric: numeric("6.626")}},
+				[]spanner.NullDate{{Valid: true, Date: date("2021-07-28")}, {}, {Valid: true, Date: date("2000-02-29")}},
+				[]spanner.NullTime{{Valid: true, Time: time.Date(2021, 7, 28, 15, 16, 1, 999999999, time.UTC)}},
+			},
+			want: AllTypesRow{1,
+				sql.NullBool{Valid: true, Bool: true}, sql.NullString{Valid: true, String: "test"}, []byte("testbytes"),
+				sql.NullInt64{Valid: true, Int64: 1}, sql.NullFloat64{Valid: true, Float64: 3.14}, spanner.NullNumeric{Valid: true, Numeric: numeric("6.626")},
+				spanner.NullDate{Valid: true, Date: date("2021-07-28")}, sql.NullTime{Valid: true, Time: time.Date(2021, 7, 28, 15, 8, 30, 30294, time.UTC)},
+				[]spanner.NullBool{{Valid: true, Bool: true}, {}, {Valid: true, Bool: false}},
+				[]spanner.NullString{{Valid: true, StringVal: "test1"}, {}, {Valid: true, StringVal: "test2"}},
+				[][]byte{[]byte("testbytes1"), nil, []byte("testbytes2")},
+				[]spanner.NullInt64{{Valid: true, Int64: 1}, {}, {Valid: true, Int64: 2}},
+				[]spanner.NullFloat64{{Valid: true, Float64: 3.14}, {}, {Valid: true, Float64: 6.626}},
+				[]spanner.NullNumeric{{Valid: true, Numeric: numeric("3.14")}, {}, {Valid: true, Numeric: numeric("6.626")}},
+				[]spanner.NullDate{{Valid: true, Date: date("2021-07-28")}, {}, {Valid: true, Date: date("2000-02-29")}},
+				[]spanner.NullTime{{Valid: true, Time: time.Date(2021, 7, 28, 15, 16, 1, 999999999, time.UTC)}},
+			},
+		},
+		{
+			name: "Untyped null values",
+			key:  2,
+			input: []interface{}{
+				2, nil, nil, nil, nil, nil, nil, nil, nil,
+				nil, nil, nil, nil, nil, nil, nil, nil,
+			},
+			want: AllTypesRow{2,
+				sql.NullBool{}, sql.NullString{}, []byte(nil),
+				sql.NullInt64{}, sql.NullFloat64{}, spanner.NullNumeric{},
+				spanner.NullDate{}, sql.NullTime{},
+				[]spanner.NullBool(nil),
+				[]spanner.NullString(nil),
+				[][]byte(nil),
+				[]spanner.NullInt64(nil),
+				[]spanner.NullFloat64(nil),
+				[]spanner.NullNumeric(nil),
+				[]spanner.NullDate(nil),
+				[]spanner.NullTime(nil),
+			},
+			// The emulator does not support untyped null values.
+			skipOnEmulator: true,
+		},
+		{
+			name: "Typed null values",
+			key:  3,
+			input: []interface{}{
+				3, nilBool(), nilString(), []byte(nil), nilInt64(), nilFloat64(), nilRat(), nilDate(), nilTime(),
+				[]spanner.NullBool(nil),
+				[]spanner.NullString(nil),
+				[][]byte(nil),
+				[]spanner.NullInt64(nil),
+				[]spanner.NullFloat64(nil),
+				[]spanner.NullNumeric(nil),
+				[]spanner.NullDate(nil),
+				[]spanner.NullTime(nil),
+			},
+			want: AllTypesRow{3,
+				sql.NullBool{}, sql.NullString{}, []byte(nil),
+				sql.NullInt64{}, sql.NullFloat64{}, spanner.NullNumeric{},
+				spanner.NullDate{}, sql.NullTime{},
+				[]spanner.NullBool(nil),
+				[]spanner.NullString(nil),
+				[][]byte(nil),
+				[]spanner.NullInt64(nil),
+				[]spanner.NullFloat64(nil),
+				[]spanner.NullNumeric(nil),
+				[]spanner.NullDate(nil),
+				[]spanner.NullTime(nil),
+			},
+		},
+		{
+			name: "Null* struct values",
+			key:  4,
+			input: []interface{}{
+				// TODO: Fix the requirement to use spanner.NullString here.
+				4, sql.NullBool{}, spanner.NullString{}, []byte(nil), sql.NullInt64{}, sql.NullFloat64{},
+				spanner.NullNumeric{}, spanner.NullDate{}, sql.NullTime{},
+				[]spanner.NullBool(nil),
+				[]spanner.NullString(nil),
+				[][]byte(nil),
+				[]spanner.NullInt64(nil),
+				[]spanner.NullFloat64(nil),
+				[]spanner.NullNumeric(nil),
+				[]spanner.NullDate(nil),
+				[]spanner.NullTime(nil),
+			},
+			want: AllTypesRow{4,
+				sql.NullBool{}, sql.NullString{}, []byte(nil),
+				sql.NullInt64{}, sql.NullFloat64{}, spanner.NullNumeric{},
+				spanner.NullDate{}, sql.NullTime{},
+				[]spanner.NullBool(nil),
+				[]spanner.NullString(nil),
+				[][]byte(nil),
+				[]spanner.NullInt64(nil),
+				[]spanner.NullFloat64(nil),
+				[]spanner.NullNumeric(nil),
+				[]spanner.NullDate(nil),
+				[]spanner.NullTime(nil),
+			},
+		},
+	}
+	stmt, err := db.PrepareContext(ctx, `INSERT INTO TestAllTypes (key, boolCol, stringCol, bytesCol, int64Col, 
+                                               float64Col, numericCol, dateCol, timestampCol, boolArrayCol,
+                                               stringArrayCol, bytesArrayCol, int64ArrayCol, float64ArrayCol,
+                                               numericArrayCol, dateArrayCol, timestampArrayCol) VALUES (@key, @bool,
+                                               @string, @bytes, @int64, @float64, @numeric, @date, @timestamp,
+                                               @boolArray, @stringArray, @bytesArray, @int64Array, @float64Array,
+                                               @numericArray, @dateArray, @timestampArray)`)
+	for _, test := range tests {
+		if runsOnEmulator() && test.skipOnEmulator {
+			t.Logf("skipping test %q on emulator", test.name)
+			continue
+		}
+		res, err := stmt.ExecContext(ctx, test.input...)
+		if err != nil {
+			t.Fatalf("insert failed: %v", err)
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			t.Fatalf("could not get rows affected: %v", err)
+		}
+		if g, w := affected, int64(1); g != w {
+			t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", g, w)
+		}
+		// Read the row back.
+		row := db.QueryRowContext(ctx, "SELECT * FROM TestAllTypes WHERE key=@key", test.key)
+		var allTypesRow AllTypesRow
+		err = row.Scan(
+			&allTypesRow.key, &allTypesRow.boolCol, &allTypesRow.stringCol, &allTypesRow.bytesCol, &allTypesRow.int64Col,
+			&allTypesRow.float64Col, &allTypesRow.numericCol, &allTypesRow.dateCol, &allTypesRow.timestampCol,
+			&allTypesRow.boolArrayCol, &allTypesRow.stringArrayCol, &allTypesRow.bytesArrayCol, &allTypesRow.int64ArrayCol,
+			&allTypesRow.float64ArrayCol, &allTypesRow.numericArrayCol, &allTypesRow.dateArrayCol, &allTypesRow.timestampArrayCol,
+		)
+		if err != nil {
+			t.Fatalf("could not query row: %v", err)
+		}
+		if !cmp.Equal(allTypesRow, test.want, cmp.AllowUnexported(AllTypesRow{}, big.Rat{}, big.Int{})) {
+			t.Fatalf("row mismatch\nGot:  %v\nWant: %v", allTypesRow, test.want)
+		}
+	}
+}
+
+func nilBool() *bool {
+	var b *bool
+	return b
+}
+
+func nilString() *string {
+	var s *string
+	return s
+}
+
+func nilInt64() *int64 {
+	var i *int64
+	return i
+}
+
+func nilFloat64() *float64 {
+	var f *float64
+	return f
+}
+
+func nilRat() *big.Rat {
+	var r *big.Rat
+	return r
+}
+
+func nilDate() *civil.Date {
+	var d *civil.Date
+	return d
+}
+
+func nilTime() *time.Time {
+	var t *time.Time
+	return t
 }
