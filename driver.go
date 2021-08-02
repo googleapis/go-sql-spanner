@@ -20,8 +20,6 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
-	"log"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -36,19 +34,18 @@ import (
 )
 
 const userAgent = "go-sql-driver-spanner/0.1"
-const dsnRegExpString = "((?P<HOSTGROUP>[\\w.-]+(?:\\.[\\w\\.-]+)*[\\w\\-\\._~:/?#\\[\\]@!\\$&'\\(\\)\\*\\+,;=.]+)/)?projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID)))(/instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+)(/databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?)?(([\\?|;])(?P<PARAMSGROUP>.*))?"
 
-var dsnRegExp *regexp.Regexp
+// dsnRegExpString describes the valid values for a dsn (connection name) for
+// Google Cloud Spanner. The string consists of the following parts:
+// 1. (Optional) Host: The host name and port number to connect to.
+// 2. Database name: The database name to connect to in the format `projects/my-project/instances/my-instance/databases/my-database`
+// 3. (Optional) Parameters: One or more parameters in the format `name=value`. Multiple entries are separated by `;`.
+// Example: `localhost:9010/projects/test-project/instances/test-instance/databases/test-database;usePlainText=true`
+var dsnRegExp = regexp.MustCompile("((?P<HOSTGROUP>[\\w.-]+(?:\\.[\\w\\.-]+)*[\\w\\-\\._~:/?#\\[\\]@!\\$&'\\(\\)\\*\\+,;=.]+)/)?projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID)))(/instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+)(/databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?)?(([\\?|;])(?P<PARAMSGROUP>.*))?")
 
 var _ driver.DriverContext = &Driver{}
 
 func init() {
-	var err error
-	dsnRegExp, err = regexp.Compile(dsnRegExpString)
-	if err != nil {
-		log.Fatalf("could not compile Spanner dsn regexp: %v", err)
-		return
-	}
 	sql.Register("spanner", &Driver{})
 }
 
@@ -123,9 +120,9 @@ type connector struct {
 	driver          *Driver
 	connectorConfig connectorConfig
 
-	// config represents the optional advanced configuration to be used
+	// spannerClientConfig represents the optional advanced configuration to be used
 	// by the Google Cloud Spanner client.
-	config spanner.ClientConfig
+	spannerClientConfig spanner.ClientConfig
 
 	// options represent the optional Google Cloud client options
 	// to be passed to the underlying client.
@@ -150,10 +147,10 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 		SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 	}
 	return &connector{
-		driver:          d,
-		connectorConfig: connectorConfig,
-		config:          config,
-		options:         opts,
+		driver:              d,
+		connectorConfig:     connectorConfig,
+		spannerClientConfig: config,
+		options:             opts,
 	}, nil
 }
 
@@ -168,7 +165,7 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		c.connectorConfig.project,
 		c.connectorConfig.instance,
 		c.connectorConfig.database)
-	client, err := spanner.NewClientWithConfig(ctx, databaseName, c.config, opts...)
+	client, err := spanner.NewClientWithConfig(ctx, databaseName, c.spannerClientConfig, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -178,27 +175,6 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		return nil, err
 	}
 	return &conn{client: client, adminClient: adminClient, database: databaseName}, nil
-}
-
-func createAdminClient(ctx context.Context) (adminClient *adminapi.DatabaseAdminClient, err error) {
-	// Admin client will connect to emulator if SPANNER_EMULATOR_HOST
-	// is set in the environment.
-	if spannerHost, ok := os.LookupEnv("SPANNER_EMULATOR_HOST"); ok {
-		adminClient, err = adminapi.NewDatabaseAdminClient(
-			ctx,
-			option.WithoutAuthentication(),
-			option.WithEndpoint(spannerHost),
-			option.WithGRPCDialOption(grpc.WithInsecure()))
-		if err != nil {
-			adminClient = nil
-		}
-	} else {
-		adminClient, err = adminapi.NewDatabaseAdminClient(ctx)
-		if err != nil {
-			adminClient = nil
-		}
-	}
-	return
 }
 
 func (c *connector) Driver() driver.Driver {
@@ -327,7 +303,7 @@ func (c *conn) Close() error {
 }
 
 func (c *conn) Begin() (driver.Tx, error) {
-	return nil, fmt.Errorf("use BeginTx instead")
+	return c.BeginTx(context.Background(), driver.TxOptions{})
 }
 
 func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
