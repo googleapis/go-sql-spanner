@@ -18,6 +18,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 
 	"cloud.google.com/go/spanner"
 	"github.com/rakyll/go-sql-driver-spanner/internal"
@@ -38,7 +39,7 @@ func (s *stmt) NumInput() int {
 }
 
 func (s *stmt) Exec(args []driver.Value) (driver.Result, error) {
-	panic("Using ExecContext instead")
+	return nil, fmt.Errorf("use ExecContext instead")
 }
 
 func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
@@ -46,7 +47,7 @@ func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (drive
 }
 
 func (s *stmt) Query(args []driver.Value) (driver.Rows, error) {
-	panic("Using QueryContext instead")
+	return nil, fmt.Errorf("use QueryContext instead")
 }
 
 func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
@@ -56,20 +57,25 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 	}
 
 	var it *spanner.RowIterator
-	if s.conn.roTx != nil {
-		it = s.conn.roTx.Query(ctx, ss)
-	} else if s.conn.rwTx != nil {
-		it = s.conn.rwTx.Query(ctx, ss)
+	if s.conn.tx != nil {
+		it = s.conn.tx.Query(ctx, ss)
 	} else {
 		it = s.conn.client.Single().Query(ctx, ss)
 	}
 	return &rows{it: it}, nil
 }
 
+func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
+	return nil
+}
+
 func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, error) {
-	names, err := internal.NamedValueParamNames(q, len(args))
+	names, err := internal.ParseNamedParameters(q)
 	if err != nil {
 		return spanner.Statement{}, err
+	}
+	if len(names) != len(args) {
+		return spanner.Statement{}, fmt.Errorf("got %v argument values, but found %v parameters in the sql string", len(args), len(names))
 	}
 	ss := spanner.NewStatement(q)
 	for i, v := range args {

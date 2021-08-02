@@ -19,9 +19,10 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
-	"os"
+	"fmt"
 	"regexp"
-	"time"
+	"strconv"
+	"strings"
 
 	"cloud.google.com/go/spanner"
 	"github.com/rakyll/go-sql-driver-spanner/internal"
@@ -34,6 +35,14 @@ import (
 
 const userAgent = "go-sql-driver-spanner/0.1"
 
+// dsnRegExpString describes the valid values for a dsn (connection name) for
+// Google Cloud Spanner. The string consists of the following parts:
+// 1. (Optional) Host: The host name and port number to connect to.
+// 2. Database name: The database name to connect to in the format `projects/my-project/instances/my-instance/databases/my-database`
+// 3. (Optional) Parameters: One or more parameters in the format `name=value`. Multiple entries are separated by `;`.
+// Example: `localhost:9010/projects/test-project/instances/test-instance/databases/test-database;usePlainText=true`
+var dsnRegExp = regexp.MustCompile("((?P<HOSTGROUP>[\\w.-]+(?:\\.[\\w\\.-]+)*[\\w\\-\\._~:/?#\\[\\]@!\\$&'\\(\\)\\*\\+,;=.]+)/)?projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID)))(/instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+)(/databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?)?(([\\?|;])(?P<PARAMSGROUP>.*))?")
+
 var _ driver.DriverContext = &Driver{}
 
 func init() {
@@ -42,13 +51,6 @@ func init() {
 
 // Driver represents a Google Cloud Spanner database/sql driver.
 type Driver struct {
-	// Config represents the optional advanced configuration to be used
-	// by the Google Cloud Spanner client.
-	Config spanner.ClientConfig
-
-	// Options represent the optional Google Cloud client options
-	// to be passed to the underlying client.
-	Options []option.ClientOption
 }
 
 // Open opens a connection to a Google Cloud Spanner database.
@@ -56,62 +58,123 @@ type Driver struct {
 //
 // Example: projects/$PROJECT/instances/$INSTANCE/databases/$DATABASE
 func (d *Driver) Open(name string) (driver.Conn, error) {
-	return openDriverConn(context.Background(), d, name)
+	c, err := newConnector(d, name)
+	if err != nil {
+		return nil, err
+	}
+	return openDriverConn(context.Background(), c)
 }
 
 func (d *Driver) OpenConnector(name string) (driver.Connector, error) {
-	return &connector{
-		driver: d,
-		name:   name,
+	return newConnector(d, name)
+}
+
+type connectorConfig struct {
+	host     string
+	project  string
+	instance string
+	database string
+	params   map[string]string
+}
+
+func extractConnectorConfig(dsn string) (connectorConfig, error) {
+	match := dsnRegExp.FindStringSubmatch(dsn)
+	matches := make(map[string]string)
+	for i, name := range dsnRegExp.SubexpNames() {
+		if i != 0 && name != "" {
+			matches[name] = match[i]
+		}
+	}
+	paramsString := matches["PARAMSGROUP"]
+	params, err := extractConnectorParams(paramsString)
+	if err != nil {
+		return connectorConfig{}, err
+	}
+
+	return connectorConfig{
+		host:     matches["HOSTGROUP"],
+		project:  matches["PROJECTGROUP"],
+		instance: matches["INSTANCEGROUP"],
+		database: matches["DATABASEGROUP"],
+		params:   params,
 	}, nil
 }
 
+func extractConnectorParams(paramsString string) (map[string]string, error) {
+	params := make(map[string]string)
+	if paramsString == "" {
+		return params, nil
+	}
+	keyValuePairs := strings.Split(paramsString, ";")
+	for _, keyValueString := range keyValuePairs {
+		keyValue := strings.SplitN(keyValueString, "=", 2)
+		if keyValue == nil || len(keyValue) != 2 {
+			return nil, fmt.Errorf("invalid connection property: %s", keyValueString)
+		}
+		params[keyValue[0]] = keyValue[1]
+	}
+	return params, nil
+}
+
 type connector struct {
-	driver *Driver
-	name   string
+	driver          *Driver
+	connectorConfig connectorConfig
+
+	// spannerClientConfig represents the optional advanced configuration to be used
+	// by the Google Cloud Spanner client.
+	spannerClientConfig spanner.ClientConfig
+
+	// options represent the optional Google Cloud client options
+	// to be passed to the underlying client.
+	options []option.ClientOption
+}
+
+func newConnector(d *Driver, dsn string) (*connector, error) {
+	connectorConfig, err := extractConnectorConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	opts := make([]option.ClientOption, 0)
+	if connectorConfig.host != "" {
+		opts = append(opts, option.WithEndpoint(connectorConfig.host))
+	}
+	if strval, ok := connectorConfig.params["useplaintext"]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil && val {
+			opts = append(opts, option.WithGRPCDialOption(grpc.WithInsecure()), option.WithoutAuthentication())
+		}
+	}
+	config := spanner.ClientConfig{
+		SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+	}
+	return &connector{
+		driver:              d,
+		connectorConfig:     connectorConfig,
+		spannerClientConfig: config,
+		options:             opts,
+	}, nil
 }
 
 func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
-	return openDriverConn(ctx, c.driver, c.name)
+	return openDriverConn(ctx, c)
 }
 
-func openDriverConn(ctx context.Context, d *Driver, name string) (driver.Conn, error) {
-	if d.Config.NumChannels == 0 {
-		d.Config.NumChannels = 1 // TODO(jbd): Explain database/sql has a high-level management.
-	}
-	opts := append(d.Options, option.WithUserAgent(userAgent))
-	client, err := spanner.NewClientWithConfig(ctx, name, d.Config, opts...)
+func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
+	opts := append(c.options, option.WithUserAgent(userAgent))
+	databaseName := fmt.Sprintf(
+		"projects/%s/instances/%s/databases/%s",
+		c.connectorConfig.project,
+		c.connectorConfig.instance,
+		c.connectorConfig.database)
+	client, err := spanner.NewClientWithConfig(ctx, databaseName, c.spannerClientConfig, opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	adminClient, err := createAdminClient(ctx)
+	adminClient, err := adminapi.NewDatabaseAdminClient(ctx, opts...)
 	if err != nil {
 		return nil, err
 	}
-	return &conn{client: client, adminClient: adminClient, name: name}, nil
-}
-
-func createAdminClient(ctx context.Context) (adminClient *adminapi.DatabaseAdminClient, err error) {
-
-	// Admin client will connect to emulator if SPANNER_EMULATOR_HOST
-	// is set in the environment.
-	if spannerHost, ok := os.LookupEnv("SPANNER_EMULATOR_HOST"); ok {
-		adminClient, err = adminapi.NewDatabaseAdminClient(
-			ctx,
-			option.WithoutAuthentication(),
-			option.WithEndpoint(spannerHost),
-			option.WithGRPCDialOption(grpc.WithInsecure()))
-		if err != nil {
-			adminClient = nil
-		}
-	} else {
-		adminClient, err = adminapi.NewDatabaseAdminClient(ctx)
-		if err != nil {
-			adminClient = nil
-		}
-	}
-	return
+	return &conn{client: client, adminClient: adminClient, database: databaseName}, nil
 }
 
 func (c *connector) Driver() driver.Driver {
@@ -119,37 +182,93 @@ func (c *connector) Driver() driver.Driver {
 }
 
 type conn struct {
+	closed      bool
 	client      *spanner.Client
 	adminClient *adminapi.DatabaseAdminClient
-	roTx        *spanner.ReadOnlyTransaction
-	rwTx        *rwTx
-	name        string
+	tx          contextTransaction
+	database    string
+}
+
+// Ping implements the driver.Pinger interface.
+// returns ErrBadConn if the connection is no longer valid.
+func (c *conn) Ping(ctx context.Context) error {
+	if c.closed {
+		return driver.ErrBadConn
+	}
+	rows, err := c.QueryContext(ctx, "SELECT 1", []driver.NamedValue{})
+	if err != nil {
+		return driver.ErrBadConn
+	}
+	defer rows.Close()
+	values := make([]driver.Value, 1)
+	if err := rows.Next(values); err != nil {
+		return driver.ErrBadConn
+	}
+	if values[0] != int64(1) {
+		return driver.ErrBadConn
+	}
+	return nil
+}
+
+// ResetSession implements the driver.SessionResetter interface.
+// returns ErrBadConn if the connection is no longer valid.
+func (c *conn) ResetSession(_ context.Context) error {
+	if c.closed {
+		return driver.ErrBadConn
+	}
+	if c.inTransaction() {
+		if err := c.tx.Rollback(); err != nil {
+			return driver.ErrBadConn
+		}
+	}
+	return nil
+}
+
+// IsValid implements the driver.Validator interface.
+func (c *conn) IsValid() bool {
+	return !c.closed
 }
 
 func (c *conn) Prepare(query string) (driver.Stmt, error) {
-	panic("Using PrepareContext instead")
+	return c.PrepareContext(context.Background(), query)
 }
 
-func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
-	// TODO(jbd): Mention emails need to be escaped.
-	args, err := internal.NamedValueParamNames(query, -1)
+func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, error) {
+	args, err := internal.ParseNamedParameters(query)
 	if err != nil {
 		return nil, err
 	}
 	return &stmt{conn: c, query: query, numArgs: len(args)}, nil
 }
 
-func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+func (c *conn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	stmt, err := prepareSpannerStmt(query, args)
+	if err != nil {
+		return nil, err
+	}
+	var iter *spanner.RowIterator
+	if c.tx == nil {
+		iter = c.client.Single().Query(ctx, stmt)
+	} else {
+		iter = c.tx.Query(ctx, stmt)
+	}
+	return &rows{it: iter}, nil
+}
 
+func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	// Use admin API if DDL statement is provided.
-	isDdl, err := isDdl(query)
+	isDdl, err := internal.IsDdl(query)
 	if err != nil {
 		return nil, err
 	}
 
 	if isDdl {
+		// TODO: Determine whether we want to return an error if a transaction
+		// is active. Cloud Spanner does not support DDL in transactions, but
+		// this makes it seem like the DDL statement is executed on the
+		// transaction on this connection if it has a transaction.
 		op, err := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
-			Database:   c.name,
+			Database:   c.database,
 			Statements: []string{query},
 		})
 		if err != nil {
@@ -161,34 +280,21 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 		return &result{rowsAffected: 0}, nil
 	}
 
-	if c.roTx != nil {
-		return nil, errors.New("cannot write in read-only transaction")
-	}
 	ss, err := prepareSpannerStmt(query, args)
 	if err != nil {
 		return nil, err
 	}
 
 	var rowsAffected int64
-	if c.rwTx == nil {
+	if c.tx == nil {
 		rowsAffected, err = c.execContextInNewRWTransaction(ctx, ss)
 	} else {
-		rowsAffected, err = c.rwTx.ExecContext(ctx, ss)
+		rowsAffected, err = c.tx.ExecContext(ctx, ss)
 	}
 	if err != nil {
 		return nil, err
 	}
 	return &result{rowsAffected: rowsAffected}, nil
-}
-
-func isDdl(query string) (bool, error) {
-
-	matchddl, err := regexp.MatchString(`(?is)^\n*\s*(CREATE|DROP|ALTER)\s+.+$`, query)
-	if err != nil {
-		return false, err
-	}
-
-	return matchddl, nil
 }
 
 func (c *conn) Close() error {
@@ -197,7 +303,7 @@ func (c *conn) Close() error {
 }
 
 func (c *conn) Begin() (driver.Tx, error) {
-	panic("Using BeginTx instead")
+	return c.BeginTx(context.Background(), driver.TxOptions{})
 }
 
 func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
@@ -206,35 +312,32 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 	}
 
 	if opts.ReadOnly {
-		c.roTx = c.client.ReadOnlyTransaction().WithTimestampBound(spanner.StrongRead())
-		return &roTx{close: func() {
-			c.roTx.Close()
-			c.roTx = nil
-		}}, nil
+		ro := c.client.ReadOnlyTransaction().WithTimestampBound(spanner.StrongRead())
+		c.tx = &readOnlyTransaction{
+			roTx: ro,
+			close: func() {
+				c.tx = nil
+			},
+		}
+		return c.tx, nil
 	}
 
-	connector := internal.NewRWConnector(ctx, c.client)
-	c.rwTx = &rwTx{
-		connector: connector,
+	tx, err := spanner.NewReadWriteStmtBasedTransaction(ctx, c.client)
+	if err != nil {
+		return nil, err
+	}
+	c.tx = &readWriteTransaction{
+		ctx:  ctx,
+		rwTx: tx,
 		close: func() {
-			c.rwTx = nil
+			c.tx = nil
 		},
 	}
-
-	// TODO(jbd): Make sure we are not leaking
-	// a goroutine in connector if timeout happens.
-	select {
-	case <-connector.Ready:
-		return c.rwTx, nil
-	case err := <-connector.Errors: // If received before Ready, transaction failed to start.
-		return nil, err
-	case <-time.Tick(10 * time.Second):
-		return nil, errors.New("cannot begin transaction, timeout after 10 seconds")
-	}
+	return c.tx, nil
 }
 
 func (c *conn) inTransaction() bool {
-	return c.roTx != nil || c.rwTx != nil
+	return c.tx != nil
 }
 
 func (c *conn) execContextInNewRWTransaction(ctx context.Context, statement spanner.Statement) (int64, error) {

@@ -17,7 +17,6 @@ package spannerdriver
 import (
 	"database/sql/driver"
 	"io"
-	"log"
 	"sync"
 	"time"
 
@@ -30,6 +29,7 @@ type rows struct {
 	it *spanner.RowIterator
 
 	colsOnce sync.Once
+	dirtyErr error
 	cols     []string
 
 	dirtyRow *spanner.Row
@@ -53,12 +53,19 @@ func (r *rows) Close() error {
 func (r *rows) getColumns() {
 	r.colsOnce.Do(func() {
 		row, err := r.it.Next()
-		if err != nil {
-			log.Println(err)
-			return
+		if err == nil {
+			r.dirtyRow = row
+		} else {
+			r.dirtyErr = err
+			if err != iterator.Done {
+				return
+			}
 		}
-		r.dirtyRow = row
-		r.cols = row.ColumnNames()
+		rowType := r.it.Metadata.RowType
+		r.cols = make([]string, len(rowType.Fields))
+		for i, c := range rowType.Fields {
+			r.cols[i] = c.Name
+		}
 	})
 }
 
@@ -77,6 +84,13 @@ func (r *rows) Next(dest []driver.Value) error {
 	if r.dirtyRow != nil {
 		row = r.dirtyRow
 		r.dirtyRow = nil
+	} else if r.dirtyErr != nil {
+		err := r.dirtyErr
+		r.dirtyErr = nil
+		if err == iterator.Done {
+			return io.EOF
+		}
+		return err
 	} else {
 		var err error
 		row, err = r.it.Next() // returns io.EOF when there is no next
@@ -106,6 +120,12 @@ func (r *rows) Next(dest []driver.Value) error {
 				return err
 			}
 			dest[i] = v.Float64
+		case sppb.TypeCode_NUMERIC:
+			var v spanner.NullNumeric
+			if err := col.Decode(&v); err != nil {
+				return err
+			}
+			dest[i] = v.Numeric
 		case sppb.TypeCode_STRING:
 			var v spanner.NullString
 			if err := col.Decode(&v); err != nil {
@@ -133,7 +153,7 @@ func (r *rows) Next(dest []driver.Value) error {
 			if v.IsNull() {
 				dest[i] = v.Date // typed nil
 			} else {
-				dest[i] = v.Date.In(time.Local) // TODO(jbd): Add note about this.
+				dest[i] = v.Date.In(time.UTC) // TODO(jbd): Add note about this.
 			}
 		case sppb.TypeCode_TIMESTAMP:
 			var v spanner.NullTime
