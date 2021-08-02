@@ -233,7 +233,7 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 	return c.PrepareContext(context.Background(), query)
 }
 
-func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, error) {
+func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
 	args, err := internal.ParseNamedParameters(query)
 	if err != nil {
 		return nil, err

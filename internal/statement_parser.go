@@ -223,7 +223,7 @@ func findParams(sql string) ([]string, error) {
 				index++
 				startIndex := index
 				for index < len(runes) {
-					if unicode.IsSpace(runes[index]) {
+					if !(unicode.IsLetter(runes[index]) || unicode.IsDigit(runes[index]) || runes[index] == '_') {
 						res = append(res, string(runes[startIndex:index]))
 						break
 					}
