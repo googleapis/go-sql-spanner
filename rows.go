@@ -24,7 +24,7 @@ import (
 )
 
 type rows struct {
-	it *spanner.RowIterator
+	it rowIterator
 
 	colsOnce sync.Once
 	dirtyErr error
@@ -59,7 +59,7 @@ func (r *rows) getColumns() {
 				return
 			}
 		}
-		rowType := r.it.Metadata.RowType
+		rowType := r.it.Metadata().RowType
 		r.cols = make([]string, len(rowType.Fields))
 		for i, c := range rowType.Fields {
 			r.cols[i] = c.Name

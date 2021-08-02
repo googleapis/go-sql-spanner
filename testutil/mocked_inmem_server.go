@@ -58,6 +58,14 @@ const UpdateBarSetFoo = "UPDATE FOO SET BAR=1 WHERE BAZ=2"
 // statement defined in UpdateBarSetFoo.
 const UpdateBarSetFooRowCount = 5
 
+// UpdateSingersSetLastName is an UPDATE statement that is added to the mocked test
+// server that will return an update count of 1.
+const UpdateSingersSetLastName = "UPDATE Singers SET LastName='Test' WHERE SingerId=1"
+
+// UpdateSingersSetLastNameRowCount is the constant update count value returned by the
+// statement defined in UpdateSingersSetLastName.
+const UpdateSingersSetLastNameRowCount = 1
+
 // MockedSpannerInMemTestServer is an InMemSpannerServer with results for a
 // number of SQL statements readily mocked.
 type MockedSpannerInMemTestServer struct {
@@ -152,6 +160,10 @@ func (s *MockedSpannerInMemTestServer) setupFooResults() {
 	s.TestSpanner.PutStatementResult(UpdateBarSetFoo, &StatementResult{
 		Type:        StatementResultUpdateCount,
 		UpdateCount: UpdateBarSetFooRowCount,
+	})
+	s.TestSpanner.PutStatementResult(UpdateSingersSetLastName, &StatementResult{
+		Type: StatementResultUpdateCount,
+		UpdateCount: UpdateSingersSetLastNameRowCount,
 	})
 }
 

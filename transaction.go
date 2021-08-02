@@ -17,6 +17,8 @@ package spannerdriver
 import (
 	"context"
 	"fmt"
+	sppb "google.golang.org/genproto/googleapis/spanner/v1"
+	"google.golang.org/grpc/codes"
 
 	"cloud.google.com/go/spanner"
 )
@@ -26,8 +28,30 @@ import (
 type contextTransaction interface {
 	Commit() error
 	Rollback() error
-	Query(ctx context.Context, stmt spanner.Statement) *spanner.RowIterator
+	Query(ctx context.Context, stmt spanner.Statement) rowIterator
 	ExecContext(ctx context.Context, stmt spanner.Statement) (int64, error)
+}
+
+type rowIterator interface {
+	Next() (*spanner.Row, error)
+	Stop()
+	Metadata() *sppb.ResultSetMetadata
+}
+
+type readOnlyRowIterator struct {
+	*spanner.RowIterator
+}
+
+func (ri *readOnlyRowIterator) Next() (*spanner.Row, error) {
+	return ri.RowIterator.Next()
+}
+
+func (ri *readOnlyRowIterator) Stop() {
+	ri.RowIterator.Stop()
+}
+
+func (ri *readOnlyRowIterator) Metadata() *sppb.ResultSetMetadata {
+	return ri.RowIterator.Metadata
 }
 
 type readOnlyTransaction struct {
@@ -55,23 +79,93 @@ func (tx *readOnlyTransaction) Rollback() error {
 	return nil
 }
 
-func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement) *spanner.RowIterator {
-	return tx.roTx.Query(ctx, stmt)
+func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement) rowIterator {
+	return &readOnlyRowIterator{tx.roTx.Query(ctx, stmt)}
 }
 
 func (tx *readOnlyTransaction) ExecContext(_ context.Context, stmt spanner.Statement) (int64, error) {
 	return 0, fmt.Errorf("read-only transactions cannot write")
 }
 
+type retriableStatement interface {
+	retry(ctx context.Context, tx *spanner.ReadWriteStmtBasedTransaction) error
+}
+
+type retriableUpdate struct {
+	stmt spanner.Statement
+	c    int64
+	err  error
+}
+
+func (ru *retriableUpdate) retry(ctx context.Context, tx *spanner.ReadWriteStmtBasedTransaction) error {
+	c, err := tx.Update(ctx, ru.stmt)
+	if err != nil && spanner.ErrCode(err) == codes.Aborted {
+		return err
+	}
+	if err != nil && ru.err == nil {
+		return errAbortedDueToConcurrentModification
+	}
+	if err == nil && ru.err != nil {
+		return errAbortedDueToConcurrentModification
+	}
+	if err != nil && ru.err != nil {
+		if spanner.ErrCode(err) != spanner.ErrCode(ru.err) {
+			return errAbortedDueToConcurrentModification
+		}
+		return nil
+	}
+	if c != ru.c {
+		return errAbortedDueToConcurrentModification
+	}
+	return nil
+}
+
 type readWriteTransaction struct {
-	ctx   context.Context
-	rwTx  *spanner.ReadWriteStmtBasedTransaction
-	close func()
+	ctx     context.Context
+	client  *spanner.Client
+	rwTx    *spanner.ReadWriteStmtBasedTransaction
+	close   func()
+
+	statements []retriableStatement
+}
+
+func (tx *readWriteTransaction) runWithRetry(ctx context.Context, f func(ctx context.Context) error) (err error) {
+	for {
+		if err == nil {
+			err = f(ctx)
+		}
+		if err == errAbortedDueToConcurrentModification {
+			return
+		}
+		if spanner.ErrCode(err) == codes.Aborted {
+			err = tx.retry(ctx)
+			continue
+		}
+		return
+	}
+}
+
+func (tx *readWriteTransaction) retry(ctx context.Context) (err error) {
+	tx.rwTx, err = spanner.NewReadWriteStmtBasedTransaction(ctx, tx.client)
+	if err != nil {
+		return err
+	}
+	for _, stmt := range tx.statements {
+		err = stmt.retry(ctx, tx.rwTx)
+		if err != nil {
+			return err
+		}
+	}
+
+	return err
 }
 
 func (tx *readWriteTransaction) Commit() (err error) {
 	if tx.rwTx != nil {
-		_, err = tx.rwTx.Commit(tx.ctx)
+		err = tx.runWithRetry(tx.ctx, func(ctx context.Context) error {
+			_, err := tx.rwTx.Commit(ctx)
+			return err
+		})
 	}
 	tx.close()
 	return err
@@ -85,10 +179,24 @@ func (tx *readWriteTransaction) Rollback() error {
 	return nil
 }
 
-func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement) *spanner.RowIterator {
-	return tx.rwTx.Query(ctx, stmt)
+func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement) rowIterator {
+	return &checksumRowIterator{
+		RowIterator: tx.rwTx.Query(ctx, stmt),
+		ctx:  ctx,
+		tx:   tx,
+		stmt: stmt,
+	}
 }
 
-func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.Statement) (int64, error) {
-	return tx.rwTx.Update(ctx, stmt)
+func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.Statement) (res int64, err error) {
+	err = tx.runWithRetry(ctx, func(ctx context.Context) error {
+		res, err = tx.rwTx.Update(ctx, stmt)
+		return err
+	})
+	tx.statements = append(tx.statements, &retriableUpdate{
+		stmt: stmt,
+		c:    res,
+		err:  err,
+	})
+	return res, err
 }

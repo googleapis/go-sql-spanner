@@ -270,9 +270,9 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 	if err != nil {
 		return nil, err
 	}
-	var iter *spanner.RowIterator
+	var iter rowIterator
 	if c.tx == nil {
-		iter = c.client.Single().Query(ctx, stmt)
+		iter = &readOnlyRowIterator{c.client.Single().Query(ctx, stmt)}
 	} else {
 		iter = c.tx.Query(ctx, stmt)
 	}
@@ -351,9 +351,10 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		return nil, err
 	}
 	c.tx = &readWriteTransaction{
-		ctx:  ctx,
-		rwTx: tx,
-		close: func() {
+		ctx:    ctx,
+		client: c.client,
+		rwTx:   tx,
+		close:  func() {
 			c.tx = nil
 		},
 	}
