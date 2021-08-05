@@ -46,6 +46,9 @@ type checksumRowIterator struct {
 	// nc (nextCount) indicates the number of times that next has been called
 	// on the iterator.
 	nc   int64
+	// finished indicates whether Next() has returned false, which means that
+	// all rows have been consumed.
+	// finished bool
 	stopped bool
 	checksum [32]byte
 
@@ -60,8 +63,15 @@ func (it *checksumRowIterator) Next() (row *spanner.Row, err error) {
 	enc := gob.NewEncoder(buffer)
 	err = it.tx.runWithRetry(it.ctx, func(ctx context.Context) error {
 		row, err = it.RowIterator.Next()
+		//if err == iterator.Done {
+		//	it.finished = true
+		//}
+		// spanner.ErrCode returns codes.Ok for nil errors.
 		if spanner.ErrCode(err) != codes.Aborted {
+			// if err != nil && err != iterator.Done {
 			if err != nil {
+				// Register the error that we received and the row where we
+				// received it. This will in almost all cases be the first row.
 				it.err = err
 				it.errIndex = it.nc
 			}
@@ -101,15 +111,21 @@ func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteS
 	if it.stopped {
 		defer retryIt.Stop()
 	}
+	// The underlying iterator will be replaced by the new one if the retry succeeds.
 	replaceIt := func(err error) error {
 		it.RowIterator.Stop()
 		it.RowIterator = retryIt
 		return err
 	}
+	// If the retry fails, we will not replace the underlying iterator and we should
+	// stop the iterator that was used by the retry.
 	failRetry := func(err error) error {
 		retryIt.Stop()
 		return err
 	}
+	// Iterate over the new result set as many times as we iterated over the initial
+	// result set. The checksums of the two should be equal. Also, the new result set
+	// should not contain more rows than the initial result.
 	var newChecksum [32]byte
 	for n := int64(0); n < it.nc; n++ {
 		row, err := retryIt.Next()
@@ -123,6 +139,11 @@ func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteS
 		if err != nil {
 			return failRetry(err)
 		}
+	}
+	// Check if the initial attempt ended with an error and the current attempt
+	// did not.
+	if it.err != nil {
+		return failRetry(errAbortedDueToConcurrentModification)
 	}
 	if newChecksum != it.checksum {
 		return failRetry(errAbortedDueToConcurrentModification)

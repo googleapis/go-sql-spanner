@@ -350,6 +350,59 @@ func TestQueryAbortedHalfway_WithDifferentResultsInSecondHalf(t *testing.T) {
 	}
 }
 
+// Tests that receiving more results during the retry will cause a failed retry.
+func TestQueryAbortedWithMoreResultsDuringRetry(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDbConnection(t)
+	defer teardown()
+	stmt := "SELECT * FROM SomeTable"
+	server.TestSpanner.PutStatementResult(stmt, &testutil.StatementResult{
+		Type: testutil.StatementResultResultSet,
+		ResultSet: testutil.CreateSingleColumnResultSet([]int64{1,2}),
+	})
+
+	ctx := context.Background()
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin failed: %v", err)
+	}
+	rows, err := tx.QueryContext(ctx, stmt)
+	if err != nil {
+		t.Fatalf("query failed: %v", err)
+	}
+	rowCount := 0
+	for rows.Next() {
+		rowCount++
+	}
+	if rows.Err() != nil {
+		t.Fatalf("query failed: %v", rows.Err())
+	}
+	if rowCount != 2 {
+		t.Fatalf("row count mismatch\nGot: %v\nWant: %v", rowCount, 2)
+	}
+	// Replace the original query result with a new one with an additional row.
+	server.TestSpanner.PutStatementResult(stmt, &testutil.StatementResult{
+		Type: testutil.StatementResultResultSet,
+		ResultSet: testutil.CreateSingleColumnResultSet([]int64{1,2,3}),
+	})
+	// Try to commit the transaction. The commit will be aborted and the retry
+	// should fail as the query result now contains one more row.
+	server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+		Errors: []error{status.Errorf(codes.Aborted, "Aborted")},
+	})
+	err = tx.Commit()
+	if err != errAbortedDueToConcurrentModification {
+		t.Fatalf("commit error mismatch\nGot: %v\nWant: %v", err, errAbortedDueToConcurrentModification)
+	}
+
+	reqs := drainRequestsFromServer(server.TestSpanner)
+	execReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(execReqs), 2; g != w {
+		t.Fatalf("execute request count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+}
+
 func TestSecondUpdateAborted(t *testing.T) {
 	t.Parallel()
 
