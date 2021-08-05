@@ -15,14 +15,27 @@
 package spannerdriver
 
 import (
+	"bytes"
 	"cloud.google.com/go/spanner"
 	"context"
+	"crypto/sha256"
+	"encoding/gob"
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 var errAbortedDueToConcurrentModification = status.Error(codes.Aborted, "Transaction was aborted due to a concurrent modification")
+
+func init() {
+	gob.Register(structpb.Value_BoolValue{})
+	gob.Register(structpb.Value_NumberValue{})
+	gob.Register(structpb.Value_StringValue{})
+	gob.Register(structpb.Value_NullValue{})
+	gob.Register(structpb.Value_ListValue{})
+	gob.Register(structpb.Value_StructValue{})
+}
 
 type checksumRowIterator struct {
 	*spanner.RowIterator
@@ -33,39 +46,92 @@ type checksumRowIterator struct {
 	// nc (nextCount) indicates the number of times that next has been called
 	// on the iterator.
 	nc   int64
+	stopped bool
+	checksum [32]byte
+
+	// errIndex and err indicate any error and the index in the result set
+	// where the error occurred.
+	errIndex int64
+	err      error
 }
 
 func (it *checksumRowIterator) Next() (row *spanner.Row, err error) {
+	buffer := &bytes.Buffer{}
+	enc := gob.NewEncoder(buffer)
 	err = it.tx.runWithRetry(it.ctx, func(ctx context.Context) error {
-		if err != nil {
-			err = it.restart()
-			if err != nil {
-				return err
-			}
-		}
 		row, err = it.RowIterator.Next()
 		if spanner.ErrCode(err) != codes.Aborted {
+			if err != nil {
+				it.err = err
+				it.errIndex = it.nc
+			}
 			it.nc++
 		}
+		if err != nil {
+			return err
+		}
+		// Update the current checksum.
+		it.checksum, err = updateChecksum(enc, buffer, it.checksum, row)
 		return err
 	})
 	return row, err
 }
 
-func (it *checksumRowIterator) restart() error {
-	return it.tx.runWithRetry(it.ctx, func(ctx context.Context) error {
-		it.RowIterator = it.tx.rwTx.Query(it.ctx, it.stmt)
-		for n := int64(0); n < it.nc; n++ {
-			_, err := it.RowIterator.Next()
-			if err != nil {
-				return errAbortedDueToConcurrentModification
-			}
+func updateChecksum(enc *gob.Encoder, buffer *bytes.Buffer, currentChecksum [32]byte, row *spanner.Row) ([32]byte, error) {
+	buffer.Reset()
+	buffer.Write(currentChecksum[:])
+	for i := 0; i < row.Size(); i++ {
+		var v spanner.GenericColumnValue
+		err := row.Column(i, &v)
+		if err != nil {
+			return currentChecksum, err
 		}
-		return nil
-	})
+		err = enc.Encode(v)
+		if err != nil {
+			return currentChecksum, err
+		}
+	}
+	return sha256.Sum256(buffer.Bytes()), nil
+}
+
+func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteStmtBasedTransaction) error {
+	buffer := &bytes.Buffer{}
+	enc := gob.NewEncoder(buffer)
+	retryIt := tx.Query(ctx, it.stmt)
+	if it.stopped {
+		defer retryIt.Stop()
+	}
+	replaceIt := func(err error) error {
+		it.RowIterator.Stop()
+		it.RowIterator = retryIt
+		return err
+	}
+	failRetry := func(err error) error {
+		retryIt.Stop()
+		return err
+	}
+	var newChecksum [32]byte
+	for n := int64(0); n < it.nc; n++ {
+		row, err := retryIt.Next()
+		if err != nil {
+			if spanner.ErrCode(err) == spanner.ErrCode(it.err) && n == it.errIndex {
+				return replaceIt(nil)
+			}
+			return failRetry(errAbortedDueToConcurrentModification)
+		}
+		newChecksum, err = updateChecksum(enc, buffer, newChecksum, row)
+		if err != nil {
+			return failRetry(err)
+		}
+	}
+	if newChecksum != it.checksum {
+		return failRetry(errAbortedDueToConcurrentModification)
+	}
+	return replaceIt(nil)
 }
 
 func (it *checksumRowIterator) Stop() {
+	it.stopped = true
 	it.RowIterator.Stop()
 }
 

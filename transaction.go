@@ -180,12 +180,14 @@ func (tx *readWriteTransaction) Rollback() error {
 }
 
 func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement) rowIterator {
-	return &checksumRowIterator{
+	it := &checksumRowIterator{
 		RowIterator: tx.rwTx.Query(ctx, stmt),
 		ctx:  ctx,
 		tx:   tx,
 		stmt: stmt,
 	}
+	tx.statements = append(tx.statements, it)
+	return it
 }
 
 func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.Statement) (res int64, err error) {

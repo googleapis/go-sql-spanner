@@ -422,6 +422,10 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 }
 
 func CreateSelect1ResultSet() *spannerpb.ResultSet {
+	return CreateSingleColumnResultSet([]int64{1})
+}
+
+func CreateSingleColumnResultSet(values []int64) *spannerpb.ResultSet {
 	fields := make([]*spannerpb.StructType_Field, 1)
 	fields[0] = &spannerpb.StructType_Field{
 		Name: "",
@@ -433,13 +437,15 @@ func CreateSelect1ResultSet() *spannerpb.ResultSet {
 	metadata := &spannerpb.ResultSetMetadata{
 		RowType: rowType,
 	}
-	rows := make([]*structpb.ListValue, 1)
-	rowValue := make([]*structpb.Value, 1)
-	rowValue[0] = &structpb.Value{
-		Kind: &structpb.Value_StringValue{StringValue: "1"},
-	}
-	rows[0] = &structpb.ListValue{
-		Values: rowValue,
+	rows := make([]*structpb.ListValue, len(values))
+	for i, v := range values {
+		rowValue := make([]*structpb.Value, 1)
+		rowValue[0] = &structpb.Value{
+			Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%v", v)},
+		}
+		rows[i] = &structpb.ListValue{
+			Values: rowValue,
+		}
 	}
 	return &spannerpb.ResultSet{
 		Metadata: metadata,
