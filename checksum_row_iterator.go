@@ -26,7 +26,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-var errAbortedDueToConcurrentModification = status.Error(codes.Aborted, "Transaction was aborted due to a concurrent modification")
+var ErrAbortedDueToConcurrentModification = status.Error(codes.Aborted, "Transaction was aborted due to a concurrent modification")
 
 func init() {
 	gob.Register(structpb.Value_BoolValue{})
@@ -45,12 +45,11 @@ type checksumRowIterator struct {
 	stmt spanner.Statement
 	// nc (nextCount) indicates the number of times that next has been called
 	// on the iterator.
-	nc   int64
-	// finished indicates whether Next() has returned false, which means that
-	// all rows have been consumed.
-	// finished bool
-	stopped bool
+	nc       int64
+	stopped  bool
 	checksum [32]byte
+	buffer   *bytes.Buffer
+	enc      *gob.Encoder
 
 	// errIndex and err indicate any error and the index in the result set
 	// where the error occurred.
@@ -59,19 +58,17 @@ type checksumRowIterator struct {
 }
 
 func (it *checksumRowIterator) Next() (row *spanner.Row, err error) {
-	buffer := &bytes.Buffer{}
-	enc := gob.NewEncoder(buffer)
 	err = it.tx.runWithRetry(it.ctx, func(ctx context.Context) error {
 		row, err = it.RowIterator.Next()
-		//if err == iterator.Done {
-		//	it.finished = true
-		//}
 		// spanner.ErrCode returns codes.Ok for nil errors.
 		if spanner.ErrCode(err) != codes.Aborted {
-			// if err != nil && err != iterator.Done {
 			if err != nil {
 				// Register the error that we received and the row where we
-				// received it. This will in almost all cases be the first row.
+				// received it. This will in almost all cases be the first row
+				// when the query fails, or the last row when the iterator
+				// returns iterator.Done. It can however also happen that the
+				// result stream breaks halfway and ends with an error before
+				// the end.
 				it.err = err
 				it.errIndex = it.nc
 			}
@@ -81,7 +78,7 @@ func (it *checksumRowIterator) Next() (row *spanner.Row, err error) {
 			return err
 		}
 		// Update the current checksum.
-		it.checksum, err = updateChecksum(enc, buffer, it.checksum, row)
+		it.checksum, err = updateChecksum(it.enc, it.buffer, it.checksum, row)
 		return err
 	})
 	return row, err
@@ -125,15 +122,22 @@ func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteS
 	}
 	// Iterate over the new result set as many times as we iterated over the initial
 	// result set. The checksums of the two should be equal. Also, the new result set
-	// should not contain more rows than the initial result.
+	// should contain as many rows as the initial result.
 	var newChecksum [32]byte
 	for n := int64(0); n < it.nc; n++ {
 		row, err := retryIt.Next()
 		if err != nil {
-			if spanner.ErrCode(err) == spanner.ErrCode(it.err) && n == it.errIndex {
+			if spanner.ErrCode(err) == codes.Aborted {
+				return failRetry(err)
+			}
+			if errorsEqualForRetry(err, it.err) && n == it.errIndex {
+				// Check that the checksums are also equal.
+				if newChecksum != it.checksum {
+					return failRetry(ErrAbortedDueToConcurrentModification)
+				}
 				return replaceIt(nil)
 			}
-			return failRetry(errAbortedDueToConcurrentModification)
+			return failRetry(ErrAbortedDueToConcurrentModification)
 		}
 		newChecksum, err = updateChecksum(enc, buffer, newChecksum, row)
 		if err != nil {
@@ -143,10 +147,10 @@ func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteS
 	// Check if the initial attempt ended with an error and the current attempt
 	// did not.
 	if it.err != nil {
-		return failRetry(errAbortedDueToConcurrentModification)
+		return failRetry(ErrAbortedDueToConcurrentModification)
 	}
 	if newChecksum != it.checksum {
-		return failRetry(errAbortedDueToConcurrentModification)
+		return failRetry(ErrAbortedDueToConcurrentModification)
 	}
 	return replaceIt(nil)
 }

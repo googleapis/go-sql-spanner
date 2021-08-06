@@ -15,7 +15,9 @@
 package spannerdriver
 
 import (
+	"bytes"
 	"context"
+	"encoding/gob"
 	"fmt"
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
 	"google.golang.org/grpc/codes"
@@ -102,29 +104,20 @@ func (ru *retriableUpdate) retry(ctx context.Context, tx *spanner.ReadWriteStmtB
 	if err != nil && spanner.ErrCode(err) == codes.Aborted {
 		return err
 	}
-	if err != nil && ru.err == nil {
-		return errAbortedDueToConcurrentModification
-	}
-	if err == nil && ru.err != nil {
-		return errAbortedDueToConcurrentModification
-	}
-	if err != nil && ru.err != nil {
-		if spanner.ErrCode(err) != spanner.ErrCode(ru.err) {
-			return errAbortedDueToConcurrentModification
-		}
-		return nil
+	if !errorsEqualForRetry(err, ru.err) {
+		return ErrAbortedDueToConcurrentModification
 	}
 	if c != ru.c {
-		return errAbortedDueToConcurrentModification
+		return ErrAbortedDueToConcurrentModification
 	}
 	return nil
 }
 
 type readWriteTransaction struct {
-	ctx     context.Context
-	client  *spanner.Client
-	rwTx    *spanner.ReadWriteStmtBasedTransaction
-	close   func()
+	ctx    context.Context
+	client *spanner.Client
+	rwTx   *spanner.ReadWriteStmtBasedTransaction
+	close  func()
 
 	statements []retriableStatement
 }
@@ -134,7 +127,7 @@ func (tx *readWriteTransaction) runWithRetry(ctx context.Context, f func(ctx con
 		if err == nil {
 			err = f(ctx)
 		}
-		if err == errAbortedDueToConcurrentModification {
+		if err == ErrAbortedDueToConcurrentModification {
 			return
 		}
 		if spanner.ErrCode(err) == codes.Aborted {
@@ -180,11 +173,14 @@ func (tx *readWriteTransaction) Rollback() error {
 }
 
 func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement) rowIterator {
+	buffer := &bytes.Buffer{}
 	it := &checksumRowIterator{
 		RowIterator: tx.rwTx.Query(ctx, stmt),
-		ctx:  ctx,
-		tx:   tx,
-		stmt: stmt,
+		ctx:         ctx,
+		tx:          tx,
+		stmt:        stmt,
+		buffer:      buffer,
+		enc:         gob.NewEncoder(buffer),
 	}
 	tx.statements = append(tx.statements, it)
 	return it
@@ -201,4 +197,22 @@ func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.St
 		err:  err,
 	})
 	return res, err
+}
+
+// errorsEqualForRetry returns true if the two errors should be considered equal
+// when retrying a transaction. This comparison will return true if:
+// - The errors are the same instances
+// - Both errors have the same gRPC status code, not being one of the codes OK or Unknown.
+func errorsEqualForRetry(err1, err2 error) bool {
+	if err1 == err2 {
+		return true
+	}
+	// spanner.ErrCode will return codes.OK for nil errors and codes.Unknown for
+	// errors that do not have a gRPC code itself or in one of its wrapped errors.
+	code1 := spanner.ErrCode(err1)
+	code2 := spanner.ErrCode(err2)
+	if code1 == code2 && (code1 != codes.OK && code1 != codes.Unknown) {
+		return true
+	}
+	return false
 }

@@ -330,7 +330,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		ctx:    ctx,
 		client: c.client,
 		rwTx:   tx,
-		close:  func() {
+		close: func() {
 			c.tx = nil
 		},
 	}

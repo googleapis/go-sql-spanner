@@ -162,7 +162,7 @@ func (s *MockedSpannerInMemTestServer) setupFooResults() {
 		UpdateCount: UpdateBarSetFooRowCount,
 	})
 	s.TestSpanner.PutStatementResult(UpdateSingersSetLastName, &StatementResult{
-		Type: StatementResultUpdateCount,
+		Type:        StatementResultUpdateCount,
 		UpdateCount: UpdateSingersSetLastNameRowCount,
 	})
 }
