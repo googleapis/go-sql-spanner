@@ -27,6 +27,7 @@ import (
 )
 
 var ErrAbortedDueToConcurrentModification = status.Error(codes.Aborted, "Transaction was aborted due to a concurrent modification")
+var errNextAfterSTop = status.Errorf(codes.FailedPrecondition, "Next called after Stop")
 
 func init() {
 	gob.Register(structpb.Value_BoolValue{})
@@ -58,6 +59,9 @@ type checksumRowIterator struct {
 }
 
 func (it *checksumRowIterator) Next() (row *spanner.Row, err error) {
+	if it.stopped {
+		return nil, errNextAfterSTop
+	}
 	err = it.tx.runWithRetry(it.ctx, func(ctx context.Context) error {
 		row, err = it.RowIterator.Next()
 		// spanner.ErrCode returns codes.Ok for nil errors.
@@ -110,8 +114,10 @@ func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteS
 	}
 	// The underlying iterator will be replaced by the new one if the retry succeeds.
 	replaceIt := func(err error) error {
-		it.RowIterator.Stop()
-		it.RowIterator = retryIt
+		if it.RowIterator != nil {
+			it.RowIterator.Stop()
+			it.RowIterator = retryIt
+		}
 		return err
 	}
 	// If the retry fails, we will not replace the underlying iterator and we should
@@ -156,10 +162,16 @@ func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteS
 }
 
 func (it *checksumRowIterator) Stop() {
-	it.stopped = true
-	it.RowIterator.Stop()
+	if !it.stopped {
+		it.stopped = true
+		it.RowIterator.Stop()
+		it.RowIterator = nil
+	}
 }
 
 func (it *checksumRowIterator) Metadata() *sppb.ResultSetMetadata {
+	if it.stopped {
+
+	}
 	return it.RowIterator.Metadata
 }

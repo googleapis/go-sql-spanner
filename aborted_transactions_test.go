@@ -97,7 +97,7 @@ func TestQueryAborted(t *testing.T) {
 		server.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
 			Errors: []error{status.Error(codes.Aborted, "Aborted")},
 		})
-	}, codes.OK, 2, 1)
+	}, codes.OK, 0, 2, 1)
 }
 
 func TestQueryAbortedHalfway(t *testing.T) {
@@ -106,7 +106,7 @@ func TestQueryAbortedHalfway(t *testing.T) {
 			ResumeToken: testutil.EncodeResumeToken(2),
 			Err:         status.Error(codes.Aborted, "Aborted"),
 		})
-	}, codes.OK, 2, 1)
+	}, codes.OK, 0, 2, 1)
 }
 
 func TestQueryAbortedTwice(t *testing.T) {
@@ -119,7 +119,7 @@ func TestQueryAbortedTwice(t *testing.T) {
 			ResumeToken: testutil.EncodeResumeToken(2),
 			Err:         status.Error(codes.Aborted, "Aborted"),
 		})
-	}, codes.OK, 3, 1)
+	}, codes.OK, 0, 3, 1)
 }
 
 func TestQuery_CommitAborted(t *testing.T) {
@@ -127,7 +127,7 @@ func TestQuery_CommitAborted(t *testing.T) {
 		server.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
 			Errors: []error{status.Error(codes.Aborted, "Aborted")},
 		})
-	}, codes.OK, 2, 2)
+	}, codes.OK, 0, 2, 2)
 }
 
 func TestQuery_CommitAbortedTwice(t *testing.T) {
@@ -135,7 +135,15 @@ func TestQuery_CommitAbortedTwice(t *testing.T) {
 		server.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
 			Errors: []error{status.Error(codes.Aborted, "Aborted"), status.Error(codes.Aborted, "Aborted")},
 		})
-	}, codes.OK, 3, 3)
+	}, codes.OK, 0, 3, 3)
+}
+
+func TestQueryConsumedHalfway_CommitAborted(t *testing.T) {
+	testRetryReadWriteTransactionWithQueryWithRetrySuccess(t, func(server testutil.InMemSpannerServer) {
+		server.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+			Errors: []error{status.Error(codes.Aborted, "Aborted")},
+		})
+	}, codes.OK, 1, 2, 2)
 }
 
 func TestQueryWithError_CommitAborted(t *testing.T) {
@@ -148,7 +156,7 @@ func TestQueryWithError_CommitAborted(t *testing.T) {
 		server.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
 			Errors: []error{status.Error(codes.Aborted, "Aborted")},
 		})
-	}, codes.NotFound, 2, 2)
+	}, codes.NotFound, 0, 2, 2)
 }
 
 func TestQueryWithErrorHalfway_CommitAborted(t *testing.T) {
@@ -164,11 +172,11 @@ func TestQueryWithErrorHalfway_CommitAborted(t *testing.T) {
 		server.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
 			Errors: []error{status.Errorf(codes.Aborted, "Aborted")},
 		})
-	}, codes.Internal, 2, 2)
+	}, codes.Internal, 0, 2, 2)
 }
 
 func TestQueryAbortedWithMoreResultsDuringRetry(t *testing.T) {
-	testRetryReadWriteTransactionWithQuery(t, nil, codes.OK, 2, 1,
+	testRetryReadWriteTransactionWithQuery(t, nil, codes.OK, 0, 2, 1,
 		func(server testutil.InMemSpannerServer) {
 			server.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
 				Errors: []error{status.Errorf(codes.Aborted, "Aborted")},
@@ -184,7 +192,7 @@ func TestQueryAbortedWithMoreResultsDuringRetry(t *testing.T) {
 
 // Tests that receiving less results during the retry will cause a failed retry.
 func TestQueryAbortedWithLessResultsDuringRetry(t *testing.T) {
-	testRetryReadWriteTransactionWithQuery(t, nil, codes.OK, 2, 1,
+	testRetryReadWriteTransactionWithQuery(t, nil, codes.OK, 0, 2, 1,
 		func(server testutil.InMemSpannerServer) {
 			server.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
 				Errors: []error{status.Errorf(codes.Aborted, "Aborted")},
@@ -201,15 +209,15 @@ func TestQueryAbortedWithLessResultsDuringRetry(t *testing.T) {
 // testRetryReadWriteTransactionWithQueryWithRetrySuccess tests a scenario where a
 // transaction with a query is retried and the retry should succeed.
 func testRetryReadWriteTransactionWithQueryWithRetrySuccess(t *testing.T, setupServer func(server testutil.InMemSpannerServer),
-	wantErrCode codes.Code, wantSqlExecuteCount int, wantCommitCount int) {
-	testRetryReadWriteTransactionWithQuery(t, setupServer, wantErrCode, wantSqlExecuteCount, wantCommitCount, nil, nil)
+	wantErrCode codes.Code, numRowsToConsume int, wantSqlExecuteCount int, wantCommitCount int) {
+	testRetryReadWriteTransactionWithQuery(t, setupServer, wantErrCode, numRowsToConsume, wantSqlExecuteCount, wantCommitCount, nil, nil)
 }
 
 // testRetryReadWriteTransactionWithQuery tests a scenario where a transaction with
 // a query is retried. The retry should fail with the given wantCommitErr error, or
 // succeed if wantCommitErr is nil.
 func testRetryReadWriteTransactionWithQuery(t *testing.T, setupServer func(server testutil.InMemSpannerServer),
-	wantErrCode codes.Code, wantSqlExecuteCount int, wantCommitCount int,
+	wantErrCode codes.Code, numRowsToConsume int, wantSqlExecuteCount int, wantCommitCount int,
 	beforeCommit func(server testutil.InMemSpannerServer), wantCommitErr error) {
 
 	t.Parallel()
@@ -241,18 +249,26 @@ func testRetryReadWriteTransactionWithQuery(t *testing.T, setupServer func(serve
 			t.Fatalf("scan failed: %v", err)
 		}
 		values = append(values, val)
+		if len(values) == numRowsToConsume {
+			break
+		}
 	}
 	err = rows.Err()
 	if g, w := spanner.ErrCode(err), wantErrCode; g != w {
 		t.Fatalf("next error mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	if wantErrCode == codes.OK {
-		if g, w := len(values), 2; g != w {
+		if g, w := len(values), firstNonZero(numRowsToConsume, 2); g != w {
 			t.Fatalf("row count mismatch\nGot: %v\nWant: %v", g, w)
 		}
-		if !cmp.Equal([]int64{1, 2}, values) {
-			t.Fatalf("values mismatch\nGot: %v\nWant: %v", values, []int64{1, 2})
+		wantValues := ([]int64{1, 2})[:firstNonZero(numRowsToConsume, 2)]
+		if !cmp.Equal(wantValues, values) {
+			t.Fatalf("values mismatch\nGot: %v\nWant: %v", values, wantValues)
 		}
+	}
+	err = rows.Close()
+	if err != nil {
+		t.Fatalf("closing iterator failed: %v", err)
 	}
 	if beforeCommit != nil {
 		beforeCommit(server.TestSpanner)
@@ -588,4 +604,13 @@ func testSecondUpdateAborted_FirstResultChanged(t *testing.T, firstResult *testu
 	if g, w := len(execReqs), 3; g != w {
 		t.Fatalf("execute request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
+}
+
+func firstNonZero(values ...int) int {
+	for _, v := range values {
+		if v > 0 {
+			return v
+		}
+	}
+	return 0
 }

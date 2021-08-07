@@ -976,30 +976,11 @@ func TestAllTypes(t *testing.T) {
 	}
 
 	// Set up test table.
-	_, err = db.ExecContext(ctx,
-		`CREATE TABLE TestAllTypes (
-			key          INT64,
-			boolCol      BOOL,
-			stringCol    STRING(MAX),
-			bytesCol     BYTES(MAX),
-			int64Col     INT64,
-			float64Col   FLOAT64,
-			numericCol   NUMERIC,
-			dateCol      DATE,
-			timestampCol TIMESTAMP,
-			boolArrayCol      ARRAY<BOOL>,
-			stringArrayCol    ARRAY<STRING(MAX)>,
-			bytesArrayCol     ARRAY<BYTES(MAX)>,
-			int64ArrayCol     ARRAY<INT64>,
-			float64ArrayCol   ARRAY<FLOAT64>,
-			numericArrayCol   ARRAY<NUMERIC>,
-			dateArrayCol      ARRAY<DATE>,
-			timestampArrayCol ARRAY<TIMESTAMP>,
-		) PRIMARY KEY (key)`)
+	cleanup, err := createTableWithAllTypes(ctx, db, "TestAllTypes")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.ExecContext(ctx, `DROP TABLE TestAllTypes`)
+	defer cleanup()
 
 	tests := []struct {
 		name           string
@@ -1157,6 +1138,117 @@ func TestAllTypes(t *testing.T) {
 			t.Fatalf("row mismatch\nGot:  %v\nWant: %v", allTypesRow, test.want)
 		}
 	}
+}
+
+func TestQueryInReadWriteTransaction(t *testing.T) {
+	skipIfShort(t)
+
+	wantRowCount := int64(100)
+	ctx := context.Background()
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// Set up test table.
+	cleanup, err := createTableWithAllTypes(ctx, db, "QueryReadWrite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin transaction failed: %v", err)
+	}
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO QueryReadWrite (key, boolCol, stringCol, bytesCol, int64Col, 
+                                               float64Col, numericCol, dateCol, timestampCol, boolArrayCol,
+                                               stringArrayCol, bytesArrayCol, int64ArrayCol, float64ArrayCol,
+                                               numericArrayCol, dateArrayCol, timestampArrayCol) VALUES (@key, @bool,
+                                               @string, @bytes, @int64, @float64, @numeric, @date, @timestamp,
+                                               @boolArray, @stringArray, @bytesArray, @int64Array, @float64Array,
+                                               @numericArray, @dateArray, @timestampArray)`)
+	for row := int64(0); row < wantRowCount; row++ {
+		res, err := stmt.ExecContext(ctx, row, row%2 == 0, fmt.Sprintf("%v", row), []byte(fmt.Sprintf("%v", row)),
+			row, float64(row)/float64(3), numeric(fmt.Sprintf("%v.%v", row, row)),
+			civil.DateOf(time.Unix(row, row)), time.Unix(row*1000, row),
+			[]bool{row%2 == 0, row%2 != 0}, []string{fmt.Sprintf("%v", row), fmt.Sprintf("%v", row*2)},
+			[][]byte{[]byte(fmt.Sprintf("%v", row)), []byte(fmt.Sprintf("%v", row*2))},
+			[]int64{row, row * 2}, []float64{float64(row) / float64(3), float64(row*2) / float64(3)},
+			[]big.Rat{numeric(fmt.Sprintf("%v.%v", row, row)), numeric(fmt.Sprintf("%v.%v", row*2, row*2))},
+			[]civil.Date{civil.DateOf(time.Unix(row, row)), civil.DateOf(time.Unix(row*2, row*2))},
+			[]time.Time{time.Unix(row*1000, row), time.Unix(row*2000, row)},
+		)
+		if err != nil {
+			t.Fatalf("insert failed: %v", err)
+		}
+		if c, _ := res.RowsAffected(); c != 1 {
+			t.Fatalf("update count mismatch\nGot: %v\nWant: %v", c, 1)
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		t.Fatalf("commit failed: %v", err)
+	}
+
+	// Select and iterate over all rows in a read/write transaction.
+	tx, err = db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin failed: %v", err)
+	}
+	rows, err := tx.QueryContext(ctx, "SELECT * FROM QueryReadWrite")
+	if err != nil {
+		t.Fatalf("query failed: %v", err)
+	}
+	rc := int64(0)
+	for rows.Next() {
+		// We don't care about the values here, as that is tested by other tests.
+		// This test just verifies that we can iterate over a large result set in
+		// a read/write transaction without any problems, and that the transaction
+		// will never fail with an aborted error.
+		rc++
+	}
+	if rows.Err() != nil {
+		t.Fatalf("iterating over all rows failed: %v", err)
+	}
+	if err = rows.Close(); err != nil {
+		t.Fatalf("closing rows failed: %v", err)
+	}
+	if rc != wantRowCount {
+		t.Fatalf("row count mismatch\nGot: %v\nWant: %v", rc, wantRowCount)
+	}
+	if err = tx.Commit(); err != nil {
+		t.Fatalf("commit failed: %v", err)
+	}
+}
+
+func createTableWithAllTypes(ctx context.Context, db *sql.DB, name string) (cleanup func(), err error) {
+	_, err = db.ExecContext(ctx,
+		fmt.Sprintf(`CREATE TABLE %s (
+			key          INT64,
+			boolCol      BOOL,
+			stringCol    STRING(MAX),
+			bytesCol     BYTES(MAX),
+			int64Col     INT64,
+			float64Col   FLOAT64,
+			numericCol   NUMERIC,
+			dateCol      DATE,
+			timestampCol TIMESTAMP,
+			boolArrayCol      ARRAY<BOOL>,
+			stringArrayCol    ARRAY<STRING(MAX)>,
+			bytesArrayCol     ARRAY<BYTES(MAX)>,
+			int64ArrayCol     ARRAY<INT64>,
+			float64ArrayCol   ARRAY<FLOAT64>,
+			numericArrayCol   ARRAY<NUMERIC>,
+			dateArrayCol      ARRAY<DATE>,
+			timestampArrayCol ARRAY<TIMESTAMP>,
+		) PRIMARY KEY (key)`, fmt.Sprintf("`%s`", name)))
+	if err != nil {
+		return nil, err
+	}
+	return func() {
+		db.ExecContext(ctx, fmt.Sprintf("DROP TABLE `%s`", name))
+	}, nil
 }
 
 func nilBool() *bool {
