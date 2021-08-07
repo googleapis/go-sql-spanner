@@ -15,23 +15,26 @@
 package spannerdriver
 
 import (
-	"cloud.google.com/go/civil"
-	"cloud.google.com/go/spanner"
-	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	"context"
 	"database/sql"
 	"flag"
 	"fmt"
-	"github.com/google/go-cmp/cmp"
-	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
-	"google.golang.org/grpc/codes"
 	"log"
 	"math"
 	"math/big"
+	"math/rand"
 	"os"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
+
+	"cloud.google.com/go/civil"
+	"cloud.google.com/go/spanner"
+	database "cloud.google.com/go/spanner/admin/database/apiv1"
+	"github.com/google/go-cmp/cmp"
+	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
+	"google.golang.org/grpc/codes"
 
 	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
 	instancepb "google.golang.org/genproto/googleapis/spanner/admin/instance/v1"
@@ -150,6 +153,12 @@ func TestMain(m *testing.M) {
 func skipIfShort(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Integration tests skipped in -short mode.")
+	}
+}
+
+func skipIfEmulator(t *testing.T, msg string) {
+	if runsOnEmulator() {
+		t.Skip(msg)
 	}
 }
 
@@ -1220,6 +1229,150 @@ func TestQueryInReadWriteTransaction(t *testing.T) {
 	if err = tx.Commit(); err != nil {
 		t.Fatalf("commit failed: %v", err)
 	}
+}
+
+// TestCanRetryTransaction shows that:
+// 1. If the internal retry of aborted transactions is enabled, the transactions will be retried
+//    successfully when that is possible, without any action needed from the caller.
+// 2. If the internal retry of aborted transactions is disabled, the transactions in this test
+//    will be aborted by Cloud Spanner, and these Aborted errors will be propagated to the caller.
+func TestCanRetryTransaction(t *testing.T) {
+	skipIfShort(t)
+	skipIfEmulator(t, "The emulator does not support multiple simultaneous transactions")
+
+	ctx := context.Background()
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_, err = db.ExecContext(ctx, "CREATE TABLE RndSingers (SingerId INT64, FirstName STRING(MAX), LastName STRING(MAX)) PRIMARY KEY (SingerId)")
+	if err != nil {
+		t.Fatalf("create table failed: %v", err)
+	}
+	defer func() {
+		db.ExecContext(ctx, "DROP TABLE RndSingers")
+	}()
+
+	for _, withInternalRetries := range []bool{true, false} {
+		dsnTx := dsn
+		if !withInternalRetries {
+			dsnTx = fmt.Sprintf("%s;retryAbortsInternally=false", dsnTx)
+		}
+		dbTx, err := sql.Open("spanner", dsnTx)
+		if err != nil {
+			t.Fatalf("failed to open db: %v", err)
+		}
+		defer func() {
+			dbTx.Close()
+		}()
+
+		numTransactions := 8
+		results := make([]error, numTransactions)
+		wg := &sync.WaitGroup{}
+		wg.Add(numTransactions)
+		for i := 0; i < numTransactions; i++ {
+			<-time.After(time.Millisecond)
+			go func(i int) {
+				defer wg.Done()
+				results[i] = insertRandomSingers(ctx, dbTx)
+			}(i)
+		}
+		wg.Wait()
+		aborted := false
+		for i, err := range results {
+			if err != nil {
+				if withInternalRetries {
+					t.Fatalf("insert of random singers failed: %d %v", i, err)
+				} else {
+					code := spanner.ErrCode(err)
+					if code == codes.Aborted {
+						aborted = true
+					} else {
+						t.Fatalf("insert of random singers failed: %d %v", i, err)
+					}
+				}
+			}
+		}
+		// If the internal retry feature has been disabled, the aborted errors should
+		// be propagated to the caller. The way that the insertRandomSinger function is
+		// defined ensures that transactions will be aborted when multiple of these are
+		// executed in parallel.
+		if !withInternalRetries && !aborted {
+			t.Fatalf("missing aborted error with internal retries disabled")
+		}
+	}
+}
+
+func insertRandomSingers(ctx context.Context, db *sql.DB) (err error) {
+	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return err
+	}
+	cleanup := func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}
+	defer cleanup()
+	type Singer struct {
+		SingerId  int64
+		FirstName string
+		LastName  string
+	}
+	// Insert at random between 1 and 10 rows.
+	rows := rnd.Intn(10) + 1
+	for row := 0; row < rows; row++ {
+		id := rnd.Int63()
+		prefix := fmt.Sprintf("%020d", id)
+		firstName := fmt.Sprintf("FirstName-%04d", rnd.Intn(10000))
+		// Last name contains the same value as the primary key with a random suffix.
+		// This makes it possible to search for a singer using the last name and knowing
+		// that the search will at most deliver one row (and it will be the same row each time).
+		lastName := fmt.Sprintf("%s-%04d", prefix, rnd.Intn(10000))
+
+		// Yes, this is highly inefficient, but that is intentional. This
+		// will cause a large number of the transactions to be aborted.
+		search := fmt.Sprintf("%s%%", prefix)
+		r := tx.QueryRowContext(ctx, "SELECT * FROM RndSingers WHERE LastName LIKE @lastName ORDER BY LastName LIMIT 1", search)
+		var singer Singer
+		if err = r.Scan(&singer.SingerId, &singer.FirstName, &singer.LastName); err == sql.ErrNoRows {
+			// Singer does not yet exist, so add it.
+			res, err := tx.ExecContext(ctx, "INSERT INTO RndSingers (SingerId, FirstName, LastName) VALUES (@id, @firstName, @lastName)",
+				id, firstName, lastName)
+			if err != nil {
+				return err
+			}
+			c, err := res.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if c != 1 {
+				err = fmt.Errorf("unexpected insert count: %v", c)
+				return err
+			}
+		} else if err != nil {
+			return err
+		} else {
+			// Singer already exists, update the first name.
+			res, err := tx.ExecContext(ctx, "UPDATE RndSingers SET FirstName=@firstName WHERE SingerId=@id", firstName, id)
+			if err != nil {
+				return err
+			}
+			c, err := res.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if c != 1 {
+				err = fmt.Errorf("unexpected update count: %v", c)
+				return err
+			}
+		}
+	}
+	err = tx.Commit()
+	return err
 }
 
 func createTableWithAllTypes(ctx context.Context, db *sql.DB, name string) (cleanup func(), err error) {

@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
+
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
 	"google.golang.org/grpc/codes"
 
@@ -114,10 +115,11 @@ func (ru *retriableUpdate) retry(ctx context.Context, tx *spanner.ReadWriteStmtB
 }
 
 type readWriteTransaction struct {
-	ctx    context.Context
-	client *spanner.Client
-	rwTx   *spanner.ReadWriteStmtBasedTransaction
-	close  func()
+	ctx         context.Context
+	client      *spanner.Client
+	rwTx        *spanner.ReadWriteStmtBasedTransaction
+	close       func()
+	retryAborts bool
 
 	statements []retriableStatement
 }
@@ -131,6 +133,9 @@ func (tx *readWriteTransaction) runWithRetry(ctx context.Context, f func(ctx con
 			return
 		}
 		if spanner.ErrCode(err) == codes.Aborted {
+			if !tx.retryAborts {
+				return err
+			}
 			err = tx.retry(ctx)
 			continue
 		}

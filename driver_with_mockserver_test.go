@@ -20,12 +20,13 @@ import (
 	"database/sql/driver"
 	"encoding/base64"
 	"fmt"
-	"github.com/google/go-cmp/cmp/cmpopts"
-	"google.golang.org/protobuf/types/known/structpb"
 	"math/big"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp/cmpopts"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"

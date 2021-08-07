@@ -15,16 +15,17 @@
 package spannerdriver
 
 import (
-	"cloud.google.com/go/spanner"
 	"context"
 	"database/sql"
+	"reflect"
+	"testing"
+
+	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
 	"github.com/rakyll/go-sql-driver-spanner/testutil"
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"reflect"
-	"testing"
 )
 
 func TestCommitAborted(t *testing.T) {

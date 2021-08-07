@@ -16,12 +16,13 @@ package spannerdriver
 
 import (
 	"bytes"
-	"cloud.google.com/go/civil"
-	"cloud.google.com/go/spanner"
 	"encoding/gob"
 	"math/big"
 	"testing"
 	"time"
+
+	"cloud.google.com/go/civil"
+	"cloud.google.com/go/spanner"
 )
 
 func TestUpdateChecksum(t *testing.T) {

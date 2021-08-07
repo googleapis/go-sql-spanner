@@ -16,10 +16,11 @@ package spannerdriver
 
 import (
 	"bytes"
-	"cloud.google.com/go/spanner"
 	"context"
 	"crypto/sha256"
 	"encoding/gob"
+
+	"cloud.google.com/go/spanner"
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

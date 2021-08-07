@@ -111,7 +111,7 @@ func extractConnectorParams(paramsString string) (map[string]string, error) {
 		if keyValue == nil || len(keyValue) != 2 {
 			return nil, fmt.Errorf("invalid connection property: %s", keyValueString)
 		}
-		params[keyValue[0]] = keyValue[1]
+		params[strings.ToLower(keyValue[0])] = keyValue[1]
 	}
 	return params, nil
 }
@@ -127,6 +127,11 @@ type connector struct {
 	// options represent the optional Google Cloud client options
 	// to be passed to the underlying client.
 	options []option.ClientOption
+
+	// retryAbortsInternally determines whether Aborted errors will automatically be
+	// retried internally (when possible), or whether all aborted errors will be
+	// propagated to the caller. This option is enabled by default.
+	retryAbortsInternally bool
 }
 
 func newConnector(d *Driver, dsn string) (*connector, error) {
@@ -143,14 +148,21 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 			opts = append(opts, option.WithGRPCDialOption(grpc.WithInsecure()), option.WithoutAuthentication())
 		}
 	}
+	retryAbortsInternally := true
+	if strval, ok := connectorConfig.params["retryabortsinternally"]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil && !val {
+			retryAbortsInternally = false
+		}
+	}
 	config := spanner.ClientConfig{
 		SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 	}
 	return &connector{
-		driver:              d,
-		connectorConfig:     connectorConfig,
-		spannerClientConfig: config,
-		options:             opts,
+		driver:                d,
+		connectorConfig:       connectorConfig,
+		spannerClientConfig:   config,
+		options:               opts,
+		retryAbortsInternally: retryAbortsInternally,
 	}, nil
 }
 
@@ -174,7 +186,7 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &conn{client: client, adminClient: adminClient, database: databaseName}, nil
+	return &conn{client: client, adminClient: adminClient, database: databaseName, retryAborts: c.retryAbortsInternally}, nil
 }
 
 func (c *connector) Driver() driver.Driver {
@@ -187,6 +199,7 @@ type conn struct {
 	adminClient *adminapi.DatabaseAdminClient
 	tx          contextTransaction
 	database    string
+	retryAborts bool
 }
 
 // Ping implements the driver.Pinger interface.
@@ -333,6 +346,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		close: func() {
 			c.tx = nil
 		},
+		retryAborts: c.retryAborts,
 	}
 	return c.tx, nil
 }

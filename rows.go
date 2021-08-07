@@ -15,12 +15,13 @@
 package spannerdriver
 
 import (
-	"cloud.google.com/go/spanner"
 	"database/sql/driver"
-	"google.golang.org/api/iterator"
-	sppb "google.golang.org/genproto/googleapis/spanner/v1"
 	"io"
 	"sync"
+
+	"cloud.google.com/go/spanner"
+	"google.golang.org/api/iterator"
+	sppb "google.golang.org/genproto/googleapis/spanner/v1"
 )
 
 type rows struct {
