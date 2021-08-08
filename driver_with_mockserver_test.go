@@ -980,10 +980,14 @@ func nullDate(valid bool, v string) spanner.NullDate {
 }
 
 func setupTestDbConnection(t *testing.T) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+	return setupTestDbConnectionWithParams(t, "")
+}
+
+func setupTestDbConnectionWithParams(t *testing.T, params string) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
 	server, _, serverTeardown := setupMockedTestServer(t)
 	db, err := sql.Open(
 		"spanner",
-		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address))
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;%s", server.Address, params))
 	if err != nil {
 		serverTeardown()
 		t.Fatal(err)

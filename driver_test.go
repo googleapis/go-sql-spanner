@@ -103,6 +103,18 @@ func TestExtractDnsParts(t *testing.T) {
 				},
 			},
 		},
+		{
+			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?usePlainText=true;",
+			want: connectorConfig{
+				host:     "spanner.googleapis.com",
+				project:  "p",
+				instance: "i",
+				database: "d",
+				params: map[string]string{
+					"useplaintext": "true",
+				},
+			},
+		},
 	}
 	for _, tc := range tests {
 		config, err := extractConnectorConfig(tc.input)

@@ -107,6 +107,11 @@ func extractConnectorParams(paramsString string) (map[string]string, error) {
 	}
 	keyValuePairs := strings.Split(paramsString, ";")
 	for _, keyValueString := range keyValuePairs {
+		if keyValueString == "" {
+			// Ignore empty parameter entries in the string, for example if
+			// the connection string contains a trailing ';'.
+			continue
+		}
 		keyValue := strings.SplitN(keyValueString, "=", 2)
 		if keyValue == nil || len(keyValue) != 2 {
 			return nil, fmt.Errorf("invalid connection property: %s", keyValueString)

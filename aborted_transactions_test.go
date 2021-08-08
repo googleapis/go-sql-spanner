@@ -53,6 +53,32 @@ func TestCommitAborted(t *testing.T) {
 	}
 }
 
+func TestCommitAbortedWithInternalRetriesDisabled(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDbConnectionWithParams(t, "retryAbortsInternally=false")
+	defer teardown()
+
+	ctx := context.Background()
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin failed: %v", err)
+	}
+	server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+		Errors: []error{status.Error(codes.Aborted, "Aborted")},
+	})
+	err = tx.Commit()
+	// The aborted error should be propagated to the caller when internal retries have been disabled.
+	if g, w := spanner.ErrCode(err), codes.Aborted; g != w {
+		t.Fatalf("commit error code mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	reqs := drainRequestsFromServer(server.TestSpanner)
+	commitReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitReqs), 1; g != w {
+		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+}
+
 func TestUpdateAborted(t *testing.T) {
 	t.Parallel()
 
@@ -145,6 +171,28 @@ func TestQueryConsumedHalfway_CommitAborted(t *testing.T) {
 			Errors: []error{status.Error(codes.Aborted, "Aborted")},
 		})
 	}, codes.OK, 1, 2, 2)
+}
+
+// TestQueryConsumedHalfway_RetryContainsMoreResults_CommitAborted tests the
+// following scenario:
+// 1. The initial attempt returns 2 rows. The application fetches the 2 rows,
+//    but does not try to fetch a 3 row. It therefore does not know that the
+//    iterator only contains 2 rows and not more.
+// 2. The retry attempt returns 3 rows. The retry will also only fetch the 2
+//    first rows, and as the initial attempt did not know what was after these
+//    2 rows the retry should succeed.
+func TestQueryConsumedHalfway_RetryContainsMoreResults_CommitAborted(t *testing.T) {
+	testRetryReadWriteTransactionWithQuery(t, func(server testutil.InMemSpannerServer) {
+		server.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+			Errors: []error{status.Error(codes.Aborted, "Aborted")},
+		})
+	}, codes.OK, 2, 2, 2,
+		func(server testutil.InMemSpannerServer) {
+			server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
+				Type:      testutil.StatementResultResultSet,
+				ResultSet: testutil.CreateSingleColumnResultSet([]int64{1, 2, 3}),
+			})
+		}, nil)
 }
 
 func TestQueryWithError_CommitAborted(t *testing.T) {
