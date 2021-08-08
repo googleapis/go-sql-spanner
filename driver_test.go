@@ -74,7 +74,7 @@ func TestExtractDnsParts(t *testing.T) {
 				instance: "i",
 				database: "d",
 				params: map[string]string{
-					"usePlainText": "true",
+					"useplaintext": "true",
 				},
 			},
 		},
