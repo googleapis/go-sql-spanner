@@ -127,6 +127,18 @@ func TestQueryAborted(t *testing.T) {
 	}, codes.OK, 0, 2, 1)
 }
 
+func TestEmptyQueryAbortedTwice(t *testing.T) {
+	testRetryReadWriteTransactionWithQueryWithRetrySuccess(t, func(server testutil.InMemSpannerServer) {
+		server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: testutil.CreateSingleColumnResultSet([]int64{}, "FOO"),
+		})
+		server.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
+			Errors: []error{status.Error(codes.Aborted, "Aborted"), status.Error(codes.Aborted, "Aborted")},
+		})
+	}, codes.OK, -1, 3, 1)
+}
+
 func TestQueryAbortedHalfway(t *testing.T) {
 	testRetryReadWriteTransactionWithQueryWithRetrySuccess(t, func(server testutil.InMemSpannerServer) {
 		server.AddPartialResultSetError(testutil.SelectFooFromBar, testutil.PartialResultSetExecutionTime{
@@ -190,7 +202,7 @@ func TestQueryConsumedHalfway_RetryContainsMoreResults_CommitAborted(t *testing.
 		func(server testutil.InMemSpannerServer) {
 			server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 				Type:      testutil.StatementResultResultSet,
-				ResultSet: testutil.CreateSingleColumnResultSet([]int64{1, 2, 3}),
+				ResultSet: testutil.CreateSingleColumnResultSet([]int64{1, 2, 3}, "FOO"),
 			})
 		}, nil)
 }
@@ -234,7 +246,7 @@ func TestQueryAbortedWithMoreResultsDuringRetry(t *testing.T) {
 			// before the transaction is committed. This will cause the retry to fail.
 			server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 				Type:      testutil.StatementResultResultSet,
-				ResultSet: testutil.CreateSingleColumnResultSet([]int64{1, 2, 3}),
+				ResultSet: testutil.CreateSingleColumnResultSet([]int64{1, 2, 3}, "FOO"),
 			})
 		}, ErrAbortedDueToConcurrentModification)
 }
@@ -250,7 +262,45 @@ func TestQueryAbortedWithLessResultsDuringRetry(t *testing.T) {
 			// before the transaction is committed. This will cause the retry to fail.
 			server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 				Type:      testutil.StatementResultResultSet,
-				ResultSet: testutil.CreateSingleColumnResultSet([]int64{1}),
+				ResultSet: testutil.CreateSingleColumnResultSet([]int64{1}, "FOO"),
+			})
+		}, ErrAbortedDueToConcurrentModification)
+}
+
+// TestQueryWithEmptyResult_CommitAborted tests the scenario where a query returns
+// the same empty result set during the initial attempt and a retry.
+func TestQueryWithEmptyResult_CommitAborted(t *testing.T) {
+	testRetryReadWriteTransactionWithQueryWithRetrySuccess(t, func(server testutil.InMemSpannerServer) {
+		// Let the query return an empty result set with only one column.
+		server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: testutil.CreateSingleColumnResultSet([]int64{}, "FOO"),
+		})
+		server.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+			Errors: []error{status.Error(codes.Aborted, "Aborted")},
+		})
+	}, codes.OK, -1, 2, 2)
+}
+
+// TestQueryWithNewColumn_CommitAborted tests the scenario where a query returns
+// the same empty result set during a retry, but with a new column.
+func TestQueryWithNewColumn_CommitAborted(t *testing.T) {
+	testRetryReadWriteTransactionWithQuery(t, func(server testutil.InMemSpannerServer) {
+		// Let the query return an empty result set with only one column.
+		server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: testutil.CreateSingleColumnResultSet([]int64{}, "FOO"),
+		})
+		server.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+			Errors: []error{status.Error(codes.Aborted, "Aborted")},
+		})
+	}, codes.OK, -1, 2, 1,
+		func(server testutil.InMemSpannerServer) {
+			// Let the query return an empty result set with two columns during the retry.
+			// This should cause a retry failure.
+			server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
+				Type:      testutil.StatementResultResultSet,
+				ResultSet: testutil.CreateTwoColumnResultSet([][2]int64{}, [2]string{"FOO", "BAR"}),
 			})
 		}, ErrAbortedDueToConcurrentModification)
 }
@@ -307,12 +357,14 @@ func testRetryReadWriteTransactionWithQuery(t *testing.T, setupServer func(serve
 		t.Fatalf("next error mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	if wantErrCode == codes.OK {
-		if g, w := len(values), firstNonZero(numRowsToConsume, 2); g != w {
-			t.Fatalf("row count mismatch\nGot: %v\nWant: %v", g, w)
-		}
-		wantValues := ([]int64{1, 2})[:firstNonZero(numRowsToConsume, 2)]
-		if !cmp.Equal(wantValues, values) {
-			t.Fatalf("values mismatch\nGot: %v\nWant: %v", values, wantValues)
+		if numRowsToConsume > -1 {
+			if g, w := len(values), firstNonZero(numRowsToConsume, 2); g != w {
+				t.Fatalf("row count mismatch\nGot: %v\nWant: %v", g, w)
+			}
+			wantValues := ([]int64{1, 2})[:firstNonZero(numRowsToConsume, 2)]
+			if !cmp.Equal(wantValues, values) {
+				t.Fatalf("values mismatch\nGot: %v\nWant: %v", values, wantValues)
+			}
 		}
 	}
 	err = rows.Close()
@@ -383,7 +435,7 @@ func TestQueryAbortedHalfway_WithDifferentResultsInFirstHalf(t *testing.T) {
 	// ErrAbortedDueToConcurrentModification error.
 	server.TestSpanner.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 		Type:      testutil.StatementResultResultSet,
-		ResultSet: testutil.CreateSingleColumnResultSet([]int64{2, 2}),
+		ResultSet: testutil.CreateSingleColumnResultSet([]int64{2, 2}, "FOO"),
 	})
 
 	// This should now fail with an ErrAbortedDueToConcurrentModification error.
@@ -448,7 +500,7 @@ func TestQueryAbortedHalfway_WithDifferentResultsInSecondHalf(t *testing.T) {
 	// been seen by the user.
 	server.TestSpanner.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 		Type:      testutil.StatementResultResultSet,
-		ResultSet: testutil.CreateSingleColumnResultSet([]int64{1, 3}),
+		ResultSet: testutil.CreateSingleColumnResultSet([]int64{1, 3}, "FOO"),
 	})
 
 	// This should succeed and return the new result.

@@ -83,25 +83,27 @@ func TestUpdateChecksum(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not create row 3: %v", err)
 	}
-	var initial [32]byte
-	checksum1, err := updateChecksum(enc1, buffer1, initial, row1)
+	initial1 := new([32]byte)
+	checksum1, err := updateChecksum(enc1, buffer1, initial1, row1)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 1: %v", err)
 	}
-	checksum2, err := updateChecksum(enc2, buffer2, initial, row2)
+	initial2 := new([32]byte)
+	checksum2, err := updateChecksum(enc2, buffer2, initial2, row2)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 2: %v", err)
 	}
-	checksum3, err := updateChecksum(enc3, buffer3, initial, row3)
+	initial3 := new([32]byte)
+	checksum3, err := updateChecksum(enc3, buffer3, initial3, row3)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 3: %v", err)
 	}
 	// row1 and row2 are different, so the checksums should be different.
-	if checksum1 == checksum2 {
+	if *checksum1 == *checksum2 {
 		t.Fatalf("checksum1 should not be equal to checksum2")
 	}
 	// row1 and row3 are equal, and should return the same checksum.
-	if checksum1 != checksum3 {
+	if *checksum1 != *checksum3 {
 		t.Fatalf("checksum1 should be equal to checksum3")
 	}
 
@@ -115,7 +117,7 @@ func TestUpdateChecksum(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not calculate checksum 1_2: %v", err)
 	}
-	if checksum1_2 != checksum3_2 {
+	if *checksum1_2 != *checksum3_2 {
 		t.Fatalf("checksum1_2 should be equal to checksum3_2")
 	}
 
@@ -125,7 +127,7 @@ func TestUpdateChecksum(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not calculate checksum 2_3: %v", err)
 	}
-	if checksum2_3 == checksum3_2 {
+	if *checksum2_3 == *checksum3_2 {
 		t.Fatalf("checksum2_3 should not be equal to checksum3_2")
 	}
 }
@@ -150,7 +152,7 @@ func TestUpdateChecksumForNullValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not create row: %v", err)
 	}
-	var initial [32]byte
+	initial := new([32]byte)
 	// Create the initial checksum.
 	checksum, err := updateChecksum(enc, buffer, initial, row)
 	if err != nil {
@@ -158,14 +160,15 @@ func TestUpdateChecksumForNullValues(t *testing.T) {
 	}
 	// The calculated checksum should not be equal to the initial value, even though it only
 	// contains null values.
-	if checksum == initial {
+	if *checksum == *initial {
 		t.Fatalf("checksum value should not be equal to the initial value")
 	}
 	// Calculating the same checksum again should yield the same result.
 	buffer2 := &bytes.Buffer{}
 	enc2 := gob.NewEncoder(buffer2)
-	checksum2, err := updateChecksum(enc2, buffer2, initial, row)
-	if checksum != checksum2 {
+	initial2 := new([32]byte)
+	checksum2, err := updateChecksum(enc2, buffer2, initial2, row)
+	if *checksum != *checksum2 {
 		t.Fatalf("recalculated checksum does not match the initial calculation")
 	}
 }
