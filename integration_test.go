@@ -39,13 +39,9 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-var (
-	dsn string
-)
+var projectId, instanceId string
 
 func init() {
-
-	var projectId, instanceId, databaseId string
 	var ok bool
 
 	// Get environment variables or set to default.
@@ -55,16 +51,10 @@ func init() {
 	if projectId, ok = os.LookupEnv("SPANNER_TEST_PROJECT"); !ok {
 		projectId = "test-project"
 	}
-	if databaseId, ok = os.LookupEnv("SPANNER_TEST_DBID"); !ok {
-		databaseId = "gotest"
-	}
 
-	// Derive data source dsn.
-	dsn = "projects/" + projectId + "/instances/" + instanceId + "/databases/" + databaseId
-
-	// Automatically create test instance and database on the emulator if necessary.
+	// Automatically create test instance on the emulator if necessary.
 	if _, ok = os.LookupEnv("SPANNER_EMULATOR_HOST"); ok {
-		if err := initEmulator(projectId, instanceId, databaseId); err != nil {
+		if err := initEmulator(); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -77,7 +67,7 @@ func runsOnEmulator() bool {
 	return false
 }
 
-func initEmulator(projectId, instanceId, databaseId string) error {
+func initEmulator() error {
 	ctx := context.Background()
 	instanceAdmin, err := instance.NewInstanceAdminClient(ctx)
 	if err != nil {
@@ -106,29 +96,47 @@ func initEmulator(projectId, instanceId, databaseId string) error {
 			return fmt.Errorf("waiting for instance creation to finish failed: %v", err)
 		}
 	}
+	return nil
+}
+
+func createTestDb(ctx context.Context, statements ...string) (dsn string, cleanup func(), err error) {
 	databaseAdminClient, err := database.NewDatabaseAdminClient(ctx)
 	if err != nil {
-		return err
+		return "", nil, err
 	}
 	defer databaseAdminClient.Close()
+	prefix, ok := os.LookupEnv("SPANNER_TEST_DBID")
+	if !ok {
+		prefix = "gotest"
+	}
+	currentTime := time.Now().UnixNano()
+	databaseId := fmt.Sprintf("%s-%d", prefix, currentTime)
 	opDb, err := databaseAdminClient.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
 		Parent:          fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId),
 		CreateStatement: fmt.Sprintf("CREATE DATABASE `%s`", databaseId),
+		ExtraStatements: statements,
 	})
 	if err != nil {
-		// Check if the database has already been created by another (parallel) test.
-		code := spanner.ErrCode(err)
-		if code != codes.AlreadyExists {
-			return fmt.Errorf("could not create database %s: %v", fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId), err)
-		}
+		return "", nil, err
 	} else {
 		// Wait for the database creation to finish.
 		_, err := opDb.Wait(ctx)
 		if err != nil {
-			return fmt.Errorf("waiting for database creation to finish failed: %v", err)
+			return "", nil, fmt.Errorf("waiting for database creation to finish failed: %v", err)
 		}
 	}
-	return nil
+	dsn = "projects/" + projectId + "/instances/" + instanceId + "/databases/" + databaseId
+	cleanup = func() {
+		databaseAdminClient, err := database.NewDatabaseAdminClient(ctx)
+		if err != nil {
+			return
+		}
+		defer databaseAdminClient.Close()
+		databaseAdminClient.DropDatabase(ctx, &databasepb.DropDatabaseRequest{
+			Database: fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId),
+		})
+	}
+	return
 }
 
 func initIntegrationTests() (cleanup func()) {
@@ -163,25 +171,26 @@ func skipIfEmulator(t *testing.T, msg string) {
 
 func TestQueryContext(t *testing.T) {
 	skipIfShort(t)
+	t.Parallel()
 
-	// Open db.
+	// Create test database.
 	ctx := context.Background()
-	db, err := sql.Open("spanner", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	// Set up test table.
-	_, err = db.ExecContext(ctx,
+	dsn, cleanup, err := createTestDb(ctx,
 		`CREATE TABLE TestQueryContext (
 			A   STRING(1024),
 			B  STRING(1024),
 			C   STRING(1024)
 		)	 PRIMARY KEY (A)`)
 	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+	// Open db.
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer db.Close()
 
 	_, err = db.ExecContext(ctx, `INSERT INTO TestQueryContext (A, B, C) 
 	VALUES ("a1", "b1", "c1"), ("a2", "b2", "c2") , ("a3", "b3", "c3") `)
@@ -294,28 +303,15 @@ func TestQueryContext(t *testing.T) {
 		if !reflect.DeepEqual(tc.want, got) {
 			t.Errorf("Test failed: %s. want: %v, got: %v", tc.name, tc.want, got)
 		}
-
-	}
-
-	// Drop table.
-	if _, err = db.ExecContext(ctx, `DROP TABLE TestQueryContext`); err != nil {
-		t.Error(err)
 	}
 }
 
 func TestExecContextDml(t *testing.T) {
 	skipIfShort(t)
+	t.Parallel()
 
-	// Open db.
 	ctx := context.Background()
-	db, err := sql.Open("spanner", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	// Set up test table.
-	_, err = db.ExecContext(ctx,
+	dsn, cleanup, err := createTestDb(ctx,
 		`CREATE TABLE TestExecContextDml (
 			key	INT64,
 			testString	STRING(1024),
@@ -325,8 +321,16 @@ func TestExecContextDml(t *testing.T) {
 			testBool	BOOL
 		) PRIMARY KEY (key)`)
 	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+
+	// Open db.
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer db.Close()
 
 	type testExecContextDmlRow struct {
 		key        int
@@ -646,28 +650,14 @@ func TestExecContextDml(t *testing.T) {
 		if (err != nil) && (!tc.then.wantError) {
 			t.Errorf("%s: unexpected query error: %v", tc.name, err)
 		}
-
 	}
-
-	// Drop table.
-	if _, err = db.ExecContext(ctx, `DROP TABLE TestExecContextDml`); err != nil {
-		t.Error(err)
-	}
-
 }
 func TestRowsAtomicTypes(t *testing.T) {
 	skipIfShort(t)
+	t.Parallel()
 
-	// Open db.
 	ctx := context.Background()
-	db, err := sql.Open("spanner", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	// Set up test table.
-	_, err = db.ExecContext(ctx,
+	dsn, cleanup, err := createTestDb(ctx,
 		`CREATE TABLE TestAtomicTypes (
 			key	STRING(1024),
 			testString	STRING(1024),
@@ -677,8 +667,16 @@ func TestRowsAtomicTypes(t *testing.T) {
 			testBool	BOOL
 		) PRIMARY KEY (key)`)
 	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+
+	// Open db.
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer db.Close()
 
 	_, err = db.ExecContext(ctx,
 		`INSERT INTO TestAtomicTypes (key, testString, testBytes, testInt, testFloat, testBool) VALUES
@@ -803,30 +801,15 @@ func TestRowsAtomicTypes(t *testing.T) {
 		if !reflect.DeepEqual(tc.want, got) {
 			t.Errorf("Unexpected rows: %s. want: %v, got: %v", tc.name, tc.want, got)
 		}
-
 	}
-
-	// Drop table.
-	_, err = db.ExecContext(ctx, `DROP TABLE TestAtomicTypes`)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 }
 
 func TestRowsOverflowRead(t *testing.T) {
 	skipIfShort(t)
+	t.Parallel()
 
-	// Open db.
 	ctx := context.Background()
-	db, err := sql.Open("spanner", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	// Set up test table.
-	_, err = db.ExecContext(ctx,
+	dsn, cleanup, err := createTestDb(ctx,
 		`CREATE TABLE TestOverflowRead (
 			key	STRING(1024),
 			testString	STRING(1024),
@@ -836,8 +819,16 @@ func TestRowsOverflowRead(t *testing.T) {
 			testBool	BOOL
 		) PRIMARY KEY (key)`)
 	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+
+	// Open db.
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer db.Close()
 
 	_, err = db.ExecContext(ctx,
 		`INSERT INTO TestOverflowRead  (key, testString, testBytes, testInt, testFloat, testBool) VALUES
@@ -942,21 +933,21 @@ func TestRowsOverflowRead(t *testing.T) {
 		if !reflect.DeepEqual(tc.want, got) {
 			t.Errorf("%s: unexpected rows. want: %v, got: %v", tc.name, tc.want, got)
 		}
-
-	}
-
-	// Drop table.
-	_, err = db.ExecContext(ctx, `DROP TABLE TestOverflowRead`)
-	if err != nil {
-		t.Fatal(err)
 	}
 }
 
 func TestAllTypes(t *testing.T) {
 	skipIfShort(t)
+	t.Parallel()
+
+	ctx := context.Background()
+	dsn, cleanup, err := createTestDb(ctx, getTableWithAllTypesDdl("TestAllTypes"))
+	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
 
 	// Open db.
-	ctx := context.Background()
 	db, err := sql.Open("spanner", dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -982,13 +973,6 @@ func TestAllTypes(t *testing.T) {
 		dateArrayCol      []spanner.NullDate
 		timestampArrayCol []spanner.NullTime
 	}
-
-	// Set up test table.
-	cleanup, err := createTableWithAllTypes(ctx, db, "TestAllTypes")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cleanup()
 
 	tests := []struct {
 		name           string
@@ -1150,21 +1134,21 @@ func TestAllTypes(t *testing.T) {
 
 func TestQueryInReadWriteTransaction(t *testing.T) {
 	skipIfShort(t)
+	t.Parallel()
+
+	ctx := context.Background()
+	dsn, cleanup, err := createTestDb(ctx, getTableWithAllTypesDdl("QueryReadWrite"))
+	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
 
 	wantRowCount := int64(100)
-	ctx := context.Background()
 	db, err := sql.Open("spanner", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-
-	// Set up test table.
-	cleanup, err := createTableWithAllTypes(ctx, db, "QueryReadWrite")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cleanup()
 
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
@@ -1237,21 +1221,20 @@ func TestQueryInReadWriteTransaction(t *testing.T) {
 //    will be aborted by Cloud Spanner, and these Aborted errors will be propagated to the caller.
 func TestCanRetryTransaction(t *testing.T) {
 	skipIfShort(t)
-	skipIfEmulator(t, "The emulator does not support multiple simultaneous transactions")
+	t.Parallel()
 
 	ctx := context.Background()
+	dsn, cleanup, err := createTestDb(ctx, "CREATE TABLE RndSingers (SingerId INT64, FirstName STRING(MAX), LastName STRING(MAX)) PRIMARY KEY (SingerId)")
+	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+
 	db, err := sql.Open("spanner", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	_, err = db.ExecContext(ctx, "CREATE TABLE RndSingers (SingerId INT64, FirstName STRING(MAX), LastName STRING(MAX)) PRIMARY KEY (SingerId)")
-	if err != nil {
-		t.Fatalf("create table failed: %v", err)
-	}
-	defer func() {
-		db.ExecContext(ctx, "DROP TABLE RndSingers")
-	}()
 
 	for _, withInternalRetries := range []bool{true, false} {
 		dsnTx := dsn
@@ -1374,9 +1357,8 @@ func insertRandomSingers(ctx context.Context, db *sql.DB) (err error) {
 	return err
 }
 
-func createTableWithAllTypes(ctx context.Context, db *sql.DB, name string) (cleanup func(), err error) {
-	_, err = db.ExecContext(ctx,
-		fmt.Sprintf(`CREATE TABLE %s (
+func getTableWithAllTypesDdl(name string) string {
+	return fmt.Sprintf(`CREATE TABLE %s (
 			key          INT64,
 			boolCol      BOOL,
 			stringCol    STRING(MAX),
@@ -1394,13 +1376,7 @@ func createTableWithAllTypes(ctx context.Context, db *sql.DB, name string) (clea
 			numericArrayCol   ARRAY<NUMERIC>,
 			dateArrayCol      ARRAY<DATE>,
 			timestampArrayCol ARRAY<TIMESTAMP>,
-		) PRIMARY KEY (key)`, fmt.Sprintf("`%s`", name)))
-	if err != nil {
-		return nil, err
-	}
-	return func() {
-		db.ExecContext(ctx, fmt.Sprintf("DROP TABLE `%s`", name))
-	}, nil
+		) PRIMARY KEY (key)`, fmt.Sprintf("`%s`", name))
 }
 
 func nilBool() *bool {
