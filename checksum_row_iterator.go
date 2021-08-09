@@ -29,7 +29,6 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-var ErrAbortedDueToConcurrentModification = status.Error(codes.Aborted, "Transaction was aborted due to a concurrent modification")
 var errNextAfterSTop = status.Errorf(codes.FailedPrecondition, "Next called after Stop")
 
 // init registers the protobuf types with gob so they can be encoded.
@@ -45,7 +44,7 @@ func init() {
 // checksumRowIterator implements rowIterator and keeps track of a running
 // checksum for all results that have been seen during the iteration of the
 // results. This checksum can be used to verify whether a retry returned the
-// same results as the initial attempt.
+// same results as the initial attempt or not.
 type checksumRowIterator struct {
 	*spanner.RowIterator
 	metadata *sppb.ResultSetMetadata
@@ -98,6 +97,10 @@ func (it *checksumRowIterator) Next() (row *spanner.Row, err error) {
 		it.nc++
 		if it.metadata == nil && it.RowIterator.Metadata != nil {
 			it.metadata = it.RowIterator.Metadata
+			// Initialize the checksum of the iterator by calculating the
+			// checksum of the columns that are included in this result. This is
+			// also used to detect the possible difference between two empty
+			// result sets with a different set of columns.
 			it.checksum, err = createMetadataChecksum(it.enc, it.buffer, it.metadata)
 			if err != nil {
 				return err
@@ -133,7 +136,9 @@ func updateChecksum(enc *gob.Encoder, buffer *bytes.Buffer, currentChecksum *[32
 	return &res, nil
 }
 
-// createMetadataChecksum calculates the checksum of the metadata of a result set.
+// createMetadataChecksum calculates the checksum of the metadata of a result.
+// Only the column names and types are included in the checksum. Any transaction
+// metadata is not included.
 func createMetadataChecksum(enc *gob.Encoder, buffer *bytes.Buffer, metadata *sppb.ResultSetMetadata) (*[32]byte, error) {
 	buffer.Reset()
 	for _, field := range metadata.RowType.Fields {

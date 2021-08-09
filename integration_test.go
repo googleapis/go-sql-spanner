@@ -32,12 +32,11 @@ import (
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
+	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
 	"github.com/google/go-cmp/cmp"
 	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
-	"google.golang.org/grpc/codes"
-
-	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
 	instancepb "google.golang.org/genproto/googleapis/spanner/admin/instance/v1"
+	"google.golang.org/grpc/codes"
 )
 
 var (

@@ -20,10 +20,10 @@ import (
 	"encoding/gob"
 	"fmt"
 
+	"cloud.google.com/go/spanner"
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
 	"google.golang.org/grpc/codes"
-
-	"cloud.google.com/go/spanner"
+	"google.golang.org/grpc/status"
 )
 
 // contextTransaction is the combination of both read/write and read-only
@@ -89,6 +89,12 @@ func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement
 func (tx *readOnlyTransaction) ExecContext(_ context.Context, stmt spanner.Statement) (int64, error) {
 	return 0, fmt.Errorf("read-only transactions cannot write")
 }
+
+// ErrAbortedDueToConcurrentModification is returned by a read/write transaction
+// that was aborted by Cloud Spanner, and where the internal retry attempt
+// failed because it detected that the results during the retry were different
+// from the initial attempt.
+var ErrAbortedDueToConcurrentModification = status.Error(codes.Aborted, "Transaction was aborted due to a concurrent modification")
 
 // readWriteTransaction is the internal structure for go/sql read/write
 // transactions. These transactions can automatically be retried if the

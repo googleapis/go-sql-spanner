@@ -21,10 +21,9 @@ import (
 	"strconv"
 	"testing"
 
-	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
-
 	structpb "github.com/golang/protobuf/ptypes/struct"
 	"google.golang.org/api/option"
+	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
 	instancepb "google.golang.org/genproto/googleapis/spanner/admin/instance/v1"
 	spannerpb "google.golang.org/genproto/googleapis/spanner/v1"
 	"google.golang.org/grpc"

@@ -25,9 +25,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp/cmpopts"
-	"google.golang.org/protobuf/types/known/structpb"
-
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
 	"github.com/golang/protobuf/proto"
@@ -35,6 +32,7 @@ import (
 	emptypb "github.com/golang/protobuf/ptypes/empty"
 	proto3 "github.com/golang/protobuf/ptypes/struct"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/rakyll/go-sql-driver-spanner/testutil"
 	"google.golang.org/api/option"
 	longrunningpb "google.golang.org/genproto/googleapis/longrunning"
@@ -42,6 +40,7 @@ import (
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestPingContext(t *testing.T) {
