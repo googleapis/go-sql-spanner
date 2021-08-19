@@ -31,7 +31,7 @@ import (
 func TestCommitAborted(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDbConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	ctx := context.Background()
@@ -56,7 +56,7 @@ func TestCommitAborted(t *testing.T) {
 func TestCommitAbortedWithInternalRetriesDisabled(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDbConnectionWithParams(t, "retryAbortsInternally=false")
+	db, server, teardown := setupTestDBConnectionWithParams(t, "retryAbortsInternally=false")
 	defer teardown()
 
 	ctx := context.Background()
@@ -82,7 +82,7 @@ func TestCommitAbortedWithInternalRetriesDisabled(t *testing.T) {
 func TestUpdateAborted(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDbConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	ctx := context.Background()
@@ -321,7 +321,7 @@ func testRetryReadWriteTransactionWithQuery(t *testing.T, setupServer func(serve
 
 	t.Parallel()
 
-	db, server, teardown := setupTestDbConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	if setupServer != nil {
@@ -395,7 +395,7 @@ func testRetryReadWriteTransactionWithQuery(t *testing.T, setupServer func(serve
 func TestQueryAbortedHalfway_WithDifferentResultsInFirstHalf(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDbConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 	// Ensure that the second call to Next() will fail with an Aborted error.
 	server.TestSpanner.AddPartialResultSetError(testutil.SelectFooFromBar, testutil.PartialResultSetExecutionTime{
@@ -459,7 +459,7 @@ func TestQueryAbortedHalfway_WithDifferentResultsInFirstHalf(t *testing.T) {
 func TestQueryAbortedHalfway_WithDifferentResultsInSecondHalf(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDbConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 	// Ensure that the second call to Next() will fail with an Aborted error.
 	server.TestSpanner.AddPartialResultSetError(testutil.SelectFooFromBar, testutil.PartialResultSetExecutionTime{
@@ -530,7 +530,7 @@ func TestQueryAbortedHalfway_WithDifferentResultsInSecondHalf(t *testing.T) {
 func TestSecondUpdateAborted(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDbConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	ctx := context.Background()
@@ -580,7 +580,7 @@ func TestSecondUpdateAborted(t *testing.T) {
 func TestSecondUpdateAborted_FirstStatementWithSameError(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDbConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	ctx := context.Background()
@@ -673,7 +673,7 @@ func TestSecondUpdateAborted_FirstResultFromErrorToOtherError(t *testing.T) {
 func testSecondUpdateAborted_FirstResultChanged(t *testing.T, firstResult *testutil.StatementResult, secondResult *testutil.StatementResult) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDbConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 	if firstResult != nil {
 		server.TestSpanner.PutStatementResult(testutil.UpdateSingersSetLastName, firstResult)

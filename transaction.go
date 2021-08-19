@@ -117,8 +117,8 @@ type readWriteTransaction struct {
 	retryAborts bool
 
 	// statements contains the list of statements that has been executed on this
-	// transaction so far. These statements will be replayed on a new r/w tx if
-	// the initial attempt is aborted.
+	// transaction so far. These statements will be replayed on a new read write
+	// transaction if the initial attempt is aborted.
 	statements []retriableStatement
 }
 
@@ -128,7 +128,7 @@ type readWriteTransaction struct {
 type retriableStatement interface {
 	// retry retries the statement on a new Spanner transaction. The method must
 	// return nil if it receives the same result as during the initial attempt,
-	// and otherwise ErrAbortedDueToConcurrentModification.
+	// and otherwise return the error ErrAbortedDueToConcurrentModification.
 	//
 	// Note: This method does not return any error that is returned by Spanner
 	// when the statement is executed. Instead, if the statement returns an
@@ -233,9 +233,12 @@ func (tx *readWriteTransaction) Rollback() error {
 	return nil
 }
 
+// Query executes a query using the read/write transaction and returns a
+// rowIterator that will automatically retry the read/write transaction if the
+// transaction is aborted during the query or while iterating the returned rows.
 func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement) rowIterator {
 	// If internal retries have been disabled, we don't need to keep track of a
-	// running checksum for all results that we see.
+	// running checksum for all results that we have seen.
 	if !tx.retryAborts {
 		return &readOnlyRowIterator{tx.rwTx.Query(ctx, stmt)}
 	}

@@ -99,7 +99,7 @@ func initEmulator() error {
 	return nil
 }
 
-func createTestDb(ctx context.Context, statements ...string) (dsn string, cleanup func(), err error) {
+func createTestDB(ctx context.Context, statements ...string) (dsn string, cleanup func(), err error) {
 	databaseAdminClient, err := database.NewDatabaseAdminClient(ctx)
 	if err != nil {
 		return "", nil, err
@@ -111,7 +111,7 @@ func createTestDb(ctx context.Context, statements ...string) (dsn string, cleanu
 	}
 	currentTime := time.Now().UnixNano()
 	databaseId := fmt.Sprintf("%s-%d", prefix, currentTime)
-	opDb, err := databaseAdminClient.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
+	opDB, err := databaseAdminClient.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
 		Parent:          fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId),
 		CreateStatement: fmt.Sprintf("CREATE DATABASE `%s`", databaseId),
 		ExtraStatements: statements,
@@ -120,7 +120,7 @@ func createTestDb(ctx context.Context, statements ...string) (dsn string, cleanu
 		return "", nil, err
 	} else {
 		// Wait for the database creation to finish.
-		_, err := opDb.Wait(ctx)
+		_, err := opDB.Wait(ctx)
 		if err != nil {
 			return "", nil, fmt.Errorf("waiting for database creation to finish failed: %v", err)
 		}
@@ -175,7 +175,7 @@ func TestQueryContext(t *testing.T) {
 
 	// Create test database.
 	ctx := context.Background()
-	dsn, cleanup, err := createTestDb(ctx,
+	dsn, cleanup, err := createTestDB(ctx,
 		`CREATE TABLE TestQueryContext (
 			A   STRING(1024),
 			B  STRING(1024),
@@ -311,7 +311,7 @@ func TestExecContextDml(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	dsn, cleanup, err := createTestDb(ctx,
+	dsn, cleanup, err := createTestDB(ctx,
 		`CREATE TABLE TestExecContextDml (
 			key	INT64,
 			testString	STRING(1024),
@@ -657,7 +657,7 @@ func TestRowsAtomicTypes(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	dsn, cleanup, err := createTestDb(ctx,
+	dsn, cleanup, err := createTestDB(ctx,
 		`CREATE TABLE TestAtomicTypes (
 			key	STRING(1024),
 			testString	STRING(1024),
@@ -809,7 +809,7 @@ func TestRowsOverflowRead(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	dsn, cleanup, err := createTestDb(ctx,
+	dsn, cleanup, err := createTestDB(ctx,
 		`CREATE TABLE TestOverflowRead (
 			key	STRING(1024),
 			testString	STRING(1024),
@@ -941,7 +941,7 @@ func TestAllTypes(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	dsn, cleanup, err := createTestDb(ctx, getTableWithAllTypesDdl("TestAllTypes"))
+	dsn, cleanup, err := createTestDB(ctx, getTableWithAllTypesDdl("TestAllTypes"))
 	if err != nil {
 		t.Fatalf("failed to create test db: %v", err)
 	}
@@ -1137,7 +1137,7 @@ func TestQueryInReadWriteTransaction(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	dsn, cleanup, err := createTestDb(ctx, getTableWithAllTypesDdl("QueryReadWrite"))
+	dsn, cleanup, err := createTestDB(ctx, getTableWithAllTypesDdl("QueryReadWrite"))
 	if err != nil {
 		t.Fatalf("failed to create test db: %v", err)
 	}
@@ -1224,7 +1224,7 @@ func TestCanRetryTransaction(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	dsn, cleanup, err := createTestDb(ctx, "CREATE TABLE RndSingers (SingerId INT64, FirstName STRING(MAX), LastName STRING(MAX)) PRIMARY KEY (SingerId)")
+	dsn, cleanup, err := createTestDB(ctx, "CREATE TABLE RndSingers (SingerId INT64, FirstName STRING(MAX), LastName STRING(MAX)) PRIMARY KEY (SingerId)")
 	if err != nil {
 		t.Fatalf("failed to create test db: %v", err)
 	}
