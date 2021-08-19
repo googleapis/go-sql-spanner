@@ -941,7 +941,7 @@ func TestReadOnlyTransaction(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	dsn, cleanup, err := createTestDb(ctx,
+	dsn, cleanup, err := createTestDB(ctx,
 		`CREATE TABLE Singers (
           SingerId INT64,
           FirstName STRING(MAX),
