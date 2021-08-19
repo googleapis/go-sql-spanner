@@ -836,7 +836,7 @@ func TestRowsAtomicTypePermute(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	dsn, cleanup, err := createTestDb(ctx,
+	dsn, cleanup, err := createTestDB(ctx,
 		`CREATE TABLE TestDiffTypeBytes (val BYTES(1024)) PRIMARY KEY (val)`,
 		`CREATE TABLE TestDiffTypeString (val STRING(1024)) PRIMARY KEY (val)`,
 		`CREATE TABLE TestDiffTypeInt (val INT64) PRIMARY KEY (val)`,
