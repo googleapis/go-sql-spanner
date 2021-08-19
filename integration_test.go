@@ -15,35 +15,33 @@
 package spannerdriver
 
 import (
-	"cloud.google.com/go/civil"
-	"cloud.google.com/go/spanner"
-	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	"context"
 	"database/sql"
 	"flag"
 	"fmt"
-	"github.com/google/go-cmp/cmp"
-	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
-	"google.golang.org/grpc/codes"
 	"log"
 	"math"
 	"math/big"
+	"math/rand"
 	"os"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
+	"cloud.google.com/go/civil"
+	"cloud.google.com/go/spanner"
+	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
+	"github.com/google/go-cmp/cmp"
+	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
 	instancepb "google.golang.org/genproto/googleapis/spanner/admin/instance/v1"
+	"google.golang.org/grpc/codes"
 )
 
-var (
-	dsn string
-)
+var projectId, instanceId string
 
 func init() {
-
-	var projectId, instanceId, databaseId string
 	var ok bool
 
 	// Get environment variables or set to default.
@@ -53,16 +51,10 @@ func init() {
 	if projectId, ok = os.LookupEnv("SPANNER_TEST_PROJECT"); !ok {
 		projectId = "test-project"
 	}
-	if databaseId, ok = os.LookupEnv("SPANNER_TEST_DBID"); !ok {
-		databaseId = "gotest"
-	}
 
-	// Derive data source dsn.
-	dsn = "projects/" + projectId + "/instances/" + instanceId + "/databases/" + databaseId
-
-	// Automatically create test instance and database on the emulator if necessary.
+	// Automatically create test instance on the emulator if necessary.
 	if _, ok = os.LookupEnv("SPANNER_EMULATOR_HOST"); ok {
-		if err := initEmulator(projectId, instanceId, databaseId); err != nil {
+		if err := initEmulator(); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -75,7 +67,7 @@ func runsOnEmulator() bool {
 	return false
 }
 
-func initEmulator(projectId, instanceId, databaseId string) error {
+func initEmulator() error {
 	ctx := context.Background()
 	instanceAdmin, err := instance.NewInstanceAdminClient(ctx)
 	if err != nil {
@@ -104,29 +96,47 @@ func initEmulator(projectId, instanceId, databaseId string) error {
 			return fmt.Errorf("waiting for instance creation to finish failed: %v", err)
 		}
 	}
+	return nil
+}
+
+func createTestDB(ctx context.Context, statements ...string) (dsn string, cleanup func(), err error) {
 	databaseAdminClient, err := database.NewDatabaseAdminClient(ctx)
 	if err != nil {
-		return err
+		return "", nil, err
 	}
 	defer databaseAdminClient.Close()
-	opDb, err := databaseAdminClient.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
+	prefix, ok := os.LookupEnv("SPANNER_TEST_DBID")
+	if !ok {
+		prefix = "gotest"
+	}
+	currentTime := time.Now().UnixNano()
+	databaseId := fmt.Sprintf("%s-%d", prefix, currentTime)
+	opDB, err := databaseAdminClient.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
 		Parent:          fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId),
 		CreateStatement: fmt.Sprintf("CREATE DATABASE `%s`", databaseId),
+		ExtraStatements: statements,
 	})
 	if err != nil {
-		// Check if the database has already been created by another (parallel) test.
-		code := spanner.ErrCode(err)
-		if code != codes.AlreadyExists {
-			return fmt.Errorf("could not create database %s: %v", fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId), err)
-		}
+		return "", nil, err
 	} else {
 		// Wait for the database creation to finish.
-		_, err := opDb.Wait(ctx)
+		_, err := opDB.Wait(ctx)
 		if err != nil {
-			return fmt.Errorf("waiting for database creation to finish failed: %v", err)
+			return "", nil, fmt.Errorf("waiting for database creation to finish failed: %v", err)
 		}
 	}
-	return nil
+	dsn = "projects/" + projectId + "/instances/" + instanceId + "/databases/" + databaseId
+	cleanup = func() {
+		databaseAdminClient, err := database.NewDatabaseAdminClient(ctx)
+		if err != nil {
+			return
+		}
+		defer databaseAdminClient.Close()
+		databaseAdminClient.DropDatabase(ctx, &databasepb.DropDatabaseRequest{
+			Database: fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId),
+		})
+	}
+	return
 }
 
 func initIntegrationTests() (cleanup func()) {
@@ -153,27 +163,34 @@ func skipIfShort(t *testing.T) {
 	}
 }
 
+func skipIfEmulator(t *testing.T, msg string) {
+	if runsOnEmulator() {
+		t.Skip(msg)
+	}
+}
+
 func TestQueryContext(t *testing.T) {
 	skipIfShort(t)
+	t.Parallel()
 
-	// Open db.
+	// Create test database.
 	ctx := context.Background()
-	db, err := sql.Open("spanner", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	// Set up test table.
-	_, err = db.ExecContext(ctx,
+	dsn, cleanup, err := createTestDB(ctx,
 		`CREATE TABLE TestQueryContext (
 			A   STRING(1024),
 			B  STRING(1024),
 			C   STRING(1024)
 		)	 PRIMARY KEY (A)`)
 	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+	// Open db.
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer db.Close()
 
 	_, err = db.ExecContext(ctx, `INSERT INTO TestQueryContext (A, B, C) 
 	VALUES ("a1", "b1", "c1"), ("a2", "b2", "c2") , ("a3", "b3", "c3") `)
@@ -286,28 +303,15 @@ func TestQueryContext(t *testing.T) {
 		if !reflect.DeepEqual(tc.want, got) {
 			t.Errorf("Test failed: %s. want: %v, got: %v", tc.name, tc.want, got)
 		}
-
-	}
-
-	// Drop table.
-	if _, err = db.ExecContext(ctx, `DROP TABLE TestQueryContext`); err != nil {
-		t.Error(err)
 	}
 }
 
 func TestExecContextDml(t *testing.T) {
 	skipIfShort(t)
+	t.Parallel()
 
-	// Open db.
 	ctx := context.Background()
-	db, err := sql.Open("spanner", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	// Set up test table.
-	_, err = db.ExecContext(ctx,
+	dsn, cleanup, err := createTestDB(ctx,
 		`CREATE TABLE TestExecContextDml (
 			key	INT64,
 			testString	STRING(1024),
@@ -317,8 +321,16 @@ func TestExecContextDml(t *testing.T) {
 			testBool	BOOL
 		) PRIMARY KEY (key)`)
 	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+
+	// Open db.
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer db.Close()
 
 	type testExecContextDmlRow struct {
 		key        int
@@ -638,28 +650,14 @@ func TestExecContextDml(t *testing.T) {
 		if (err != nil) && (!tc.then.wantError) {
 			t.Errorf("%s: unexpected query error: %v", tc.name, err)
 		}
-
 	}
-
-	// Drop table.
-	if _, err = db.ExecContext(ctx, `DROP TABLE TestExecContextDml`); err != nil {
-		t.Error(err)
-	}
-
 }
 func TestRowsAtomicTypes(t *testing.T) {
 	skipIfShort(t)
+	t.Parallel()
 
-	// Open db.
 	ctx := context.Background()
-	db, err := sql.Open("spanner", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	// Set up test table.
-	_, err = db.ExecContext(ctx,
+	dsn, cleanup, err := createTestDB(ctx,
 		`CREATE TABLE TestAtomicTypes (
 			key	STRING(1024),
 			testString	STRING(1024),
@@ -669,8 +667,16 @@ func TestRowsAtomicTypes(t *testing.T) {
 			testBool	BOOL
 		) PRIMARY KEY (key)`)
 	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+
+	// Open db.
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer db.Close()
 
 	_, err = db.ExecContext(ctx,
 		`INSERT INTO TestAtomicTypes (key, testString, testBytes, testInt, testFloat, testBool) VALUES
@@ -795,30 +801,15 @@ func TestRowsAtomicTypes(t *testing.T) {
 		if !reflect.DeepEqual(tc.want, got) {
 			t.Errorf("Unexpected rows: %s. want: %v, got: %v", tc.name, tc.want, got)
 		}
-
 	}
-
-	// Drop table.
-	_, err = db.ExecContext(ctx, `DROP TABLE TestAtomicTypes`)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 }
 
 func TestRowsOverflowRead(t *testing.T) {
 	skipIfShort(t)
+	t.Parallel()
 
-	// Open db.
 	ctx := context.Background()
-	db, err := sql.Open("spanner", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	// Set up test table.
-	_, err = db.ExecContext(ctx,
+	dsn, cleanup, err := createTestDB(ctx,
 		`CREATE TABLE TestOverflowRead (
 			key	STRING(1024),
 			testString	STRING(1024),
@@ -828,8 +819,16 @@ func TestRowsOverflowRead(t *testing.T) {
 			testBool	BOOL
 		) PRIMARY KEY (key)`)
 	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+
+	// Open db.
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer db.Close()
 
 	_, err = db.ExecContext(ctx,
 		`INSERT INTO TestOverflowRead  (key, testString, testBytes, testInt, testFloat, testBool) VALUES
@@ -934,21 +933,21 @@ func TestRowsOverflowRead(t *testing.T) {
 		if !reflect.DeepEqual(tc.want, got) {
 			t.Errorf("%s: unexpected rows. want: %v, got: %v", tc.name, tc.want, got)
 		}
-
-	}
-
-	// Drop table.
-	_, err = db.ExecContext(ctx, `DROP TABLE TestOverflowRead`)
-	if err != nil {
-		t.Fatal(err)
 	}
 }
 
 func TestAllTypes(t *testing.T) {
 	skipIfShort(t)
+	t.Parallel()
+
+	ctx := context.Background()
+	dsn, cleanup, err := createTestDB(ctx, getTableWithAllTypesDdl("TestAllTypes"))
+	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
 
 	// Open db.
-	ctx := context.Background()
 	db, err := sql.Open("spanner", dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -974,32 +973,6 @@ func TestAllTypes(t *testing.T) {
 		dateArrayCol      []spanner.NullDate
 		timestampArrayCol []spanner.NullTime
 	}
-
-	// Set up test table.
-	_, err = db.ExecContext(ctx,
-		`CREATE TABLE TestAllTypes (
-			key          INT64,
-			boolCol      BOOL,
-			stringCol    STRING(MAX),
-			bytesCol     BYTES(MAX),
-			int64Col     INT64,
-			float64Col   FLOAT64,
-			numericCol   NUMERIC,
-			dateCol      DATE,
-			timestampCol TIMESTAMP,
-			boolArrayCol      ARRAY<BOOL>,
-			stringArrayCol    ARRAY<STRING(MAX)>,
-			bytesArrayCol     ARRAY<BYTES(MAX)>,
-			int64ArrayCol     ARRAY<INT64>,
-			float64ArrayCol   ARRAY<FLOAT64>,
-			numericArrayCol   ARRAY<NUMERIC>,
-			dateArrayCol      ARRAY<DATE>,
-			timestampArrayCol ARRAY<TIMESTAMP>,
-		) PRIMARY KEY (key)`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.ExecContext(ctx, `DROP TABLE TestAllTypes`)
 
 	tests := []struct {
 		name           string
@@ -1157,6 +1130,253 @@ func TestAllTypes(t *testing.T) {
 			t.Fatalf("row mismatch\nGot:  %v\nWant: %v", allTypesRow, test.want)
 		}
 	}
+}
+
+func TestQueryInReadWriteTransaction(t *testing.T) {
+	skipIfShort(t)
+	t.Parallel()
+
+	ctx := context.Background()
+	dsn, cleanup, err := createTestDB(ctx, getTableWithAllTypesDdl("QueryReadWrite"))
+	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+
+	wantRowCount := int64(100)
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin transaction failed: %v", err)
+	}
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO QueryReadWrite (key, boolCol, stringCol, bytesCol, int64Col, 
+                                               float64Col, numericCol, dateCol, timestampCol, boolArrayCol,
+                                               stringArrayCol, bytesArrayCol, int64ArrayCol, float64ArrayCol,
+                                               numericArrayCol, dateArrayCol, timestampArrayCol) VALUES (@key, @bool,
+                                               @string, @bytes, @int64, @float64, @numeric, @date, @timestamp,
+                                               @boolArray, @stringArray, @bytesArray, @int64Array, @float64Array,
+                                               @numericArray, @dateArray, @timestampArray)`)
+	for row := int64(0); row < wantRowCount; row++ {
+		res, err := stmt.ExecContext(ctx, row, row%2 == 0, fmt.Sprintf("%v", row), []byte(fmt.Sprintf("%v", row)),
+			row, float64(row)/float64(3), numeric(fmt.Sprintf("%v.%v", row, row)),
+			civil.DateOf(time.Unix(row, row)), time.Unix(row*1000, row),
+			[]bool{row%2 == 0, row%2 != 0}, []string{fmt.Sprintf("%v", row), fmt.Sprintf("%v", row*2)},
+			[][]byte{[]byte(fmt.Sprintf("%v", row)), []byte(fmt.Sprintf("%v", row*2))},
+			[]int64{row, row * 2}, []float64{float64(row) / float64(3), float64(row*2) / float64(3)},
+			[]big.Rat{numeric(fmt.Sprintf("%v.%v", row, row)), numeric(fmt.Sprintf("%v.%v", row*2, row*2))},
+			[]civil.Date{civil.DateOf(time.Unix(row, row)), civil.DateOf(time.Unix(row*2, row*2))},
+			[]time.Time{time.Unix(row*1000, row), time.Unix(row*2000, row)},
+		)
+		if err != nil {
+			t.Fatalf("insert failed: %v", err)
+		}
+		if c, _ := res.RowsAffected(); c != 1 {
+			t.Fatalf("update count mismatch\nGot: %v\nWant: %v", c, 1)
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		t.Fatalf("commit failed: %v", err)
+	}
+
+	// Select and iterate over all rows in a read/write transaction.
+	tx, err = db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin failed: %v", err)
+	}
+	rows, err := tx.QueryContext(ctx, "SELECT * FROM QueryReadWrite")
+	if err != nil {
+		t.Fatalf("query failed: %v", err)
+	}
+	rc := int64(0)
+	for rows.Next() {
+		// We don't care about the values here, as that is tested by other tests.
+		// This test just verifies that we can iterate over a large result set in
+		// a read/write transaction without any problems, and that the transaction
+		// will never fail with an aborted error.
+		rc++
+	}
+	if rows.Err() != nil {
+		t.Fatalf("iterating over all rows failed: %v", err)
+	}
+	if err = rows.Close(); err != nil {
+		t.Fatalf("closing rows failed: %v", err)
+	}
+	if rc != wantRowCount {
+		t.Fatalf("row count mismatch\nGot: %v\nWant: %v", rc, wantRowCount)
+	}
+	if err = tx.Commit(); err != nil {
+		t.Fatalf("commit failed: %v", err)
+	}
+}
+
+// TestCanRetryTransaction shows that:
+// 1. If the internal retry of aborted transactions is enabled, the transactions will be retried
+//    successfully when that is possible, without any action needed from the caller.
+// 2. If the internal retry of aborted transactions is disabled, the transactions in this test
+//    will be aborted by Cloud Spanner, and these Aborted errors will be propagated to the caller.
+func TestCanRetryTransaction(t *testing.T) {
+	skipIfShort(t)
+	t.Parallel()
+
+	ctx := context.Background()
+	dsn, cleanup, err := createTestDB(ctx, "CREATE TABLE RndSingers (SingerId INT64, FirstName STRING(MAX), LastName STRING(MAX)) PRIMARY KEY (SingerId)")
+	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	for _, withInternalRetries := range []bool{true, false} {
+		dsnTx := dsn
+		if !withInternalRetries {
+			dsnTx = fmt.Sprintf("%s;retryAbortsInternally=false", dsnTx)
+		}
+		dbTx, err := sql.Open("spanner", dsnTx)
+		if err != nil {
+			t.Fatalf("failed to open db: %v", err)
+		}
+		defer func() {
+			dbTx.Close()
+		}()
+
+		numTransactions := 8
+		results := make([]error, numTransactions)
+		wg := &sync.WaitGroup{}
+		wg.Add(numTransactions)
+		for i := 0; i < numTransactions; i++ {
+			<-time.After(time.Millisecond)
+			go func(i int) {
+				defer wg.Done()
+				results[i] = insertRandomSingers(ctx, dbTx)
+			}(i)
+		}
+		wg.Wait()
+		aborted := false
+		for i, err := range results {
+			if err != nil {
+				if withInternalRetries {
+					t.Fatalf("insert of random singers failed: %d %v", i, err)
+				} else {
+					code := spanner.ErrCode(err)
+					if code == codes.Aborted {
+						aborted = true
+					} else {
+						t.Fatalf("insert of random singers failed: %d %v", i, err)
+					}
+				}
+			}
+		}
+		// If the internal retry feature has been disabled, the aborted errors should
+		// be propagated to the caller. The way that the insertRandomSinger function is
+		// defined ensures that transactions will be aborted when multiple of these are
+		// executed in parallel.
+		if !withInternalRetries && !aborted {
+			t.Fatalf("missing aborted error with internal retries disabled")
+		}
+	}
+}
+
+func insertRandomSingers(ctx context.Context, db *sql.DB) (err error) {
+	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return err
+	}
+	cleanup := func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}
+	defer cleanup()
+	type Singer struct {
+		SingerId  int64
+		FirstName string
+		LastName  string
+	}
+	// Insert at random between 1 and 10 rows.
+	rows := rnd.Intn(10) + 1
+	for row := 0; row < rows; row++ {
+		id := rnd.Int63()
+		prefix := fmt.Sprintf("%020d", id)
+		firstName := fmt.Sprintf("FirstName-%04d", rnd.Intn(10000))
+		// Last name contains the same value as the primary key with a random suffix.
+		// This makes it possible to search for a singer using the last name and knowing
+		// that the search will at most deliver one row (and it will be the same row each time).
+		lastName := fmt.Sprintf("%s-%04d", prefix, rnd.Intn(10000))
+
+		// Yes, this is highly inefficient, but that is intentional. This
+		// will cause a large number of the transactions to be aborted.
+		search := fmt.Sprintf("%s%%", prefix)
+		r := tx.QueryRowContext(ctx, "SELECT * FROM RndSingers WHERE LastName LIKE @lastName ORDER BY LastName LIMIT 1", search)
+		var singer Singer
+		if err = r.Scan(&singer.SingerId, &singer.FirstName, &singer.LastName); err == sql.ErrNoRows {
+			// Singer does not yet exist, so add it.
+			res, err := tx.ExecContext(ctx, "INSERT INTO RndSingers (SingerId, FirstName, LastName) VALUES (@id, @firstName, @lastName)",
+				id, firstName, lastName)
+			if err != nil {
+				return err
+			}
+			c, err := res.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if c != 1 {
+				err = fmt.Errorf("unexpected insert count: %v", c)
+				return err
+			}
+		} else if err != nil {
+			return err
+		} else {
+			// Singer already exists, update the first name.
+			res, err := tx.ExecContext(ctx, "UPDATE RndSingers SET FirstName=@firstName WHERE SingerId=@id", firstName, id)
+			if err != nil {
+				return err
+			}
+			c, err := res.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if c != 1 {
+				err = fmt.Errorf("unexpected update count: %v", c)
+				return err
+			}
+		}
+	}
+	err = tx.Commit()
+	return err
+}
+
+func getTableWithAllTypesDdl(name string) string {
+	return fmt.Sprintf(`CREATE TABLE %s (
+			key          INT64,
+			boolCol      BOOL,
+			stringCol    STRING(MAX),
+			bytesCol     BYTES(MAX),
+			int64Col     INT64,
+			float64Col   FLOAT64,
+			numericCol   NUMERIC,
+			dateCol      DATE,
+			timestampCol TIMESTAMP,
+			boolArrayCol      ARRAY<BOOL>,
+			stringArrayCol    ARRAY<STRING(MAX)>,
+			bytesArrayCol     ARRAY<BYTES(MAX)>,
+			int64ArrayCol     ARRAY<INT64>,
+			float64ArrayCol   ARRAY<FLOAT64>,
+			numericArrayCol   ARRAY<NUMERIC>,
+			dateArrayCol      ARRAY<DATE>,
+			timestampArrayCol ARRAY<TIMESTAMP>,
+		) PRIMARY KEY (key)`, fmt.Sprintf("`%s`", name))
 }
 
 func nilBool() *bool {

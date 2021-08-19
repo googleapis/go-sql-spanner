@@ -20,8 +20,6 @@ import (
 	"database/sql/driver"
 	"encoding/base64"
 	"fmt"
-	"github.com/google/go-cmp/cmp/cmpopts"
-	"google.golang.org/protobuf/types/known/structpb"
 	"math/big"
 	"reflect"
 	"testing"
@@ -34,6 +32,7 @@ import (
 	emptypb "github.com/golang/protobuf/ptypes/empty"
 	proto3 "github.com/golang/protobuf/ptypes/struct"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/rakyll/go-sql-driver-spanner/testutil"
 	"google.golang.org/api/option"
 	longrunningpb "google.golang.org/genproto/googleapis/longrunning"
@@ -41,12 +40,13 @@ import (
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestPingContext(t *testing.T) {
 	t.Parallel()
 
-	db, _, teardown := setupTestDbConnection(t)
+	db, _, teardown := setupTestDBConnection(t)
 	defer teardown()
 	if err := db.PingContext(context.Background()); err != nil {
 		t.Fatalf("unexpected error for ping: %v", err)
@@ -56,7 +56,7 @@ func TestPingContext(t *testing.T) {
 func TestPingContext_Fails(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDbConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 	s := gstatus.Newf(codes.PermissionDenied, "Permission denied for database")
 	_ = server.TestSpanner.PutStatementResult("SELECT 1", &testutil.StatementResult{Err: s.Err()})
@@ -68,7 +68,7 @@ func TestPingContext_Fails(t *testing.T) {
 func TestSimpleQuery(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDbConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 	rows, err := db.QueryContext(context.Background(), testutil.SelectFooFromBar)
 	if err != nil {
@@ -120,7 +120,7 @@ func TestSimpleReadOnlyTransaction(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	db, server, teardown := setupTestDbConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -184,7 +184,7 @@ func TestSimpleReadOnlyTransaction(t *testing.T) {
 func TestSimpleReadWriteTransaction(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDbConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 	tx, err := db.Begin()
 	if err != nil {
@@ -246,7 +246,7 @@ func TestSimpleReadWriteTransaction(t *testing.T) {
 func TestPreparedQuery(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDbConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 	_ = server.TestSpanner.PutStatementResult(
 		"SELECT * FROM Test WHERE Id=@id",
@@ -311,7 +311,7 @@ func TestPreparedQuery(t *testing.T) {
 func TestQueryWithAllTypes(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDbConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 	query := `SELECT *
              FROM Test
@@ -632,7 +632,7 @@ func TestQueryWithAllTypes(t *testing.T) {
 func TestQueryWithNullParameters(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDbConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 	query := `SELECT *
              FROM Test
@@ -761,7 +761,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 func TestDmlInAutocommit(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDbConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 	res, err := db.ExecContext(context.Background(), testutil.UpdateBarSetFoo)
 	if err != nil {
@@ -801,7 +801,7 @@ func TestDmlInAutocommit(t *testing.T) {
 func TestDdlInAutocommit(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDbConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	var expectedResponse = &emptypb.Empty{}
@@ -844,7 +844,7 @@ func TestDdlInAutocommit(t *testing.T) {
 func TestDdlInTransaction(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDbConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	var expectedResponse = &emptypb.Empty{}
@@ -891,7 +891,7 @@ func TestDdlInTransaction(t *testing.T) {
 func TestBegin(t *testing.T) {
 	t.Parallel()
 
-	db, _, teardown := setupTestDbConnection(t)
+	db, _, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	// Ensure that the old Begin method works.
@@ -904,7 +904,7 @@ func TestBegin(t *testing.T) {
 func TestQuery(t *testing.T) {
 	t.Parallel()
 
-	db, _, teardown := setupTestDbConnection(t)
+	db, _, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	// Ensure that the old Query method works.
@@ -918,7 +918,7 @@ func TestQuery(t *testing.T) {
 func TestExec(t *testing.T) {
 	t.Parallel()
 
-	db, _, teardown := setupTestDbConnection(t)
+	db, _, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	// Ensure that the old Exec method works.
@@ -931,7 +931,7 @@ func TestExec(t *testing.T) {
 func TestPrepare(t *testing.T) {
 	t.Parallel()
 
-	db, _, teardown := setupTestDbConnection(t)
+	db, _, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	// Ensure that the old Prepare method works.
@@ -944,7 +944,7 @@ func TestPrepare(t *testing.T) {
 func TestPing(t *testing.T) {
 	t.Parallel()
 
-	db, _, teardown := setupTestDbConnection(t)
+	db, _, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	// Ensure that the old Ping method works.
@@ -978,11 +978,15 @@ func nullDate(valid bool, v string) spanner.NullDate {
 	return spanner.NullDate{Valid: true, Date: date(v)}
 }
 
-func setupTestDbConnection(t *testing.T) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+func setupTestDBConnection(t *testing.T) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+	return setupTestDBConnectionWithParams(t, "")
+}
+
+func setupTestDBConnectionWithParams(t *testing.T, params string) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
 	server, _, serverTeardown := setupMockedTestServer(t)
 	db, err := sql.Open(
 		"spanner",
-		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address))
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;%s", server.Address, params))
 	if err != nil {
 		serverTeardown()
 		t.Fatal(err)

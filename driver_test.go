@@ -74,7 +74,7 @@ func TestExtractDnsParts(t *testing.T) {
 				instance: "i",
 				database: "d",
 				params: map[string]string{
-					"usePlainText": "true",
+					"useplaintext": "true",
 				},
 			},
 		},
@@ -100,6 +100,18 @@ func TestExtractDnsParts(t *testing.T) {
 				params: map[string]string{
 					"credentials": "/path/to/credentials.json",
 					"readonly":    "true",
+				},
+			},
+		},
+		{
+			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?usePlainText=true;",
+			want: connectorConfig{
+				host:     "spanner.googleapis.com",
+				project:  "p",
+				instance: "i",
+				database: "d",
+				params: map[string]string{
+					"useplaintext": "true",
 				},
 			},
 		},

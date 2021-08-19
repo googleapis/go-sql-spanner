@@ -15,16 +15,17 @@
 package spannerdriver
 
 import (
-	"cloud.google.com/go/spanner"
 	"database/sql/driver"
-	"google.golang.org/api/iterator"
-	sppb "google.golang.org/genproto/googleapis/spanner/v1"
 	"io"
 	"sync"
+
+	"cloud.google.com/go/spanner"
+	"google.golang.org/api/iterator"
+	sppb "google.golang.org/genproto/googleapis/spanner/v1"
 )
 
 type rows struct {
-	it *spanner.RowIterator
+	it rowIterator
 
 	colsOnce sync.Once
 	dirtyErr error
@@ -59,7 +60,7 @@ func (r *rows) getColumns() {
 				return
 			}
 		}
-		rowType := r.it.Metadata.RowType
+		rowType := r.it.Metadata().RowType
 		r.cols = make([]string, len(rowType.Fields))
 		for i, c := range rowType.Fields {
 			r.cols[i] = c.Name

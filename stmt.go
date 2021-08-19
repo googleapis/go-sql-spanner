@@ -56,11 +56,11 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 		return nil, err
 	}
 
-	var it *spanner.RowIterator
+	var it rowIterator
 	if s.conn.tx != nil {
 		it = s.conn.tx.Query(ctx, ss)
 	} else {
-		it = s.conn.client.Single().Query(ctx, ss)
+		it = &readOnlyRowIterator{s.conn.client.Single().Query(ctx, ss)}
 	}
 	return &rows{it: it}, nil
 }

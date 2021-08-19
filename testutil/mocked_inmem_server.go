@@ -17,13 +17,13 @@ package testutil
 import (
 	"encoding/base64"
 	"fmt"
-	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
 	"net"
 	"strconv"
 	"testing"
 
 	structpb "github.com/golang/protobuf/ptypes/struct"
 	"google.golang.org/api/option"
+	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
 	instancepb "google.golang.org/genproto/googleapis/spanner/admin/instance/v1"
 	spannerpb "google.golang.org/genproto/googleapis/spanner/v1"
 	"google.golang.org/grpc"
@@ -36,7 +36,7 @@ const SelectFooFromBar = "SELECT FOO FROM BAR"
 const selectFooFromBarRowCount int64 = 2
 const selectFooFromBarColCount int = 1
 
-var selectFooFromBarResults = [...]int64{1, 2}
+var selectFooFromBarResults = []int64{1, 2}
 
 // SelectSingerIDAlbumIDAlbumTitleFromAlbums i a SELECT statement that is added
 // to the mocked test server and will return a 3-cols-3-rows result set.
@@ -57,6 +57,14 @@ const UpdateBarSetFoo = "UPDATE FOO SET BAR=1 WHERE BAZ=2"
 // UpdateBarSetFooRowCount is the constant update count value returned by the
 // statement defined in UpdateBarSetFoo.
 const UpdateBarSetFooRowCount = 5
+
+// UpdateSingersSetLastName is an UPDATE statement that is added to the mocked test
+// server that will return an update count of 1.
+const UpdateSingersSetLastName = "UPDATE Singers SET LastName='Test' WHERE SingerId=1"
+
+// UpdateSingersSetLastNameRowCount is the constant update count value returned by the
+// statement defined in UpdateSingersSetLastName.
+const UpdateSingersSetLastNameRowCount = 1
 
 // MockedSpannerInMemTestServer is an InMemSpannerServer with results for a
 // number of SQL statements readily mocked.
@@ -122,36 +130,16 @@ func (s *MockedSpannerInMemTestServer) setupSelect1Result() {
 }
 
 func (s *MockedSpannerInMemTestServer) setupFooResults() {
-	fields := make([]*spannerpb.StructType_Field, selectFooFromBarColCount)
-	fields[0] = &spannerpb.StructType_Field{
-		Name: "FOO",
-		Type: &spannerpb.Type{Code: spannerpb.TypeCode_INT64},
-	}
-	rowType := &spannerpb.StructType{
-		Fields: fields,
-	}
-	metadata := &spannerpb.ResultSetMetadata{
-		RowType: rowType,
-	}
-	rows := make([]*structpb.ListValue, selectFooFromBarRowCount)
-	for idx, value := range selectFooFromBarResults {
-		rowValue := make([]*structpb.Value, selectFooFromBarColCount)
-		rowValue[0] = &structpb.Value{
-			Kind: &structpb.Value_StringValue{StringValue: strconv.FormatInt(value, 10)},
-		}
-		rows[idx] = &structpb.ListValue{
-			Values: rowValue,
-		}
-	}
-	resultSet := &spannerpb.ResultSet{
-		Metadata: metadata,
-		Rows:     rows,
-	}
+	resultSet := CreateSingleColumnResultSet(selectFooFromBarResults, "FOO")
 	result := &StatementResult{Type: StatementResultResultSet, ResultSet: resultSet}
 	s.TestSpanner.PutStatementResult(SelectFooFromBar, result)
 	s.TestSpanner.PutStatementResult(UpdateBarSetFoo, &StatementResult{
 		Type:        StatementResultUpdateCount,
 		UpdateCount: UpdateBarSetFooRowCount,
+	})
+	s.TestSpanner.PutStatementResult(UpdateSingersSetLastName, &StatementResult{
+		Type:        StatementResultUpdateCount,
+		UpdateCount: UpdateSingersSetLastNameRowCount,
 	})
 }
 
@@ -410,9 +398,13 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 }
 
 func CreateSelect1ResultSet() *spannerpb.ResultSet {
+	return CreateSingleColumnResultSet([]int64{1}, "")
+}
+
+func CreateSingleColumnResultSet(values []int64, name string) *spannerpb.ResultSet {
 	fields := make([]*spannerpb.StructType_Field, 1)
 	fields[0] = &spannerpb.StructType_Field{
-		Name: "",
+		Name: name,
 		Type: &spannerpb.Type{Code: spannerpb.TypeCode_INT64},
 	}
 	rowType := &spannerpb.StructType{
@@ -421,13 +413,50 @@ func CreateSelect1ResultSet() *spannerpb.ResultSet {
 	metadata := &spannerpb.ResultSetMetadata{
 		RowType: rowType,
 	}
-	rows := make([]*structpb.ListValue, 1)
-	rowValue := make([]*structpb.Value, 1)
-	rowValue[0] = &structpb.Value{
-		Kind: &structpb.Value_StringValue{StringValue: "1"},
+	rows := make([]*structpb.ListValue, len(values))
+	for i, v := range values {
+		rowValue := make([]*structpb.Value, 1)
+		rowValue[0] = &structpb.Value{
+			Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%v", v)},
+		}
+		rows[i] = &structpb.ListValue{
+			Values: rowValue,
+		}
 	}
-	rows[0] = &structpb.ListValue{
-		Values: rowValue,
+	return &spannerpb.ResultSet{
+		Metadata: metadata,
+		Rows:     rows,
+	}
+}
+
+func CreateTwoColumnResultSet(values [][2]int64, name [2]string) *spannerpb.ResultSet {
+	fields := make([]*spannerpb.StructType_Field, 2)
+	fields[0] = &spannerpb.StructType_Field{
+		Name: name[0],
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_INT64},
+	}
+	fields[1] = &spannerpb.StructType_Field{
+		Name: name[1],
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_INT64},
+	}
+	rowType := &spannerpb.StructType{
+		Fields: fields,
+	}
+	metadata := &spannerpb.ResultSetMetadata{
+		RowType: rowType,
+	}
+	rows := make([]*structpb.ListValue, len(values))
+	for i, v := range values {
+		rowValue := make([]*structpb.Value, 2)
+		rowValue[0] = &structpb.Value{
+			Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%v", v[0])},
+		}
+		rowValue[1] = &structpb.Value{
+			Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%v", v[1])},
+		}
+		rows[i] = &structpb.ListValue{
+			Values: rowValue,
+		}
 	}
 	return &spannerpb.ResultSet{
 		Metadata: metadata,
