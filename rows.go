@@ -114,6 +114,8 @@ func (r *rows) Next(dest []driver.Value) error {
 			}
 			if v.Valid {
 				dest[i] = v.Int64
+			} else {
+				dest[i] = nil
 			}
 		case sppb.TypeCode_FLOAT64:
 			var v spanner.NullFloat64
@@ -122,6 +124,8 @@ func (r *rows) Next(dest []driver.Value) error {
 			}
 			if v.Valid {
 				dest[i] = v.Float64
+			} else {
+				dest[i] = nil
 			}
 		case sppb.TypeCode_NUMERIC:
 			var v spanner.NullNumeric
@@ -139,6 +143,8 @@ func (r *rows) Next(dest []driver.Value) error {
 			}
 			if v.Valid {
 				dest[i] = v.StringVal
+			} else {
+				dest[i] = nil
 			}
 		case sppb.TypeCode_BYTES:
 			// The column value is a base64 encoded string.
@@ -154,6 +160,8 @@ func (r *rows) Next(dest []driver.Value) error {
 			}
 			if v.Valid {
 				dest[i] = v.Bool
+			} else {
+				dest[i] = nil
 			}
 		case sppb.TypeCode_DATE:
 			var v spanner.NullDate
@@ -171,6 +179,8 @@ func (r *rows) Next(dest []driver.Value) error {
 			}
 			if v.Valid {
 				dest[i] = v.Time
+			} else {
+				dest[i] = nil
 			}
 		case sppb.TypeCode_ARRAY:
 			switch col.Type.ArrayElementType.Code {
