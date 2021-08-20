@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
-	"fmt"
 
 	"cloud.google.com/go/spanner"
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
@@ -87,7 +86,7 @@ func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement
 }
 
 func (tx *readOnlyTransaction) ExecContext(_ context.Context, stmt spanner.Statement) (int64, error) {
-	return 0, fmt.Errorf("read-only transactions cannot write")
+	return 0, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
 // ErrAbortedDueToConcurrentModification is returned by a read/write transaction

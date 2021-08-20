@@ -17,11 +17,11 @@ package spannerdriver
 import (
 	"context"
 	"database/sql/driver"
-	"errors"
-	"fmt"
 
 	"cloud.google.com/go/spanner"
 	"github.com/cloudspannerecosystem/go-sql-spanner/internal"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type stmt struct {
@@ -39,7 +39,7 @@ func (s *stmt) NumInput() int {
 }
 
 func (s *stmt) Exec(args []driver.Value) (driver.Result, error) {
-	return nil, fmt.Errorf("use ExecContext instead")
+	return nil, spanner.ToSpannerError(status.Errorf(codes.Unimplemented, "use ExecContext instead"))
 }
 
 func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
@@ -47,7 +47,7 @@ func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (drive
 }
 
 func (s *stmt) Query(args []driver.Value) (driver.Rows, error) {
-	return nil, fmt.Errorf("use QueryContext instead")
+	return nil, spanner.ToSpannerError(status.Errorf(codes.Unimplemented, "use QueryContext instead"))
 }
 
 func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
@@ -75,7 +75,7 @@ func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, 
 		return spanner.Statement{}, err
 	}
 	if len(names) != len(args) {
-		return spanner.Statement{}, fmt.Errorf("got %v argument values, but found %v parameters in the sql string", len(args), len(names))
+		return spanner.Statement{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "got %v argument values, but found %v parameters in the sql string", len(args), len(names)))
 	}
 	ss := spanner.NewStatement(q)
 	for i, v := range args {
@@ -93,7 +93,7 @@ type result struct {
 }
 
 func (r *result) LastInsertId() (int64, error) {
-	return 0, errors.New("spanner doesn't autogenerate IDs")
+	return 0, spanner.ToSpannerError(status.Errorf(codes.Unimplemented, "Cloud Spanner does not support auto-generated ids"))
 }
 
 func (r *result) RowsAffected() (int64, error) {
