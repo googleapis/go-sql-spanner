@@ -1,4 +1,4 @@
-module github.com/rakyll/go-sql-driver-spanner
+module github.com/cloudspannerecosystem/go-sql-spanner
 
 go 1.14
 

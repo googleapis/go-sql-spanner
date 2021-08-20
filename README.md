@@ -1,6 +1,6 @@
-# go-sql-driver-spanner
+# go-sql-spanner
 
-[![CircleCI](https://circleci.com/gh/rakyll/go-sql-driver-spanner.svg?style=svg)](https://circleci.com/gh/rakyll/go-sql-driver-spanner) [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/rakyll/go-sql-driver-spanner)
+[![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/cloudspannerecosystem/go-sql-spanner)
 
 [Google Cloud Spanner](https://cloud.google.com/spanner) driver for
 Go's [database/sql](https://golang.org/pkg/database/sql/) package.
@@ -9,7 +9,7 @@ Go's [database/sql](https://golang.org/pkg/database/sql/) package.
 THIS IS A WORK-IN-PROGRESS, DON'T USE IT IN PRODUCTION YET.
 
 ``` go
-import _ "github.com/rakyll/go-sql-driver-spanner"
+import _ "github.com/cloudspannerecosystem/go-sql-spanner"
 
 db, err := sql.Open("spanner", "projects/PROJECT/instances/INSTANCE/databases/DATABASE")
 if err != nil {
@@ -49,9 +49,10 @@ db.ExecContext(ctx, "DELETE FROM tweets WHERE id = @id", 14544498215374)
 
 ## Transactions
 
-- Read-only transactions do strong-reads only.
-- Read-write transactions always uses the strongest isolation
-level and ignore the user-specified level.
+- Read-only transactions do strong-reads only. Read-only transactions must be ended by calling
+either Commit or Rollback. Calling either of these methods will end the current read-only
+transaction and return the session that is used to the session pool.
+- Read-write transactions always uses the strongest isolation  level and ignore the user-specified level.
 
 ``` go
 tx, err := db.BeginTx(ctx, &sql.TxOptions{
@@ -73,21 +74,17 @@ $ export SPANNER_EMULATOR_HOST=localhost:9010
 
 ## Troubleshooting
 
-The driver will propagate any Aborted error that is returned by Cloud Spanner
-during a read/write transaction, and it will currently not automatically retry
-the transaction.
-
----
-
-gorm cannot use the driver as it-is but @rakyll has been working on a dialect.
-She doesn't have bandwidth to ship a fully featured dialect right now but contact
-her if you would like to contribute.
-
+The driver will retry any Aborted error that is returned by Cloud Spanner
+during a read/write transaction. If the driver detects that the data that
+was used by the transaction was changed by another transaction between the
+initial attempt and the retry attempt, the Aborted error will be propagated
+to the client application as an `spannerdriver.ErrAbortedDueToConcurrentModification`
+error.
 
 ---
 
 [DDLs](https://cloud.google.com/spanner/docs/data-definition-language)
-are not supported in the transactions per Cloud Spanner restriction.
+are not supported in transactions per Cloud Spanner restriction.
 Instead, run them against the database:
 
 ```go

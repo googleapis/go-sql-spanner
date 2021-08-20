@@ -20,7 +20,7 @@ import (
 	"fmt"
 
 	"github.com/cloudspannerecosystem/go-sql-spanner/examples"
-	_ "github.com/rakyll/go-sql-driver-spanner" // TODO: Change to cloudspannerecosystem once available
+	_ "github.com/cloudspannerecosystem/go-sql-spanner"
 )
 
 func helloWorld(projectId, instanceId, databaseId string) error {

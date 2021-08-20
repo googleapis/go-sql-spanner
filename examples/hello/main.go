@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"log"
 
-	_ "github.com/rakyll/go-sql-driver-spanner" // TODO: Change to cloudspannerecosystem once available
+	_ "github.com/cloudspannerecosystem/go-sql-spanner"
 )
 
 func main() {
