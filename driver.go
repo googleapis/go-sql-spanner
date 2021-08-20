@@ -260,6 +260,12 @@ func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
 		// Default is to fail, unless it is one of the following supported types.
 		return spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "unsupported value type: %v", t))
 	case nil:
+	case sql.NullInt64:
+	case sql.NullTime:
+	case sql.NullString:
+	case sql.NullFloat64:
+	case sql.NullBool:
+	case sql.NullInt32:
 	case string:
 	case spanner.NullString:
 	case []string:
