@@ -19,8 +19,8 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/cloudspannerecosystem/go-sql-spanner/examples"
 	_ "github.com/cloudspannerecosystem/go-sql-spanner"
+	"github.com/cloudspannerecosystem/go-sql-spanner/examples"
 )
 
 func helloWorld(projectId, instanceId, databaseId string) error {

@@ -44,7 +44,7 @@ func RunSampleOnEmulator(sample func(string, string, string) error, ddlStatement
 		stopEmulator()
 		log.Fatalf("failed to create instance on emulator: %v", err)
 	}
-	if err = createSampleDB(projectId, instanceId, databaseId); err != nil {
+	if err = createSampleDB(projectId, instanceId, databaseId, ddlStatements...); err != nil {
 		stopEmulator()
 		log.Fatalf("failed to create database on emulator: %v", err)
 	}
@@ -73,7 +73,7 @@ func startEmulator() error {
 	}
 	// Create and start a container with the emulator.
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
-		Image: "gcr.io/cloud-spanner-emulator/emulator",
+		Image:        "gcr.io/cloud-spanner-emulator/emulator",
 		ExposedPorts: nat.PortSet{"9010": {}},
 	}, &container.HostConfig{
 		PortBindings: map[nat.Port][]nat.PortBinding{"9010": {{HostIP: "0.0.0.0", HostPort: "9010"}}},
@@ -89,7 +89,7 @@ func startEmulator() error {
 	for c := 0; c < 20; c++ {
 		// Always wait at least 500 milliseconds to ensure that the emulator is actually ready, as the
 		// state can be reported as ready, while the emulator (or network interface) is actually not ready.
-		<- time.After(500 * time.Millisecond)
+		<-time.After(500 * time.Millisecond)
 		resp, err := cli.ContainerInspect(ctx, containerId)
 		if err != nil {
 			return fmt.Errorf("failed to inspect container state: %v", err)
