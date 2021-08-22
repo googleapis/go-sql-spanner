@@ -54,6 +54,15 @@ func (dialector Dialector) Initialize(db *gorm.DB) (err error) {
 	if dialector.DriverName == "" {
 		dialector.DriverName = "spanner"
 	}
+	// Register an UPDATE callback that will ensure that primary key columns are
+	// never included in the SET clause of the statement.
+	updateCallback := db.Callback().Update()
+	if err := updateCallback.
+		After("gorm:before_update").
+		Before("gorm:update").
+		Register("gorm:spanner:remove_primary_key_from_update", BeforeUpdate); err != nil {
+		return err
+	}
 
 	if dialector.Conn != nil {
 		db.ConnPool = dialector.Conn
@@ -64,6 +73,11 @@ func (dialector Dialector) Initialize(db *gorm.DB) (err error) {
 		}
 	}
 	return
+}
+
+func BeforeUpdate(db *gorm.DB) {
+	// Omit all primary key fields from the SET clause of an UPDATE statement.
+	db.Statement.Omit(db.Statement.Schema.PrimaryFieldDBNames...)
 }
 
 func (dialector Dialector) DefaultValueOf(field *schema.Field) clause.Expression {

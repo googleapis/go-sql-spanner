@@ -1,3 +1,17 @@
+// Copyright 2021 Google LLC All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package spannergorm
 
 import (
@@ -15,14 +29,14 @@ import (
 )
 
 type Singer struct {
-	SingerId  int64 `gorm:"primaryKey,autoIncrement:false"`
+	SingerId  int64 `gorm:"primaryKey:true;autoIncrement:false"`
 	FirstName *string
 	LastName  string
 	BirthDate spanner.NullDate `gorm:"type:DATE"`
 }
 
 type Album struct {
-	AlbumId  int64 `gorm:"primaryKey,autoIncrement:false"`
+	AlbumId  int64 `gorm:"primaryKey:true;autoIncrement:false"`
 	SingerId int64
 	Singer   Singer
 	Title    string
@@ -127,6 +141,73 @@ func TestCreateSinger(t *testing.T) {
 	})
 	if res.Error != nil {
 		t.Fatalf("failed to create new singer: %v", res.Error)
+	}
+	if res.RowsAffected != 1 {
+		t.Fatalf("affected rows count mismatch\nGot: %v\nWant: %v", res.RowsAffected, 1)
+	}
+}
+
+func TestCreateMultipleSingers(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	server.TestSpanner.PutStatementResult(
+		"INSERT INTO `singers` (`singer_id`,`first_name`,`last_name`,`birth_date`) VALUES (@p1,@p2,@p3,@p4),(@p5,@p6,@p7,@p8)",
+		&testutil.StatementResult{
+			Type:        testutil.StatementResultUpdateCount,
+			UpdateCount: 2,
+		})
+
+	res := db.Create([]*Singer{
+		{
+			SingerId:  1,
+			FirstName: strPointer("Pete"),
+			LastName:  "Allison",
+			BirthDate: spanner.NullDate{Date: civil.Date{Year: 1998, Month: 4, Day: 23}, Valid: true},
+		},
+		{
+			SingerId:  2,
+			FirstName: strPointer("Alice"),
+			LastName:  "Peterson",
+			BirthDate: spanner.NullDate{Date: civil.Date{Year: 2001, Month: 12, Day: 2}, Valid: true},
+		},
+	})
+	if res.Error != nil {
+		t.Fatalf("failed to create new singers: %v", res.Error)
+	}
+	if res.RowsAffected != 2 {
+		t.Fatalf("affected rows count mismatch\nGot: %v\nWant: %v", res.RowsAffected, 2)
+	}
+}
+
+func TestUpdateSinger(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	server.TestSpanner.PutStatementResult(
+		"SELECT * FROM `singers` WHERE `singers`.`singer_id` = @p1 LIMIT 1",
+		&testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: createSingersResultSet([]Singer{{1, nil, "Allison", spanner.NullDate{}}}),
+		})
+	server.TestSpanner.PutStatementResult(
+		"UPDATE `singers` SET `first_name`=@p1,`last_name`=@p2,`birth_date`=@p3 WHERE `singer_id` = @p4",
+		&testutil.StatementResult{
+			Type:        testutil.StatementResultUpdateCount,
+			UpdateCount: 1,
+		})
+
+	var singer Singer
+	if err := db.Take(&singer, 1).Error; err != nil {
+		t.Fatalf("failed to get singer: %v", err)
+	}
+	singer.FirstName = strPointer("Pete")
+	singer.BirthDate = spanner.NullDate{Valid: true, Date: civil.Date{2003, 2, 27}}
+	res := db.Save(singer)
+	if res.Error != nil {
+		t.Fatalf("failed to update singer: %v", res.Error)
 	}
 	if res.RowsAffected != 1 {
 		t.Fatalf("affected rows count mismatch\nGot: %v\nWant: %v", res.RowsAffected, 1)
