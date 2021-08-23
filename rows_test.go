@@ -88,22 +88,22 @@ func TestRows_Next(t *testing.T) {
 	if g, w := len(values), 3; g != w {
 		t.Fatalf("values length mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	for i := int64(1); i <= int64(len(values)); i++ {
-		if g, w := values[i-1][0], i; g != w {
+	for i := int64(0); i < int64(len(values)); i++ {
+		if g, w := values[i][0], i+1; g != w {
 			t.Fatalf("COL1 value mismatch for row %d\nGot: %v\nWant: %v", i, g, w)
 		}
-		if i == 1 || i == 3 {
-			if g, w := values[i-1][1], fmt.Sprintf("Test%d", i); g != w {
+		if i == 0 || i == 2 {
+			if g, w := values[i][1], fmt.Sprintf("Test%d", i+1); g != w {
 				t.Fatalf("COL2 value mismatch for row %d\nGot: %v\nWant: %v", i, g, w)
 			}
-			if g, w := values[i-1][2], 3.14*float64(i); g != w {
+			if g, w := values[i][2], 3.14*float64(i+1); g != w {
 				t.Fatalf("COL3 value mismatch for row %d\nGot: %v\nWant: %v", i, g, w)
 			}
 		} else {
-			if g, w := values[i-1][1], driver.Value(nil); g != w {
+			if g, w := values[i][1], driver.Value(nil); g != w {
 				t.Fatalf("COL2 value mismatch for row %d\nGot: %v\nWant: %v", i, g, w)
 			}
-			if g, w := values[i-1][2], driver.Value(nil); g != w {
+			if g, w := values[i][2], driver.Value(nil); g != w {
 				t.Fatalf("COL3 value mismatch for row %d\nGot: %v\nWant: %v", i, g, w)
 			}
 		}
