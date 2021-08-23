@@ -1014,7 +1014,7 @@ func TestReadOnlyTransaction(t *testing.T) {
 func verifyResult(ctx context.Context, stmt *sql.Stmt, empty bool) error {
 	rows, err := stmt.QueryContext(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to query empty table: %v", err)
+		return fmt.Errorf("failed to execute query: %v", err)
 	}
 	if rows.Next() {
 		if empty {
