@@ -34,6 +34,7 @@ import (
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
 	"github.com/google/go-cmp/cmp"
+	"google.golang.org/api/iterator"
 	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
 	instancepb "google.golang.org/genproto/googleapis/spanner/admin/instance/v1"
 	"google.golang.org/grpc/codes"
@@ -87,6 +88,10 @@ func initTestInstance(config string) (cleanup func(), err error) {
 			Config:      fmt.Sprintf("projects/%s/instanceConfigs/%s", projectId, config),
 			DisplayName: instanceId,
 			NodeCount:   1,
+			Labels: map[string]string{
+				"gosqltestinstance": "true",
+				"createdat":         fmt.Sprintf("%s", time.Now().UTC().Format(time.RFC3339Nano)),
+			},
 		},
 	})
 	if err != nil {
@@ -99,14 +104,45 @@ func initTestInstance(config string) (cleanup func(), err error) {
 		}
 	}
 	// Delete the instance after all tests have finished.
+	// Also delete any stale test instances that might still be around on the project.
 	return func() {
 		instanceAdmin, err := instance.NewInstanceAdminClient(ctx)
 		if err != nil {
 			return
 		}
+		// Delete this test instance.
 		instanceAdmin.DeleteInstance(ctx, &instancepb.DeleteInstanceRequest{
 			Name: fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId),
 		})
+		// Also delete any other stale test instance.
+		instances := instanceAdmin.ListInstances(ctx, &instancepb.ListInstancesRequest{
+			Parent: fmt.Sprintf("projects/%s", projectId),
+			Filter: "label.gosqltestinstance:*",
+		})
+		for {
+			instance, err := instances.Next()
+			if err == iterator.Done {
+				break
+			}
+			if err != nil {
+				log.Printf("failed to fetch instances during cleanup: %v", err)
+				break
+			}
+			if createdAtString, ok := instance.Labels["createdat"]; ok {
+				createdAt, err := time.Parse(time.RFC3339Nano, createdAtString)
+				if err != nil {
+					log.Printf("failed to parse created time from string %q of instance %s: %v", createdAtString, instance.Name, err)
+				} else {
+					diff := time.Now().Sub(createdAt)
+					if diff > time.Hour*24 {
+						log.Printf("deleting stale test instance %s", instance.Name)
+						instanceAdmin.DeleteInstance(ctx, &instancepb.DeleteInstanceRequest{
+							Name: instance.Name,
+						})
+					}
+				}
+			}
+		}
 	}, nil
 }
 
