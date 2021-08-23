@@ -814,16 +814,9 @@ func TestDdlInAutocommit(t *testing.T) {
 		},
 	})
 	query := "CREATE TABLE Singers (SingerId INT64, FirstName STRING(100), LastName STRING(100)) PRIMARY KEY (SingerId)"
-	res, err := db.ExecContext(context.Background(), query)
+	_, err := db.ExecContext(context.Background(), query)
 	if err != nil {
 		t.Fatal(err)
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if affected != 0 {
-		t.Fatalf("affected rows count mismatch\nGot: %v\nWant: %v", affected, 0)
 	}
 	requests := server.TestDatabaseAdmin.Reqs()
 	if g, w := len(requests), 1; g != w {
@@ -861,16 +854,9 @@ func TestDdlInTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := tx.ExecContext(context.Background(), query)
+	_, err = tx.ExecContext(context.Background(), query)
 	if err != nil {
 		t.Fatal(err)
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if affected != 0 {
-		t.Fatalf("affected rows count mismatch\nGot: %v\nWant: %v", affected, 0)
 	}
 	requests := server.TestDatabaseAdmin.Reqs()
 	if g, w := len(requests), 1; g != w {
@@ -951,6 +937,55 @@ func TestPing(t *testing.T) {
 	err := db.Ping()
 	if err != nil {
 		t.Fatalf("Ping failed: %v", err)
+	}
+}
+
+func TestDdlBatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	var expectedResponse = &emptypb.Empty{}
+	any, _ := ptypes.MarshalAny(expectedResponse)
+	server.TestDatabaseAdmin.SetResps([]proto.Message{
+		&longrunningpb.Operation{
+			Done:   true,
+			Result: &longrunningpb.Operation_Response{Response: any},
+			Name:   "test-operation",
+		},
+	})
+
+	statements := []string{"CREATE TABLE FOO", "CREATE TABLE BAR"}
+	conn, err := db.Conn(ctx)
+	if _, err = conn.ExecContext(ctx, "START BATCH DDL"); err != nil {
+		t.Fatalf("failed to start DDL batch: %v", err)
+	}
+	for _, stmt := range statements {
+		if _, err = conn.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("failed to execute statement in DDL batch: %v", err)
+		}
+	}
+	if _, err = conn.ExecContext(ctx, "RUN BATCH"); err != nil {
+		t.Fatalf("failed to run DDL batch: %v", err)
+	}
+
+	requests := server.TestDatabaseAdmin.Reqs()
+	if g, w := len(requests), 1; g != w {
+		t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	if req, ok := requests[0].(*databasepb.UpdateDatabaseDdlRequest); ok {
+		if g, w := len(req.Statements), len(statements); g != w {
+			t.Fatalf("statement count mismatch\nGot: %v\nWant: %v", g, w)
+		}
+		for i, stmt := range statements {
+			if g, w := req.Statements[i], stmt; g != w {
+				t.Fatalf("statement mismatch\nGot: %v\nWant: %v", g, w)
+			}
+		}
+	} else {
+		t.Fatalf("request type mismatch, got %v", requests[0])
 	}
 }
 

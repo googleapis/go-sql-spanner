@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	"cloud.google.com/go/spanner"
-	"github.com/cloudspannerecosystem/go-sql-spanner/internal"
 )
 
 type stmt struct {
@@ -70,7 +69,7 @@ func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
 }
 
 func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, error) {
-	names, err := internal.ParseNamedParameters(q)
+	names, err := ParseNamedParameters(q)
 	if err != nil {
 		return spanner.Statement{}, err
 	}

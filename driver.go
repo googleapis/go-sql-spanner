@@ -25,8 +25,9 @@ import (
 	"strings"
 
 	"cloud.google.com/go/spanner"
-	"github.com/cloudspannerecosystem/go-sql-spanner/internal"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	adminapi "cloud.google.com/go/spanner/admin/database/apiv1"
 	adminpb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
@@ -205,6 +206,78 @@ type conn struct {
 	tx          contextTransaction
 	database    string
 	retryAborts bool
+	batch       *batch
+}
+
+type batchType int
+
+const (
+	ddl batchType = iota
+	dml
+)
+
+type batch struct {
+	tp         batchType
+	statements []string
+}
+
+func (c *conn) startBatchDdl() (driver.Result, error) {
+	if c.batch != nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection already has an active batch."))
+	}
+	if c.inTransaction() {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection has an active transaction. DDL batches in transactions are not supported."))
+	}
+	c.batch = &batch{tp: ddl}
+	return driver.ResultNoRows, nil
+}
+
+func (c *conn) runBatch(ctx context.Context) (driver.Result, error) {
+	if c.batch == nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection does not have an active batch"))
+	}
+	switch c.batch.tp {
+	case ddl:
+		return c.runDdlBatch(ctx)
+	case dml:
+		return c.runDmlBatch()
+	default:
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Unknown batch type: %d", c.batch.tp))
+	}
+}
+
+func (c *conn) runDdlBatch(ctx context.Context) (driver.Result, error) {
+	statements := c.batch.statements
+	c.batch = nil
+	return c.execDdl(ctx, statements...)
+}
+
+func (c *conn) runDmlBatch() (driver.Result, error) {
+	return nil, nil
+}
+
+func (c *conn) execDdl(ctx context.Context, statements ...string) (driver.Result, error) {
+	if c.batch != nil && c.batch.tp == dml {
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This connection has an active DML batch"))
+	}
+	if c.batch != nil && c.batch.tp == ddl {
+		c.batch.statements = append(c.batch.statements, statements...)
+		return driver.ResultNoRows, nil
+	}
+
+	if len(statements) > 0 {
+		op, err := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
+			Database:   c.database,
+			Statements: statements,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if err := op.Wait(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return driver.ResultNoRows, nil
 }
 
 // Ping implements the driver.Pinger interface.
@@ -239,6 +312,7 @@ func (c *conn) ResetSession(_ context.Context) error {
 			return driver.ErrBadConn
 		}
 	}
+	c.batch = nil
 	return nil
 }
 
@@ -252,7 +326,7 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 }
 
 func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
-	args, err := internal.ParseNamedParameters(query)
+	args, err := ParseNamedParameters(query)
 	if err != nil {
 		return nil, err
 	}
@@ -274,28 +348,26 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 }
 
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
-	// Use admin API if DDL statement is provided.
-	isDdl, err := internal.IsDdl(query)
+	// Execute client side statement if it is one.
+	stmt, err := ParseClientSideStatement(c, query)
 	if err != nil {
 		return nil, err
 	}
+	if stmt != nil {
+		return stmt.ExecContext(ctx, query, args)
+	}
 
+	// Use admin API if DDL statement is provided.
+	isDdl, err := IsDdl(query)
+	if err != nil {
+		return nil, err
+	}
 	if isDdl {
 		// TODO: Determine whether we want to return an error if a transaction
 		// is active. Cloud Spanner does not support DDL in transactions, but
 		// this makes it seem like the DDL statement is executed on the
 		// transaction on this connection if it has a transaction.
-		op, err := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
-			Database:   c.database,
-			Statements: []string{query},
-		})
-		if err != nil {
-			return nil, err
-		}
-		if err := op.Wait(ctx); err != nil {
-			return nil, err
-		}
-		return &result{rowsAffected: 0}, nil
+		return c.execDdl(ctx, query)
 	}
 
 	ss, err := prepareSpannerStmt(query, args)

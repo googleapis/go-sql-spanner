@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package internal
+package spannerdriver
 
 import (
 	"testing"
@@ -657,6 +657,62 @@ func TestIsDdl(t *testing.T) {
 		}
 		if got != tc.want {
 			t.Errorf("isDdl test failed, %s: wanted %t got %t.", tc.name, tc.want, got)
+		}
+	}
+}
+
+func TestParseClientSideStatement(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+		exec  bool
+		query bool
+	}{
+		{
+			name:  "Start DDL batch",
+			input: "START BATCH DDL",
+			want:  "START BATCH DDL",
+			exec:  true,
+		},
+		{
+			name:  "Start DDL batch using line feeds",
+			input: "START\nBATCH\nDDL",
+			want:  "START BATCH DDL",
+			exec:  true,
+		},
+		{
+			name:  "Start DDL batch lower case",
+			input: "start batch ddl",
+			want:  "START BATCH DDL",
+			exec:  true,
+		},
+		{
+			name:  "Start DDL batch with extra spaces",
+			input: "\tSTART  BATCH\n\nDDL",
+			want:  "START BATCH DDL",
+			exec:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		statement, err := ParseClientSideStatement(&conn{}, tc.input)
+		if err != nil {
+			t.Fatalf("failed to parse statement %s: %v", tc.name, err)
+		}
+		if tc.exec && statement.execContext == nil {
+			t.Fatalf("execContext missing for %q", tc.input)
+		}
+		if tc.query && statement.queryContext == nil {
+			t.Fatalf("queryContext missing for %q", tc.input)
+		}
+
+		var got string
+		if statement != nil {
+			got = statement.Name
+		}
+		if got != tc.want {
+			t.Errorf("ParseClientSideStatement test failed: %s\nGot: %s\nWant: %s.", tc.name, got, tc.want)
 		}
 	}
 }

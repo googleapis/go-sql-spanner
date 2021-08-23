@@ -12,12 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package internal
+package spannerdriver
 
 import (
+	"context"
+	"database/sql/driver"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"os"
+	"reflect"
+	"regexp"
 	"strings"
 	"unicode"
+
+	"cloud.google.com/go/spanner"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var ddlStatements = map[string]bool{"CREATE": true, "DROP": true, "ALTER": true}
@@ -267,4 +278,98 @@ func IsDdl(query string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+type ClientSideStatements struct {
+	Statements []*ClientSideStatement `json:"statements"`
+	executor   *statementExecutor
+}
+
+type ClientSideStatement struct {
+	Name                          string `json:"name"`
+	ExecutorName                  string `json:"executorName"`
+	execContext                   func(ctx context.Context, c *conn, query string, args []driver.NamedValue) (driver.Result, error)
+	queryContext                  func(ctx context.Context, c *conn, query string, args []driver.NamedValue) (driver.Rows, error)
+	ResultType                    string `json:"resultType"`
+	Regex                         string `json:"regex"`
+	regexp                        *regexp.Regexp
+	MethodName                    string `json:"method"`
+	method                        func(query string) error
+	ExampleStatements             []string `json:"exampleStatements"`
+	ExamplePrerequisiteStatements []string `json:"examplePrerequisiteStatements"`
+
+	SetStatement struct {
+		PropertyName  string `json:"propertyName"`
+		Separator     string `json:"separator"`
+		AllowedValues string `json:"allowedValues"`
+		ConverterName string `json:"converterName"`
+	} `json:"setStatement"`
+}
+
+var statements *ClientSideStatements
+
+func compileStatements() error {
+	file, err := os.Open("client_side_statements.json")
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	bytes, err := ioutil.ReadAll(file)
+	if err != nil {
+		return err
+	}
+	statements = new(ClientSideStatements)
+	err = json.Unmarshal(bytes, statements)
+	if err != nil {
+		return err
+	}
+	statements.executor = &statementExecutor{}
+	for _, stmt := range statements.Statements {
+		stmt.regexp, err = regexp.Compile(stmt.Regex)
+		if err != nil {
+			return err
+		}
+		i := reflect.ValueOf(statements.executor).MethodByName(strings.TrimPrefix(stmt.MethodName, "statement")).Interface()
+		if execContext, ok := i.(func(ctx context.Context, c *conn, query string, args []driver.NamedValue) (driver.Result, error)); ok {
+			stmt.execContext = execContext
+		}
+		if queryContext, ok := i.(func(ctx context.Context, c *conn, query string, args []driver.NamedValue) (driver.Rows, error)); ok {
+			stmt.queryContext = queryContext
+		}
+	}
+	return nil
+}
+
+type ExecutableClientSideStatement struct {
+	*ClientSideStatement
+	conn  *conn
+	query string
+}
+
+func (c *ExecutableClientSideStatement) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	if c.ClientSideStatement.execContext == nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with ExecContext", query))
+	}
+	return c.ClientSideStatement.execContext(ctx, c.conn, query, args)
+}
+
+func (c *ExecutableClientSideStatement) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	if c.ClientSideStatement.queryContext == nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with QueryContext", query))
+	}
+	return c.ClientSideStatement.queryContext(ctx, c.conn, query, args)
+}
+
+func ParseClientSideStatement(c *conn, query string) (*ExecutableClientSideStatement, error) {
+	if statements == nil {
+		if err := compileStatements(); err != nil {
+			return nil, err
+		}
+	}
+	for _, stmt := range statements.Statements {
+		if stmt.regexp.MatchString(query) {
+			return &ExecutableClientSideStatement{stmt, c, query}, nil
+		}
+	}
+	return nil, nil
 }
