@@ -25,6 +25,7 @@ import (
 	"math/rand"
 	"os"
 	"reflect"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -90,7 +91,7 @@ func initTestInstance(config string) (cleanup func(), err error) {
 			NodeCount:   1,
 			Labels: map[string]string{
 				"gosqltestinstance": "true",
-				"createdat":         fmt.Sprintf("t%s", time.Now().UTC().Format(time.RFC3339Nano)),
+				"createdat":         fmt.Sprintf("t%d", time.Now().Unix()),
 			},
 		},
 	})
@@ -130,11 +131,11 @@ func initTestInstance(config string) (cleanup func(), err error) {
 			}
 			if createdAtString, ok := instance.Labels["createdat"]; ok {
 				// Strip the leading 't' from the value.
-				createdAt, err := time.Parse(time.RFC3339Nano, createdAtString[1:])
+				seconds, err := strconv.ParseInt(createdAtString[1:], 10, 64)
 				if err != nil {
 					log.Printf("failed to parse created time from string %q of instance %s: %v", createdAtString, instance.Name, err)
 				} else {
-					diff := time.Now().Sub(createdAt)
+					diff := time.Duration(time.Now().Unix()-seconds) * time.Second
 					if diff > time.Hour*24 {
 						log.Printf("deleting stale test instance %s", instance.Name)
 						instanceAdmin.DeleteInstance(ctx, &instancepb.DeleteInstanceRequest{
