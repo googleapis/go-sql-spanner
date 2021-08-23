@@ -1,10 +1,10 @@
-// Copyright 2020 Google Inc. All Rights Reserved.
+// Copyright 2021 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//      http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -114,6 +114,8 @@ func (r *rows) Next(dest []driver.Value) error {
 			}
 			if v.Valid {
 				dest[i] = v.Int64
+			} else {
+				dest[i] = nil
 			}
 		case sppb.TypeCode_FLOAT64:
 			var v spanner.NullFloat64
@@ -122,6 +124,8 @@ func (r *rows) Next(dest []driver.Value) error {
 			}
 			if v.Valid {
 				dest[i] = v.Float64
+			} else {
+				dest[i] = nil
 			}
 		case sppb.TypeCode_NUMERIC:
 			var v spanner.NullNumeric
@@ -139,6 +143,8 @@ func (r *rows) Next(dest []driver.Value) error {
 			}
 			if v.Valid {
 				dest[i] = v.StringVal
+			} else {
+				dest[i] = nil
 			}
 		case sppb.TypeCode_BYTES:
 			// The column value is a base64 encoded string.
@@ -154,6 +160,8 @@ func (r *rows) Next(dest []driver.Value) error {
 			}
 			if v.Valid {
 				dest[i] = v.Bool
+			} else {
+				dest[i] = nil
 			}
 		case sppb.TypeCode_DATE:
 			var v spanner.NullDate
@@ -171,6 +179,8 @@ func (r *rows) Next(dest []driver.Value) error {
 			}
 			if v.Valid {
 				dest[i] = v.Time
+			} else {
+				dest[i] = nil
 			}
 		case sppb.TypeCode_ARRAY:
 			switch col.Type.ArrayElementType.Code {
