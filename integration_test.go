@@ -90,7 +90,7 @@ func initTestInstance(config string) (cleanup func(), err error) {
 			NodeCount:   1,
 			Labels: map[string]string{
 				"gosqltestinstance": "true",
-				"createdat":         fmt.Sprintf("%s", time.Now().UTC().Format(time.RFC3339Nano)),
+				"createdat":         fmt.Sprintf("t%s", time.Now().UTC().Format(time.RFC3339Nano)),
 			},
 		},
 	})
@@ -129,7 +129,8 @@ func initTestInstance(config string) (cleanup func(), err error) {
 				break
 			}
 			if createdAtString, ok := instance.Labels["createdat"]; ok {
-				createdAt, err := time.Parse(time.RFC3339Nano, createdAtString)
+				// Strip the leading 't' from the value.
+				createdAt, err := time.Parse(time.RFC3339Nano, createdAtString[1:])
 				if err != nil {
 					log.Printf("failed to parse created time from string %q of instance %s: %v", createdAtString, instance.Name, err)
 				} else {
