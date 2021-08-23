@@ -1,10 +1,10 @@
-// Copyright 2020 Google Inc. All Rights Reserved.
+// Copyright 2021 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//      http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -25,7 +25,7 @@ import (
 	"strings"
 
 	"cloud.google.com/go/spanner"
-	"github.com/rakyll/go-sql-driver-spanner/internal"
+	"github.com/cloudspannerecosystem/go-sql-spanner/internal"
 	"google.golang.org/api/option"
 
 	adminapi "cloud.google.com/go/spanner/admin/database/apiv1"
@@ -33,7 +33,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-const userAgent = "go-sql-driver-spanner/0.1"
+const userAgent = "go-sql-spanner/0.1"
 
 // dsnRegExpString describes the valid values for a dsn (connection name) for
 // Google Cloud Spanner. The string consists of the following parts:
