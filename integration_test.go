@@ -1000,6 +1000,104 @@ func TestRowsOverflowRead(t *testing.T) {
 	}
 }
 
+func TestReadOnlyTransaction(t *testing.T) {
+	skipIfShort(t)
+	t.Parallel()
+
+	ctx := context.Background()
+	dsn, cleanup, err := createTestDB(ctx,
+		`CREATE TABLE Singers (
+          SingerId INT64,
+          FirstName STRING(MAX),
+          LastName STRING(MAX),
+        ) PRIMARY KEY (SingerId)`)
+	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatalf("failed to begin read-only transaction: %v", err)
+	}
+	stmt, err := tx.PrepareContext(ctx, "SELECT * FROM Singers")
+	if err != nil {
+		t.Fatalf("failed to prepare query: %v", err)
+	}
+	// The result should be empty.
+	if err := verifyResult(ctx, stmt, true); err != nil {
+		t.Fatal(err)
+	}
+	// Insert a row in the table using a different transaction.
+	res, err := db.ExecContext(ctx, "INSERT INTO Singers (SingerId, FirstName, LastName) VALUES (1, 'First', 'Last')")
+	if err != nil {
+		t.Fatalf("failed to insert a row: %v", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		t.Fatalf("failed to get affected row count: %v", err)
+	}
+	if affected != 1 {
+		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 1)
+	}
+	// Executing the same statement on the read-only transaction again should
+	// still return an empty result, as it is reading using a timestamp that is
+	// before the new row was inserted.
+	if err := verifyResult(ctx, stmt, true); err != nil {
+		t.Fatal(err)
+	}
+
+	// Closing the current read-only transaction and starting a new one should
+	// return the new row.
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("failed to commit read-only transaction: %v", err)
+	}
+	tx, err = db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatalf("failed to begin a new read-only transaction: %v", err)
+	}
+	stmt, err = tx.PrepareContext(ctx, "SELECT * FROM Singers")
+	if err != nil {
+		t.Fatalf("failed to prepare query: %v", err)
+	}
+	// The result should no longer be empty.
+	if err := verifyResult(ctx, stmt, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("failed to commit read-only transaction: %v", err)
+	}
+}
+
+func verifyResult(ctx context.Context, stmt *sql.Stmt, empty bool) error {
+	rows, err := stmt.QueryContext(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to execute query: %v", err)
+	}
+	if rows.Next() {
+		if empty {
+			return fmt.Errorf("received unexpected row from empty table")
+		}
+	} else {
+		if !empty {
+			return fmt.Errorf("received unexpected empty result")
+		}
+	}
+	if rows.Err() != nil {
+		return fmt.Errorf("received unexpected error from query: %v", rows.Err())
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("failed to close rows: %v", err)
+	}
+	return nil
+}
+
 func TestAllTypes(t *testing.T) {
 	skipIfShort(t)
 	t.Parallel()
