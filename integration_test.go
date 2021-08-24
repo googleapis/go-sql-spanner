@@ -25,6 +25,7 @@ import (
 	"math/rand"
 	"os"
 	"reflect"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -34,6 +35,7 @@ import (
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
 	"github.com/google/go-cmp/cmp"
+	"google.golang.org/api/iterator"
 	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
 	instancepb "google.golang.org/genproto/googleapis/spanner/admin/instance/v1"
 	"google.golang.org/grpc/codes"
@@ -51,13 +53,6 @@ func init() {
 	if projectId, ok = os.LookupEnv("SPANNER_TEST_PROJECT"); !ok {
 		projectId = "test-project"
 	}
-
-	// Automatically create test instance on the emulator if necessary.
-	if _, ok = os.LookupEnv("SPANNER_EMULATOR_HOST"); ok {
-		if err := initEmulator(); err != nil {
-			log.Fatal(err)
-		}
-	}
 }
 
 func runsOnEmulator() bool {
@@ -67,36 +62,90 @@ func runsOnEmulator() bool {
 	return false
 }
 
-func initEmulator() error {
+func initTestInstance(config string) (cleanup func(), err error) {
 	ctx := context.Background()
 	instanceAdmin, err := instance.NewInstanceAdminClient(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer instanceAdmin.Close()
+	// Check if the instance exists or not.
+	_, err = instanceAdmin.GetInstance(ctx, &instancepb.GetInstanceRequest{
+		Name: fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId),
+	})
+	if err == nil {
+		return func() {}, nil
+	}
+	if spanner.ErrCode(err) != codes.NotFound {
+		return nil, err
+	}
+
+	// Instance does not exist. Create a temporary instance for this test run.
+	// The instance will be deleted after the test run.
 	op, err := instanceAdmin.CreateInstance(ctx, &instancepb.CreateInstanceRequest{
 		Parent:     fmt.Sprintf("projects/%s", projectId),
 		InstanceId: instanceId,
 		Instance: &instancepb.Instance{
-			Config:      fmt.Sprintf("projects/%s/instanceConfigs/%s", projectId, "emulator-config"),
+			Config:      fmt.Sprintf("projects/%s/instanceConfigs/%s", projectId, config),
 			DisplayName: instanceId,
 			NodeCount:   1,
+			Labels: map[string]string{
+				"gosqltestinstance": "true",
+				"createdat":         fmt.Sprintf("t%d", time.Now().Unix()),
+			},
 		},
 	})
 	if err != nil {
-		// Check if the instance has already been created by another (parallel) test.
-		code := spanner.ErrCode(err)
-		if code != codes.AlreadyExists {
-			return fmt.Errorf("could not create instance %s: %v", fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId), err)
-		}
+		return nil, fmt.Errorf("could not create instance %s: %v", fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId), err)
 	} else {
 		// Wait for the instance creation to finish.
 		_, err := op.Wait(ctx)
 		if err != nil {
-			return fmt.Errorf("waiting for instance creation to finish failed: %v", err)
+			return nil, fmt.Errorf("waiting for instance creation to finish failed: %v", err)
 		}
 	}
-	return nil
+	// Delete the instance after all tests have finished.
+	// Also delete any stale test instances that might still be around on the project.
+	return func() {
+		instanceAdmin, err := instance.NewInstanceAdminClient(ctx)
+		if err != nil {
+			return
+		}
+		// Delete this test instance.
+		instanceAdmin.DeleteInstance(ctx, &instancepb.DeleteInstanceRequest{
+			Name: fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId),
+		})
+		// Also delete any other stale test instance.
+		instances := instanceAdmin.ListInstances(ctx, &instancepb.ListInstancesRequest{
+			Parent: fmt.Sprintf("projects/%s", projectId),
+			Filter: "label.gosqltestinstance:*",
+		})
+		for {
+			instance, err := instances.Next()
+			if err == iterator.Done {
+				break
+			}
+			if err != nil {
+				log.Printf("failed to fetch instances during cleanup: %v", err)
+				break
+			}
+			if createdAtString, ok := instance.Labels["createdat"]; ok {
+				// Strip the leading 't' from the value.
+				seconds, err := strconv.ParseInt(createdAtString[1:], 10, 64)
+				if err != nil {
+					log.Printf("failed to parse created time from string %q of instance %s: %v", createdAtString, instance.Name, err)
+				} else {
+					diff := time.Duration(time.Now().Unix()-seconds) * time.Second
+					if diff > time.Hour*2 {
+						log.Printf("deleting stale test instance %s", instance.Name)
+						instanceAdmin.DeleteInstance(ctx, &instancepb.DeleteInstanceRequest{
+							Name: instance.Name,
+						})
+					}
+				}
+			}
+		}
+	}, nil
 }
 
 func createTestDB(ctx context.Context, statements ...string) (dsn string, cleanup func(), err error) {
@@ -139,19 +188,34 @@ func createTestDB(ctx context.Context, statements ...string) (dsn string, cleanu
 	return
 }
 
-func initIntegrationTests() (cleanup func()) {
+func initIntegrationTests() (cleanup func(), err error) {
 	flag.Parse() // Needed for testing.Short().
 	noop := func() {}
 
 	if testing.Short() {
 		log.Println("Integration tests skipped in -short mode.")
-		return noop
+		return noop, nil
 	}
-	return noop
+
+	// Automatically create test instance if necessary.
+	config := "regional-us-east1"
+	if _, ok := os.LookupEnv("SPANNER_EMULATOR_HOST"); ok {
+		config = "emulator-config"
+	}
+	cleanup, err = initTestInstance(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return cleanup, nil
 }
 
 func TestMain(m *testing.M) {
-	cleanup := initIntegrationTests()
+	cleanup, err := initIntegrationTests()
+	if err != nil {
+		log.Fatalf("could not init integration tests: %v", err)
+		os.Exit(1)
+	}
 	res := m.Run()
 	cleanup()
 	os.Exit(res)
@@ -934,6 +998,104 @@ func TestRowsOverflowRead(t *testing.T) {
 			t.Errorf("%s: unexpected rows. want: %v, got: %v", tc.name, tc.want, got)
 		}
 	}
+}
+
+func TestReadOnlyTransaction(t *testing.T) {
+	skipIfShort(t)
+	t.Parallel()
+
+	ctx := context.Background()
+	dsn, cleanup, err := createTestDB(ctx,
+		`CREATE TABLE Singers (
+          SingerId INT64,
+          FirstName STRING(MAX),
+          LastName STRING(MAX),
+        ) PRIMARY KEY (SingerId)`)
+	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatalf("failed to begin read-only transaction: %v", err)
+	}
+	stmt, err := tx.PrepareContext(ctx, "SELECT * FROM Singers")
+	if err != nil {
+		t.Fatalf("failed to prepare query: %v", err)
+	}
+	// The result should be empty.
+	if err := verifyResult(ctx, stmt, true); err != nil {
+		t.Fatal(err)
+	}
+	// Insert a row in the table using a different transaction.
+	res, err := db.ExecContext(ctx, "INSERT INTO Singers (SingerId, FirstName, LastName) VALUES (1, 'First', 'Last')")
+	if err != nil {
+		t.Fatalf("failed to insert a row: %v", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		t.Fatalf("failed to get affected row count: %v", err)
+	}
+	if affected != 1 {
+		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 1)
+	}
+	// Executing the same statement on the read-only transaction again should
+	// still return an empty result, as it is reading using a timestamp that is
+	// before the new row was inserted.
+	if err := verifyResult(ctx, stmt, true); err != nil {
+		t.Fatal(err)
+	}
+
+	// Closing the current read-only transaction and starting a new one should
+	// return the new row.
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("failed to commit read-only transaction: %v", err)
+	}
+	tx, err = db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatalf("failed to begin a new read-only transaction: %v", err)
+	}
+	stmt, err = tx.PrepareContext(ctx, "SELECT * FROM Singers")
+	if err != nil {
+		t.Fatalf("failed to prepare query: %v", err)
+	}
+	// The result should no longer be empty.
+	if err := verifyResult(ctx, stmt, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("failed to commit read-only transaction: %v", err)
+	}
+}
+
+func verifyResult(ctx context.Context, stmt *sql.Stmt, empty bool) error {
+	rows, err := stmt.QueryContext(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to execute query: %v", err)
+	}
+	if rows.Next() {
+		if empty {
+			return fmt.Errorf("received unexpected row from empty table")
+		}
+	} else {
+		if !empty {
+			return fmt.Errorf("received unexpected empty result")
+		}
+	}
+	if rows.Err() != nil {
+		return fmt.Errorf("received unexpected error from query: %v", rows.Err())
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("failed to close rows: %v", err)
+	}
+	return nil
 }
 
 func TestAllTypes(t *testing.T) {
