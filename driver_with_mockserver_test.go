@@ -959,6 +959,8 @@ func TestDdlBatch(t *testing.T) {
 
 	statements := []string{"CREATE TABLE FOO", "CREATE TABLE BAR"}
 	conn, err := db.Conn(ctx)
+	defer conn.Close()
+
 	if _, err = conn.ExecContext(ctx, "START BATCH DDL"); err != nil {
 		t.Fatalf("failed to start DDL batch: %v", err)
 	}
@@ -986,6 +988,84 @@ func TestDdlBatch(t *testing.T) {
 		}
 	} else {
 		t.Fatalf("request type mismatch, got %v", requests[0])
+	}
+}
+
+func TestAbortDdlBatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	statements := []string{"CREATE TABLE FOO", "CREATE TABLE BAR"}
+	c, err := db.Conn(ctx)
+	defer c.Close()
+
+	if _, err = c.ExecContext(ctx, "START BATCH DDL"); err != nil {
+		t.Fatalf("failed to start DDL batch: %v", err)
+	}
+	for _, stmt := range statements {
+		if _, err = c.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("failed to execute statement in DDL batch: %v", err)
+		}
+	}
+	// Check that the statements have been batched.
+	_ = c.Raw(func(driverConn interface{}) error {
+		conn := driverConn.(*conn)
+		if conn.batch == nil {
+			t.Fatalf("missing batch on connection")
+		}
+		if g, w := len(conn.batch.statements), 2; g != w {
+			t.Fatalf("batch length mismatch\nGot: %v\nWant: %v", g, w)
+		}
+		return nil
+	})
+
+	if _, err = c.ExecContext(ctx, "ABORT BATCH"); err != nil {
+		t.Fatalf("failed to abort DDL batch: %v", err)
+	}
+
+	requests := server.TestDatabaseAdmin.Reqs()
+	if g, w := len(requests), 0; g != w {
+		t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+
+	_ = c.Raw(func(driverConn interface{}) error {
+		spannerConn := driverConn.(SpannerConn)
+		if spannerConn.InDdlBatch() {
+			t.Fatalf("connection still has an active DDL batch")
+		}
+		return nil
+	})
+}
+
+func TestShowVariableRetryAbortsInternally(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	c, err := db.Conn(ctx)
+	defer c.Close()
+
+	rows, err := c.QueryContext(ctx, "SHOW VARIABLE RETRY_ABORTS_INTERNALLY")
+	if err != nil {
+		t.Fatalf("failed to get variable retry_aborts_internally: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var retry bool
+		if err := rows.Scan(&retry); err != nil {
+			t.Fatalf("failed to scan value for retry_aborts_internally: %v", err)
+		}
+		if !retry {
+			t.Fatalf("retry_aborts_internally mismatch\nGot: %v\nWant: %v", retry, true)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("failed to get variable retry_aborts_internally: %v", err)
 	}
 }
 

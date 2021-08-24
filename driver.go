@@ -199,6 +199,20 @@ func (c *connector) Driver() driver.Driver {
 	return &Driver{}
 }
 
+// SpannerConn is the public interface for the raw Spanner connection for the
+// sql driver. This interface can be used with the db.Conn().Raw() method.
+type SpannerConn interface {
+	StartBatchDdl() error
+	StartBatchDml() error
+	RunBatch(ctx context.Context) error
+	AbortBatch() error
+	InDdlBatch() bool
+	InDmlBatch() bool
+
+	RetryAbortsInternally() bool
+	SetRetryAbortsInternally(bool) error
+}
+
 type conn struct {
 	closed      bool
 	client      *spanner.Client
@@ -221,6 +235,51 @@ type batch struct {
 	statements []string
 }
 
+func (c *conn) RetryAbortsInternally() bool {
+	return c.retryAborts
+}
+
+func (c *conn) SetRetryAbortsInternally(retry bool) error {
+	_, err := c.setRetryAbortsInternally(retry)
+	return err
+}
+
+func (c *conn) setRetryAbortsInternally(retry bool) (driver.Result, error) {
+	if c.inTransaction() {
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot change retry mode while a transaction is active"))
+	}
+	c.retryAborts = retry
+	return driver.ResultNoRows, nil
+}
+
+func (c *conn) StartBatchDdl() error {
+	_, err := c.startBatchDdl()
+	return err
+}
+
+func (c *conn) StartBatchDml() error {
+	_, err := c.startBatchDml()
+	return err
+}
+
+func (c *conn) RunBatch(ctx context.Context) error {
+	_, err := c.runBatch(ctx)
+	return err
+}
+
+func (c *conn) AbortBatch() error {
+	_, err := c.abortBatch()
+	return err
+}
+
+func (c *conn) InDdlBatch() bool {
+	return c.batch != nil && c.batch.tp == ddl
+}
+
+func (c *conn) InDmlBatch() bool {
+	return c.batch != nil && c.batch.tp == dml
+}
+
 func (c *conn) startBatchDdl() (driver.Result, error) {
 	if c.batch != nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection already has an active batch."))
@@ -229,6 +288,14 @@ func (c *conn) startBatchDdl() (driver.Result, error) {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection has an active transaction. DDL batches in transactions are not supported."))
 	}
 	c.batch = &batch{tp: ddl}
+	return driver.ResultNoRows, nil
+}
+
+func (c *conn) startBatchDml() (driver.Result, error) {
+	if c.batch != nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection already has an active batch."))
+	}
+	c.batch = &batch{tp: dml}
 	return driver.ResultNoRows, nil
 }
 
@@ -254,6 +321,11 @@ func (c *conn) runDdlBatch(ctx context.Context) (driver.Result, error) {
 
 func (c *conn) runDmlBatch() (driver.Result, error) {
 	return nil, nil
+}
+
+func (c *conn) abortBatch() (driver.Result, error) {
+	c.batch = nil
+	return driver.ResultNoRows, nil
 }
 
 func (c *conn) execDdl(ctx context.Context, statements ...string) (driver.Result, error) {
@@ -326,7 +398,7 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 }
 
 func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
-	args, err := ParseNamedParameters(query)
+	args, err := parseNamedParameters(query)
 	if err != nil {
 		return nil, err
 	}
@@ -334,6 +406,15 @@ func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, e
 }
 
 func (c *conn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	// Execute client side statement if it is one.
+	clientStmt, err := parseClientSideStatement(c, query)
+	if err != nil {
+		return nil, err
+	}
+	if clientStmt != nil {
+		return clientStmt.QueryContext(ctx, args)
+	}
+
 	stmt, err := prepareSpannerStmt(query, args)
 	if err != nil {
 		return nil, err
@@ -349,16 +430,16 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	// Execute client side statement if it is one.
-	stmt, err := ParseClientSideStatement(c, query)
+	stmt, err := parseClientSideStatement(c, query)
 	if err != nil {
 		return nil, err
 	}
 	if stmt != nil {
-		return stmt.ExecContext(ctx, query, args)
+		return stmt.ExecContext(ctx, args)
 	}
 
 	// Use admin API if DDL statement is provided.
-	isDdl, err := IsDdl(query)
+	isDdl, err := isDdl(query)
 	if err != nil {
 		return nil, err
 	}

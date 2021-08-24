@@ -47,12 +47,12 @@ func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 	return res
 }
 
-// ParseNamedParameters returns the named parameters in the given sql string.
+// parseNamedParameters returns the named parameters in the given sql string.
 // The sql string must be a valid Cloud Spanner sql statement. It may contain
 // comments and (string) literals without any restrictions. That is, string
 // literals containing for example an email address ('test@test.com') will be
 // recognized as a string literal and not returned as a named parameter.
-func ParseNamedParameters(sql string) ([]string, error) {
+func parseNamedParameters(sql string) ([]string, error) {
 	sql, err := removeCommentsAndTrim(sql)
 	if err != nil {
 		return nil, err
@@ -264,7 +264,8 @@ func findParams(sql string) ([]string, error) {
 	return res, nil
 }
 
-func IsDdl(query string) (bool, error) {
+// isDdl returns true if the given sql string is a DDL statement.
+func isDdl(query string) (bool, error) {
 	query, err := removeCommentsAndTrim(query)
 	if err != nil {
 		return false, err
@@ -280,16 +281,16 @@ func IsDdl(query string) (bool, error) {
 	return false, nil
 }
 
-type ClientSideStatements struct {
-	Statements []*ClientSideStatement `json:"statements"`
+type clientSideStatements struct {
+	Statements []*clientSideStatement `json:"statements"`
 	executor   *statementExecutor
 }
 
-type ClientSideStatement struct {
+type clientSideStatement struct {
 	Name                          string `json:"name"`
 	ExecutorName                  string `json:"executorName"`
-	execContext                   func(ctx context.Context, c *conn, query string, args []driver.NamedValue) (driver.Result, error)
-	queryContext                  func(ctx context.Context, c *conn, query string, args []driver.NamedValue) (driver.Rows, error)
+	execContext                   func(ctx context.Context, c *conn, params string, args []driver.NamedValue) (driver.Result, error)
+	queryContext                  func(ctx context.Context, c *conn, params string, args []driver.NamedValue) (driver.Rows, error)
 	ResultType                    string `json:"resultType"`
 	Regex                         string `json:"regex"`
 	regexp                        *regexp.Regexp
@@ -298,15 +299,17 @@ type ClientSideStatement struct {
 	ExampleStatements             []string `json:"exampleStatements"`
 	ExamplePrerequisiteStatements []string `json:"examplePrerequisiteStatements"`
 
-	SetStatement struct {
-		PropertyName  string `json:"propertyName"`
-		Separator     string `json:"separator"`
-		AllowedValues string `json:"allowedValues"`
-		ConverterName string `json:"converterName"`
-	} `json:"setStatement"`
+	setStatement *SetStatement  `json:"setStatement"`
 }
 
-var statements *ClientSideStatements
+type SetStatement struct {
+	PropertyName  string `json:"propertyName"`
+	Separator     string `json:"separator"`
+	AllowedValues string `json:"allowedValues"`
+	ConverterName string `json:"converterName"`
+}
+
+var statements *clientSideStatements
 
 func compileStatements() error {
 	file, err := os.Open("client_side_statements.json")
@@ -318,7 +321,7 @@ func compileStatements() error {
 	if err != nil {
 		return err
 	}
-	statements = new(ClientSideStatements)
+	statements = new(clientSideStatements)
 	err = json.Unmarshal(bytes, statements)
 	if err != nil {
 		return err
@@ -340,27 +343,31 @@ func compileStatements() error {
 	return nil
 }
 
-type ExecutableClientSideStatement struct {
-	*ClientSideStatement
-	conn  *conn
-	query string
+type executableClientSideStatement struct {
+	*clientSideStatement
+	conn   *conn
+	query  string
+	params string
 }
 
-func (c *ExecutableClientSideStatement) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
-	if c.ClientSideStatement.execContext == nil {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with ExecContext", query))
+func (c *executableClientSideStatement) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
+	if c.clientSideStatement.execContext == nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with ExecContext", c.query))
 	}
-	return c.ClientSideStatement.execContext(ctx, c.conn, query, args)
+	return c.clientSideStatement.execContext(ctx, c.conn, c.params, args)
 }
 
-func (c *ExecutableClientSideStatement) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
-	if c.ClientSideStatement.queryContext == nil {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with QueryContext", query))
+func (c *executableClientSideStatement) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
+	if c.clientSideStatement.queryContext == nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with QueryContext", c.query))
 	}
-	return c.ClientSideStatement.queryContext(ctx, c.conn, query, args)
+	return c.clientSideStatement.queryContext(ctx, c.conn, c.params, args)
 }
 
-func ParseClientSideStatement(c *conn, query string) (*ExecutableClientSideStatement, error) {
+// parseClientSideStatement returns the executableClientSideStatement that
+// corresponds with the given query string, or nil if it is not a valid client
+// side statement.
+func parseClientSideStatement(c *conn, query string) (*executableClientSideStatement, error) {
 	if statements == nil {
 		if err := compileStatements(); err != nil {
 			return nil, err
@@ -368,7 +375,14 @@ func ParseClientSideStatement(c *conn, query string) (*ExecutableClientSideState
 	}
 	for _, stmt := range statements.Statements {
 		if stmt.regexp.MatchString(query) {
-			return &ExecutableClientSideStatement{stmt, c, query}, nil
+			var params string
+			if stmt.setStatement != nil {
+				 p := strings.SplitN(query, stmt.setStatement.Separator, 1)
+				 if len(p) == 2 {
+				 	params = p[1]
+				 }
+			}
+			return &executableClientSideStatement{stmt, c, query, params}, nil
 		}
 	}
 	return nil, nil

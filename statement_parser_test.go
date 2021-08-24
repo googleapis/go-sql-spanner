@@ -499,7 +499,7 @@ func TestFindParams(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, err := ParseNamedParameters(removeStatementHint(sql))
+		got, err := parseNamedParameters(removeStatementHint(sql))
 		if err != nil && !tc.wantErr {
 			t.Error(err)
 			continue
@@ -509,7 +509,7 @@ func TestFindParams(t *testing.T) {
 			continue
 		}
 		if !cmp.Equal(got, tc.want) {
-			t.Errorf("ParseNamedParameters result mismatch\nGot: %s\nWant: %s", got, tc.want)
+			t.Errorf("parseNamedParameters result mismatch\nGot: %s\nWant: %s", got, tc.want)
 		}
 	}
 }
@@ -651,7 +651,7 @@ func TestIsDdl(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		got, err := IsDdl(tc.input)
+		got, err := isDdl(tc.input)
 		if err != nil {
 			t.Error(err)
 		}
@@ -666,6 +666,7 @@ func TestParseClientSideStatement(t *testing.T) {
 		name  string
 		input string
 		want  string
+		wantParams string
 		exec  bool
 		query bool
 	}{
@@ -693,18 +694,43 @@ func TestParseClientSideStatement(t *testing.T) {
 			want:  "START BATCH DDL",
 			exec:  true,
 		},
+		{
+			name:  "Run batch",
+			input: "run batch",
+			want:  "RUN BATCH",
+			exec:  true,
+		},
+		{
+			name:  "Abort batch",
+			input: "abort batch",
+			want:  "ABORT BATCH",
+			exec:  true,
+		},
+		{
+			name:  "Show variable Retry_Aborts_Internally",
+			input: "show variable retry_aborts_internally",
+			want:  "SHOW VARIABLE RETRY_ABORTS_INTERNALLY",
+			query: true,
+		},
+		{
+			name:  "SET Retry_Aborts_Internally",
+			input: "set retry_aborts_internally = false",
+			want:  "SET RETRY_ABORTS_INTERNALLY = TRUE|FALSE",
+			wantParams: "false",
+			exec: true,
+		},
 	}
 
 	for _, tc := range tests {
-		statement, err := ParseClientSideStatement(&conn{}, tc.input)
+		statement, err := parseClientSideStatement(&conn{}, tc.input)
 		if err != nil {
 			t.Fatalf("failed to parse statement %s: %v", tc.name, err)
 		}
 		if tc.exec && statement.execContext == nil {
-			t.Fatalf("execContext missing for %q", tc.input)
+			t.Errorf("execContext missing for %q", tc.input)
 		}
 		if tc.query && statement.queryContext == nil {
-			t.Fatalf("queryContext missing for %q", tc.input)
+			t.Errorf("queryContext missing for %q", tc.input)
 		}
 
 		var got string
@@ -712,7 +738,12 @@ func TestParseClientSideStatement(t *testing.T) {
 			got = statement.Name
 		}
 		if got != tc.want {
-			t.Errorf("ParseClientSideStatement test failed: %s\nGot: %s\nWant: %s.", tc.name, got, tc.want)
+			t.Errorf("parseClientSideStatement test failed: %s\nGot: %s\nWant: %s.", tc.name, got, tc.want)
+		}
+		if tc.wantParams != "" {
+			if g, w := statement.params, tc.wantParams; g != w {
+				t.Errorf("params mismatch for %s\nGot: %v\nWant: %v", tc.name, g, w)
+			}
 		}
 	}
 }
