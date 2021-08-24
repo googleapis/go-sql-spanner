@@ -136,7 +136,7 @@ func initTestInstance(config string) (cleanup func(), err error) {
 					log.Printf("failed to parse created time from string %q of instance %s: %v", createdAtString, instance.Name, err)
 				} else {
 					diff := time.Duration(time.Now().Unix()-seconds) * time.Second
-					if diff > time.Hour*24 {
+					if diff > time.Hour*2 {
 						log.Printf("deleting stale test instance %s", instance.Name)
 						instanceAdmin.DeleteInstance(ctx, &instancepb.DeleteInstanceRequest{
 							Name: instance.Name,
