@@ -211,6 +211,7 @@ func (tx *readWriteTransaction) Commit() (err error) {
 	if tx.rwTx != nil {
 		if !tx.retryAborts {
 			_, err := tx.rwTx.Commit(tx.ctx)
+			tx.close()
 			return err
 		}
 

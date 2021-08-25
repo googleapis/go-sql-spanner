@@ -17,8 +17,10 @@ package spannerdriver
 import (
 	"context"
 	"database/sql/driver"
+	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"cloud.google.com/go/spanner"
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
@@ -37,8 +39,12 @@ func (s *statementExecutor) ShowRetryAbortsInternally(_ context.Context, c *conn
 	return &rows{it: it}, nil
 }
 
-func (s *statementExecutor) ShowAutocommitDmlMode(query string) error {
-	return nil
+func (s *statementExecutor) ShowAutocommitDmlMode(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	it, err := createStringIterator("AutocommitDmlMode", c.AutocommitDmlMode().String())
+	if err != nil {
+		return nil, err
+	}
+	return &rows{it: it}, nil
 }
 
 func (s *statementExecutor) StartBatchDdl(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Result, error) {
@@ -58,6 +64,9 @@ func (s *statementExecutor) AbortBatch(_ context.Context, c *conn, _ string, _ [
 }
 
 func (s *statementExecutor) SetRetryAbortsInternally(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
+	if params == "" {
+		return nil, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "no value given for RetryAbortsInternally"))
+	}
 	retry, err := strconv.ParseBool(params)
 	if err != nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid boolean value: %s", params))
@@ -65,11 +74,31 @@ func (s *statementExecutor) SetRetryAbortsInternally(_ context.Context, c *conn,
 	return c.setRetryAbortsInternally(retry)
 }
 
-func (s *statementExecutor) SetAutocommitDmlMode(query string) error {
-	return nil
+func (s *statementExecutor) SetAutocommitDmlMode(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
+	if params == "" {
+		return nil, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "no value given for AutocommitDmlMode"))
+	}
+	var mode AutocommitDmlMode
+	switch strings.ToUpper(params) {
+	case fmt.Sprintf("'%s'", strings.ToUpper(Transactional.String())):
+		mode = Transactional
+	case fmt.Sprintf("'%s'", strings.ToUpper(PartitionedNonAtomic.String())):
+		mode = PartitionedNonAtomic
+	default:
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid AutocommitDmlMode value: %s", params))
+	}
+	return c.setAutocommitDmlMode(mode)
 }
 
 func createBooleanIterator(column string, value bool) (*clientSideIterator, error) {
+	return createSingleValueIterator(column, value, sppb.TypeCode_BOOL)
+}
+
+func createStringIterator(column string, value string) (*clientSideIterator, error) {
+	return createSingleValueIterator(column, value, sppb.TypeCode_STRING)
+}
+
+func createSingleValueIterator(column string, value interface{}, code sppb.TypeCode) (*clientSideIterator, error) {
 	row, err := spanner.NewRow([]string{column}, []interface{}{value})
 	if err != nil {
 		return nil, err

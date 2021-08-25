@@ -663,12 +663,12 @@ func TestIsDdl(t *testing.T) {
 
 func TestParseClientSideStatement(t *testing.T) {
 	tests := []struct {
-		name  string
-		input string
-		want  string
+		name       string
+		input      string
+		want       string
 		wantParams string
-		exec  bool
-		query bool
+		exec       bool
+		query      bool
 	}{
 		{
 			name:  "Start DDL batch",
@@ -713,11 +713,11 @@ func TestParseClientSideStatement(t *testing.T) {
 			query: true,
 		},
 		{
-			name:  "SET Retry_Aborts_Internally",
-			input: "set retry_aborts_internally = false",
-			want:  "SET RETRY_ABORTS_INTERNALLY = TRUE|FALSE",
+			name:       "SET Retry_Aborts_Internally",
+			input:      "set retry_aborts_internally = false",
+			want:       "SET RETRY_ABORTS_INTERNALLY = TRUE|FALSE",
 			wantParams: "false",
-			exec: true,
+			exec:       true,
 		},
 	}
 

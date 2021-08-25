@@ -42,6 +42,7 @@ import (
 )
 
 var projectId, instanceId string
+var skipped bool
 
 func init() {
 	var ok bool
@@ -196,6 +197,13 @@ func initIntegrationTests() (cleanup func(), err error) {
 		log.Println("Integration tests skipped in -short mode.")
 		return noop, nil
 	}
+	_, hasCredentials := os.LookupEnv("GOOGLE_APPLICATION_CREDENTIALS")
+	_, hasEmulator := os.LookupEnv("SPANNER_EMULATOR_HOST")
+	if !(hasCredentials || hasEmulator) {
+		log.Println("Skipping integration tests as no credentials and no emulator host has been set")
+		skipped = true
+		return noop, nil
+	}
 
 	// Automatically create test instance if necessary.
 	config := "regional-us-east1"
@@ -224,6 +232,9 @@ func TestMain(m *testing.M) {
 func skipIfShort(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Integration tests skipped in -short mode.")
+	}
+	if skipped {
+		t.Skip("Integration tests skipped")
 	}
 }
 

@@ -299,10 +299,10 @@ type clientSideStatement struct {
 	ExampleStatements             []string `json:"exampleStatements"`
 	ExamplePrerequisiteStatements []string `json:"examplePrerequisiteStatements"`
 
-	setStatement *SetStatement  `json:"setStatement"`
+	setStatement `json:"setStatement"`
 }
 
-type SetStatement struct {
+type setStatement struct {
 	PropertyName  string `json:"propertyName"`
 	Separator     string `json:"separator"`
 	AllowedValues string `json:"allowedValues"`
@@ -376,11 +376,11 @@ func parseClientSideStatement(c *conn, query string) (*executableClientSideState
 	for _, stmt := range statements.Statements {
 		if stmt.regexp.MatchString(query) {
 			var params string
-			if stmt.setStatement != nil {
-				 p := strings.SplitN(query, stmt.setStatement.Separator, 1)
-				 if len(p) == 2 {
-				 	params = p[1]
-				 }
+			if stmt.setStatement.Separator != "" {
+				p := strings.SplitN(query, stmt.setStatement.Separator, 2)
+				if len(p) == 2 {
+					params = strings.TrimSpace(p[1])
+				}
 			}
 			return &executableClientSideStatement{stmt, c, query, params}, nil
 		}

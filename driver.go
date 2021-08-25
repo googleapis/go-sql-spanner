@@ -210,7 +210,10 @@ type SpannerConn interface {
 	InDmlBatch() bool
 
 	RetryAbortsInternally() bool
-	SetRetryAbortsInternally(bool) error
+	SetRetryAbortsInternally(retry bool) error
+
+	AutocommitDmlMode() AutocommitDmlMode
+	SetAutocommitDmlMode(mode AutocommitDmlMode) error
 }
 
 type conn struct {
@@ -221,6 +224,12 @@ type conn struct {
 	database    string
 	retryAborts bool
 	batch       *batch
+
+	// autocommitDmlMode determines the type of DML to use when a single DML
+	// statement is executed on a connection. The default is Transactional, but
+	// it can also be set to PartitionedNonAtomic to execute the statement as
+	// Partitioned DML.
+	autocommitDmlMode AutocommitDmlMode
 }
 
 type batchType int
@@ -234,6 +243,26 @@ type batch struct {
 	tp         batchType
 	statements []string
 }
+
+// AutocommitDmlMode indicates whether a single DML statement should be executed
+// in a normal atomic transaction or as a Partitioned DML statement.
+// See https://cloud.google.com/spanner/docs/dml-partitioned for more information.
+type AutocommitDmlMode int
+
+func (mode AutocommitDmlMode) String() string {
+	switch mode {
+	case Transactional:
+		return "Transactional"
+	case PartitionedNonAtomic:
+		return "Partitioned_Non_Atomic"
+	}
+	return ""
+}
+
+const (
+	Transactional AutocommitDmlMode = iota
+	PartitionedNonAtomic
+)
 
 func (c *conn) RetryAbortsInternally() bool {
 	return c.retryAborts
@@ -249,6 +278,20 @@ func (c *conn) setRetryAbortsInternally(retry bool) (driver.Result, error) {
 		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot change retry mode while a transaction is active"))
 	}
 	c.retryAborts = retry
+	return driver.ResultNoRows, nil
+}
+
+func (c *conn) AutocommitDmlMode() AutocommitDmlMode {
+	return c.autocommitDmlMode
+}
+
+func (c *conn) SetAutocommitDmlMode(mode AutocommitDmlMode) error {
+	_, err := c.setAutocommitDmlMode(mode)
+	return err
+}
+
+func (c *conn) setAutocommitDmlMode(mode AutocommitDmlMode) (driver.Result, error) {
+	c.autocommitDmlMode = mode
 	return driver.ResultNoRows, nil
 }
 
@@ -385,6 +428,8 @@ func (c *conn) ResetSession(_ context.Context) error {
 		}
 	}
 	c.batch = nil
+	c.retryAborts = true
+	c.autocommitDmlMode = Transactional
 	return nil
 }
 
@@ -458,7 +503,13 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 
 	var rowsAffected int64
 	if c.tx == nil {
-		rowsAffected, err = c.execContextInNewRWTransaction(ctx, ss)
+		if c.autocommitDmlMode == Transactional {
+			rowsAffected, err = c.execContextInNewRWTransaction(ctx, ss)
+		} else if c.autocommitDmlMode == PartitionedNonAtomic {
+			rowsAffected, err = c.client.PartitionedUpdate(ctx, ss)
+		} else {
+			return nil, status.Errorf(codes.FailedPrecondition, "connection in invalid state for DML statements: %s", c.autocommitDmlMode.String())
+		}
 	} else {
 		rowsAffected, err = c.tx.ExecContext(ctx, ss)
 	}
@@ -525,4 +576,8 @@ func (c *conn) execContextInNewRWTransaction(ctx context.Context, statement span
 		return 0, err
 	}
 	return rowsAffected, nil
+}
+
+func (c *conn) execContextInPartitionedDml(ctx context.Context, statement spanner.Statement) (int64, error) {
+	return c.client.PartitionedUpdate(ctx, statement)
 }

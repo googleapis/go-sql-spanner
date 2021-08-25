@@ -1040,32 +1040,125 @@ func TestAbortDdlBatch(t *testing.T) {
 	})
 }
 
-func TestShowVariableRetryAbortsInternally(t *testing.T) {
+func TestShowAndSetVariableRetryAbortsInternally(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	db, _, teardown := setupTestDBConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	c, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to obtain a connection: %v", err)
+	}
 	defer c.Close()
 
-	rows, err := c.QueryContext(ctx, "SHOW VARIABLE RETRY_ABORTS_INTERNALLY")
+	for _, tc := range []struct {
+		expected bool
+		set      bool
+	}{
+		{expected: true, set: false},
+		{expected: false, set: true},
+		{expected: true, set: true},
+	} {
+		// Get the current value.
+		rows, err := c.QueryContext(ctx, "SHOW VARIABLE RETRY_ABORTS_INTERNALLY")
+		if err != nil {
+			t.Fatalf("failed to execute get variable retry_aborts_internally: %v", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var retry bool
+			if err := rows.Scan(&retry); err != nil {
+				t.Fatalf("failed to scan value for retry_aborts_internally: %v", err)
+			}
+			if g, w := retry, tc.expected; g != w {
+				t.Fatalf("retry_aborts_internally mismatch\nGot: %v\nWant: %v", g, w)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("failed to iterate over result for get variable retry_aborts_internally: %v", err)
+		}
+
+		// Check that the behavior matches the setting.
+		tx, _ := c.BeginTx(ctx, nil)
+		server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+			Errors: []error{gstatus.Error(codes.Aborted, "Aborted")},
+		})
+		err = tx.Commit()
+		if tc.expected && err != nil {
+			t.Fatalf("unexpected error for commit: %v", err)
+		} else if !tc.expected && spanner.ErrCode(err) != codes.Aborted {
+			t.Fatalf("error code mismatch\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.Aborted)
+		}
+
+		// Set a new value for the variable.
+		if _, err := c.ExecContext(ctx, fmt.Sprintf("SET RETRY_ABORTS_INTERNALLY = %v", tc.set)); err != nil {
+			t.Fatalf("failed to set value for retry_aborts_internally: %v", err)
+		}
+	}
+
+	// Verify that the value cannot be set during a transaction.
+	tx, _ := c.BeginTx(ctx, nil)
+	defer tx.Rollback()
+	_, err = c.ExecContext(ctx, "SET RETRY_ABORTS_INTERNALLY = TRUE")
+	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Fatalf("error code mismatch for setting retry_aborts_internally during a transaction\nGot: %v\nWant: %v", g, w)
+	}
+}
+
+func TestPartitionedDml(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	c, err := db.Conn(ctx)
 	if err != nil {
-		t.Fatalf("failed to get variable retry_aborts_internally: %v", err)
+		t.Fatalf("failed to obtain a connection: %v", err)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var retry bool
-		if err := rows.Scan(&retry); err != nil {
-			t.Fatalf("failed to scan value for retry_aborts_internally: %v", err)
-		}
-		if !retry {
-			t.Fatalf("retry_aborts_internally mismatch\nGot: %v\nWant: %v", retry, true)
+	defer c.Close()
+
+	if _, err := c.ExecContext(ctx, "set autocommit_dml_mode = 'Partitioned_Non_Atomic'"); err != nil {
+		t.Fatalf("could not set autocommit dml mode: %v", err)
+	}
+
+	server.TestSpanner.PutStatementResult("DELETE FROM Foo WHERE TRUE", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 200,
+	})
+	// The following statement should be executed using PDML instead of DML.
+	res, err := c.ExecContext(ctx, "DELETE FROM Foo WHERE TRUE")
+	if err != nil {
+		t.Fatalf("could not execute DML statement: %v", err)
+	}
+	affected, _ := res.RowsAffected()
+	if affected != 200 {
+		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 200)
+	}
+	requests := drainRequestsFromServer(server.TestSpanner)
+	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	var beginPdml *sppb.BeginTransactionRequest
+	for _, req := range beginRequests {
+		if req.(*sppb.BeginTransactionRequest).Options.GetPartitionedDml() != nil {
+			beginPdml = req.(*sppb.BeginTransactionRequest)
+			break
 		}
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("failed to get variable retry_aborts_internally: %v", err)
+	if beginPdml == nil {
+		t.Fatal("no begin request for Partitioned DML found")
+	}
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 1 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if req.Transaction == nil || req.Transaction.GetId() == nil {
+		t.Fatal("missing transaction id for sql request")
+	}
+	if !server.TestSpanner.IsPartitionedDmlTransaction(req.Transaction.GetId()) {
+		t.Fatalf("sql request did not use a PDML transaction")
 	}
 }
 
