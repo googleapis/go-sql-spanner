@@ -19,6 +19,7 @@ import (
 	"database/sql/driver"
 	"testing"
 
+	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -222,5 +223,72 @@ func TestConn_StartBatchDml(t *testing.T) {
 				t.Fatalf("%s: connection did not start DML batch", test.name)
 			}
 		}
+	}
+}
+
+func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
+	c := &conn{
+		batch: &batch{tp: ddl},
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) *spanner.RowIterator {
+			return &spanner.RowIterator{}
+		},
+		execSingleDmlTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
+			return 0, nil
+		},
+		execSingleDmlPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
+			return 0, nil
+		},
+	}
+	ctx := context.Background()
+
+	// Starting a transaction while in a DDL batch is not allowed.
+	if _, err := c.BeginTx(ctx, driver.TxOptions{}); err == nil {
+		t.Fatal("missing error for BeginTx")
+	}
+	// Starting a DML batch while in a DDL batch is not allowed.
+	if err := c.StartBatchDml(); err == nil {
+		t.Fatalf("missing error for StartBatchDml")
+	}
+
+	// Executing a single DML or query during a DDL batch is allowed.
+	if _, err := c.ExecContext(ctx, "INSERT INTO Foo (Id, Value) VALUES (1, 'One')", []driver.NamedValue{}); err != nil {
+		t.Fatalf("executing DML statement failed: %v", err)
+	}
+	if _, err := c.QueryContext(ctx, "SELECT * FROM Foo", []driver.NamedValue{}); err != nil {
+		t.Fatalf("executing query failed: %v", err)
+	}
+}
+
+func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
+	c := &conn{
+		batch: &batch{tp: dml},
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) *spanner.RowIterator {
+			return &spanner.RowIterator{}
+		},
+		execSingleDmlTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
+			return 0, nil
+		},
+		execSingleDmlPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
+			return 0, nil
+		},
+	}
+	ctx := context.Background()
+
+	// Starting a transaction while in a DML batch is not allowed.
+	if _, err := c.BeginTx(ctx, driver.TxOptions{}); err == nil {
+		t.Fatal("missing error for BeginTx")
+	}
+	// Starting a DDL batch while in a DML batch is not allowed.
+	if err := c.StartBatchDdl(); err == nil {
+		t.Fatal("missing error for StartBatchDdl")
+	}
+	// Executing a single DDL statement during a DML batch is not allowed.
+	if _, err := c.ExecContext(ctx, "CREATE TABLE Foo", []driver.NamedValue{}); err == nil {
+		t.Fatal("missing error for DDL statement")
+	}
+
+	// Executing a single query during a DML batch is allowed.
+	if _, err := c.QueryContext(ctx, "SELECT * FROM Foo", []driver.NamedValue{}); err != nil {
+		t.Fatalf("executing query failed: %v", err)
 	}
 }

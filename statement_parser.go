@@ -281,11 +281,15 @@ func isDdl(query string) (bool, error) {
 	return false, nil
 }
 
+// clientSideStatements are loaded from the client_side_statements.json file.
 type clientSideStatements struct {
 	Statements []*clientSideStatement `json:"statements"`
 	executor   *statementExecutor
 }
 
+// clientSideStatement is the definition of a statement that can be executed on
+// a connection and that will be handled by the connection itself, instead of
+// sending it to Spanner.
 type clientSideStatement struct {
 	Name                          string `json:"name"`
 	ExecutorName                  string `json:"executorName"`
@@ -311,6 +315,9 @@ type setStatement struct {
 
 var statements *clientSideStatements
 
+// compileStatements loads all client side statements from the json file and
+// assigns the Go methods to the different statements that should be executed
+// when on of the statements is executed on a connection.
 func compileStatements() error {
 	file, err := os.Open("client_side_statements.json")
 	if err != nil {
@@ -343,6 +350,9 @@ func compileStatements() error {
 	return nil
 }
 
+// executableClientSideStatement is the combination of a pre-defined client-side
+// statement, the connection it should be executed on and any additional
+// parameters that were included in the statement.
 type executableClientSideStatement struct {
 	*clientSideStatement
 	conn   *conn
@@ -352,14 +362,14 @@ type executableClientSideStatement struct {
 
 func (c *executableClientSideStatement) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
 	if c.clientSideStatement.execContext == nil {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with ExecContext", c.query))
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with execContext", c.query))
 	}
 	return c.clientSideStatement.execContext(ctx, c.conn, c.params, args)
 }
 
 func (c *executableClientSideStatement) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
 	if c.clientSideStatement.queryContext == nil {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with QueryContext", c.query))
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with queryContext", c.query))
 	}
 	return c.clientSideStatement.queryContext(ctx, c.conn, c.params, args)
 }

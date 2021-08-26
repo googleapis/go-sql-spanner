@@ -31,9 +31,13 @@ import (
 // statementExecutor is an empty struct that is used to hold the execution methods
 // of the different client side statements. This makes it possible to look up the
 // methods using reflection, which is not possible if the methods do not belong to
-//  a struct.
+// a struct. The methods all accept the same arguments and return the same types.
+// This is to ensure that they can be assigned to a compiled clientSideStatement.
+//
 // The different methods of statementExecutor are invoked by a connection when one
-// of the valid client side statements is executed on a connection.
+// of the valid client side statements is executed on a connection. These methods
+// are responsible for any argument parsing and translating that might be needed
+// before the corresponding method on the connection can be called.
 type statementExecutor struct {
 }
 
@@ -119,7 +123,7 @@ func createSingleValueIterator(column string, value interface{}, code sppb.TypeC
 		metadata: &sppb.ResultSetMetadata{
 			RowType: &sppb.StructType{
 				Fields: []*sppb.StructType_Field{
-					{Name: column, Type: &sppb.Type{Code: sppb.TypeCode_BOOL}},
+					{Name: column, Type: &sppb.Type{Code: code}},
 				},
 			},
 		},

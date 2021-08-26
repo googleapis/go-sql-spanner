@@ -192,7 +192,15 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &conn{client: client, adminClient: adminClient, database: databaseName, retryAborts: c.retryAbortsInternally}, nil
+	return &conn{
+		client:                     client,
+		adminClient:                adminClient,
+		database:                   databaseName,
+		retryAborts:                c.retryAbortsInternally,
+		execSingleQuery:            queryInSingleUse,
+		execSingleDmlTransactional: execInNewRWTransaction,
+		execSingleDmlPartitioned:   execAsPartitionedDml,
+	}, nil
 }
 
 func (c *connector) Driver() driver.Driver {
@@ -260,7 +268,13 @@ type conn struct {
 	tx          contextTransaction
 	database    string
 	retryAborts bool
-	batch       *batch
+
+	execSingleQuery            func(ctx context.Context, c *spanner.Client, statement spanner.Statement) *spanner.RowIterator
+	execSingleDmlTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error)
+	execSingleDmlPartitioned   func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error)
+
+	// batch is the currently active DDL or DML batch on this connection.
+	batch *batch
 
 	// autocommitDmlMode determines the type of DML to use when a single DML
 	// statement is executed on a connection. The default is Transactional, but
@@ -558,7 +572,7 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 	}
 	var iter rowIterator
 	if c.tx == nil {
-		iter = &readOnlyRowIterator{c.client.Single().Query(ctx, stmt)}
+		iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt)}
 	} else {
 		iter = c.tx.Query(ctx, stmt)
 	}
@@ -599,9 +613,9 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 			c.batch.statements = append(c.batch.statements, ss)
 		} else {
 			if c.autocommitDmlMode == Transactional {
-				rowsAffected, err = c.execContextInNewRWTransaction(ctx, ss)
+				rowsAffected, err = c.execSingleDmlTransactional(ctx, c.client, ss)
 			} else if c.autocommitDmlMode == PartitionedNonAtomic {
-				rowsAffected, err = c.client.PartitionedUpdate(ctx, ss)
+				rowsAffected, err = c.execSingleDmlPartitioned(ctx, c.client, ss)
 			} else {
 				return nil, status.Errorf(codes.FailedPrecondition, "connection in invalid state for DML statements: %s", c.autocommitDmlMode.String())
 			}
@@ -679,20 +693,24 @@ func (c *conn) inReadWriteTransaction() bool {
 	return false
 }
 
-func (c *conn) execContextInNewRWTransaction(ctx context.Context, statement spanner.Statement) (int64, error) {
+func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement) *spanner.RowIterator {
+	return c.Single().Query(ctx, statement)
+}
+
+func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
 	var rowsAffected int64
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
 		count, err := tx.Update(ctx, statement)
 		rowsAffected = count
 		return err
 	}
-	_, err := c.client.ReadWriteTransaction(ctx, fn)
+	_, err := c.ReadWriteTransaction(ctx, fn)
 	if err != nil {
 		return 0, err
 	}
 	return rowsAffected, nil
 }
 
-func (c *conn) execContextInPartitionedDml(ctx context.Context, statement spanner.Statement) (int64, error) {
-	return c.client.PartitionedUpdate(ctx, statement)
+func execAsPartitionedDml(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
+	return c.PartitionedUpdate(ctx, statement)
 }
