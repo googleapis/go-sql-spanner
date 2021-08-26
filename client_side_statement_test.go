@@ -20,8 +20,78 @@ import (
 	"io"
 	"testing"
 
+	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
+	"google.golang.org/grpc/codes"
 )
+
+func TestStatementExecutor_StartBatchDdl(t *testing.T) {
+	c := &conn{retryAborts: true}
+	s := &statementExecutor{}
+	ctx := context.Background()
+
+	if c.InDdlBatch() {
+		t.Fatal("connection unexpectedly in a DDL batch")
+	}
+	if _, err := s.StartBatchDdl(ctx, c, "", nil); err != nil {
+		t.Fatalf("could not start a DDL batch: %v", err)
+	}
+	if !c.InDdlBatch() {
+		t.Fatal("connection unexpectedly not in a DDL batch")
+	}
+	if _, err := s.StartBatchDdl(ctx, c, "", nil); spanner.ErrCode(err) != codes.FailedPrecondition {
+		t.Fatalf("error mismatch for starting a DDL batch while already in a batch\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
+	}
+	if _, err := s.RunBatch(ctx, c, "", nil); err != nil {
+		t.Fatalf("could not run empty DDL batch: %v", err)
+	}
+	if c.InDdlBatch() {
+		t.Fatal("connection unexpectedly in a DDL batch")
+	}
+
+	// Starting a DDL batch while the connection is in a transaction is not allowed.
+	c.tx = &readWriteTransaction{}
+	if _, err := s.StartBatchDdl(ctx, c, "", nil); spanner.ErrCode(err) != codes.FailedPrecondition {
+		t.Fatalf("error mismatch for starting a DDL batch while in a transaction\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
+	}
+}
+
+func TestStatementExecutor_StartBatchDml(t *testing.T) {
+	c := &conn{retryAborts: true}
+	s := &statementExecutor{}
+	ctx := context.Background()
+
+	if c.InDmlBatch() {
+		t.Fatal("connection unexpectedly in a DML batch")
+	}
+	if _, err := s.StartBatchDml(ctx, c, "", nil); err != nil {
+		t.Fatalf("could not start a DML batch: %v", err)
+	}
+	if !c.InDmlBatch() {
+		t.Fatal("connection unexpectedly not in a DML batch")
+	}
+	if _, err := s.StartBatchDml(ctx, c, "", nil); spanner.ErrCode(err) != codes.FailedPrecondition {
+		t.Fatalf("error mismatch for starting a DML batch while already in a batch\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
+	}
+	if _, err := s.RunBatch(ctx, c, "", nil); err != nil {
+		t.Fatalf("could not run empty DML batch: %v", err)
+	}
+	if c.InDmlBatch() {
+		t.Fatal("connection unexpectedly in a DML batch")
+	}
+
+	// Starting a DML batch while the connection is in a read-only transaction is not allowed.
+	c.tx = &readOnlyTransaction{}
+	if _, err := s.StartBatchDml(ctx, c, "", nil); spanner.ErrCode(err) != codes.FailedPrecondition {
+		t.Fatalf("error mismatch for starting a DML batch while in a read-only transaction\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
+	}
+
+	// Starting a DML batch while the connection is in a read/write transaction is allowed.
+	c.tx = &readWriteTransaction{}
+	if _, err := s.StartBatchDml(ctx, c, "", nil); err != nil {
+		t.Fatalf("could not start a DML batch while in a read/write transaction: %v", err)
+	}
+}
 
 func TestStatementExecutor_RetryAbortsInternally(t *testing.T) {
 	c := &conn{retryAborts: true}

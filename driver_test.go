@@ -137,3 +137,90 @@ func TestConnection_NoNestedTransactions(t *testing.T) {
 		t.Errorf("unexpected nil error for BeginTx call")
 	}
 }
+
+func TestConn_AbortBatch(t *testing.T) {
+	c := &conn{}
+	if err := c.StartBatchDdl(); err != nil {
+		t.Fatalf("failed to start DDL batch: %v", err)
+	}
+	if !c.InDdlBatch() {
+		t.Fatal("connection did not start DDL batch")
+	}
+	if err := c.AbortBatch(); err != nil {
+		t.Fatalf("failed to abort DDL batch: %v", err)
+	}
+	if c.InDdlBatch() {
+		t.Fatal("connection did not abort DDL batch")
+	}
+
+	if err := c.StartBatchDml(); err != nil {
+		t.Fatalf("failed to start DML batch: %v", err)
+	}
+	if !c.InDmlBatch() {
+		t.Fatal("connection did not start DML batch")
+	}
+	if err := c.AbortBatch(); err != nil {
+		t.Fatalf("failed to abort DML batch: %v", err)
+	}
+	if c.InDmlBatch() {
+		t.Fatal("connection did not abort DML batch")
+	}
+}
+
+func TestConn_StartBatchDdl(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		c       *conn
+		wantErr bool
+	}{
+		{"Default", &conn{}, false},
+		{"In DDL batch", &conn{batch: &batch{tp: ddl}}, true},
+		{"In DML batch", &conn{batch: &batch{tp: dml}}, true},
+		{"In read/write transaction", &conn{tx: &readWriteTransaction{}}, true},
+		{"In read-only transaction", &conn{tx: &readOnlyTransaction{}}, true},
+		{"In read/write transaction with a DML batch", &conn{tx: &readWriteTransaction{batch: &batch{tp: dml}}}, true},
+	} {
+		err := test.c.StartBatchDdl()
+		if test.wantErr {
+			if err == nil {
+				t.Fatalf("%s: no error returned for StartDdlBatch: %v", test.name, err)
+			}
+		} else {
+			if err != nil {
+				t.Fatalf("%s: failed to start DDL batch: %v", test.name, err)
+			}
+			if !test.c.InDdlBatch() {
+				t.Fatalf("%s: connection did not start DDL batch", test.name)
+			}
+		}
+	}
+}
+
+func TestConn_StartBatchDml(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		c       *conn
+		wantErr bool
+	}{
+		{"Default", &conn{}, false},
+		{"In DDL batch", &conn{batch: &batch{tp: ddl}}, true},
+		{"In DML batch", &conn{batch: &batch{tp: dml}}, true},
+		{"In read/write transaction", &conn{tx: &readWriteTransaction{}}, false},
+		{"In read-only transaction", &conn{tx: &readOnlyTransaction{}}, true},
+		{"In read/write transaction with a DML batch", &conn{tx: &readWriteTransaction{batch: &batch{tp: dml}}}, true},
+	} {
+		err := test.c.StartBatchDml()
+		if test.wantErr {
+			if err == nil {
+				t.Fatalf("%s: no error returned for StartDmlBatch: %v", test.name, err)
+			}
+		} else {
+			if err != nil {
+				t.Fatalf("%s: failed to start DML batch: %v", test.name, err)
+			}
+			if !test.c.InDmlBatch() {
+				t.Fatalf("%s: connection did not start DML batch", test.name)
+			}
+		}
+	}
+}

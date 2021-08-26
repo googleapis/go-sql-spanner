@@ -1162,6 +1162,206 @@ func TestPartitionedDml(t *testing.T) {
 	}
 }
 
+func TestAutocommitBatchDml(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	c, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to obtain a connection: %v", err)
+	}
+	defer c.Close()
+
+	if _, err := c.ExecContext(ctx, "START BATCH DML"); err != nil {
+		t.Fatalf("could not start a DML batch: %v", err)
+	}
+	server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (1, 'One')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (2, 'Two')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+
+	// The following statements should be batched locally and only sent to Spanner once
+	// 'RUN BATCH' is executed.
+	res, err := c.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (1, 'One')")
+	if err != nil {
+		t.Fatalf("could not execute DML statement: %v", err)
+	}
+	affected, _ := res.RowsAffected()
+	if affected != 0 {
+		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 0)
+	}
+	res, err = c.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (2, 'Two')")
+	if err != nil {
+		t.Fatalf("could not execute DML statement: %v", err)
+	}
+	affected, _ = res.RowsAffected()
+	if affected != 0 {
+		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 0)
+	}
+
+	// There should be no ExecuteSqlRequest statements on the server.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 0 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 0)
+	}
+	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if len(batchRequests) != 0 {
+		t.Fatalf("BatchDML requests count mismatch\nGot: %v\nWant: %v", len(batchRequests), 0)
+	}
+
+	// Execute a RUN BATCH statement. This should trigger a BatchDML request followed by a Commit request.
+	res, err = c.ExecContext(ctx, "RUN BATCH")
+	if err != nil {
+		t.Fatalf("failed to execute RUN BATCH: %v", err)
+	}
+	affected, err = res.RowsAffected()
+	if err != nil {
+		t.Fatalf("could not get rows affected from batch: %v", err)
+	}
+	if affected != 2 {
+		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 2)
+	}
+
+	requests = drainRequestsFromServer(server.TestSpanner)
+	// There should still be no ExecuteSqlRequests on the server.
+	sqlRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 0 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 0)
+	}
+	batchRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if len(batchRequests) != 1 {
+		t.Fatalf("BatchDML requests count mismatch\nGot: %v\nWant: %v", len(batchRequests), 1)
+	}
+	// The transaction should also have been committed.
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if len(commitRequests) != 1 {
+		t.Fatalf("Commit requests count mismatch\nGot: %v\nWant: %v", len(commitRequests), 1)
+	}
+}
+
+func TestTransactionBatchDml(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("failed to start transaction: %v", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, "START BATCH DML"); err != nil {
+		t.Fatalf("could not start a DML batch: %v", err)
+	}
+	server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (1, 'One')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (2, 'Two')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+
+	// The following statements should be batched locally and only sent to Spanner once
+	// 'RUN BATCH' is executed.
+	res, err := tx.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (1, 'One')")
+	if err != nil {
+		t.Fatalf("could not execute DML statement: %v", err)
+	}
+	affected, _ := res.RowsAffected()
+	if affected != 0 {
+		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 0)
+	}
+	res, err = tx.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (2, 'Two')")
+	if err != nil {
+		t.Fatalf("could not execute DML statement: %v", err)
+	}
+	affected, _ = res.RowsAffected()
+	if affected != 0 {
+		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 0)
+	}
+
+	// There should be no ExecuteSqlRequest statements on the server.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 0 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 0)
+	}
+	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if len(batchRequests) != 0 {
+		t.Fatalf("BatchDML requests count mismatch\nGot: %v\nWant: %v", len(batchRequests), 0)
+	}
+
+	// Execute a RUN BATCH statement. This should trigger a BatchDML request.
+	res, err = tx.ExecContext(ctx, "RUN BATCH")
+	if err != nil {
+		t.Fatalf("failed to execute RUN BATCH: %v", err)
+	}
+	affected, err = res.RowsAffected()
+	if err != nil {
+		t.Fatalf("could not get rows affected from batch: %v", err)
+	}
+	if affected != 2 {
+		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 2)
+	}
+
+	requests = drainRequestsFromServer(server.TestSpanner)
+	// There should still be no ExecuteSqlRequests on the server.
+	sqlRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 0 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 0)
+	}
+	batchRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if len(batchRequests) != 1 {
+		t.Fatalf("BatchDML requests count mismatch\nGot: %v\nWant: %v", len(batchRequests), 1)
+	}
+	// The transaction should still be active.
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if len(commitRequests) != 0 {
+		t.Fatalf("Commit requests count mismatch\nGot: %v\nWant: %v", len(commitRequests), 0)
+	}
+
+	// Executing another DML statement on the same transaction now that the batch has been
+	// executed should cause the statement to be sent to Spanner.
+	server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (3, 'Three')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	if _, err := tx.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (3, 'Three')"); err != nil {
+		t.Fatalf("failed to execute DML statement after batch: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("failed to commit transaction after batch: %v", err)
+	}
+
+	requests = drainRequestsFromServer(server.TestSpanner)
+	// There should now be one ExecuteSqlRequests on the server.
+	sqlRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 1 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
+	}
+	// There should be no new Batch DML requests.
+	batchRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if len(batchRequests) != 0 {
+		t.Fatalf("BatchDML requests count mismatch\nGot: %v\nWant: %v", len(batchRequests), 0)
+	}
+	// The transaction should now be committed.
+	commitRequests = requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if len(commitRequests) != 1 {
+		t.Fatalf("Commit requests count mismatch\nGot: %v\nWant: %v", len(commitRequests), 1)
+	}
+
+}
+
 func numeric(v string) big.Rat {
 	res, _ := big.NewRat(1, 1).SetString(v)
 	return *res

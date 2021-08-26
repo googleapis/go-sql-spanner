@@ -28,6 +28,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// statementExecutor is an empty struct that is used to hold the execution methods
+// of the different client side statements. This makes it possible to look up the
+// methods using reflection, which is not possible if the methods do not belong to
+//  a struct.
+// The different methods of statementExecutor are invoked by a connection when one
+// of the valid client side statements is executed on a connection.
 type statementExecutor struct {
 }
 
@@ -51,8 +57,8 @@ func (s *statementExecutor) StartBatchDdl(_ context.Context, c *conn, _ string, 
 	return c.startBatchDdl()
 }
 
-func (s *statementExecutor) StartBatchDml(query string) error {
-	return nil
+func (s *statementExecutor) StartBatchDml(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Result, error) {
+	return c.startBatchDml()
 }
 
 func (s *statementExecutor) RunBatch(ctx context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Result, error) {
@@ -90,10 +96,16 @@ func (s *statementExecutor) SetAutocommitDmlMode(_ context.Context, c *conn, par
 	return c.setAutocommitDmlMode(mode)
 }
 
+// createBooleanIterator creates a row iterator with a single BOOL column with
+// one row. This is used for client side statements that return a result set
+// containing a BOOL value.
 func createBooleanIterator(column string, value bool) (*clientSideIterator, error) {
 	return createSingleValueIterator(column, value, sppb.TypeCode_BOOL)
 }
 
+// createStringIterator creates a row iterator with a single STRING column with
+// one row. This is used for client side statements that return a result set
+// containing a STRING value.
 func createStringIterator(column string, value string) (*clientSideIterator, error) {
 	return createSingleValueIterator(column, value, sppb.TypeCode_STRING)
 }
@@ -115,6 +127,9 @@ func createSingleValueIterator(column string, value interface{}, code sppb.TypeC
 	}, nil
 }
 
+// clientSideIterator implements the rowIterator interface for client side
+// statements. All values are created and kept in memory, and this struct
+// should only be used for small result sets.
 type clientSideIterator struct {
 	metadata *sppb.ResultSetMetadata
 	rows     []*spanner.Row

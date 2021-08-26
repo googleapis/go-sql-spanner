@@ -695,6 +695,12 @@ func TestParseClientSideStatement(t *testing.T) {
 			exec:  true,
 		},
 		{
+			name:  "Start DML batch",
+			input: "START BATCH DML",
+			want:  "START BATCH DML",
+			exec:  true,
+		},
+		{
 			name:  "Run batch",
 			input: "run batch",
 			want:  "RUN BATCH",
