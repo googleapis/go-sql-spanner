@@ -18,7 +18,6 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
-	"errors"
 	"fmt"
 	"math/big"
 	"regexp"
@@ -118,7 +117,7 @@ func extractConnectorParams(paramsString string) (map[string]string, error) {
 		}
 		keyValue := strings.SplitN(keyValueString, "=", 2)
 		if keyValue == nil || len(keyValue) != 2 {
-			return nil, fmt.Errorf("invalid connection property: %s", keyValueString)
+			return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection property: %s", keyValueString))
 		}
 		params[strings.ToLower(keyValue[0])] = keyValue[1]
 	}
@@ -396,7 +395,7 @@ func (c *conn) Begin() (driver.Tx, error) {
 
 func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
 	if c.inTransaction() {
-		return nil, errors.New("already in a transaction")
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "already in a transaction"))
 	}
 
 	if opts.ReadOnly {
