@@ -18,7 +18,6 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"reflect"
@@ -87,7 +86,7 @@ func removeCommentsAndTrim(sql string) (string, error) {
 		c := runes[index]
 		if isInQuoted {
 			if (c == '\n' || c == '\r') && !isTripleQuoted {
-				return "", fmt.Errorf("statement contains an unclosed literal: %s", sql)
+				return "", spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", sql))
 			} else if c == startQuote {
 				if lastCharWasEscapeChar {
 					lastCharWasEscapeChar = false
@@ -149,7 +148,7 @@ func removeCommentsAndTrim(sql string) (string, error) {
 		index++
 	}
 	if isInQuoted {
-		return "", fmt.Errorf("statement contains an unclosed literal: %s", sql)
+		return "", spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", sql))
 	}
 	trimmed := strings.TrimSpace(res.String())
 	if len(trimmed) > 0 && trimmed[len(trimmed)-1] == ';' {
@@ -208,7 +207,7 @@ func findParams(sql string) ([]string, error) {
 		c := runes[index]
 		if isInQuoted {
 			if (c == '\n' || c == '\r') && !isTripleQuoted {
-				return nil, fmt.Errorf("statement contains an unclosed literal: %s", sql)
+				return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", sql))
 			} else if c == startQuote {
 				if lastCharWasEscapeChar {
 					lastCharWasEscapeChar = false
@@ -259,7 +258,7 @@ func findParams(sql string) ([]string, error) {
 		index++
 	}
 	if isInQuoted {
-		return nil, fmt.Errorf("statement contains an unclosed literal: %s", sql)
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", sql))
 	}
 	return res, nil
 }

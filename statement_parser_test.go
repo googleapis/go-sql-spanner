@@ -17,7 +17,9 @@ package spannerdriver
 import (
 	"testing"
 
+	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
+	"google.golang.org/grpc/codes"
 )
 
 func TestRemoveCommentsAndTrim(t *testing.T) {
@@ -751,5 +753,27 @@ func TestParseClientSideStatement(t *testing.T) {
 				t.Errorf("params mismatch for %s\nGot: %v\nWant: %v", tc.name, g, w)
 			}
 		}
+	}
+}
+
+func TestRemoveCommentsAndTrim_Errors(t *testing.T) {
+	_, err := removeCommentsAndTrim("SELECT 'Hello World FROM SomeTable")
+	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
+		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
+	}
+	_, err = removeCommentsAndTrim("SELECT 'Hello World\nFROM SomeTable")
+	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
+		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
+	}
+}
+
+func TestFindParams_Errors(t *testing.T) {
+	_, err := findParams("SELECT 'Hello World FROM SomeTable WHERE id=@id")
+	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
+		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
+	}
+	_, err = findParams("SELECT 'Hello World\nFROM SomeTable WHERE id=@id")
+	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
+		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}
 }

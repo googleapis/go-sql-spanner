@@ -91,15 +91,15 @@ func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement
 }
 
 func (tx *readOnlyTransaction) ExecContext(_ context.Context, stmt spanner.Statement) (int64, error) {
-	return 0, status.Error(codes.FailedPrecondition, "read-only transactions cannot write")
+	return 0, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
 func (tx *readOnlyTransaction) StartBatchDml() (driver.Result, error) {
-	return nil, status.Error(codes.FailedPrecondition, "read-only transactions cannot write")
+	return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
 func (tx *readOnlyTransaction) RunBatch(_ context.Context) (driver.Result, error) {
-	return nil, status.Error(codes.FailedPrecondition, "read-only transactions cannot write")
+	return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
 func (tx *readOnlyTransaction) AbortBatch() (driver.Result, error) {
