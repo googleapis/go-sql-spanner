@@ -1126,6 +1126,7 @@ func TestAllTypes(t *testing.T) {
 		numericCol        spanner.NullNumeric
 		dateCol           spanner.NullDate
 		timestampCol      sql.NullTime
+		jsonCol           interface{}
 		boolArrayCol      []spanner.NullBool
 		stringArrayCol    []spanner.NullString
 		bytesArrayCol     [][]byte
@@ -1134,6 +1135,7 @@ func TestAllTypes(t *testing.T) {
 		numericArrayCol   []spanner.NullNumeric
 		dateArrayCol      []spanner.NullDate
 		timestampArrayCol []spanner.NullTime
+		jsonArrayCol      interface{}
 	}
 
 	tests := []struct {
@@ -1147,7 +1149,9 @@ func TestAllTypes(t *testing.T) {
 			name: "Non-null values",
 			key:  1,
 			input: []interface{}{
-				1, true, "test", []byte("testbytes"), int64(1), 3.14, numeric("6.626"), date("2021-07-28"), time.Date(2021, 7, 28, 15, 8, 30, 30294, time.UTC),
+				1, true, "test", []byte("testbytes"), int64(1), 3.14, numeric("6.626"), date("2021-07-28"),
+				time.Date(2021, 7, 28, 15, 8, 30, 30294, time.UTC),
+				nullJsonOrString(true, `{"key": "value", "other-key": ["value1", "value2"]}`),
 				[]spanner.NullBool{{Valid: true, Bool: true}, {}, {Valid: true, Bool: false}},
 				[]spanner.NullString{{Valid: true, StringVal: "test1"}, {}, {Valid: true, StringVal: "test2"}},
 				[][]byte{[]byte("testbytes1"), nil, []byte("testbytes2")},
@@ -1156,11 +1160,14 @@ func TestAllTypes(t *testing.T) {
 				[]spanner.NullNumeric{{Valid: true, Numeric: numeric("3.14")}, {}, {Valid: true, Numeric: numeric("6.626")}},
 				[]spanner.NullDate{{Valid: true, Date: date("2021-07-28")}, {}, {Valid: true, Date: date("2000-02-29")}},
 				[]spanner.NullTime{{Valid: true, Time: time.Date(2021, 7, 28, 15, 16, 1, 999999999, time.UTC)}},
+				nullJsonOrStringArray([]spanner.NullJSON{nullJson(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`)}),
 			},
 			want: AllTypesRow{1,
 				sql.NullBool{Valid: true, Bool: true}, sql.NullString{Valid: true, String: "test"}, []byte("testbytes"),
 				sql.NullInt64{Valid: true, Int64: 1}, sql.NullFloat64{Valid: true, Float64: 3.14}, spanner.NullNumeric{Valid: true, Numeric: numeric("6.626")},
-				spanner.NullDate{Valid: true, Date: date("2021-07-28")}, sql.NullTime{Valid: true, Time: time.Date(2021, 7, 28, 15, 8, 30, 30294, time.UTC)},
+				spanner.NullDate{Valid: true, Date: date("2021-07-28")},
+				sql.NullTime{Valid: true, Time: time.Date(2021, 7, 28, 15, 8, 30, 30294, time.UTC)},
+				nullJsonOrString(true, `{"key": "value", "other-key": ["value1", "value2"]}`),
 				[]spanner.NullBool{{Valid: true, Bool: true}, {}, {Valid: true, Bool: false}},
 				[]spanner.NullString{{Valid: true, StringVal: "test1"}, {}, {Valid: true, StringVal: "test2"}},
 				[][]byte{[]byte("testbytes1"), nil, []byte("testbytes2")},
@@ -1169,19 +1176,20 @@ func TestAllTypes(t *testing.T) {
 				[]spanner.NullNumeric{{Valid: true, Numeric: numeric("3.14")}, {}, {Valid: true, Numeric: numeric("6.626")}},
 				[]spanner.NullDate{{Valid: true, Date: date("2021-07-28")}, {}, {Valid: true, Date: date("2000-02-29")}},
 				[]spanner.NullTime{{Valid: true, Time: time.Date(2021, 7, 28, 15, 16, 1, 999999999, time.UTC)}},
+				nullJsonOrStringArray([]spanner.NullJSON{nullJson(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`)}),
 			},
 		},
 		{
 			name: "Untyped null values",
 			key:  2,
 			input: []interface{}{
-				2, nil, nil, nil, nil, nil, nil, nil, nil,
-				nil, nil, nil, nil, nil, nil, nil, nil,
+				2, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+				nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 			},
 			want: AllTypesRow{2,
 				sql.NullBool{}, sql.NullString{}, []byte(nil),
 				sql.NullInt64{}, sql.NullFloat64{}, spanner.NullNumeric{},
-				spanner.NullDate{}, sql.NullTime{},
+				spanner.NullDate{}, sql.NullTime{}, nullJsonOrString(false, ""),
 				[]spanner.NullBool(nil),
 				[]spanner.NullString(nil),
 				[][]byte(nil),
@@ -1190,6 +1198,7 @@ func TestAllTypes(t *testing.T) {
 				[]spanner.NullNumeric(nil),
 				[]spanner.NullDate(nil),
 				[]spanner.NullTime(nil),
+				nullJsonOrStringArray([]spanner.NullJSON(nil)),
 			},
 			// The emulator does not support untyped null values.
 			skipOnEmulator: true,
@@ -1198,7 +1207,7 @@ func TestAllTypes(t *testing.T) {
 			name: "Typed null values",
 			key:  3,
 			input: []interface{}{
-				3, nilBool(), nilString(), []byte(nil), nilInt64(), nilFloat64(), nilRat(), nilDate(), nilTime(),
+				3, nilBool(), nilString(), []byte(nil), nilInt64(), nilFloat64(), nilRat(), nilDate(), nilTime(), nullJsonOrString(false, ""),
 				[]spanner.NullBool(nil),
 				[]spanner.NullString(nil),
 				[][]byte(nil),
@@ -1207,11 +1216,12 @@ func TestAllTypes(t *testing.T) {
 				[]spanner.NullNumeric(nil),
 				[]spanner.NullDate(nil),
 				[]spanner.NullTime(nil),
+				nullJsonOrStringArray([]spanner.NullJSON(nil)),
 			},
 			want: AllTypesRow{3,
 				sql.NullBool{}, sql.NullString{}, []byte(nil),
 				sql.NullInt64{}, sql.NullFloat64{}, spanner.NullNumeric{},
-				spanner.NullDate{}, sql.NullTime{},
+				spanner.NullDate{}, sql.NullTime{}, nullJsonOrString(false, ""),
 				[]spanner.NullBool(nil),
 				[]spanner.NullString(nil),
 				[][]byte(nil),
@@ -1220,6 +1230,7 @@ func TestAllTypes(t *testing.T) {
 				[]spanner.NullNumeric(nil),
 				[]spanner.NullDate(nil),
 				[]spanner.NullTime(nil),
+				nullJsonOrStringArray([]spanner.NullJSON(nil)),
 			},
 		},
 		{
@@ -1228,7 +1239,7 @@ func TestAllTypes(t *testing.T) {
 			input: []interface{}{
 				// TODO: Fix the requirement to use spanner.NullString here.
 				4, sql.NullBool{}, spanner.NullString{}, []byte(nil), sql.NullInt64{}, sql.NullFloat64{},
-				spanner.NullNumeric{}, spanner.NullDate{}, sql.NullTime{},
+				spanner.NullNumeric{}, spanner.NullDate{}, sql.NullTime{}, nullJsonOrString(false, ""),
 				[]spanner.NullBool(nil),
 				[]spanner.NullString(nil),
 				[][]byte(nil),
@@ -1237,11 +1248,12 @@ func TestAllTypes(t *testing.T) {
 				[]spanner.NullNumeric(nil),
 				[]spanner.NullDate(nil),
 				[]spanner.NullTime(nil),
+				nullJsonOrStringArray([]spanner.NullJSON(nil)),
 			},
 			want: AllTypesRow{4,
 				sql.NullBool{}, sql.NullString{}, []byte(nil),
 				sql.NullInt64{}, sql.NullFloat64{}, spanner.NullNumeric{},
-				spanner.NullDate{}, sql.NullTime{},
+				spanner.NullDate{}, sql.NullTime{}, nullJsonOrString(false, ""),
 				[]spanner.NullBool(nil),
 				[]spanner.NullString(nil),
 				[][]byte(nil),
@@ -1250,16 +1262,17 @@ func TestAllTypes(t *testing.T) {
 				[]spanner.NullNumeric(nil),
 				[]spanner.NullDate(nil),
 				[]spanner.NullTime(nil),
+				nullJsonOrStringArray([]spanner.NullJSON(nil)),
 			},
 		},
 	}
 	stmt, err := db.PrepareContext(ctx, `INSERT INTO TestAllTypes (key, boolCol, stringCol, bytesCol, int64Col, 
-                                               float64Col, numericCol, dateCol, timestampCol, boolArrayCol,
+                                               float64Col, numericCol, dateCol, timestampCol, jsonCol, boolArrayCol,
                                                stringArrayCol, bytesArrayCol, int64ArrayCol, float64ArrayCol,
-                                               numericArrayCol, dateArrayCol, timestampArrayCol) VALUES (@key, @bool,
-                                               @string, @bytes, @int64, @float64, @numeric, @date, @timestamp,
-                                               @boolArray, @stringArray, @bytesArray, @int64Array, @float64Array,
-                                               @numericArray, @dateArray, @timestampArray)`)
+                                               numericArrayCol, dateArrayCol, timestampArrayCol, jsonArrayCol) VALUES (
+                                               @key, @bool, @string, @bytes, @int64, @float64, @numeric, @date,
+                                               @timestamp, @json, @boolArray, @stringArray, @bytesArray, @int64Array,
+                                               @float64Array, @numericArray, @dateArray, @timestampArray, @jsonArray)`)
 	for _, test := range tests {
 		if runsOnEmulator() && test.skipOnEmulator {
 			t.Logf("skipping test %q on emulator", test.name)
@@ -1267,7 +1280,7 @@ func TestAllTypes(t *testing.T) {
 		}
 		res, err := stmt.ExecContext(ctx, test.input...)
 		if err != nil {
-			t.Fatalf("insert failed: %v", err)
+			t.Fatalf("%s: insert failed: %v", test.name, err)
 		}
 		affected, err := res.RowsAffected()
 		if err != nil {
@@ -1281,14 +1294,33 @@ func TestAllTypes(t *testing.T) {
 		var allTypesRow AllTypesRow
 		err = row.Scan(
 			&allTypesRow.key, &allTypesRow.boolCol, &allTypesRow.stringCol, &allTypesRow.bytesCol, &allTypesRow.int64Col,
-			&allTypesRow.float64Col, &allTypesRow.numericCol, &allTypesRow.dateCol, &allTypesRow.timestampCol,
+			&allTypesRow.float64Col, &allTypesRow.numericCol, &allTypesRow.dateCol, &allTypesRow.timestampCol, &allTypesRow.jsonCol,
 			&allTypesRow.boolArrayCol, &allTypesRow.stringArrayCol, &allTypesRow.bytesArrayCol, &allTypesRow.int64ArrayCol,
 			&allTypesRow.float64ArrayCol, &allTypesRow.numericArrayCol, &allTypesRow.dateArrayCol, &allTypesRow.timestampArrayCol,
+			&allTypesRow.jsonArrayCol,
 		)
 		if err != nil {
 			t.Fatalf("could not query row: %v", err)
 		}
-		if !cmp.Equal(allTypesRow, test.want, cmp.AllowUnexported(AllTypesRow{}, big.Rat{}, big.Int{})) {
+		if !cmp.Equal(allTypesRow, test.want, cmp.AllowUnexported(AllTypesRow{}, big.Rat{}, big.Int{}), cmp.FilterValues(func(v1, v2 interface{}) bool {
+			if !runsOnEmulator() {
+				return false
+			}
+			// TODO: Remove the following exceptions once the emulator supports JSON.
+			if reflect.TypeOf(v1) == reflect.TypeOf("") && reflect.TypeOf(v2) == reflect.TypeOf(spanner.NullString{}) {
+				return true
+			}
+			if reflect.TypeOf(v2) == reflect.TypeOf("") && reflect.TypeOf(v1) == reflect.TypeOf(spanner.NullString{}) {
+				return true
+			}
+			if reflect.TypeOf(v1) == reflect.TypeOf(nil) && reflect.TypeOf(v2) == reflect.TypeOf(spanner.NullString{}) {
+				return true
+			}
+			if reflect.TypeOf(v2) == reflect.TypeOf(nil) && reflect.TypeOf(v1) == reflect.TypeOf(spanner.NullString{}) {
+				return true
+			}
+			return false
+		}, cmp.Ignore())) {
 			t.Fatalf("row mismatch\nGot:  %v\nWant: %v", allTypesRow, test.want)
 		}
 	}
@@ -1317,22 +1349,27 @@ func TestQueryInReadWriteTransaction(t *testing.T) {
 		t.Fatalf("begin transaction failed: %v", err)
 	}
 	stmt, err := tx.PrepareContext(ctx, `INSERT INTO QueryReadWrite (key, boolCol, stringCol, bytesCol, int64Col, 
-                                               float64Col, numericCol, dateCol, timestampCol, boolArrayCol,
+                                               float64Col, numericCol, dateCol, timestampCol, jsonCol, boolArrayCol,
                                                stringArrayCol, bytesArrayCol, int64ArrayCol, float64ArrayCol,
-                                               numericArrayCol, dateArrayCol, timestampArrayCol) VALUES (@key, @bool,
-                                               @string, @bytes, @int64, @float64, @numeric, @date, @timestamp,
-                                               @boolArray, @stringArray, @bytesArray, @int64Array, @float64Array,
-                                               @numericArray, @dateArray, @timestampArray)`)
+                                               numericArrayCol, dateArrayCol, timestampArrayCol, jsonArrayCol) VALUES (
+                                               @key, @bool, @string, @bytes, @int64, @float64, @numeric, @date,
+                                               @timestamp, @json, @boolArray, @stringArray, @bytesArray, @int64Array,
+                                               @float64Array, @numericArray, @dateArray, @timestampArray, @jsonArray)`)
 	for row := int64(0); row < wantRowCount; row++ {
 		res, err := stmt.ExecContext(ctx, row, row%2 == 0, fmt.Sprintf("%v", row), []byte(fmt.Sprintf("%v", row)),
 			row, float64(row)/float64(3), numeric(fmt.Sprintf("%v.%v", row, row)),
 			civil.DateOf(time.Unix(row, row)), time.Unix(row*1000, row),
+			nullJsonOrString(true, fmt.Sprintf(`"key": "value%d"`, row)),
 			[]bool{row%2 == 0, row%2 != 0}, []string{fmt.Sprintf("%v", row), fmt.Sprintf("%v", row*2)},
 			[][]byte{[]byte(fmt.Sprintf("%v", row)), []byte(fmt.Sprintf("%v", row*2))},
 			[]int64{row, row * 2}, []float64{float64(row) / float64(3), float64(row*2) / float64(3)},
 			[]big.Rat{numeric(fmt.Sprintf("%v.%v", row, row)), numeric(fmt.Sprintf("%v.%v", row*2, row*2))},
 			[]civil.Date{civil.DateOf(time.Unix(row, row)), civil.DateOf(time.Unix(row*2, row*2))},
 			[]time.Time{time.Unix(row*1000, row), time.Unix(row*2000, row)},
+			nullJsonOrStringArray([]spanner.NullJSON{
+				nullJson(true, fmt.Sprintf(`"key1": "value%d"`, row)),
+				nullJson(true, fmt.Sprintf(`"key2": "value%d"`, row*1000)),
+			}),
 		)
 		if err != nil {
 			t.Fatalf("insert failed: %v", err)
@@ -1520,6 +1557,10 @@ func insertRandomSingers(ctx context.Context, db *sql.DB) (err error) {
 }
 
 func getTableWithAllTypesDdl(name string) string {
+	jsonType := "JSON"
+	if runsOnEmulator() {
+		jsonType = "STRING(MAX)"
+	}
 	return fmt.Sprintf(`CREATE TABLE %s (
 			key          INT64,
 			boolCol      BOOL,
@@ -1530,6 +1571,7 @@ func getTableWithAllTypesDdl(name string) string {
 			numericCol   NUMERIC,
 			dateCol      DATE,
 			timestampCol TIMESTAMP,
+            jsonCol      %s,
 			boolArrayCol      ARRAY<BOOL>,
 			stringArrayCol    ARRAY<STRING(MAX)>,
 			bytesArrayCol     ARRAY<BYTES(MAX)>,
@@ -1538,7 +1580,8 @@ func getTableWithAllTypesDdl(name string) string {
 			numericArrayCol   ARRAY<NUMERIC>,
 			dateArrayCol      ARRAY<DATE>,
 			timestampArrayCol ARRAY<TIMESTAMP>,
-		) PRIMARY KEY (key)`, fmt.Sprintf("`%s`", name))
+            jsonArrayCol      ARRAY<%s>,
+		) PRIMARY KEY (key)`, fmt.Sprintf("`%s`", name), jsonType, jsonType)
 }
 
 func nilBool() *bool {
@@ -1574,4 +1617,25 @@ func nilDate() *civil.Date {
 func nilTime() *time.Time {
 	var t *time.Time
 	return t
+}
+
+func nullJsonOrString(valid bool, v string) interface{} {
+	if runsOnEmulator() {
+		return spanner.NullString{Valid: valid, StringVal: v}
+	}
+	return nullJson(valid, v)
+}
+
+func nullJsonOrStringArray(v []spanner.NullJSON) interface{} {
+	if !runsOnEmulator() {
+		return v
+	}
+	if reflect.ValueOf(v).IsNil() {
+		return []spanner.NullString(nil)
+	}
+	res := make([]spanner.NullString, len(v))
+	for i, j := range v {
+		res[i] = spanner.NullString{Valid: j.Valid, StringVal: j.String()}
+	}
+	return res
 }
