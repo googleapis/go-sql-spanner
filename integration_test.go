@@ -1184,7 +1184,7 @@ func TestAllTypes(t *testing.T) {
 			key:  2,
 			input: []interface{}{
 				2, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-				nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+				nil, nil, nil, nil, nil, nil, nil, nil, nil,
 			},
 			want: AllTypesRow{2,
 				sql.NullBool{}, sql.NullString{}, []byte(nil),
