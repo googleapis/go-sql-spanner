@@ -37,8 +37,8 @@ type Singer struct {
 
 type Album struct {
 	AlbumId  int64 `gorm:"primaryKey:true;autoIncrement:false"`
-	SingerId int64
-	Singer   Singer
+	SingerId *int64
+	Singer   *Singer
 	Title    string
 }
 
@@ -214,7 +214,81 @@ func TestUpdateSinger(t *testing.T) {
 	}
 }
 
+func TestDeleteSinger(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	server.TestSpanner.PutStatementResult(
+		"SELECT * FROM `singers` WHERE `singers`.`singer_id` = @p1 LIMIT 1",
+		&testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: createSingersResultSet([]Singer{{1, nil, "Allison", spanner.NullDate{}}}),
+		})
+	server.TestSpanner.PutStatementResult(
+		"DELETE FROM `singers` WHERE `singers`.`singer_id` = @p1",
+		&testutil.StatementResult{
+			Type:        testutil.StatementResultUpdateCount,
+			UpdateCount: 1,
+		})
+
+	var singer Singer
+	if err := db.Take(&singer, 1).Error; err != nil {
+		t.Fatalf("failed to get singer: %v", err)
+	}
+	res := db.Delete(&singer)
+	if res.Error != nil {
+		t.Fatalf("failed to delete singer: %v", res.Error)
+	}
+	if res.RowsAffected != 1 {
+		t.Fatalf("affected rows count mismatch\nGot: %v\nWant: %v", res.RowsAffected, 1)
+	}
+}
+
+func TestSelectOneAlbumWithPreload(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	server.TestSpanner.PutStatementResult(
+		"SELECT * FROM `albums` WHERE `albums`.`album_id` = @p1 LIMIT 1",
+		&testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: createAlbumsResultSet([]Album{{1, int64Pointer(1), nil, "Title 1"}}),
+		})
+	server.TestSpanner.PutStatementResult(
+		"SELECT * FROM `singers` WHERE `singers`.`singer_id` = @p1",
+		&testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: createSingersResultSet([]Singer{{1, strPointer("Alice"), "Peterson", spanner.NullDate{}}}),
+		})
+
+	var album Album
+	if err := db.Preload("Singer").Take(&album, 1).Error; err != nil {
+		t.Fatalf("failed to fetch album: %v", err)
+	}
+	if album.AlbumId != 1 {
+		t.Fatalf("AlbumId mismatch\nGot: %v\nWant: %v", album.AlbumId, 1)
+	}
+	if *album.SingerId != 1 {
+		t.Fatalf("SingerId mismatch\nGot: %v\nWant: %v", *album.SingerId, 1)
+	}
+	if album.Singer == nil {
+		t.Fatalf("Singer not preloaded")
+	}
+	if g, w := *album.Singer.FirstName, "Alice"; g != w {
+		t.Fatalf("Singer FirstName mismatch\nGot: %s\nWant: %s", g, w)
+	}
+	if g, w := album.Singer.LastName, "Peterson"; g != w {
+		t.Fatalf("Singer LastName mismatch\nGot: %s\nWant: %s", g, w)
+	}
+}
+
 func strPointer(val string) *string {
+	return &val
+}
+
+func int64Pointer(val int64) *int64 {
 	return &val
 }
 
@@ -299,6 +373,46 @@ func createSingersResultSet(singers []Singer) *spannerpb.ResultSet {
 			rowValue[3] = &structpb.Value{Kind: &structpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}}
 		} else {
 			rowValue[3] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: singers[i].BirthDate.String()}}
+		}
+		rows[i] = &structpb.ListValue{
+			Values: rowValue,
+		}
+	}
+	return &spannerpb.ResultSet{
+		Metadata: metadata,
+		Rows:     rows,
+	}
+}
+
+func createAlbumsResultSet(albums []Album) *spannerpb.ResultSet {
+	fields := make([]*spannerpb.StructType_Field, 3)
+	fields[0] = &spannerpb.StructType_Field{
+		Name: "album_id",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_INT64},
+	}
+	fields[1] = &spannerpb.StructType_Field{
+		Name: "title",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_STRING},
+	}
+	fields[2] = &spannerpb.StructType_Field{
+		Name: "singer_id",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_INT64},
+	}
+	rowType := &spannerpb.StructType{
+		Fields: fields,
+	}
+	metadata := &spannerpb.ResultSetMetadata{
+		RowType: rowType,
+	}
+	rows := make([]*structpb.ListValue, len(albums))
+	for i := 0; i < len(albums); i++ {
+		rowValue := make([]*structpb.Value, len(fields))
+		rowValue[0] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%d", albums[i].AlbumId)}}
+		rowValue[1] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: albums[i].Title}}
+		if albums[i].SingerId == nil {
+			rowValue[2] = &structpb.Value{Kind: &structpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}}
+		} else {
+			rowValue[2] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%d", *albums[i].SingerId)}}
 		}
 		rows[i] = &structpb.ListValue{
 			Values: rowValue,
