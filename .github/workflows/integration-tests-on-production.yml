@@ -5,7 +5,20 @@ on:
     branches: [ main ]
 name: Integration tests on production
 jobs:
+  check-env:
+    outputs:
+      has-key: ${{ steps.project-id.outputs.defined }}
+    runs-on: ubuntu-latest
+    steps:
+    - id: project-id
+      env:
+        GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      if: "${{ env.GCP_PROJECT_ID != '' }}"
+      run: echo "::set-output name=defined::true"
+
   test:
+    needs: [check-env]
+    if: needs.check-env.outputs.has-key == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Install Go
