@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"reflect"
@@ -323,6 +324,7 @@ func TestQueryWithAllTypes(t *testing.T) {
              AND   ColNumeric=@numeric
              AND   ColDate=@date
              AND   ColTimestamp=@timestamp
+             AND   ColJson=@json
              AND   ColBoolArray=@boolArray
              AND   ColStringArray=@stringArray
              AND   ColBytesArray=@bytesArray
@@ -330,7 +332,8 @@ func TestQueryWithAllTypes(t *testing.T) {
              AND   ColFloatArray=@float64Array
              AND   ColNumericArray=@numericArray
              AND   ColDateArray=@dateArray
-             AND   ColTimestampArray=@timestampArray`
+             AND   ColTimestampArray=@timestampArray
+             AND   ColJsonArray=@jsonArray`
 	_ = server.TestSpanner.PutStatementResult(
 		query,
 		&testutil.StatementResult{
@@ -357,6 +360,7 @@ func TestQueryWithAllTypes(t *testing.T) {
 		numeric("6.626"),
 		civil.Date{Year: 2021, Month: 7, Day: 21},
 		ts,
+		nullJson(true, `{"key":"value","other-key":["value1","value2"]}`),
 		[]spanner.NullBool{{Valid: true, Bool: true}, {}, {Valid: true, Bool: false}},
 		[]spanner.NullString{{Valid: true, StringVal: "test1"}, {}, {Valid: true, StringVal: "test2"}},
 		[][]byte{[]byte("testbytes1"), nil, []byte("testbytes2")},
@@ -365,6 +369,11 @@ func TestQueryWithAllTypes(t *testing.T) {
 		[]spanner.NullNumeric{nullNumeric(true, "3.14"), {}, nullNumeric(true, "10.01")},
 		[]spanner.NullDate{{Valid: true, Date: civil.Date{Year: 2000, Month: 2, Day: 29}}, {}, {Valid: true, Date: civil.Date{Year: 2021, Month: 7, Day: 27}}},
 		[]spanner.NullTime{{Valid: true, Time: ts1}, {}, {Valid: true, Time: ts2}},
+		[]spanner.NullJSON{
+			nullJson(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`),
+			nullJson(false, ""),
+			nullJson(true, `{"key2": "value2", "other-key2": ["value1", "value2"]}`),
+		},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -380,6 +389,7 @@ func TestQueryWithAllTypes(t *testing.T) {
 		var r spanner.NullNumeric
 		var d spanner.NullDate
 		var ts time.Time
+		var j spanner.NullJSON
 		var bArray []spanner.NullBool
 		var sArray []spanner.NullString
 		var btArray [][]byte
@@ -388,7 +398,8 @@ func TestQueryWithAllTypes(t *testing.T) {
 		var rArray []spanner.NullNumeric
 		var dArray []spanner.NullDate
 		var tsArray []spanner.NullTime
-		err = rows.Scan(&b, &s, &bt, &i, &f, &r, &d, &ts, &bArray, &sArray, &btArray, &iArray, &fArray, &rArray, &dArray, &tsArray)
+		var jArray []spanner.NullJSON
+		err = rows.Scan(&b, &s, &bt, &i, &f, &r, &d, &ts, &j, &bArray, &sArray, &btArray, &iArray, &fArray, &rArray, &dArray, &tsArray, &jArray)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -416,6 +427,11 @@ func TestQueryWithAllTypes(t *testing.T) {
 		if g, w := ts, time.Date(2021, 7, 21, 21, 7, 59, 339911800, time.UTC); g != w {
 			t.Errorf("row value mismatch for timestamp\nGot: %v\nWant: %v", g, w)
 		}
+		if !runsOnEmulator() {
+			if g, w := j, nullJson(true, `{"key":"value","other-key":["value1","value2"]}`); !cmp.Equal(g, w) {
+				t.Errorf("row value mismatch for json\nGot: %v\nWant: %v", g, w)
+			}
+		}
 		if g, w := bArray, []spanner.NullBool{{Valid: true, Bool: true}, {}, {Valid: true, Bool: false}}; !cmp.Equal(g, w) {
 			t.Errorf("row value mismatch for bool array\nGot: %v\nWant: %v", g, w)
 		}
@@ -440,6 +456,15 @@ func TestQueryWithAllTypes(t *testing.T) {
 		if g, w := tsArray, []spanner.NullTime{{Valid: true, Time: ts1}, {}, {Valid: true, Time: ts2}}; !cmp.Equal(g, w) {
 			t.Errorf("row value mismatch for timestamp array\nGot: %v\nWant: %v", g, w)
 		}
+		if !runsOnEmulator() {
+			if g, w := jArray, []spanner.NullJSON{
+				nullJson(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`),
+				nullJson(false, ""),
+				nullJson(true, `{"key2": "value2", "other-key2": ["value1", "value2"]}`),
+			}; !cmp.Equal(g, w) {
+				t.Errorf("row value mismatch for json array\nGot: %v\nWant: %v", g, w)
+			}
+		}
 	}
 	if rows.Err() != nil {
 		t.Fatal(rows.Err())
@@ -450,10 +475,10 @@ func TestQueryWithAllTypes(t *testing.T) {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
-	if g, w := len(req.ParamTypes), 16; g != w {
+	if g, w := len(req.ParamTypes), 18; g != w {
 		t.Fatalf("param types length mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	if g, w := len(req.Params.Fields), 16; g != w {
+	if g, w := len(req.Params.Fields), 18; g != w {
 		t.Fatalf("params length mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	wantParams := []struct {
@@ -501,6 +526,11 @@ func TestQueryWithAllTypes(t *testing.T) {
 			name:  "timestamp",
 			code:  sppb.TypeCode_TIMESTAMP,
 			value: "2021-07-22T10:26:17.123Z",
+		},
+		{
+			name:  "json",
+			code:  sppb.TypeCode_JSON,
+			value: `{"key":"value","other-key":["value1","value2"]}`,
 		},
 		{
 			name:  "boolArray",
@@ -582,6 +612,16 @@ func TestQueryWithAllTypes(t *testing.T) {
 				{Kind: &structpb.Value_StringValue{StringValue: "2021-07-27T21:07:59.3399118Z"}},
 			}},
 		},
+		{
+			name:  "jsonArray",
+			code:  sppb.TypeCode_JSON,
+			array: true,
+			value: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: `{"key1":"value1","other-key1":["value1","value2"]}`}},
+				{Kind: &structpb.Value_NullValue{}},
+				{Kind: &structpb.Value_StringValue{StringValue: `{"key2":"value2","other-key2":["value1","value2"]}`}},
+			}},
+		},
 	}
 	for _, wantParam := range wantParams {
 		if pt, ok := req.ParamTypes[wantParam.name]; ok {
@@ -616,7 +656,7 @@ func TestQueryWithAllTypes(t *testing.T) {
 			}
 			if wantParam.array {
 				if !cmp.Equal(g, wantParam.value, cmpopts.IgnoreUnexported(structpb.ListValue{}, structpb.Value{})) {
-					t.Errorf("array param value mismatch\nGot: %v\nWant: %v", g, wantParam.value)
+					t.Errorf("array param value mismatch\nGot:  %v\nWant: %v", g, wantParam.value)
 				}
 			} else {
 				if g != wantParam.value {
@@ -644,6 +684,7 @@ func TestQueryWithNullParameters(t *testing.T) {
              AND   ColNumeric=@numeric
              AND   ColDate=@date
              AND   ColTimestamp=@timestamp
+             AND   ColJson=@json
              AND   ColBoolArray=@boolArray
              AND   ColStringArray=@stringArray
              AND   ColBytesArray=@bytesArray
@@ -651,7 +692,8 @@ func TestQueryWithNullParameters(t *testing.T) {
              AND   ColFloatArray=@float64Array
              AND   ColNumericArray=@numericArray
              AND   ColDateArray=@dateArray
-             AND   ColTimestampArray=@timestampArray`
+             AND   ColTimestampArray=@timestampArray
+             AND   ColJsonArray=@jsonArray`
 	_ = server.TestSpanner.PutStatementResult(
 		query,
 		&testutil.StatementResult{
@@ -675,6 +717,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 		nil, // numeric
 		nil, // date
 		nil, // timestamp
+		nil, // json
 		nil, // bool array
 		nil, // string array
 		nil, // bytes array
@@ -683,6 +726,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 		nil, // numeric array
 		nil, // date array
 		nil, // timestamp array
+		nil, // json array
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -698,6 +742,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 		var r spanner.NullNumeric // There's no equivalent sql type.
 		var d spanner.NullDate    // There's no equivalent sql type.
 		var ts sql.NullTime
+		var j spanner.NullJSON // There's no equivalent sql type.
 		var bArray []spanner.NullBool
 		var sArray []spanner.NullString
 		var btArray [][]byte
@@ -706,7 +751,8 @@ func TestQueryWithNullParameters(t *testing.T) {
 		var rArray []spanner.NullNumeric
 		var dArray []spanner.NullDate
 		var tsArray []spanner.NullTime
-		err = rows.Scan(&b, &s, &bt, &i, &f, &r, &d, &ts, &bArray, &sArray, &btArray, &iArray, &fArray, &rArray, &dArray, &tsArray)
+		var jArray []spanner.NullJSON
+		err = rows.Scan(&b, &s, &bt, &i, &f, &r, &d, &ts, &j, &bArray, &sArray, &btArray, &iArray, &fArray, &rArray, &dArray, &tsArray, &jArray)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -734,6 +780,36 @@ func TestQueryWithNullParameters(t *testing.T) {
 		if ts.Valid {
 			t.Errorf("row value mismatch for timestamp\nGot: %v\nWant: %v", ts, spanner.NullTime{})
 		}
+		if j.Valid {
+			t.Errorf("row value mismatch for json\nGot: %v\nWant: %v", j, spanner.NullJSON{})
+		}
+		if bArray != nil {
+			t.Errorf("row value mismatch for bool array\nGot: %v\nWant: %v", bArray, nil)
+		}
+		if sArray != nil {
+			t.Errorf("row value mismatch for string array\nGot: %v\nWant: %v", sArray, nil)
+		}
+		if btArray != nil {
+			t.Errorf("row value mismatch for bytes array array\nGot: %v\nWant: %v", btArray, nil)
+		}
+		if iArray != nil {
+			t.Errorf("row value mismatch for int64 array\nGot: %v\nWant: %v", iArray, nil)
+		}
+		if fArray != nil {
+			t.Errorf("row value mismatch for float64 array\nGot: %v\nWant: %v", fArray, nil)
+		}
+		if rArray != nil {
+			t.Errorf("row value mismatch for numeric array\nGot: %v\nWant: %v", rArray, nil)
+		}
+		if dArray != nil {
+			t.Errorf("row value mismatch for date array\nGot: %v\nWant: %v", dArray, nil)
+		}
+		if tsArray != nil {
+			t.Errorf("row value mismatch for timestamp array\nGot: %v\nWant: %v", tsArray, nil)
+		}
+		if jArray != nil {
+			t.Errorf("row value mismatch for json array\nGot: %v\nWant: %v", jArray, nil)
+		}
 	}
 	if rows.Err() != nil {
 		t.Fatal(rows.Err())
@@ -748,7 +824,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 	if g, w := len(req.ParamTypes), 0; g != w {
 		t.Fatalf("param types length mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	if g, w := len(req.Params.Fields), 16; g != w {
+	if g, w := len(req.Params.Fields), 18; g != w {
 		t.Fatalf("params length mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	for _, param := range req.Params.Fields {
@@ -1384,6 +1460,15 @@ func nullDate(valid bool, v string) spanner.NullDate {
 		return spanner.NullDate{}
 	}
 	return spanner.NullDate{Valid: true, Date: date(v)}
+}
+
+func nullJson(valid bool, v string) spanner.NullJSON {
+	if !valid {
+		return spanner.NullJSON{}
+	}
+	var m map[string]interface{}
+	_ = json.Unmarshal([]byte(v), &m)
+	return spanner.NullJSON{Valid: true, Value: m}
 }
 
 func setupTestDBConnection(t *testing.T) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
