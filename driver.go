@@ -311,6 +311,8 @@ func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
 	case []spanner.NullDate:
 	case *civil.Date:
 	case []*civil.Date:
+	case spanner.NullJSON:
+	case []spanner.NullJSON:
 	case spanner.GenericColumnValue:
 	}
 	return nil
