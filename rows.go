@@ -146,6 +146,15 @@ func (r *rows) Next(dest []driver.Value) error {
 			} else {
 				dest[i] = nil
 			}
+		case sppb.TypeCode_JSON:
+			var v spanner.NullJSON
+			if err := col.Decode(&v); err != nil {
+				return err
+			}
+			// We always assign `v` to dest[i] here because there is no native type
+			// for JSON in the Go sql package. That means that instead of returning
+			// nil we should return a NullJSON with valid=false.
+			dest[i] = v
 		case sppb.TypeCode_BYTES:
 			// The column value is a base64 encoded string.
 			var v []byte
@@ -204,6 +213,12 @@ func (r *rows) Next(dest []driver.Value) error {
 				dest[i] = v
 			case sppb.TypeCode_STRING:
 				var v []spanner.NullString
+				if err := col.Decode(&v); err != nil {
+					return err
+				}
+				dest[i] = v
+			case sppb.TypeCode_JSON:
+				var v []spanner.NullJSON
 				if err := col.Decode(&v); err != nil {
 					return err
 				}

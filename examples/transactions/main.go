@@ -18,50 +18,89 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 
 	_ "github.com/cloudspannerecosystem/go-sql-spanner"
+	"github.com/cloudspannerecosystem/go-sql-spanner/examples"
 )
 
-func main() {
+var createTableStatement = "CREATE TABLE Singers (SingerId INT64, Name STRING(MAX)) PRIMARY KEY (SingerId)"
+
+func transaction(projectId, instanceId, databaseId string) error {
 	ctx := context.Background()
-	db, err := sql.Open("spanner", "projects/PROJECT/instances/INSTANCE/databases/DATABASE")
+	db, err := sql.Open("spanner", fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId))
 	if err != nil {
-		log.Fatal(err)
+		return err
+	}
+	defer db.Close()
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{}) // The default options will start a read/write transaction.
+	if err != nil {
+		return err
 	}
 
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{}) // Read-write transaction.
+	// Insert a new record using the transaction that we just started.
+	_, err = tx.ExecContext(ctx, "INSERT INTO Singers (SingerId, Name) VALUES (@id, @name)", 123, "Bruce Allison")
 	if err != nil {
-		log.Fatal(err)
+		_ = tx.Rollback()
+		return err
 	}
 
-	_, err = tx.ExecContext(ctx, "INSERT INTO tweets (id, text, rts) VALUES (@id, @text, @rts)", 123, "hello", 5)
+	// The row that we inserted will be readable for the same transaction that started it.
+	rows, err := tx.QueryContext(ctx, "SELECT SingerId, Name FROM Singers WHERE SingerId = @id", 123)
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	rows, err := tx.QueryContext(ctx, "SELECT id, text FROM tweets WHERE id = @id", 123)
-	if err != nil {
-		log.Fatal(err)
+		_ = tx.Rollback()
+		return err
 	}
 	var (
 		id   int64
-		text string
+		name string
 	)
 	for rows.Next() {
-		if err := rows.Scan(&id, &text); err != nil {
-			log.Fatal(err)
+		if err := rows.Scan(&id, &name); err != nil {
+			_ = tx.Rollback()
+			return err
 		}
-		fmt.Println(id, text)
+		fmt.Printf("Found singer: %v %v\n", id, name)
 	}
-	rows.Close()
+	if err := rows.Err(); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	_ = rows.Close()
 
-	_, err = tx.ExecContext(ctx, "DELETE FROM tweets WHERE id = @id", 123)
-	if err != nil {
-		log.Fatal(err)
+	// The row that has been inserted using the transaction is not readable for other transactions before the
+	// transaction has been committed. Note that the following statement does not use `tx` to try to read the
+	// row, but executes a read directly on `db`. This operation will use a separate single use read-only transaction.
+	row := db.QueryRowContext(ctx, "SELECT SingerId, Name FROM Singers WHERE SingerId = @id", 123)
+	if err := row.Err(); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	// This should return sql.ErrNoRows as the row should not be visible to other transactions.
+	if err := row.Scan(&id, &name); err != sql.ErrNoRows {
+		_ = tx.Rollback()
+		return fmt.Errorf("expected sql.ErrNoRows, but got %v", err)
+	}
+	fmt.Printf("Could not read singer outside of transaction before commit\n")
+
+	// Commit the transaction to make the changes permanent and readable for other transactions.
+	if err := tx.Commit(); err != nil {
+		return err
 	}
 
-	if err := tx.Rollback(); err != nil {
-		log.Fatal(err)
+	// This should now find the row.
+	row = db.QueryRowContext(ctx, "SELECT SingerId, Name FROM Singers WHERE SingerId = @id", 123)
+	if err := row.Err(); err != nil {
+		return err
 	}
+	if err := row.Scan(&id, &name); err != nil {
+		return err
+	}
+	fmt.Printf("Found singer after commit: %v %v\n", id, name)
+
+	return nil
+}
+
+func main() {
+	examples.RunSampleOnEmulator(transaction, createTableStatement)
 }
