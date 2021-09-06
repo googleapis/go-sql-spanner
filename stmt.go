@@ -64,10 +64,6 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 	return &rows{it: it}, nil
 }
 
-func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
-	return nil
-}
-
 func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, error) {
 	names, err := parseNamedParameters(q)
 	if err != nil {

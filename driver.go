@@ -19,18 +19,20 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"math/big"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
+	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
-	"google.golang.org/api/option"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
 	adminapi "cloud.google.com/go/spanner/admin/database/apiv1"
+	"google.golang.org/api/option"
 	adminpb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const userAgent = "go-sql-spanner/0.1"
@@ -541,6 +543,74 @@ func (c *conn) ResetSession(_ context.Context) error {
 // IsValid implements the driver.Validator interface.
 func (c *conn) IsValid() bool {
 	return !c.closed
+}
+
+func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
+	if value == nil {
+		return nil
+	}
+	switch t := value.Value.(type) {
+	default:
+		// Default is to fail, unless it is one of the following supported types.
+		return spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "unsupported value type: %v", t))
+	case nil:
+	case sql.NullInt64:
+	case sql.NullTime:
+	case sql.NullString:
+	case sql.NullFloat64:
+	case sql.NullBool:
+	case sql.NullInt32:
+	case string:
+	case spanner.NullString:
+	case []string:
+	case []spanner.NullString:
+	case *string:
+	case []*string:
+	case []byte:
+	case [][]byte:
+	case int:
+	case []int:
+	case int64:
+	case []int64:
+	case spanner.NullInt64:
+	case []spanner.NullInt64:
+	case *int64:
+	case []*int64:
+	case bool:
+	case []bool:
+	case spanner.NullBool:
+	case []spanner.NullBool:
+	case *bool:
+	case []*bool:
+	case float64:
+	case []float64:
+	case spanner.NullFloat64:
+	case []spanner.NullFloat64:
+	case *float64:
+	case []*float64:
+	case big.Rat:
+	case []big.Rat:
+	case spanner.NullNumeric:
+	case []spanner.NullNumeric:
+	case *big.Rat:
+	case []*big.Rat:
+	case time.Time:
+	case []time.Time:
+	case spanner.NullTime:
+	case []spanner.NullTime:
+	case *time.Time:
+	case []*time.Time:
+	case civil.Date:
+	case []civil.Date:
+	case spanner.NullDate:
+	case []spanner.NullDate:
+	case *civil.Date:
+	case []*civil.Date:
+	case spanner.NullJSON:
+	case []spanner.NullJSON:
+	case spanner.GenericColumnValue:
+	}
+	return nil
 }
 
 func (c *conn) Prepare(query string) (driver.Stmt, error) {
