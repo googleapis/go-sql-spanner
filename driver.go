@@ -415,7 +415,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 	if err != nil {
 		return nil, err
 	}
-	c.tx = &readWriteTransaction{
+	c.tx = &rwTransaction{
 		ctx:    ctx,
 		client: c.client,
 		rwTx:   tx,

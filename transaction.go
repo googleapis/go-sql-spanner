@@ -95,7 +95,7 @@ func (tx *readOnlyTransaction) ExecContext(_ context.Context, stmt spanner.State
 // from the initial attempt.
 var ErrAbortedDueToConcurrentModification = status.Error(codes.Aborted, "Transaction was aborted due to a concurrent modification")
 
-// readWriteTransaction is the internal structure for go/sql read/write
+// rwTransaction is the internal structure for go/sql read/write
 // transactions. These transactions can automatically be retried if the
 // underlying Spanner transaction is aborted. This is done by keeping track
 // of all statements that are executed on the transaction. If the transaction
@@ -104,7 +104,7 @@ var ErrAbortedDueToConcurrentModification = status.Error(codes.Aborted, "Transac
 // other. If they are equal, the underlying Spanner read/write transaction is
 // replaced with the one that was used for the replay, and the user transaction
 // can continue as if nothing happened.
-type readWriteTransaction struct {
+type rwTransaction struct {
 	ctx    context.Context
 	client *spanner.Client
 	// rwTx is the underlying Spanner read/write transaction. This transaction
@@ -169,7 +169,7 @@ func (ru *retriableUpdate) retry(ctx context.Context, tx *spanner.ReadWriteStmtB
 // Aborted error. The method will return ErrAbortedDueToConcurrentModification
 // if the transaction is aborted and the retry fails because the retry attempt
 // returned different results than the initial attempt.
-func (tx *readWriteTransaction) runWithRetry(ctx context.Context, f func(ctx context.Context) error) (err error) {
+func (tx *rwTransaction) runWithRetry(ctx context.Context, f func(ctx context.Context) error) (err error) {
 	for {
 		if err == nil {
 			err = f(ctx)
@@ -187,7 +187,7 @@ func (tx *readWriteTransaction) runWithRetry(ctx context.Context, f func(ctx con
 
 // retry retries the entire read/write transaction on a new Spanner transaction.
 // It will return ErrAbortedDueToConcurrentModification if the retry fails.
-func (tx *readWriteTransaction) retry(ctx context.Context) (err error) {
+func (tx *rwTransaction) retry(ctx context.Context) (err error) {
 	tx.rwTx, err = spanner.NewReadWriteStmtBasedTransaction(ctx, tx.client)
 	if err != nil {
 		return err
@@ -206,7 +206,7 @@ func (tx *readWriteTransaction) retry(ctx context.Context) (err error) {
 // It will commit the underlying Spanner transaction. If the transaction is
 // aborted by Spanner, the entire transaction will automatically be retried,
 // unless internal retries have been disabled.
-func (tx *readWriteTransaction) Commit() (err error) {
+func (tx *rwTransaction) Commit() (err error) {
 	if tx.rwTx != nil {
 		if !tx.retryAborts {
 			_, err := tx.rwTx.Commit(tx.ctx)
@@ -224,7 +224,7 @@ func (tx *readWriteTransaction) Commit() (err error) {
 
 // Rollback implements driver.Tx#Rollback(). The underlying Spanner transaction
 // will be rolled back and the session will be returned to the session pool.
-func (tx *readWriteTransaction) Rollback() error {
+func (tx *rwTransaction) Rollback() error {
 	if tx.rwTx != nil {
 		tx.rwTx.Rollback(tx.ctx)
 	}
@@ -235,7 +235,7 @@ func (tx *readWriteTransaction) Rollback() error {
 // Query executes a query using the read/write transaction and returns a
 // rowIterator that will automatically retry the read/write transaction if the
 // transaction is aborted during the query or while iterating the returned rows.
-func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement) rowIterator {
+func (tx *rwTransaction) Query(ctx context.Context, stmt spanner.Statement) rowIterator {
 	// If internal retries have been disabled, we don't need to keep track of a
 	// running checksum for all results that we have seen.
 	if !tx.retryAborts {
@@ -257,7 +257,7 @@ func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statemen
 	return it
 }
 
-func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.Statement) (res int64, err error) {
+func (tx *rwTransaction) ExecContext(ctx context.Context, stmt spanner.Statement) (res int64, err error) {
 	if !tx.retryAborts {
 		return tx.rwTx.Update(ctx, stmt)
 	}
