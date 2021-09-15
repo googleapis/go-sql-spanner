@@ -13,7 +13,7 @@ import (
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
 )
 
-func TestCreateTable(t *testing.T) {
+func TestCreateTables(t *testing.T) {
 	t.Parallel()
 
 	db, server, teardown := setupTestDBConnection(t)
@@ -28,12 +28,13 @@ func TestCreateTable(t *testing.T) {
 		},
 	})
 
-	if err := db.AutoMigrate(&Singer{}); err != nil {
+	if err := db.AutoMigrate(&Singer{}, &Album{}); err != nil {
 		t.Fatalf("failed to migrate Singer: %v", err)
 	}
 
 	requests := server.TestDatabaseAdmin.Reqs()
-	if g, w := len(requests), 1; g != w {
+	//TODO: Migrations should use DDL batches.
+	if g, w := len(requests), 2; g != w {
 		t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	if req, ok := requests[0].(*databasepb.UpdateDatabaseDdlRequest); ok {
@@ -41,6 +42,17 @@ func TestCreateTable(t *testing.T) {
 			t.Fatalf("statement count mismatch\nGot: %v\nWant: %v", g, w)
 		}
 		query := "CREATE TABLE `singers` (`singer_id` INT64,`first_name` STRING(MAX),`last_name` STRING(MAX),`birth_date` DATE) PRIMARY KEY (`singer_id`)"
+		if g, w := req.Statements[0], query; g != w {
+			t.Fatalf("statement mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	} else {
+		t.Fatalf("request type mismatch, got %v", requests[0])
+	}
+	if req, ok := requests[1].(*databasepb.UpdateDatabaseDdlRequest); ok {
+		if g, w := len(req.Statements), 1; g != w {
+			t.Fatalf("statement count mismatch\nGot: %v\nWant: %v", g, w)
+		}
+		query := "CREATE TABLE `albums` (`album_id` INT64,`singer_id` INT64,`title` STRING(MAX),CONSTRAINT `fk_albums_singer` FOREIGN KEY (`singer_id`) REFERENCES `singers`(`singer_id`)) PRIMARY KEY (`album_id`)"
 		if g, w := req.Statements[0], query; g != w {
 			t.Fatalf("statement mismatch\nGot:  %v\nWant: %v", g, w)
 		}
