@@ -664,10 +664,12 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 		return nil, err
 	}
 	if isDdl {
-		// TODO: Determine whether we want to return an error if a transaction
-		// is active. Cloud Spanner does not support DDL in transactions, but
-		// this makes it seem like the DDL statement is executed on the
-		// transaction on this connection if it has a transaction.
+		// Spanner does not support DDL in transactions, and although it is technically possible to execute DDL
+		// statements while a transaction is active, we return an error to avoid any confusion whether the DDL
+		// statement is executed as part of the active transaction or not.
+		if c.inTransaction() {
+			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "cannot execute DDL as part of a transaction"))
+		}
 		return c.execDdl(ctx, spanner.NewStatement(query))
 	}
 

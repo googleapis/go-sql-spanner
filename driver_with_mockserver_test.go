@@ -946,37 +946,17 @@ func TestDdlInTransaction(t *testing.T) {
 	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
-	var expectedResponse = &emptypb.Empty{}
-	any, _ := ptypes.MarshalAny(expectedResponse)
-	server.TestDatabaseAdmin.SetResps([]proto.Message{
-		&longrunningpb.Operation{
-			Done:   true,
-			Result: &longrunningpb.Operation_Response{Response: any},
-			Name:   "test-operation",
-		},
-	})
 	query := "CREATE TABLE Singers (SingerId INT64, FirstName STRING(100), LastName STRING(100)) PRIMARY KEY (SingerId)"
 	tx, err := db.BeginTx(context.Background(), &sql.TxOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = tx.ExecContext(context.Background(), query)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := tx.ExecContext(context.Background(), query); spanner.ErrCode(err) != codes.FailedPrecondition {
+		t.Fatalf("error mismatch\nGot:  %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
 	}
 	requests := server.TestDatabaseAdmin.Reqs()
-	if g, w := len(requests), 1; g != w {
+	if g, w := len(requests), 0; g != w {
 		t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
-	}
-	if req, ok := requests[0].(*databasepb.UpdateDatabaseDdlRequest); ok {
-		if g, w := len(req.Statements), 1; g != w {
-			t.Fatalf("statement count mismatch\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := req.Statements[0], query; g != w {
-			t.Fatalf("statement mismatch\nGot: %v\nWant: %v", g, w)
-		}
-	} else {
-		t.Fatalf("request type mismatch, got %v", requests[0])
 	}
 }
 
