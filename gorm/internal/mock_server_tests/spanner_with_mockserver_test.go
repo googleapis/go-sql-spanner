@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package spannergorm
+package mock_server_tests
 
 import (
 	"context"
@@ -26,21 +26,8 @@ import (
 	"google.golang.org/api/option"
 	spannerpb "google.golang.org/genproto/googleapis/spanner/v1"
 	"gorm.io/gorm"
+	"spannergorm"
 )
-
-type Singer struct {
-	SingerId  int64 `gorm:"primaryKey:true;autoIncrement:false"`
-	FirstName *string
-	LastName  string
-	BirthDate spanner.NullDate `gorm:"type:DATE"`
-}
-
-type Album struct {
-	AlbumId  int64 `gorm:"primaryKey:true;autoIncrement:false"`
-	SingerId *int64
-	Singer   *Singer
-	Title    string
-}
 
 func TestSelectOneSinger(t *testing.T) {
 	t.Parallel()
@@ -57,7 +44,7 @@ func TestSelectOneSinger(t *testing.T) {
 
 	var singer Singer
 	if err := db.Take(&singer, 1).Error; err != nil {
-		t.Fatalf("failed to fetch singer: %v", err)
+		t.Fatalf("failed to fetch Singer: %v", err)
 	}
 	if singer.SingerId != 1 {
 		t.Fatalf("SingerId mismatch\nGot: %v\nWant: %v", singer.SingerId, 1)
@@ -94,7 +81,7 @@ func TestSelectMultipleSingers(t *testing.T) {
 		t.Fatalf("failed to fetch singers: %v", err)
 	}
 	if len(singers) != 2 {
-		t.Fatalf("singer count mismatch\nGot: %v\nWant: %v", len(singers), 2)
+		t.Fatalf("Singer count mismatch\nGot: %v\nWant: %v", len(singers), 2)
 	}
 	for i, singer := range singers {
 		if singer.SingerId != int64(i+1) {
@@ -140,7 +127,7 @@ func TestCreateSinger(t *testing.T) {
 		BirthDate: spanner.NullDate{Date: civil.Date{Year: 1998, Month: 4, Day: 23}, Valid: true},
 	})
 	if res.Error != nil {
-		t.Fatalf("failed to create new singer: %v", res.Error)
+		t.Fatalf("failed to create new Singer: %v", res.Error)
 	}
 	if res.RowsAffected != 1 {
 		t.Fatalf("affected rows count mismatch\nGot: %v\nWant: %v", res.RowsAffected, 1)
@@ -201,13 +188,13 @@ func TestUpdateSinger(t *testing.T) {
 
 	var singer Singer
 	if err := db.Take(&singer, 1).Error; err != nil {
-		t.Fatalf("failed to get singer: %v", err)
+		t.Fatalf("failed to get Singer: %v", err)
 	}
 	singer.FirstName = strPointer("Pete")
 	singer.BirthDate = spanner.NullDate{Valid: true, Date: civil.Date{2003, 2, 27}}
 	res := db.Save(singer)
 	if res.Error != nil {
-		t.Fatalf("failed to update singer: %v", res.Error)
+		t.Fatalf("failed to update Singer: %v", res.Error)
 	}
 	if res.RowsAffected != 1 {
 		t.Fatalf("affected rows count mismatch\nGot: %v\nWant: %v", res.RowsAffected, 1)
@@ -234,11 +221,11 @@ func TestDeleteSinger(t *testing.T) {
 
 	var singer Singer
 	if err := db.Take(&singer, 1).Error; err != nil {
-		t.Fatalf("failed to get singer: %v", err)
+		t.Fatalf("failed to get Singer: %v", err)
 	}
 	res := db.Delete(&singer)
 	if res.Error != nil {
-		t.Fatalf("failed to delete singer: %v", res.Error)
+		t.Fatalf("failed to delete Singer: %v", res.Error)
 	}
 	if res.RowsAffected != 1 {
 		t.Fatalf("affected rows count mismatch\nGot: %v\nWant: %v", res.RowsAffected, 1)
@@ -265,7 +252,7 @@ func TestSelectOneAlbumWithPreload(t *testing.T) {
 
 	var album Album
 	if err := db.Preload("Singer").Take(&album, 1).Error; err != nil {
-		t.Fatalf("failed to fetch album: %v", err)
+		t.Fatalf("failed to fetch Album: %v", err)
 	}
 	if album.AlbumId != 1 {
 		t.Fatalf("AlbumId mismatch\nGot: %v\nWant: %v", album.AlbumId, 1)
@@ -299,7 +286,7 @@ func setupTestDBConnection(t *testing.T) (db *gorm.DB, server *testutil.MockedSp
 func setupTestDBConnectionWithParams(t *testing.T, params string) (db *gorm.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
 	server, _, serverTeardown := setupMockedTestServer(t)
 
-	db, err := gorm.Open(New(Config{
+	db, err := gorm.Open(spannergorm.New(spannergorm.Config{
 		DriverName: "spanner",
 		DSN:        fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;%s", server.Address, params),
 	}))
