@@ -32,6 +32,7 @@ type contextTransaction interface {
 	Rollback() error
 	Query(ctx context.Context, stmt spanner.Statement) rowIterator
 	ExecContext(ctx context.Context, stmt spanner.Statement) (int64, error)
+	BufferWrite(ms []*spanner.Mutation) error
 }
 
 type rowIterator interface {
@@ -87,6 +88,10 @@ func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement
 
 func (tx *readOnlyTransaction) ExecContext(_ context.Context, stmt spanner.Statement) (int64, error) {
 	return 0, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read-only transactions cannot write"))
+}
+
+func (tx *readOnlyTransaction) BufferWrite([]*spanner.Mutation) error {
+	return spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
 // ErrAbortedDueToConcurrentModification is returned by a read/write transaction
@@ -272,6 +277,10 @@ func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.St
 		err:  err,
 	})
 	return res, err
+}
+
+func (tx *readWriteTransaction) BufferWrite(ms []*spanner.Mutation) error {
+	return tx.rwTx.BufferWrite(ms)
 }
 
 // errorsEqualForRetry returns true if the two errors should be considered equal
