@@ -1598,8 +1598,7 @@ func TestAllTypes(t *testing.T) {
 			name: "Null* struct values",
 			key:  4,
 			input: []interface{}{
-				// TODO: Fix the requirement to use spanner.NullString here.
-				4, sql.NullBool{}, spanner.NullString{}, []byte(nil), sql.NullInt64{}, sql.NullFloat64{},
+				4, sql.NullBool{}, sql.NullString{}, []byte(nil), sql.NullInt64{}, sql.NullFloat64{},
 				spanner.NullNumeric{}, spanner.NullDate{}, sql.NullTime{}, nullJsonOrString(false, ""),
 				[]spanner.NullBool(nil),
 				[]spanner.NullString(nil),
@@ -1682,7 +1681,7 @@ func TestAllTypes(t *testing.T) {
 			}
 			return false
 		}, cmp.Ignore())) {
-			t.Fatalf("row mismatch\nGot:  %v\nWant: %v", allTypesRow, test.want)
+			t.Fatalf("%s: row mismatch\nGot:  %v\nWant: %v", test.name, allTypesRow, test.want)
 		}
 	}
 }
