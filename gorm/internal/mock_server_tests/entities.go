@@ -35,25 +35,27 @@ type Album struct {
 }
 
 type AllBasicTypes struct {
-	Id int64 `gorm:"primaryKey:true;autoIncrement:false"`
-	Int64 int64
-	Float64 float64
-	Numeric spanner.NullNumeric
-	String string
-	Bytes []byte
-	Date spanner.NullDate
+	Id        int64 `gorm:"primaryKey:true;autoIncrement:false"`
+	Int64     int64
+	Float64   float64
+	Numeric   spanner.NullNumeric
+	String    string
+	Bytes     []byte
+	Date      spanner.NullDate
 	Timestamp time.Time
-	Json spanner.NullJSON
+	Json      spanner.NullJSON
+	Bool      bool
 }
 
 type AllSpannerNullableTypes struct {
-	Id int64 `gorm:"primaryKey:true;autoIncrement:false"`
-	Int64 spanner.NullInt64
-	Float64 spanner.NullFloat64
-	Numeric spanner.NullNumeric
-	String spanner.NullString
-	Bytes []byte
-	Date spanner.NullDate
+	Id        int64 `gorm:"primaryKey:true;autoIncrement:false"`
+	Int64     spanner.NullInt64
+	Float64   spanner.NullFloat64
+	Numeric   spanner.NullNumeric
+	String    spanner.NullString
+	Bytes     []byte
+	Date      spanner.NullDate
 	Timestamp spanner.NullTime
-	Json spanner.NullJSON
+	Json      spanner.NullJSON
+	Bool      spanner.NullBool
 }

@@ -16,13 +16,19 @@ package mock_server_tests
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"math/big"
+	"reflect"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
 	"github.com/cloudspannerecosystem/go-sql-spanner/testutil"
 	structpb "github.com/golang/protobuf/ptypes/struct"
+	"github.com/google/go-cmp/cmp"
 	"google.golang.org/api/option"
 	spannerpb "google.golang.org/genproto/googleapis/spanner/v1"
 	"gorm.io/gorm"
@@ -146,6 +152,7 @@ func TestCreateMultipleSingers(t *testing.T) {
 			UpdateCount: 2,
 		})
 
+	// TODO: Support using mutations.
 	res := db.Create([]*Singer{
 		{
 			SingerId:  1,
@@ -271,12 +278,307 @@ func TestSelectOneAlbumWithPreload(t *testing.T) {
 	}
 }
 
+func TestSelectAllBasicTypes(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	w := AllBasicTypes{1, 100, 3.14, nullNumeric(true, "6.626"), "test", []byte{1, 2, 3}, nullDate(true, "2021-10-01"), timestamp("2021-07-22T10:26:17.123Z"), nullJson(true, `{"key":"value","other-key":["value1","value2"]}`), true}
+	server.TestSpanner.PutStatementResult(
+		"SELECT * FROM `all_basic_types` WHERE `all_basic_types`.`id` = @p1 LIMIT 1",
+		&testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: createAllBasicTypesResultSet([]AllBasicTypes{w}),
+		})
+
+	var g AllBasicTypes
+	if err := db.Take(&g, 1).Error; err != nil {
+		t.Fatalf("failed to fetch record: %v", err)
+	}
+	if !cmp.Equal(g, w, cmp.AllowUnexported(big.Rat{}, big.Int{})) {
+		t.Fatalf("record value mismatch\n  Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestCreateAllBasicTypes(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	server.TestSpanner.PutStatementResult(
+		"INSERT INTO `all_basic_types` (`id`,`int64`,`float64`,`numeric`,`string`,`bytes`,`date`,`timestamp`,`json`,`bool`) VALUES (@p1,@p2,@p3,@p4,@p5,@p6,@p7,@p8,@p9,@p10)",
+		&testutil.StatementResult{
+			Type:        testutil.StatementResultUpdateCount,
+			UpdateCount: 1,
+		})
+	// Drain any SELECT 1 and other startup requests from the server.
+	drainRequestsFromServer(server.TestSpanner)
+
+	record := &AllBasicTypes{
+		Id:        1,
+		Int64:     200,
+		Float64:   3.14,
+		Numeric:   nullNumeric(true, "6.626"),
+		String:    "test",
+		Bytes:     []byte{3, 2, 1},
+		Date:      nullDate(true, "2021-10-01"),
+		Timestamp: timestamp("2021-10-01T14:40:00Z"),
+		Json:      nullJson(true, `{"key":"value","other-key":["value1","value2"]}`),
+		Bool:      true,
+	}
+	res := db.Create(record)
+	if res.Error != nil {
+		t.Fatalf("failed to create new record: %v", res.Error)
+	}
+	if res.RowsAffected != 1 {
+		t.Fatalf("affected rows count mismatch\nGot: %v\nWant: %v", res.RowsAffected, 1)
+	}
+	reqs := drainRequestsFromServer(server.TestSpanner)
+	sqlReqs := requestsOfType(reqs, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(sqlReqs), 1; g != w {
+		t.Fatalf("execute sql request count mismatch\n  Got: %v\nWant: %v", g, w)
+	}
+	sqlReq := sqlReqs[0].(*spannerpb.ExecuteSqlRequest)
+	if g, w := len(sqlReq.ParamTypes), 10; g != w {
+		t.Fatalf("param types length mismatch\n  Got: %v\nWant: %v", g, w)
+	}
+	wantParamTypes := []spannerpb.TypeCode{
+		spannerpb.TypeCode_INT64,
+		spannerpb.TypeCode_INT64,
+		spannerpb.TypeCode_FLOAT64,
+		spannerpb.TypeCode_NUMERIC,
+		spannerpb.TypeCode_STRING,
+		spannerpb.TypeCode_BYTES,
+		spannerpb.TypeCode_DATE,
+		spannerpb.TypeCode_TIMESTAMP,
+		spannerpb.TypeCode_JSON,
+		spannerpb.TypeCode_BOOL,
+	}
+	for i, w := range wantParamTypes {
+		g := sqlReq.ParamTypes[fmt.Sprintf("p%d", i+1)].Code
+		if g != w {
+			t.Fatalf("param type mismatch for param %d\n  Got: %v\nWant: %v", i+1, g, w)
+		}
+	}
+	wantValues := []interface{}{
+		fmt.Sprintf("%d", record.Id),
+		fmt.Sprintf("%d", record.Int64),
+		record.Float64,
+		spanner.NumericString(&record.Numeric.Numeric),
+		record.String,
+		base64.StdEncoding.EncodeToString(record.Bytes),
+		record.Date.String(),
+		record.Timestamp.UTC().Format(time.RFC3339Nano),
+		record.Json.String(),
+		record.Bool,
+	}
+	for i, w := range wantValues {
+		g := sqlReq.Params.Fields[fmt.Sprintf("p%d", i+1)].AsInterface()
+		if g != w {
+			t.Fatalf("param value mismatch for param %d\n  Got: %v\nWant: %v", i+1, g, w)
+		}
+	}
+}
+
+func TestSelectAllSpannerNullableTypes(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	for i, w := range []AllSpannerNullableTypes{
+		{
+			Id:        1,
+			Int64:     spanner.NullInt64{Int64: 100, Valid: true},
+			Float64:   spanner.NullFloat64{Float64: 3.14, Valid: true},
+			Numeric:   nullNumeric(true, "6.626"),
+			String:    spanner.NullString{StringVal: "test", Valid: true},
+			Bytes:     []byte{1, 2, 3},
+			Date:      nullDate(true, "2021-10-01"),
+			Timestamp: nullTimestamp(true, "2021-07-22T10:26:17.123Z"),
+			Json:      nullJson(true, `{"key":"value","other-key":["value1","value2"]}`),
+			Bool:      spanner.NullBool{Valid: true, Bool: false},
+		},
+		{
+			Id:        1,
+			Int64:     spanner.NullInt64{},
+			Float64:   spanner.NullFloat64{},
+			Numeric:   spanner.NullNumeric{},
+			String:    spanner.NullString{},
+			Bytes:     []byte(nil),
+			Date:      spanner.NullDate{},
+			Timestamp: spanner.NullTime{},
+			Json:      spanner.NullJSON{},
+			Bool:      spanner.NullBool{},
+		},
+	} {
+		server.TestSpanner.PutStatementResult(
+			"SELECT * FROM `all_spanner_nullable_types` WHERE `all_spanner_nullable_types`.`id` = @p1 LIMIT 1",
+			&testutil.StatementResult{
+				Type:      testutil.StatementResultResultSet,
+				ResultSet: createAllSpannerNullableTypesResultSet([]AllSpannerNullableTypes{w}),
+			})
+
+		var g AllSpannerNullableTypes
+		if err := db.Take(&g, 1).Error; err != nil {
+			t.Fatalf("%d: failed to fetch record: %v", i, err)
+		}
+		if !cmp.Equal(g, w, cmp.AllowUnexported(big.Rat{}, big.Int{})) {
+			t.Fatalf("%d: record value mismatch\n Got: %v\nWant: %v", i, g, w)
+		}
+	}
+}
+
+func TestCreateAllSpannerNullableTypes(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	server.TestSpanner.PutStatementResult(
+		"INSERT INTO `all_spanner_nullable_types` (`id`,`int64`,`float64`,`numeric`,`string`,`bytes`,`date`,`timestamp`,`json`,`bool`) VALUES (@p1,@p2,@p3,@p4,@p5,@p6,@p7,@p8,@p9,@p10)",
+		&testutil.StatementResult{
+			Type:        testutil.StatementResultUpdateCount,
+			UpdateCount: 1,
+		})
+	// Drain any SELECT 1 and other startup requests from the server.
+	drainRequestsFromServer(server.TestSpanner)
+
+	for i, record := range []*AllSpannerNullableTypes{
+		{
+			Id:        1,
+			Int64:     spanner.NullInt64{Int64: 100, Valid: true},
+			Float64:   spanner.NullFloat64{Float64: 3.14, Valid: true},
+			Numeric:   nullNumeric(true, "6.626"),
+			String:    spanner.NullString{StringVal: "test", Valid: true},
+			Bytes:     []byte{1, 2, 3},
+			Date:      nullDate(true, "2021-10-01"),
+			Timestamp: nullTimestamp(true, "2021-07-22T10:26:17.123Z"),
+			Json:      nullJson(true, `{"key":"value","other-key":["value1","value2"]}`),
+			Bool:      spanner.NullBool{Valid: true, Bool: false},
+		},
+		{
+			Id:        1,
+			Int64:     spanner.NullInt64{},
+			Float64:   spanner.NullFloat64{},
+			Numeric:   spanner.NullNumeric{},
+			String:    spanner.NullString{},
+			Bytes:     []byte(nil),
+			Date:      spanner.NullDate{},
+			Timestamp: spanner.NullTime{},
+			Json:      spanner.NullJSON{},
+			Bool:      spanner.NullBool{},
+		},
+	} {
+		res := db.Create(record)
+		if res.Error != nil {
+			t.Fatalf("%d: failed to create new record: %v", i, res.Error)
+		}
+		if res.RowsAffected != 1 {
+			t.Fatalf("%d: affected rows count mismatch\n Got: %v\nWant: %v", i, res.RowsAffected, 1)
+		}
+		reqs := drainRequestsFromServer(server.TestSpanner)
+		sqlReqs := requestsOfType(reqs, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		if g, w := len(sqlReqs), 1; g != w {
+			t.Fatalf("%d: execute sql request count mismatch\n Got: %v\nWant: %v", i, g, w)
+		}
+		sqlReq := sqlReqs[0].(*spannerpb.ExecuteSqlRequest)
+		if g, w := len(sqlReq.ParamTypes), 10; g != w {
+			t.Fatalf("%d: param types length mismatch\n Got: %v\nWant: %v", i, g, w)
+		}
+		wantParamTypes := []spannerpb.TypeCode{
+			spannerpb.TypeCode_INT64,
+			spannerpb.TypeCode_INT64,
+			spannerpb.TypeCode_FLOAT64,
+			spannerpb.TypeCode_NUMERIC,
+			spannerpb.TypeCode_STRING,
+			spannerpb.TypeCode_BYTES,
+			spannerpb.TypeCode_DATE,
+			spannerpb.TypeCode_TIMESTAMP,
+			spannerpb.TypeCode_JSON,
+			spannerpb.TypeCode_BOOL,
+		}
+		for p, w := range wantParamTypes {
+			g := sqlReq.ParamTypes[fmt.Sprintf("p%d", p+1)].Code
+			if g != w {
+				t.Fatalf("%d: param type mismatch for param %d\n Got: %v\nWant: %v", i, p+1, g, w)
+			}
+		}
+		var wantValues []interface{}
+		if record.Int64.Valid {
+			wantValues = []interface{}{
+				fmt.Sprintf("%d", record.Id),
+				fmt.Sprintf("%d", record.Int64.Int64),
+				record.Float64.Float64,
+				spanner.NumericString(&record.Numeric.Numeric),
+				record.String.StringVal,
+				base64.StdEncoding.EncodeToString(record.Bytes),
+				record.Date.Date.String(),
+				record.Timestamp.Time.UTC().Format(time.RFC3339Nano),
+				record.Json.String(),
+				record.Bool.Bool,
+			}
+		} else {
+			wantValues = []interface{}{fmt.Sprintf("%d", record.Id), nil, nil, nil, nil, nil, nil, nil, nil, nil}
+		}
+		for p, w := range wantValues {
+			g := sqlReq.Params.Fields[fmt.Sprintf("p%d", p+1)].AsInterface()
+			if g != w {
+				t.Fatalf("%d: param value mismatch for param %d\n Got: %v\nWant: %v", i, p+1, g, w)
+			}
+		}
+	}
+}
+
 func strPointer(val string) *string {
 	return &val
 }
 
 func int64Pointer(val int64) *int64 {
 	return &val
+}
+
+func numeric(v string) big.Rat {
+	res, _ := big.NewRat(1, 1).SetString(v)
+	return *res
+}
+
+func nullNumeric(valid bool, v string) spanner.NullNumeric {
+	if !valid {
+		return spanner.NullNumeric{}
+	}
+	return spanner.NullNumeric{Valid: true, Numeric: numeric(v)}
+}
+
+func date(v string) civil.Date {
+	res, _ := civil.ParseDate(v)
+	return res
+}
+
+func nullDate(valid bool, v string) spanner.NullDate {
+	if !valid {
+		return spanner.NullDate{}
+	}
+	return spanner.NullDate{Valid: true, Date: date(v)}
+}
+
+func nullTimestamp(valid bool, v string) spanner.NullTime {
+	if !valid {
+		return spanner.NullTime{}
+	}
+	return spanner.NullTime{Valid: true, Time: timestamp(v)}
+}
+
+func timestamp(v string) time.Time {
+	res, _ := time.Parse(time.RFC3339Nano, v)
+	return res
+}
+
+func nullJson(valid bool, v string) spanner.NullJSON {
+	if !valid {
+		return spanner.NullJSON{}
+	}
+	var m map[string]interface{}
+	_ = json.Unmarshal([]byte(v), &m)
+	return spanner.NullJSON{Valid: true, Value: m}
 }
 
 func setupTestDBConnection(t *testing.T) (db *gorm.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
@@ -400,6 +702,186 @@ func createAlbumsResultSet(albums []Album) *spannerpb.ResultSet {
 			rowValue[2] = &structpb.Value{Kind: &structpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}}
 		} else {
 			rowValue[2] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%d", *albums[i].SingerId)}}
+		}
+		rows[i] = &structpb.ListValue{
+			Values: rowValue,
+		}
+	}
+	return &spannerpb.ResultSet{
+		Metadata: metadata,
+		Rows:     rows,
+	}
+}
+
+func createAllBasicTypesResultSet(records []AllBasicTypes) *spannerpb.ResultSet {
+	fields := make([]*spannerpb.StructType_Field, 10)
+	fields[0] = &spannerpb.StructType_Field{
+		Name: "id",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_INT64},
+	}
+	fields[1] = &spannerpb.StructType_Field{
+		Name: "int64",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_INT64},
+	}
+	fields[2] = &spannerpb.StructType_Field{
+		Name: "float64",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_FLOAT64},
+	}
+	fields[3] = &spannerpb.StructType_Field{
+		Name: "numeric",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_NUMERIC},
+	}
+	fields[4] = &spannerpb.StructType_Field{
+		Name: "string",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_STRING},
+	}
+	fields[5] = &spannerpb.StructType_Field{
+		Name: "bytes",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_BYTES},
+	}
+	fields[6] = &spannerpb.StructType_Field{
+		Name: "date",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_DATE},
+	}
+	fields[7] = &spannerpb.StructType_Field{
+		Name: "timestamp",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_TIMESTAMP},
+	}
+	fields[8] = &spannerpb.StructType_Field{
+		Name: "json",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_JSON},
+	}
+	fields[9] = &spannerpb.StructType_Field{
+		Name: "bool",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_BOOL},
+	}
+	rowType := &spannerpb.StructType{
+		Fields: fields,
+	}
+	metadata := &spannerpb.ResultSetMetadata{
+		RowType: rowType,
+	}
+
+	rows := make([]*structpb.ListValue, len(records))
+	for i := 0; i < len(records); i++ {
+		rowValue := make([]*structpb.Value, len(fields))
+		rowValue[0] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%d", records[i].Id)}}
+		rowValue[1] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%d", records[i].Int64)}}
+		rowValue[2] = &structpb.Value{Kind: &structpb.Value_NumberValue{NumberValue: records[i].Float64}}
+		rowValue[3] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: spanner.NumericString(&records[i].Numeric.Numeric)}}
+		rowValue[4] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: records[i].String}}
+		rowValue[5] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString(records[i].Bytes)}}
+		rowValue[6] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: records[i].Date.Date.String()}}
+		rowValue[7] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: records[i].Timestamp.UTC().Format(time.RFC3339Nano)}}
+		rowValue[8] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: records[i].Json.String()}}
+		rowValue[9] = &structpb.Value{Kind: &structpb.Value_BoolValue{BoolValue: records[i].Bool}}
+		rows[i] = &structpb.ListValue{
+			Values: rowValue,
+		}
+	}
+	return &spannerpb.ResultSet{
+		Metadata: metadata,
+		Rows:     rows,
+	}
+}
+
+func createAllSpannerNullableTypesResultSet(records []AllSpannerNullableTypes) *spannerpb.ResultSet {
+	fields := make([]*spannerpb.StructType_Field, 10)
+	fields[0] = &spannerpb.StructType_Field{
+		Name: "id",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_INT64},
+	}
+	fields[1] = &spannerpb.StructType_Field{
+		Name: "int64",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_INT64},
+	}
+	fields[2] = &spannerpb.StructType_Field{
+		Name: "float64",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_FLOAT64},
+	}
+	fields[3] = &spannerpb.StructType_Field{
+		Name: "numeric",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_NUMERIC},
+	}
+	fields[4] = &spannerpb.StructType_Field{
+		Name: "string",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_STRING},
+	}
+	fields[5] = &spannerpb.StructType_Field{
+		Name: "bytes",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_BYTES},
+	}
+	fields[6] = &spannerpb.StructType_Field{
+		Name: "date",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_DATE},
+	}
+	fields[7] = &spannerpb.StructType_Field{
+		Name: "timestamp",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_TIMESTAMP},
+	}
+	fields[8] = &spannerpb.StructType_Field{
+		Name: "json",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_JSON},
+	}
+	fields[9] = &spannerpb.StructType_Field{
+		Name: "bool",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_BOOL},
+	}
+	rowType := &spannerpb.StructType{
+		Fields: fields,
+	}
+	metadata := &spannerpb.ResultSetMetadata{
+		RowType: rowType,
+	}
+
+	rows := make([]*structpb.ListValue, len(records))
+	for i := 0; i < len(records); i++ {
+		rowValue := make([]*structpb.Value, len(fields))
+		rowValue[0] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%d", records[i].Id)}}
+		if records[i].Int64.Valid {
+			rowValue[1] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%d", records[i].Int64.Int64)}}
+		} else {
+			rowValue[1] = &structpb.Value{Kind: &structpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}}
+		}
+		if records[i].Float64.Valid {
+			rowValue[2] = &structpb.Value{Kind: &structpb.Value_NumberValue{NumberValue: records[i].Float64.Float64}}
+		} else {
+			rowValue[2] = &structpb.Value{Kind: &structpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}}
+		}
+		if records[i].Numeric.Valid {
+			rowValue[3] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: spanner.NumericString(&records[i].Numeric.Numeric)}}
+		} else {
+			rowValue[3] = &structpb.Value{Kind: &structpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}}
+		}
+		if records[i].String.Valid {
+			rowValue[4] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: records[i].String.StringVal}}
+		} else {
+			rowValue[4] = &structpb.Value{Kind: &structpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}}
+		}
+		if records[i].Bytes != nil {
+			rowValue[5] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString(records[i].Bytes)}}
+		} else {
+			rowValue[5] = &structpb.Value{Kind: &structpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}}
+		}
+		if records[i].Date.Valid {
+			rowValue[6] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: records[i].Date.Date.String()}}
+		} else {
+			rowValue[6] = &structpb.Value{Kind: &structpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}}
+		}
+		if records[i].Timestamp.Valid {
+			rowValue[7] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: records[i].Timestamp.Time.UTC().Format(time.RFC3339Nano)}}
+		} else {
+			rowValue[7] = &structpb.Value{Kind: &structpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}}
+		}
+		if records[i].Json.Valid {
+			rowValue[8] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: records[i].Json.String()}}
+		} else {
+			rowValue[8] = &structpb.Value{Kind: &structpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}}
+		}
+		if records[i].Bool.Valid {
+			rowValue[9] = &structpb.Value{Kind: &structpb.Value_BoolValue{BoolValue: records[i].Bool.Bool}}
+		} else {
+			rowValue[9] = &structpb.Value{Kind: &structpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}}
 		}
 		rows[i] = &structpb.ListValue{
 			Values: rowValue,
