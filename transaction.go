@@ -37,6 +37,8 @@ type contextTransaction interface {
 	StartBatchDml() (driver.Result, error)
 	RunBatch(ctx context.Context) (driver.Result, error)
 	AbortBatch() (driver.Result, error)
+
+	BufferWrite(ms []*spanner.Mutation) error
 }
 
 type rowIterator interface {
@@ -104,6 +106,10 @@ func (tx *readOnlyTransaction) RunBatch(_ context.Context) (driver.Result, error
 
 func (tx *readOnlyTransaction) AbortBatch() (driver.Result, error) {
 	return driver.ResultNoRows, nil
+}
+
+func (tx *readOnlyTransaction) BufferWrite([]*spanner.Mutation) error {
+	return spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
 // ErrAbortedDueToConcurrentModification is returned by a read/write transaction
@@ -379,6 +385,10 @@ func (tx *readWriteTransaction) runDmlBatch(ctx context.Context) (driver.Result,
 		err:        err,
 	})
 	return &result{rowsAffected: sum(affected)}, err
+}
+
+func (tx *readWriteTransaction) BufferWrite(ms []*spanner.Mutation) error {
+	return tx.rwTx.BufferWrite(ms)
 }
 
 // errorsEqualForRetry returns true if the two errors should be considered equal

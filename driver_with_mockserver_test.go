@@ -1013,6 +1013,145 @@ func TestPrepare(t *testing.T) {
 	}
 }
 
+func TestApplyMutations(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	var commitTimestamp time.Time
+	if err := conn.Raw(func(driverConn interface{}) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection %v, expected SpannerConn", driverConn)
+		}
+		commitTimestamp, err = spannerConn.Apply(ctx, []*spanner.Mutation{
+			spanner.Insert("Accounts", []string{"AccountId", "Nickname", "Balance"}, []interface{}{int64(1), "Foo", int64(50)}),
+			spanner.Insert("Accounts", []string{"AccountId", "Nickname", "Balance"}, []interface{}{int64(2), "Bar", int64(1)}),
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("failed to apply mutations: %v", err)
+	}
+	if commitTimestamp.Equal(time.Time{}) {
+		t.Fatal("no commit timestamp returned")
+	}
+
+	// Even though the Apply method is used outside a transaction, the connection will internally start a read/write
+	// transaction for the mutations.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	commitRequest := commitRequests[0].(*sppb.CommitRequest)
+	if g, w := len(commitRequest.Mutations), 2; g != w {
+		t.Fatalf("mutation count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+}
+
+func TestApplyMutationsFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	con, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	_, err = con.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("failed to begin transaction: %v", err)
+	}
+	if g, w := spanner.ErrCode(con.Raw(func(driverConn interface{}) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection %v, expected SpannerConn", driverConn)
+		}
+		_, err = spannerConn.Apply(ctx, []*spanner.Mutation{
+			spanner.Insert("Accounts", []string{"AccountId", "Nickname", "Balance"}, []interface{}{int64(1), "Foo", int64(50)}),
+			spanner.Insert("Accounts", []string{"AccountId", "Nickname", "Balance"}, []interface{}{int64(2), "Bar", int64(1)}),
+		})
+		return err
+	})), codes.FailedPrecondition; g != w {
+		t.Fatalf("error code mismatch for Apply during transaction\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestBufferWriteMutations(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	con, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	tx, err := con.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("failed to begin transaction: %v", err)
+	}
+	if err := con.Raw(func(driverConn interface{}) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection %v, expected SpannerConn", driverConn)
+		}
+		return spannerConn.BufferWrite([]*spanner.Mutation{
+			spanner.Insert("Accounts", []string{"AccountId", "Nickname", "Balance"}, []interface{}{int64(1), "Foo", int64(50)}),
+			spanner.Insert("Accounts", []string{"AccountId", "Nickname", "Balance"}, []interface{}{int64(2), "Bar", int64(1)}),
+		})
+	}); err != nil {
+		t.Fatalf("failed to buffer mutations: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("failed to commit transaction: %v", err)
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	commitRequest := commitRequests[0].(*sppb.CommitRequest)
+	if g, w := len(commitRequest.Mutations), 2; g != w {
+		t.Fatalf("mutation count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+}
+
+func TestBufferWriteMutationsFails(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	con, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	if g, w := spanner.ErrCode(con.Raw(func(driverConn interface{}) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection %v, expected SpannerConn", driverConn)
+		}
+		return spannerConn.BufferWrite([]*spanner.Mutation{
+			spanner.Insert("Accounts", []string{"AccountId", "Nickname", "Balance"}, []interface{}{int64(1), "Foo", int64(50)}),
+			spanner.Insert("Accounts", []string{"AccountId", "Nickname", "Balance"}, []interface{}{int64(2), "Bar", int64(1)}),
+		})
+	})), codes.FailedPrecondition; g != w {
+		t.Fatalf("error code mismatch for BufferWrite outside transaction\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
 func TestPing(t *testing.T) {
 	t.Parallel()
 

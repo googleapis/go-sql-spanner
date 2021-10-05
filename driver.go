@@ -260,6 +260,16 @@ type SpannerConn interface {
 	// See https://cloud.google.com/spanner/docs/dml-partitioned for more
 	// information on Partitioned DML.
 	SetAutocommitDmlMode(mode AutocommitDmlMode) error
+
+	// Apply writes an array of mutations to the database. This method may only be called while the connection
+	// is outside a transaction. Use BufferWrite to write mutations in a transaction.
+	// See also spanner.Client#Apply
+	Apply(ctx context.Context, ms []*spanner.Mutation, opts ...spanner.ApplyOption) (commitTimestamp time.Time, err error)
+
+	// BufferWrite writes an array of mutations to the current transaction. This method may only be called while the
+	// connection is in a read/write transaction. Use Apply to write mutations outside a transaction.
+	// See also spanner.ReadWriteTransaction#BufferWrite
+	BufferWrite(ms []*spanner.Mutation) error
 }
 
 type conn struct {
@@ -500,6 +510,26 @@ func sum(affected []int64) int64 {
 		sum += c
 	}
 	return sum
+}
+
+func (c *conn) Apply(ctx context.Context, ms []*spanner.Mutation, opts ...spanner.ApplyOption) (commitTimestamp time.Time, err error) {
+	if c.inTransaction() {
+		return time.Time{}, spanner.ToSpannerError(
+			status.Error(
+				codes.FailedPrecondition,
+				"Apply may not be called while the connection is in a transaction. Use BufferWrite to write mutations in a transaction."))
+	}
+	return c.client.Apply(ctx, ms, opts...)
+}
+
+func (c *conn) BufferWrite(ms []*spanner.Mutation) error {
+	if !c.inTransaction() {
+		return spanner.ToSpannerError(
+			status.Error(
+				codes.FailedPrecondition,
+				"BufferWrite may not be called while the connection is not in a transaction. Use Apply to write mutations outside a transaction."))
+	}
+	return c.tx.BufferWrite(ms)
 }
 
 // Ping implements the driver.Pinger interface.
