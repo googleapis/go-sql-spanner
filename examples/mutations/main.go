@@ -36,14 +36,14 @@ func mutations(projectId, instanceId, databaseId string) error {
 	defer db.Close()
 
 	// Get a connection so that we can get access to the Spanner specific connection interface SpannerConn.
-	con, err := db.Conn(ctx)
+	conn, err := db.Conn(ctx)
 	if err != nil {
 		return err
 	}
 
 	// Mutations can be written outside an explicit transaction using SpannerConn#Apply.
 	var commitTimestamp time.Time
-	if err := con.Raw(func(driverConn interface{}) error {
+	if err := conn.Raw(func(driverConn interface{}) error {
 		spannerConn, ok := driverConn.(spannerdriver.SpannerConn)
 		if !ok {
 			return fmt.Errorf("unexpected driver connection %v, expected SpannerConn", driverConn)
@@ -60,8 +60,8 @@ func mutations(projectId, instanceId, databaseId string) error {
 
 	// Mutations can also be executed as part of a read/write transaction.
 	// Note: The transaction is started using the connection that we had obtained. This is necessary in order to
-	// ensure that the con.Raw call below will use the same connection as the one that just started the transaction.
-	tx, err := con.BeginTx(ctx, &sql.TxOptions{})
+	// ensure that the conn.Raw call below will use the same connection as the one that just started the transaction.
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		return err
 	}
@@ -73,7 +73,7 @@ func mutations(projectId, instanceId, databaseId string) error {
 	if err := row.Scan(&name); err != nil {
 		return err
 	}
-	if err := con.Raw(func(driverConn interface{}) error {
+	if err := conn.Raw(func(driverConn interface{}) error {
 		spannerConn, ok := driverConn.(spannerdriver.SpannerConn)
 		if !ok {
 			return fmt.Errorf("unexpected driver connection %v, expected SpannerConn", driverConn)

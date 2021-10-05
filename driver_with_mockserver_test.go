@@ -1027,12 +1027,12 @@ func TestApplyMutations(t *testing.T) {
 	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
-	con, err := db.Conn(ctx)
+	conn, err := db.Conn(ctx)
 	if err != nil {
 		t.Fatalf("failed to get connection: %v", err)
 	}
 	var commitTimestamp time.Time
-	if err := con.Raw(func(driverConn interface{}) error {
+	if err := conn.Raw(func(driverConn interface{}) error {
 		spannerConn, ok := driverConn.(SpannerConn)
 		if !ok {
 			return fmt.Errorf("unexpected driver connection %v, expected SpannerConn", driverConn)
@@ -1062,7 +1062,7 @@ func TestApplyMutations(t *testing.T) {
 	}
 }
 
-func TestApplyFailsInTransaction(t *testing.T) {
+func TestApplyMutationsFailure(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
