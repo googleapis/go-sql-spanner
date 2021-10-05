@@ -1134,7 +1134,7 @@ func TestBufferWriteMutations(t *testing.T) {
 	}
 }
 
-func TestBufferWriteFailsOutsideTransaction(t *testing.T) {
+func TestBufferWriteMutationsFails(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
