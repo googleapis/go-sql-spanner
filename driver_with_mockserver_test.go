@@ -920,16 +920,9 @@ func TestDdlInAutocommit(t *testing.T) {
 		},
 	})
 	query := "CREATE TABLE Singers (SingerId INT64, FirstName STRING(100), LastName STRING(100)) PRIMARY KEY (SingerId)"
-	res, err := db.ExecContext(context.Background(), query)
+	_, err := db.ExecContext(context.Background(), query)
 	if err != nil {
 		t.Fatal(err)
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if affected != 0 {
-		t.Fatalf("affected rows count mismatch\nGot: %v\nWant: %v", affected, 0)
 	}
 	requests := server.TestDatabaseAdmin.Reqs()
 	if g, w := len(requests), 1; g != w {
@@ -1020,6 +1013,145 @@ func TestPrepare(t *testing.T) {
 	}
 }
 
+func TestApplyMutations(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	var commitTimestamp time.Time
+	if err := conn.Raw(func(driverConn interface{}) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection %v, expected SpannerConn", driverConn)
+		}
+		commitTimestamp, err = spannerConn.Apply(ctx, []*spanner.Mutation{
+			spanner.Insert("Accounts", []string{"AccountId", "Nickname", "Balance"}, []interface{}{int64(1), "Foo", int64(50)}),
+			spanner.Insert("Accounts", []string{"AccountId", "Nickname", "Balance"}, []interface{}{int64(2), "Bar", int64(1)}),
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("failed to apply mutations: %v", err)
+	}
+	if commitTimestamp.Equal(time.Time{}) {
+		t.Fatal("no commit timestamp returned")
+	}
+
+	// Even though the Apply method is used outside a transaction, the connection will internally start a read/write
+	// transaction for the mutations.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	commitRequest := commitRequests[0].(*sppb.CommitRequest)
+	if g, w := len(commitRequest.Mutations), 2; g != w {
+		t.Fatalf("mutation count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+}
+
+func TestApplyMutationsFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	con, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	_, err = con.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("failed to begin transaction: %v", err)
+	}
+	if g, w := spanner.ErrCode(con.Raw(func(driverConn interface{}) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection %v, expected SpannerConn", driverConn)
+		}
+		_, err = spannerConn.Apply(ctx, []*spanner.Mutation{
+			spanner.Insert("Accounts", []string{"AccountId", "Nickname", "Balance"}, []interface{}{int64(1), "Foo", int64(50)}),
+			spanner.Insert("Accounts", []string{"AccountId", "Nickname", "Balance"}, []interface{}{int64(2), "Bar", int64(1)}),
+		})
+		return err
+	})), codes.FailedPrecondition; g != w {
+		t.Fatalf("error code mismatch for Apply during transaction\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestBufferWriteMutations(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	con, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	tx, err := con.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("failed to begin transaction: %v", err)
+	}
+	if err := con.Raw(func(driverConn interface{}) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection %v, expected SpannerConn", driverConn)
+		}
+		return spannerConn.BufferWrite([]*spanner.Mutation{
+			spanner.Insert("Accounts", []string{"AccountId", "Nickname", "Balance"}, []interface{}{int64(1), "Foo", int64(50)}),
+			spanner.Insert("Accounts", []string{"AccountId", "Nickname", "Balance"}, []interface{}{int64(2), "Bar", int64(1)}),
+		})
+	}); err != nil {
+		t.Fatalf("failed to buffer mutations: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("failed to commit transaction: %v", err)
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	commitRequest := commitRequests[0].(*sppb.CommitRequest)
+	if g, w := len(commitRequest.Mutations), 2; g != w {
+		t.Fatalf("mutation count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+}
+
+func TestBufferWriteMutationsFails(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	con, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	if g, w := spanner.ErrCode(con.Raw(func(driverConn interface{}) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection %v, expected SpannerConn", driverConn)
+		}
+		return spannerConn.BufferWrite([]*spanner.Mutation{
+			spanner.Insert("Accounts", []string{"AccountId", "Nickname", "Balance"}, []interface{}{int64(1), "Foo", int64(50)}),
+			spanner.Insert("Accounts", []string{"AccountId", "Nickname", "Balance"}, []interface{}{int64(2), "Bar", int64(1)}),
+		})
+	})), codes.FailedPrecondition; g != w {
+		t.Fatalf("error code mismatch for BufferWrite outside transaction\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
 func TestPing(t *testing.T) {
 	t.Parallel()
 
@@ -1031,6 +1163,428 @@ func TestPing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ping failed: %v", err)
 	}
+}
+
+func TestDdlBatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	var expectedResponse = &emptypb.Empty{}
+	any, _ := ptypes.MarshalAny(expectedResponse)
+	server.TestDatabaseAdmin.SetResps([]proto.Message{
+		&longrunningpb.Operation{
+			Done:   true,
+			Result: &longrunningpb.Operation_Response{Response: any},
+			Name:   "test-operation",
+		},
+	})
+
+	statements := []string{"CREATE TABLE FOO", "CREATE TABLE BAR"}
+	conn, err := db.Conn(ctx)
+	defer conn.Close()
+
+	if _, err = conn.ExecContext(ctx, "START BATCH DDL"); err != nil {
+		t.Fatalf("failed to start DDL batch: %v", err)
+	}
+	for _, stmt := range statements {
+		if _, err = conn.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("failed to execute statement in DDL batch: %v", err)
+		}
+	}
+	if _, err = conn.ExecContext(ctx, "RUN BATCH"); err != nil {
+		t.Fatalf("failed to run DDL batch: %v", err)
+	}
+
+	requests := server.TestDatabaseAdmin.Reqs()
+	if g, w := len(requests), 1; g != w {
+		t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	if req, ok := requests[0].(*databasepb.UpdateDatabaseDdlRequest); ok {
+		if g, w := len(req.Statements), len(statements); g != w {
+			t.Fatalf("statement count mismatch\nGot: %v\nWant: %v", g, w)
+		}
+		for i, stmt := range statements {
+			if g, w := req.Statements[i], stmt; g != w {
+				t.Fatalf("statement mismatch\nGot: %v\nWant: %v", g, w)
+			}
+		}
+	} else {
+		t.Fatalf("request type mismatch, got %v", requests[0])
+	}
+}
+
+func TestAbortDdlBatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	statements := []string{"CREATE TABLE FOO", "CREATE TABLE BAR"}
+	c, err := db.Conn(ctx)
+	defer c.Close()
+
+	if _, err = c.ExecContext(ctx, "START BATCH DDL"); err != nil {
+		t.Fatalf("failed to start DDL batch: %v", err)
+	}
+	for _, stmt := range statements {
+		if _, err = c.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("failed to execute statement in DDL batch: %v", err)
+		}
+	}
+	// Check that the statements have been batched.
+	_ = c.Raw(func(driverConn interface{}) error {
+		conn := driverConn.(*conn)
+		if conn.batch == nil {
+			t.Fatalf("missing batch on connection")
+		}
+		if g, w := len(conn.batch.statements), 2; g != w {
+			t.Fatalf("batch length mismatch\nGot: %v\nWant: %v", g, w)
+		}
+		return nil
+	})
+
+	if _, err = c.ExecContext(ctx, "ABORT BATCH"); err != nil {
+		t.Fatalf("failed to abort DDL batch: %v", err)
+	}
+
+	requests := server.TestDatabaseAdmin.Reqs()
+	if g, w := len(requests), 0; g != w {
+		t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+
+	_ = c.Raw(func(driverConn interface{}) error {
+		spannerConn := driverConn.(SpannerConn)
+		if spannerConn.InDDLBatch() {
+			t.Fatalf("connection still has an active DDL batch")
+		}
+		return nil
+	})
+}
+
+func TestShowAndSetVariableRetryAbortsInternally(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	c, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to obtain a connection: %v", err)
+	}
+	defer c.Close()
+
+	for _, tc := range []struct {
+		expected bool
+		set      bool
+	}{
+		{expected: true, set: false},
+		{expected: false, set: true},
+		{expected: true, set: true},
+	} {
+		// Get the current value.
+		rows, err := c.QueryContext(ctx, "SHOW VARIABLE RETRY_ABORTS_INTERNALLY")
+		if err != nil {
+			t.Fatalf("failed to execute get variable retry_aborts_internally: %v", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var retry bool
+			if err := rows.Scan(&retry); err != nil {
+				t.Fatalf("failed to scan value for retry_aborts_internally: %v", err)
+			}
+			if g, w := retry, tc.expected; g != w {
+				t.Fatalf("retry_aborts_internally mismatch\nGot: %v\nWant: %v", g, w)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("failed to iterate over result for get variable retry_aborts_internally: %v", err)
+		}
+
+		// Check that the behavior matches the setting.
+		tx, _ := c.BeginTx(ctx, nil)
+		server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+			Errors: []error{gstatus.Error(codes.Aborted, "Aborted")},
+		})
+		err = tx.Commit()
+		if tc.expected && err != nil {
+			t.Fatalf("unexpected error for commit: %v", err)
+		} else if !tc.expected && spanner.ErrCode(err) != codes.Aborted {
+			t.Fatalf("error code mismatch\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.Aborted)
+		}
+
+		// Set a new value for the variable.
+		if _, err := c.ExecContext(ctx, fmt.Sprintf("SET RETRY_ABORTS_INTERNALLY = %v", tc.set)); err != nil {
+			t.Fatalf("failed to set value for retry_aborts_internally: %v", err)
+		}
+	}
+
+	// Verify that the value cannot be set during a transaction.
+	tx, _ := c.BeginTx(ctx, nil)
+	defer tx.Rollback()
+	_, err = c.ExecContext(ctx, "SET RETRY_ABORTS_INTERNALLY = TRUE")
+	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Fatalf("error code mismatch for setting retry_aborts_internally during a transaction\nGot: %v\nWant: %v", g, w)
+	}
+}
+
+func TestPartitionedDml(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	c, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to obtain a connection: %v", err)
+	}
+	defer c.Close()
+
+	if _, err := c.ExecContext(ctx, "set autocommit_dml_mode = 'Partitioned_Non_Atomic'"); err != nil {
+		t.Fatalf("could not set autocommit dml mode: %v", err)
+	}
+
+	server.TestSpanner.PutStatementResult("DELETE FROM Foo WHERE TRUE", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 200,
+	})
+	// The following statement should be executed using PDML instead of DML.
+	res, err := c.ExecContext(ctx, "DELETE FROM Foo WHERE TRUE")
+	if err != nil {
+		t.Fatalf("could not execute DML statement: %v", err)
+	}
+	affected, _ := res.RowsAffected()
+	if affected != 200 {
+		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 200)
+	}
+	requests := drainRequestsFromServer(server.TestSpanner)
+	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	var beginPdml *sppb.BeginTransactionRequest
+	for _, req := range beginRequests {
+		if req.(*sppb.BeginTransactionRequest).Options.GetPartitionedDml() != nil {
+			beginPdml = req.(*sppb.BeginTransactionRequest)
+			break
+		}
+	}
+	if beginPdml == nil {
+		t.Fatal("no begin request for Partitioned DML found")
+	}
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 1 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if req.Transaction == nil || req.Transaction.GetId() == nil {
+		t.Fatal("missing transaction id for sql request")
+	}
+	if !server.TestSpanner.IsPartitionedDmlTransaction(req.Transaction.GetId()) {
+		t.Fatalf("sql request did not use a PDML transaction")
+	}
+}
+
+func TestAutocommitBatchDml(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	c, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to obtain a connection: %v", err)
+	}
+	defer c.Close()
+
+	if _, err := c.ExecContext(ctx, "START BATCH DML"); err != nil {
+		t.Fatalf("could not start a DML batch: %v", err)
+	}
+	server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (1, 'One')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (2, 'Two')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+
+	// The following statements should be batched locally and only sent to Spanner once
+	// 'RUN BATCH' is executed.
+	res, err := c.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (1, 'One')")
+	if err != nil {
+		t.Fatalf("could not execute DML statement: %v", err)
+	}
+	affected, _ := res.RowsAffected()
+	if affected != 0 {
+		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 0)
+	}
+	res, err = c.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (2, 'Two')")
+	if err != nil {
+		t.Fatalf("could not execute DML statement: %v", err)
+	}
+	affected, _ = res.RowsAffected()
+	if affected != 0 {
+		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 0)
+	}
+
+	// There should be no ExecuteSqlRequest statements on the server.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 0 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 0)
+	}
+	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if len(batchRequests) != 0 {
+		t.Fatalf("BatchDML requests count mismatch\nGot: %v\nWant: %v", len(batchRequests), 0)
+	}
+
+	// Execute a RUN BATCH statement. This should trigger a BatchDML request followed by a Commit request.
+	res, err = c.ExecContext(ctx, "RUN BATCH")
+	if err != nil {
+		t.Fatalf("failed to execute RUN BATCH: %v", err)
+	}
+	affected, err = res.RowsAffected()
+	if err != nil {
+		t.Fatalf("could not get rows affected from batch: %v", err)
+	}
+	if affected != 2 {
+		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 2)
+	}
+
+	requests = drainRequestsFromServer(server.TestSpanner)
+	// There should still be no ExecuteSqlRequests on the server.
+	sqlRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 0 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 0)
+	}
+	batchRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if len(batchRequests) != 1 {
+		t.Fatalf("BatchDML requests count mismatch\nGot: %v\nWant: %v", len(batchRequests), 1)
+	}
+	// The transaction should also have been committed.
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if len(commitRequests) != 1 {
+		t.Fatalf("Commit requests count mismatch\nGot: %v\nWant: %v", len(commitRequests), 1)
+	}
+}
+
+func TestTransactionBatchDml(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("failed to start transaction: %v", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, "START BATCH DML"); err != nil {
+		t.Fatalf("could not start a DML batch: %v", err)
+	}
+	server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (1, 'One')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (2, 'Two')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+
+	// The following statements should be batched locally and only sent to Spanner once
+	// 'RUN BATCH' is executed.
+	res, err := tx.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (1, 'One')")
+	if err != nil {
+		t.Fatalf("could not execute DML statement: %v", err)
+	}
+	affected, _ := res.RowsAffected()
+	if affected != 0 {
+		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 0)
+	}
+	res, err = tx.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (2, 'Two')")
+	if err != nil {
+		t.Fatalf("could not execute DML statement: %v", err)
+	}
+	affected, _ = res.RowsAffected()
+	if affected != 0 {
+		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 0)
+	}
+
+	// There should be no ExecuteSqlRequest statements on the server.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 0 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 0)
+	}
+	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if len(batchRequests) != 0 {
+		t.Fatalf("BatchDML requests count mismatch\nGot: %v\nWant: %v", len(batchRequests), 0)
+	}
+
+	// Execute a RUN BATCH statement. This should trigger a BatchDML request.
+	res, err = tx.ExecContext(ctx, "RUN BATCH")
+	if err != nil {
+		t.Fatalf("failed to execute RUN BATCH: %v", err)
+	}
+	affected, err = res.RowsAffected()
+	if err != nil {
+		t.Fatalf("could not get rows affected from batch: %v", err)
+	}
+	if affected != 2 {
+		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 2)
+	}
+
+	requests = drainRequestsFromServer(server.TestSpanner)
+	// There should still be no ExecuteSqlRequests on the server.
+	sqlRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 0 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 0)
+	}
+	batchRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if len(batchRequests) != 1 {
+		t.Fatalf("BatchDML requests count mismatch\nGot: %v\nWant: %v", len(batchRequests), 1)
+	}
+	// The transaction should still be active.
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if len(commitRequests) != 0 {
+		t.Fatalf("Commit requests count mismatch\nGot: %v\nWant: %v", len(commitRequests), 0)
+	}
+
+	// Executing another DML statement on the same transaction now that the batch has been
+	// executed should cause the statement to be sent to Spanner.
+	server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (3, 'Three')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	if _, err := tx.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (3, 'Three')"); err != nil {
+		t.Fatalf("failed to execute DML statement after batch: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("failed to commit transaction after batch: %v", err)
+	}
+
+	requests = drainRequestsFromServer(server.TestSpanner)
+	// There should now be one ExecuteSqlRequests on the server.
+	sqlRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 1 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
+	}
+	// There should be no new Batch DML requests.
+	batchRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if len(batchRequests) != 0 {
+		t.Fatalf("BatchDML requests count mismatch\nGot: %v\nWant: %v", len(batchRequests), 0)
+	}
+	// The transaction should now be committed.
+	commitRequests = requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if len(commitRequests) != 1 {
+		t.Fatalf("Commit requests count mismatch\nGot: %v\nWant: %v", len(commitRequests), 1)
+	}
+
 }
 
 func numeric(v string) big.Rat {

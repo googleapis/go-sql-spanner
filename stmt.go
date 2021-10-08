@@ -19,7 +19,6 @@ import (
 	"database/sql/driver"
 
 	"cloud.google.com/go/spanner"
-	"github.com/cloudspannerecosystem/go-sql-spanner/internal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -66,7 +65,7 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 }
 
 func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, error) {
-	names, err := internal.ParseNamedParameters(q)
+	names, err := parseNamedParameters(q)
 	if err != nil {
 		return spanner.Statement{}, err
 	}
