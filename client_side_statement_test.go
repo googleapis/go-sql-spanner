@@ -19,6 +19,7 @@ import (
 	"database/sql/driver"
 	"io"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
@@ -201,6 +202,57 @@ func TestStatementExecutor_AutocommitDmlMode(t *testing.T) {
 			if res != driver.ResultNoRows {
 				t.Fatalf("%d: result mismatch\nGot: %v\nWant: %v", i, res, driver.ResultNoRows)
 			}
+		}
+	}
+}
+
+func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
+	c := &conn{}
+	s := &statementExecutor{}
+	ctx := context.Background()
+	for i, test := range []struct {
+		wantValue  spanner.TimestampBound
+		setValue   string
+		wantSetErr bool
+	}{
+		{spanner.ExactStaleness(time.Second), "'Exact_Staleness 1s'", false},
+		{spanner.ExactStaleness(10 * time.Millisecond), "'Exact_Staleness 10ms'", false},
+		{spanner.StrongRead(), "'Strong'", false},
+		{spanner.StrongRead(), "'Any'", true},
+	} {
+		res, err := s.SetReadOnlyStaleness(ctx, c, test.setValue, nil)
+		if test.wantSetErr {
+			if err == nil {
+				t.Fatalf("%d: missing expected error for value %q", i, test.setValue)
+			}
+		} else {
+			if err != nil {
+				t.Fatalf("%d: could not set new value %q for read-only staleness: %v", i, test.setValue, err)
+			}
+			if res != driver.ResultNoRows {
+				t.Fatalf("%d: result mismatch\nGot: %v\nWant: %v", i, res, driver.ResultNoRows)
+			}
+		}
+
+		it, err := s.ShowReadOnlyStaleness(ctx, c, "", nil)
+		if err != nil {
+			t.Fatalf("%d: could not get current read-only staleness value from connection: %v", i, err)
+		}
+		cols := it.Columns()
+		wantCols := []string{"ReadOnlyStaleness"}
+		if !cmp.Equal(cols, wantCols) {
+			t.Fatalf("%d: column names mismatch\nGot: %v\nWant: %v", i, cols, wantCols)
+		}
+		values := make([]driver.Value, len(cols))
+		if err := it.Next(values); err != nil {
+			t.Fatalf("%d: failed to get first row for read-only staleness: %v", i, err)
+		}
+		wantValues := []driver.Value{test.wantValue.String()}
+		if !cmp.Equal(values, wantValues) {
+			t.Fatalf("%d: read-only staleness values mismatch\nGot: %v\nWant: %v", i, values, wantValues)
+		}
+		if err := it.Next(values); err != io.EOF {
+			t.Fatalf("%d: error mismatch\nGot: %v\nWant: %v", i, err, io.EOF)
 		}
 	}
 }

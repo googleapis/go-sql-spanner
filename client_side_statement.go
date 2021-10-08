@@ -19,8 +19,10 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
@@ -51,6 +53,14 @@ func (s *statementExecutor) ShowRetryAbortsInternally(_ context.Context, c *conn
 
 func (s *statementExecutor) ShowAutocommitDmlMode(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
 	it, err := createStringIterator("AutocommitDmlMode", c.AutocommitDmlMode().String())
+	if err != nil {
+		return nil, err
+	}
+	return &rows{it: it}, nil
+}
+
+func (s *statementExecutor) ShowReadOnlyStaleness(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	it, err := createStringIterator("ReadOnlyStaleness", c.ReadOnlyStaleness().String())
 	if err != nil {
 		return nil, err
 	}
@@ -98,6 +108,36 @@ func (s *statementExecutor) SetAutocommitDmlMode(_ context.Context, c *conn, par
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid AutocommitDmlMode value: %s", params))
 	}
 	return c.setAutocommitDmlMode(mode)
+}
+
+var strongRegexp = regexp.MustCompile("(?i)'STRONG'")
+var exactStalenessRegexp = regexp.MustCompile("(?i)'(?P<type>EXACT_STALENESS)[\\t ]+(?P<duration>(\\d{1,19})(s|ms|us|ns))'")
+
+func (s *statementExecutor) SetReadOnlyStaleness(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
+	if params == "" {
+		return nil, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "no value given for ReadOnlyStaleness"))
+	}
+	invalidErr := spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid ReadOnlyStaleness value: %s", params))
+
+	var staleness spanner.TimestampBound
+
+	if strongRegexp.MatchString(params) {
+		staleness = spanner.StrongRead()
+	} else if exactStalenessRegexp.MatchString(params) {
+		exactStalenessRegexp.SubexpNames()
+		es := exactStalenessRegexp.FindStringSubmatch(params)
+		if len(es) != 3 {
+			return nil, invalidErr
+		}
+		d, err := time.ParseDuration(es[1] + es[2])
+		if err != nil {
+			return nil, invalidErr
+		}
+		staleness = spanner.ExactStaleness(d)
+	} else {
+		return nil, invalidErr
+	}
+	return c.setReadOnlyStaleness(staleness)
 }
 
 // createBooleanIterator creates a row iterator with a single BOOL column with

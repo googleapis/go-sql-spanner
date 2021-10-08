@@ -261,6 +261,13 @@ type SpannerConn interface {
 	// information on Partitioned DML.
 	SetAutocommitDmlMode(mode AutocommitDmlMode) error
 
+	// ReadOnlyStaleness returns the current staleness that is used for
+	// queries in autocommit mode, and for read-only transactions.
+	ReadOnlyStaleness() spanner.TimestampBound
+	// SetReadOnlyStaleness sets the staleness to use for queries in autocommit
+	// mode and for read-only transaction.
+	SetReadOnlyStaleness(staleness spanner.TimestampBound) error
+
 	// Apply writes an array of mutations to the database. This method may only be called while the connection
 	// is outside a transaction. Use BufferWrite to write mutations in a transaction.
 	// See also spanner.Client#Apply
@@ -292,6 +299,8 @@ type conn struct {
 	// it can also be set to PartitionedNonAtomic to execute the statement as
 	// Partitioned DML.
 	autocommitDmlMode AutocommitDmlMode
+	// readOnlyStaleness is used for queries in autocommit mode and for read-only transactions.
+	readOnlyStaleness spanner.TimestampBound
 }
 
 type batchType int
@@ -354,6 +363,20 @@ func (c *conn) SetAutocommitDmlMode(mode AutocommitDmlMode) error {
 
 func (c *conn) setAutocommitDmlMode(mode AutocommitDmlMode) (driver.Result, error) {
 	c.autocommitDmlMode = mode
+	return driver.ResultNoRows, nil
+}
+
+func (c *conn) ReadOnlyStaleness() spanner.TimestampBound {
+	return c.readOnlyStaleness
+}
+
+func (c *conn) SetReadOnlyStaleness(staleness spanner.TimestampBound) error {
+	_, err := c.setReadOnlyStaleness(staleness)
+	return err
+}
+
+func (c *conn) setReadOnlyStaleness(staleness spanner.TimestampBound) (driver.Result, error) {
+	c.readOnlyStaleness = staleness
 	return driver.ResultNoRows, nil
 }
 
