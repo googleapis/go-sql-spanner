@@ -62,7 +62,7 @@ func staleReads(projectId, instanceId, databaseId string) error {
 		return err
 	}
 	// The count at the specified timestamp should be zero, as it was before the test data was inserted.
-	fmt.Printf("Singers count at timestamp %s was: %v", t.Format(time.RFC3339Nano), c)
+	fmt.Printf("Singers count at timestamp %s was: %v\n", t.Format(time.RFC3339Nano), c)
 
 	// Get a new timestamp that is after the data was inserted and use that as the read-timestamp.
 	if err := db.QueryRowContext(ctx, "SELECT CURRENT_TIMESTAMP").Scan(&t); err != nil {
@@ -81,7 +81,7 @@ func staleReads(projectId, instanceId, databaseId string) error {
 	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM Singers").Scan(&c); err != nil {
 		return err
 	}
-	fmt.Printf("Singers count at timestamp %s was: %v", t.Format(time.RFC3339Nano), c)
+	fmt.Printf("Singers count at timestamp %s was: %v\n", t.Format(time.RFC3339Nano), c)
 
 	// Commit the read-only transaction and close the connection to release the resources they areß using.
 	if err := tx.Commit(); err != nil {
