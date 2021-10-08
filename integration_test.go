@@ -1447,6 +1447,69 @@ func TestReadOnlyTransaction(t *testing.T) {
 	}
 }
 
+func TestStaleRead(t *testing.T) {
+	skipIfShort(t)
+	t.Parallel()
+
+	ctx := context.Background()
+	dsn, cleanup, err := createTestDB(ctx,
+		`CREATE TABLE Singers (
+          SingerId INT64,
+          FirstName STRING(MAX),
+          LastName STRING(MAX),
+        ) PRIMARY KEY (SingerId)`)
+	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	var ts time.Time
+	if err := conn.QueryRowContext(ctx, "SELECT CURRENT_TIMESTAMP").Scan(&ts); err != nil {
+		t.Fatalf("failed to get current timestamp: %v", err)
+	}
+	_, err = db.ExecContext(ctx, "INSERT INTO Singers (SingerId, FirstName, LastName) VALUES (1, 'First', 'Last')")
+	if err != nil {
+		t.Fatalf("failed to insert a row: %v", err)
+	}
+	stmt, err := conn.PrepareContext(ctx, "SELECT * FROM Singers")
+	if err != nil {
+		t.Fatalf("failed to prepare query: %v", err)
+	}
+
+	// Set a timestamp that is before the row was inserted as the read timestamp.
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf("SET READ_ONLY_STALENESS='READ_TIMESTAMP %s'", ts.Format(time.RFC3339Nano))); err != nil {
+		t.Fatalf("failed to set read-only staleness: %v", err)
+	}
+	// The result should now be empty as we are reading at a timestamp before the row was inserted.
+	if err := verifyResult(ctx, stmt, true); err != nil {
+		t.Fatal(err)
+	}
+
+	// Now use a timestamp that is after the row was inserted.
+	if err := conn.QueryRowContext(ctx, "SELECT CURRENT_TIMESTAMP").Scan(&ts); err != nil {
+		t.Fatalf("failed to get current timestamp: %v", err)
+	}
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf("SET READ_ONLY_STALENESS='MIN_READ_TIMESTAMP %s'", ts.Format(time.RFC3339Nano))); err != nil {
+		t.Fatalf("failed to set read-only staleness: %v", err)
+	}
+
+	// Executing the same statement again should now return a value, as the min_read_timestamp has
+	// been set to a value that is after the moment the row was inserted.
+	if err := verifyResult(ctx, stmt, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func verifyResult(ctx context.Context, stmt *sql.Stmt, empty bool) error {
 	rows, err := stmt.QueryContext(ctx)
 	if err != nil {
