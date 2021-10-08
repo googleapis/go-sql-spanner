@@ -210,10 +210,6 @@ func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
 	c := &conn{}
 	s := &statementExecutor{}
 	ctx := context.Background()
-	eurWest, err := time.LoadLocation("Europe/Amsterdam")
-	if err != nil {
-		t.Fatalf("Missing timezone Europe/Amsterdam")
-	}
 	for i, test := range []struct {
 		wantValue  spanner.TimestampBound
 		setValue   string
@@ -224,9 +220,9 @@ func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
 		{spanner.MaxStaleness(time.Second), "'Max_Staleness 1s'", false},
 		{spanner.MaxStaleness(10 * time.Millisecond), "'Max_Staleness 10ms'", false},
 		{spanner.ReadTimestamp(time.Date(2021, 10, 8, 9, 14, 30, 10, time.UTC)), "'Read_Timestamp 2021-10-08T09:14:30.000000010Z'", false},
-		{spanner.ReadTimestamp(time.Date(2021, 10, 8, 11, 14, 30, 10, eurWest)), "'Read_Timestamp 2021-10-08T11:14:30.000000010+02:00'", false},
+		{spanner.ReadTimestamp(time.Date(2021, 10, 8, 11, 14, 30, 10, time.UTC)), "'Read_Timestamp 2021-10-08T11:14:30.000000010Z'", false},
 		{spanner.MinReadTimestamp(time.Date(2021, 10, 8, 9, 14, 30, 10, time.UTC)), "'Min_Read_Timestamp 2021-10-08T09:14:30.000000010Z'", false},
-		{spanner.MinReadTimestamp(time.Date(2021, 10, 8, 11, 14, 30, 10, eurWest)), "'Min_Read_Timestamp 2021-10-08T11:14:30.000000010+02:00'", false},
+		{spanner.MinReadTimestamp(time.Date(2021, 10, 8, 11, 14, 30, 10, time.UTC)), "'Min_Read_Timestamp 2021-10-08T11:14:30.000000010Z'", false},
 		{spanner.StrongRead(), "'Strong'", false},
 		{spanner.StrongRead(), "'Non_Existing_Staleness'", true},
 		{spanner.StrongRead(), "'Exact_Staleness 1m'", true},
