@@ -263,8 +263,8 @@ func findParams(sql string) ([]string, error) {
 	return res, nil
 }
 
-// isDdl returns true if the given sql string is a DDL statement.
-func isDdl(query string) (bool, error) {
+// isDDL returns true if the given sql string is a DDL statement.
+func isDDL(query string) (bool, error) {
 	query, err := removeCommentsAndTrim(query)
 	if err != nil {
 		return false, err

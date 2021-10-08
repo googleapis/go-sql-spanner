@@ -1258,7 +1258,7 @@ func TestAbortDdlBatch(t *testing.T) {
 
 	_ = c.Raw(func(driverConn interface{}) error {
 		spannerConn := driverConn.(SpannerConn)
-		if spannerConn.InDdlBatch() {
+		if spannerConn.InDDLBatch() {
 			t.Fatalf("connection still has an active DDL batch")
 		}
 		return nil

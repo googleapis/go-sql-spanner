@@ -38,6 +38,11 @@ import (
 // of the valid client side statements is executed on a connection. These methods
 // are responsible for any argument parsing and translating that might be needed
 // before the corresponding method on the connection can be called.
+//
+// The names of the methods are exactly equal to the naming in the
+// client_side_statements.json file. This means that some methods do not adhere
+// to the Go style guide, as these method names are equal for all languages that
+// implement the Connection API.
 type statementExecutor struct {
 }
 
@@ -50,7 +55,7 @@ func (s *statementExecutor) ShowRetryAbortsInternally(_ context.Context, c *conn
 }
 
 func (s *statementExecutor) ShowAutocommitDmlMode(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
-	it, err := createStringIterator("AutocommitDmlMode", c.AutocommitDmlMode().String())
+	it, err := createStringIterator("AutocommitDMLMode", c.AutocommitDMLMode().String())
 	if err != nil {
 		return nil, err
 	}
@@ -58,11 +63,11 @@ func (s *statementExecutor) ShowAutocommitDmlMode(_ context.Context, c *conn, _ 
 }
 
 func (s *statementExecutor) StartBatchDdl(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Result, error) {
-	return c.startBatchDdl()
+	return c.startBatchDDL()
 }
 
 func (s *statementExecutor) StartBatchDml(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Result, error) {
-	return c.startBatchDml()
+	return c.startBatchDML()
 }
 
 func (s *statementExecutor) RunBatch(ctx context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Result, error) {
@@ -86,18 +91,18 @@ func (s *statementExecutor) SetRetryAbortsInternally(_ context.Context, c *conn,
 
 func (s *statementExecutor) SetAutocommitDmlMode(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
 	if params == "" {
-		return nil, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "no value given for AutocommitDmlMode"))
+		return nil, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "no value given for AutocommitDMLMode"))
 	}
-	var mode AutocommitDmlMode
+	var mode AutocommitDMLMode
 	switch strings.ToUpper(params) {
 	case fmt.Sprintf("'%s'", strings.ToUpper(Transactional.String())):
 		mode = Transactional
 	case fmt.Sprintf("'%s'", strings.ToUpper(PartitionedNonAtomic.String())):
 		mode = PartitionedNonAtomic
 	default:
-		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid AutocommitDmlMode value: %s", params))
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid AutocommitDMLMode value: %s", params))
 	}
-	return c.setAutocommitDmlMode(mode)
+	return c.setAutocommitDMLMode(mode)
 }
 
 // createBooleanIterator creates a row iterator with a single BOOL column with

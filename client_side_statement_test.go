@@ -30,13 +30,13 @@ func TestStatementExecutor_StartBatchDdl(t *testing.T) {
 	s := &statementExecutor{}
 	ctx := context.Background()
 
-	if c.InDdlBatch() {
+	if c.InDDLBatch() {
 		t.Fatal("connection unexpectedly in a DDL batch")
 	}
 	if _, err := s.StartBatchDdl(ctx, c, "", nil); err != nil {
 		t.Fatalf("could not start a DDL batch: %v", err)
 	}
-	if !c.InDdlBatch() {
+	if !c.InDDLBatch() {
 		t.Fatal("connection unexpectedly not in a DDL batch")
 	}
 	if _, err := s.StartBatchDdl(ctx, c, "", nil); spanner.ErrCode(err) != codes.FailedPrecondition {
@@ -45,7 +45,7 @@ func TestStatementExecutor_StartBatchDdl(t *testing.T) {
 	if _, err := s.RunBatch(ctx, c, "", nil); err != nil {
 		t.Fatalf("could not run empty DDL batch: %v", err)
 	}
-	if c.InDdlBatch() {
+	if c.InDDLBatch() {
 		t.Fatal("connection unexpectedly in a DDL batch")
 	}
 
@@ -61,13 +61,13 @@ func TestStatementExecutor_StartBatchDml(t *testing.T) {
 	s := &statementExecutor{}
 	ctx := context.Background()
 
-	if c.InDmlBatch() {
+	if c.InDMLBatch() {
 		t.Fatal("connection unexpectedly in a DML batch")
 	}
 	if _, err := s.StartBatchDml(ctx, c, "", nil); err != nil {
 		t.Fatalf("could not start a DML batch: %v", err)
 	}
-	if !c.InDmlBatch() {
+	if !c.InDMLBatch() {
 		t.Fatal("connection unexpectedly not in a DML batch")
 	}
 	if _, err := s.StartBatchDml(ctx, c, "", nil); spanner.ErrCode(err) != codes.FailedPrecondition {
@@ -76,7 +76,7 @@ func TestStatementExecutor_StartBatchDml(t *testing.T) {
 	if _, err := s.RunBatch(ctx, c, "", nil); err != nil {
 		t.Fatalf("could not run empty DML batch: %v", err)
 	}
-	if c.InDmlBatch() {
+	if c.InDMLBatch() {
 		t.Fatal("connection unexpectedly in a DML batch")
 	}
 
@@ -154,7 +154,7 @@ func TestStatementExecutor_AutocommitDmlMode(t *testing.T) {
 	s := &statementExecutor{}
 	ctx := context.Background()
 	for i, test := range []struct {
-		wantValue  AutocommitDmlMode
+		wantValue  AutocommitDMLMode
 		setValue   string
 		wantSetErr bool
 	}{
@@ -172,7 +172,7 @@ func TestStatementExecutor_AutocommitDmlMode(t *testing.T) {
 			t.Fatalf("%d: could not get current autocommit dml mode value from connection: %v", i, err)
 		}
 		cols := it.Columns()
-		wantCols := []string{"AutocommitDmlMode"}
+		wantCols := []string{"AutocommitDMLMode"}
 		if !cmp.Equal(cols, wantCols) {
 			t.Fatalf("%d: column names mismatch\nGot: %v\nWant: %v", i, cols, wantCols)
 		}
