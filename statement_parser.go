@@ -12,9 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package internal
+package spannerdriver
 
 import (
+	"context"
+	"database/sql/driver"
+	"encoding/json"
+	"reflect"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -39,12 +44,12 @@ func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 	return res
 }
 
-// ParseNamedParameters returns the named parameters in the given sql string.
+// parseNamedParameters returns the named parameters in the given sql string.
 // The sql string must be a valid Cloud Spanner sql statement. It may contain
 // comments and (string) literals without any restrictions. That is, string
 // literals containing for example an email address ('test@test.com') will be
 // recognized as a string literal and not returned as a named parameter.
-func ParseNamedParameters(sql string) ([]string, error) {
+func parseNamedParameters(sql string) ([]string, error) {
 	sql, err := removeCommentsAndTrim(sql)
 	if err != nil {
 		return nil, err
@@ -256,7 +261,8 @@ func findParams(sql string) ([]string, error) {
 	return res, nil
 }
 
-func IsDdl(query string) (bool, error) {
+// isDDL returns true if the given sql string is a DDL statement.
+func isDDL(query string) (bool, error) {
 	query, err := removeCommentsAndTrim(query)
 	if err != nil {
 		return false, err
@@ -270,4 +276,112 @@ func IsDdl(query string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// clientSideStatements are loaded from the client_side_statements.json file.
+type clientSideStatements struct {
+	Statements []*clientSideStatement `json:"statements"`
+	executor   *statementExecutor
+}
+
+// clientSideStatement is the definition of a statement that can be executed on
+// a connection and that will be handled by the connection itself, instead of
+// sending it to Spanner.
+type clientSideStatement struct {
+	Name                          string `json:"name"`
+	ExecutorName                  string `json:"executorName"`
+	execContext                   func(ctx context.Context, c *conn, params string, args []driver.NamedValue) (driver.Result, error)
+	queryContext                  func(ctx context.Context, c *conn, params string, args []driver.NamedValue) (driver.Rows, error)
+	ResultType                    string `json:"resultType"`
+	Regex                         string `json:"regex"`
+	regexp                        *regexp.Regexp
+	MethodName                    string `json:"method"`
+	method                        func(query string) error
+	ExampleStatements             []string `json:"exampleStatements"`
+	ExamplePrerequisiteStatements []string `json:"examplePrerequisiteStatements"`
+
+	setStatement `json:"setStatement"`
+}
+
+type setStatement struct {
+	PropertyName  string `json:"propertyName"`
+	Separator     string `json:"separator"`
+	AllowedValues string `json:"allowedValues"`
+	ConverterName string `json:"converterName"`
+}
+
+var statements *clientSideStatements
+
+// compileStatements loads all client side statements from the json file and
+// assigns the Go methods to the different statements that should be executed
+// when on of the statements is executed on a connection.
+func compileStatements() error {
+	statements = new(clientSideStatements)
+	err := json.Unmarshal([]byte(jsonFile), statements)
+	if err != nil {
+		return err
+	}
+	statements.executor = &statementExecutor{}
+	for _, stmt := range statements.Statements {
+		stmt.regexp, err = regexp.Compile(stmt.Regex)
+		if err != nil {
+			return err
+		}
+		i := reflect.ValueOf(statements.executor).MethodByName(strings.TrimPrefix(stmt.MethodName, "statement")).Interface()
+		if execContext, ok := i.(func(ctx context.Context, c *conn, query string, args []driver.NamedValue) (driver.Result, error)); ok {
+			stmt.execContext = execContext
+		}
+		if queryContext, ok := i.(func(ctx context.Context, c *conn, query string, args []driver.NamedValue) (driver.Rows, error)); ok {
+			stmt.queryContext = queryContext
+		}
+	}
+	return nil
+}
+
+// executableClientSideStatement is the combination of a pre-defined client-side
+// statement, the connection it should be executed on and any additional
+// parameters that were included in the statement.
+type executableClientSideStatement struct {
+	*clientSideStatement
+	conn   *conn
+	query  string
+	params string
+}
+
+func (c *executableClientSideStatement) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
+	if c.clientSideStatement.execContext == nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with execContext", c.query))
+	}
+	return c.clientSideStatement.execContext(ctx, c.conn, c.params, args)
+}
+
+func (c *executableClientSideStatement) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
+	if c.clientSideStatement.queryContext == nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with queryContext", c.query))
+	}
+	return c.clientSideStatement.queryContext(ctx, c.conn, c.params, args)
+}
+
+// parseClientSideStatement returns the executableClientSideStatement that
+// corresponds with the given query string, or nil if it is not a valid client
+// side statement.
+func parseClientSideStatement(c *conn, query string) (*executableClientSideStatement, error) {
+	if statements == nil {
+		if err := compileStatements(); err != nil {
+			return nil, err
+		}
+	}
+	for _, stmt := range statements.Statements {
+		if stmt.regexp.MatchString(query) {
+			var params string
+			if stmt.setStatement.Separator != "" {
+				p := strings.SplitN(query, stmt.setStatement.Separator, 2)
+				if len(p) == 2 {
+					params = strings.TrimSpace(p[1])
+				}
+			}
+			return &executableClientSideStatement{stmt, c, query, params}, nil
+		}
+	}
+	return nil, nil
 }

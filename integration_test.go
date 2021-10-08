@@ -42,6 +42,7 @@ import (
 )
 
 var projectId, instanceId string
+var skipped bool
 
 func init() {
 	var ok bool
@@ -196,6 +197,13 @@ func initIntegrationTests() (cleanup func(), err error) {
 		log.Println("Integration tests skipped in -short mode.")
 		return noop, nil
 	}
+	_, hasCredentials := os.LookupEnv("GOOGLE_APPLICATION_CREDENTIALS")
+	_, hasEmulator := os.LookupEnv("SPANNER_EMULATOR_HOST")
+	if !(hasCredentials || hasEmulator) {
+		log.Println("Skipping integration tests as no credentials and no emulator host has been set")
+		skipped = true
+		return noop, nil
+	}
 
 	// Automatically create test instance if necessary.
 	config := "regional-us-east1"
@@ -224,6 +232,9 @@ func TestMain(m *testing.M) {
 func skipIfShort(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Integration tests skipped in -short mode.")
+	}
+	if skipped {
+		t.Skip("Integration tests skipped")
 	}
 }
 
@@ -1771,6 +1782,160 @@ func TestQueryInReadWriteTransaction(t *testing.T) {
 	}
 	if err = tx.Commit(); err != nil {
 		t.Fatalf("commit failed: %v", err)
+	}
+}
+
+func TestPDML(t *testing.T) {
+	skipIfShort(t)
+	t.Parallel()
+
+	ctx := context.Background()
+	dsn, cleanup, err := createTestDB(ctx,
+		`CREATE TABLE Singers (
+          SingerId INT64,
+          FirstName STRING(MAX),
+          LastName STRING(MAX),
+        ) PRIMARY KEY (SingerId)`)
+	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	// Insert a couple of test rows.
+	res, err := db.ExecContext(
+		ctx, `INSERT INTO Singers (SingerId, FirstName, LastName)
+					VALUES (1, 'First1', 'Last1'),
+					       (2, 'First2', 'Last2'),
+					       (3, 'First3', 'Last3'),
+					       (4, 'First4', 'Last4'),
+					       (5, 'First5', 'Last5')`)
+	if err != nil {
+		t.Fatalf("failed to insert test rows: %v", err)
+	}
+
+	// Delete all rows using PDML.
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+	defer conn.Close()
+	_, err = conn.ExecContext(ctx, "SET AUTOCOMMIT_DML_MODE='PARTITIONED_NON_ATOMIC'")
+	if err != nil {
+		t.Fatalf("failed to switch to PDML mode: %v", err)
+	}
+	res, err = conn.ExecContext(ctx, "DELETE FROM Singers WHERE TRUE")
+	if err != nil {
+		t.Fatalf("delete statement failed: %v", err)
+	}
+	affected, _ := res.RowsAffected()
+	if g, w := affected, int64(5); g != w {
+		t.Fatalf("rows affected mismatch\nGot: %v\nWant: %v", g, w)
+	}
+}
+
+func TestBatchDml(t *testing.T) {
+	skipIfShort(t)
+	t.Parallel()
+
+	ctx := context.Background()
+	dsn, cleanup, err := createTestDB(ctx,
+		`CREATE TABLE Singers (
+          SingerId INT64,
+          FirstName STRING(MAX),
+          LastName STRING(MAX),
+        ) PRIMARY KEY (SingerId)`)
+	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+	defer conn.Close()
+	_, err = conn.ExecContext(ctx, "START BATCH DML")
+	if err != nil {
+		t.Fatalf("failed to start dml batch: %v", err)
+	}
+
+	rowCount := 10
+	stmt, err := conn.PrepareContext(ctx, "INSERT INTO Singers (SingerId, FirstName, LastName) VALUES (@id, @first, @last)")
+	if err != nil {
+		t.Fatalf("failed to prepare statement: %v", err)
+	}
+	for i := 0; i < rowCount; i++ {
+		_, err := stmt.ExecContext(ctx, i, fmt.Sprintf("First%d", i), fmt.Sprintf("Last%d", i))
+		if err != nil {
+			t.Fatalf("failed to insert test row: %v", err)
+		}
+	}
+	res, err := conn.ExecContext(ctx, "RUN BATCH")
+	if err != nil {
+		t.Fatalf("failed to run dml batch: %v", err)
+	}
+	affected, _ := res.RowsAffected()
+	if g, w := affected, int64(rowCount); g != w {
+		t.Fatalf("rows affected mismatch\nGot: %v\nWant: %v", g, w)
+	}
+}
+
+func TestBatchDdl(t *testing.T) {
+	skipIfShort(t)
+	t.Parallel()
+
+	ctx := context.Background()
+	dsn, cleanup, err := createTestDB(ctx)
+	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+	defer conn.Close()
+	// Start a DDL batch and create two test tables.
+	_, err = conn.ExecContext(ctx, "START BATCH DDL")
+	if err != nil {
+		t.Fatalf("failed to start ddl batch: %v", err)
+	}
+	_, _ = conn.ExecContext(ctx, "CREATE TABLE Test1 (K INT64, V STRING(MAX)) PRIMARY KEY (K)")
+	_, _ = conn.ExecContext(ctx, "CREATE TABLE Test2 (K INT64, V STRING(MAX)) PRIMARY KEY (K)")
+
+	// Verify that the tables have not yet been created.
+	row := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=''")
+	var count int64
+	_ = row.Scan(&count)
+	if g, w := count, int64(0); g != w {
+		t.Fatalf("table count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	// Run the batch and verify that the tables are created.
+	if _, err := conn.ExecContext(ctx, "RUN BATCH"); err != nil {
+		t.Fatalf("run batch failed: %v", err)
+	}
+	row = conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=''")
+	_ = row.Scan(&count)
+	if g, w := count, int64(2); g != w {
+		t.Fatalf("table count mismatch\nGot: %v\nWant: %v", g, w)
 	}
 }
 

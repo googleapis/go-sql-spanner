@@ -17,6 +17,7 @@ package spannerdriver
 import (
 	"bytes"
 	"context"
+	"database/sql/driver"
 	"encoding/gob"
 
 	"cloud.google.com/go/spanner"
@@ -32,6 +33,11 @@ type contextTransaction interface {
 	Rollback() error
 	Query(ctx context.Context, stmt spanner.Statement) rowIterator
 	ExecContext(ctx context.Context, stmt spanner.Statement) (int64, error)
+
+	StartBatchDML() (driver.Result, error)
+	RunBatch(ctx context.Context) (driver.Result, error)
+	AbortBatch() (driver.Result, error)
+
 	BufferWrite(ms []*spanner.Mutation) error
 }
 
@@ -90,6 +96,18 @@ func (tx *readOnlyTransaction) ExecContext(_ context.Context, stmt spanner.State
 	return 0, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
+func (tx *readOnlyTransaction) StartBatchDML() (driver.Result, error) {
+	return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "read-only transactions cannot write"))
+}
+
+func (tx *readOnlyTransaction) RunBatch(_ context.Context) (driver.Result, error) {
+	return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "read-only transactions cannot write"))
+}
+
+func (tx *readOnlyTransaction) AbortBatch() (driver.Result, error) {
+	return driver.ResultNoRows, nil
+}
+
 func (tx *readOnlyTransaction) BufferWrite([]*spanner.Mutation) error {
 	return spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
@@ -114,7 +132,9 @@ type readWriteTransaction struct {
 	client *spanner.Client
 	// rwTx is the underlying Spanner read/write transaction. This transaction
 	// will be replaced with a new one if the initial transaction is aborted.
-	rwTx  *spanner.ReadWriteStmtBasedTransaction
+	rwTx *spanner.ReadWriteStmtBasedTransaction
+	// batch is any DML batch that is active for this transaction.
+	batch *batch
 	close func()
 	// retryAborts indicates whether this transaction will automatically retry
 	// the transaction if it is aborted by Spanner. The default is true.
@@ -169,6 +189,38 @@ func (ru *retriableUpdate) retry(ctx context.Context, tx *spanner.ReadWriteStmtB
 	return nil
 }
 
+// retriableBatchUpdate implements retriableStatement for Batch DML.
+type retriableBatchUpdate struct {
+	// statements are the statement that were executed on Spanner.
+	statements []spanner.Statement
+	// c is the record counts that were returned by Spanner.
+	c []int64
+	// err is the error that was returned by Spanner.
+	err error
+}
+
+// retry retries an BatchDML statement on Spanner. It returns nil if the result
+// of the statement during the retry is equal to the result during the initial
+// attempt.
+func (ru *retriableBatchUpdate) retry(ctx context.Context, tx *spanner.ReadWriteStmtBasedTransaction) error {
+	c, err := tx.BatchUpdate(ctx, ru.statements)
+	if err != nil && spanner.ErrCode(err) == codes.Aborted {
+		return err
+	}
+	if !errorsEqualForRetry(err, ru.err) {
+		return ErrAbortedDueToConcurrentModification
+	}
+	if len(c) != len(ru.c) {
+		return ErrAbortedDueToConcurrentModification
+	}
+	for i := range ru.c {
+		if c[i] != ru.c[i] {
+			return ErrAbortedDueToConcurrentModification
+		}
+	}
+	return nil
+}
+
 // runWithRetry executes a statement on a go/sql read/write transaction and
 // automatically retries the entire transaction if the statement returns an
 // Aborted error. The method will return ErrAbortedDueToConcurrentModification
@@ -215,6 +267,7 @@ func (tx *readWriteTransaction) Commit() (err error) {
 	if tx.rwTx != nil {
 		if !tx.retryAborts {
 			_, err := tx.rwTx.Commit(tx.ctx)
+			tx.close()
 			return err
 		}
 
@@ -263,6 +316,11 @@ func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statemen
 }
 
 func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.Statement) (res int64, err error) {
+	if tx.batch != nil {
+		tx.batch.statements = append(tx.batch.statements, stmt)
+		return 0, nil
+	}
+
 	if !tx.retryAborts {
 		return tx.rwTx.Update(ctx, stmt)
 	}
@@ -277,6 +335,56 @@ func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.St
 		err:  err,
 	})
 	return res, err
+}
+
+func (tx *readWriteTransaction) StartBatchDML() (driver.Result, error) {
+	if tx.batch != nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This transaction already has an active batch."))
+	}
+	tx.batch = &batch{tp: dml}
+	return driver.ResultNoRows, nil
+}
+
+func (tx *readWriteTransaction) RunBatch(ctx context.Context) (driver.Result, error) {
+	if tx.batch == nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This transaction does not have an active batch"))
+	}
+	switch tx.batch.tp {
+	case dml:
+		return tx.runDmlBatch(ctx)
+	case ddl:
+		fallthrough
+	default:
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Unknown or unsupported batch type: %d", tx.batch.tp))
+	}
+}
+
+func (tx *readWriteTransaction) AbortBatch() (driver.Result, error) {
+	tx.batch = nil
+	return driver.ResultNoRows, nil
+}
+
+func (tx *readWriteTransaction) runDmlBatch(ctx context.Context) (driver.Result, error) {
+	statements := tx.batch.statements
+	tx.batch = nil
+
+	if !tx.retryAborts {
+		affected, err := tx.rwTx.BatchUpdate(ctx, statements)
+		return &result{rowsAffected: sum(affected)}, err
+	}
+
+	var affected []int64
+	var err error
+	err = tx.runWithRetry(ctx, func(ctx context.Context) error {
+		affected, err = tx.rwTx.BatchUpdate(ctx, statements)
+		return err
+	})
+	tx.statements = append(tx.statements, &retriableBatchUpdate{
+		statements: statements,
+		c:          affected,
+		err:        err,
+	})
+	return &result{rowsAffected: sum(affected)}, err
 }
 
 func (tx *readWriteTransaction) BufferWrite(ms []*spanner.Mutation) error {

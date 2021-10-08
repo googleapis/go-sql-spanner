@@ -256,6 +256,7 @@ type InMemSpannerServer interface {
 	DumpSessions() map[string]bool
 	ClearPings()
 	DumpPings() []string
+	IsPartitionedDmlTransaction(id []byte) bool
 }
 
 type inMemSpannerServer struct {
@@ -460,6 +461,12 @@ func (s *inMemSpannerServer) DumpSessions() map[string]bool {
 		st[s] = true
 	}
 	return st
+}
+
+func (s *inMemSpannerServer) IsPartitionedDmlTransaction(id []byte) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.partitionedDmlTransactions[string(id)]
 }
 
 func (s *inMemSpannerServer) initDefaults() {
