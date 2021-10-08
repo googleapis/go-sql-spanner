@@ -18,8 +18,6 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/json"
-	"io/ioutil"
-	"os"
 	"reflect"
 	"regexp"
 	"strings"
@@ -318,17 +316,8 @@ var statements *clientSideStatements
 // assigns the Go methods to the different statements that should be executed
 // when on of the statements is executed on a connection.
 func compileStatements() error {
-	file, err := os.Open("client_side_statements.json")
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	bytes, err := ioutil.ReadAll(file)
-	if err != nil {
-		return err
-	}
 	statements = new(clientSideStatements)
-	err = json.Unmarshal(bytes, statements)
+	err := json.Unmarshal([]byte(jsonFile), statements)
 	if err != nil {
 		return err
 	}
