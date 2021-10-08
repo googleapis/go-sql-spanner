@@ -18,6 +18,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
@@ -129,6 +130,32 @@ func TestExtractDnsParts(t *testing.T) {
 	}
 }
 
+func TestConnection_Reset(t *testing.T) {
+	txClosed := false
+	c := conn{
+		readOnlyStaleness: spanner.ExactStaleness(time.Second),
+		batch:             &batch{tp: dml},
+		tx: &readOnlyTransaction{
+			close: func() {
+				txClosed = true
+			},
+		},
+	}
+
+	if err := c.ResetSession(context.Background()); err != nil {
+		t.Fatalf("failed to reset session: %v", err)
+	}
+	if !cmp.Equal(c.readOnlyStaleness, spanner.TimestampBound{}, cmp.AllowUnexported(spanner.TimestampBound{})) {
+		t.Error("failed to reset read-only staleness")
+	}
+	if c.inBatch() {
+		t.Error("failed to clear batch")
+	}
+	if !txClosed {
+		t.Error("failed to close transaction")
+	}
+}
+
 func TestConnection_NoNestedTransactions(t *testing.T) {
 	c := conn{
 		tx: &readOnlyTransaction{},
@@ -141,29 +168,29 @@ func TestConnection_NoNestedTransactions(t *testing.T) {
 
 func TestConn_AbortBatch(t *testing.T) {
 	c := &conn{}
-	if err := c.StartBatchDdl(); err != nil {
+	if err := c.StartBatchDDL(); err != nil {
 		t.Fatalf("failed to start DDL batch: %v", err)
 	}
-	if !c.InDdlBatch() {
+	if !c.InDDLBatch() {
 		t.Fatal("connection did not start DDL batch")
 	}
 	if err := c.AbortBatch(); err != nil {
 		t.Fatalf("failed to abort DDL batch: %v", err)
 	}
-	if c.InDdlBatch() {
+	if c.InDDLBatch() {
 		t.Fatal("connection did not abort DDL batch")
 	}
 
-	if err := c.StartBatchDml(); err != nil {
+	if err := c.StartBatchDML(); err != nil {
 		t.Fatalf("failed to start DML batch: %v", err)
 	}
-	if !c.InDmlBatch() {
+	if !c.InDMLBatch() {
 		t.Fatal("connection did not start DML batch")
 	}
 	if err := c.AbortBatch(); err != nil {
 		t.Fatalf("failed to abort DML batch: %v", err)
 	}
-	if c.InDmlBatch() {
+	if c.InDMLBatch() {
 		t.Fatal("connection did not abort DML batch")
 	}
 }
@@ -181,7 +208,7 @@ func TestConn_StartBatchDdl(t *testing.T) {
 		{"In read-only transaction", &conn{tx: &readOnlyTransaction{}}, true},
 		{"In read/write transaction with a DML batch", &conn{tx: &readWriteTransaction{batch: &batch{tp: dml}}}, true},
 	} {
-		err := test.c.StartBatchDdl()
+		err := test.c.StartBatchDDL()
 		if test.wantErr {
 			if err == nil {
 				t.Fatalf("%s: no error returned for StartDdlBatch: %v", test.name, err)
@@ -190,7 +217,7 @@ func TestConn_StartBatchDdl(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: failed to start DDL batch: %v", test.name, err)
 			}
-			if !test.c.InDdlBatch() {
+			if !test.c.InDDLBatch() {
 				t.Fatalf("%s: connection did not start DDL batch", test.name)
 			}
 		}
@@ -210,7 +237,7 @@ func TestConn_StartBatchDml(t *testing.T) {
 		{"In read-only transaction", &conn{tx: &readOnlyTransaction{}}, true},
 		{"In read/write transaction with a DML batch", &conn{tx: &readWriteTransaction{batch: &batch{tp: dml}}}, true},
 	} {
-		err := test.c.StartBatchDml()
+		err := test.c.StartBatchDML()
 		if test.wantErr {
 			if err == nil {
 				t.Fatalf("%s: no error returned for StartDmlBatch: %v", test.name, err)
@@ -219,7 +246,7 @@ func TestConn_StartBatchDml(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: failed to start DML batch: %v", test.name, err)
 			}
-			if !test.c.InDmlBatch() {
+			if !test.c.InDMLBatch() {
 				t.Fatalf("%s: connection did not start DML batch", test.name)
 			}
 		}
@@ -229,13 +256,13 @@ func TestConn_StartBatchDml(t *testing.T) {
 func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 	c := &conn{
 		batch: &batch{tp: ddl},
-		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) *spanner.RowIterator {
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDmlTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
 			return 0, nil
 		},
-		execSingleDmlPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
+		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -246,8 +273,8 @@ func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 		t.Fatal("missing error for BeginTx")
 	}
 	// Starting a DML batch while in a DDL batch is not allowed.
-	if err := c.StartBatchDml(); err == nil {
-		t.Fatalf("missing error for StartBatchDml")
+	if err := c.StartBatchDML(); err == nil {
+		t.Fatalf("missing error for StartBatchDML")
 	}
 
 	// Executing a single DML or query during a DDL batch is allowed.
@@ -262,13 +289,13 @@ func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
 	c := &conn{
 		batch: &batch{tp: dml},
-		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) *spanner.RowIterator {
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDmlTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
 			return 0, nil
 		},
-		execSingleDmlPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
+		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -279,8 +306,8 @@ func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
 		t.Fatal("missing error for BeginTx")
 	}
 	// Starting a DDL batch while in a DML batch is not allowed.
-	if err := c.StartBatchDdl(); err == nil {
-		t.Fatal("missing error for StartBatchDdl")
+	if err := c.StartBatchDDL(); err == nil {
+		t.Fatal("missing error for StartBatchDDL")
 	}
 	// Executing a single DDL statement during a DML batch is not allowed.
 	if _, err := c.ExecContext(ctx, "CREATE TABLE Foo", []driver.NamedValue{}); err == nil {

@@ -117,6 +117,82 @@ func TestSimpleQuery(t *testing.T) {
 	}
 }
 
+func TestSingleQueryWithTimestampBound(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, "SET READ_ONLY_STALENESS = 'MAX_STALENESS 10s'"); err != nil {
+		t.Fatalf("Set read-only staleness: %v", err)
+	}
+	rows, err := conn.QueryContext(context.Background(), testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for rows.Next() {
+	}
+	if rows.Err() != nil {
+		t.Fatal(rows.Err())
+	}
+	_ = rows.Close()
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if req.Transaction == nil {
+		t.Fatalf("missing transaction for ExecuteSqlRequest")
+	}
+	if req.Transaction.GetSingleUse() == nil {
+		t.Fatalf("missing single use selector for ExecuteSqlRequest")
+	}
+	if req.Transaction.GetSingleUse().GetReadOnly() == nil {
+		t.Fatalf("missing read-only option for ExecuteSqlRequest")
+	}
+	if req.Transaction.GetSingleUse().GetReadOnly().GetMaxStaleness() == nil {
+		t.Fatalf("missing max_staleness timestampbound for ExecuteSqlRequest")
+	}
+
+	// Close the connection and execute a new query. This should use a strong read.
+	_ = conn.Close()
+	rows, err = db.QueryContext(context.Background(), testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for rows.Next() {
+	}
+	if rows.Err() != nil {
+		t.Fatal(rows.Err())
+	}
+	_ = rows.Close()
+	requests = drainRequestsFromServer(server.TestSpanner)
+	sqlRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req = sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if req.Transaction == nil {
+		t.Fatalf("missing transaction for ExecuteSqlRequest")
+	}
+	if req.Transaction.GetSingleUse() == nil {
+		t.Fatalf("missing single use selector for ExecuteSqlRequest")
+	}
+	if req.Transaction.GetSingleUse().GetReadOnly() == nil {
+		t.Fatalf("missing read-only option for ExecuteSqlRequest")
+	}
+	if !req.Transaction.GetSingleUse().GetReadOnly().GetStrong() {
+		t.Fatalf("missing strong timestampbound for ExecuteSqlRequest")
+	}
+}
+
 func TestSimpleReadOnlyTransaction(t *testing.T) {
 	t.Parallel()
 
@@ -179,6 +255,50 @@ func TestSimpleReadOnlyTransaction(t *testing.T) {
 	beginReadOnlyRequests := filterBeginReadOnlyRequests(requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
 	if g, w := len(beginReadOnlyRequests), 1; g != w {
 		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+}
+
+func TestReadOnlyTransactionWithStaleness(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, "SET READ_ONLY_STALENESS = 'EXACT_STALENESS 10s'"); err != nil {
+		t.Fatalf("Set read-only staleness: %v", err)
+	}
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := tx.Query(testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for rows.Next() {
+	}
+	if rows.Err() != nil {
+		t.Fatal(rows.Err())
+	}
+	_ = rows.Close()
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	beginReadOnlyRequests := filterBeginReadOnlyRequests(requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
+	if g, w := len(beginReadOnlyRequests), 1; g != w {
+		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	beginReq := beginReadOnlyRequests[0]
+	if beginReq.GetOptions().GetReadOnly().GetExactStaleness() == nil {
+		t.Fatalf("missing exact_staleness option on BeginTransaction request")
 	}
 }
 
@@ -1258,7 +1378,7 @@ func TestAbortDdlBatch(t *testing.T) {
 
 	_ = c.Raw(func(driverConn interface{}) error {
 		spannerConn := driverConn.(SpannerConn)
-		if spannerConn.InDdlBatch() {
+		if spannerConn.InDDLBatch() {
 			t.Fatalf("connection still has an active DDL batch")
 		}
 		return nil

@@ -34,7 +34,7 @@ type contextTransaction interface {
 	Query(ctx context.Context, stmt spanner.Statement) rowIterator
 	ExecContext(ctx context.Context, stmt spanner.Statement) (int64, error)
 
-	StartBatchDml() (driver.Result, error)
+	StartBatchDML() (driver.Result, error)
 	RunBatch(ctx context.Context) (driver.Result, error)
 	AbortBatch() (driver.Result, error)
 
@@ -96,7 +96,7 @@ func (tx *readOnlyTransaction) ExecContext(_ context.Context, stmt spanner.State
 	return 0, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
-func (tx *readOnlyTransaction) StartBatchDml() (driver.Result, error) {
+func (tx *readOnlyTransaction) StartBatchDML() (driver.Result, error) {
 	return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
@@ -337,7 +337,7 @@ func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.St
 	return res, err
 }
 
-func (tx *readWriteTransaction) StartBatchDml() (driver.Result, error) {
+func (tx *readWriteTransaction) StartBatchDML() (driver.Result, error) {
 	if tx.batch != nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This transaction already has an active batch."))
 	}

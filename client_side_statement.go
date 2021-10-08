@@ -40,6 +40,11 @@ import (
 // of the valid client side statements is executed on a connection. These methods
 // are responsible for any argument parsing and translating that might be needed
 // before the corresponding method on the connection can be called.
+//
+// The names of the methods are exactly equal to the naming in the
+// client_side_statements.json file. This means that some methods do not adhere
+// to the Go style guide, as these method names are equal for all languages that
+// implement the Connection API.
 type statementExecutor struct {
 }
 
@@ -52,7 +57,7 @@ func (s *statementExecutor) ShowRetryAbortsInternally(_ context.Context, c *conn
 }
 
 func (s *statementExecutor) ShowAutocommitDmlMode(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
-	it, err := createStringIterator("AutocommitDmlMode", c.AutocommitDmlMode().String())
+	it, err := createStringIterator("AutocommitDMLMode", c.AutocommitDMLMode().String())
 	if err != nil {
 		return nil, err
 	}
@@ -68,11 +73,11 @@ func (s *statementExecutor) ShowReadOnlyStaleness(_ context.Context, c *conn, _ 
 }
 
 func (s *statementExecutor) StartBatchDdl(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Result, error) {
-	return c.startBatchDdl()
+	return c.startBatchDDL()
 }
 
 func (s *statementExecutor) StartBatchDml(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Result, error) {
-	return c.startBatchDml()
+	return c.startBatchDML()
 }
 
 func (s *statementExecutor) RunBatch(ctx context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Result, error) {
@@ -96,22 +101,25 @@ func (s *statementExecutor) SetRetryAbortsInternally(_ context.Context, c *conn,
 
 func (s *statementExecutor) SetAutocommitDmlMode(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
 	if params == "" {
-		return nil, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "no value given for AutocommitDmlMode"))
+		return nil, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "no value given for AutocommitDMLMode"))
 	}
-	var mode AutocommitDmlMode
+	var mode AutocommitDMLMode
 	switch strings.ToUpper(params) {
 	case fmt.Sprintf("'%s'", strings.ToUpper(Transactional.String())):
 		mode = Transactional
 	case fmt.Sprintf("'%s'", strings.ToUpper(PartitionedNonAtomic.String())):
 		mode = PartitionedNonAtomic
 	default:
-		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid AutocommitDmlMode value: %s", params))
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid AutocommitDMLMode value: %s", params))
 	}
-	return c.setAutocommitDmlMode(mode)
+	return c.setAutocommitDMLMode(mode)
 }
 
 var strongRegexp = regexp.MustCompile("(?i)'STRONG'")
 var exactStalenessRegexp = regexp.MustCompile("(?i)'(?P<type>EXACT_STALENESS)[\\t ]+(?P<duration>(\\d{1,19})(s|ms|us|ns))'")
+var maxStalenessRegexp = regexp.MustCompile("(?i)'(?P<type>MAX_STALENESS)[\\t ]+(?P<duration>(\\d{1,19})(s|ms|us|ns))'")
+var readTimestampRegexp = regexp.MustCompile("(?i)'(?P<type>READ_TIMESTAMP)[\\t ]+(?P<timestamp>(\\d{4})-(\\d{2})-(\\d{2})([Tt](\\d{2}):(\\d{2}):(\\d{2})(\\.\\d{1,9})?)([Zz]|([+-])(\\d{2}):(\\d{2})))'")
+var minReadTimestampRegexp = regexp.MustCompile("(?i)'(?P<type>MIN_READ_TIMESTAMP)[\\t ]+(?P<timestamp>(\\d{4})-(\\d{2})-(\\d{2})([Tt](\\d{2}):(\\d{2}):(\\d{2})(\\.\\d{1,9})?)([Zz]|([+-])(\\d{2}):(\\d{2})))'")
 
 func (s *statementExecutor) SetReadOnlyStaleness(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
 	if params == "" {
@@ -124,20 +132,68 @@ func (s *statementExecutor) SetReadOnlyStaleness(_ context.Context, c *conn, par
 	if strongRegexp.MatchString(params) {
 		staleness = spanner.StrongRead()
 	} else if exactStalenessRegexp.MatchString(params) {
-		exactStalenessRegexp.SubexpNames()
-		es := exactStalenessRegexp.FindStringSubmatch(params)
-		if len(es) != 3 {
-			return nil, invalidErr
-		}
-		d, err := time.ParseDuration(es[1] + es[2])
+		d, err := parseDuration(exactStalenessRegexp, params)
 		if err != nil {
-			return nil, invalidErr
+			return nil, err
 		}
 		staleness = spanner.ExactStaleness(d)
+	} else if maxStalenessRegexp.MatchString(params) {
+		d, err := parseDuration(maxStalenessRegexp, params)
+		if err != nil {
+			return nil, err
+		}
+		staleness = spanner.MaxStaleness(d)
+	} else if readTimestampRegexp.MatchString(params) {
+		t, err := parseTimestamp(readTimestampRegexp, params)
+		if err != nil {
+			return nil, err
+		}
+		staleness = spanner.ReadTimestamp(t)
+	} else if minReadTimestampRegexp.MatchString(params) {
+		t, err := parseTimestamp(minReadTimestampRegexp, params)
+		if err != nil {
+			return nil, err
+		}
+		staleness = spanner.MinReadTimestamp(t)
 	} else {
 		return nil, invalidErr
 	}
 	return c.setReadOnlyStaleness(staleness)
+}
+
+func parseDuration(re *regexp.Regexp, params string) (time.Duration, error) {
+	matches := matchesToMap(re, params)
+	if matches["duration"] == "" {
+		return 0, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "No duration found in staleness string"))
+	}
+	d, err := time.ParseDuration(matches["duration"])
+	if err != nil {
+		return 0, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Invalid duration: %s", matches["duration"]))
+	}
+	return d, nil
+}
+
+func parseTimestamp(re *regexp.Regexp, params string) (time.Time, error) {
+	matches := matchesToMap(re, params)
+	if matches["timestamp"] == "" {
+		return time.Time{}, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "No timestamp found in staleness string"))
+	}
+	t, err := time.Parse(time.RFC3339Nano, matches["timestamp"])
+	if err != nil {
+		return time.Time{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Invalid timestamp: %s", matches["timestamp"]))
+	}
+	return t, nil
+}
+
+func matchesToMap(re *regexp.Regexp, s string) map[string]string {
+	match := re.FindStringSubmatch(s)
+	matches := make(map[string]string)
+	for i, name := range re.SubexpNames() {
+		if i != 0 && name != "" {
+			matches[name] = match[i]
+		}
+	}
+	return matches
 }
 
 // createBooleanIterator creates a row iterator with a single BOOL column with

@@ -199,8 +199,8 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		database:                   databaseName,
 		retryAborts:                c.retryAbortsInternally,
 		execSingleQuery:            queryInSingleUse,
-		execSingleDmlTransactional: execInNewRWTransaction,
-		execSingleDmlPartitioned:   execAsPartitionedDml,
+		execSingleDMLTransactional: execInNewRWTransaction,
+		execSingleDMLPartitioned:   execAsPartitionedDML,
 	}, nil
 }
 
@@ -211,7 +211,7 @@ func (c *connector) Driver() driver.Driver {
 // SpannerConn is the public interface for the raw Spanner connection for the
 // sql driver. This interface can be used with the db.Conn().Raw() method.
 type SpannerConn interface {
-	// StartBatchDdl starts a DDL batch on the connection. After calling this
+	// StartBatchDDL starts a DDL batch on the connection. After calling this
 	// method all subsequent DDL statements will be cached locally. Calling
 	// RunBatch will send all cached DDL statements to Spanner as one batch.
 	// Use DDL batching to speed up the execution of multiple DDL statements.
@@ -219,8 +219,8 @@ type SpannerConn interface {
 	// statements are executed successfully and some not.
 	// See https://cloud.google.com/spanner/docs/schema-updates#order_of_execution_of_statements_in_batches
 	// for more information on how Cloud Spanner handles DDL batches.
-	StartBatchDdl() error
-	// StartBatchDml starts a DML batch on the connection. After calling this
+	StartBatchDDL() error
+	// StartBatchDML starts a DML batch on the connection. After calling this
 	// method all subsequent DML statements will be cached locally. Calling
 	// RunBatch will send all cached DML statements to Spanner as one batch.
 	// Use DML batching to speed up the execution of multiple DML statements.
@@ -231,17 +231,17 @@ type SpannerConn interface {
 	// If a DML batch is executed as part of a transaction, the error will
 	// be returned to the application, and the application can decide whether
 	// to commit or rollback the transaction.
-	StartBatchDml() error
+	StartBatchDML() error
 	// RunBatch sends all batched DDL or DML statements to Spanner. This is a
 	// no-op if no statements have been batched or if there is no active batch.
 	RunBatch(ctx context.Context) error
 	// AbortBatch aborts the current DDL or DML batch and discards all batched
 	// statements.
 	AbortBatch() error
-	// InDdlBatch returns true if the connection is currently in a DDL batch.
-	InDdlBatch() bool
-	// InDmlBatch returns true if the connection is currently in a DML batch.
-	InDmlBatch() bool
+	// InDDLBatch returns true if the connection is currently in a DDL batch.
+	InDDLBatch() bool
+	// InDMLBatch returns true if the connection is currently in a DML batch.
+	InDMLBatch() bool
 
 	// RetryAbortsInternally returns true if the connection automatically
 	// retries all aborted transactions.
@@ -251,15 +251,15 @@ type SpannerConn interface {
 	// propagated to the application.
 	SetRetryAbortsInternally(retry bool) error
 
-	// AutocommitDmlMode returns the current mode that is used for DML
+	// AutocommitDMLMode returns the current mode that is used for DML
 	// statements outside a transaction. The default is Transactional.
-	AutocommitDmlMode() AutocommitDmlMode
-	// SetAutocommitDmlMode sets the mode to use for DML statements that are
+	AutocommitDMLMode() AutocommitDMLMode
+	// SetAutocommitDMLMode sets the mode to use for DML statements that are
 	// executed outside transactions. The default is Transactional. Change to
 	// PartitionedNonAtomic to use Partitioned DML instead of Transactional DML.
 	// See https://cloud.google.com/spanner/docs/dml-partitioned for more
 	// information on Partitioned DML.
-	SetAutocommitDmlMode(mode AutocommitDmlMode) error
+	SetAutocommitDMLMode(mode AutocommitDMLMode) error
 
 	// ReadOnlyStaleness returns the current staleness that is used for
 	// queries in autocommit mode, and for read-only transactions.
@@ -287,18 +287,18 @@ type conn struct {
 	database    string
 	retryAborts bool
 
-	execSingleQuery            func(ctx context.Context, c *spanner.Client, statement spanner.Statement) *spanner.RowIterator
-	execSingleDmlTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error)
-	execSingleDmlPartitioned   func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error)
+	execSingleQuery            func(ctx context.Context, c *spanner.Client, statement spanner.Statement, bound spanner.TimestampBound) *spanner.RowIterator
+	execSingleDMLTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error)
+	execSingleDMLPartitioned   func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error)
 
 	// batch is the currently active DDL or DML batch on this connection.
 	batch *batch
 
-	// autocommitDmlMode determines the type of DML to use when a single DML
+	// autocommitDMLMode determines the type of DML to use when a single DML
 	// statement is executed on a connection. The default is Transactional, but
 	// it can also be set to PartitionedNonAtomic to execute the statement as
 	// Partitioned DML.
-	autocommitDmlMode AutocommitDmlMode
+	autocommitDMLMode AutocommitDMLMode
 	// readOnlyStaleness is used for queries in autocommit mode and for read-only transactions.
 	readOnlyStaleness spanner.TimestampBound
 }
@@ -315,12 +315,12 @@ type batch struct {
 	statements []spanner.Statement
 }
 
-// AutocommitDmlMode indicates whether a single DML statement should be executed
+// AutocommitDMLMode indicates whether a single DML statement should be executed
 // in a normal atomic transaction or as a Partitioned DML statement.
 // See https://cloud.google.com/spanner/docs/dml-partitioned for more information.
-type AutocommitDmlMode int
+type AutocommitDMLMode int
 
-func (mode AutocommitDmlMode) String() string {
+func (mode AutocommitDMLMode) String() string {
 	switch mode {
 	case Transactional:
 		return "Transactional"
@@ -331,7 +331,7 @@ func (mode AutocommitDmlMode) String() string {
 }
 
 const (
-	Transactional AutocommitDmlMode = iota
+	Transactional AutocommitDMLMode = iota
 	PartitionedNonAtomic
 )
 
@@ -352,17 +352,17 @@ func (c *conn) setRetryAbortsInternally(retry bool) (driver.Result, error) {
 	return driver.ResultNoRows, nil
 }
 
-func (c *conn) AutocommitDmlMode() AutocommitDmlMode {
-	return c.autocommitDmlMode
+func (c *conn) AutocommitDMLMode() AutocommitDMLMode {
+	return c.autocommitDMLMode
 }
 
-func (c *conn) SetAutocommitDmlMode(mode AutocommitDmlMode) error {
-	_, err := c.setAutocommitDmlMode(mode)
+func (c *conn) SetAutocommitDMLMode(mode AutocommitDMLMode) error {
+	_, err := c.setAutocommitDMLMode(mode)
 	return err
 }
 
-func (c *conn) setAutocommitDmlMode(mode AutocommitDmlMode) (driver.Result, error) {
-	c.autocommitDmlMode = mode
+func (c *conn) setAutocommitDMLMode(mode AutocommitDMLMode) (driver.Result, error) {
+	c.autocommitDMLMode = mode
 	return driver.ResultNoRows, nil
 }
 
@@ -380,13 +380,13 @@ func (c *conn) setReadOnlyStaleness(staleness spanner.TimestampBound) (driver.Re
 	return driver.ResultNoRows, nil
 }
 
-func (c *conn) StartBatchDdl() error {
-	_, err := c.startBatchDdl()
+func (c *conn) StartBatchDDL() error {
+	_, err := c.startBatchDDL()
 	return err
 }
 
-func (c *conn) StartBatchDml() error {
-	_, err := c.startBatchDml()
+func (c *conn) StartBatchDML() error {
+	_, err := c.startBatchDML()
 	return err
 }
 
@@ -400,19 +400,19 @@ func (c *conn) AbortBatch() error {
 	return err
 }
 
-func (c *conn) InDdlBatch() bool {
+func (c *conn) InDDLBatch() bool {
 	return c.batch != nil && c.batch.tp == ddl
 }
 
-func (c *conn) InDmlBatch() bool {
+func (c *conn) InDMLBatch() bool {
 	return (c.batch != nil && c.batch.tp == dml) || (c.inReadWriteTransaction() && c.tx.(*readWriteTransaction).batch != nil)
 }
 
 func (c *conn) inBatch() bool {
-	return c.InDdlBatch() || c.InDmlBatch()
+	return c.InDDLBatch() || c.InDMLBatch()
 }
 
-func (c *conn) startBatchDdl() (driver.Result, error) {
+func (c *conn) startBatchDDL() (driver.Result, error) {
 	if c.batch != nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection already has an active batch."))
 	}
@@ -423,9 +423,9 @@ func (c *conn) startBatchDdl() (driver.Result, error) {
 	return driver.ResultNoRows, nil
 }
 
-func (c *conn) startBatchDml() (driver.Result, error) {
+func (c *conn) startBatchDML() (driver.Result, error) {
 	if c.inTransaction() {
-		return c.tx.StartBatchDml()
+		return c.tx.StartBatchDML()
 	}
 
 	if c.batch != nil {
@@ -448,24 +448,24 @@ func (c *conn) runBatch(ctx context.Context) (driver.Result, error) {
 	}
 	switch c.batch.tp {
 	case ddl:
-		return c.runDdlBatch(ctx)
+		return c.runDDLBatch(ctx)
 	case dml:
-		return c.runDmlBatch(ctx)
+		return c.runDMLBatch(ctx)
 	default:
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Unknown batch type: %d", c.batch.tp))
 	}
 }
 
-func (c *conn) runDdlBatch(ctx context.Context) (driver.Result, error) {
+func (c *conn) runDDLBatch(ctx context.Context) (driver.Result, error) {
 	statements := c.batch.statements
 	c.batch = nil
-	return c.execDdl(ctx, statements...)
+	return c.execDDL(ctx, statements...)
 }
 
-func (c *conn) runDmlBatch(ctx context.Context) (driver.Result, error) {
+func (c *conn) runDMLBatch(ctx context.Context) (driver.Result, error) {
 	statements := c.batch.statements
 	c.batch = nil
-	return c.execBatchDml(ctx, statements)
+	return c.execBatchDML(ctx, statements)
 }
 
 func (c *conn) abortBatch() (driver.Result, error) {
@@ -477,7 +477,7 @@ func (c *conn) abortBatch() (driver.Result, error) {
 	return driver.ResultNoRows, nil
 }
 
-func (c *conn) execDdl(ctx context.Context, statements ...spanner.Statement) (driver.Result, error) {
+func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (driver.Result, error) {
 	if c.batch != nil && c.batch.tp == dml {
 		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This connection has an active DML batch"))
 	}
@@ -505,7 +505,7 @@ func (c *conn) execDdl(ctx context.Context, statements ...spanner.Statement) (dr
 	return driver.ResultNoRows, nil
 }
 
-func (c *conn) execBatchDml(ctx context.Context, statements []spanner.Statement) (driver.Result, error) {
+func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement) (driver.Result, error) {
 	if len(statements) == 0 {
 		return &result{}, nil
 	}
@@ -589,7 +589,8 @@ func (c *conn) ResetSession(_ context.Context) error {
 	}
 	c.batch = nil
 	c.retryAborts = true
-	c.autocommitDmlMode = Transactional
+	c.autocommitDMLMode = Transactional
+	c.readOnlyStaleness = spanner.TimestampBound{}
 	return nil
 }
 
@@ -694,7 +695,7 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 	}
 	var iter rowIterator
 	if c.tx == nil {
-		iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt)}
+		iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt, c.readOnlyStaleness)}
 	} else {
 		iter = c.tx.Query(ctx, stmt)
 	}
@@ -712,18 +713,18 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 	}
 
 	// Use admin API if DDL statement is provided.
-	isDdl, err := isDdl(query)
+	isDDL, err := isDDL(query)
 	if err != nil {
 		return nil, err
 	}
-	if isDdl {
+	if isDDL {
 		// Spanner does not support DDL in transactions, and although it is technically possible to execute DDL
 		// statements while a transaction is active, we return an error to avoid any confusion whether the DDL
 		// statement is executed as part of the active transaction or not.
 		if c.inTransaction() {
 			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "cannot execute DDL as part of a transaction"))
 		}
-		return c.execDdl(ctx, spanner.NewStatement(query))
+		return c.execDDL(ctx, spanner.NewStatement(query))
 	}
 
 	ss, err := prepareSpannerStmt(query, args)
@@ -733,15 +734,15 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 
 	var rowsAffected int64
 	if c.tx == nil {
-		if c.InDmlBatch() {
+		if c.InDMLBatch() {
 			c.batch.statements = append(c.batch.statements, ss)
 		} else {
-			if c.autocommitDmlMode == Transactional {
-				rowsAffected, err = c.execSingleDmlTransactional(ctx, c.client, ss)
-			} else if c.autocommitDmlMode == PartitionedNonAtomic {
-				rowsAffected, err = c.execSingleDmlPartitioned(ctx, c.client, ss)
+			if c.autocommitDMLMode == Transactional {
+				rowsAffected, err = c.execSingleDMLTransactional(ctx, c.client, ss)
+			} else if c.autocommitDMLMode == PartitionedNonAtomic {
+				rowsAffected, err = c.execSingleDMLPartitioned(ctx, c.client, ss)
 			} else {
-				return nil, status.Errorf(codes.FailedPrecondition, "connection in invalid state for DML statements: %s", c.autocommitDmlMode.String())
+				return nil, status.Errorf(codes.FailedPrecondition, "connection in invalid state for DML statements: %s", c.autocommitDMLMode.String())
 			}
 		}
 	} else {
@@ -771,7 +772,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 	}
 
 	if opts.ReadOnly {
-		ro := c.client.ReadOnlyTransaction().WithTimestampBound(spanner.StrongRead())
+		ro := c.client.ReadOnlyTransaction().WithTimestampBound(c.readOnlyStaleness)
 		c.tx = &readOnlyTransaction{
 			roTx: ro,
 			close: func() {
@@ -817,8 +818,8 @@ func (c *conn) inReadWriteTransaction() bool {
 	return false
 }
 
-func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement) *spanner.RowIterator {
-	return c.Single().Query(ctx, statement)
+func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound) *spanner.RowIterator {
+	return c.Single().WithTimestampBound(tb).Query(ctx, statement)
 }
 
 func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
@@ -835,6 +836,6 @@ func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement sp
 	return rowsAffected, nil
 }
 
-func execAsPartitionedDml(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
+func execAsPartitionedDML(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
 	return c.PartitionedUpdate(ctx, statement)
 }

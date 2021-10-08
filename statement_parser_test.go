@@ -516,7 +516,7 @@ func TestFindParams(t *testing.T) {
 	}
 }
 
-// note: isDdl function does not check validity of statement
+// note: isDDL function does not check validity of statement
 // just that the statement begins with a DDL instruction.
 // Other checking performed by database.
 func TestIsDdl(t *testing.T) {
@@ -653,12 +653,12 @@ func TestIsDdl(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		got, err := isDdl(tc.input)
+		got, err := isDDL(tc.input)
 		if err != nil {
 			t.Error(err)
 		}
 		if got != tc.want {
-			t.Errorf("isDdl test failed, %s: wanted %t got %t.", tc.name, tc.want, got)
+			t.Errorf("isDDL test failed, %s: wanted %t got %t.", tc.name, tc.want, got)
 		}
 	}
 }
