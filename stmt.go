@@ -59,7 +59,7 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 	if s.conn.tx != nil {
 		it = s.conn.tx.Query(ctx, ss)
 	} else {
-		it = &readOnlyRowIterator{s.conn.client.Single().Query(ctx, ss)}
+		it = &readOnlyRowIterator{s.conn.client.Single().WithTimestampBound(s.conn.readOnlyStaleness).Query(ctx, ss)}
 	}
 	return &rows{it: it}, nil
 }
