@@ -25,12 +25,32 @@ import (
 	"gorm.io/gorm/schema"
 )
 
-type Migrator struct {
+type SpannerMigrator interface {
+	gorm.Migrator
+
+	StartBatchDDL() error
+	RunBatch() error
+	AbortBatch() error
+}
+
+type spannerMigrator struct {
 	migrator.Migrator
 	Dialector
 }
 
-func (m Migrator) CreateTable(values ...interface{}) error {
+func (m spannerMigrator) StartBatchDDL() error {
+	return m.DB.Exec("START BATCH DDL").Error
+}
+
+func (m spannerMigrator) RunBatch() error {
+	return m.DB.Exec("RUN BATCH").Error
+}
+
+func (m spannerMigrator) AbortBatch() error {
+	return m.DB.Exec("ABORT BATCH").Error
+}
+
+func (m spannerMigrator) CreateTable(values ...interface{}) error {
 	for _, value := range m.ReorderModels(values, false) {
 		tx := m.DB.Session(&gorm.Session{})
 		if err := m.RunWithValue(value, func(stmt *gorm.Statement) (errr error) {
