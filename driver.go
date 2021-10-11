@@ -261,6 +261,13 @@ type SpannerConn interface {
 	// information on Partitioned DML.
 	SetAutocommitDMLMode(mode AutocommitDMLMode) error
 
+	// ReadOnlyStaleness returns the current staleness that is used for
+	// queries in autocommit mode, and for read-only transactions.
+	ReadOnlyStaleness() spanner.TimestampBound
+	// SetReadOnlyStaleness sets the staleness to use for queries in autocommit
+	// mode and for read-only transaction.
+	SetReadOnlyStaleness(staleness spanner.TimestampBound) error
+
 	// Apply writes an array of mutations to the database. This method may only be called while the connection
 	// is outside a transaction. Use BufferWrite to write mutations in a transaction.
 	// See also spanner.Client#Apply
@@ -280,7 +287,7 @@ type conn struct {
 	database    string
 	retryAborts bool
 
-	execSingleQuery            func(ctx context.Context, c *spanner.Client, statement spanner.Statement) *spanner.RowIterator
+	execSingleQuery            func(ctx context.Context, c *spanner.Client, statement spanner.Statement, bound spanner.TimestampBound) *spanner.RowIterator
 	execSingleDMLTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error)
 	execSingleDMLPartitioned   func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error)
 
@@ -292,6 +299,8 @@ type conn struct {
 	// it can also be set to PartitionedNonAtomic to execute the statement as
 	// Partitioned DML.
 	autocommitDMLMode AutocommitDMLMode
+	// readOnlyStaleness is used for queries in autocommit mode and for read-only transactions.
+	readOnlyStaleness spanner.TimestampBound
 }
 
 type batchType int
@@ -354,6 +363,20 @@ func (c *conn) SetAutocommitDMLMode(mode AutocommitDMLMode) error {
 
 func (c *conn) setAutocommitDMLMode(mode AutocommitDMLMode) (driver.Result, error) {
 	c.autocommitDMLMode = mode
+	return driver.ResultNoRows, nil
+}
+
+func (c *conn) ReadOnlyStaleness() spanner.TimestampBound {
+	return c.readOnlyStaleness
+}
+
+func (c *conn) SetReadOnlyStaleness(staleness spanner.TimestampBound) error {
+	_, err := c.setReadOnlyStaleness(staleness)
+	return err
+}
+
+func (c *conn) setReadOnlyStaleness(staleness spanner.TimestampBound) (driver.Result, error) {
+	c.readOnlyStaleness = staleness
 	return driver.ResultNoRows, nil
 }
 
@@ -567,6 +590,7 @@ func (c *conn) ResetSession(_ context.Context) error {
 	c.batch = nil
 	c.retryAborts = true
 	c.autocommitDMLMode = Transactional
+	c.readOnlyStaleness = spanner.TimestampBound{}
 	return nil
 }
 
@@ -671,7 +695,7 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 	}
 	var iter rowIterator
 	if c.tx == nil {
-		iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt)}
+		iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt, c.readOnlyStaleness)}
 	} else {
 		iter = c.tx.Query(ctx, stmt)
 	}
@@ -748,7 +772,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 	}
 
 	if opts.ReadOnly {
-		ro := c.client.ReadOnlyTransaction().WithTimestampBound(spanner.StrongRead())
+		ro := c.client.ReadOnlyTransaction().WithTimestampBound(c.readOnlyStaleness)
 		c.tx = &readOnlyTransaction{
 			roTx: ro,
 			close: func() {
@@ -794,8 +818,8 @@ func (c *conn) inReadWriteTransaction() bool {
 	return false
 }
 
-func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement) *spanner.RowIterator {
-	return c.Single().Query(ctx, statement)
+func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound) *spanner.RowIterator {
+	return c.Single().WithTimestampBound(tb).Query(ctx, statement)
 }
 
 func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
