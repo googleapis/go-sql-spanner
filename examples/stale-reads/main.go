@@ -83,7 +83,9 @@ func staleReads(projectId, instanceId, databaseId string) error {
 	}
 	fmt.Printf("Singers count at timestamp %s was: %v\n", t.Format(time.RFC3339Nano), c)
 
-	// Commit the read-only transaction and close the connection to release the resources they areß using.
+	// Commit the read-only transaction and close the connection to release the resources they are using.
+	// Committing or rolling back a read-only transaction will execute an actual Commit or Rollback on the database,
+	// but it is needed in order to release the resources that are held by the read-only transaction.
 	if err := tx.Commit(); err != nil {
 		return err
 	}
