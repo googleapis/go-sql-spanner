@@ -114,6 +114,37 @@ func TestSelectMultipleSingers(t *testing.T) {
 	}
 }
 
+func TestForceIndexHint(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	firstName := "Pete"
+	server.TestSpanner.PutStatementResult(
+		"SELECT * FROM `singers` WHERE `singers`.`singer_id` = @p1 LIMIT 1",
+		&testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: createSingersResultSet([]Singer{{1, &firstName, "Allison", spanner.NullDate{}}}),
+		})
+
+	var singer Singer
+	if err := db.Clauses(spannergorm.ForceIndex("LastName")).Take(&singer, 1).Error; err != nil {
+		t.Fatalf("failed to fetch Singer: %v", err)
+	}
+	if singer.SingerId != 1 {
+		t.Fatalf("SingerId mismatch\nGot: %v\nWant: %v", singer.SingerId, 1)
+	}
+	if *singer.FirstName != "Pete" {
+		t.Fatalf("Singer first name mismatch\nGot: %v\nWant: %v", singer.FirstName, "Pete")
+	}
+	if singer.LastName != "Allison" {
+		t.Fatalf("Singer last name mismatch\nGot: %v\nWant: %v", singer.LastName, "Allison")
+	}
+	if singer.BirthDate.Valid {
+		t.Fatalf("Singer birthdate is not null")
+	}
+}
+
 func TestCreateSinger(t *testing.T) {
 	t.Parallel()
 
@@ -591,7 +622,7 @@ func setupTestDBConnectionWithParams(t *testing.T, params string) (db *gorm.DB, 
 	db, err := gorm.Open(spannergorm.New(spannergorm.Config{
 		DriverName: "spanner",
 		DSN:        fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;%s", server.Address, params),
-	}))
+	}), &gorm.Config{PrepareStmt: true})
 	if err != nil {
 		serverTeardown()
 		t.Fatal(err)

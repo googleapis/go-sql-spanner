@@ -14,29 +14,11 @@ import (
 	"spannergorm"
 )
 
-func TestFoo(t *testing.T) {
+func TestAutoMigrate(t *testing.T) {
 	t.Parallel()
 
-}
-
-func TestCreateTables(t *testing.T) {
-	t.Parallel()
-
-	db, server, teardown := setupTestDBConnection(t)
+	migrator, server, teardown := setupSpannerMigrator(t)
 	defer teardown()
-	var expectedResponse = &emptypb.Empty{}
-	any, _ := ptypes.MarshalAny(expectedResponse)
-	server.TestDatabaseAdmin.SetResps([]proto.Message{
-		&longrunningpb.Operation{
-			Done:   true,
-			Result: &longrunningpb.Operation_Response{Response: any},
-			Name:   "test-operation",
-		},
-	})
-	migrator, ok := db.Migrator().(spannergorm.SpannerMigrator)
-	if !ok {
-		t.Fatal("failed to get Spanner Migrator")
-	}
 	if err := migrator.StartBatchDDL(); err != nil {
 		t.Fatalf("failed to start DDL batch: %v", err)
 	}
@@ -52,23 +34,31 @@ func TestCreateTables(t *testing.T) {
 		t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	if req, ok := requests[0].(*databasepb.UpdateDatabaseDdlRequest); ok {
-		if g, w := len(req.Statements), 4; g != w {
+		if g, w := len(req.Statements), 6; g != w {
 			t.Fatalf("statement count mismatch\nGot: %v\nWant: %v", g, w)
 		}
-		query := "CREATE TABLE `singers` (`singer_id` INT64,`first_name` STRING(MAX),`last_name` STRING(MAX),`birth_date` DATE) PRIMARY KEY (`singer_id`)"
+		query := "CREATE TABLE `singers` (`singer_id` INT64,`first_name` STRING(MAX),`last_name` STRING(MAX),`birth_date` DATE,CONSTRAINT `chk_singers_birth_date` CHECK (birth_date >= DATE '1000-01-01')) PRIMARY KEY (`singer_id`)"
 		if g, w := req.Statements[0], query; g != w {
 			t.Fatalf("statement mismatch\nGot:  %v\nWant: %v", g, w)
 		}
-		query = "CREATE TABLE `albums` (`album_id` INT64,`singer_id` INT64,`title` STRING(MAX),CONSTRAINT `fk_albums_singer` FOREIGN KEY (`singer_id`) REFERENCES `singers`(`singer_id`)) PRIMARY KEY (`album_id`)"
+		query = "CREATE INDEX `idx_singers_last_name` ON `singers`(`last_name`)"
 		if g, w := req.Statements[1], query; g != w {
 			t.Fatalf("statement mismatch\nGot:  %v\nWant: %v", g, w)
 		}
-		query = "CREATE TABLE `all_basic_types` (`id` INT64,`int64` INT64,`float64` FLOAT64,`numeric` NUMERIC,`string` STRING(MAX),`bytes` BYTES(MAX),`date` DATE,`timestamp` TIMESTAMP,`json` JSON,`bool` BOOL) PRIMARY KEY (`id`)"
+		query = "CREATE TABLE `albums` (`album_id` INT64,`singer_id` INT64,`title` STRING(MAX),CONSTRAINT `fk_albums_singer` FOREIGN KEY (`singer_id`) REFERENCES `singers`(`singer_id`)) PRIMARY KEY (`album_id`)"
 		if g, w := req.Statements[2], query; g != w {
 			t.Fatalf("statement mismatch\nGot:  %v\nWant: %v", g, w)
 		}
-		query = "CREATE TABLE `all_spanner_nullable_types` (`id` INT64,`int64` INT64,`float64` FLOAT64,`numeric` NUMERIC,`string` STRING(MAX),`bytes` BYTES(MAX),`date` DATE,`timestamp` TIMESTAMP,`json` JSON,`bool` BOOL) PRIMARY KEY (`id`)"
+		query = "CREATE UNIQUE INDEX `idx_albums_title` ON `albums`(`singer_id`,`title`)"
 		if g, w := req.Statements[3], query; g != w {
+			t.Fatalf("statement mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		query = "CREATE TABLE `all_basic_types` (`id` INT64,`int64` INT64,`float64` FLOAT64,`numeric` NUMERIC,`string` STRING(MAX),`bytes` BYTES(MAX),`date` DATE,`timestamp` TIMESTAMP,`json` JSON,`bool` BOOL) PRIMARY KEY (`id`)"
+		if g, w := req.Statements[4], query; g != w {
+			t.Fatalf("statement mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		query = "CREATE TABLE `all_spanner_nullable_types` (`id` INT64,`int64` INT64,`float64` FLOAT64,`numeric` NUMERIC,`string` STRING(MAX),`bytes` BYTES(MAX),`date` DATE,`timestamp` TIMESTAMP,`json` JSON,`bool` BOOL) PRIMARY KEY (`id`)"
+		if g, w := req.Statements[5], query; g != w {
 			t.Fatalf("statement mismatch\nGot:  %v\nWant: %v", g, w)
 		}
 	} else {
@@ -81,6 +71,115 @@ func TestCreateTables(t *testing.T) {
 	if g, w := len(commitRequests), 0; g != w {
 		t.Fatalf("commit requests count mismatch\nGot:  %v\nWant: %v", g, w)
 	}
+}
+
+func TestCreateIndex(t *testing.T) {
+	t.Parallel()
+
+	migrator, server, teardown := setupSpannerMigrator(t)
+	defer teardown()
+	if err := migrator.StartBatchDDL(); err != nil {
+		t.Fatalf("failed to start DDL batch: %v", err)
+	}
+	if err := migrator.CreateIndex(&Singer{}, "LastName"); err != nil {
+		t.Fatalf("failed to create index for Singer: %v", err)
+	}
+	if err := migrator.CreateIndex(&Album{}, "Title"); err != nil {
+		t.Fatalf("failed to create index for Album: %v", err)
+	}
+	if err := migrator.RunBatch(); err != nil {
+		t.Fatalf("failed to run DDL batch: %v", err)
+	}
+
+	requests := server.TestDatabaseAdmin.Reqs()
+	if g, w := len(requests), 1; g != w {
+		t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	if req, ok := requests[0].(*databasepb.UpdateDatabaseDdlRequest); ok {
+		if g, w := len(req.Statements), 2; g != w {
+			t.Fatalf("statement count mismatch\nGot: %v\nWant: %v", g, w)
+		}
+		query := "CREATE INDEX `idx_singers_last_name` ON `singers`(`last_name`)"
+		if g, w := req.Statements[0], query; g != w {
+			t.Fatalf("statement mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		query = "CREATE UNIQUE INDEX `idx_albums_title` ON `albums`(`singer_id`,`title`)"
+		if g, w := req.Statements[1], query; g != w {
+			t.Fatalf("statement mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	} else {
+		t.Fatalf("request type mismatch, got %v", requests[0])
+	}
+}
+
+func TestCreateCheckConstraint(t *testing.T) {
+	t.Parallel()
+
+	migrator, server, teardown := setupSpannerMigrator(t)
+	defer teardown()
+	if err := migrator.CreateConstraint(&Singer{}, "BirthDate"); err != nil {
+		t.Fatalf("failed to create check constraint for Singer: %v", err)
+	}
+
+	requests := server.TestDatabaseAdmin.Reqs()
+	if g, w := len(requests), 1; g != w {
+		t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	if req, ok := requests[0].(*databasepb.UpdateDatabaseDdlRequest); ok {
+		if g, w := len(req.Statements), 1; g != w {
+			t.Fatalf("statement count mismatch\nGot: %v\nWant: %v", g, w)
+		}
+		query := "ALTER TABLE `singers` ADD CONSTRAINT `chk_singers_birth_date` CHECK (birth_date >= DATE '1000-01-01')"
+		if g, w := req.Statements[0], query; g != w {
+			t.Fatalf("statement mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	} else {
+		t.Fatalf("request type mismatch, got %v", requests[0])
+	}
+}
+
+func TestCreateForeignKeyConstraint(t *testing.T) {
+	t.Parallel()
+
+	migrator, server, teardown := setupSpannerMigrator(t)
+	defer teardown()
+	if err := migrator.CreateConstraint(&Album{}, "Singer"); err != nil {
+		t.Fatalf("failed to create foreign key constraint for Album: %v", err)
+	}
+
+	requests := server.TestDatabaseAdmin.Reqs()
+	if g, w := len(requests), 1; g != w {
+		t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	if req, ok := requests[0].(*databasepb.UpdateDatabaseDdlRequest); ok {
+		if g, w := len(req.Statements), 1; g != w {
+			t.Fatalf("statement count mismatch\nGot: %v\nWant: %v", g, w)
+		}
+		query := "ALTER TABLE `albums` ADD CONSTRAINT `fk_albums_singer` FOREIGN KEY (`singer_id`) REFERENCES `singers`(`singer_id`)"
+		if g, w := req.Statements[0], query; g != w {
+			t.Fatalf("statement mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	} else {
+		t.Fatalf("request type mismatch, got %v", requests[0])
+	}
+}
+
+func setupSpannerMigrator(t *testing.T) (migrator spannergorm.SpannerMigrator, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+	db, server, teardown := setupTestDBConnection(t)
+	var expectedResponse = &emptypb.Empty{}
+	any, _ := ptypes.MarshalAny(expectedResponse)
+	server.TestDatabaseAdmin.SetResps([]proto.Message{
+		&longrunningpb.Operation{
+			Done:   true,
+			Result: &longrunningpb.Operation_Response{Response: any},
+			Name:   "test-operation",
+		},
+	})
+	migrator, ok := db.Migrator().(spannergorm.SpannerMigrator)
+	if !ok {
+		t.Fatal("failed to get Spanner Migrator")
+	}
+	return migrator, server, teardown
 }
 
 func requestsOfType(requests []interface{}, t reflect.Type) []interface{} {

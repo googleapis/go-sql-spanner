@@ -23,15 +23,15 @@ import (
 type Singer struct {
 	SingerId  int64 `gorm:"primaryKey:true;autoIncrement:false"`
 	FirstName *string
-	LastName  string
-	BirthDate spanner.NullDate `gorm:"type:DATE"`
+	LastName  string `gorm:"index:idx_singers_last_name"`
+	BirthDate spanner.NullDate `gorm:"type:DATE;check:chk_singers_birth_date,birth_date >= DATE '1000-01-01'"`
 }
 
 type Album struct {
 	AlbumId  int64 `gorm:"primaryKey:true;autoIncrement:false"`
-	SingerId *int64
+	SingerId *int64 `gorm:"index:idx_albums_title,unique"`
 	Singer   *Singer
-	Title    string
+	Title    string `gorm:"index:idx_albums_title,unique"`
 }
 
 type AllBasicTypes struct {
