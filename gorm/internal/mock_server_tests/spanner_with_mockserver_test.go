@@ -20,12 +20,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"math/rand"
 	"reflect"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
+	spannerdriver "github.com/cloudspannerecosystem/go-sql-spanner"
 	"github.com/cloudspannerecosystem/go-sql-spanner/testutil"
 	structpb "github.com/golang/protobuf/ptypes/struct"
 	"github.com/google/go-cmp/cmp"
@@ -142,6 +144,60 @@ func TestForceIndexHint(t *testing.T) {
 	}
 	if singer.BirthDate.Valid {
 		t.Fatalf("Singer birthdate is not null")
+	}
+}
+
+func TestLimitOffset(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	server.TestSpanner.PutStatementResult(
+		"SELECT * FROM `singers` ORDER BY last_name LIMIT 100 OFFSET 10",
+		&testutil.StatementResult{
+			Type: testutil.StatementResultResultSet,
+			ResultSet: createSingersResultSet([]Singer{
+				{1, strPointer("Pete"), "Allison", spanner.NullDate{}},
+				{2, strPointer("Alice"), "Anderson", spanner.NullDate{}},
+			}),
+		})
+
+	var singers []Singer
+	if err := db.Offset(10).Limit(100).Order("last_name").Find(&singers).Error; err != nil {
+		t.Fatalf("failed to fetch singers: %v", err)
+	}
+	if len(singers) != 2 {
+		t.Fatalf("Singer count mismatch\nGot: %v\nWant: %v", len(singers), 2)
+	}
+}
+
+func TestFindInBatches(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	server.TestSpanner.PutStatementResult(
+		"SELECT * FROM `singers` ORDER BY `singers`.`singer_id` LIMIT 10",
+		&testutil.StatementResult{
+			Type: testutil.StatementResultResultSet,
+			ResultSet: createRandomSingersResultSet(10),
+		})
+	server.TestSpanner.PutStatementResult(
+		"SELECT * FROM `singers` WHERE `singers`.`singer_id` > @p1 ORDER BY `singers`.`singer_id` LIMIT 10",
+		&testutil.StatementResult{
+			Type: testutil.StatementResultResultSet,
+			ResultSet: createRandomSingersResultSet(5),
+		})
+
+	var singers []Singer
+	result := db.FindInBatches(&singers, 10, func(tx *gorm.DB, batch int) error {
+		return nil
+	})
+	if result.Error != nil {
+		t.Fatalf("batch failed: %v", result.Error)
+	}
+	if g, w := result.RowsAffected, int64(15); g != w {
+		t.Fatalf("rows affected mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
@@ -559,6 +615,51 @@ func TestCreateAllSpannerNullableTypes(t *testing.T) {
 	}
 }
 
+func TestGenericDBInterface(t *testing.T) {
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("failed to get generic DB: %v", err)
+	}
+
+	if err := sqlDB.Ping(); err != nil {
+		t.Fatalf("failed to ping: %v", err)
+	}
+
+	// Check that it is a SpannerConn.
+	conn, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("failed to get conn: %v", err)
+	}
+	if err := conn.Raw(func(driverConn interface{}) error {
+		if _, ok := driverConn.(spannerdriver.SpannerConn); !ok {
+			return fmt.Errorf("not a SpannerConn")
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("failed to execute raw statement: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("failed to close conn: %v", err)
+	}
+
+	stats := sqlDB.Stats()
+	if g, w := stats.OpenConnections, 1; g != w {
+		t.Fatalf("open connections count before close mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	if err := sqlDB.Close(); err != nil {
+		t.Fatalf("failed to close: %v", err)
+	}
+
+	stats = sqlDB.Stats()
+	if g, w := stats.OpenConnections, 0; g != w {
+		t.Fatalf("open connections count after close mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
 func strPointer(val string) *string {
 	return &val
 }
@@ -652,6 +753,34 @@ func setupMockedTestServerWithConfigAndClientOptions(t *testing.T, config spanne
 	return server, client, func() {
 		client.Close()
 		serverTeardown()
+	}
+}
+
+func createRandomSingersResultSet(rowCount int) *spannerpb.ResultSet {
+	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+	singers := make([]Singer, rowCount)
+	for i, s := range singers {
+		s.SingerId = int64(i)
+		if rnd.Int() % 7 != 0 {
+			s.FirstName = strPointer(fmt.Sprintf("First%d", rnd.Uint64()))
+		}
+		s.LastName = fmt.Sprintf("Last%d", rnd.Uint64())
+		s.BirthDate = randomDate(rnd)
+	}
+	return createSingersResultSet(singers)
+}
+
+func randomDate(rnd *rand.Rand) spanner.NullDate {
+	if rnd.Int() % 7 == 0 {
+		return spanner.NullDate{}
+	}
+	return spanner.NullDate{
+		Date:  civil.Date{
+			Year: rnd.Intn(110) + 1900,
+			Month: time.Month(rnd.Intn(12) + 1),
+			Day: rnd.Intn(28) + 1,
+		},
+		Valid: true,
 	}
 }
 
