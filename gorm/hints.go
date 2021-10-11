@@ -18,7 +18,7 @@ func (exprs Exprs) Build(builder clause.Builder) {
 
 type IndexHint struct {
 	Type string
-	Key string
+	Key  string
 }
 
 func (indexHint IndexHint) ModifyStatement(stmt *gorm.Statement) {

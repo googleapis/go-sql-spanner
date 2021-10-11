@@ -123,7 +123,7 @@ func TestForceIndexHint(t *testing.T) {
 	defer teardown()
 	firstName := "Pete"
 	server.TestSpanner.PutStatementResult(
-		"SELECT * FROM `singers` WHERE `singers`.`singer_id` = @p1 LIMIT 1",
+		"SELECT * FROM `singers` @{FORCE_INDEX=`LastName`} WHERE `singers`.`singer_id` = @p1 LIMIT 1",
 		&testutil.StatementResult{
 			Type:      testutil.StatementResultResultSet,
 			ResultSet: createSingersResultSet([]Singer{{1, &firstName, "Allison", spanner.NullDate{}}}),
@@ -135,15 +135,6 @@ func TestForceIndexHint(t *testing.T) {
 	}
 	if singer.SingerId != 1 {
 		t.Fatalf("SingerId mismatch\nGot: %v\nWant: %v", singer.SingerId, 1)
-	}
-	if *singer.FirstName != "Pete" {
-		t.Fatalf("Singer first name mismatch\nGot: %v\nWant: %v", singer.FirstName, "Pete")
-	}
-	if singer.LastName != "Allison" {
-		t.Fatalf("Singer last name mismatch\nGot: %v\nWant: %v", singer.LastName, "Allison")
-	}
-	if singer.BirthDate.Valid {
-		t.Fatalf("Singer birthdate is not null")
 	}
 }
 
@@ -179,13 +170,13 @@ func TestFindInBatches(t *testing.T) {
 	server.TestSpanner.PutStatementResult(
 		"SELECT * FROM `singers` ORDER BY `singers`.`singer_id` LIMIT 10",
 		&testutil.StatementResult{
-			Type: testutil.StatementResultResultSet,
+			Type:      testutil.StatementResultResultSet,
 			ResultSet: createRandomSingersResultSet(10),
 		})
 	server.TestSpanner.PutStatementResult(
 		"SELECT * FROM `singers` WHERE `singers`.`singer_id` > @p1 ORDER BY `singers`.`singer_id` LIMIT 10",
 		&testutil.StatementResult{
-			Type: testutil.StatementResultResultSet,
+			Type:      testutil.StatementResultResultSet,
 			ResultSet: createRandomSingersResultSet(5),
 		})
 
@@ -761,7 +752,7 @@ func createRandomSingersResultSet(rowCount int) *spannerpb.ResultSet {
 	singers := make([]Singer, rowCount)
 	for i, s := range singers {
 		s.SingerId = int64(i)
-		if rnd.Int() % 7 != 0 {
+		if rnd.Int()%7 != 0 {
 			s.FirstName = strPointer(fmt.Sprintf("First%d", rnd.Uint64()))
 		}
 		s.LastName = fmt.Sprintf("Last%d", rnd.Uint64())
@@ -771,14 +762,14 @@ func createRandomSingersResultSet(rowCount int) *spannerpb.ResultSet {
 }
 
 func randomDate(rnd *rand.Rand) spanner.NullDate {
-	if rnd.Int() % 7 == 0 {
+	if rnd.Int()%7 == 0 {
 		return spanner.NullDate{}
 	}
 	return spanner.NullDate{
-		Date:  civil.Date{
-			Year: rnd.Intn(110) + 1900,
+		Date: civil.Date{
+			Year:  rnd.Intn(110) + 1900,
 			Month: time.Month(rnd.Intn(12) + 1),
-			Day: rnd.Intn(28) + 1,
+			Day:   rnd.Intn(28) + 1,
 		},
 		Valid: true,
 	}
