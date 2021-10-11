@@ -21,6 +21,14 @@ var jsonFile = `{
       "exampleStatements": ["show variable autocommit_dml_mode"]
     },
     {
+      "name": "SHOW VARIABLE READ_ONLY_STALENESS",
+      "executorName": "ClientSideStatementNoParamExecutor",
+      "resultType": "RESULT_SET",
+      "regex": "(?is)\\A\\s*show\\s+variable\\s+read_only_staleness\\s*\\z",
+      "method": "statementShowReadOnlyStaleness",
+      "exampleStatements": ["show variable read_only_staleness"]
+    },
+    {
       "name": "START BATCH DDL",
       "executorName": "ClientSideStatementNoParamExecutor",
       "resultType": "NO_RESULT",
@@ -81,6 +89,34 @@ var jsonFile = `{
         "separator": "=",
         "allowedValues": "'(PARTITIONED_NON_ATOMIC|TRANSACTIONAL)'",
         "converterName": "ClientSideStatementValueConverters$AutocommitDmlModeConverter"
+      }
+    },
+    {
+      "name": "SET READ_ONLY_STALENESS = 'STRONG' | 'MIN_READ_TIMESTAMP <timestamp>' | 'READ_TIMESTAMP <timestamp>' | 'MAX_STALENESS <int64>s|ms|us|ns' | 'EXACT_STALENESS (<int64>s|ms|us|ns)'",
+      "executorName": "ClientSideStatementSetExecutor",
+      "resultType": "NO_RESULT",
+      "regex": "(?is)\\A\\s*set\\s+read_only_staleness\\s*(?:=)\\s*(.*)\\z",
+      "method": "statementSetReadOnlyStaleness",
+      "exampleStatements": ["set read_only_staleness='STRONG'",
+        "set read_only_staleness='MIN_READ_TIMESTAMP 2018-01-02T03:04:05.123-08:00'",
+        "set read_only_staleness='MIN_READ_TIMESTAMP 2018-01-02T03:04:05.123Z'",
+        "set read_only_staleness='MIN_READ_TIMESTAMP 2018-01-02T03:04:05.123+07:45'",
+        "set read_only_staleness='READ_TIMESTAMP 2018-01-02T03:04:05.54321-07:00'",
+        "set read_only_staleness='READ_TIMESTAMP 2018-01-02T03:04:05.54321Z'",
+        "set read_only_staleness='READ_TIMESTAMP 2018-01-02T03:04:05.54321+05:30'",
+        "set read_only_staleness='MAX_STALENESS 12s'",
+        "set read_only_staleness='MAX_STALENESS 100ms'",
+        "set read_only_staleness='MAX_STALENESS 99999us'",
+        "set read_only_staleness='MAX_STALENESS 10ns'",
+        "set read_only_staleness='EXACT_STALENESS 15s'",
+        "set read_only_staleness='EXACT_STALENESS 1500ms'",
+        "set read_only_staleness='EXACT_STALENESS 15000000us'",
+        "set read_only_staleness='EXACT_STALENESS 9999ns'"],
+      "setStatement": {
+        "propertyName": "READ_ONLY_STALENESS",
+        "separator": "=",
+        "allowedValues": "'((STRONG)|(MIN_READ_TIMESTAMP)[\\t ]+((\\d{4})-(\\d{2})-(\\d{2})([Tt](\\d{2}):(\\d{2}):(\\d{2})(\\.\\d{1,9})?)([Zz]|([+-])(\\d{2}):(\\d{2})))|(READ_TIMESTAMP)[\\t ]+((\\d{4})-(\\d{2})-(\\d{2})([Tt](\\d{2}):(\\d{2}):(\\d{2})(\\.\\d{1,9})?)([Zz]|([+-])(\\d{2}):(\\d{2})))|(MAX_STALENESS)[\\t ]+((\\d{1,19})(s|ms|us|ns))|(EXACT_STALENESS)[\\t ]+((\\d{1,19})(s|ms|us|ns)))'",
+        "converterName": "ClientSideStatementValueConverters$ReadOnlyStalenessConverter"
       }
     }
   ]

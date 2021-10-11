@@ -18,6 +18,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
@@ -129,6 +130,32 @@ func TestExtractDnsParts(t *testing.T) {
 	}
 }
 
+func TestConnection_Reset(t *testing.T) {
+	txClosed := false
+	c := conn{
+		readOnlyStaleness: spanner.ExactStaleness(time.Second),
+		batch:             &batch{tp: dml},
+		tx: &readOnlyTransaction{
+			close: func() {
+				txClosed = true
+			},
+		},
+	}
+
+	if err := c.ResetSession(context.Background()); err != nil {
+		t.Fatalf("failed to reset session: %v", err)
+	}
+	if !cmp.Equal(c.readOnlyStaleness, spanner.TimestampBound{}, cmp.AllowUnexported(spanner.TimestampBound{})) {
+		t.Error("failed to reset read-only staleness")
+	}
+	if c.inBatch() {
+		t.Error("failed to clear batch")
+	}
+	if !txClosed {
+		t.Error("failed to close transaction")
+	}
+}
+
 func TestConnection_NoNestedTransactions(t *testing.T) {
 	c := conn{
 		tx: &readOnlyTransaction{},
@@ -229,7 +256,7 @@ func TestConn_StartBatchDml(t *testing.T) {
 func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 	c := &conn{
 		batch: &batch{tp: ddl},
-		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) *spanner.RowIterator {
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
 		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
@@ -262,7 +289,7 @@ func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
 	c := &conn{
 		batch: &batch{tp: dml},
-		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) *spanner.RowIterator {
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
 		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {

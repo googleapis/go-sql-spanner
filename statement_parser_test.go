@@ -495,6 +495,14 @@ func TestFindParams(t *testing.T) {
 			input: "INSERT INTO Foo (Col1, Col2, Col3) VALUES (@param1, @param2, @param3)",
 			want:  []string{"param1", "param2", "param3"},
 		},
+		{
+			input: "SELECT * FROM PersonsTable@{FORCE_INDEX=`my_index`} WHERE id=@id AND name=@name",
+			want:  []string{"id", "name"},
+		},
+		{
+			input: "SELECT * FROM PersonsTable @{FORCE_INDEX=my_index} WHERE id=@id AND name=@name",
+			want:  []string{"id", "name"},
+		},
 	}
 	for _, tc := range tests {
 		sql, err := removeCommentsAndTrim(tc.input)

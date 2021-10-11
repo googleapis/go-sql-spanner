@@ -19,8 +19,10 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
@@ -56,6 +58,14 @@ func (s *statementExecutor) ShowRetryAbortsInternally(_ context.Context, c *conn
 
 func (s *statementExecutor) ShowAutocommitDmlMode(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
 	it, err := createStringIterator("AutocommitDMLMode", c.AutocommitDMLMode().String())
+	if err != nil {
+		return nil, err
+	}
+	return &rows{it: it}, nil
+}
+
+func (s *statementExecutor) ShowReadOnlyStaleness(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	it, err := createStringIterator("ReadOnlyStaleness", c.ReadOnlyStaleness().String())
 	if err != nil {
 		return nil, err
 	}
@@ -103,6 +113,87 @@ func (s *statementExecutor) SetAutocommitDmlMode(_ context.Context, c *conn, par
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid AutocommitDMLMode value: %s", params))
 	}
 	return c.setAutocommitDMLMode(mode)
+}
+
+var strongRegexp = regexp.MustCompile("(?i)'STRONG'")
+var exactStalenessRegexp = regexp.MustCompile("(?i)'(?P<type>EXACT_STALENESS)[\\t ]+(?P<duration>(\\d{1,19})(s|ms|us|ns))'")
+var maxStalenessRegexp = regexp.MustCompile("(?i)'(?P<type>MAX_STALENESS)[\\t ]+(?P<duration>(\\d{1,19})(s|ms|us|ns))'")
+var readTimestampRegexp = regexp.MustCompile("(?i)'(?P<type>READ_TIMESTAMP)[\\t ]+(?P<timestamp>(\\d{4})-(\\d{2})-(\\d{2})([Tt](\\d{2}):(\\d{2}):(\\d{2})(\\.\\d{1,9})?)([Zz]|([+-])(\\d{2}):(\\d{2})))'")
+var minReadTimestampRegexp = regexp.MustCompile("(?i)'(?P<type>MIN_READ_TIMESTAMP)[\\t ]+(?P<timestamp>(\\d{4})-(\\d{2})-(\\d{2})([Tt](\\d{2}):(\\d{2}):(\\d{2})(\\.\\d{1,9})?)([Zz]|([+-])(\\d{2}):(\\d{2})))'")
+
+func (s *statementExecutor) SetReadOnlyStaleness(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
+	if params == "" {
+		return nil, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "no value given for ReadOnlyStaleness"))
+	}
+	invalidErr := spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid ReadOnlyStaleness value: %s", params))
+
+	var staleness spanner.TimestampBound
+
+	if strongRegexp.MatchString(params) {
+		staleness = spanner.StrongRead()
+	} else if exactStalenessRegexp.MatchString(params) {
+		d, err := parseDuration(exactStalenessRegexp, params)
+		if err != nil {
+			return nil, err
+		}
+		staleness = spanner.ExactStaleness(d)
+	} else if maxStalenessRegexp.MatchString(params) {
+		d, err := parseDuration(maxStalenessRegexp, params)
+		if err != nil {
+			return nil, err
+		}
+		staleness = spanner.MaxStaleness(d)
+	} else if readTimestampRegexp.MatchString(params) {
+		t, err := parseTimestamp(readTimestampRegexp, params)
+		if err != nil {
+			return nil, err
+		}
+		staleness = spanner.ReadTimestamp(t)
+	} else if minReadTimestampRegexp.MatchString(params) {
+		t, err := parseTimestamp(minReadTimestampRegexp, params)
+		if err != nil {
+			return nil, err
+		}
+		staleness = spanner.MinReadTimestamp(t)
+	} else {
+		return nil, invalidErr
+	}
+	return c.setReadOnlyStaleness(staleness)
+}
+
+func parseDuration(re *regexp.Regexp, params string) (time.Duration, error) {
+	matches := matchesToMap(re, params)
+	if matches["duration"] == "" {
+		return 0, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "No duration found in staleness string"))
+	}
+	d, err := time.ParseDuration(matches["duration"])
+	if err != nil {
+		return 0, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Invalid duration: %s", matches["duration"]))
+	}
+	return d, nil
+}
+
+func parseTimestamp(re *regexp.Regexp, params string) (time.Time, error) {
+	matches := matchesToMap(re, params)
+	if matches["timestamp"] == "" {
+		return time.Time{}, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "No timestamp found in staleness string"))
+	}
+	t, err := time.Parse(time.RFC3339Nano, matches["timestamp"])
+	if err != nil {
+		return time.Time{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Invalid timestamp: %s", matches["timestamp"]))
+	}
+	return t, nil
+}
+
+func matchesToMap(re *regexp.Regexp, s string) map[string]string {
+	match := re.FindStringSubmatch(s)
+	matches := make(map[string]string)
+	for i, name := range re.SubexpNames() {
+		if i != 0 && name != "" {
+			matches[name] = match[i]
+		}
+	}
+	return matches
 }
 
 // createBooleanIterator creates a row iterator with a single BOOL column with
