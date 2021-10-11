@@ -226,8 +226,9 @@ func findParams(sql string) ([]string, error) {
 				lastCharWasEscapeChar = false
 			}
 		} else {
-			// We are not in a quoted string.
-			if c == paramPrefix && len(runes) > index+1 && !unicode.IsSpace(runes[index+1]) {
+			// We are not in a quoted string. It's a parameter if it is an '@' followed by a letter or an underscore.
+			// See https://cloud.google.com/spanner/docs/lexical#identifiers for identifier rules.
+			if c == paramPrefix && len(runes) > index+1 && (unicode.IsLetter(runes[index+1]) || runes[index+1] == '_') {
 				index++
 				startIndex := index
 				for index < len(runes) {
