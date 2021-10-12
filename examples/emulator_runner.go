@@ -34,6 +34,14 @@ import (
 var cli *client.Client
 var containerId string
 
+// RunSampleOnEmulator will run a sample function against a Spanner emulator instance in a Docker container.
+// It requires Docker to be installed your local system to work.
+//
+// It will execute the following steps:
+// 1. Start a Spanner emulator in a Docker container.
+// 2. Create a sample instance and database on the emulator.
+// 3. Execute the sample function against the emulator.
+// 4. Stop the Docker container with the emulator.
 func RunSampleOnEmulator(sample func(string, string, string) error, ddlStatements ...string) {
 	var err error
 	if err = startEmulator(); err != nil {

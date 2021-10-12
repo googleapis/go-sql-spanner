@@ -23,6 +23,9 @@ import (
 	"github.com/cloudspannerecosystem/go-sql-spanner/examples"
 )
 
+// Simple sample application that shows how to use the Spanner Go sql driver.
+//
+// Execute the sample with the command `go run main.go` from this directory.
 func helloWorld(projectId, instanceId, databaseId string) error {
 	ctx := context.Background()
 	db, err := sql.Open("spanner", fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId))
