@@ -27,7 +27,7 @@ var createTableStatement = "CREATE TABLE Singers (SingerId INT64, Name STRING(MA
 
 // Example for executing a read/write transaction on a Google Cloud Spanner database.
 //
-// Execute the sample with the command `go run main` from this directory.
+// Execute the sample with the command `go run main.go` from this directory.
 func transaction(projectId, instanceId, databaseId string) error {
 	ctx := context.Background()
 	db, err := sql.Open("spanner", fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId))

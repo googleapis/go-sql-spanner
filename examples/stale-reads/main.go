@@ -36,7 +36,7 @@ var createTableStatement = "CREATE TABLE Singers (SingerId INT64, Name STRING(MA
 // 'EXACT_STALENESS <int64>s|ms|us|ns' (example: 'EXACT_STALENESS 10s' for 10 seconds)
 // 'MAX_STALENESS <int64>s|ms|us|ns' (only for single queries outside a multi-use read-only transaction)
 //
-// Execute the sample with the command `go run main` from this directory.
+// Execute the sample with the command `go run main.go` from this directory.
 func staleReads(projectId, instanceId, databaseId string) error {
 	ctx := context.Background()
 	db, err := sql.Open("spanner", fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId))
