@@ -41,6 +41,10 @@ func readOnlyTransaction(projectId, instanceId, databaseId string) error {
 	if err != nil {
 		return err
 	}
+	// Committing or rolling back a read-only transaction will not execute an actual Commit or Rollback
+	// on the database, but it is needed in order to release the resources that are held by the read-only
+	// transaction.
+	defer tx.Commit()
 
 	// Verify that the Singers table is empty.
 	var c int64
@@ -62,24 +66,17 @@ func readOnlyTransaction(projectId, instanceId, databaseId string) error {
 	}
 	fmt.Printf("Singers count as seen in the read-only transaction is %v\n", c)
 
-	// Commit the read-only transaction to release the resources it is using.
-	// Committing or rolling back a read-only transaction will execute an actual Commit or Rollback on the database,
-	// but it is needed in order to release the resources that are held by the read-only transaction.
-	_ = tx.Commit()
-
 	// Start a new read-only transaction on the Spanner database. This transaction will be started after the new test
 	// row was inserted, and the test row should now be visible to the read-only transaction.
 	tx, err = db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return err
 	}
+	defer tx.Commit()
 	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM Singers").Scan(&c); err != nil {
 		return err
 	}
 	fmt.Printf("Singers count in a new read-only transaction is %v\n", c)
-
-	// Also end the second read-only transaction.
-	_ = tx.Commit()
 
 	return nil
 }
