@@ -27,7 +27,7 @@ var createTableStatement = "CREATE TABLE Singers (SingerId INT64, Name STRING(MA
 
 // Sample showing how to execute a read-only transaction on a Spanner database.
 //
-// Execute the sample with the command `go run main` from this directory.
+// Execute the sample with the command `go run main.go` from this directory.
 func readOnlyTransaction(projectId, instanceId, databaseId string) error {
 	ctx := context.Background()
 	db, err := sql.Open("spanner", fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId))
