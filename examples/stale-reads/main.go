@@ -26,6 +26,17 @@ import (
 
 var createTableStatement = "CREATE TABLE Singers (SingerId INT64, Name STRING(MAX)) PRIMARY KEY (SingerId)"
 
+// Example for executing read-only transactions with a different timestamp bound than Strong. Both single-use and
+// multi-use read-only transactions can be set up to use a different timestamp bound by executing a
+// `SET READ_ONLY_STALENESS=<staleness>` statement before executing the read-only transaction. `<staleness>` must
+// be one of the following:
+//
+// 'READ_TIMESTAMP yyyy-mm-ddTHH:mi:ssZ'
+// 'MIN_READ_TIMESTAMP yyyy-mm-ddTHH:mi:ssZ' (only for single queries outside a multi-use read-only transaction)
+// 'EXACT_STALENESS <int64>s|ms|us|ns' (example: 'EXACT_STALENESS 10s' for 10 seconds)
+// 'MAX_STALENESS <int64>s|ms|us|ns' (only for single queries outside a multi-use read-only transaction)
+//
+// Execute the sample with the command `go run main` from this directory.
 func staleReads(projectId, instanceId, databaseId string) error {
 	ctx := context.Background()
 	db, err := sql.Open("spanner", fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId))
