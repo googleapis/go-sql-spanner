@@ -76,7 +76,7 @@ func dmlBatch(projectId, instanceId, databaseId string) error {
 	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM Singers").Scan(&c); err != nil {
 		return fmt.Errorf("failed to get singers count: %v", err)
 	}
-	fmt.Printf("# Singer records after first batch: %v\n", c)
+	fmt.Printf("# of Singer records after first batch: %v\n", c)
 
 	// A DML batch can also be executed using the StartBatchDML and RunBatch methods on the SpannerConn interface.
 	// A DML batch also does not need to be executed on a transaction.
@@ -102,7 +102,7 @@ func dmlBatch(projectId, instanceId, databaseId string) error {
 	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM Singers").Scan(&c); err != nil {
 		return fmt.Errorf("failed to get singers count: %v", err)
 	}
-	fmt.Printf("# Singer records after second batch: %v\n", c)
+	fmt.Printf("# of Singer records after second batch: %v\n", c)
 
 	return nil
 }
