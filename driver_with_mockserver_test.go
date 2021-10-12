@@ -506,8 +506,8 @@ func TestQueryWithAllTypes(t *testing.T) {
 		var bt []byte
 		var i int64
 		var f float64
-		var r spanner.NullNumeric
-		var d spanner.NullDate
+		var r big.Rat
+		var d civil.Date
 		var ts time.Time
 		var j spanner.NullJSON
 		var bArray []spanner.NullBool
@@ -538,10 +538,10 @@ func TestQueryWithAllTypes(t *testing.T) {
 		if g, w := f, 3.14; g != w {
 			t.Errorf("row value mismatch for float64\nGot: %v\nWant: %v", g, w)
 		}
-		if g, w := r, numeric("6.626"); g.Numeric.Cmp(&w) != 0 {
+		if g, w := r, numeric("6.626"); g.Cmp(&w) != 0 {
 			t.Errorf("row value mismatch for numeric\nGot: %v\nWant: %v", g, w)
 		}
-		if g, w := d, nullDate(true, "2021-07-21"); !cmp.Equal(g, w) {
+		if g, w := d, date("2021-07-21"); !cmp.Equal(g, w) {
 			t.Errorf("row value mismatch for date\nGot: %v\nWant: %v", g, w)
 		}
 		if g, w := ts, time.Date(2021, 7, 21, 21, 7, 59, 339911800, time.UTC); g != w {
