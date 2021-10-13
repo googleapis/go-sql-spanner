@@ -278,9 +278,9 @@ type SpannerConn interface {
 	// See also spanner.ReadWriteTransaction#BufferWrite
 	BufferWrite(ms []*spanner.Mutation) error
 
-	// CommitTimestamp returns the commit timestamp of the last read/write transaction that was executed on
-	// the connection, or an error if the connection has not executed a read/write transaction that committed
-	// successfully.
+	// CommitTimestamp returns the commit timestamp of the last implicit or explicit read/write transaction that
+	// was executed on the connection, or an error if the connection has not executed a read/write transaction
+	// that committed successfully. The timestamp is in the local timezone.
 	CommitTimestamp() (commitTimestamp time.Time, err error)
 }
 

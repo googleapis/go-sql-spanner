@@ -65,7 +65,17 @@ func commitTimestamp(projectId, instanceId, databaseId string) error {
 	}); err != nil {
 		return fmt.Errorf("failed to get commit timestamp: %v", err)
 	}
-	fmt.Printf("Transaction committed at %v\n", ct)
+
+	// The commit timestamp can also be obtained by executing the custom SQL statement `SHOW VARIABLE COMMIT_TIMESTAMP`
+	var ct2 time.Time
+	if err := conn.QueryRowContext(ctx, "SHOW VARIABLE COMMIT_TIMESTAMP").Scan(&ct2); err != nil {
+		return fmt.Errorf("failed to execute SHOW VARIABLE COMMIT_TIMESTAMP")
+	}
+
+	// The commit timestamp that is obtained directly from the connection is in the local timezone.
+	fmt.Printf("Transaction committed at                %v\n", ct)
+	// The commit timestamp that is obtained through SHOW VARIABLE COMMIT_TIMESTAMP is in UTC.
+	fmt.Printf("SHOW VARIABLE COMMIT_TIMESTAMP returned %v\n", ct2)
 
 	return nil
 }
