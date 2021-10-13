@@ -84,11 +84,11 @@ func ddlBatches(projectId, instanceId, databaseId string) error {
 	// Get the number of tables and indexes.
 	var tc int64
 	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_CATALOG='' AND TABLE_SCHEMA=''").Scan(&tc); err != nil {
-		return fmt.Errorf( "failed to execute count tables query: %v", err)
+		return fmt.Errorf("failed to execute count tables query: %v", err)
 	}
 	var ic int64
 	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.INDEXES WHERE TABLE_CATALOG='' AND TABLE_SCHEMA='' AND INDEX_TYPE != 'PRIMARY_KEY'").Scan(&ic); err != nil {
-		return fmt.Errorf( "failed to execute count indexes query: %v", err)
+		return fmt.Errorf("failed to execute count indexes query: %v", err)
 	}
 	fmt.Println()
 	fmt.Printf("The database now contains %v tables and %v indexes\n", tc, ic)

@@ -274,3 +274,47 @@ func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
 		}
 	}
 }
+
+func TestShowCommitTimestamp(t *testing.T) {
+	t.Parallel()
+
+	c := &conn{retryAborts: true}
+	s := &statementExecutor{}
+	ctx := context.Background()
+
+	ts := time.Now()
+	for _, test := range []struct {
+		wantValue *time.Time
+	}{
+		{&ts},
+		{nil},
+	} {
+		c.commitTs = test.wantValue
+
+		it, err := s.ShowCommitTimestamp(ctx, c, "", nil)
+		if err != nil {
+			t.Fatalf("could not get current commit timestamp from connection: %v", err)
+		}
+		cols := it.Columns()
+		wantCols := []string{"CommitTimestamp"}
+		if !cmp.Equal(cols, wantCols) {
+			t.Fatalf("column names mismatch\nGot: %v\nWant: %v", cols, wantCols)
+		}
+		values := make([]driver.Value, len(cols))
+		if err := it.Next(values); err != nil {
+			t.Fatalf("failed to get first row for commit timestamp: %v", err)
+		}
+		var wantValues []driver.Value
+		if test.wantValue != nil {
+			wantValues = []driver.Value{*test.wantValue}
+		} else {
+			wantValues = []driver.Value{nil}
+		}
+		if !cmp.Equal(values, wantValues) {
+			t.Fatalf("commit timestamp values mismatch\nGot: %v\nWant: %v", values, wantValues)
+		}
+		if err := it.Next(values); err != io.EOF {
+			t.Fatalf("error mismatch\nGot: %v\nWant: %v", err, io.EOF)
+		}
+	}
+}
