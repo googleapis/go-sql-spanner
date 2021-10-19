@@ -22,6 +22,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
+	"google.golang.org/grpc/codes"
 )
 
 func TestExtractDnsParts(t *testing.T) {
@@ -135,6 +136,7 @@ func TestConnection_Reset(t *testing.T) {
 	c := conn{
 		readOnlyStaleness: spanner.ExactStaleness(time.Second),
 		batch:             &batch{tp: dml},
+		commitTs:          &time.Time{},
 		tx: &readOnlyTransaction{
 			close: func() {
 				txClosed = true
@@ -150,6 +152,9 @@ func TestConnection_Reset(t *testing.T) {
 	}
 	if c.inBatch() {
 		t.Error("failed to clear batch")
+	}
+	if c.commitTs != nil {
+		t.Errorf("failed to clear commit timestamp")
 	}
 	if !txClosed {
 		t.Error("failed to close transaction")
@@ -259,8 +264,8 @@ func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
-			return 0, nil
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, time.Time, error) {
+			return 0, time.Time{}, nil
 		},
 		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
 			return 0, nil
@@ -292,8 +297,8 @@ func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
-			return 0, nil
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, time.Time, error) {
+			return 0, time.Time{}, nil
 		},
 		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
 			return 0, nil
@@ -317,5 +322,53 @@ func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
 	// Executing a single query during a DML batch is allowed.
 	if _, err := c.QueryContext(ctx, "SELECT * FROM Foo", []driver.NamedValue{}); err != nil {
 		t.Fatalf("executing query failed: %v", err)
+	}
+}
+
+func TestConn_GetCommitTimestampAfterAutocommitDml(t *testing.T) {
+	want := time.Now()
+	c := &conn{
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound) *spanner.RowIterator {
+			return &spanner.RowIterator{}
+		},
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, time.Time, error) {
+			return 0, want, nil
+		},
+		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
+			return 0, nil
+		},
+	}
+	ctx := context.Background()
+	if _, err := c.ExecContext(ctx, "UPDATE FOO SET BAR=1 WHERE TRUE", []driver.NamedValue{}); err != nil {
+		t.Fatalf("failed to execute DML statement: %v", err)
+	}
+	got, err := c.CommitTimestamp()
+	if err != nil {
+		t.Fatalf("failed to get commit timestamp: %v", err)
+	}
+	if !cmp.Equal(want, got) {
+		t.Fatalf("commit timestamp mismatch\n Got: %v\nWant: %v", got, want)
+	}
+}
+
+func TestConn_GetCommitTimestampAfterAutocommitQuery(t *testing.T) {
+	c := &conn{
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound) *spanner.RowIterator {
+			return &spanner.RowIterator{}
+		},
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, time.Time, error) {
+			return 0, time.Time{}, nil
+		},
+		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
+			return 0, nil
+		},
+	}
+	ctx := context.Background()
+	if _, err := c.QueryContext(ctx, "SELECT * FROM Foo", []driver.NamedValue{}); err != nil {
+		t.Fatalf("failed to execute query: %v", err)
+	}
+	_, err := c.CommitTimestamp()
+	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }

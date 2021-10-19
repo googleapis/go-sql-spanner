@@ -19,6 +19,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/gob"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
@@ -135,7 +136,7 @@ type readWriteTransaction struct {
 	rwTx *spanner.ReadWriteStmtBasedTransaction
 	// batch is any DML batch that is active for this transaction.
 	batch *batch
-	close func()
+	close func(commitTs *time.Time, commitErr error)
 	// retryAborts indicates whether this transaction will automatically retry
 	// the transaction if it is aborted by Spanner. The default is true.
 	retryAborts bool
@@ -264,19 +265,20 @@ func (tx *readWriteTransaction) retry(ctx context.Context) (err error) {
 // aborted by Spanner, the entire transaction will automatically be retried,
 // unless internal retries have been disabled.
 func (tx *readWriteTransaction) Commit() (err error) {
+	var commitTs time.Time
 	if tx.rwTx != nil {
 		if !tx.retryAborts {
-			_, err := tx.rwTx.Commit(tx.ctx)
-			tx.close()
+			ts, err := tx.rwTx.Commit(tx.ctx)
+			tx.close(&ts, err)
 			return err
 		}
 
-		err = tx.runWithRetry(tx.ctx, func(ctx context.Context) error {
-			_, err := tx.rwTx.Commit(ctx)
+		err = tx.runWithRetry(tx.ctx, func(ctx context.Context) (err error) {
+			commitTs, err = tx.rwTx.Commit(ctx)
 			return err
 		})
 	}
-	tx.close()
+	tx.close(&commitTs, err)
 	return err
 }
 
@@ -286,7 +288,7 @@ func (tx *readWriteTransaction) Rollback() error {
 	if tx.rwTx != nil {
 		tx.rwTx.Rollback(tx.ctx)
 	}
-	tx.close()
+	tx.close(nil, nil)
 	return nil
 }
 

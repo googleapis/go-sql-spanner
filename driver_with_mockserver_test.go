@@ -1704,7 +1704,160 @@ func TestTransactionBatchDml(t *testing.T) {
 	if len(commitRequests) != 1 {
 		t.Fatalf("Commit requests count mismatch\nGot: %v\nWant: %v", len(commitRequests), 1)
 	}
+}
 
+func TestCommitTimestamp(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	defer conn.Close()
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("failed to start transaction: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit failed: %v", err)
+	}
+	// Get the commit timestamp from the connection.
+	// We do this in a simple loop to verify that we can get it multiple times.
+	for i := 0; i < 2; i++ {
+		var ts time.Time
+		if err := conn.Raw(func(driverConn interface{}) error {
+			ts, err = driverConn.(SpannerConn).CommitTimestamp()
+			return err
+		}); err != nil {
+			t.Fatalf("failed to get commit timestamp: %v", err)
+		}
+		if cmp.Equal(time.Time{}, ts) {
+			t.Fatalf("got zero commit timestamp: %v", ts)
+		}
+	}
+}
+
+func TestCommitTimestampAutocommit(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	defer conn.Close()
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+	if _, err := conn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("failed to execute update: %v", err)
+	}
+	// Get the commit timestamp from the connection.
+	// We do this in a simple loop to verify that we can get it multiple times.
+	for i := 0; i < 2; i++ {
+		var ts time.Time
+		if err := conn.Raw(func(driverConn interface{}) error {
+			ts, err = driverConn.(SpannerConn).CommitTimestamp()
+			return err
+		}); err != nil {
+			t.Fatalf("failed to get commit timestamp: %v", err)
+		}
+		if cmp.Equal(time.Time{}, ts) {
+			t.Fatalf("got zero commit timestamp: %v", ts)
+		}
+	}
+}
+
+func TestCommitTimestampFailsAfterRollback(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	defer conn.Close()
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("failed to start transaction: %v", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("rollback failed: %v", err)
+	}
+	// Try to get the commit timestamp from the connection.
+	err = conn.Raw(func(driverConn interface{}) error {
+		_, err = driverConn.(SpannerConn).CommitTimestamp()
+		return err
+	})
+	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Fatalf("get commit timestamp error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestCommitTimestampFailsAfterAutocommitQuery(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	defer conn.Close()
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+	var v string
+	if err := conn.QueryRowContext(ctx, testutil.SelectFooFromBar).Scan(&v); err != nil {
+		t.Fatalf("failed to execute query: %v", err)
+	}
+	// Try to get the commit timestamp from the connection. This should not be possible as a query in autocommit mode
+	// will not return a commit timestamp.
+	err = conn.Raw(func(driverConn interface{}) error {
+		_, err = driverConn.(SpannerConn).CommitTimestamp()
+		return err
+	})
+	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Fatalf("get commit timestamp error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestShowVariableCommitTimestamp(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	defer conn.Close()
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("failed to start transaction: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit failed: %v", err)
+	}
+	// Get the commit timestamp from the connection using a custom SQL statement.
+	// We do this in a simple loop to verify that we can get it multiple times.
+	for i := 0; i < 2; i++ {
+		var ts time.Time
+		if err := conn.QueryRowContext(ctx, "SHOW VARIABLE COMMIT_TIMESTAMP").Scan(&ts); err != nil {
+			t.Fatalf("failed to get commit timestamp: %v", err)
+		}
+		if cmp.Equal(time.Time{}, ts) {
+			t.Fatalf("got zero commit timestamp: %v", ts)
+		}
+	}
 }
 
 func numeric(v string) big.Rat {

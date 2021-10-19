@@ -48,6 +48,19 @@ import (
 type statementExecutor struct {
 }
 
+func (s *statementExecutor) ShowCommitTimestamp(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	ts, err := c.CommitTimestamp()
+	var commitTs *time.Time
+	if err == nil {
+		commitTs = &ts
+	}
+	it, err := createTimestampIterator("CommitTimestamp", commitTs)
+	if err != nil {
+		return nil, err
+	}
+	return &rows{it: it}, nil
+}
+
 func (s *statementExecutor) ShowRetryAbortsInternally(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
 	it, err := createBooleanIterator("RetryAbortsInternally", c.RetryAbortsInternally())
 	if err != nil {
@@ -208,6 +221,13 @@ func createBooleanIterator(column string, value bool) (*clientSideIterator, erro
 // containing a STRING value.
 func createStringIterator(column string, value string) (*clientSideIterator, error) {
 	return createSingleValueIterator(column, value, sppb.TypeCode_STRING)
+}
+
+// createTimestampIterator creates a row iterator with a single TIMESTAMP column with
+// one row. This is used for client side statements that return a result set
+// containing a TIMESTAMP value.
+func createTimestampIterator(column string, value *time.Time) (*clientSideIterator, error) {
+	return createSingleValueIterator(column, value, sppb.TypeCode_TIMESTAMP)
 }
 
 func createSingleValueIterator(column string, value interface{}, code sppb.TypeCode) (*clientSideIterator, error) {
