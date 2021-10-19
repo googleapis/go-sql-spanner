@@ -70,11 +70,11 @@ func dataTypes(projectId, instanceId, databaseId string) error {
                       boolArray, stringArray, bytesArray, int64Array, float64Array, numericArray, dateArray, timestampArray) 
                       VALUES (@key, @bool, @string, @bytes, @int64, @float64, @numeric, @date, @timestamp,
                               @boolArray, @stringArray, @bytesArray, @int64Array, @float64Array, @numericArray, @dateArray, @timestampArray)`,
-                              1, true, "string", []byte("bytes"), 100, 3.14, *big.NewRat(1, 1), civil.DateOf(time.Now()), time.Now(),
-                              []bool{true, false}, []string{"s1", "s2"}, [][]byte{[]byte("b1"), []byte("b2")}, []int64{1,2},
-                              []float64{1.1, 2.2}, []big.Rat{*big.NewRat(1, 2), *big.NewRat(1, 3)},
-                              []civil.Date{{2021, 10, 12}, {2021, 10, 13}},
-                              []time.Time{time.Now(), time.Now().Add(24 * time.Hour)}); err != nil {
+		1, true, "string", []byte("bytes"), 100, 3.14, *big.NewRat(1, 1), civil.DateOf(time.Now()), time.Now(),
+		[]bool{true, false}, []string{"s1", "s2"}, [][]byte{[]byte("b1"), []byte("b2")}, []int64{1, 2},
+		[]float64{1.1, 2.2}, []big.Rat{*big.NewRat(1, 2), *big.NewRat(1, 3)},
+		[]civil.Date{{2021, 10, 12}, {2021, 10, 13}},
+		[]time.Time{time.Now(), time.Now().Add(24 * time.Hour)}); err != nil {
 		return fmt.Errorf("failed to insert a record with all non-null values using DML: %v", err)
 	}
 	fmt.Print("Inserted a test record with all non-null values\n")
@@ -95,10 +95,9 @@ func dataTypes(projectId, instanceId, databaseId string) error {
 	}
 	fmt.Print("Inserted a test record with all typed null values\n")
 
-	// The Go sql driver also supports inserting untyped nil values for NULL values.
-	// Cloud Spanner also supports untyped NULL values.
-	// The Spanner emulator however does not (yet) support this, which is why this part of the code sample is
-	// currently disabled on the emulator.
+	// The Go sql driver supports inserting untyped nil values for NULL values. Cloud Spanner also supports untyped NULL
+	// values. The Spanner emulator however does not (yet) support this, which is why this part of the code sample is
+	// currently disabled on the emulator. Running it against a real Cloud Spanner database works.
 	if os.Getenv("SPANNER_EMULATOR_HOST") == "" {
 		if _, err := db.ExecContext(ctx, `INSERT INTO AllTypes (
                       key, bool, string, bytes, int64, float64, numeric, date, timestamp,
@@ -113,7 +112,7 @@ func dataTypes(projectId, instanceId, databaseId string) error {
 	}
 
 	// You can use the same types for getting data from a column as for setting the data in a statement parameter,
-	// except for ARRAY columns. Arrays must be stored in a []spanner.NullNumeric variable, as arrays may always
+	// except for ARRAY columns. Arrays must be stored in a []spanner.Null* variable, as all arrays may always
 	// contain NULL elements in the array.
 	var r1 nativeTypes
 	if err := db.QueryRowContext(ctx, "SELECT * FROM AllTypes WHERE key=@key", 1).Scan(
@@ -124,8 +123,7 @@ func dataTypes(projectId, instanceId, databaseId string) error {
 	}
 	fmt.Print("Queried a test record with all non-null values\n")
 
-	// You can also use the spanner.Null* types to get data. These types can store both non-null and
-	// null values.
+	// You can also use the spanner.Null* types to get data. These types can store both non-null and null values.
 	var r2 nullTypes
 	if err := db.QueryRowContext(ctx, "SELECT * FROM AllTypes WHERE key=@key", 1).Scan(
 		&r2.key, &r2.bool, &r2.string, &r2.bytes, &r2.int64, &r2.float64, &r2.numeric, &r2.date, &r2.timestamp,
@@ -151,66 +149,66 @@ func dataTypes(projectId, instanceId, databaseId string) error {
 }
 
 type nativeTypes struct {
-	key int64
-	bool bool
-	string string
-	bytes []byte
-	int64 int64
-	float64 float64
-	numeric big.Rat
-	date civil.Date
+	key       int64
+	bool      bool
+	string    string
+	bytes     []byte
+	int64     int64
+	float64   float64
+	numeric   big.Rat
+	date      civil.Date
 	timestamp time.Time
 	// Array types must always use the Null* types, because an array may always
 	// contain NULL elements in the array itself (even if the ARRAY column is
 	// defined as NOT NULL).
-	boolArray []spanner.NullBool
-	stringArray []spanner.NullString
-	bytesArray [][]byte
-	int64Array []spanner.NullInt64
-	float64Array []spanner.NullFloat64
-	numericArray []spanner.NullNumeric
-	dateArray []spanner.NullDate
+	boolArray      []spanner.NullBool
+	stringArray    []spanner.NullString
+	bytesArray     [][]byte
+	int64Array     []spanner.NullInt64
+	float64Array   []spanner.NullFloat64
+	numericArray   []spanner.NullNumeric
+	dateArray      []spanner.NullDate
 	timestampArray []spanner.NullTime
 }
 
 type nullTypes struct {
-	key int64
-	bool spanner.NullBool
-	string spanner.NullString
-	bytes []byte // There is no spanner.NullBytes type
-	int64 spanner.NullInt64
-	float64 spanner.NullFloat64
-	numeric spanner.NullNumeric
-	date spanner.NullDate
-	timestamp spanner.NullTime
-	boolArray []spanner.NullBool
-	stringArray []spanner.NullString
-	bytesArray [][]byte
-	int64Array []spanner.NullInt64
-	float64Array []spanner.NullFloat64
-	numericArray []spanner.NullNumeric
-	dateArray []spanner.NullDate
+	key            int64
+	bool           spanner.NullBool
+	string         spanner.NullString
+	bytes          []byte // There is no spanner.NullBytes type
+	int64          spanner.NullInt64
+	float64        spanner.NullFloat64
+	numeric        spanner.NullNumeric
+	date           spanner.NullDate
+	timestamp      spanner.NullTime
+	boolArray      []spanner.NullBool
+	stringArray    []spanner.NullString
+	bytesArray     [][]byte
+	int64Array     []spanner.NullInt64
+	float64Array   []spanner.NullFloat64
+	numericArray   []spanner.NullNumeric
+	dateArray      []spanner.NullDate
 	timestampArray []spanner.NullTime
 }
 
 type sqlNullTypes struct {
-	key int64
-	bool sql.NullBool
-	string sql.NullString
-	bytes []byte // There is no sql.NullBytes type
-	int64 sql.NullInt64
-	float64 sql.NullFloat64
-	numeric spanner.NullNumeric // There is no sql.NullNumeric type
-	date spanner.NullDate // There is no sql.NullDate type
+	key       int64
+	bool      sql.NullBool
+	string    sql.NullString
+	bytes     []byte // There is no sql.NullBytes type
+	int64     sql.NullInt64
+	float64   sql.NullFloat64
+	numeric   spanner.NullNumeric // There is no sql.NullNumeric type
+	date      spanner.NullDate    // There is no sql.NullDate type
 	timestamp spanner.NullTime
-	// Array types must always use the spanner.Null versions.
-	boolArray []spanner.NullBool
-	stringArray []spanner.NullString
-	bytesArray [][]byte
-	int64Array []spanner.NullInt64
-	float64Array []spanner.NullFloat64
-	numericArray []spanner.NullNumeric
-	dateArray []spanner.NullDate
+	// Array types must always use the spanner.Null* structs.
+	boolArray      []spanner.NullBool
+	stringArray    []spanner.NullString
+	bytesArray     [][]byte
+	int64Array     []spanner.NullInt64
+	float64Array   []spanner.NullFloat64
+	numericArray   []spanner.NullNumeric
+	dateArray      []spanner.NullDate
 	timestampArray []spanner.NullTime
 }
 
