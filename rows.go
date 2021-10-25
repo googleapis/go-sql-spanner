@@ -132,10 +132,11 @@ func (r *rows) Next(dest []driver.Value) error {
 			if err := col.Decode(&v); err != nil {
 				return err
 			}
-			// We always assign `v` to dest[i] here because there is no native type
-			// for numeric in the Go sql package. That means that instead of returning
-			// nil we should return a NullNumeric with valid=false.
-			dest[i] = v
+			if v.Valid {
+				dest[i] = v.Numeric
+			} else {
+				dest[i] = nil
+			}
 		case sppb.TypeCode_STRING:
 			var v spanner.NullString
 			if err := col.Decode(&v); err != nil {
@@ -177,10 +178,11 @@ func (r *rows) Next(dest []driver.Value) error {
 			if err := col.Decode(&v); err != nil {
 				return err
 			}
-			// We always assign `v` to dest[i] here because there is no native type
-			// for date in the Go sql package. That means that instead of returning
-			// nil we should return a NullDate with valid=false.
-			dest[i] = v
+			if v.Valid {
+				dest[i] = v.Date
+			} else {
+				dest[i] = nil
+			}
 		case sppb.TypeCode_TIMESTAMP:
 			var v spanner.NullTime
 			if err := col.Decode(&v); err != nil {
