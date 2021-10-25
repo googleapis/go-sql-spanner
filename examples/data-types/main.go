@@ -200,7 +200,7 @@ type sqlNullTypes struct {
 	float64   sql.NullFloat64
 	numeric   spanner.NullNumeric // There is no sql.NullNumeric type
 	date      spanner.NullDate    // There is no sql.NullDate type
-	timestamp spanner.NullTime
+	timestamp sql.NullTime
 	// Array types must always use the spanner.Null* structs.
 	boolArray      []spanner.NullBool
 	stringArray    []spanner.NullString
