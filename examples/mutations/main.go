@@ -27,6 +27,10 @@ import (
 
 var createTableStatement = "CREATE TABLE Singers (SingerId INT64, Name STRING(MAX)) PRIMARY KEY (SingerId)"
 
+// Example that shows how to use Mutations to insert data in a Cloud Spanner database using the Go sql driver.
+// Mutations can be more efficient than DML statements for bulk insert/update operations.
+//
+// Execute the sample with the command `go run main.go` from this directory.
 func mutations(projectId, instanceId, databaseId string) error {
 	ctx := context.Background()
 	db, err := sql.Open("spanner", fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId))

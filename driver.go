@@ -42,6 +42,13 @@ const userAgent = "go-sql-spanner/0.1"
 // 1. (Optional) Host: The host name and port number to connect to.
 // 2. Database name: The database name to connect to in the format `projects/my-project/instances/my-instance/databases/my-database`
 // 3. (Optional) Parameters: One or more parameters in the format `name=value`. Multiple entries are separated by `;`.
+//    The supported parameters are:
+//    - credentials: File name for the credentials to use. The connection will use the default credentials of the
+//                   environment if no credentials file is specified in the connection string.
+//    - usePlainText: Boolean that indicates whether the connection should use plain text communication or not. Set this
+//                    to true to connect to local mock servers that do not use SSL.
+//    - retryAbortsInternally: Boolean that indicates whether the connection should automatically retry aborted errors.
+//                             The default is true.
 // Example: `localhost:9010/projects/test-project/instances/test-instance/databases/test-database;usePlainText=true`
 var dsnRegExp = regexp.MustCompile("((?P<HOSTGROUP>[\\w.-]+(?:\\.[\\w\\.-]+)*[\\w\\-\\._~:/?#\\[\\]@!\\$&'\\(\\)\\*\\+,;=.]+)/)?projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID)))(/instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+)(/databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?)?(([\\?|;])(?P<PARAMSGROUP>.*))?")
 
@@ -149,6 +156,9 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 	opts := make([]option.ClientOption, 0)
 	if connectorConfig.host != "" {
 		opts = append(opts, option.WithEndpoint(connectorConfig.host))
+	}
+	if strval, ok := connectorConfig.params["credentials"]; ok {
+		opts = append(opts, option.WithCredentialsFile(strval))
 	}
 	if strval, ok := connectorConfig.params["useplaintext"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil && val {
@@ -277,6 +287,11 @@ type SpannerConn interface {
 	// connection is in a read/write transaction. Use Apply to write mutations outside a transaction.
 	// See also spanner.ReadWriteTransaction#BufferWrite
 	BufferWrite(ms []*spanner.Mutation) error
+
+	// CommitTimestamp returns the commit timestamp of the last implicit or explicit read/write transaction that
+	// was executed on the connection, or an error if the connection has not executed a read/write transaction
+	// that committed successfully. The timestamp is in the local timezone.
+	CommitTimestamp() (commitTimestamp time.Time, err error)
 }
 
 type conn struct {
@@ -284,11 +299,12 @@ type conn struct {
 	client      *spanner.Client
 	adminClient *adminapi.DatabaseAdminClient
 	tx          contextTransaction
+	commitTs    *time.Time
 	database    string
 	retryAborts bool
 
 	execSingleQuery            func(ctx context.Context, c *spanner.Client, statement spanner.Statement, bound spanner.TimestampBound) *spanner.RowIterator
-	execSingleDMLTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error)
+	execSingleDMLTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, time.Time, error)
 	execSingleDMLPartitioned   func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error)
 
 	// batch is the currently active DDL or DML batch on this connection.
@@ -334,6 +350,13 @@ const (
 	Transactional AutocommitDMLMode = iota
 	PartitionedNonAtomic
 )
+
+func (c *conn) CommitTimestamp() (time.Time, error) {
+	if c.commitTs == nil {
+		return time.Time{}, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "this connection has not executed a read/write transaction that committed successfully"))
+	}
+	return *c.commitTs, nil
+}
 
 func (c *conn) RetryAbortsInternally() bool {
 	return c.retryAborts
@@ -587,6 +610,7 @@ func (c *conn) ResetSession(_ context.Context) error {
 			return driver.ErrBadConn
 		}
 	}
+	c.commitTs = nil
 	c.batch = nil
 	c.retryAborts = true
 	c.autocommitDMLMode = Transactional
@@ -688,6 +712,8 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 	if clientStmt != nil {
 		return clientStmt.QueryContext(ctx, args)
 	}
+	// Clear the commit timestamp of this connection before we execute the query.
+	c.commitTs = nil
 
 	stmt, err := prepareSpannerStmt(query, args)
 	if err != nil {
@@ -711,6 +737,8 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 	if stmt != nil {
 		return stmt.ExecContext(ctx, args)
 	}
+	// Clear the commit timestamp of this connection before we execute the statement.
+	c.commitTs = nil
 
 	// Use admin API if DDL statement is provided.
 	isDDL, err := isDDL(query)
@@ -733,12 +761,16 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 	}
 
 	var rowsAffected int64
+	var commitTs time.Time
 	if c.tx == nil {
 		if c.InDMLBatch() {
 			c.batch.statements = append(c.batch.statements, ss)
 		} else {
 			if c.autocommitDMLMode == Transactional {
-				rowsAffected, err = c.execSingleDMLTransactional(ctx, c.client, ss)
+				rowsAffected, commitTs, err = c.execSingleDMLTransactional(ctx, c.client, ss)
+				if err == nil {
+					c.commitTs = &commitTs
+				}
 			} else if c.autocommitDMLMode == PartitionedNonAtomic {
 				rowsAffected, err = c.execSingleDMLPartitioned(ctx, c.client, ss)
 			} else {
@@ -790,11 +822,15 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		ctx:    ctx,
 		client: c.client,
 		rwTx:   tx,
-		close: func() {
+		close: func(commitTs *time.Time, commitErr error) {
 			c.tx = nil
+			if commitErr == nil {
+				c.commitTs = commitTs
+			}
 		},
 		retryAborts: c.retryAborts,
 	}
+	c.commitTs = nil
 	return c.tx, nil
 }
 
@@ -822,18 +858,18 @@ func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.
 	return c.Single().WithTimestampBound(tb).Query(ctx, statement)
 }
 
-func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
+func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, time.Time, error) {
 	var rowsAffected int64
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
 		count, err := tx.Update(ctx, statement)
 		rowsAffected = count
 		return err
 	}
-	_, err := c.ReadWriteTransaction(ctx, fn)
+	ts, err := c.ReadWriteTransaction(ctx, fn)
 	if err != nil {
-		return 0, err
+		return 0, time.Time{}, err
 	}
-	return rowsAffected, nil
+	return rowsAffected, ts, nil
 }
 
 func execAsPartitionedDML(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
