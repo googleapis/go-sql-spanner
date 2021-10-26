@@ -22,7 +22,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"math/rand"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -1857,6 +1859,192 @@ func TestShowVariableCommitTimestamp(t *testing.T) {
 		if cmp.Equal(time.Time{}, ts) {
 			t.Fatalf("got zero commit timestamp: %v", ts)
 		}
+	}
+}
+
+func TestMinSessions(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=10")
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+	var res int64
+	if err := conn.QueryRowContext(ctx, "SELECT 1").Scan(&res); err != nil {
+		t.Fatalf("failed to execute query on connection: %v", err)
+	}
+	_ = conn.Close()
+	_ = db.Close()
+	// Verify that the connector created 10 sessions on the server.
+	reqs := drainRequestsFromServer(server.TestSpanner)
+	createReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
+	numCreated := int32(0)
+	for _, req := range createReqs {
+		numCreated += req.(*sppb.BatchCreateSessionsRequest).SessionCount
+	}
+	if g, w := numCreated, int32(10); g != w {
+		t.Errorf("session creation count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestMaxSessions(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=0;maxSessions=2")
+	defer teardown()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			conn, err := db.Conn(ctx)
+			if err != nil {
+				t.Errorf("failed to get a connection: %v", err)
+			}
+			var res int64
+			if err := conn.QueryRowContext(ctx, "SELECT 1").Scan(&res); err != nil {
+				t.Errorf("failed to execute query on connection: %v", err)
+			}
+			_ = conn.Close()
+		}()
+	}
+	wg.Wait()
+
+	// Verify that the connector only created 2 sessions on the server.
+	reqs := drainRequestsFromServer(server.TestSpanner)
+	createReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
+	numCreated := int32(0)
+	for _, req := range createReqs {
+		numCreated += req.(*sppb.BatchCreateSessionsRequest).SessionCount
+	}
+	if g, w := numCreated, int32(2); g != w {
+		t.Errorf("session creation count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestClientReuse(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=2")
+	defer teardown()
+
+	// Repeatedly get a connection and close it using the same DB instance. These
+	// connections should all share the same Spanner client, and only initialized
+	// one session pool.
+	for i := 0; i < 5; i++ {
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatalf("failed to get a connection: %v", err)
+		}
+		var res int64
+		if err := conn.QueryRowContext(ctx, "SELECT 1").Scan(&res); err != nil {
+			t.Fatalf("failed to execute query on connection: %v", err)
+		}
+		_ = conn.Close()
+	}
+	// Verify that the connector only created 2 sessions on the server.
+	reqs := drainRequestsFromServer(server.TestSpanner)
+	createReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
+	numCreated := int32(0)
+	for _, req := range createReqs {
+		numCreated += req.(*sppb.BatchCreateSessionsRequest).SessionCount
+	}
+	if g, w := numCreated, int32(2); g != w {
+		t.Errorf("session creation count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Now close the DB instance and create a new DB connection.
+	// This should cause the first Spanner client to be closed and
+	// a new one to be opened.
+	_ = db.Close()
+
+	db, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;minSessions=2", server.Address))
+	if err != nil {
+		t.Fatalf("failed to open new DB instance: %v", err)
+	}
+	var res int64
+	if err := db.QueryRowContext(ctx, "SELECT 1").Scan(&res); err != nil {
+		t.Fatalf("failed to execute query on db: %v", err)
+	}
+	reqs = drainRequestsFromServer(server.TestSpanner)
+	createReqs = requestsOfType(reqs, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
+	numCreated = int32(0)
+	for _, req := range createReqs {
+		numCreated += req.(*sppb.BatchCreateSessionsRequest).SessionCount
+	}
+	if g, w := numCreated, int32(2); g != w {
+		t.Errorf("session creation count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestStressClientReuse(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	_, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	rand.Seed(time.Now().UnixNano())
+	numSessions := 10
+	numClients := 5
+	numParallel := 50
+	var wg sync.WaitGroup
+	for clientIndex := 0; clientIndex < numClients; clientIndex++ {
+		// Open a DB using a dsn that contains a meaningless number. This will ensure that
+		// the underlying client will be different from the other connections that use a
+		// different number.
+		db, err := sql.Open("spanner",
+			fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;minSessions=%v;maxSessions=%v;randomNumber=%v", server.Address, numSessions, numSessions, clientIndex))
+		if err != nil {
+			t.Fatalf("failed to open DB: %v", err)
+		}
+		// Execute random operations in parallel on the database.
+		for i := 0; i < numParallel; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				conn, err := db.Conn(ctx)
+				if err != nil {
+					t.Errorf("failed to get a connection: %v", err)
+				}
+				if rand.Int()%2 == 0 {
+					if _, err := conn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+						t.Errorf("failed to execute update on connection: %v", err)
+					}
+				} else {
+					var res int64
+					if err := conn.QueryRowContext(ctx, "SELECT 1").Scan(&res); err != nil {
+						t.Errorf("failed to execute query on connection: %v", err)
+					}
+				}
+				_ = conn.Close()
+			}()
+		}
+	}
+	wg.Wait()
+
+	// Verify that each unique connection string created numSessions (10) sessions on the server.
+	reqs := drainRequestsFromServer(server.TestSpanner)
+	createReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
+	numCreated := int32(0)
+	for _, req := range createReqs {
+		numCreated += req.(*sppb.BatchCreateSessionsRequest).SessionCount
+	}
+	if g, w := numCreated, int32(numSessions*numClients); g != w {
+		t.Errorf("session creation count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	sqlReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlReqs), numClients*numParallel; g != w {
+		t.Errorf("ExecuteSql request count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 

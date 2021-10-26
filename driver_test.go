@@ -22,56 +22,70 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"google.golang.org/grpc/codes"
 )
 
 func TestExtractDnsParts(t *testing.T) {
 	tests := []struct {
-		input   string
-		want    connectorConfig
-		wantErr error
+		input               string
+		wantConnectorConfig connectorConfig
+		wantSpannerConfig   spanner.ClientConfig
+		wantErr             error
 	}{
 		{
 			input: "projects/p/instances/i/databases/d",
-			want: connectorConfig{
+			wantConnectorConfig: connectorConfig{
 				project:  "p",
 				instance: "i",
 				database: "d",
 				params:   map[string]string{},
 			},
+			wantSpannerConfig: spanner.ClientConfig{
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+			},
 		},
 		{
 			input: "projects/DEFAULT_PROJECT_ID/instances/test-instance/databases/test-database",
-			want: connectorConfig{
+			wantConnectorConfig: connectorConfig{
 				project:  "DEFAULT_PROJECT_ID",
 				instance: "test-instance",
 				database: "test-database",
 				params:   map[string]string{},
 			},
+			wantSpannerConfig: spanner.ClientConfig{
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+			},
 		},
 		{
 			input: "localhost:9010/projects/p/instances/i/databases/d",
-			want: connectorConfig{
+			wantConnectorConfig: connectorConfig{
 				host:     "localhost:9010",
 				project:  "p",
 				instance: "i",
 				database: "d",
 				params:   map[string]string{},
 			},
+			wantSpannerConfig: spanner.ClientConfig{
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+			},
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d",
-			want: connectorConfig{
+			wantConnectorConfig: connectorConfig{
 				host:     "spanner.googleapis.com",
 				project:  "p",
 				instance: "i",
 				database: "d",
 				params:   map[string]string{},
 			},
+			wantSpannerConfig: spanner.ClientConfig{
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+			},
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?usePlainText=true",
-			want: connectorConfig{
+			wantConnectorConfig: connectorConfig{
 				host:     "spanner.googleapis.com",
 				project:  "p",
 				instance: "i",
@@ -80,10 +94,13 @@ func TestExtractDnsParts(t *testing.T) {
 					"useplaintext": "true",
 				},
 			},
+			wantSpannerConfig: spanner.ClientConfig{
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+			},
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d;credentials=/path/to/credentials.json",
-			want: connectorConfig{
+			wantConnectorConfig: connectorConfig{
 				host:     "spanner.googleapis.com",
 				project:  "p",
 				instance: "i",
@@ -92,10 +109,13 @@ func TestExtractDnsParts(t *testing.T) {
 					"credentials": "/path/to/credentials.json",
 				},
 			},
+			wantSpannerConfig: spanner.ClientConfig{
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+			},
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?credentials=/path/to/credentials.json;readonly=true",
-			want: connectorConfig{
+			wantConnectorConfig: connectorConfig{
 				host:     "spanner.googleapis.com",
 				project:  "p",
 				instance: "i",
@@ -105,16 +125,48 @@ func TestExtractDnsParts(t *testing.T) {
 					"readonly":    "true",
 				},
 			},
+			wantSpannerConfig: spanner.ClientConfig{
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+			},
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?usePlainText=true;",
-			want: connectorConfig{
+			wantConnectorConfig: connectorConfig{
 				host:     "spanner.googleapis.com",
 				project:  "p",
 				instance: "i",
 				database: "d",
 				params: map[string]string{
 					"useplaintext": "true",
+				},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+			},
+		},
+		{
+			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?minSessions=200;maxSessions=1000;writeSessions=0.5",
+			wantConnectorConfig: connectorConfig{
+				host:     "spanner.googleapis.com",
+				project:  "p",
+				instance: "i",
+				database: "d",
+				params: map[string]string{
+					"minsessions":   "200",
+					"maxsessions":   "1000",
+					"writesessions": "0.5",
+				},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				SessionPoolConfig: spanner.SessionPoolConfig{
+					MinOpened:           200,
+					MaxOpened:           1000,
+					WriteSessions:       0.5,
+					HealthCheckInterval: spanner.DefaultSessionPoolConfig.HealthCheckInterval,
+					HealthCheckWorkers:  spanner.DefaultSessionPoolConfig.HealthCheckWorkers,
+					MaxBurst:            spanner.DefaultSessionPoolConfig.MaxBurst,
+					MaxIdle:             spanner.DefaultSessionPoolConfig.MaxIdle,
+					TrackSessionHandles: spanner.DefaultSessionPoolConfig.TrackSessionHandles,
 				},
 			},
 		},
@@ -124,8 +176,15 @@ func TestExtractDnsParts(t *testing.T) {
 		if err != nil {
 			t.Errorf("extract failed for %q: %v", tc.input, err)
 		} else {
-			if !cmp.Equal(config, tc.want, cmp.AllowUnexported(connectorConfig{})) {
-				t.Errorf("connector config mismatch for %q\ngot: %v\nwant %v", tc.input, config, tc.want)
+			if !cmp.Equal(config, tc.wantConnectorConfig, cmp.AllowUnexported(connectorConfig{})) {
+				t.Errorf("connector config mismatch for %q\ngot: %v\nwant %v", tc.input, config, tc.wantConnectorConfig)
+			}
+			conn, err := newConnector(&Driver{connectors: make(map[string]*connector)}, tc.input)
+			if err != nil {
+				t.Errorf("failed to get connector for %q: %v", tc.input, err)
+			}
+			if !cmp.Equal(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{})) {
+				t.Errorf("connector Spanner client config mismatch for %q\n Got: %v\nWant: %v", tc.input, conn.spannerClientConfig, tc.wantSpannerConfig)
 			}
 		}
 	}
