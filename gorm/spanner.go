@@ -112,7 +112,7 @@ func (dialector Dialector) Migrator(db *gorm.DB) gorm.Migrator {
 }
 
 func (dialector Dialector) BindVarTo(writer clause.Writer, stmt *gorm.Statement, v interface{}) {
-	writer.WriteString(fmt.Sprintf("@p%d", len(stmt.Vars)))
+	_, _ = writer.WriteString(fmt.Sprintf("@p%d", len(stmt.Vars)))
 }
 
 func (dialector Dialector) QuoteTo(writer clause.Writer, str string) {

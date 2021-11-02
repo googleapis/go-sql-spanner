@@ -16,6 +16,7 @@ package mock_server_tests
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -159,6 +160,34 @@ func TestLimitOffset(t *testing.T) {
 	}
 	if len(singers) != 2 {
 		t.Fatalf("Singer count mismatch\nGot: %v\nWant: %v", len(singers), 2)
+	}
+}
+
+func TestNamedParameter(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	// Although the statement uses a named parameter, the gorm driver will automatically generate
+	// a query that uses parameters in the form @p1, @p2, ...
+	server.TestSpanner.PutStatementResult(
+		"SELECT * FROM `singers` WHERE last_name=@p1 OR last_name=@p2",
+		&testutil.StatementResult{
+			Type: testutil.StatementResultResultSet,
+			ResultSet: createSingersResultSet([]Singer{
+				{1, strPointer("Pete"), "Allison", spanner.NullDate{}},
+			}),
+		})
+
+	var singer Singer
+	if err := db.Where(
+		"last_name=@last_name1 OR last_name=@last_name2",
+		sql.Named("last_name1", "Allison"),
+		sql.Named("last_name2", "Other")).Find(&singer).Error; err != nil {
+		t.Fatalf("failed to fetch singer: %v", err)
+	}
+	if singer.SingerId != 1 {
+		t.Fatalf("SingerId mismatch\n Got: %v\nWant: %v", singer.SingerId, 1)
 	}
 }
 
