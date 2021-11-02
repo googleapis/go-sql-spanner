@@ -12,5 +12,6 @@ require (
 	github.com/google/go-cmp v0.5.6
 	google.golang.org/api v0.59.0
 	google.golang.org/genproto v0.0.0-20211020151524-b7c3a969101a
+	google.golang.org/grpc v1.40.0 // indirect
 	gorm.io/gorm v1.21.15
 )
