@@ -20,7 +20,7 @@ jobs:
     needs: [check-env]
     if: needs.check-env.outputs.has-key == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Install Go
         uses: actions/setup-go@v2
@@ -35,7 +35,7 @@ jobs:
           service_account_key: ${{ secrets.GCP_SA_KEY }}
           export_default_credentials: true
       - name: Run integration tests on production
-        run: go test -timeout 30m
+        run: go test -timeout 45m
         env:
           JOB_TYPE: test
           SPANNER_TEST_PROJECT: ${{ secrets.GCP_PROJECT_ID }}

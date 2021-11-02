@@ -23,6 +23,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"cloud.google.com/go/civil"
@@ -55,11 +57,13 @@ var dsnRegExp = regexp.MustCompile("((?P<HOSTGROUP>[\\w.-]+(?:\\.[\\w\\.-]+)*[\\
 var _ driver.DriverContext = &Driver{}
 
 func init() {
-	sql.Register("spanner", &Driver{})
+	sql.Register("spanner", &Driver{connectors: make(map[string]*connector)})
 }
 
 // Driver represents a Google Cloud Spanner database/sql driver.
 type Driver struct {
+	mu         sync.Mutex
+	connectors map[string]*connector
 }
 
 // Open opens a connection to a Google Cloud Spanner database.
@@ -132,6 +136,7 @@ func extractConnectorParams(paramsString string) (map[string]string, error) {
 
 type connector struct {
 	driver          *Driver
+	dsn             string
 	connectorConfig connectorConfig
 
 	// spannerClientConfig represents the optional advanced configuration to be used
@@ -146,9 +151,22 @@ type connector struct {
 	// retried internally (when possible), or whether all aborted errors will be
 	// propagated to the caller. This option is enabled by default.
 	retryAbortsInternally bool
+
+	initClient     sync.Once
+	client         *spanner.Client
+	clientErr      error
+	adminClient    *adminapi.DatabaseAdminClient
+	adminClientErr error
+	connCount      int32
 }
 
 func newConnector(d *Driver, dsn string) (*connector, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if c, ok := d.connectors[dsn]; ok {
+		return c, nil
+	}
+
 	connectorConfig, err := extractConnectorConfig(dsn)
 	if err != nil {
 		return nil, err
@@ -174,13 +192,31 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 	config := spanner.ClientConfig{
 		SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 	}
-	return &connector{
+	if strval, ok := connectorConfig.params["minsessions"]; ok {
+		if val, err := strconv.ParseUint(strval, 10, 64); err == nil {
+			config.MinOpened = val
+		}
+	}
+	if strval, ok := connectorConfig.params["maxsessions"]; ok {
+		if val, err := strconv.ParseUint(strval, 10, 64); err == nil {
+			config.MaxOpened = val
+		}
+	}
+	if strval, ok := connectorConfig.params["writesessions"]; ok {
+		if val, err := strconv.ParseFloat(strval, 64); err == nil {
+			config.WriteSessions = val
+		}
+	}
+	c := &connector{
 		driver:                d,
+		dsn:                   dsn,
 		connectorConfig:       connectorConfig,
 		spannerClientConfig:   config,
 		options:               opts,
 		retryAbortsInternally: retryAbortsInternally,
-	}, nil
+	}
+	d.connectors[dsn] = c
+	return c, nil
 }
 
 func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
@@ -194,18 +230,22 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		c.connectorConfig.project,
 		c.connectorConfig.instance,
 		c.connectorConfig.database)
-	client, err := spanner.NewClientWithConfig(ctx, databaseName, c.spannerClientConfig, opts...)
-	if err != nil {
-		return nil, err
-	}
 
-	adminClient, err := adminapi.NewDatabaseAdminClient(ctx, opts...)
-	if err != nil {
-		return nil, err
+	c.initClient.Do(func() {
+		c.client, c.clientErr = spanner.NewClientWithConfig(ctx, databaseName, c.spannerClientConfig, opts...)
+		c.adminClient, c.adminClientErr = adminapi.NewDatabaseAdminClient(ctx, opts...)
+	})
+	if c.clientErr != nil {
+		return nil, c.clientErr
 	}
+	if c.adminClientErr != nil {
+		return nil, c.adminClientErr
+	}
+	atomic.AddInt32(&c.connCount, 1)
 	return &conn{
-		client:                     client,
-		adminClient:                adminClient,
+		connector:                  c,
+		client:                     c.client,
+		adminClient:                c.adminClient,
 		database:                   databaseName,
 		retryAborts:                c.retryAbortsInternally,
 		execSingleQuery:            queryInSingleUse,
@@ -215,7 +255,7 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 }
 
 func (c *connector) Driver() driver.Driver {
-	return &Driver{}
+	return c.driver
 }
 
 // SpannerConn is the public interface for the raw Spanner connection for the
@@ -295,6 +335,7 @@ type SpannerConn interface {
 }
 
 type conn struct {
+	connector   *connector
 	closed      bool
 	client      *spanner.Client
 	adminClient *adminapi.DatabaseAdminClient
@@ -787,8 +828,18 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 }
 
 func (c *conn) Close() error {
+	// Check if this is the last open connection of the connector.
+	if count := atomic.AddInt32(&c.connector.connCount, -1); count > 0 {
+		return nil
+	}
+
+	// This was the last connection. Remove the connector and close the Spanner clients.
+	c.connector.driver.mu.Lock()
+	delete(c.connector.driver.connectors, c.connector.dsn)
+	c.connector.driver.mu.Unlock()
+
 	c.client.Close()
-	return nil
+	return c.adminClient.Close()
 }
 
 func (c *conn) Begin() (driver.Tx, error) {
