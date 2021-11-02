@@ -49,18 +49,79 @@ db.ExecContext(ctx, "DELETE FROM tweets WHERE id = @id", 14544498215374)
 
 ## Transactions
 
-- Read-only transactions do strong-reads only. Read-only transactions must be ended by calling
+- Read-write transactions always uses the strongest isolation level and ignore the user-specified level.
+- Read-only transactions do strong-reads by default. Read-only transactions must be ended by calling
 either Commit or Rollback. Calling either of these methods will end the current read-only
 transaction and return the session that is used to the session pool.
-- Read-write transactions always uses the strongest isolation  level and ignore the user-specified level.
 
 ``` go
+tx, err := db.BeginTx(ctx, &sql.TxOptions{}) // Read-write transaction.
+
 tx, err := db.BeginTx(ctx, &sql.TxOptions{
-    ReadOnly: true, // Read-only transaction.
+    ReadOnly: true, // Read-only transaction using strong reads.
 })
 
-tx, err := db.BeginTx(ctx, &sql.TxOptions{}) // Read-write transaction.
+conn, _ := db.Conn(ctx)
+_, _ := conn.ExecContext(ctx, "SET READ_ONLY_STALENESS='EXACT_STALENESS 10s'")
+tx, err := conn.BeginTx(ctx, &sql.TxOptions{
+    ReadOnly: true, // Read-only transaction using a 10 second exact staleness.
+})
 ```
+
+## DDL Statements
+
+[DDL statements](https://cloud.google.com/spanner/docs/data-definition-language)
+are not supported in transactions per Cloud Spanner restriction.
+Instead, run them on a connection without an active transaction:
+
+```go
+db.ExecContext(ctx, "CREATE TABLE ...")
+```
+
+Multiple DDL statements can be sent in one batch to Cloud Spanner by defining a DDL batch:
+
+```go
+conn, _ := db.Conn(ctx)
+_, _ := conn.ExecContext(ctx, "START BATCH DDL")
+_, _ = conn.ExecContext(ctx, "CREATE TABLE Singers (SingerId INT64, Name STRING(MAX)) PRIMARY KEY (SingerId)")
+_, _ = conn.ExecContext(ctx, "CREATE INDEX Idx_Singers_Name ON Singers (Name)")
+// Executing `RUN BATCH` will run the previous DDL statements as one batch.
+_, _ := conn.ExecContext(ctx, "RUN BATCH")
+```
+
+See also [the batch DDL example](/examples/ddl-batches).
+
+## Examples
+
+The [`examples`](/examples) directory contains standalone code samples that show how to use common
+features of Cloud Spanner and/or the database/sql package. Each standalone code sample can be
+executed without any prior setup, as long as Docker is installed on your local system.
+
+## Raw Connection / Specific Cloud Spanner Features
+
+Use the `Conn.Raw` method to get access to a Cloud Spanner specific connection instance. This
+instance can be used to access Cloud Spanner specific features and settings, such as mutations,
+read-only staleness settings and commit timestamps.
+
+```go
+conn, _ := db.Conn(ctx)
+_ = conn.Raw(func(driverConn interface{}) error {
+    spannerConn, ok := driverConn.(spannerdriver.SpannerConn)
+    if !ok {
+        return fmt.Errorf("unexpected driver connection %v, expected SpannerConn", driverConn)
+    }
+    // Use the `SpannerConn` interface to set specific Cloud Spanner settings or access
+    // specific Cloud Spanner features.
+
+    // Example: Set and get the current read-only staleness of the connection.
+    _ = spannerConn.SetReadOnlyStaleness(spanner.ExactStaleness(10 * time.Second))
+    _ = spannerConn.ReadOnlyStaleness()
+
+    return nil
+})
+```
+
+See also the [examples](/examples) directory for further code samples.
 
 ## Emulator
 
@@ -82,14 +143,6 @@ to the client application as an `spannerdriver.ErrAbortedDueToConcurrentModifica
 error.
 
 ---
-
-[DDLs](https://cloud.google.com/spanner/docs/data-definition-language)
-are not supported in transactions per Cloud Spanner restriction.
-Instead, run them against the database:
-
-```go
-db.ExecContext(ctx, "CREATE TABLE ...")
-```
 
 ## Disclaimer
 

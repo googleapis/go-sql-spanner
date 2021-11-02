@@ -21,6 +21,7 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode"
 
 	"cloud.google.com/go/spanner"
@@ -311,7 +312,9 @@ type setStatement struct {
 	ConverterName string `json:"converterName"`
 }
 
+var statementsInit sync.Once
 var statements *clientSideStatements
+var statementsCompileErr error
 
 // compileStatements loads all client side statements from the json file and
 // assigns the Go methods to the different statements that should be executed
@@ -367,10 +370,13 @@ func (c *executableClientSideStatement) QueryContext(ctx context.Context, args [
 // corresponds with the given query string, or nil if it is not a valid client
 // side statement.
 func parseClientSideStatement(c *conn, query string) (*executableClientSideStatement, error) {
-	if statements == nil {
+	statementsInit.Do(func() {
 		if err := compileStatements(); err != nil {
-			return nil, err
+			statementsCompileErr = err
 		}
+	})
+	if statementsCompileErr != nil {
+		return nil, statementsCompileErr
 	}
 	for _, stmt := range statements.Statements {
 		if stmt.regexp.MatchString(query) {
