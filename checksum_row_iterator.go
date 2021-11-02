@@ -50,7 +50,7 @@ type checksumRowIterator struct {
 	metadata *sppb.ResultSetMetadata
 
 	ctx  context.Context
-	tx   *rwTransaction
+	tx   *readWriteTransaction
 	stmt spanner.Statement
 	// nc (nextCount) indicates the number of times that next has been called
 	// on the iterator. Next() will be called the same number of times during

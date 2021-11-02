@@ -268,9 +268,9 @@ func TestConn_StartBatchDdl(t *testing.T) {
 		{"Default", &conn{}, false},
 		{"In DDL batch", &conn{batch: &batch{tp: ddl}}, true},
 		{"In DML batch", &conn{batch: &batch{tp: dml}}, true},
-		{"In read/write transaction", &conn{tx: &rwTransaction{}}, true},
+		{"In read/write transaction", &conn{tx: &readWriteTransaction{}}, true},
 		{"In read-only transaction", &conn{tx: &readOnlyTransaction{}}, true},
-		{"In read/write transaction with a DML batch", &conn{tx: &rwTransaction{batch: &batch{tp: dml}}}, true},
+		{"In read/write transaction with a DML batch", &conn{tx: &readWriteTransaction{batch: &batch{tp: dml}}}, true},
 	} {
 		err := test.c.StartBatchDDL()
 		if test.wantErr {
@@ -297,9 +297,9 @@ func TestConn_StartBatchDml(t *testing.T) {
 		{"Default", &conn{}, false},
 		{"In DDL batch", &conn{batch: &batch{tp: ddl}}, true},
 		{"In DML batch", &conn{batch: &batch{tp: dml}}, true},
-		{"In read/write transaction", &conn{tx: &rwTransaction{}}, false},
+		{"In read/write transaction", &conn{tx: &readWriteTransaction{}}, false},
 		{"In read-only transaction", &conn{tx: &readOnlyTransaction{}}, true},
-		{"In read/write transaction with a DML batch", &conn{tx: &rwTransaction{batch: &batch{tp: dml}}}, true},
+		{"In read/write transaction with a DML batch", &conn{tx: &readWriteTransaction{batch: &batch{tp: dml}}}, true},
 	} {
 		err := test.c.StartBatchDML()
 		if test.wantErr {

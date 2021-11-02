@@ -469,7 +469,7 @@ func (c *conn) InDDLBatch() bool {
 }
 
 func (c *conn) InDMLBatch() bool {
-	return (c.batch != nil && c.batch.tp == dml) || (c.inReadWriteTransaction() && c.tx.(*rwTransaction).batch != nil)
+	return (c.batch != nil && c.batch.tp == dml) || (c.inReadWriteTransaction() && c.tx.(*readWriteTransaction).batch != nil)
 }
 
 func (c *conn) inBatch() bool {
@@ -577,7 +577,7 @@ func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement)
 	var affected []int64
 	var err error
 	if c.inTransaction() {
-		tx, ok := c.tx.(*rwTransaction)
+		tx, ok := c.tx.(*readWriteTransaction)
 		if !ok {
 			return nil, status.Errorf(codes.FailedPrecondition, "connection is in a transaction that is not a read/write transaction")
 		}
@@ -869,7 +869,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 	if err != nil {
 		return nil, err
 	}
-	c.tx = &rwTransaction{
+	c.tx = &readWriteTransaction{
 		ctx:    ctx,
 		client: c.client,
 		rwTx:   tx,
@@ -899,7 +899,7 @@ func (c *conn) inReadOnlyTransaction() bool {
 
 func (c *conn) inReadWriteTransaction() bool {
 	if c.tx != nil {
-		_, ok := c.tx.(*rwTransaction)
+		_, ok := c.tx.(*readWriteTransaction)
 		return ok
 	}
 	return false

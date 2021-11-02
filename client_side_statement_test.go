@@ -51,7 +51,7 @@ func TestStatementExecutor_StartBatchDdl(t *testing.T) {
 	}
 
 	// Starting a DDL batch while the connection is in a transaction is not allowed.
-	c.tx = &rwTransaction{}
+	c.tx = &readWriteTransaction{}
 	if _, err := s.StartBatchDdl(ctx, c, "", nil); spanner.ErrCode(err) != codes.FailedPrecondition {
 		t.Fatalf("error mismatch for starting a DDL batch while in a transaction\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
 	}
@@ -88,7 +88,7 @@ func TestStatementExecutor_StartBatchDml(t *testing.T) {
 	}
 
 	// Starting a DML batch while the connection is in a read/write transaction is allowed.
-	c.tx = &rwTransaction{}
+	c.tx = &readWriteTransaction{}
 	if _, err := s.StartBatchDml(ctx, c, "", nil); err != nil {
 		t.Fatalf("could not start a DML batch while in a read/write transaction: %v", err)
 	}
