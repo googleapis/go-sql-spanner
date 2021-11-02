@@ -264,7 +264,7 @@ func TestTake(t *testing.T) {
 	db.Take(&singer, 1)
 	want := Singer{
 		SingerId: 1,
-		FirstName: "first1",
+		FirstName: "first",
 		LastName: "last",
 	}
 	if !cmp.Equal(singer, want) {
