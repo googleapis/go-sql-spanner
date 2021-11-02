@@ -1865,8 +1865,9 @@ func TestShowVariableCommitTimestamp(t *testing.T) {
 func TestMinSessions(t *testing.T) {
 	t.Parallel()
 
+	minSessions := int32(10)
 	ctx := context.Background()
-	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=10")
+	db, server, teardown := setupTestDBConnectionWithParams(t, fmt.Sprintf("minSessions=%v", minSessions))
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
@@ -1877,8 +1878,17 @@ func TestMinSessions(t *testing.T) {
 	if err := conn.QueryRowContext(ctx, "SELECT 1").Scan(&res); err != nil {
 		t.Fatalf("failed to execute query on connection: %v", err)
 	}
+	// Wait until all sessions have been created.
+	waitFor(t, func() error {
+		created := int32(server.TestSpanner.TotalSessionsCreated())
+		if created != minSessions {
+			return fmt.Errorf("num open sessions mismatch\n Got: %d\nWant: %d", created, minSessions)
+		}
+		return nil
+	})
 	_ = conn.Close()
 	_ = db.Close()
+
 	// Verify that the connector created 10 sessions on the server.
 	reqs := drainRequestsFromServer(server.TestSpanner)
 	createReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
@@ -1886,7 +1896,7 @@ func TestMinSessions(t *testing.T) {
 	for _, req := range createReqs {
 		numCreated += req.(*sppb.BatchCreateSessionsRequest).SessionCount
 	}
-	if g, w := numCreated, int32(10); g != w {
+	if g, w := numCreated, minSessions; g != w {
 		t.Errorf("session creation count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
@@ -2157,4 +2167,29 @@ loop:
 		}
 	}
 	return reqs
+}
+
+func waitFor(t *testing.T, assert func() error) {
+	t.Helper()
+	timeout := 5 * time.Second
+	ta := time.After(timeout)
+
+	for {
+		select {
+		case <-ta:
+			if err := assert(); err != nil {
+				t.Fatalf("after %v waiting, got %v", timeout, err)
+			}
+			return
+		default:
+		}
+
+		if err := assert(); err != nil {
+			// Fail. Let's pause and retry.
+			time.Sleep(time.Millisecond)
+			continue
+		}
+
+		return
+	}
 }
