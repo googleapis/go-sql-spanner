@@ -1,4 +1,4 @@
-module github.com/cloudspannerecosystem/go-sql-spanner
+module github.com/googleapis/go-sql-spanner
 
 go 1.14
 

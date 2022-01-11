@@ -19,8 +19,8 @@ import (
 	"database/sql"
 	"fmt"
 
-	_ "github.com/cloudspannerecosystem/go-sql-spanner"
-	"github.com/cloudspannerecosystem/go-sql-spanner/examples"
+	_ "github.com/googleapis/go-sql-spanner"
+	"github.com/googleapis/go-sql-spanner/examples"
 )
 
 // Simple sample application that shows how to use the Spanner Go sql driver.

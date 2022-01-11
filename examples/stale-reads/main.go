@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/cloudspannerecosystem/go-sql-spanner"
-	"github.com/cloudspannerecosystem/go-sql-spanner/examples"
+	_ "github.com/googleapis/go-sql-spanner"
+	"github.com/googleapis/go-sql-spanner/examples"
 )
 
 var createTableStatement = "CREATE TABLE Singers (SingerId INT64, Name STRING(MAX)) PRIMARY KEY (SingerId)"
