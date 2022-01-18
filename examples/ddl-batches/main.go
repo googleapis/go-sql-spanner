@@ -19,9 +19,9 @@ import (
 	"database/sql"
 	"fmt"
 
-	_ "github.com/cloudspannerecosystem/go-sql-spanner"
-	spannerdriver "github.com/cloudspannerecosystem/go-sql-spanner"
-	"github.com/cloudspannerecosystem/go-sql-spanner/examples"
+	_ "github.com/googleapis/go-sql-spanner"
+	spannerdriver "github.com/googleapis/go-sql-spanner"
+	"github.com/googleapis/go-sql-spanner/examples"
 )
 
 // Sample showing how to execute a batch of DDL statements.

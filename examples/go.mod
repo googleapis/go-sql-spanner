@@ -1,13 +1,13 @@
-module github.com/cloudspannerecosystem/go-sql-spanner/examples
+module github.com/googleapis/go-sql-spanner/examples
 
 go 1.14
 
-replace github.com/cloudspannerecosystem/go-sql-spanner => ../
+replace github.com/googleapis/go-sql-spanner => ../
 
 require (
 	cloud.google.com/go v0.97.0
 	cloud.google.com/go/spanner v1.27.0
-	github.com/cloudspannerecosystem/go-sql-spanner v0.0.0-00010101000000-000000000000
+	github.com/googleapis/go-sql-spanner v0.0.0-00010101000000-000000000000
 	github.com/containerd/containerd v1.5.5 // indirect
 	github.com/docker/docker v20.10.8+incompatible
 	github.com/docker/go-connections v0.4.0
