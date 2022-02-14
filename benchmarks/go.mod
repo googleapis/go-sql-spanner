@@ -11,5 +11,5 @@ require (
 	github.com/google/uuid v1.3.0
 	google.golang.org/api v0.54.0
 	google.golang.org/genproto 65c12eb4c068
-	google.golang.org/grpc v1.40.0
+	google.golang.org/grpc v1.44.0
 )
