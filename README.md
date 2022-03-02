@@ -6,7 +6,7 @@
 Go's [database/sql](https://golang.org/pkg/database/sql/) package.
 
 
-THIS IS A WORK-IN-PROGRESS, DON'T USE IT IN PRODUCTION YET.
+This support is currently in the __Preview__ release status.
 
 ``` go
 import _ "github.com/googleapis/go-sql-spanner"
