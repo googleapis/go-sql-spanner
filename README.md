@@ -142,8 +142,3 @@ initial attempt and the retry attempt, the Aborted error will be propagated
 to the client application as an `spannerdriver.ErrAbortedDueToConcurrentModification`
 error.
 
----
-
-## Disclaimer
-
-This is not an officially supported Google Cloud product.
