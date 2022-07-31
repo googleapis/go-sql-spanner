@@ -31,7 +31,7 @@ func TestExtractDnsParts(t *testing.T) {
 		input               string
 		wantConnectorConfig connectorConfig
 		wantSpannerConfig   spanner.ClientConfig
-		wantErr             error
+		wantErr             bool
 	}{
 		{
 			input: "projects/p/instances/i/databases/d",
@@ -179,24 +179,38 @@ func TestExtractDnsParts(t *testing.T) {
 				UserAgent: userAgent,
 			},
 		},
+		{
+			// intential error case
+			input:   "project/p/instances/i/databases/d",
+			wantErr: true,
+		},
 	}
 	for _, tc := range tests {
-		config, err := extractConnectorConfig(tc.input)
-		if err != nil {
-			t.Errorf("extract failed for %q: %v", tc.input, err)
-		} else {
-			if !cmp.Equal(config, tc.wantConnectorConfig, cmp.AllowUnexported(connectorConfig{})) {
-				t.Errorf("connector config mismatch for %q\ngot: %v\nwant %v", tc.input, config, tc.wantConnectorConfig)
-			}
-			conn, err := newConnector(&Driver{connectors: make(map[string]*connector)}, tc.input)
+		t.Run(tc.input, func(t *testing.T) {
+			config, err := extractConnectorConfig(tc.input)
 			if err != nil {
-				t.Errorf("failed to get connector for %q: %v", tc.input, err)
+				if tc.wantErr {
+					return
+				}
+				t.Errorf("extract failed for %q: %v", tc.input, err)
+			} else {
+				if tc.wantErr {
+					t.Error("did not encounter expected error")
+				}
+				if !cmp.Equal(config, tc.wantConnectorConfig, cmp.AllowUnexported(connectorConfig{})) {
+					t.Errorf("connector config mismatch for %q\ngot: %v\nwant %v", tc.input, config, tc.wantConnectorConfig)
+				}
+				conn, err := newConnector(&Driver{connectors: make(map[string]*connector)}, tc.input)
+				if err != nil {
+					t.Errorf("failed to get connector for %q: %v", tc.input, err)
+				}
+				if !cmp.Equal(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{})) {
+					t.Errorf("connector Spanner client config mismatch for %q\n Got: %v\nWant: %v", tc.input, conn.spannerClientConfig, tc.wantSpannerConfig)
+				}
 			}
-			if !cmp.Equal(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{})) {
-				t.Errorf("connector Spanner client config mismatch for %q\n Got: %v\nWant: %v", tc.input, conn.spannerClientConfig, tc.wantSpannerConfig)
-			}
-		}
+		})
 	}
+
 }
 
 func TestConnection_Reset(t *testing.T) {
