@@ -1,30 +1,22 @@
-Limitations from Spanner perspective
+Limitations
 ------------------------------------
-
-Below is a List of Limitations for features that are supported in Spanner but
-are not supported in the Go Spanner driver.
 
 Session Labeling
 ~~~~~~~~~~~~~~~~
-Session Labeling is not a concept that is understood by Go driver it does not
-support it inherently.
+Cloud Spanner Session Labeling is not supported.
 
 Request Priority
 ~~~~~~~~~~~~~~~~
-Request Priority for database calls is not a concept that is understood by Go driver so
-it does not support it inherently. The workaround is to unwrap the Spanner specific SpannerConn interface
-and use request priority as part of the db calls.
+Request priority can be set by unwrapping the Spanner-specific `SpannerConn` interface and setting the request priority as part of a db call.
 
 Tagging
 ~~~~~~~
-Tagging for database calls is not a concept that is understood by Go driver so it does not
-support it inherently. The workaround is to unwrap the Spanner specific SpannerConn interface
-and use the tagging feature via that.
+Tags can be set by unwrapping the Spanner-specific `SpannerConn` interface and setting the tags using that interface.
 
-Spangres
+PostgreSQL
 ~~~~~~~
-Spangres support needs setting `dialect` options when creating the Spanner client.
-This will be released in future.
+Spanner databases that use the PostgreSQL dialect are not yet supported.
+This will be added in the future.
 
 
 Backups / Cross region Backups
