@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -43,6 +44,76 @@ func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 		res[k] = v
 	}
 	return res
+}
+
+// convertPositionalParametersToNamedParameters returns the sql string with all the positional
+// parameters converted to named parameter. The sql string must be a valid Cloud Spanner sql statement.
+// It may contain comments and (string) literals without any restrictions. That is, string literals
+// containing for example "?" character ('?test') will be recognized as a string literal
+// and not converted to a named parameter.
+func convertPositionalParametersToNamedParameters(positionalParamChar rune, sql string) (string, error) {
+	const singleQuote = '\''
+	const doubleQuote = '"'
+	const backtick = '`'
+	isInQuoted := false
+	var startQuote rune
+	lastCharWasEscapeChar := false
+	isTripleQuoted := false
+	res := strings.Builder{}
+	res.Grow(len(sql))
+	positionalParameterIndex := 1
+	index := 0
+	runes := []rune(sql)
+	for index < len(runes) {
+		c := runes[index]
+		if isInQuoted {
+			if (c == '\n' || c == '\r') && !isTripleQuoted {
+				return sql, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", sql))
+			} else if c == startQuote {
+				if lastCharWasEscapeChar {
+					lastCharWasEscapeChar = false
+				} else if isTripleQuoted {
+					if len(runes) > index+2 && runes[index+1] == startQuote && runes[index+2] == startQuote {
+						isInQuoted = false
+						startQuote = 0
+						isTripleQuoted = false
+					}
+				} else {
+					isInQuoted = false
+					startQuote = 0
+				}
+			} else if c == '\\' {
+				lastCharWasEscapeChar = true
+			} else {
+				lastCharWasEscapeChar = false
+			}
+			res.WriteRune(c)
+		} else {
+			if c == positionalParamChar {
+				res.WriteString("@p" + strconv.Itoa(positionalParameterIndex))
+				positionalParameterIndex++
+			} else {
+				if c == singleQuote || c == doubleQuote || c == backtick {
+					isInQuoted = true
+					startQuote = c
+					// check whether it is a triple-quote
+					if len(runes) > index+2 && runes[index+1] == startQuote && runes[index+2] == startQuote {
+						isTripleQuoted = true
+					}
+				}
+				res.WriteRune(c)
+			}
+		}
+		index++
+	}
+	if isInQuoted {
+		return sql, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", sql))
+	}
+	converted := strings.TrimSpace(res.String())
+	if len(converted) > 0 && converted[len(converted)-1] == ';' {
+		return converted[:len(converted)-1], nil
+	}
+	return converted, nil
 }
 
 // parseNamedParameters returns the named parameters in the given sql string.

@@ -1,0 +1,13 @@
+{
+  "name": "spanner-go-driver",
+  "name_pretty": "Cloud Spanner driver for database/sql package",
+  "product_documentation": "https://pkg.go.dev/github.com/googleapis/go-sql-spanner",
+  "client_documentation": "https://pkg.go.dev/github.com/googleapis/go-sql-spanner",
+  "release_level": "stable",
+  "language": "go",
+  "repo": "googleapis/go-sql-spanner",
+  "distribution_name": "cloud.google.com/go-sql-spanner/spanner",
+  "repo_short": "go-sql-spanner",
+  "library_type": "OTHER",
+  "codeowner_team": "@googleapis/go-sql-spanner"
+}

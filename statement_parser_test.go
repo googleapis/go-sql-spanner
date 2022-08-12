@@ -20,6 +20,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestRemoveCommentsAndTrim(t *testing.T) {
@@ -459,6 +460,94 @@ SELECT SchoolID FROM Roster`,
 		got := removeStatementHint(sql)
 		if got != tc.want {
 			t.Errorf("removeStatementHint result mismatch\nGot: %q\nWant: %q", got, tc.want)
+		}
+	}
+}
+
+func TestConvertPositionalParametersToNamedParameters(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    string
+		wantErr bool
+		err     error
+	}{
+		{
+			input: `SELECT * FROM PersonsTable WHERE id=?`,
+			want:  `SELECT * FROM PersonsTable WHERE id=@p1`,
+		},
+		{
+			input: `?'?test?\"?test?\"?'?`,
+			want:  `@p1'?test?\"?test?\"?'@p2`,
+		},
+		{
+			input: `?'?it\\'?s'?`,
+			want:  `@p1'?it\\'?s'@p2`,
+		},
+		{
+			input: `?'?it\\\"?s'?`,
+			want:  `@p1'?it\\\"?s'@p2`,
+		},
+		{
+			input: "?`?it\\\\`?s`?",
+			want:  "@p1`?it\\\\`?s`@p2",
+		},
+		{
+			input: "select 1, ?, 'test?test', \"test?test\", foo.* from `foo` where col1=? and col2='test' and col3=? and col4='?' and col5=\"?\" and col6='?''?''?'",
+			want:  "select 1, @p1, 'test?test', \"test?test\", foo.* from `foo` where col1=@p2 and col2='test' and col3=@p3 and col4='?' and col5=\"?\" and col6='?''?''?'",
+		},
+		{
+			input: "select * from foo where name=? and col2 like ? and col3 > ?",
+			want:  "select * from foo where name=@p1 and col2 like @p2 and col3 > @p3",
+		},
+		{
+			input: "select * from foo where id between ? and ?",
+			want:  "select * from foo where id between @p1 and @p2",
+		},
+		{
+			input: "select * from foo limit ? offset ?",
+			want:  "select * from foo limit @p1 offset @p2",
+		},
+		{
+			input: "select * from foo where col1=? and col2 like ? and col3 > ? and col4 < ? and col5 != ? and col6 not in (?, ?, ?) and col7 in (?, ?, ?) and col8 between ? and ?",
+			want:  "select * from foo where col1=@p1 and col2 like @p2 and col3 > @p3 and col4 < @p4 and col5 != @p5 and col6 not in (@p6, @p7, @p8) and col7 in (@p9, @p10, @p11) and col8 between @p12 and @p13",
+		},
+		{
+			input: "?\"?it\\\"?s\"?",
+			want:  "@p1\"?it\\\"?s\"@p2",
+		},
+		{
+			input:   "?'?it\\'?s \n ?it\\'?s'?",
+			wantErr: true,
+			err:     spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", "?'?it\\'?s \n ?it\\'?s'?")),
+		},
+		{
+			input:   "?'?it\\'?s \n ?it\\'?s?",
+			wantErr: true,
+			err:     spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", "?'?it\\'?s \n ?it\\'?s?")),
+		},
+		{
+			input:   "?'''?it\\'?s \n ?it\\'?s'?",
+			wantErr: true,
+			err:     spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", "?'''?it\\'?s \n ?it\\'?s'?")),
+		},
+	}
+	for _, tc := range tests {
+		got, err := convertPositionalParametersToNamedParameters('?', tc.input)
+		if err != nil && !tc.wantErr {
+			t.Error(err)
+			continue
+		}
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("convertPositionalParametersToNamedParameters error mismatch\nGot: %v\nWant: %v", err, tc.wantErr)
+			}
+			if !cmp.Equal(err.Error(), tc.err.Error()) {
+				t.Errorf("convertPositionalParametersToNamedParameters error mismatch\nGot: %s\nWant: %s", err, tc.err)
+			}
+			continue
+		}
+		if !cmp.Equal(got, tc.want) {
+			t.Errorf("convertPositionalParametersToNamedParameters result mismatch\nGot: %s\nWant: %s", got, tc.want)
 		}
 	}
 }

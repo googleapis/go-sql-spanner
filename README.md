@@ -37,12 +37,12 @@ for rows.Next() {
 
 ## Statements
 
-Statements support follows the official [Google Cloud Spanner Go](https://pkg.go.dev/cloud.google.com/go/spanner) client style arguments.
+Statements support follows the official [Google Cloud Spanner Go](https://pkg.go.dev/cloud.google.com/go/spanner) client style arguments as well as positional paramaters.
 
 ```go
-db.QueryContext(ctx, "SELECT id, text FROM tweets WHERE likes > @likes", 500)
+db.QueryContext(ctx, "SELECT id, text FROM tweets WHERE likes > ?", 500)
 
-db.ExecContext(ctx, "INSERT INTO tweets (id, text, rts) VALUES (@id, @text, @rts)", id, text, 10000)
+db.ExecContext(ctx, "INSERT INTO tweets (id, text, rts) VALUES (?, ?, ?)", id, text, 10000)
 
 db.ExecContext(ctx, "DELETE FROM tweets WHERE id = @id", 14544498215374)
 ```
