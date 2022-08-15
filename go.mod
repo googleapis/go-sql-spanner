@@ -3,7 +3,7 @@ module github.com/googleapis/go-sql-spanner
 go 1.17
 
 require (
-	cloud.google.com/go v0.102.1
+	cloud.google.com/go v0.103.0
 	cloud.google.com/go/spanner v1.36.0
 	github.com/golang/protobuf v1.5.2
 	github.com/google/go-cmp v0.5.8
