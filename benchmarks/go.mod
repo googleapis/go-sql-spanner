@@ -1,6 +1,6 @@
 module github.com/googleapis/go-sql-spanner/benchmarks
 
-go 1.17
+go 1.19
 
 replace github.com/googleapis/go-sql-spanner => ../
 
