@@ -23,5 +23,4 @@ Spanner databases that use the PostgreSQL dialect are not yet supported.
 
 Backups
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Backups for databases are not managed by Go driver so it does not support it inherently.
-In general, none of the Spanner ORMs / drivers are expected to support backup management.
+Backups are not supported by this driver. Use the [Cloud Spanner Go client library](https://github.com/googleapis/google-cloud-go/tree/main/spanner) to manage backups programmatically.
