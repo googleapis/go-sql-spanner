@@ -58,7 +58,7 @@ func parseParameters(sql string) (string, []string, error) {
 	if err != nil {
 		return sql, nil, err
 	}
-	return namedParams('?', sql)
+	return findParams('?', sql)
 }
 
 // RemoveCommentsAndTrim removes any comments in the query string and trims any
@@ -192,7 +192,7 @@ func removeStatementHint(sql string) string {
 
 // This function assumes that all comments have already
 // been removed from the statement.
-func namedParams(positionalParamChar rune, sql string) (string, []string, error) {
+func findParams(positionalParamChar rune, sql string) (string, []string, error) {
 	const paramPrefix = '@'
 	const singleQuote = '\''
 	const doubleQuote = '"'
@@ -203,7 +203,7 @@ func namedParams(positionalParamChar rune, sql string) (string, []string, error)
 	isTripleQuoted := false
 	hasNamedParameter := false
 	hasPositionalParameter := false
-	res := make([]string, 0)
+	namedParams := make([]string, 0)
 	parsedSQL := strings.Builder{}
 	parsedSQL.Grow(len(sql))
 	positionalParameterIndex := 1
@@ -249,13 +249,13 @@ func namedParams(positionalParamChar rune, sql string) (string, []string, error)
 				for index < len(runes) {
 					if !(unicode.IsLetter(runes[index]) || unicode.IsDigit(runes[index]) || runes[index] == '_') {
 						hasNamedParameter = true
-						res = append(res, string(runes[startIndex:index]))
+						namedParams = append(namedParams, string(runes[startIndex:index]))
 						parsedSQL.WriteRune(runes[index])
 						break
 					}
 					if index == len(runes)-1 {
 						hasNamedParameter = true
-						res = append(res, string(runes[startIndex:]))
+						namedParams = append(namedParams, string(runes[startIndex:]))
 						parsedSQL.WriteRune(runes[index])
 						break
 					}
@@ -268,7 +268,7 @@ func namedParams(positionalParamChar rune, sql string) (string, []string, error)
 				}
 				hasPositionalParameter = true
 				parsedSQL.WriteString("@p" + strconv.Itoa(positionalParameterIndex))
-				res = append(res, "p"+strconv.Itoa(positionalParameterIndex))
+				namedParams = append(namedParams, "p"+strconv.Itoa(positionalParameterIndex))
 				positionalParameterIndex++
 			} else {
 				if c == singleQuote || c == doubleQuote || c == backtick {
@@ -291,13 +291,13 @@ func namedParams(positionalParamChar rune, sql string) (string, []string, error)
 		return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", sql))
 	}
 	if hasNamedParameter {
-		return sql, res, nil
+		return sql, namedParams, nil
 	}
 	sql = strings.TrimSpace(parsedSQL.String())
 	if len(sql) > 0 && sql[len(sql)-1] == ';' {
 		sql = sql
 	}
-	return sql, res, nil
+	return sql, namedParams, nil
 }
 
 // isDDL returns true if the given sql string is a DDL statement.
