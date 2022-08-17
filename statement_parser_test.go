@@ -464,151 +464,188 @@ SELECT SchoolID FROM Roster`,
 	}
 }
 
-func TestConvertPositionalParametersToNamedParameters(t *testing.T) {
-	tests := []struct {
-		input   string
-		want    string
-		wantErr bool
-		err     error
-	}{
-		{
-			input: `SELECT * FROM PersonsTable WHERE id=?`,
-			want:  `SELECT * FROM PersonsTable WHERE id=@p1`,
-		},
-		{
-			input: `?'?test?\"?test?\"?'?`,
-			want:  `@p1'?test?\"?test?\"?'@p2`,
-		},
-		{
-			input: `?'?it\\'?s'?`,
-			want:  `@p1'?it\\'?s'@p2`,
-		},
-		{
-			input: `?'?it\\\"?s'?`,
-			want:  `@p1'?it\\\"?s'@p2`,
-		},
-		{
-			input: "?`?it\\\\`?s`?",
-			want:  "@p1`?it\\\\`?s`@p2",
-		},
-		{
-			input: "select 1, ?, 'test?test', \"test?test\", foo.* from `foo` where col1=? and col2='test' and col3=? and col4='?' and col5=\"?\" and col6='?''?''?'",
-			want:  "select 1, @p1, 'test?test', \"test?test\", foo.* from `foo` where col1=@p2 and col2='test' and col3=@p3 and col4='?' and col5=\"?\" and col6='?''?''?'",
-		},
-		{
-			input: "select * from foo where name=? and col2 like ? and col3 > ?",
-			want:  "select * from foo where name=@p1 and col2 like @p2 and col3 > @p3",
-		},
-		{
-			input: "select * from foo where id between ? and ?",
-			want:  "select * from foo where id between @p1 and @p2",
-		},
-		{
-			input: "select * from foo limit ? offset ?",
-			want:  "select * from foo limit @p1 offset @p2",
-		},
-		{
-			input: "select * from foo where col1=? and col2 like ? and col3 > ? and col4 < ? and col5 != ? and col6 not in (?, ?, ?) and col7 in (?, ?, ?) and col8 between ? and ?",
-			want:  "select * from foo where col1=@p1 and col2 like @p2 and col3 > @p3 and col4 < @p4 and col5 != @p5 and col6 not in (@p6, @p7, @p8) and col7 in (@p9, @p10, @p11) and col8 between @p12 and @p13",
-		},
-		{
-			input: "?\"?it\\\"?s\"?",
-			want:  "@p1\"?it\\\"?s\"@p2",
-		},
-		{
-			input:   "?'?it\\'?s \n ?it\\'?s'?",
-			wantErr: true,
-			err:     spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", "?'?it\\'?s \n ?it\\'?s'?")),
-		},
-		{
-			input:   "?'?it\\'?s \n ?it\\'?s?",
-			wantErr: true,
-			err:     spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", "?'?it\\'?s \n ?it\\'?s?")),
-		},
-		{
-			input:   "?'''?it\\'?s \n ?it\\'?s'?",
-			wantErr: true,
-			err:     spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", "?'''?it\\'?s \n ?it\\'?s'?")),
-		},
-	}
-	for _, tc := range tests {
-		got, err := convertPositionalParametersToNamedParameters('?', tc.input)
-		if err != nil && !tc.wantErr {
-			t.Error(err)
-			continue
-		}
-		if tc.wantErr {
-			if err == nil {
-				t.Errorf("convertPositionalParametersToNamedParameters error mismatch\nGot: %v\nWant: %v", err, tc.wantErr)
-			}
-			if !cmp.Equal(err.Error(), tc.err.Error()) {
-				t.Errorf("convertPositionalParametersToNamedParameters error mismatch\nGot: %s\nWant: %s", err, tc.err)
-			}
-			continue
-		}
-		if !cmp.Equal(got, tc.want) {
-			t.Errorf("convertPositionalParametersToNamedParameters result mismatch\nGot: %s\nWant: %s", got, tc.want)
-		}
-	}
-}
-
 func TestFindParams(t *testing.T) {
 	tests := []struct {
-		input   string
-		want    []string
-		wantErr bool
+		input              string
+		wantSQL            string
+		want               []string
+		wantErr            error
+		skipRemoveComments bool
 	}{
 		{
-			input: `SELECT * FROM PersonsTable WHERE id=@id`,
-			want:  []string{"id"},
+			input:   `SELECT * FROM PersonsTable WHERE id=@id`,
+			wantSQL: `SELECT * FROM PersonsTable WHERE id=@id`,
+			want:    []string{"id"},
 		},
 		{
-			input: `SELECT * FROM PersonsTable WHERE id=@id AND name=@name`,
-			want:  []string{"id", "name"},
+			input:   `SELECT * FROM PersonsTable WHERE id=@id AND name=@name`,
+			wantSQL: `SELECT * FROM PersonsTable WHERE id=@id AND name=@name`,
+			want:    []string{"id", "name"},
 		},
 		{
-			input: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
-			want:  []string{"name"},
+			input:   `SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+			wantSQL: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+			want:    []string{"name"},
 		},
 		{
 			input: `SELECT * FROM """strange
- @table
-""" WHERE Name like @name AND Email='test@test.com'`,
+		@table
+		""" WHERE Name like @name AND Email='test@test.com'`,
+			wantSQL: `SELECT * FROM """strange
+		@table
+		""" WHERE Name like @name AND Email='test@test.com'`,
 			want: []string{"name"},
 		},
 		{
-			input: `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
-			want:  []string{"name"},
+			input:   `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+			wantSQL: `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+			want:    []string{"name"},
 		},
 		{
-			input: "INSERT INTO Foo (Col1, Col2, Col3) VALUES (@param1, @param2, @param3)",
-			want:  []string{"param1", "param2", "param3"},
+			input:   "INSERT INTO Foo (Col1, Col2, Col3) VALUES (@param1, @param2, @param3)",
+			wantSQL: "INSERT INTO Foo (Col1, Col2, Col3) VALUES (@param1, @param2, @param3)",
+			want:    []string{"param1", "param2", "param3"},
 		},
 		{
-			input: "SELECT * FROM PersonsTable@{FORCE_INDEX=`my_index`} WHERE id=@id AND name=@name",
-			want:  []string{"id", "name"},
+			input:   "SELECT * FROM PersonsTable@{FORCE_INDEX=`my_index`} WHERE id=@id AND name=@name",
+			wantSQL: "SELECT * FROM PersonsTable@{FORCE_INDEX=`my_index`} WHERE id=@id AND name=@name",
+			want:    []string{"id", "name"},
 		},
 		{
-			input: "SELECT * FROM PersonsTable @{FORCE_INDEX=my_index} WHERE id=@id AND name=@name",
-			want:  []string{"id", "name"},
+			input:   "SELECT * FROM PersonsTable @{FORCE_INDEX=my_index} WHERE id=@id AND name=@name",
+			wantSQL: "SELECT * FROM PersonsTable @{FORCE_INDEX=my_index} WHERE id=@id AND name=@name",
+			want:    []string{"id", "name"},
+		},
+		{
+			input:   `SELECT * FROM PersonsTable WHERE id=?`,
+			wantSQL: `SELECT * FROM PersonsTable WHERE id=@p1`,
+			want:    []string{"p1"},
+		},
+		{
+			input:   `?'?test?"?test?"?'?`,
+			wantSQL: `@p1'?test?"?test?"?'@p2`,
+			want:    []string{"p1", "p2"},
+		},
+		{
+			input:   `?'?it\'?s'?`,
+			wantSQL: `@p1'?it\'?s'@p2`,
+			want:    []string{"p1", "p2"},
+		},
+		{
+			input:   `?'?it\"?s'?`,
+			wantSQL: `@p1'?it\"?s'@p2`,
+			want:    []string{"p1", "p2"},
+		},
+		{
+			input:   `?"?it\"?s"?`,
+			wantSQL: `@p1"?it\"?s"@p2`,
+			want:    []string{"p1", "p2"},
+		},
+		{
+			input:   `?'''?it\'?s'''?`,
+			wantSQL: `@p1'''?it\'?s'''@p2`,
+			want:    []string{"p1", "p2"},
+		},
+		{
+			input:   `?"""?it\"?s"""?`,
+			wantSQL: `@p1"""?it\"?s"""@p2`,
+			want:    []string{"p1", "p2"},
+		},
+		{
+			input:   `?` + "`?it" + `\` + "`?s`" + `?`,
+			wantSQL: `@p1` + "`?it" + `\` + "`?s`" + `@p2`,
+			want:    []string{"p1", "p2"},
+		},
+		{
+			input: `?'''?it\'?s
+		?it\'?s'''?`,
+			wantSQL: `@p1'''?it\'?s
+		?it\'?s'''@p2`,
+			want: []string{"p1", "p2"},
+		},
+		{
+			input: `?'''?it\'?s
+		?it\'?s'''?`,
+			wantSQL: `@p1'''?it\'?s
+		?it\'?s'''@p2`,
+			want: []string{"p1", "p2"},
+		},
+		{
+			input:   `select 1, ?, 'test?test', "test?test", foo.* from` + "`foo`" + `where col1=? and col2='test' and col3=? and col4='?' and col5="?" and col6='?''?''?'`,
+			wantSQL: `select 1, @p1, 'test?test', "test?test", foo.* from` + "`foo`" + `where col1=@p2 and col2='test' and col3=@p3 and col4='?' and col5="?" and col6='?''?''?'`,
+			want:    []string{"p1", "p2", "p3"},
+		},
+		{
+			input:   `select * from foo where name=? and col2 like ? and col3 > ?`,
+			wantSQL: `select * from foo where name=@p1 and col2 like @p2 and col3 > @p3`,
+			want:    []string{"p1", "p2", "p3"},
+		},
+		{
+			input:   `select * from foo where id between ? and ?`,
+			wantSQL: `select * from foo where id between @p1 and @p2`,
+			want:    []string{"p1", "p2"},
+		},
+		{
+			input:   `select * from foo limit ? offset ?`,
+			wantSQL: `select * from foo limit @p1 offset @p2`,
+			want:    []string{"p1", "p2"},
+		},
+		{
+			input:   `select * from foo where col1=? and col2 like ? and col3 > ? and col4 < ? and col5 != ? and col6 not in (?, ?, ?) and col7 in (?, ?, ?) and col8 between ? and ?`,
+			wantSQL: `select * from foo where col1=@p1 and col2 like @p2 and col3 > @p3 and col4 < @p4 and col5 != @p5 and col6 not in (@p6, @p7, @p8) and col7 in (@p9, @p10, @p11) and col8 between @p12 and @p13`,
+			want:    []string{"p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11", "p12", "p13"},
+		},
+		{
+			input: `?'?it\'?s
+		?it\'?s'?`,
+			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", `?'?it\'?s
+		?it\'?s'?`)),
+			skipRemoveComments: true,
+		},
+		{
+			input: `?'?it\'?s
+		?it\'?s?`,
+			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", `?'?it\'?s
+		?it\'?s?`)),
+			skipRemoveComments: true,
+		},
+		{
+			input: `?'''?it\'?s
+		?it\'?s'?`,
+			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", `?'''?it\'?s
+		?it\'?s'?`)),
+			skipRemoveComments: true,
 		},
 	}
 	for _, tc := range tests {
-		sql, err := removeCommentsAndTrim(tc.input)
-		if err != nil {
-			t.Fatal(err)
+		sql := tc.input
+		if !tc.skipRemoveComments {
+			var err error
+			sql, err = removeCommentsAndTrim(tc.input)
+			if err != nil && tc.wantErr == nil {
+				t.Fatal(err)
+			}
 		}
-		got, err := parseNamedParameters(removeStatementHint(sql))
-		if err != nil && !tc.wantErr {
+		gotSQL, got, err := parseParameters(sql)
+		if err != nil && tc.wantErr == nil {
 			t.Error(err)
 			continue
 		}
-		if tc.wantErr {
-			t.Errorf("missing expected error for %q", tc.input)
+		if tc.wantErr != nil {
+			if err == nil {
+				t.Errorf("missing expected error for %q", tc.input)
+				continue
+			}
+			if !cmp.Equal(err.Error(), tc.wantErr.Error()) {
+				t.Errorf("parseParameters error mismatch\nGot: %s\nWant: %s", err.Error(), tc.wantErr)
+			}
 			continue
 		}
 		if !cmp.Equal(got, tc.want) {
-			t.Errorf("parseNamedParameters result mismatch\nGot: %s\nWant: %s", got, tc.want)
+			t.Errorf("parseParameters result mismatch\nGot: %s\nWant: %s", got, tc.want)
+		}
+		if !cmp.Equal(gotSQL, tc.wantSQL) {
+			t.Errorf("parseParameters sql mismatch\nGot: %s\nWant: %s", gotSQL, tc.wantSQL)
 		}
 	}
 }
@@ -865,11 +902,11 @@ func TestRemoveCommentsAndTrim_Errors(t *testing.T) {
 }
 
 func TestFindParams_Errors(t *testing.T) {
-	_, err := findParams("SELECT 'Hello World FROM SomeTable WHERE id=@id")
+	_, _, err := findParams('?', "SELECT 'Hello World FROM SomeTable WHERE id=@id")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}
-	_, err = findParams("SELECT 'Hello World\nFROM SomeTable WHERE id=@id")
+	_, _, err = findParams('?', "SELECT 'Hello World\nFROM SomeTable WHERE id=@id")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}

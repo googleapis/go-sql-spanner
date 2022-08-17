@@ -65,11 +65,7 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 }
 
 func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, error) {
-	q, err := convertPositionalParametersToNamedParameters('?', q)
-	if err != nil {
-		return spanner.Statement{}, err
-	}
-	names, err := parseNamedParameters(q)
+	q, names, err := parseParameters(q)
 	if err != nil {
 		return spanner.Statement{}, err
 	}

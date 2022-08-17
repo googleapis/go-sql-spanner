@@ -39,11 +39,17 @@ for rows.Next() {
 
 Statements support follows the official [Google Cloud Spanner Go](https://pkg.go.dev/cloud.google.com/go/spanner) client style arguments as well as positional paramaters.
 
+### Using positional patameter
+
 ```go
 db.QueryContext(ctx, "SELECT id, text FROM tweets WHERE likes > ?", 500)
 
 db.ExecContext(ctx, "INSERT INTO tweets (id, text, rts) VALUES (?, ?, ?)", id, text, 10000)
+```
 
+### Using named patameter
+
+```go
 db.ExecContext(ctx, "DELETE FROM tweets WHERE id = @id", 14544498215374)
 ```
 
@@ -51,8 +57,8 @@ db.ExecContext(ctx, "DELETE FROM tweets WHERE id = @id", 14544498215374)
 
 - Read-write transactions always uses the strongest isolation level and ignore the user-specified level.
 - Read-only transactions do strong-reads by default. Read-only transactions must be ended by calling
-either Commit or Rollback. Calling either of these methods will end the current read-only
-transaction and return the session that is used to the session pool.
+  either Commit or Rollback. Calling either of these methods will end the current read-only
+  transaction and return the session that is used to the session pool.
 
 ``` go
 tx, err := db.BeginTx(ctx, &sql.TxOptions{}) // Read-write transaction.
