@@ -58,7 +58,7 @@ func parseParameters(sql string) (string, []string, error) {
 	if err != nil {
 		return sql, nil, err
 	}
-	return findParams('?', sql)
+	return namedParams('?', sql)
 }
 
 // RemoveCommentsAndTrim removes any comments in the query string and trims any
@@ -192,7 +192,7 @@ func removeStatementHint(sql string) string {
 
 // This function assumes that all comments have already
 // been removed from the statement.
-func findParams(positionalParamChar rune, sql string) (string, []string, error) {
+func namedParams(positionalParamChar rune, sql string) (string, []string, error) {
 	const paramPrefix = '@'
 	const singleQuote = '\''
 	const doubleQuote = '"'
@@ -250,7 +250,6 @@ func findParams(positionalParamChar rune, sql string) (string, []string, error) 
 					if !(unicode.IsLetter(runes[index]) || unicode.IsDigit(runes[index]) || runes[index] == '_') {
 						hasNamedParameter = true
 						res = append(res, string(runes[startIndex:index]))
-						hasNamedParameter = true
 						parsedSQL.WriteRune(runes[index])
 						break
 					}
@@ -290,6 +289,9 @@ func findParams(positionalParamChar rune, sql string) (string, []string, error) 
 	}
 	if isInQuoted {
 		return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", sql))
+	}
+	if hasNamedParameter {
+		return sql, res, nil
 	}
 	sql = strings.TrimSpace(parsedSQL.String())
 	if len(sql) > 0 && sql[len(sql)-1] == ';' {

@@ -596,6 +596,16 @@ func TestFindParams(t *testing.T) {
 			want:    []string{"p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11", "p12", "p13"},
 		},
 		{
+			input:   `select * from foo where ?='''strange @table'''`,
+			wantSQL: `select * from foo where @p1='''strange @table'''`,
+			want:    []string{"p1"},
+		},
+		{
+			input:   `select foo from bar where id=@ order by value`,
+			wantSQL: `select foo from bar where id=@ order by value`,
+			want:    []string{},
+		},
+		{
 			input: `?'?it\'?s
 		?it\'?s'?`,
 			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", `?'?it\'?s
@@ -902,11 +912,11 @@ func TestRemoveCommentsAndTrim_Errors(t *testing.T) {
 }
 
 func TestFindParams_Errors(t *testing.T) {
-	_, _, err := findParams('?', "SELECT 'Hello World FROM SomeTable WHERE id=@id")
+	_, _, err := namedParams('?', "SELECT 'Hello World FROM SomeTable WHERE id=@id")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}
-	_, _, err = findParams('?', "SELECT 'Hello World\nFROM SomeTable WHERE id=@id")
+	_, _, err = namedParams('?', "SELECT 'Hello World\nFROM SomeTable WHERE id=@id")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}
