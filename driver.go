@@ -737,11 +737,11 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 }
 
 func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
-	args, err := parseNamedParameters(query)
+	parsedSQL, args, err := parseParameters(query)
 	if err != nil {
 		return nil, err
 	}
-	return &stmt{conn: c, query: query, numArgs: len(args)}, nil
+	return &stmt{conn: c, query: parsedSQL, numArgs: len(args)}, nil
 }
 
 func (c *conn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {

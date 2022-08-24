@@ -49,7 +49,7 @@ func transaction(projectId, instanceId, databaseId string) error {
 	}
 
 	// The row that we inserted will be readable for the same transaction that started it.
-	rows, err := tx.QueryContext(ctx, "SELECT SingerId, Name FROM Singers WHERE SingerId = @id", 123)
+	rows, err := tx.QueryContext(ctx, "SELECT SingerId, Name FROM Singers WHERE SingerId = ?", 123)
 	if err != nil {
 		_ = tx.Rollback()
 		return err
@@ -92,7 +92,7 @@ func transaction(projectId, instanceId, databaseId string) error {
 	}
 
 	// This should now find the row.
-	row = db.QueryRowContext(ctx, "SELECT SingerId, Name FROM Singers WHERE SingerId = @id", 123)
+	row = db.QueryRowContext(ctx, "SELECT SingerId, Name FROM Singers WHERE SingerId = ?", 123)
 	if err := row.Err(); err != nil {
 		return err
 	}
