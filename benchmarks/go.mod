@@ -11,7 +11,7 @@ require (
 	github.com/googleapis/go-sql-spanner v0.0.0-00010101000000-000000000000
 	google.golang.org/api v0.90.0
 	google.golang.org/genproto v0.0.0-20220801145646-83ce21fca29f
-	google.golang.org/grpc v1.48.0
+	google.golang.org/grpc v1.49.0
 )
 
 require (
