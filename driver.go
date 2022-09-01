@@ -207,6 +207,7 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 			config.WriteSessions = val
 		}
 	}
+	config.UserAgent = userAgent
 	c := &connector{
 		driver:                d,
 		dsn:                   dsn,
