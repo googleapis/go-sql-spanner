@@ -43,6 +43,7 @@ func TestExtractDnsParts(t *testing.T) {
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
 			},
 		},
 		{
@@ -55,6 +56,7 @@ func TestExtractDnsParts(t *testing.T) {
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
 			},
 		},
 		{
@@ -68,6 +70,7 @@ func TestExtractDnsParts(t *testing.T) {
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
 			},
 		},
 		{
@@ -81,6 +84,7 @@ func TestExtractDnsParts(t *testing.T) {
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
 			},
 		},
 		{
@@ -96,6 +100,7 @@ func TestExtractDnsParts(t *testing.T) {
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
 			},
 		},
 		{
@@ -111,6 +116,7 @@ func TestExtractDnsParts(t *testing.T) {
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
 			},
 		},
 		{
@@ -127,6 +133,7 @@ func TestExtractDnsParts(t *testing.T) {
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
 			},
 		},
 		{
@@ -142,6 +149,7 @@ func TestExtractDnsParts(t *testing.T) {
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
 			},
 		},
 		{
@@ -168,6 +176,7 @@ func TestExtractDnsParts(t *testing.T) {
 					MaxIdle:             spanner.DefaultSessionPoolConfig.MaxIdle,
 					TrackSessionHandles: spanner.DefaultSessionPoolConfig.TrackSessionHandles,
 				},
+				UserAgent: userAgent,
 			},
 		},
 	}
