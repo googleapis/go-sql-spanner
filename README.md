@@ -5,9 +5,6 @@
 [Google Cloud Spanner](https://cloud.google.com/spanner) driver for
 Go's [database/sql](https://golang.org/pkg/database/sql/) package.
 
-
-This support is currently in the __Preview__ release status.
-
 ``` go
 import _ "github.com/googleapis/go-sql-spanner"
 
@@ -148,3 +145,29 @@ initial attempt and the retry attempt, the Aborted error will be propagated
 to the client application as an `spannerdriver.ErrAbortedDueToConcurrentModification`
 error.
 
+## [Go Versions Supported](#supported-versions)
+
+Our libraries are compatible with at least the three most recent, major Go
+releases. They are currently compatible with:
+
+- Go 1.18
+- Go 1.17
+- Go 1.16
+- Go 1.15
+
+## Authorization
+
+By default, each API will use [Google Application Default Credentials](https://developers.google.com/identity/protocols/application-default-credentials)
+for authorization credentials used in calling the API endpoints. This will allow your
+application to run in many environments without requiring explicit configuration.
+
+## Contributing
+
+Contributions are welcome. Please, see the
+[CONTRIBUTING](https://github.com/googleapis/go-sql-spanner/blob/main/CONTRIBUTING.md)
+document for details.
+
+Please note that this project is released with a Contributor Code of Conduct.
+By participating in this project you agree to abide by its terms.
+See [Contributor Code of Conduct](https://github.com/googleapis/go-sql-spanner/blob/main/CODE_OF_CONDUCT.md)
+for more information.
