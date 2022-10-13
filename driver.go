@@ -93,6 +93,9 @@ type connectorConfig struct {
 
 func extractConnectorConfig(dsn string) (connectorConfig, error) {
 	match := dsnRegExp.FindStringSubmatch(dsn)
+	if match == nil {
+		return connectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection string: %s", dsn))
+	}
 	matches := make(map[string]string)
 	for i, name := range dsnRegExp.SubexpNames() {
 		if i != 0 && name != "" {
