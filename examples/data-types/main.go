@@ -24,8 +24,8 @@ import (
 
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
-	_ "github.com/cloudspannerecosystem/go-sql-spanner"
-	"github.com/cloudspannerecosystem/go-sql-spanner/examples"
+	_ "github.com/googleapis/go-sql-spanner"
+	"github.com/googleapis/go-sql-spanner/examples"
 )
 
 var createTableStatement = `CREATE TABLE AllTypes (

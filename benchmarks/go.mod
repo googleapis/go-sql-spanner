@@ -1,15 +1,38 @@
-module github.com/cloudspannerecosystem/go-sql-spanner/benchmarks
+module github.com/googleapis/go-sql-spanner/benchmarks
 
-go 1.14
+go 1.17
 
-replace github.com/cloudspannerecosystem/go-sql-spanner => ../
+replace github.com/googleapis/go-sql-spanner => ../
 
 require (
-	cloud.google.com/go v0.93.3
-	cloud.google.com/go/spanner v1.25.0
-	github.com/cloudspannerecosystem/go-sql-spanner v0.0.0-00010101000000-000000000000
-	github.com/google/uuid v1.1.2
-	google.golang.org/api v0.54.0
-	google.golang.org/genproto v0.0.0-20210821163610-241b8fcbd6c8
-	google.golang.org/grpc v1.40.0
+	cloud.google.com/go v0.104.0
+	cloud.google.com/go/spanner v1.38.0
+	github.com/google/uuid v1.3.0
+	github.com/googleapis/go-sql-spanner v1.0.0
+	google.golang.org/api v0.94.0
+	google.golang.org/genproto v0.0.0-20220902135211-223410557253
+	google.golang.org/grpc v1.49.0
+	google.golang.org/protobuf v1.28.1
+)
+
+require (
+	cloud.google.com/go/compute v1.9.0 // indirect
+	github.com/census-instrumentation/opencensus-proto v0.3.0 // indirect
+	github.com/cespare/xxhash/v2 v2.1.2 // indirect
+	github.com/cncf/udpa/go v0.0.0-20220112060539-c52dc94e7fbe // indirect
+	github.com/cncf/xds/go v0.0.0-20220520190051-1e77728a1eaa // indirect
+	github.com/envoyproxy/go-control-plane v0.10.3 // indirect
+	github.com/envoyproxy/protoc-gen-validate v0.6.7 // indirect
+	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
+	github.com/golang/protobuf v1.5.2 // indirect
+	github.com/google/go-cmp v0.5.8 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.1.0 // indirect
+	github.com/googleapis/gax-go/v2 v2.5.1 // indirect
+	go.opencensus.io v0.23.0 // indirect
+	golang.org/x/net v0.0.0-20220826154423-83b083e8dc8b // indirect
+	golang.org/x/oauth2 v0.0.0-20220822191816-0ebed06d0094 // indirect
+	golang.org/x/sys v0.0.0-20220829200755-d48e67d00261 // indirect
+	golang.org/x/text v0.3.7 // indirect
+	golang.org/x/xerrors v0.0.0-20220609144429-65e65417b02f // indirect
+	google.golang.org/appengine v1.6.7 // indirect
 )

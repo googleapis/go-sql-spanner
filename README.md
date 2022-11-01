@@ -1,15 +1,12 @@
 # go-sql-spanner
 
-[![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/cloudspannerecosystem/go-sql-spanner)
+[![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/googleapis/go-sql-spanner)
 
 [Google Cloud Spanner](https://cloud.google.com/spanner) driver for
 Go's [database/sql](https://golang.org/pkg/database/sql/) package.
 
-
-THIS IS A WORK-IN-PROGRESS, DON'T USE IT IN PRODUCTION YET.
-
 ``` go
-import _ "github.com/cloudspannerecosystem/go-sql-spanner"
+import _ "github.com/googleapis/go-sql-spanner"
 
 db, err := sql.Open("spanner", "projects/PROJECT/instances/INSTANCE/databases/DATABASE")
 if err != nil {
@@ -37,13 +34,19 @@ for rows.Next() {
 
 ## Statements
 
-Statements support follows the official [Google Cloud Spanner Go](https://pkg.go.dev/cloud.google.com/go/spanner) client style arguments.
+Statements support follows the official [Google Cloud Spanner Go](https://pkg.go.dev/cloud.google.com/go/spanner) client style arguments as well as positional paramaters.
+
+### Using positional patameter
 
 ```go
-db.QueryContext(ctx, "SELECT id, text FROM tweets WHERE likes > @likes", 500)
+db.QueryContext(ctx, "SELECT id, text FROM tweets WHERE likes > ?", 500)
 
-db.ExecContext(ctx, "INSERT INTO tweets (id, text, rts) VALUES (@id, @text, @rts)", id, text, 10000)
+db.ExecContext(ctx, "INSERT INTO tweets (id, text, rts) VALUES (?, ?, ?)", id, text, 10000)
+```
 
+### Using named patameter
+
+```go
 db.ExecContext(ctx, "DELETE FROM tweets WHERE id = @id", 14544498215374)
 ```
 
@@ -51,8 +54,8 @@ db.ExecContext(ctx, "DELETE FROM tweets WHERE id = @id", 14544498215374)
 
 - Read-write transactions always uses the strongest isolation level and ignore the user-specified level.
 - Read-only transactions do strong-reads by default. Read-only transactions must be ended by calling
-either Commit or Rollback. Calling either of these methods will end the current read-only
-transaction and return the session that is used to the session pool.
+  either Commit or Rollback. Calling either of these methods will end the current read-only
+  transaction and return the session that is used to the session pool.
 
 ``` go
 tx, err := db.BeginTx(ctx, &sql.TxOptions{}) // Read-write transaction.
@@ -142,8 +145,29 @@ initial attempt and the retry attempt, the Aborted error will be propagated
 to the client application as an `spannerdriver.ErrAbortedDueToConcurrentModification`
 error.
 
----
+## [Go Versions Supported](#supported-versions)
 
-## Disclaimer
+Our libraries are compatible with at least the three most recent, major Go
+releases. They are currently compatible with:
 
-This is not an officially supported Google Cloud product.
+- Go 1.18
+- Go 1.17
+- Go 1.16
+- Go 1.15
+
+## Authorization
+
+By default, each API will use [Google Application Default Credentials](https://developers.google.com/identity/protocols/application-default-credentials)
+for authorization credentials used in calling the API endpoints. This will allow your
+application to run in many environments without requiring explicit configuration.
+
+## Contributing
+
+Contributions are welcome. Please, see the
+[CONTRIBUTING](https://github.com/googleapis/go-sql-spanner/blob/main/CONTRIBUTING.md)
+document for details.
+
+Please note that this project is released with a Contributor Code of Conduct.
+By participating in this project you agree to abide by its terms.
+See [Contributor Code of Conduct](https://github.com/googleapis/go-sql-spanner/blob/main/CODE_OF_CONDUCT.md)
+for more information.

@@ -37,20 +37,21 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const userAgent = "go-sql-spanner/0.1"
+const userAgent = "go-sql-spanner/1.0.0"
 
 // dsnRegExpString describes the valid values for a dsn (connection name) for
 // Google Cloud Spanner. The string consists of the following parts:
-// 1. (Optional) Host: The host name and port number to connect to.
-// 2. Database name: The database name to connect to in the format `projects/my-project/instances/my-instance/databases/my-database`
-// 3. (Optional) Parameters: One or more parameters in the format `name=value`. Multiple entries are separated by `;`.
-//    The supported parameters are:
-//    - credentials: File name for the credentials to use. The connection will use the default credentials of the
-//                   environment if no credentials file is specified in the connection string.
-//    - usePlainText: Boolean that indicates whether the connection should use plain text communication or not. Set this
-//                    to true to connect to local mock servers that do not use SSL.
-//    - retryAbortsInternally: Boolean that indicates whether the connection should automatically retry aborted errors.
-//                             The default is true.
+//  1. (Optional) Host: The host name and port number to connect to.
+//  2. Database name: The database name to connect to in the format `projects/my-project/instances/my-instance/databases/my-database`
+//  3. (Optional) Parameters: One or more parameters in the format `name=value`. Multiple entries are separated by `;`.
+//     The supported parameters are:
+//     - credentials: File name for the credentials to use. The connection will use the default credentials of the
+//     environment if no credentials file is specified in the connection string.
+//     - usePlainText: Boolean that indicates whether the connection should use plain text communication or not. Set this
+//     to true to connect to local mock servers that do not use SSL.
+//     - retryAbortsInternally: Boolean that indicates whether the connection should automatically retry aborted errors.
+//     The default is true.
+//
 // Example: `localhost:9010/projects/test-project/instances/test-instance/databases/test-database;usePlainText=true`
 var dsnRegExp = regexp.MustCompile("((?P<HOSTGROUP>[\\w.-]+(?:\\.[\\w\\.-]+)*[\\w\\-\\._~:/?#\\[\\]@!\\$&'\\(\\)\\*\\+,;=.]+)/)?projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID)))(/instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+)(/databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?)?(([\\?|;])(?P<PARAMSGROUP>.*))?")
 
@@ -92,6 +93,9 @@ type connectorConfig struct {
 
 func extractConnectorConfig(dsn string) (connectorConfig, error) {
 	match := dsnRegExp.FindStringSubmatch(dsn)
+	if match == nil {
+		return connectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection string: %s", dsn))
+	}
 	matches := make(map[string]string)
 	for i, name := range dsnRegExp.SubexpNames() {
 		if i != 0 && name != "" {
@@ -207,6 +211,7 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 			config.WriteSessions = val
 		}
 	}
+	config.UserAgent = userAgent
 	c := &connector{
 		driver:                d,
 		dsn:                   dsn,
@@ -737,11 +742,11 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 }
 
 func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
-	args, err := parseNamedParameters(query)
+	parsedSQL, args, err := parseParameters(query)
 	if err != nil {
 		return nil, err
 	}
-	return &stmt{conn: c, query: query, numArgs: len(args)}, nil
+	return &stmt{conn: c, query: parsedSQL, numArgs: len(args)}, nil
 }
 
 func (c *conn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
