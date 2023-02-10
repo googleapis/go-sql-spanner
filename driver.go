@@ -673,6 +673,10 @@ func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
 	if value == nil {
 		return nil
 	}
+	if valuer, ok := value.Value.(driver.Valuer); ok {
+		_, err := valuer.Value()
+		return err
+	}
 	switch t := value.Value.(type) {
 	default:
 		// Default is to fail, unless it is one of the following supported types.
