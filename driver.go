@@ -674,8 +674,11 @@ func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
 		return nil
 	}
 	if valuer, ok := value.Value.(driver.Valuer); ok {
-		_, err := valuer.Value()
-		return err
+		v, err := valuer.Value()
+		if err != nil {
+			return err
+		}
+		value.Value = v
 	}
 	switch t := value.Value.(type) {
 	default:
