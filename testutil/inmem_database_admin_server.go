@@ -17,11 +17,12 @@ package testutil
 import (
 	"context"
 	"fmt"
-	"github.com/golang/protobuf/proto"
-	longrunningpb "google.golang.org/genproto/googleapis/longrunning"
-	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
-	"google.golang.org/grpc/metadata"
 	"strings"
+
+	"cloud.google.com/go/longrunning/autogen/longrunningpb"
+	databasepb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
+	"github.com/golang/protobuf/proto"
+	"google.golang.org/grpc/metadata"
 )
 
 // InMemDatabaseAdminServer contains the DatabaseAdminServer interface plus a couple
