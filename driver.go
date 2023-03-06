@@ -37,7 +37,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const userAgent = "go-sql-spanner/1.0.0"
+const userAgent = "go-sql-spanner/1.0.1"
 
 // dsnRegExpString describes the valid values for a dsn (connection name) for
 // Google Cloud Spanner. The string consists of the following parts:
