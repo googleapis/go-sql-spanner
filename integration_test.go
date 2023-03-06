@@ -33,11 +33,11 @@ import (
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
+	"cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/api/iterator"
-	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
-	instancepb "google.golang.org/genproto/googleapis/spanner/admin/instance/v1"
 	"google.golang.org/grpc/codes"
 )
 
@@ -2002,10 +2002,10 @@ func TestBatchDdl(t *testing.T) {
 }
 
 // TestCanRetryTransaction shows that:
-// 1. If the internal retry of aborted transactions is enabled, the transactions will be retried
-//    successfully when that is possible, without any action needed from the caller.
-// 2. If the internal retry of aborted transactions is disabled, the transactions in this test
-//    will be aborted by Cloud Spanner, and these Aborted errors will be propagated to the caller.
+//  1. If the internal retry of aborted transactions is enabled, the transactions will be retried
+//     successfully when that is possible, without any action needed from the caller.
+//  2. If the internal retry of aborted transactions is disabled, the transactions in this test
+//     will be aborted by Cloud Spanner, and these Aborted errors will be propagated to the caller.
 func TestCanRetryTransaction(t *testing.T) {
 	skipIfShort(t)
 	t.Parallel()

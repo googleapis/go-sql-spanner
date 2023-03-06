@@ -29,7 +29,11 @@ import (
 	"time"
 
 	"cloud.google.com/go/civil"
+	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
+	"cloud.google.com/go/spanner/apiv1/spannerpb"
+	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	emptypb "github.com/golang/protobuf/ptypes/empty"
@@ -38,9 +42,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/api/option"
-	longrunningpb "google.golang.org/genproto/googleapis/longrunning"
-	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
-	sppb "google.golang.org/genproto/googleapis/spanner/v1"
+
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -1013,16 +1015,16 @@ func TestDmlInAutocommit(t *testing.T) {
 	if req.Transaction == nil {
 		t.Fatalf("missing transaction for ExecuteSqlRequest")
 	}
-	if req.Transaction.GetId() == nil {
-		t.Fatalf("missing id selector for ExecuteSqlRequest")
+	if _, ok := req.Transaction.Selector.(*spannerpb.TransactionSelector_Begin); !ok {
+		t.Fatalf("unsupported transaction type %T", req.Transaction.Selector)
 	}
 	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	commitReq := commitRequests[0].(*sppb.CommitRequest)
-	if c, e := commitReq.GetTransactionId(), req.Transaction.GetId(); !cmp.Equal(c, e) {
-		t.Fatalf("transaction id mismatch\nCommit: %c\nExecute: %v", c, e)
+	if commitReq.GetTransactionId() == nil {
+		t.Fatalf("missing id selector for CommitRequest")
 	}
 }
 

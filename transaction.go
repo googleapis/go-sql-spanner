@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner"
-	sppb "google.golang.org/genproto/googleapis/spanner/v1"
+	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
