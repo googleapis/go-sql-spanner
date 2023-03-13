@@ -215,8 +215,8 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 		}
 	}
 	config.DisableRouteToLeader = true
-	if strval, ok := connectorConfig.params["disableRouteToLeader"]; ok {
-		if val, err := strconv.ParseBool(strval); err == nil && val {
+	if strval, ok := connectorConfig.params["disableroutetoleader"]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
 			config.DisableRouteToLeader = val
 		}
 	}

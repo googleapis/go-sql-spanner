@@ -189,16 +189,17 @@ func TestExtractDnsParts(t *testing.T) {
 			},
 		},
 		{
-			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?minSessions=200;maxSessions=1000;writeSessions=0.5;disableRouteToLeader=false",
+			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?minSessions=200;maxSessions=1000;writeSessions=0.5;disableroutetoleader=false",
 			wantConnectorConfig: connectorConfig{
 				host:     "spanner.googleapis.com",
 				project:  "p",
 				instance: "i",
 				database: "d",
 				params: map[string]string{
-					"minsessions":   "200",
-					"maxsessions":   "1000",
-					"writesessions": "0.5",
+					"minsessions":          "200",
+					"maxsessions":          "1000",
+					"writesessions":        "0.5",
+					"disableroutetoleader": "false",
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
