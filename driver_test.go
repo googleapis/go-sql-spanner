@@ -42,8 +42,9 @@ func TestExtractDnsParts(t *testing.T) {
 				params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
-				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
-				UserAgent:         userAgent,
+				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
+				UserAgent:            userAgent,
+				DisableRouteToLeader: true,
 			},
 		},
 		{
@@ -55,8 +56,9 @@ func TestExtractDnsParts(t *testing.T) {
 				params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
-				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
-				UserAgent:         userAgent,
+				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
+				UserAgent:            userAgent,
+				DisableRouteToLeader: true,
 			},
 		},
 		{
@@ -69,8 +71,9 @@ func TestExtractDnsParts(t *testing.T) {
 				params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
-				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
-				UserAgent:         userAgent,
+				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
+				UserAgent:            userAgent,
+				DisableRouteToLeader: true,
 			},
 		},
 		{
@@ -83,8 +86,9 @@ func TestExtractDnsParts(t *testing.T) {
 				params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
-				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
-				UserAgent:         userAgent,
+				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
+				UserAgent:            userAgent,
+				DisableRouteToLeader: true,
 			},
 		},
 		{
@@ -99,8 +103,9 @@ func TestExtractDnsParts(t *testing.T) {
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
-				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
-				UserAgent:         userAgent,
+				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
+				UserAgent:            userAgent,
+				DisableRouteToLeader: true,
 			},
 		},
 		{
@@ -115,8 +120,9 @@ func TestExtractDnsParts(t *testing.T) {
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
-				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
-				UserAgent:         userAgent,
+				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
+				UserAgent:            userAgent,
+				DisableRouteToLeader: true,
 			},
 		},
 		{
@@ -132,8 +138,9 @@ func TestExtractDnsParts(t *testing.T) {
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
-				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
-				UserAgent:         userAgent,
+				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
+				UserAgent:            userAgent,
+				DisableRouteToLeader: true,
 			},
 		},
 		{
@@ -148,8 +155,9 @@ func TestExtractDnsParts(t *testing.T) {
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
-				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
-				UserAgent:         userAgent,
+				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
+				UserAgent:            userAgent,
+				DisableRouteToLeader: true,
 			},
 		},
 		{
@@ -176,7 +184,36 @@ func TestExtractDnsParts(t *testing.T) {
 					MaxIdle:             spanner.DefaultSessionPoolConfig.MaxIdle,
 					TrackSessionHandles: spanner.DefaultSessionPoolConfig.TrackSessionHandles,
 				},
-				UserAgent: userAgent,
+				UserAgent:            userAgent,
+				DisableRouteToLeader: true,
+			},
+		},
+		{
+			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?minSessions=200;maxSessions=1000;writeSessions=0.5;disableRouteToLeader=false",
+			wantConnectorConfig: connectorConfig{
+				host:     "spanner.googleapis.com",
+				project:  "p",
+				instance: "i",
+				database: "d",
+				params: map[string]string{
+					"minsessions":   "200",
+					"maxsessions":   "1000",
+					"writesessions": "0.5",
+				},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				SessionPoolConfig: spanner.SessionPoolConfig{
+					MinOpened:           200,
+					MaxOpened:           1000,
+					WriteSessions:       0.5,
+					HealthCheckInterval: spanner.DefaultSessionPoolConfig.HealthCheckInterval,
+					HealthCheckWorkers:  spanner.DefaultSessionPoolConfig.HealthCheckWorkers,
+					MaxBurst:            spanner.DefaultSessionPoolConfig.MaxBurst,
+					MaxIdle:             spanner.DefaultSessionPoolConfig.MaxIdle,
+					TrackSessionHandles: spanner.DefaultSessionPoolConfig.TrackSessionHandles,
+				},
+				UserAgent:            userAgent,
+				DisableRouteToLeader: false,
 			},
 		},
 		{

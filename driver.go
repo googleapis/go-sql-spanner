@@ -37,7 +37,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const userAgent = "go-sql-spanner/1.0.1"
+const userAgent = "go-sql-spanner/1.0.2"
 
 // dsnRegExpString describes the valid values for a dsn (connection name) for
 // Google Cloud Spanner. The string consists of the following parts:
@@ -51,8 +51,11 @@ const userAgent = "go-sql-spanner/1.0.1"
 //     to true to connect to local mock servers that do not use SSL.
 //     - retryAbortsInternally: Boolean that indicates whether the connection should automatically retry aborted errors.
 //     The default is true.
+//     - disableRouteToLeader: Boolean that indicates if all the requests of type read-write and PDML
+//     need to be routed to the leader region.
+//     The default is true.
 //
-// Example: `localhost:9010/projects/test-project/instances/test-instance/databases/test-database;usePlainText=true`
+// Example: `localhost:9010/projects/test-project/instances/test-instance/databases/test-database;usePlainText=true;disableRouteToLeader=false`
 var dsnRegExp = regexp.MustCompile("((?P<HOSTGROUP>[\\w.-]+(?:\\.[\\w\\.-]+)*[\\w\\-\\._~:/?#\\[\\]@!\\$&'\\(\\)\\*\\+,;=.]+)/)?projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID)))(/instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+)(/databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?)?(([\\?|;])(?P<PARAMSGROUP>.*))?")
 
 var _ driver.DriverContext = &Driver{}
@@ -209,6 +212,12 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 	if strval, ok := connectorConfig.params["writesessions"]; ok {
 		if val, err := strconv.ParseFloat(strval, 64); err == nil {
 			config.WriteSessions = val
+		}
+	}
+	config.DisableRouteToLeader = true
+	if strval, ok := connectorConfig.params["disableRouteToLeader"]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil && val {
+			config.DisableRouteToLeader = val
 		}
 	}
 	config.UserAgent = userAgent
