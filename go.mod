@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go v0.110.0
 	cloud.google.com/go/longrunning v0.4.1
 	cloud.google.com/go/spanner v1.44.0
-	github.com/golang/protobuf v1.5.2
+	github.com/golang/protobuf v1.5.3
 	github.com/google/go-cmp v0.5.9
 	google.golang.org/api v0.111.0
 	google.golang.org/genproto v0.0.0-20230303212802-e74f57abe488
