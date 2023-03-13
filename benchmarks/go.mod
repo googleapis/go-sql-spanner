@@ -8,7 +8,7 @@ require (
 	cloud.google.com/go v0.110.0
 	cloud.google.com/go/spanner v1.44.0
 	github.com/google/uuid v1.3.0
-	github.com/googleapis/go-sql-spanner v1.0.0
+	github.com/googleapis/go-sql-spanner v1.0.1
 	google.golang.org/api v0.111.0
 	google.golang.org/grpc v1.53.0
 	google.golang.org/protobuf v1.28.1
