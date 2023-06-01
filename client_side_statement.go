@@ -129,10 +129,10 @@ func (s *statementExecutor) SetAutocommitDmlMode(_ context.Context, c *conn, par
 }
 
 var strongRegexp = regexp.MustCompile("(?i)'STRONG'")
-var exactStalenessRegexp = regexp.MustCompile("(?i)'(?P<type>EXACT_STALENESS)[\\t ]+(?P<duration>(\\d{1,19})(s|ms|us|ns))'")
-var maxStalenessRegexp = regexp.MustCompile("(?i)'(?P<type>MAX_STALENESS)[\\t ]+(?P<duration>(\\d{1,19})(s|ms|us|ns))'")
-var readTimestampRegexp = regexp.MustCompile("(?i)'(?P<type>READ_TIMESTAMP)[\\t ]+(?P<timestamp>(\\d{4})-(\\d{2})-(\\d{2})([Tt](\\d{2}):(\\d{2}):(\\d{2})(\\.\\d{1,9})?)([Zz]|([+-])(\\d{2}):(\\d{2})))'")
-var minReadTimestampRegexp = regexp.MustCompile("(?i)'(?P<type>MIN_READ_TIMESTAMP)[\\t ]+(?P<timestamp>(\\d{4})-(\\d{2})-(\\d{2})([Tt](\\d{2}):(\\d{2}):(\\d{2})(\\.\\d{1,9})?)([Zz]|([+-])(\\d{2}):(\\d{2})))'")
+var exactStalenessRegexp = regexp.MustCompile(`(?i)'(?P<type>EXACT_STALENESS)[\t ]+(?P<duration>(\d{1,19})(s|ms|us|ns))'`)
+var maxStalenessRegexp = regexp.MustCompile(`(?i)'(?P<type>MAX_STALENESS)[\t ]+(?P<duration>(\d{1,19})(s|ms|us|ns))'`)
+var readTimestampRegexp = regexp.MustCompile(`(?i)'(?P<type>READ_TIMESTAMP)[\t ]+(?P<timestamp>(\d{4})-(\d{2})-(\d{2})([Tt](\d{2}):(\d{2}):(\d{2})(\.\d{1,9})?)([Zz]|([+-])(\d{2}):(\d{2})))'`)
+var minReadTimestampRegexp = regexp.MustCompile(`(?i)'(?P<type>MIN_READ_TIMESTAMP)[\t ]+(?P<timestamp>(\d{4})-(\d{2})-(\d{2})([Tt](\d{2}):(\d{2}):(\d{2})(\.\d{1,9})?)([Zz]|([+-])(\d{2}):(\d{2})))'`)
 
 func (s *statementExecutor) SetReadOnlyStaleness(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
 	if params == "" {
