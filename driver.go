@@ -47,7 +47,7 @@ const userAgent = "go-sql-spanner/1.0.2"
 //  3. (Optional) Parameters: One or more parameters in the format `name=value`. Multiple entries are separated by `;`.
 //     The supported parameters are:
 //     - credentials: File name for the credentials to use. The connection will use the default credentials of the
-//     environment if no credentials file is spec`ified in the connection string.
+//     environment if no credentials file is specified in the connection string.
 //     - usePlainText: Boolean that indicates whether the connection should use plain text communication or not. Set this
 //     to true to connect to local mock servers that do not use SSL.
 //     - retryAbortsInternally: Boolean that indicates whether the connection should automatically retry aborted errors.
@@ -233,9 +233,9 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 		default:
 			priority = spannerpb.RequestOptions_PRIORITY_UNSPECIFIED
 		}
-		config.ReadOptions = spanner.ReadOptions{Priority: priority}
-		config.TransactionOptions = spanner.TransactionOptions{CommitPriority: priority}
-		config.QueryOptions = spanner.QueryOptions{Priority: priority}
+		config.ReadOptions.Priority = priority
+		config.TransactionOptions.CommitPriority = priority
+		config.QueryOptions.Priority = priority
 	}
 	if strval, ok := connectorConfig.params["optimizerversion"]; ok {
 		if config.QueryOptions.Options == nil {
