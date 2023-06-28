@@ -31,13 +31,14 @@ import (
 	"cloud.google.com/go/spanner"
 	adminapi "cloud.google.com/go/spanner/admin/database/apiv1"
 	adminpb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
+	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-const userAgent = "go-sql-spanner/1.0.1"
+const userAgent = "go-sql-spanner/1.0.2"
 
 // dsnRegExpString describes the valid values for a dsn (connection name) for
 // Google Cloud Spanner. The string consists of the following parts:
@@ -51,8 +52,17 @@ const userAgent = "go-sql-spanner/1.0.1"
 //     to true to connect to local mock servers that do not use SSL.
 //     - retryAbortsInternally: Boolean that indicates whether the connection should automatically retry aborted errors.
 //     The default is true.
+//     - disableRouteToLeader: Boolean that indicates if all the requests of type read-write and PDML
+//     need to be routed to the leader region.
+//     The default is false
+//     - minSessions: The minimum number of sessions in the backing session pool. The default is 100.
+//     - maxSessions: The maximum number of sessions in the backing session pool. The default is 400.
+//     - numChannels: The number of gRPC channels to use to communicate with Cloud Spanner. The default is 4.
+//     - optimizerVersion: Sets the default query optimizer version to use for this connection.
+//     - optimizerStatisticsPackage: Sets the default query optimizer statistic package to use for this connection.
+//     - rpcPriority: Sets the priority for all RPC invocations from this connection (HIGH/MEDIUM/LOW). The default is HIGH.
 //
-// Example: `localhost:9010/projects/test-project/instances/test-instance/databases/test-database;usePlainText=true`
+// Example: `localhost:9010/projects/test-project/instances/test-instance/databases/test-database;usePlainText=true;disableRouteToLeader=true`
 var dsnRegExp = regexp.MustCompile("((?P<HOSTGROUP>[\\w.-]+(?:\\.[\\w\\.-]+)*[\\w\\-\\._~:/?#\\[\\]@!\\$&'\\(\\)\\*\\+,;=.]+)/)?projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID)))(/instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+)(/databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?)?(([\\?|;])(?P<PARAMSGROUP>.*))?")
 
 var _ driver.DriverContext = &Driver{}
@@ -206,9 +216,45 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 			config.MaxOpened = val
 		}
 	}
-	if strval, ok := connectorConfig.params["writesessions"]; ok {
-		if val, err := strconv.ParseFloat(strval, 64); err == nil {
-			config.WriteSessions = val
+	if strval, ok := connectorConfig.params["numchannels"]; ok {
+		if val, err := strconv.Atoi(strval); err == nil && val > 0 {
+			config.NumChannels = val
+		}
+	}
+	if strval, ok := connectorConfig.params["rpcpriority"]; ok {
+		var priority spannerpb.RequestOptions_Priority
+		switch strings.ToUpper(strval) {
+		case "LOW":
+			priority = spannerpb.RequestOptions_PRIORITY_LOW
+		case "MEDIUM":
+			priority = spannerpb.RequestOptions_PRIORITY_MEDIUM
+		case "HIGH":
+			priority = spannerpb.RequestOptions_PRIORITY_HIGH
+		default:
+			priority = spannerpb.RequestOptions_PRIORITY_UNSPECIFIED
+		}
+		config.ReadOptions.Priority = priority
+		config.TransactionOptions.CommitPriority = priority
+		config.QueryOptions.Priority = priority
+	}
+	if strval, ok := connectorConfig.params["optimizerversion"]; ok {
+		if config.QueryOptions.Options == nil {
+			config.QueryOptions.Options = &spannerpb.ExecuteSqlRequest_QueryOptions{}
+		}
+		config.QueryOptions.Options.OptimizerVersion = strval
+	}
+	if strval, ok := connectorConfig.params["optimizerstatisticspackage"]; ok {
+		if config.QueryOptions.Options == nil {
+			config.QueryOptions.Options = &spannerpb.ExecuteSqlRequest_QueryOptions{}
+		}
+		config.QueryOptions.Options.OptimizerStatisticsPackage = strval
+	}
+	if strval, ok := connectorConfig.params["databaserole"]; ok {
+		config.DatabaseRole = strval
+	}
+	if strval, ok := connectorConfig.params["disableroutetoleader"]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			config.DisableRouteToLeader = val
 		}
 	}
 	config.UserAgent = userAgent

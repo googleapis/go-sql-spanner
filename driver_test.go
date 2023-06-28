@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"google.golang.org/grpc/codes"
@@ -153,30 +154,41 @@ func TestExtractDnsParts(t *testing.T) {
 			},
 		},
 		{
-			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?minSessions=200;maxSessions=1000;writeSessions=0.5",
+			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?minSessions=200;maxSessions=1000;numChannels=10;disableRouteToLeader=true;rpcPriority=Medium;optimizerVersion=1;optimizerStatisticsPackage=latest;databaseRole=child",
 			wantConnectorConfig: connectorConfig{
 				host:     "spanner.googleapis.com",
 				project:  "p",
 				instance: "i",
 				database: "d",
 				params: map[string]string{
-					"minsessions":   "200",
-					"maxsessions":   "1000",
-					"writesessions": "0.5",
+					"minsessions":                "200",
+					"maxsessions":                "1000",
+					"numchannels":                "10",
+					"disableroutetoleader":       "true",
+					"rpcpriority":                "Medium",
+					"optimizerversion":           "1",
+					"optimizerstatisticspackage": "latest",
+					"databaserole":               "child",
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.SessionPoolConfig{
 					MinOpened:           200,
 					MaxOpened:           1000,
-					WriteSessions:       0.5,
+					WriteSessions:       0.2,
 					HealthCheckInterval: spanner.DefaultSessionPoolConfig.HealthCheckInterval,
 					HealthCheckWorkers:  spanner.DefaultSessionPoolConfig.HealthCheckWorkers,
 					MaxBurst:            spanner.DefaultSessionPoolConfig.MaxBurst,
 					MaxIdle:             spanner.DefaultSessionPoolConfig.MaxIdle,
 					TrackSessionHandles: spanner.DefaultSessionPoolConfig.TrackSessionHandles,
 				},
-				UserAgent: userAgent,
+				NumChannels:          10,
+				UserAgent:            userAgent,
+				DisableRouteToLeader: true,
+				QueryOptions:         spanner.QueryOptions{Priority: spannerpb.RequestOptions_PRIORITY_MEDIUM, Options: &spannerpb.ExecuteSqlRequest_QueryOptions{OptimizerVersion: "1", OptimizerStatisticsPackage: "latest"}},
+				ReadOptions:          spanner.ReadOptions{Priority: spannerpb.RequestOptions_PRIORITY_MEDIUM},
+				TransactionOptions:   spanner.TransactionOptions{CommitPriority: spannerpb.RequestOptions_PRIORITY_MEDIUM},
+				DatabaseRole:         "child",
 			},
 		},
 		{
@@ -204,7 +216,7 @@ func TestExtractDnsParts(t *testing.T) {
 				if err != nil {
 					t.Errorf("failed to get connector for %q: %v", tc.input, err)
 				}
-				if !cmp.Equal(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{})) {
+				if !cmp.Equal(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{}, spannerpb.ExecuteSqlRequest_QueryOptions{})) {
 					t.Errorf("connector Spanner client config mismatch for %q\n Got: %v\nWant: %v", tc.input, conn.spannerClientConfig, tc.wantSpannerConfig)
 				}
 			}
