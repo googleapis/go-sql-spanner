@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.0](https://github.com/googleapis/go-sql-spanner/compare/v1.0.1...v1.1.0) (2023-07-05)
+
+
+### Features
+
+* Add missing spanner config properties ([#152](https://github.com/googleapis/go-sql-spanner/issues/152)) ([c6bda23](https://github.com/googleapis/go-sql-spanner/commit/c6bda23e86f3679bb48c33e19ebf413ca984a4ee))
+* **driver:** Replace `value.Value` with `Value()` return ([#139](https://github.com/googleapis/go-sql-spanner/issues/139)) ([6f2b96e](https://github.com/googleapis/go-sql-spanner/commit/6f2b96ea14d87a3edfdbaa0738139cd09862e618))
+
 ## [1.0.1](https://github.com/googleapis/go-sql-spanner/compare/v1.0.0...v1.0.1) (2023-03-06)
 
 
