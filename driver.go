@@ -715,18 +715,10 @@ func (c *conn) IsValid() bool {
 	return !c.closed
 }
 
-func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
-	if value == nil {
-		return nil
-	}
-	if valuer, ok := value.Value.(driver.Valuer); ok {
-		_, err := valuer.Value()
-		return err
-	}
-	switch t := value.Value.(type) {
+func checkIsValidType(v driver.Value) bool {
+	switch v.(type) {
 	default:
-		// Default is to fail, unless it is one of the following supported types.
-		return spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "unsupported value type: %v", t))
+		return false
 	case nil:
 	case sql.NullInt64:
 	case sql.NullTime:
@@ -784,7 +776,27 @@ func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
 	case []spanner.NullJSON:
 	case spanner.GenericColumnValue:
 	}
-	return nil
+	return true
+}
+
+func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
+	if value == nil {
+		return nil
+	}
+	if checkIsValidType(value.Value) {
+		return nil
+	}
+	if valuer, ok := value.Value.(driver.Valuer); ok {
+		v, err := valuer.Value()
+		if err != nil {
+			return err
+		}
+		if checkIsValidType(v) {
+			value.Value = v
+			return nil
+		}
+	}
+	return spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "unsupported value type: %T", value.Value))
 }
 
 func (c *conn) Prepare(query string) (driver.Stmt, error) {
