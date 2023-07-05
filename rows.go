@@ -20,8 +20,8 @@ import (
 	"sync"
 
 	"cloud.google.com/go/spanner"
+	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"google.golang.org/api/iterator"
-	sppb "google.golang.org/genproto/googleapis/spanner/v1"
 )
 
 type rows struct {

@@ -22,13 +22,13 @@ import (
 	"time"
 
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
+	databasepb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
+	instancepb "cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
-	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
-	instancepb "google.golang.org/genproto/googleapis/spanner/admin/instance/v1"
 )
 
 var cli *client.Client

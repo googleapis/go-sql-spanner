@@ -21,9 +21,9 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/go-sql-spanner/testutil"
-	sppb "google.golang.org/genproto/googleapis/spanner/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -225,12 +225,12 @@ func TestQueryConsumedHalfway_CommitAborted(t *testing.T) {
 
 // TestQueryConsumedHalfway_RetryContainsMoreResults_CommitAborted tests the
 // following scenario:
-// 1. The initial attempt returns 2 rows. The application fetches the 2 rows,
-//    but does not try to fetch a 3 row. It therefore does not know that the
-//    iterator only contains 2 rows and not more.
-// 2. The retry attempt returns 3 rows. The retry will also only fetch the 2
-//    first rows, and as the initial attempt did not know what was after these
-//    2 rows the retry should succeed.
+//  1. The initial attempt returns 2 rows. The application fetches the 2 rows,
+//     but does not try to fetch a 3 row. It therefore does not know that the
+//     iterator only contains 2 rows and not more.
+//  2. The retry attempt returns 3 rows. The retry will also only fetch the 2
+//     first rows, and as the initial attempt did not know what was after these
+//     2 rows the retry should succeed.
 func TestQueryConsumedHalfway_RetryContainsMoreResults_CommitAborted(t *testing.T) {
 	testRetryReadWriteTransactionWithQuery(t, func(server testutil.InMemSpannerServer) {
 		server.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
