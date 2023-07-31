@@ -177,6 +177,9 @@ type connector struct {
 func newConnector(d *Driver, dsn string) (*connector, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.connectors == nil {
+		d.connectors = make(map[string]*connector)
+	}
 	if c, ok := d.connectors[dsn]; ok {
 		return c, nil
 	}
