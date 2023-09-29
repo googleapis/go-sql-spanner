@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/googleapis/go-sql-spanner/compare/v1.1.0...v1.1.1) (2023-09-29)
+
+
+### Bug Fixes
+
+* Initalize the connectors map to avoid nil pointer exception ([#158](https://github.com/googleapis/go-sql-spanner/issues/158)) ([ec69c32](https://github.com/googleapis/go-sql-spanner/commit/ec69c321262631c3cdc4369c01ed8abc6932792f))
+
 ## [1.1.0](https://github.com/googleapis/go-sql-spanner/compare/v1.0.1...v1.1.0) (2023-07-05)
 
 
