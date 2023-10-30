@@ -79,10 +79,6 @@ func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, 
 			name = names[i]
 		}
 		ss.Params[name] = v.Value
-		// check if value is uint change it to int64
-		if _, ok := v.Value.(uint); ok {
-			ss.Params[name] = int64(v.Value.(uint))
-		}
 	}
 	return ss, nil
 }

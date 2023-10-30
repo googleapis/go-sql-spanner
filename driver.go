@@ -723,7 +723,6 @@ func checkIsValidType(v driver.Value) bool {
 	default:
 		return false
 	case nil:
-	case uint:
 	case sql.NullInt64:
 	case sql.NullTime:
 	case sql.NullString:
@@ -738,6 +737,10 @@ func checkIsValidType(v driver.Value) bool {
 	case []*string:
 	case []byte:
 	case [][]byte:
+	case uint:
+	case []uint:
+	case *uint:
+	case *[]uint:
 	case int:
 	case []int:
 	case int64:
