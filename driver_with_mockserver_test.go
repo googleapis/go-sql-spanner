@@ -478,7 +478,7 @@ func TestQueryWithAllTypes(t *testing.T) {
 		true,
 		"test",
 		[]byte("testbytes"),
-		int64(5),
+		uint(5),
 		3.14,
 		numeric("6.626"),
 		civil.Date{Year: 2021, Month: 7, Day: 21},
