@@ -21,8 +21,8 @@ import (
 
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	databasepb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
-	"github.com/golang/protobuf/proto"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/proto"
 )
 
 // InMemDatabaseAdminServer contains the DatabaseAdminServer interface plus a couple

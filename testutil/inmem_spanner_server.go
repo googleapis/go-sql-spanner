@@ -26,9 +26,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
-	"github.com/golang/protobuf/ptypes"
-	emptypb "github.com/golang/protobuf/ptypes/empty"
-	structpb "github.com/golang/protobuf/ptypes/struct"
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/genproto/googleapis/rpc/status"
@@ -36,6 +33,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	gstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 var (
@@ -605,7 +605,7 @@ func (s *inMemSpannerServer) getTransactionByID(id []byte) (*spannerpb.Transacti
 func newAbortedErrorWithMinimalRetryDelay() error {
 	st := gstatus.New(codes.Aborted, "Transaction has been aborted")
 	retry := &errdetails.RetryInfo{
-		RetryDelay: ptypes.DurationProto(time.Nanosecond),
+		RetryDelay: durationpb.New(time.Nanosecond),
 	}
 	st, _ = st.WithDetails(retry)
 	return st.Err()
