@@ -14,7 +14,7 @@ jobs:
       env:
         GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       if: "${{ env.GCP_PROJECT_ID != '' }}"
-      run: echo "::set-output name=defined::true"
+      run: echo "defined=true" >> "$GITHUB_OUTPUT"
 
   test:
     needs: [check-env]
@@ -28,15 +28,10 @@ jobs:
           go-version: 1.21.x
       - name: Checkout code
         uses: actions/checkout@v3
-      - id: 'auth'
-        uses: 'google-github-actions/auth@v0'
+      - name: Auth
+        uses: google-github-actions/auth@v2
         with:
-          credentials_json: '${{ secrets.GCP_SA_KEY }}'
-      - name: Setup GCloud
-        uses: google-github-actions/setup-gcloud@v0
-        with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
-          export_default_credentials: true
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
       - name: Run integration tests on production
         run: go test -timeout 45m
         env:

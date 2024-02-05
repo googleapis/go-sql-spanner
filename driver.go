@@ -737,6 +737,10 @@ func checkIsValidType(v driver.Value) bool {
 	case []*string:
 	case []byte:
 	case [][]byte:
+	case uint:
+	case []uint:
+	case *uint:
+	case *[]uint:
 	case int:
 	case []int:
 	case int64:
