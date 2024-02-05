@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.2.0](https://github.com/googleapis/go-sql-spanner/compare/v1.1.1...v1.2.0) (2024-02-05)
+
+
+### Features
+
+* Support of uint for gorm.Model  ([#173](https://github.com/googleapis/go-sql-spanner/issues/173)) ([b56bfa8](https://github.com/googleapis/go-sql-spanner/commit/b56bfa8df549780852674f178a1c06f56f0f4c45))
+
+
+### Bug Fixes
+
+* **deps:** Update google.golang.org/genproto digest to 1f4bbc5 ([#164](https://github.com/googleapis/go-sql-spanner/issues/164)) ([13ae178](https://github.com/googleapis/go-sql-spanner/commit/13ae17898fc30b3cf8ca24320899ae04ed86d8a7))
+* **deps:** Update google.golang.org/genproto/googleapis/rpc digest to 1f4bbc5 ([#165](https://github.com/googleapis/go-sql-spanner/issues/165)) ([d1b6ab4](https://github.com/googleapis/go-sql-spanner/commit/d1b6ab4737037b7997c3ccaea9ba2cf109948695))
+* **deps:** Update module cloud.google.com/go/longrunning to v0.5.5 ([#169](https://github.com/googleapis/go-sql-spanner/issues/169)) ([7bea3f5](https://github.com/googleapis/go-sql-spanner/commit/7bea3f5597b8d7f3dbdec56faf63dc0538874708))
+* **deps:** Update module cloud.google.com/go/spanner to v1.56.0 ([#178](https://github.com/googleapis/go-sql-spanner/issues/178)) ([c6f7169](https://github.com/googleapis/go-sql-spanner/commit/c6f7169158dcb471529fbd8d75013e1a86e38519))
+* **deps:** Update module github.com/google/uuid to v1.6.0 ([#181](https://github.com/googleapis/go-sql-spanner/issues/181)) ([add2822](https://github.com/googleapis/go-sql-spanner/commit/add282209e18108f9d318a4e477f05fbe509920c))
+* **deps:** Update module github.com/googleapis/go-sql-spanner to v1.1.1 ([#162](https://github.com/googleapis/go-sql-spanner/issues/162)) ([aa9c4a0](https://github.com/googleapis/go-sql-spanner/commit/aa9c4a07fc3b15f4f1e5e61cc78257e5dbbdca4c))
+* **deps:** Update module google.golang.org/api to v0.161.0 ([#182](https://github.com/googleapis/go-sql-spanner/issues/182)) ([bd33213](https://github.com/googleapis/go-sql-spanner/commit/bd33213dc437c900b1b11f05ef9e4600381f7e0c))
+
+
+### Documentation
+
+* Clarify postgresql support ([#186](https://github.com/googleapis/go-sql-spanner/issues/186)) ([4aa18f6](https://github.com/googleapis/go-sql-spanner/commit/4aa18f64cabe252f71612294127b9791eb90072c))
+
 ## [1.1.1](https://github.com/googleapis/go-sql-spanner/compare/v1.1.0...v1.1.1) (2023-09-29)
 
 
