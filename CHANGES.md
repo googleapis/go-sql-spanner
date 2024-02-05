@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.1](https://github.com/googleapis/go-sql-spanner/compare/v1.2.0...v1.2.1) (2024-02-05)
+
+
+### Bug Fixes
+
+* Support uint query params ([#190](https://github.com/googleapis/go-sql-spanner/issues/190)) ([e3e2a9a](https://github.com/googleapis/go-sql-spanner/commit/e3e2a9a9fd14f2a4940dd24e73a5a79aa0431580))
+
+
+### Documentation
+
+* Add link to pgx sample for PGAdapter ([#191](https://github.com/googleapis/go-sql-spanner/issues/191)) ([e9f8e90](https://github.com/googleapis/go-sql-spanner/commit/e9f8e901b5cc345344d9369b92df8d093b4d47a8))
+
 ## [1.2.0](https://github.com/googleapis/go-sql-spanner/compare/v1.1.1...v1.2.0) (2024-02-05)
 
 
