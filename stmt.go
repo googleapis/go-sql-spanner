@@ -15,9 +15,10 @@
 package spannerdriver
 
 import (
-	"cloud.google.com/go/spanner"
 	"context"
 	"database/sql/driver"
+
+	"cloud.google.com/go/spanner"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
