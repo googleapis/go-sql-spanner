@@ -7,7 +7,7 @@ replace github.com/googleapis/go-sql-spanner => ../
 require (
 	cloud.google.com/go v0.112.0
 	cloud.google.com/go/spanner v1.56.0
-	github.com/google/uuid v1.5.0
+	github.com/google/uuid v1.6.0
 	github.com/googleapis/go-sql-spanner v1.1.1
 	google.golang.org/api v0.157.0
 	google.golang.org/grpc v1.60.1
