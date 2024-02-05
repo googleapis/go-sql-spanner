@@ -28,16 +28,14 @@ import (
 	"strings"
 	"testing"
 
-	"cloud.google.com/go/spanner/apiv1/spannerpb"
-	structpb "github.com/golang/protobuf/ptypes/struct"
-	"google.golang.org/grpc/codes"
-
 	apiv1 "cloud.google.com/go/spanner/apiv1"
+	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
-
+	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // clientOpt is the option tests should use to connect to the test server.

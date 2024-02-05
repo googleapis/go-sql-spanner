@@ -173,14 +173,15 @@ func TestExtractDnsParts(t *testing.T) {
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.SessionPoolConfig{
-					MinOpened:           200,
-					MaxOpened:           1000,
-					WriteSessions:       0.2,
-					HealthCheckInterval: spanner.DefaultSessionPoolConfig.HealthCheckInterval,
-					HealthCheckWorkers:  spanner.DefaultSessionPoolConfig.HealthCheckWorkers,
-					MaxBurst:            spanner.DefaultSessionPoolConfig.MaxBurst,
-					MaxIdle:             spanner.DefaultSessionPoolConfig.MaxIdle,
-					TrackSessionHandles: spanner.DefaultSessionPoolConfig.TrackSessionHandles,
+					MinOpened:                         200,
+					MaxOpened:                         1000,
+					WriteSessions:                     0.2,
+					HealthCheckInterval:               spanner.DefaultSessionPoolConfig.HealthCheckInterval,
+					HealthCheckWorkers:                spanner.DefaultSessionPoolConfig.HealthCheckWorkers,
+					MaxBurst:                          spanner.DefaultSessionPoolConfig.MaxBurst,
+					MaxIdle:                           spanner.DefaultSessionPoolConfig.MaxIdle,
+					TrackSessionHandles:               spanner.DefaultSessionPoolConfig.TrackSessionHandles,
+					InactiveTransactionRemovalOptions: spanner.DefaultSessionPoolConfig.InactiveTransactionRemovalOptions,
 				},
 				NumChannels:          10,
 				UserAgent:            userAgent,
@@ -216,7 +217,7 @@ func TestExtractDnsParts(t *testing.T) {
 				if err != nil {
 					t.Errorf("failed to get connector for %q: %v", tc.input, err)
 				}
-				if !cmp.Equal(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{}, spannerpb.ExecuteSqlRequest_QueryOptions{})) {
+				if !cmp.Equal(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{}, spanner.InactiveTransactionRemovalOptions{}, spannerpb.ExecuteSqlRequest_QueryOptions{})) {
 					t.Errorf("connector Spanner client config mismatch for %q\n Got: %v\nWant: %v", tc.input, conn.spannerClientConfig, tc.wantSpannerConfig)
 				}
 			}

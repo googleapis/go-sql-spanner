@@ -34,14 +34,13 @@ import (
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
-	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes"
-	emptypb "github.com/golang/protobuf/ptypes/empty"
-	proto3 "github.com/golang/protobuf/ptypes/struct"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/api/option"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
@@ -981,8 +980,8 @@ func TestQueryWithNullParameters(t *testing.T) {
 			t.Fatalf("params length mismatch\nGot: %v\nWant: %v", g, w)
 		}
 		for _, param := range req.Params.Fields {
-			if _, ok := param.GetKind().(*proto3.Value_NullValue); !ok {
-				t.Errorf("param value mismatch\nGot: %v\nWant: %v", param.GetKind(), proto3.Value_NullValue{})
+			if _, ok := param.GetKind().(*structpb.Value_NullValue); !ok {
+				t.Errorf("param value mismatch\nGot: %v\nWant: %v", param.GetKind(), structpb.Value_NullValue{})
 			}
 		}
 	}
@@ -1035,7 +1034,7 @@ func TestDdlInAutocommit(t *testing.T) {
 	defer teardown()
 
 	var expectedResponse = &emptypb.Empty{}
-	any, _ := ptypes.MarshalAny(expectedResponse)
+	any, _ := anypb.New(expectedResponse)
 	server.TestDatabaseAdmin.SetResps([]proto.Message{
 		&longrunningpb.Operation{
 			Done:   true,
@@ -1297,7 +1296,7 @@ func TestDdlBatch(t *testing.T) {
 	defer teardown()
 
 	var expectedResponse = &emptypb.Empty{}
-	any, _ := ptypes.MarshalAny(expectedResponse)
+	any, _ := anypb.New(expectedResponse)
 	server.TestDatabaseAdmin.SetResps([]proto.Message{
 		&longrunningpb.Operation{
 			Done:   true,
