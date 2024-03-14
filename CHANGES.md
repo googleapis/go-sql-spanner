@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.3.0](https://github.com/googleapis/go-sql-spanner/compare/v1.2.1...v1.3.0) (2024-03-14)
+
+
+### Features
+
+* Support float32 data type ([#208](https://github.com/googleapis/go-sql-spanner/issues/208)) ([7db1b8f](https://github.com/googleapis/go-sql-spanner/commit/7db1b8f0be6f60a4d20f206bcebbebedd5f2d460))
+
+
+### Bug Fixes
+
+* **deps:** Update google.golang.org/genproto/googleapis/rpc digest to c811ad7 ([#194](https://github.com/googleapis/go-sql-spanner/issues/194)) ([e58c5b6](https://github.com/googleapis/go-sql-spanner/commit/e58c5b6888078f61fba743393151f058302ff720))
+* **deps:** Update module cloud.google.com/go/spanner to v1.59.0 ([#196](https://github.com/googleapis/go-sql-spanner/issues/196)) ([e03a9b1](https://github.com/googleapis/go-sql-spanner/commit/e03a9b14854560e7f85a8405876d03cbc753b32a))
+* **deps:** Update module github.com/googleapis/go-sql-spanner to v1.2.1 ([#197](https://github.com/googleapis/go-sql-spanner/issues/197)) ([6c94089](https://github.com/googleapis/go-sql-spanner/commit/6c940890863a720e1849ab9946c90f4b4b3debd9))
+* **deps:** Update module google.golang.org/grpc to v1.62.1 ([#195](https://github.com/googleapis/go-sql-spanner/issues/195)) ([606e7dc](https://github.com/googleapis/go-sql-spanner/commit/606e7dc07f272dd3a0999859ad2af10e6d964189))
+
 ## [1.2.1](https://github.com/googleapis/go-sql-spanner/compare/v1.2.0...v1.2.1) (2024-02-05)
 
 
