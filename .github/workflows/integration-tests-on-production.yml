@@ -27,7 +27,7 @@ jobs:
         with:
           go-version: 1.21.x
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Auth
         uses: google-github-actions/auth@v2
         with:
