@@ -442,7 +442,8 @@ func TestQueryWithAllTypes(t *testing.T) {
              AND   ColString=@string
              AND   ColBytes=@bytes
              AND   ColInt=@int64
-             AND   ColFloat=@float64
+             AND   ColFloat32=@float32
+             AND   ColFloat64=@float64
              AND   ColNumeric=@numeric
              AND   ColDate=@date
              AND   ColTimestamp=@timestamp
@@ -451,7 +452,8 @@ func TestQueryWithAllTypes(t *testing.T) {
              AND   ColStringArray=@stringArray
              AND   ColBytesArray=@bytesArray
              AND   ColIntArray=@int64Array
-             AND   ColFloatArray=@float64Array
+             AND   ColFloat32Array=@float32Array
+             AND   ColFloat64Array=@float64Array
              AND   ColNumericArray=@numericArray
              AND   ColDateArray=@dateArray
              AND   ColTimestampArray=@timestampArray
@@ -478,6 +480,7 @@ func TestQueryWithAllTypes(t *testing.T) {
 		"test",
 		[]byte("testbytes"),
 		uint(5),
+		float32(3.14),
 		3.14,
 		numeric("6.626"),
 		civil.Date{Year: 2021, Month: 7, Day: 21},
@@ -487,6 +490,7 @@ func TestQueryWithAllTypes(t *testing.T) {
 		[]spanner.NullString{{Valid: true, StringVal: "test1"}, {}, {Valid: true, StringVal: "test2"}},
 		[][]byte{[]byte("testbytes1"), nil, []byte("testbytes2")},
 		[]spanner.NullInt64{{Valid: true, Int64: 1}, {}, {Valid: true, Int64: 2}},
+		[]spanner.NullFloat32{{Valid: true, Float32: 3.14}, {}, {Valid: true, Float32: -99.99}},
 		[]spanner.NullFloat64{{Valid: true, Float64: 6.626}, {}, {Valid: true, Float64: 10.01}},
 		[]spanner.NullNumeric{nullNumeric(true, "3.14"), {}, nullNumeric(true, "10.01")},
 		[]spanner.NullDate{{Valid: true, Date: civil.Date{Year: 2000, Month: 2, Day: 29}}, {}, {Valid: true, Date: civil.Date{Year: 2021, Month: 7, Day: 27}}},
@@ -507,6 +511,7 @@ func TestQueryWithAllTypes(t *testing.T) {
 		var s string
 		var bt []byte
 		var i int64
+		var f32 float32
 		var f float64
 		var r big.Rat
 		var d civil.Date
@@ -516,12 +521,13 @@ func TestQueryWithAllTypes(t *testing.T) {
 		var sArray []spanner.NullString
 		var btArray [][]byte
 		var iArray []spanner.NullInt64
+		var f32Array []spanner.NullFloat32
 		var fArray []spanner.NullFloat64
 		var rArray []spanner.NullNumeric
 		var dArray []spanner.NullDate
 		var tsArray []spanner.NullTime
 		var jArray []spanner.NullJSON
-		err = rows.Scan(&b, &s, &bt, &i, &f, &r, &d, &ts, &j, &bArray, &sArray, &btArray, &iArray, &fArray, &rArray, &dArray, &tsArray, &jArray)
+		err = rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -536,6 +542,9 @@ func TestQueryWithAllTypes(t *testing.T) {
 		}
 		if g, w := i, int64(5); g != w {
 			t.Errorf("row value mismatch for int64\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := f32, float32(3.14); g != w {
+			t.Errorf("row value mismatch for float32\nGot: %v\nWant: %v", g, w)
 		}
 		if g, w := f, 3.14; g != w {
 			t.Errorf("row value mismatch for float64\nGot: %v\nWant: %v", g, w)
@@ -566,8 +575,11 @@ func TestQueryWithAllTypes(t *testing.T) {
 		if g, w := iArray, []spanner.NullInt64{{Valid: true, Int64: 1}, {}, {Valid: true, Int64: 2}}; !cmp.Equal(g, w) {
 			t.Errorf("row value mismatch for int array\nGot: %v\nWant: %v", g, w)
 		}
+		if g, w := f32Array, []spanner.NullFloat32{{Valid: true, Float32: 3.14}, {}, {Valid: true, Float32: -99.99}}; !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for float32 array\nGot: %v\nWant: %v", g, w)
+		}
 		if g, w := fArray, []spanner.NullFloat64{{Valid: true, Float64: 6.626}, {}, {Valid: true, Float64: 10.01}}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for float array\nGot: %v\nWant: %v", g, w)
+			t.Errorf("row value mismatch for float64 array\nGot: %v\nWant: %v", g, w)
 		}
 		if g, w := rArray, []spanner.NullNumeric{nullNumeric(true, "3.14"), {}, nullNumeric(true, "10.01")}; !cmp.Equal(g, w, cmp.AllowUnexported(big.Rat{}, big.Int{})) {
 			t.Errorf("row value mismatch for numeric array\nGot: %v\nWant: %v", g, w)
@@ -597,10 +609,10 @@ func TestQueryWithAllTypes(t *testing.T) {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
-	if g, w := len(req.ParamTypes), 18; g != w {
+	if g, w := len(req.ParamTypes), 20; g != w {
 		t.Fatalf("param types length mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	if g, w := len(req.Params.Fields), 18; g != w {
+	if g, w := len(req.Params.Fields), 20; g != w {
 		t.Fatalf("params length mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	wantParams := []struct {
@@ -628,6 +640,11 @@ func TestQueryWithAllTypes(t *testing.T) {
 			name:  "int64",
 			code:  sppb.TypeCode_INT64,
 			value: "5",
+		},
+		{
+			name:  "float32",
+			code:  sppb.TypeCode_FLOAT32,
+			value: float64(float32(3.14)),
 		},
 		{
 			name:  "float64",
@@ -692,6 +709,16 @@ func TestQueryWithAllTypes(t *testing.T) {
 				{Kind: &structpb.Value_StringValue{StringValue: "1"}},
 				{Kind: &structpb.Value_NullValue{}},
 				{Kind: &structpb.Value_StringValue{StringValue: "2"}},
+			}},
+		},
+		{
+			name:  "float32Array",
+			code:  sppb.TypeCode_FLOAT32,
+			array: true,
+			value: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_NumberValue{NumberValue: float64(float32(3.14))}},
+				{Kind: &structpb.Value_NullValue{}},
+				{Kind: &structpb.Value_NumberValue{NumberValue: float64(float32(-99.99))}},
 			}},
 		},
 		{
@@ -770,6 +797,8 @@ func TestQueryWithAllTypes(t *testing.T) {
 				switch wantParam.code {
 				case sppb.TypeCode_BOOL:
 					g = val.GetBoolValue()
+				case sppb.TypeCode_FLOAT32:
+					g = val.GetNumberValue()
 				case sppb.TypeCode_FLOAT64:
 					g = val.GetNumberValue()
 				default:
@@ -802,7 +831,8 @@ func TestQueryWithNullParameters(t *testing.T) {
              AND   ColString=@string
              AND   ColBytes=@bytes
              AND   ColInt=@int64
-             AND   ColFloat=@float64
+             AND   ColFloat32=@float32
+             AND   ColFloat64=@float64
              AND   ColNumeric=@numeric
              AND   ColDate=@date
              AND   ColTimestamp=@timestamp
@@ -811,7 +841,8 @@ func TestQueryWithNullParameters(t *testing.T) {
              AND   ColStringArray=@stringArray
              AND   ColBytesArray=@bytesArray
              AND   ColIntArray=@int64Array
-             AND   ColFloatArray=@float64Array
+             AND   ColFloat32Array=@float32Array
+             AND   ColFloat64Array=@float64Array
              AND   ColNumericArray=@numericArray
              AND   ColDateArray=@dateArray
              AND   ColTimestampArray=@timestampArray
@@ -840,6 +871,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 				nil, // string
 				nil, // bytes
 				nil, // int64
+				nil, // float32
 				nil, // float64
 				nil, // numeric
 				nil, // date
@@ -849,6 +881,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 				nil, // string array
 				nil, // bytes array
 				nil, // int64 array
+				nil, // float32 array
 				nil, // float64 array
 				nil, // numeric array
 				nil, // date array
@@ -856,12 +889,13 @@ func TestQueryWithNullParameters(t *testing.T) {
 				nil, // json array
 			}},
 		{
-			typed: 8,
+			typed: 9,
 			values: []interface{}{
 				spanner.NullBool{},
 				spanner.NullString{},
 				nil, // bytes
 				spanner.NullInt64{},
+				spanner.NullFloat32{},
 				spanner.NullFloat64{},
 				spanner.NullNumeric{},
 				spanner.NullDate{},
@@ -871,6 +905,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 				nil, // string array
 				nil, // bytes array
 				nil, // int64 array
+				nil, // float32 array
 				nil, // float64 array
 				nil, // numeric array
 				nil, // date array
@@ -889,6 +924,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 			var s sql.NullString
 			var bt []byte
 			var i sql.NullInt64
+			var f32 spanner.NullFloat32 // There's no equivalent sql type.
 			var f sql.NullFloat64
 			var r spanner.NullNumeric // There's no equivalent sql type.
 			var d spanner.NullDate    // There's no equivalent sql type.
@@ -898,12 +934,13 @@ func TestQueryWithNullParameters(t *testing.T) {
 			var sArray []spanner.NullString
 			var btArray [][]byte
 			var iArray []spanner.NullInt64
+			var f32Array []spanner.NullFloat32
 			var fArray []spanner.NullFloat64
 			var rArray []spanner.NullNumeric
 			var dArray []spanner.NullDate
 			var tsArray []spanner.NullTime
 			var jArray []spanner.NullJSON
-			err = rows.Scan(&b, &s, &bt, &i, &f, &r, &d, &ts, &j, &bArray, &sArray, &btArray, &iArray, &fArray, &rArray, &dArray, &tsArray, &jArray)
+			err = rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -918,6 +955,9 @@ func TestQueryWithNullParameters(t *testing.T) {
 			}
 			if i.Valid {
 				t.Errorf("row value mismatch for int64\nGot: %v\nWant: %v", i, spanner.NullInt64{})
+			}
+			if f32.Valid {
+				t.Errorf("row value mismatch for float32\nGot: %v\nWant: %v", f, spanner.NullFloat32{})
 			}
 			if f.Valid {
 				t.Errorf("row value mismatch for float64\nGot: %v\nWant: %v", f, spanner.NullFloat64{})
@@ -945,6 +985,9 @@ func TestQueryWithNullParameters(t *testing.T) {
 			}
 			if iArray != nil {
 				t.Errorf("row value mismatch for int64 array\nGot: %v\nWant: %v", iArray, nil)
+			}
+			if f32Array != nil {
+				t.Errorf("row value mismatch for float32 array\nGot: %v\nWant: %v", f32Array, nil)
 			}
 			if fArray != nil {
 				t.Errorf("row value mismatch for float64 array\nGot: %v\nWant: %v", fArray, nil)
@@ -975,7 +1018,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 		if g, w := len(req.ParamTypes), p.typed; g != w {
 			t.Fatalf("param types length mismatch\nGot: %v\nWant: %v", g, w)
 		}
-		if g, w := len(req.Params.Fields), 18; g != w {
+		if g, w := len(req.Params.Fields), 20; g != w {
 			t.Fatalf("params length mismatch\nGot: %v\nWant: %v", g, w)
 		}
 		for _, param := range req.Params.Fields {

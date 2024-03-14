@@ -755,6 +755,12 @@ func checkIsValidType(v driver.Value) bool {
 	case []spanner.NullBool:
 	case *bool:
 	case []*bool:
+	case float32:
+	case []float32:
+	case spanner.NullFloat32:
+	case []spanner.NullFloat32:
+	case *float32:
+	case []*float32:
 	case float64:
 	case []float64:
 	case spanner.NullFloat64:
