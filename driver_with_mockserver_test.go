@@ -32,7 +32,6 @@ import (
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
-	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -1014,7 +1013,7 @@ func TestDmlInAutocommit(t *testing.T) {
 	if req.Transaction == nil {
 		t.Fatalf("missing transaction for ExecuteSqlRequest")
 	}
-	if _, ok := req.Transaction.Selector.(*spannerpb.TransactionSelector_Begin); !ok {
+	if _, ok := req.Transaction.Selector.(*sppb.TransactionSelector_Begin); !ok {
 		t.Fatalf("unsupported transaction type %T", req.Transaction.Selector)
 	}
 	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
