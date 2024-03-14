@@ -117,6 +117,16 @@ func (r *rows) Next(dest []driver.Value) error {
 			} else {
 				dest[i] = nil
 			}
+		case sppb.TypeCode_FLOAT32:
+			var v spanner.NullFloat32
+			if err := col.Decode(&v); err != nil {
+				return err
+			}
+			if v.Valid {
+				dest[i] = v.Float32
+			} else {
+				dest[i] = nil
+			}
 		case sppb.TypeCode_FLOAT64:
 			var v spanner.NullFloat64
 			if err := col.Decode(&v); err != nil {
@@ -197,6 +207,12 @@ func (r *rows) Next(dest []driver.Value) error {
 			switch col.Type.ArrayElementType.Code {
 			case sppb.TypeCode_INT64:
 				var v []spanner.NullInt64
+				if err := col.Decode(&v); err != nil {
+					return err
+				}
+				dest[i] = v
+			case sppb.TypeCode_FLOAT32:
+				var v []spanner.NullFloat32
 				if err := col.Decode(&v); err != nil {
 					return err
 				}
