@@ -136,6 +136,17 @@ $ gcloud beta emulators spanner start
 $ export SPANNER_EMULATOR_HOST=localhost:9010
 ```
 
+## Spanner PostgreSQL Interface
+
+This driver works specifically with the Spanner GoogleSQL dialect. For the
+Spanner PostgreSQL dialect, any PostgreSQL driver that implements the
+[database/sql](https://golang.org/pkg/database/sql/) interface can be used
+in combination with
+[PGAdapter](https://cloud.google.com/spanner/docs/pgadapter).
+
+For example, the [pgx](https://github.com/jackc/pgx) driver can be used in combination with
+PGAdapter: https://github.com/GoogleCloudPlatform/pgadapter/blob/postgresql-dialect/docs/pgx.md
+
 ## Troubleshooting
 
 The driver will retry any Aborted error that is returned by Cloud Spanner

@@ -78,9 +78,35 @@ func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, 
 		if name == "" {
 			name = names[i]
 		}
-		ss.Params[name] = v.Value
+		ss.Params[name] = convertParam(v.Value)
 	}
 	return ss, nil
+}
+
+func convertParam(v driver.Value) driver.Value {
+	switch v.(type) {
+	default:
+		return v
+	case uint:
+		return int64(v.(uint))
+	case []uint:
+		vu := v.([]uint)
+		res := make([]int64, len(vu))
+		for i, val := range vu {
+			res[i] = int64(val)
+		}
+		return res
+	case *uint:
+		vi := int64(*v.(*uint))
+		return &vi
+	case *[]uint:
+		vu := v.(*[]uint)
+		res := make([]int64, len(*vu))
+		for i, val := range *vu {
+			res[i] = int64(val)
+		}
+		return &res
+	}
 }
 
 type result struct {

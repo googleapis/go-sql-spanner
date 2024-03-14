@@ -17,10 +17,6 @@ Partition Reads
 ~~~~~~~
 Partition Reads can be done by unwrapping the Spanner-specific `SpannerConn` interface and doing the parition reads using that interface.
 
-PostgreSQL
-~~~~~~~
-Spanner databases that use the PostgreSQL dialect are not yet supported.
-
 Backups
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Backups are not supported by this driver. Use the [Cloud Spanner Go client library](https://github.com/googleapis/google-cloud-go/tree/main/spanner) to manage backups programmatically.

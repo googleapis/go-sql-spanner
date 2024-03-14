@@ -24,10 +24,10 @@ import (
 
 	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
 	instancepb "cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
-	"github.com/golang/protobuf/proto"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 )
 
 var instanceClientOpt option.ClientOption
