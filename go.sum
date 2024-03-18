@@ -17,6 +17,8 @@ cloud.google.com/go/longrunning v0.5.4 h1:w8xEcbZodnA2BbW6sVirkkoC+1gP8wS57EUUgG
 cloud.google.com/go/longrunning v0.5.4/go.mod h1:zqNVncI0BOP8ST6XQD1+VcvuShMmq7+xFSzOL++V0dI=
 cloud.google.com/go/longrunning v0.5.5 h1:GOE6pZFdSrTb4KAiKnXsJBtlE6mEyaW44oKyMILWnOg=
 cloud.google.com/go/longrunning v0.5.5/go.mod h1:WV2LAxD8/rg5Z1cNW6FJ/ZpX4E4VnDnoTk0yawPBB7s=
+cloud.google.com/go/longrunning v0.5.6 h1:xAe8+0YaWoCKr9t1+aWe+OeQgN/iJK1fEgZSXmjuEaE=
+cloud.google.com/go/longrunning v0.5.6/go.mod h1:vUaDrWYOMKRuhiv6JBnn49YxCPz2Ayn9GqyjaBT8/mA=
 cloud.google.com/go/spanner v1.56.0 h1:o/Cv7/zZ1WgRXVCd5g3Nc23ZI39p/1pWFqFwvg6Wcu8=
 cloud.google.com/go/spanner v1.56.0/go.mod h1:DndqtUKQAt3VLuV2Le+9Y3WTnq5cNKrnLb/Piqcj+h0=
 cloud.google.com/go/spanner v1.59.0 h1:YxcRwgPVktTrRNL005bMh2Q2FpdMOakh0W8ryUwS/yM=
