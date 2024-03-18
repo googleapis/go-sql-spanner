@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.3.1](https://github.com/googleapis/go-sql-spanner/compare/v1.3.0...v1.3.1) (2024-03-18)
+
+
+### Bug Fixes
+
+* **deps:** Update google.golang.org/genproto/googleapis/rpc digest to 6e1732d ([#210](https://github.com/googleapis/go-sql-spanner/issues/210)) ([adeee59](https://github.com/googleapis/go-sql-spanner/commit/adeee596a12d16788d4787524929b8671cc59786))
+* **deps:** Update module cloud.google.com/go/longrunning to v0.5.6 ([#211](https://github.com/googleapis/go-sql-spanner/issues/211)) ([8c8a7d8](https://github.com/googleapis/go-sql-spanner/commit/8c8a7d824c5ca19b013787e0aca53d60154750b8))
+* **deps:** Update module github.com/googleapis/go-sql-spanner to v1.3.0 ([#212](https://github.com/googleapis/go-sql-spanner/issues/212)) ([8066ff1](https://github.com/googleapis/go-sql-spanner/commit/8066ff13f9981460903fd0f0eea7be7a339a5b43))
+
 ## [1.3.0](https://github.com/googleapis/go-sql-spanner/compare/v1.2.1...v1.3.0) (2024-03-14)
 
 
