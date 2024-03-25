@@ -5,7 +5,7 @@ go 1.19
 require (
 	cloud.google.com/go v0.112.1
 	cloud.google.com/go/longrunning v0.5.6
-	cloud.google.com/go/spanner v1.59.0
+	cloud.google.com/go/spanner v1.60.0
 	github.com/golang/protobuf v1.5.4
 	github.com/google/go-cmp v0.6.0
 	google.golang.org/api v0.169.0
