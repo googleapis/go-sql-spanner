@@ -64,6 +64,10 @@ func RunSampleOnEmulator(sample func(string, string, string) error, ddlStatement
 }
 
 func startEmulator() error {
+	if os.Getenv("SPANNER_EMULATOR_HOST") != "" {
+		return nil
+	}
+
 	ctx := context.Background()
 	if err := os.Setenv("SPANNER_EMULATOR_HOST", "localhost:9010"); err != nil {
 		return err
@@ -117,6 +121,11 @@ func createInstance(projectId, instanceId string) error {
 		return err
 	}
 	defer instanceAdmin.Close()
+
+	instanceAdmin.DeleteInstance(ctx, &instancepb.DeleteInstanceRequest{
+		Name: fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId),
+	})
+
 	op, err := instanceAdmin.CreateInstance(ctx, &instancepb.CreateInstanceRequest{
 		Parent:     fmt.Sprintf("projects/%s", projectId),
 		InstanceId: instanceId,
@@ -163,8 +172,11 @@ func stopEmulator() {
 		return
 	}
 	ctx := context.Background()
-	timeout := 10 * time.Second
-	if err := cli.ContainerStop(ctx, containerId, &timeout); err != nil {
+	timeout := 10 * 1000
+	opts := container.StopOptions{
+		Timeout: &timeout,
+	}
+	if err := cli.ContainerStop(ctx, containerId, opts); err != nil {
 		log.Printf("failed to stop emulator: %v\n", err)
 	}
 }
