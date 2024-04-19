@@ -3,7 +3,7 @@ module github.com/googleapis/go-sql-spanner
 go 1.19
 
 require (
-	cloud.google.com/go v0.112.1
+	cloud.google.com/go v0.112.2
 	cloud.google.com/go/longrunning v0.5.6
 	cloud.google.com/go/spanner v1.60.0
 	github.com/golang/protobuf v1.5.4
@@ -56,6 +56,6 @@ require (
 	golang.org/x/time v0.5.0 // indirect
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20240311132316-a219d84964c2 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20240314234333-6e1732d8331c // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
