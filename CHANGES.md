@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.3.1](https://github.com/googleapis/go-sql-spanner/compare/v1.3.0...v1.3.1) (2024-04-19)
+
+
+### Bug Fixes
+
+* **deps:** Update google.golang.org/genproto/googleapis/rpc digest to 6e1732d ([#210](https://github.com/googleapis/go-sql-spanner/issues/210)) ([adeee59](https://github.com/googleapis/go-sql-spanner/commit/adeee596a12d16788d4787524929b8671cc59786))
+* **deps:** Update google.golang.org/genproto/googleapis/rpc digest to 8c6c420 ([#215](https://github.com/googleapis/go-sql-spanner/issues/215)) ([7085e4c](https://github.com/googleapis/go-sql-spanner/commit/7085e4cfea014707a35af6c9612f734fa26f3012))
+* **deps:** Update module cloud.google.com/go to v0.112.2 ([#217](https://github.com/googleapis/go-sql-spanner/issues/217)) ([cc65283](https://github.com/googleapis/go-sql-spanner/commit/cc6528320afe1079cd6ebc2999ffe3d3d596fd17))
+* **deps:** Update module cloud.google.com/go/longrunning to v0.5.6 ([#211](https://github.com/googleapis/go-sql-spanner/issues/211)) ([8c8a7d8](https://github.com/googleapis/go-sql-spanner/commit/8c8a7d824c5ca19b013787e0aca53d60154750b8))
+* **deps:** Update module cloud.google.com/go/spanner to v1.60.0 ([#216](https://github.com/googleapis/go-sql-spanner/issues/216)) ([b22e7a6](https://github.com/googleapis/go-sql-spanner/commit/b22e7a6c4670dad5f481989ed8dbbc5dd5ef3dee))
+* **deps:** Update module github.com/googleapis/go-sql-spanner to v1.3.0 ([#212](https://github.com/googleapis/go-sql-spanner/issues/212)) ([8066ff1](https://github.com/googleapis/go-sql-spanner/commit/8066ff13f9981460903fd0f0eea7be7a339a5b43))
+* **deps:** Update module google.golang.org/api to v0.174.0 ([#218](https://github.com/googleapis/go-sql-spanner/issues/218)) ([2ef46fc](https://github.com/googleapis/go-sql-spanner/commit/2ef46fce92c691cfe3fc886425331aee57d67143))
+* **deps:** Update module google.golang.org/grpc to v1.63.2 ([#221](https://github.com/googleapis/go-sql-spanner/issues/221)) ([69840c4](https://github.com/googleapis/go-sql-spanner/commit/69840c4b2aa226bc7f6c3deac043c5d63f450799))
+
 ## [1.3.0](https://github.com/googleapis/go-sql-spanner/compare/v1.2.1...v1.3.0) (2024-03-14)
 
 
