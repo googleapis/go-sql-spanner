@@ -51,7 +51,16 @@ var jsonFile = `{
       "method": "statementShowReadOnlyStaleness",
       "exampleStatements": ["show variable read_only_staleness"]
     },
-    {
+	{
+		"name": "SHOW VARIABLE EXCLUDE_TXN_FROM_CHANGE_STREAMS",
+		"executorName": "ClientSideStatementNoParamExecutor",
+		"resultType": "RESULT_SET",
+		"statementType": "SHOW_EXCLUDE_TXN_FROM_CHANGE_STREAMS",
+		"regex": "(?is)\\A\\s*show\\s+variable\\s+exclude_txn_from_change_streams\\s*\\z",
+		"method": "statementShowExcludeTxnFromChangeStreams",
+		"exampleStatements": ["show variable exclude_txn_from_change_streams"]
+	},
+	{
       "name": "START BATCH DDL",
       "executorName": "ClientSideStatementNoParamExecutor",
       "resultType": "NO_RESULT",
@@ -141,7 +150,22 @@ var jsonFile = `{
         "allowedValues": "'((STRONG)|(MIN_READ_TIMESTAMP)[\\t ]+((\\d{4})-(\\d{2})-(\\d{2})([Tt](\\d{2}):(\\d{2}):(\\d{2})(\\.\\d{1,9})?)([Zz]|([+-])(\\d{2}):(\\d{2})))|(READ_TIMESTAMP)[\\t ]+((\\d{4})-(\\d{2})-(\\d{2})([Tt](\\d{2}):(\\d{2}):(\\d{2})(\\.\\d{1,9})?)([Zz]|([+-])(\\d{2}):(\\d{2})))|(MAX_STALENESS)[\\t ]+((\\d{1,19})(s|ms|us|ns))|(EXACT_STALENESS)[\\t ]+((\\d{1,19})(s|ms|us|ns)))'",
         "converterName": "ClientSideStatementValueConverters$ReadOnlyStalenessConverter"
       }
-    }
+    },
+	{
+		"name": "SET EXCLUDE_TXN_FROM_CHANGE_STREAMS = TRUE|FALSE",
+		"executorName": "ClientSideStatementSetExecutor",
+		"resultType": "NO_RESULT",
+		"statementType": "SET_EXCLUDE_TXN_FROM_CHANGE_STREAMS",
+		"regex": "(?is)\\A\\s*set\\s+exclude_txn_from_change_streams\\s*(?:=)\\s*(.*)\\z",
+		"method": "statementSetExcludeTxnFromChangeStreams",
+		"exampleStatements": ["set exclude_txn_from_change_streams = true", "set exclude_txn_from_change_streams = false"],
+		"setStatement": {
+			"propertyName": "EXCLUDE_TXN_FROM_CHANGE_STREAMS",
+			"separator": "=",
+			"allowedValues": "(TRUE|FALSE)",
+			"converterName": "ClientSideStatementValueConverters$BooleanConverter"
+		}
+	}
   ]
 }
 `
