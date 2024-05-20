@@ -517,6 +517,11 @@ func TestFindParams(t *testing.T) {
 			want:    []string{"id", "name"},
 		},
 		{
+			input:   "SELECT * FROM PersonsTable@{FORCE_INDEX=`my_index`} WHERE id=@id AND (first_name=@name OR last_name=@name)",
+			wantSQL: "SELECT * FROM PersonsTable@{FORCE_INDEX=`my_index`} WHERE id=@id AND (first_name=@name OR last_name=@name)",
+			want:    []string{"id", "name"},
+		},
+		{
 			input:   `SELECT * FROM PersonsTable WHERE id=?`,
 			wantSQL: `SELECT * FROM PersonsTable WHERE id=@p1`,
 			want:    []string{"p1"},

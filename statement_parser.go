@@ -46,6 +46,16 @@ func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 	return res
 }
 
+// Use slices with Go 1.21
+func appendOnce(slice []string, item string) []string {
+	for _, s := range slice {
+			if s == item {
+				return slice
+			}
+	}
+	return append(slice, item)
+}
+
 // parseParameters returns the parameters in the given sql string, if the input
 // sql contains positional parameters it returns the converted sql string with
 // all positional parameters replaced with named parameters.
@@ -249,13 +259,13 @@ func findParams(positionalParamChar rune, sql string) (string, []string, error) 
 				for index < len(runes) {
 					if !(unicode.IsLetter(runes[index]) || unicode.IsDigit(runes[index]) || runes[index] == '_') {
 						hasNamedParameter = true
-						namedParams = append(namedParams, string(runes[startIndex:index]))
+						namedParams = appendOnce(namedParams, string(runes[startIndex:index]))
 						parsedSQL.WriteRune(runes[index])
 						break
 					}
 					if index == len(runes)-1 {
 						hasNamedParameter = true
-						namedParams = append(namedParams, string(runes[startIndex:]))
+						namedParams = appendOnce(namedParams, string(runes[startIndex:]))
 						parsedSQL.WriteRune(runes[index])
 						break
 					}
