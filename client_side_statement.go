@@ -85,6 +85,14 @@ func (s *statementExecutor) ShowReadOnlyStaleness(_ context.Context, c *conn, _ 
 	return &rows{it: it}, nil
 }
 
+func (s *statementExecutor) ShowExcludeTxnFromChangeStreams(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	it, err := createBooleanIterator("ExcludeTxnFromChangeStreams", c.ExcludeTxnFromChangeStreams())
+	if err != nil {
+		return nil, err
+	}
+	return &rows{it: it}, nil
+}
+
 func (s *statementExecutor) StartBatchDdl(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Result, error) {
 	return c.startBatchDDL()
 }
@@ -126,6 +134,17 @@ func (s *statementExecutor) SetAutocommitDmlMode(_ context.Context, c *conn, par
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid AutocommitDMLMode value: %s", params))
 	}
 	return c.setAutocommitDMLMode(mode)
+}
+
+func (s *statementExecutor) SetExcludeTxnFromChangeStreams(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
+	if params == "" {
+		return nil, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "no value given for ExcludeTxnFromChangeStreams"))
+	}
+	exclude, err := strconv.ParseBool(params)
+	if err != nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid boolean value: %s", params))
+	}
+	return c.setExcludeTxnFromChangeStreams(exclude)
 }
 
 var strongRegexp = regexp.MustCompile("(?i)'STRONG'")

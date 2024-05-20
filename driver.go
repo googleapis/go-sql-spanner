@@ -372,6 +372,13 @@ type SpannerConn interface {
 	// mode and for read-only transaction.
 	SetReadOnlyStaleness(staleness spanner.TimestampBound) error
 
+	// ExcludeTxnFromChangeStreams returns true if the next transaction should be excluded from change streams with the
+	// DDL option `allow_txn_exclusion=true`.
+	ExcludeTxnFromChangeStreams() bool
+	// SetExcludeTxnFromChangeStreams sets whether the next transaction should be excluded from change streams with the
+	// DDL option `allow_txn_exclusion=true`.
+	SetExcludeTxnFromChangeStreams(excludeTxnFromChangeStreams bool) error
+
 	// Apply writes an array of mutations to the database. This method may only be called while the connection
 	// is outside a transaction. Use BufferWrite to write mutations in a transaction.
 	// See also spanner.Client#Apply
@@ -399,8 +406,8 @@ type conn struct {
 	retryAborts bool
 
 	execSingleQuery            func(ctx context.Context, c *spanner.Client, statement spanner.Statement, bound spanner.TimestampBound) *spanner.RowIterator
-	execSingleDMLTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, time.Time, error)
-	execSingleDMLPartitioned   func(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error)
+	execSingleDMLTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement, transactionOptions spanner.TransactionOptions) (int64, time.Time, error)
+	execSingleDMLPartitioned   func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options spanner.QueryOptions) (int64, error)
 
 	// batch is the currently active DDL or DML batch on this connection.
 	batch *batch
@@ -412,6 +419,9 @@ type conn struct {
 	autocommitDMLMode AutocommitDMLMode
 	// readOnlyStaleness is used for queries in autocommit mode and for read-only transactions.
 	readOnlyStaleness spanner.TimestampBound
+	// excludeTxnFromChangeStreams is used to exlude the next transaction from change streams with the DDL option
+	// `allow_txn_exclusion=true`
+	excludeTxnFromChangeStreams bool
 }
 
 type batchType int
@@ -495,6 +505,23 @@ func (c *conn) SetReadOnlyStaleness(staleness spanner.TimestampBound) error {
 
 func (c *conn) setReadOnlyStaleness(staleness spanner.TimestampBound) (driver.Result, error) {
 	c.readOnlyStaleness = staleness
+	return driver.ResultNoRows, nil
+}
+
+func (c *conn) ExcludeTxnFromChangeStreams() bool {
+	return c.excludeTxnFromChangeStreams
+}
+
+func (c *conn) SetExcludeTxnFromChangeStreams(excludeTxnFromChangeStreams bool) error {
+	_, err := c.setExcludeTxnFromChangeStreams(excludeTxnFromChangeStreams)
+	return err
+}
+
+func (c *conn) setExcludeTxnFromChangeStreams(excludeTxnFromChangeStreams bool) (driver.Result, error) {
+	if c.inTransaction() {
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot set ExcludeTxnFromChangeStreams while a transaction is active"))
+	}
+	c.excludeTxnFromChangeStreams = excludeTxnFromChangeStreams
 	return driver.ResultNoRows, nil
 }
 
@@ -637,10 +664,10 @@ func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement)
 		}
 		affected, err = tx.rwTx.BatchUpdate(ctx, statements)
 	} else {
-		_, err = c.client.ReadWriteTransaction(ctx, func(ctx context.Context, transaction *spanner.ReadWriteTransaction) error {
+		_, err = c.client.ReadWriteTransactionWithOptions(ctx, func(ctx context.Context, transaction *spanner.ReadWriteTransaction) error {
 			affected, err = transaction.BatchUpdate(ctx, statements)
 			return err
-		})
+		}, c.createTransactionOptions())
 	}
 	return &result{rowsAffected: sum(affected)}, err
 }
@@ -888,12 +915,12 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 			c.batch.statements = append(c.batch.statements, ss)
 		} else {
 			if c.autocommitDMLMode == Transactional {
-				rowsAffected, commitTs, err = c.execSingleDMLTransactional(ctx, c.client, ss)
+				rowsAffected, commitTs, err = c.execSingleDMLTransactional(ctx, c.client, ss, c.createTransactionOptions())
 				if err == nil {
 					c.commitTs = &commitTs
 				}
 			} else if c.autocommitDMLMode == PartitionedNonAtomic {
-				rowsAffected, err = c.execSingleDMLPartitioned(ctx, c.client, ss)
+				rowsAffected, err = c.execSingleDMLPartitioned(ctx, c.client, ss, c.createPartitionedDmlQueryOptions())
 			} else {
 				return nil, status.Errorf(codes.FailedPrecondition, "connection in invalid state for DML statements: %s", c.autocommitDMLMode.String())
 			}
@@ -945,7 +972,8 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		return c.tx, nil
 	}
 
-	tx, err := spanner.NewReadWriteStmtBasedTransaction(ctx, c.client)
+	options := c.createTransactionOptions()
+	tx, err := spanner.NewReadWriteStmtBasedTransactionWithOptions(ctx, c.client, options)
 	if err != nil {
 		return nil, err
 	}
@@ -989,20 +1017,30 @@ func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.
 	return c.Single().WithTimestampBound(tb).Query(ctx, statement)
 }
 
-func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, time.Time, error) {
+func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, options spanner.TransactionOptions) (int64, time.Time, error) {
 	var rowsAffected int64
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
 		count, err := tx.Update(ctx, statement)
 		rowsAffected = count
 		return err
 	}
-	ts, err := c.ReadWriteTransaction(ctx, fn)
+	resp, err := c.ReadWriteTransactionWithOptions(ctx, fn, options)
 	if err != nil {
 		return 0, time.Time{}, err
 	}
-	return rowsAffected, ts, nil
+	return rowsAffected, resp.CommitTs, nil
 }
 
-func execAsPartitionedDML(ctx context.Context, c *spanner.Client, statement spanner.Statement) (int64, error) {
-	return c.PartitionedUpdate(ctx, statement)
+func execAsPartitionedDML(ctx context.Context, c *spanner.Client, statement spanner.Statement, options spanner.QueryOptions) (int64, error) {
+	return c.PartitionedUpdateWithOptions(ctx, statement, options)
+}
+
+func (c *conn) createTransactionOptions() spanner.TransactionOptions {
+	defer func() { c.excludeTxnFromChangeStreams = false }()
+	return spanner.TransactionOptions{ExcludeTxnFromChangeStreams: c.excludeTxnFromChangeStreams}
+}
+
+func (c *conn) createPartitionedDmlQueryOptions() spanner.QueryOptions {
+	defer func() { c.excludeTxnFromChangeStreams = false }()
+	return spanner.QueryOptions{ExcludeTxnFromChangeStreams: c.excludeTxnFromChangeStreams}
 }

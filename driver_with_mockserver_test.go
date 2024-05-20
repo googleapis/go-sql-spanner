@@ -2101,6 +2101,160 @@ func TestStressClientReuse(t *testing.T) {
 	}
 }
 
+func TestExcludeTxnFromChangeStreams_AutoCommitUpdate(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	defer conn.Close()
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+
+	var exclude bool
+	if err := conn.QueryRowContext(ctx, "SHOW VARIABLE EXCLUDE_TXN_FROM_CHANGE_STREAMS").Scan(&exclude); err != nil {
+		t.Fatalf("failed to get exclude setting: %v", err)
+	}
+	if g, w := exclude, false; g != w {
+		t.Fatalf("exclude_txn_from_change_streams mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if _, err := conn.ExecContext(ctx, "set exclude_txn_from_change_streams = true"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = conn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if req.Transaction == nil {
+		t.Fatalf("missing transaction for ExecuteSqlRequest")
+	}
+	if _, ok := req.Transaction.Selector.(*sppb.TransactionSelector_Begin); !ok {
+		t.Fatalf("unsupported transaction type %T", req.Transaction.Selector)
+	}
+	begin := req.Transaction.Selector.(*sppb.TransactionSelector_Begin)
+	if !begin.Begin.ExcludeTxnFromChangeStreams {
+		t.Fatalf("missing ExcludeTxnFromChangeStreams option on BeginTransaction option")
+	}
+}
+
+func TestExcludeTxnFromChangeStreams_AutoCommitBatchDml(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	defer conn.Close()
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+
+	conn.ExecContext(ctx, "set exclude_txn_from_change_streams = true")
+	conn.ExecContext(ctx, "start batch dml")
+	conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
+	conn.ExecContext(ctx, "run batch")
+	requests := drainRequestsFromServer(server.TestSpanner)
+	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if g, w := len(batchRequests), 1; g != w {
+		t.Fatalf("ExecuteBatchDmlRequest count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := batchRequests[0].(*sppb.ExecuteBatchDmlRequest)
+	if req.Transaction == nil {
+		t.Fatalf("missing transaction for ExecuteBatchDmlRequest")
+	}
+	if _, ok := req.Transaction.Selector.(*sppb.TransactionSelector_Begin); !ok {
+		t.Fatalf("unsupported transaction type %T", req.Transaction.Selector)
+	}
+	begin := req.Transaction.Selector.(*sppb.TransactionSelector_Begin)
+	if !begin.Begin.ExcludeTxnFromChangeStreams {
+		t.Fatalf("missing ExcludeTxnFromChangeStreams option on BeginTransaction option")
+	}
+}
+
+func TestExcludeTxnFromChangeStreams_PartitionedDml(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	defer conn.Close()
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+
+	conn.ExecContext(ctx, "set exclude_txn_from_change_streams = true")
+	conn.ExecContext(ctx, "set autocommit_dml_mode = 'partitioned_non_atomic'")
+	conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
+	requests := drainRequestsFromServer(server.TestSpanner)
+	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	if g, w := len(beginRequests), 1; g != w {
+		t.Fatalf("BeginTransactionRequest count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := beginRequests[0].(*sppb.BeginTransactionRequest)
+	if !req.Options.ExcludeTxnFromChangeStreams {
+		t.Fatalf("missing ExcludeTxnFromChangeStreams option on BeginTransaction option")
+	}
+}
+
+func TestExcludeTxnFromChangeStreams_Transaction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	defer conn.Close()
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+
+	var exclude bool
+	if err := conn.QueryRowContext(ctx, "SHOW VARIABLE EXCLUDE_TXN_FROM_CHANGE_STREAMS").Scan(&exclude); err != nil {
+		t.Fatalf("failed to get exclude setting: %v", err)
+	}
+	if g, w := exclude, false; g != w {
+		t.Fatalf("exclude_txn_from_change_streams mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	conn.ExecContext(ctx, "set exclude_txn_from_change_streams = true")
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
+	tx.Commit()
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	if g, w := len(beginRequests), 1; g != w {
+		t.Fatalf("BeginTransactionRequest count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := beginRequests[0].(*sppb.BeginTransactionRequest)
+	if !req.Options.ExcludeTxnFromChangeStreams {
+		t.Fatalf("missing ExcludeTxnFromChangeStreams option on BeginTransaction option")
+	}
+
+	// Verify that the flag is reset after the transaction.
+	if err := conn.QueryRowContext(ctx, "SHOW VARIABLE EXCLUDE_TXN_FROM_CHANGE_STREAMS").Scan(&exclude); err != nil {
+		t.Fatalf("failed to get exclude setting: %v", err)
+	}
+	if g, w := exclude, false; g != w {
+		t.Fatalf("exclude_txn_from_change_streams mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+}
+
 func numeric(v string) big.Rat {
 	res, _ := big.NewRat(1, 1).SetString(v)
 	return *res
