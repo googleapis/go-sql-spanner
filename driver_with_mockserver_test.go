@@ -1069,6 +1069,126 @@ func TestDmlInAutocommit(t *testing.T) {
 	}
 }
 
+func TestQueryWithDuplicateNamedParameter(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	s := "insert into users (id, name) values (@name, @name)"
+	server.TestSpanner.PutStatementResult(s, &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	_, err := db.Exec(s, sql.Named("name", "foo"), sql.Named("name", "bar"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify that 'bar' is used for both instances of the parameter @name.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 1 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := len(req.Params.Fields), 1; g != w {
+		t.Fatalf("params count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := req.Params.Fields["name"].GetStringValue(), "bar"; g != w {
+		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestQueryWithReusedNamedParameter(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	s := "insert into users (id, name) values (@name, @name)"
+	server.TestSpanner.PutStatementResult(s, &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	_, err := db.Exec(s, sql.Named("name", "foo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify that 'foo' is used for both instances of the parameter @name.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 1 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := len(req.Params.Fields), 1; g != w {
+		t.Fatalf("params count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := req.Params.Fields["name"].GetStringValue(), "foo"; g != w {
+		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestQueryWithReusedPositionalParameter(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	s := "insert into users (id, name) values (@name, @name)"
+	server.TestSpanner.PutStatementResult(s, &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	_, err := db.Exec(s, "foo", "bar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify that 'bar' is used for both instances of the parameter @name.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 1 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := len(req.Params.Fields), 1; g != w {
+		t.Fatalf("params count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := req.Params.Fields["name"].GetStringValue(), "bar"; g != w {
+		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestQueryWithMissingPositionalParameter(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	s := "insert into users (id, name) values (@name, @name)"
+	server.TestSpanner.PutStatementResult(s, &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	_, err := db.Exec(s, "foo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify that 'foo' is used for the parameter @name.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 1 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := len(req.Params.Fields), 1; g != w {
+		t.Fatalf("params count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := req.Params.Fields["name"].GetStringValue(), "foo"; g != w {
+		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
 func TestDdlInAutocommit(t *testing.T) {
 	t.Parallel()
 

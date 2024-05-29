@@ -69,16 +69,24 @@ func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, 
 	if err != nil {
 		return spanner.Statement{}, err
 	}
-	if len(names) != len(args) {
-		return spanner.Statement{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "got %v argument values, but found %v parameters in the sql string", len(args), len(names)))
-	}
+	//if !hasNamedParams && len(names) != len(args) {
+	//	return spanner.Statement{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "got %v argument values, but found %v parameters in the sql string", len(args), len(names)))
+	//}
 	ss := spanner.NewStatement(q)
 	for i, v := range args {
 		name := args[i].Name
-		if name == "" {
+		if name == "" && len(names) > i {
 			name = names[i]
 		}
-		ss.Params[name] = convertParam(v.Value)
+		if name != "" {
+			ss.Params[name] = convertParam(v.Value)
+		}
+	}
+	// Verify that all parameters have a value.
+	for _, name := range names {
+		if _, ok := ss.Params[name]; !ok {
+			return spanner.Statement{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "missing value for query parameter %v", name))
+		}
 	}
 	return ss, nil
 }
