@@ -14,7 +14,7 @@ if err != nil {
 }
 
 // Print tweets with more than 500 likes.
-rows, err := db.QueryContext(ctx, "SELECT id, text FROM tweets WHERE likes > @likes", 500)
+rows, err := db.QueryContext(ctx, "SELECT id, text FROM tweets WHERE likes > @likes", sql.Named("likes", 500))
 if err != nil {
     log.Fatal(err)
 }
@@ -34,9 +34,11 @@ for rows.Next() {
 
 ## Statements
 
-Statements support follows the official [Google Cloud Spanner Go](https://pkg.go.dev/cloud.google.com/go/spanner) client style arguments as well as positional paramaters.
+Statements support follows the official [Google Cloud Spanner Go](https://pkg.go.dev/cloud.google.com/go/spanner) client
+style arguments as well as positional parameters. It is highly recommended to use either positional parameters in
+combination with positional arguments, __or__ named parameters in combination with named arguments.
 
-### Using positional patameter
+### Using positional parameters with positional arguments
 
 ```go
 db.QueryContext(ctx, "SELECT id, text FROM tweets WHERE likes > ?", 500)
@@ -44,9 +46,22 @@ db.QueryContext(ctx, "SELECT id, text FROM tweets WHERE likes > ?", 500)
 db.ExecContext(ctx, "INSERT INTO tweets (id, text, rts) VALUES (?, ?, ?)", id, text, 10000)
 ```
 
-### Using named patameter
+### Using named parameters with named arguments
 
 ```go
+db.ExecContext(ctx, "DELETE FROM tweets WHERE id = @id", sql.Named("id", 14544498215374))
+
+db.ExecContext(ctx, "INSERT INTO tweets (id, text, rts) VALUES (@id, @text, @rts)",
+	sql.Named("id", id), sql.Named("text", text), sql.Named("rts", 10000))
+```
+
+### Using named parameters with positional arguments (not recommended)
+Named parameters can also be used in combination with positional arguments,
+but this is __not recommended__, as the behavior can be hard to predict if
+the same named query parameter is used in multiple places in the statement.
+
+```go
+// Possible, but not recommended.
 db.ExecContext(ctx, "DELETE FROM tweets WHERE id = @id", 14544498215374)
 ```
 
