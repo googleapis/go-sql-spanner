@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.4.0](https://github.com/googleapis/go-sql-spanner/compare/v1.3.1...v1.4.0) (2024-05-30)
+
+
+### Features
+
+* Add exclude_txn_from_change_streams variable ([#236](https://github.com/googleapis/go-sql-spanner/issues/236)) ([ad95d85](https://github.com/googleapis/go-sql-spanner/commit/ad95d8522eb5ca12be089a5cd235a10aa81b0bfd))
+
+
+### Bug Fixes
+
+* **deps:** Update google.golang.org/genproto/googleapis/rpc digest to 5315273 ([#239](https://github.com/googleapis/go-sql-spanner/issues/239)) ([a39bb8f](https://github.com/googleapis/go-sql-spanner/commit/a39bb8f6e966335531114aadd49f01ddbf072e8a))
+* **deps:** Update module cloud.google.com/go to v0.113.0 ([#232](https://github.com/googleapis/go-sql-spanner/issues/232)) ([c2dd030](https://github.com/googleapis/go-sql-spanner/commit/c2dd0303a8b788947e4190659ae87dd67dbf941e))
+* **deps:** Update module cloud.google.com/go/longrunning to v0.5.7 ([#228](https://github.com/googleapis/go-sql-spanner/issues/228)) ([cf3cafc](https://github.com/googleapis/go-sql-spanner/commit/cf3cafcd58160076e97bff6e6cc10f72904226d9))
+* **deps:** Update module github.com/googleapis/go-sql-spanner to v1.3.1 ([#226](https://github.com/googleapis/go-sql-spanner/issues/226)) ([6ffc02d](https://github.com/googleapis/go-sql-spanner/commit/6ffc02df3b01691100f1a76532cdc109ff807f20))
+* **deps:** Update module google.golang.org/api to v0.180.0 ([#227](https://github.com/googleapis/go-sql-spanner/issues/227)) ([926f621](https://github.com/googleapis/go-sql-spanner/commit/926f6214f58f1e60973c000c45be07a232b4649a))
+* **deps:** Update module google.golang.org/genproto to v0.0.0-20240509183442-62759503f434 ([#229](https://github.com/googleapis/go-sql-spanner/issues/229)) ([42744bc](https://github.com/googleapis/go-sql-spanner/commit/42744bc8f73d32940629249789cff67a63f4067c))
+* **deps:** Update module google.golang.org/genproto/googleapis/rpc to v0.0.0-20240509183442-62759503f434 ([#230](https://github.com/googleapis/go-sql-spanner/issues/230)) ([778aa45](https://github.com/googleapis/go-sql-spanner/commit/778aa45f4a9e1b70dd0cd040e89336c75fa0821a))
+* **deps:** Update module google.golang.org/protobuf to v1.34.1 ([#233](https://github.com/googleapis/go-sql-spanner/issues/233)) ([72c5b71](https://github.com/googleapis/go-sql-spanner/commit/72c5b713a749d0f43a03dbad92ca76f583218c55))
+* Support reusing named parameters ([#240](https://github.com/googleapis/go-sql-spanner/issues/240)) ([c7140a2](https://github.com/googleapis/go-sql-spanner/commit/c7140a2a4b568d81969949dd76525b67606f04ee))
+
 ## [1.3.1](https://github.com/googleapis/go-sql-spanner/compare/v1.3.0...v1.3.1) (2024-04-19)
 
 
