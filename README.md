@@ -176,10 +176,9 @@ error.
 Our libraries are compatible with at least the three most recent, major Go
 releases. They are currently compatible with:
 
+- Go 1.22
+- Go 1.21
 - Go 1.20
-- Go 1.19
-- Go 1.18
-- Go 1.17
 
 ## Authorization
 
