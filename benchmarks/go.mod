@@ -8,7 +8,7 @@ require (
 	cloud.google.com/go v0.113.0
 	cloud.google.com/go/spanner v1.61.0
 	github.com/google/uuid v1.6.0
-	github.com/googleapis/go-sql-spanner v1.3.1
+	github.com/googleapis/go-sql-spanner v1.4.0
 	google.golang.org/api v0.180.0
 	google.golang.org/grpc v1.63.2
 	google.golang.org/protobuf v1.34.1
@@ -53,5 +53,5 @@ require (
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
 	google.golang.org/genproto v0.0.0-20240509183442-62759503f434 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240506185236-b8a5c65736ae // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240509183442-62759503f434 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240528184218-531527333157 // indirect
 )
