@@ -1,6 +1,6 @@
 module github.com/googleapis/go-sql-spanner/benchmarks
 
-go 1.19
+go 1.20
 
 replace github.com/googleapis/go-sql-spanner => ../
 
@@ -53,5 +53,5 @@ require (
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
 	google.golang.org/genproto v0.0.0-20240509183442-62759503f434 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240506185236-b8a5c65736ae // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240509183442-62759503f434 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240528184218-531527333157 // indirect
 )
