@@ -12,9 +12,7 @@
   "commitMessagePrefix": "chore: ",
   "commitMessageAction": "update",
   "groupName": "deps",
-  "force": {
-    "constraints": {
+  "constraints": {
       "go": "1.20"
-    }
   }
 }
