@@ -10,11 +10,11 @@ jobs:
       has-key: ${{ steps.project-id.outputs.defined }}
     runs-on: ubuntu-latest
     steps:
-    - id: project-id
-      env:
-        GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-      if: "${{ env.GCP_PROJECT_ID != '' }}"
-      run: echo "defined=true" >> "$GITHUB_OUTPUT"
+      - id: project-id
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        if: "${{ env.GCP_PROJECT_ID != '' }}"
+        run: echo "defined=true" >> "$GITHUB_OUTPUT"
 
   test:
     needs: [check-env]
