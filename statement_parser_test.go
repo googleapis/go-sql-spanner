@@ -476,6 +476,16 @@ SELECT SchoolID FROM Roster`,
 	}
 }
 
+func FuzzRemoveCommentsAndTrim(f *testing.F) {
+	for _, sample := range fuzzQuerySamples {
+		f.Add(sample)
+	}
+
+	f.Fuzz(func(t *testing.T, input string) {
+		_, _ = removeCommentsAndTrim(input)
+	})
+}
+
 func TestFindParams(t *testing.T) {
 	tests := []struct {
 		input              string
@@ -672,6 +682,16 @@ func TestFindParams(t *testing.T) {
 	}
 }
 
+func FuzzFindParams(f *testing.F) {
+	for _, sample := range fuzzQuerySamples {
+		f.Add(sample)
+	}
+
+	f.Fuzz(func(t *testing.T, input string) {
+		_, _, _ = parseParameters(input)
+	})
+}
+
 // note: isDDL function does not check validity of statement
 // just that the statement begins with a DDL instruction.
 // Other checking performed by database.
@@ -834,6 +854,16 @@ func TestIsDdl(t *testing.T) {
 	}
 }
 
+func FuzzIsDdl(f *testing.F) {
+	for _, sample := range fuzzQuerySamples {
+		f.Add(sample)
+	}
+
+	f.Fuzz(func(t *testing.T, input string) {
+		_, _ = isDDL(input)
+	})
+}
+
 func TestParseClientSideStatement(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -927,6 +957,16 @@ func TestParseClientSideStatement(t *testing.T) {
 	}
 }
 
+func FuzzParseClientSideStatement(f *testing.F) {
+	for _, sample := range fuzzQuerySamples {
+		f.Add(sample)
+	}
+
+	f.Fuzz(func(t *testing.T, input string) {
+		_, _ = parseClientSideStatement(&conn{}, input)
+	})
+}
+
 func TestRemoveCommentsAndTrim_Errors(t *testing.T) {
 	_, err := removeCommentsAndTrim("SELECT 'Hello World FROM SomeTable")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
@@ -946,5 +986,19 @@ func TestFindParams_Errors(t *testing.T) {
 	_, _, err = findParams('?', "SELECT 'Hello World\nFROM SomeTable WHERE id=@id")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
+	}
+}
+
+var fuzzQuerySamples = []string{"", "SELECT 1;", "RUN BATCH", "ABORT BATCH", "Show variable Retry_Aborts_Internally", "@{JOIN_METHOD=HASH_JOIN SELECT * FROM PersonsTable"}
+
+func init() {
+	for ddl := range ddlStatements {
+		fuzzQuerySamples = append(fuzzQuerySamples, ddl)
+	}
+	for ddl := range selectStatements {
+		fuzzQuerySamples = append(fuzzQuerySamples, ddl)
+	}
+	for ddl := range dmlStatements {
+		fuzzQuerySamples = append(fuzzQuerySamples, ddl)
 	}
 }
