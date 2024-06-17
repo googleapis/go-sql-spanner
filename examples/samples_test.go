@@ -33,17 +33,19 @@ func TestRunSamples(t *testing.T) {
 				t.Fatalf("failed to check for main.go file in %v: %v", item.Name(), err)
 			}
 			if !mainFile.IsDir() {
-				// Verify that we can run the sample.
-				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-				cmd := exec.CommandContext(ctx, "go", "run", "-race", ".")
-				cmd.Dir = item.Name()
-				var stderr bytes.Buffer
-				cmd.Stderr = &stderr
-				if err := cmd.Run(); err != nil {
+				t.Run(item.Name(), func(t *testing.T) {
+					// Verify that we can run the sample.
+					ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+					cmd := exec.CommandContext(ctx, "go", "run", "-race", ".")
+					cmd.Dir = item.Name()
+					var stderr bytes.Buffer
+					cmd.Stderr = &stderr
+					if err := cmd.Run(); err != nil {
+						cancel()
+						t.Fatalf("failed to run sample %v: %v", item.Name(), stderr.String())
+					}
 					cancel()
-					t.Fatalf("failed to run sample %v: %v", item.Name(), stderr.String())
-				}
-				cancel()
+				})
 			}
 		}
 	}
