@@ -29,11 +29,16 @@ func TestConvertParam(t *testing.T) {
 	}
 
 	check(uint(197), int64(197))
-	check([]uint{197}, []int64{197})
 	check(pointerTo[uint](197), pointerTo[int64](197))
-	check(pointerTo[[]uint]([]uint{197}), pointerTo[[]int64]([]int64{197}))
 	check((*uint)(nil), (*int64)(nil))
+
+	check([]uint{197}, []int64{197})
+	check(pointerTo[[]uint]([]uint{197}), pointerTo[[]int64]([]int64{197}))
 	check((*[]uint)(nil), (*[]int64)(nil))
+
+	check([]int{197}, []int64{197})
+	check(pointerTo[[]int]([]int{197}), pointerTo[[]int64]([]int64{197}))
+	check((*[]int)(nil), (*[]int64)(nil))
 }
 
 func pointerTo[T any](v T) *T { return &v }

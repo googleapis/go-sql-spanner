@@ -95,6 +95,14 @@ func convertParam(v driver.Value) driver.Value {
 	switch v := v.(type) {
 	default:
 		return v
+	case int:
+		return int64(v)
+	case []int:
+		res := make([]int64, len(v))
+		for i, val := range v {
+			res[i] = int64(val)
+		}
+		return res
 	case uint:
 		return int64(v)
 	case []uint:
@@ -103,6 +111,21 @@ func convertParam(v driver.Value) driver.Value {
 			res[i] = int64(val)
 		}
 		return res
+	case *int:
+		if v == nil {
+			return (*int64)(nil)
+		}
+		vi := int64(*v)
+		return &vi
+	case *[]int:
+		if v == nil {
+			return (*[]int64)(nil)
+		}
+		res := make([]int64, len(*v))
+		for i, val := range *v {
+			res[i] = int64(val)
+		}
+		return &res
 	case *uint:
 		if v == nil {
 			return (*int64)(nil)
