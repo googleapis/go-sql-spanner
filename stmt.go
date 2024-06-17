@@ -92,25 +92,29 @@ func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, 
 }
 
 func convertParam(v driver.Value) driver.Value {
-	switch v.(type) {
+	switch v := v.(type) {
 	default:
 		return v
 	case uint:
-		return int64(v.(uint))
+		return int64(v)
 	case []uint:
-		vu := v.([]uint)
-		res := make([]int64, len(vu))
-		for i, val := range vu {
+		res := make([]int64, len(v))
+		for i, val := range v {
 			res[i] = int64(val)
 		}
 		return res
 	case *uint:
-		vi := int64(*v.(*uint))
+		if v == nil {
+			return (*int64)(nil)
+		}
+		vi := int64(*v)
 		return &vi
 	case *[]uint:
-		vu := v.(*[]uint)
-		res := make([]int64, len(*vu))
-		for i, val := range *vu {
+		if v == nil {
+			return (*[]int64)(nil)
+		}
+		res := make([]int64, len(*v))
+		for i, val := range *v {
 			res[i] = int64(val)
 		}
 		return &res
