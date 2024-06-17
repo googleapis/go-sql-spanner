@@ -21,7 +21,7 @@ func TestRunSamples(t *testing.T) {
 			if !mainFile.IsDir() {
 				// Verify that we can run the sample.
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-				cmd := exec.CommandContext(ctx, "go", "run", "main.go")
+				cmd := exec.CommandContext(ctx, "go", "run", "-race", ".")
 				cmd.Dir = item.Name()
 				var stderr bytes.Buffer
 				cmd.Stderr = &stderr
