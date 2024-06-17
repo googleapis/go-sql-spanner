@@ -203,7 +203,7 @@ type sqlNullTypes struct {
 	string    sql.NullString
 	bytes     []byte // There is no sql.NullBytes type
 	int64     sql.NullInt64
-	float32   sql.Null[float32]
+	float32   spanner.NullFloat32 // sql.Null[float32] can be used from Go 1.22
 	float64   sql.NullFloat64
 	numeric   spanner.NullNumeric // There is no sql.NullNumeric type
 	date      spanner.NullDate    // There is no sql.NullDate type
