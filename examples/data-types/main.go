@@ -34,6 +34,7 @@ var createTableStatement = `CREATE TABLE AllTypes (
 			string         STRING(MAX),
 			bytes          BYTES(MAX),
 			int64          INT64,
+			float32        FLOAT32,
 			float64        FLOAT64,
 			numeric        NUMERIC,
 			date           DATE,
@@ -42,6 +43,7 @@ var createTableStatement = `CREATE TABLE AllTypes (
 			stringArray    ARRAY<STRING(MAX)>,
 			bytesArray     ARRAY<BYTES(MAX)>,
 			int64Array     ARRAY<INT64>,
+			float32Array   ARRAY<FLOAT32>,
 			float64Array   ARRAY<FLOAT64>,
 			numericArray   ARRAY<NUMERIC>,
 			dateArray      ARRAY<DATE>,
@@ -66,13 +68,13 @@ func dataTypes(projectId, instanceId, databaseId string) error {
 
 	// Insert a test row with all non-null values using DML and native types.
 	if _, err := db.ExecContext(ctx, `INSERT INTO AllTypes (
-                      key, bool, string, bytes, int64, float64, numeric, date, timestamp,
-                      boolArray, stringArray, bytesArray, int64Array, float64Array, numericArray, dateArray, timestampArray) 
-                      VALUES (@key, @bool, @string, @bytes, @int64, @float64, @numeric, @date, @timestamp,
-                              @boolArray, @stringArray, @bytesArray, @int64Array, @float64Array, @numericArray, @dateArray, @timestampArray)`,
-		1, true, "string", []byte("bytes"), 100, 3.14, *big.NewRat(1, 1), civil.DateOf(time.Now()), time.Now(),
+                      key, bool, string, bytes, int64, float32, float64, numeric, date, timestamp,
+                      boolArray, stringArray, bytesArray, int64Array, float32Array, float64Array, numericArray, dateArray, timestampArray)
+                      VALUES (@key, @bool, @string, @bytes, @int64, @float32, @float64, @numeric, @date, @timestamp,
+                              @boolArray, @stringArray, @bytesArray, @int64Array, @float32Array, @float64Array, @numericArray, @dateArray, @timestampArray)`,
+		1, true, "string", []byte("bytes"), 100, float32(3.14), 3.14, *big.NewRat(1, 1), civil.DateOf(time.Now()), time.Now(),
 		[]bool{true, false}, []string{"s1", "s2"}, [][]byte{[]byte("b1"), []byte("b2")}, []int64{1, 2},
-		[]float64{1.1, 2.2}, []big.Rat{*big.NewRat(1, 2), *big.NewRat(1, 3)},
+		[]float32{1.1, 2.2}, []float64{1.1, 2.2}, []big.Rat{*big.NewRat(1, 2), *big.NewRat(1, 3)},
 		[]civil.Date{{2021, 10, 12}, {2021, 10, 13}},
 		[]time.Time{time.Now(), time.Now().Add(24 * time.Hour)}); err != nil {
 		return fmt.Errorf("failed to insert a record with all non-null values using DML: %v", err)
@@ -81,15 +83,15 @@ func dataTypes(projectId, instanceId, databaseId string) error {
 
 	// Insert a test row with all null values using DML and Spanner Null* types.
 	if _, err := db.ExecContext(ctx, `INSERT INTO AllTypes (
-                      key, bool, string, bytes, int64, float64, numeric, date, timestamp,
-                      boolArray, stringArray, bytesArray, int64Array, float64Array, numericArray, dateArray, timestampArray) 
-                      VALUES (@key, @bool, @string, @bytes, @int64, @float64, @numeric, @date, @timestamp,
-                              @boolArray, @stringArray, @bytesArray, @int64Array, @float64Array, @numericArray, @dateArray, @timestampArray)`,
+                      key, bool, string, bytes, int64, float32, float64, numeric, date, timestamp,
+                      boolArray, stringArray, bytesArray, int64Array, float32Array, float64Array, numericArray, dateArray, timestampArray)
+                      VALUES (@key, @bool, @string, @bytes, @int64, @float32, @float64, @numeric, @date, @timestamp,
+                              @boolArray, @stringArray, @bytesArray, @int64Array, @float32Array, @float64Array, @numericArray, @dateArray, @timestampArray)`,
 		2, spanner.NullBool{}, spanner.NullString{}, []byte(nil), // There is no NullBytes type
-		spanner.NullInt64{}, spanner.NullFloat64{}, spanner.NullNumeric{}, spanner.NullDate{}, spanner.NullTime{},
+		spanner.NullInt64{}, spanner.NullFloat32{}, spanner.NullFloat64{}, spanner.NullNumeric{}, spanner.NullDate{}, spanner.NullTime{},
 		// These array values all contain two NULL values in the (non-null) array.
 		[]spanner.NullBool{{}, {}}, []spanner.NullString{{}, {}}, [][]byte{[]byte(nil), []byte(nil)},
-		[]spanner.NullInt64{{}, {}}, []spanner.NullFloat64{{}, {}}, []spanner.NullNumeric{{}, {}},
+		[]spanner.NullInt64{{}, {}}, []spanner.NullFloat32{{}, {}}, []spanner.NullFloat64{{}, {}}, []spanner.NullNumeric{{}, {}},
 		[]spanner.NullDate{{}, {}}, []spanner.NullTime{{}, {}}); err != nil {
 		return fmt.Errorf("failed to insert a record with all null values using DML: %v", err)
 	}
@@ -100,12 +102,12 @@ func dataTypes(projectId, instanceId, databaseId string) error {
 	// currently disabled on the emulator. Running it against a real Cloud Spanner database works.
 	if os.Getenv("SPANNER_EMULATOR_HOST") == "" {
 		if _, err := db.ExecContext(ctx, `INSERT INTO AllTypes (
-                      key, bool, string, bytes, int64, float64, numeric, date, timestamp,
-                      boolArray, stringArray, bytesArray, int64Array, float64Array, numericArray, dateArray, timestampArray) 
-                      VALUES (@key, @bool, @string, @bytes, @int64, @float64, @numeric, @date, @timestamp,
-                              @boolArray, @stringArray, @bytesArray, @int64Array, @float64Array, @numericArray, @dateArray, @timestampArray)`,
-			3, nil, nil, nil, nil, nil, nil, nil, nil,
-			nil, nil, nil, nil, nil, nil, nil, nil); err != nil {
+                      key, bool, string, bytes, int64, float32, float64, numeric, date, timestamp,
+                      boolArray, stringArray, bytesArray, int64Array, float32Array, float64Array, numericArray, dateArray, timestampArray)
+                      VALUES (@key, @bool, @string, @bytes, @int64, @float32, @float64, @numeric, @date, @timestamp,
+                              @boolArray, @stringArray, @bytesArray, @int64Array, @float32Array, @float64Array, @numericArray, @dateArray, @timestampArray)`,
+			3, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+			nil, nil, nil, nil, nil, nil, nil, nil, nil); err != nil {
 			return fmt.Errorf("failed to insert a record with all untyped null values using DML: %v", err)
 		}
 		fmt.Print("Inserted a test record with all untyped null values\n")
@@ -116,8 +118,8 @@ func dataTypes(projectId, instanceId, databaseId string) error {
 	// contain NULL elements in the array.
 	var r1 nativeTypes
 	if err := db.QueryRowContext(ctx, "SELECT * FROM AllTypes WHERE key=@key", 1).Scan(
-		&r1.key, &r1.bool, &r1.string, &r1.bytes, &r1.int64, &r1.float64, &r1.numeric, &r1.date, &r1.timestamp,
-		&r1.boolArray, &r1.stringArray, &r1.bytesArray, &r1.int64Array, &r1.float64Array, &r1.numericArray, &r1.dateArray, &r1.timestampArray,
+		&r1.key, &r1.bool, &r1.string, &r1.bytes, &r1.int64, &r1.float32, &r1.float64, &r1.numeric, &r1.date, &r1.timestamp,
+		&r1.boolArray, &r1.stringArray, &r1.bytesArray, &r1.int64Array, &r1.float32Array, &r1.float64Array, &r1.numericArray, &r1.dateArray, &r1.timestampArray,
 	); err != nil {
 		return fmt.Errorf("failed to get row with non-null values: %v", err)
 	}
@@ -126,8 +128,8 @@ func dataTypes(projectId, instanceId, databaseId string) error {
 	// You can also use the spanner.Null* types to get data. These types can store both non-null and null values.
 	var r2 nullTypes
 	if err := db.QueryRowContext(ctx, "SELECT * FROM AllTypes WHERE key=@key", 1).Scan(
-		&r2.key, &r2.bool, &r2.string, &r2.bytes, &r2.int64, &r2.float64, &r2.numeric, &r2.date, &r2.timestamp,
-		&r2.boolArray, &r2.stringArray, &r2.bytesArray, &r2.int64Array, &r2.float64Array, &r2.numericArray, &r2.dateArray, &r2.timestampArray,
+		&r2.key, &r2.bool, &r2.string, &r2.bytes, &r2.int64, &r2.float32, &r2.float64, &r2.numeric, &r2.date, &r2.timestamp,
+		&r2.boolArray, &r2.stringArray, &r2.bytesArray, &r2.int64Array, &r2.float32Array, &r2.float64Array, &r2.numericArray, &r2.dateArray, &r2.timestampArray,
 	); err != nil {
 		return fmt.Errorf("failed to get row with null values: %v", err)
 	}
@@ -138,8 +140,8 @@ func dataTypes(projectId, instanceId, databaseId string) error {
 	// use spanner.NullNumeric and spanner.NullDate.
 	var r3 sqlNullTypes
 	if err := db.QueryRowContext(ctx, "SELECT * FROM AllTypes WHERE key=@key", 1).Scan(
-		&r3.key, &r3.bool, &r3.string, &r3.bytes, &r3.int64, &r3.float64, &r3.numeric, &r3.date, &r3.timestamp,
-		&r3.boolArray, &r3.stringArray, &r3.bytesArray, &r3.int64Array, &r3.float64Array, &r3.numericArray, &r3.dateArray, &r3.timestampArray,
+		&r3.key, &r3.bool, &r3.string, &r3.bytes, &r3.int64, &r3.float32, &r3.float64, &r3.numeric, &r3.date, &r3.timestamp,
+		&r3.boolArray, &r3.stringArray, &r3.bytesArray, &r3.int64Array, &r3.float32Array, &r3.float64Array, &r3.numericArray, &r3.dateArray, &r3.timestampArray,
 	); err != nil {
 		return fmt.Errorf("failed to get row with null values using Go sql null types: %v", err)
 	}
@@ -154,6 +156,7 @@ type nativeTypes struct {
 	string    string
 	bytes     []byte
 	int64     int64
+	float32   float32
 	float64   float64
 	numeric   big.Rat
 	date      civil.Date
@@ -165,6 +168,7 @@ type nativeTypes struct {
 	stringArray    []spanner.NullString
 	bytesArray     [][]byte
 	int64Array     []spanner.NullInt64
+	float32Array   []spanner.NullFloat32
 	float64Array   []spanner.NullFloat64
 	numericArray   []spanner.NullNumeric
 	dateArray      []spanner.NullDate
@@ -177,6 +181,7 @@ type nullTypes struct {
 	string         spanner.NullString
 	bytes          []byte // There is no spanner.NullBytes type
 	int64          spanner.NullInt64
+	float32        spanner.NullFloat32
 	float64        spanner.NullFloat64
 	numeric        spanner.NullNumeric
 	date           spanner.NullDate
@@ -185,6 +190,7 @@ type nullTypes struct {
 	stringArray    []spanner.NullString
 	bytesArray     [][]byte
 	int64Array     []spanner.NullInt64
+	float32Array   []spanner.NullFloat32
 	float64Array   []spanner.NullFloat64
 	numericArray   []spanner.NullNumeric
 	dateArray      []spanner.NullDate
@@ -197,6 +203,7 @@ type sqlNullTypes struct {
 	string    sql.NullString
 	bytes     []byte // There is no sql.NullBytes type
 	int64     sql.NullInt64
+	float32   spanner.NullFloat32 // sql.Null[float32] can be used from Go 1.22
 	float64   sql.NullFloat64
 	numeric   spanner.NullNumeric // There is no sql.NullNumeric type
 	date      spanner.NullDate    // There is no sql.NullDate type
@@ -206,6 +213,7 @@ type sqlNullTypes struct {
 	stringArray    []spanner.NullString
 	bytesArray     [][]byte
 	int64Array     []spanner.NullInt64
+	float32Array   []spanner.NullFloat32
 	float64Array   []spanner.NullFloat64
 	numericArray   []spanner.NullNumeric
 	dateArray      []spanner.NullDate
