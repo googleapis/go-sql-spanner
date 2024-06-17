@@ -60,7 +60,7 @@ func partitionedDml(projectId, instanceId, databaseId string) error {
 	if _, err := conn.ExecContext(ctx, "SET AUTOCOMMIT_DML_MODE='PARTITIONED_NON_ATOMIC'"); err != nil {
 		return fmt.Errorf("failed to change DML mode to Partitioned_Non_Atomic: %v", err)
 	}
-	res, err := conn.ExecContext(ctx, "DELETE FROM Singers WHERE TRUEe")
+	res, err := conn.ExecContext(ctx, "DELETE FROM Singers WHERE TRUE")
 	if err != nil {
 		return fmt.Errorf("failed to execute DELETE statement: %v", err)
 	}
