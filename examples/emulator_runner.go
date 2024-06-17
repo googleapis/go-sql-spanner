@@ -17,6 +17,7 @@ package examples
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"time"
@@ -76,9 +77,17 @@ func startEmulator() error {
 		return err
 	}
 	// Pull the Spanner Emulator docker image.
-	if _, err := cli.ImagePull(ctx, "gcr.io/cloud-spanner-emulator/emulator", types.ImagePullOptions{}); err != nil {
+	reader, err := cli.ImagePull(ctx, "gcr.io/cloud-spanner-emulator/emulator", types.ImagePullOptions{})
+	if err != nil {
 		return err
 	}
+	defer func() { _ = reader.Close() }()
+	// cli.ImagePull is asynchronous.
+	// The reader needs to be read completely for the pull operation to complete.
+	if _, err := io.Copy(io.Discard, reader); err != nil {
+		return err
+	}
+
 	// Create and start a container with the emulator.
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image:        "gcr.io/cloud-spanner-emulator/emulator",
@@ -163,8 +172,8 @@ func stopEmulator() {
 		return
 	}
 	ctx := context.Background()
-	timeout := 10 * time.Second
-	if err := cli.ContainerStop(ctx, containerId, &timeout); err != nil {
+	timeout := 10
+	if err := cli.ContainerStop(ctx, containerId, container.StopOptions{Timeout: &timeout}); err != nil {
 		log.Printf("failed to stop emulator: %v\n", err)
 	}
 }
