@@ -16,6 +16,7 @@ package spannerdriver
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"database/sql"
 	"flag"
 	"fmt"
@@ -159,8 +160,13 @@ func createTestDB(ctx context.Context, statements ...string) (dsn string, cleanu
 	if !ok {
 		prefix = "gotest"
 	}
-	currentTime := time.Now().UnixNano()
-	databaseId := fmt.Sprintf("%s-%d", prefix, currentTime)
+
+	var uniqueid [4]byte
+	if _, err = cryptorand.Read(uniqueid[:]); err != nil {
+		return "", nil, err
+	}
+
+	databaseId := fmt.Sprintf("%s-%x", prefix, uniqueid)
 	opDB, err := databaseAdminClient.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
 		Parent:          fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId),
 		CreateStatement: fmt.Sprintf("CREATE DATABASE `%s`", databaseId),

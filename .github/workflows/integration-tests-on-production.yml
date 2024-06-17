@@ -33,7 +33,7 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
       - name: Run integration tests on production
-        run: go test -v -timeout 45m ./...
+        run: go test -race -v -timeout 45m ./...
         env:
           JOB_TYPE: test
           SPANNER_TEST_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
