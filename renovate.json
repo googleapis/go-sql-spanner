@@ -9,7 +9,7 @@
   "postUpdateOptions": [
     "gomodTidy"
   ],
-  "commitMessagePrefix": "chore: ",
+  "commitMessagePrefix": "deps: ",
   "commitMessageAction": "update",
   "groupName": "deps",
   "constraints": {

@@ -372,8 +372,9 @@ SELECT 1`,
 
 func TestRemoveStatementHint(t *testing.T) {
 	tests := []struct {
-		input string
-		want  string
+		input              string
+		want               string
+		skipRemoveComments bool
 	}{
 		{
 			input: `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable`,
@@ -451,11 +452,22 @@ SELECT SchoolID FROM Roster`,
 			input: `@JOIN_METHOD=HASH_JOIN SELECT * FROM PersonsTable`,
 			want:  `@JOIN_METHOD=HASH_JOIN SELECT * FROM PersonsTable`,
 		},
+		{
+			input:              "@{FORCE_INDEX=index_name}\xb0\xb0\xb0\x80SELECT",
+			want:               "@{FORCE_INDEX=index_name}\xb0\xb0\xb0\x80SELECT",
+			skipRemoveComments: true,
+		},
 	}
 	for _, tc := range tests {
-		sql, err := removeCommentsAndTrim(tc.input)
-		if err != nil {
-			t.Fatal(err)
+		var sql string
+		if tc.skipRemoveComments {
+			sql = tc.input
+		} else {
+			var err error
+			sql, err = removeCommentsAndTrim(tc.input)
+			if err != nil {
+				t.Fatal(err)
+			}
 		}
 		got := removeStatementHint(sql)
 		if got != tc.want {
@@ -793,6 +805,21 @@ func TestIsDdl(t *testing.T) {
 				A STRING(1024)
 			) PRIMARY KEY (A)`,
 			want: true,
+		},
+		{
+			name:  "short input",
+			input: "",
+			want:  false,
+		},
+		{
+			name:  "empty input",
+			input: "",
+			want:  false,
+		},
+		{
+			name:  "input with only spaces",
+			input: "    \t\n  ",
+			want:  false,
 		},
 	}
 

@@ -177,9 +177,14 @@ func removeStatementHint(sql string) string {
 			break
 		}
 	}
-	if startQueryIndex > -1 {
+	// The startQueryIndex can theoretically be larger than the length of the SQL string,
+	// as the length of the uppercase SQL string can be different from the length of the
+	// lower/mixed case SQL string. This is however only the case for specific non-ASCII
+	// characters that are not allowed in a statement hint, so in that case we can safely
+	// assume the statement to be invalid.
+	if startQueryIndex > -1 && startQueryIndex < len(sql) {
 		endStatementHintIndex := strings.LastIndex(sql[:startQueryIndex], "}")
-		if startStatementHintIndex == -1 || startStatementHintIndex > endStatementHintIndex {
+		if startStatementHintIndex == -1 || startStatementHintIndex > endStatementHintIndex || endStatementHintIndex >= len(sql)-1 {
 			// Looks like an invalid statement hint. Just ignore at this point
 			// and let the caller handle the invalid query.
 			return sql
@@ -310,7 +315,7 @@ func isDDL(query string) (bool, error) {
 	// have already removed all leading spaces, and there are no keywords that
 	// start with the same substring as one of the DDL keywords.
 	for ddl := range ddlStatements {
-		if strings.EqualFold(query[:len(ddl)], ddl) {
+		if len(query) >= len(ddl) && strings.EqualFold(query[:len(ddl)], ddl) {
 			return true, nil
 		}
 	}
