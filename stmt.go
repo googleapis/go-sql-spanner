@@ -69,9 +69,6 @@ func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, 
 	if err != nil {
 		return spanner.Statement{}, err
 	}
-	//if !hasNamedParams && len(names) != len(args) {
-	//	return spanner.Statement{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "got %v argument values, but found %v parameters in the sql string", len(args), len(names)))
-	//}
 	ss := spanner.NewStatement(q)
 	for i, v := range args {
 		name := args[i].Name
