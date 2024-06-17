@@ -21,7 +21,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Run integration tests on emulator
-        run: go test
+        run: go test -race
         env:
           JOB_TYPE: test
           SPANNER_EMULATOR_HOST: localhost:9010

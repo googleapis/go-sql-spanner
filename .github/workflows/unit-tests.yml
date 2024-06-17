@@ -19,4 +19,4 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Run unit tests
-        run: go test -short
+        run: go test -race -short
