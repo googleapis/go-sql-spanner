@@ -84,7 +84,9 @@ func startEmulator() error {
 	defer func() { _ = reader.Close() }()
 	// cli.ImagePull is asynchronous.
 	// The reader needs to be read completely for the pull operation to complete.
-	io.Copy(io.Discard, reader)
+	if _, err := io.Copy(io.Discard, reader); err != nil {
+		return err
+	}
 
 	// Create and start a container with the emulator.
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
