@@ -1,6 +1,7 @@
 package examples
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -23,13 +24,11 @@ func TestRunSamples(t *testing.T) {
 				}
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				cmd := exec.CommandContext(ctx, "go", "run", "main.go")
-				if err := cmd.Start(); err != nil {
+				var stderr bytes.Buffer
+				cmd.Stderr = &stderr
+				if err := cmd.Run(); err != nil {
 					cancel()
-					t.Fatalf("failed to start sample %v: %v", item.Name(), err)
-				}
-				if err := cmd.Wait(); err != nil {
-					cancel()
-					t.Fatalf("failed to wait for sample %v: %v (%v)", item.Name(), err, cmd.Err)
+					t.Fatalf("failed to run sample %v: %v", item.Name(), stderr.String())
 				}
 				cancel()
 				if err = os.Chdir("./.."); err != nil {
