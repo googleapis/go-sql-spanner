@@ -387,6 +387,144 @@ func TestQueryContext(t *testing.T) {
 	}
 }
 
+func TestTypeRoundtrip(t *testing.T) {
+	skipIfShort(t)
+	t.Parallel()
+
+	// This test checks that all types in checkIsValidType can be used as a query argument and scanned as a result.
+	//
+	// The commented out types are currently not working correctly.
+	//
+	// The tests that use "scan" could be improved to allow scanning into the same type,
+	// that it was converted to.
+
+	ctx := context.Background()
+	dsn, cleanup, err := createTestDB(ctx)
+	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+
+	// Open db.
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	now := time.Now().UTC() // spanner doesn't preserve timezone
+
+	tests := []struct {
+		in     any
+		scan   any // can be nil, if `in` matches output type.
+		skipeq bool
+	}{
+		{in: sql.NullInt64{Valid: true, Int64: 197}},
+		{in: sql.NullTime{Valid: true, Time: now}},
+		{in: sql.NullString{Valid: true, String: "hello"}},
+		{in: sql.NullFloat64{Valid: true, Float64: 3.14}},
+		{in: sql.NullBool{Valid: true, Bool: true}},
+		// {in: sql.NullInt32{Valid: true, Int32: 197}},
+		// string variants
+		{in: "hello"},
+		{in: spanner.NullString{Valid: true, StringVal: "hello"}},
+		{in: []string{"hello"}, scan: pointerTo([]spanner.NullString{})},
+		{in: []spanner.NullString{{Valid: true, StringVal: "hello"}}},
+		// *string variants
+		{in: pointerTo("hello")},
+		{in: []*string{pointerTo("hello")}, scan: pointerTo([]spanner.NullString{})},
+		// []byte variants
+		{in: []byte{1, 2, 3}},
+		{in: [][]byte{[]byte{1, 2, 3}}},
+		// uint, *uint variants
+		{in: uint(197)},
+		{in: []uint{197}, scan: pointerTo([]spanner.NullInt64{})},
+		{in: pointerTo(uint(197))},
+		{in: []*uint{pointerTo(uint(197))}, scan: pointerTo([]spanner.NullInt64{})},
+		// int, *int variants
+		{in: int(197)},
+		{in: []int{197}, scan: pointerTo([]spanner.NullInt64{})},
+		{in: pointerTo(int(197))},
+		{in: []*int{pointerTo(197)}, scan: pointerTo([]spanner.NullInt64{})},
+		// int64, *int64 variants
+		{in: int64(197)},
+		{in: []int64{}, scan: pointerTo([]spanner.NullInt64{})},
+		{in: spanner.NullInt64{Valid: true, Int64: 197}},
+		{in: []spanner.NullInt64{{Valid: true, Int64: 197}}},
+		{in: pointerTo(int64(197))},
+		{in: []*int64{pointerTo(int64(197))}, scan: pointerTo([]spanner.NullInt64{})},
+		// bool variants
+		{in: true},
+		{in: []bool{true}, scan: pointerTo([]spanner.NullBool{})},
+		{in: spanner.NullBool{Valid: true, Bool: true}},
+		{in: []spanner.NullBool{{Valid: true, Bool: true}}, scan: pointerTo([]spanner.NullBool{})},
+		{in: pointerTo(true)},
+		{in: []*bool{pointerTo(true)}, scan: pointerTo([]spanner.NullBool{})},
+		// float32 variants
+		{in: float32(3.14)},
+		{in: []float32{3.14}, scan: pointerTo([]spanner.NullFloat32{})},
+		{in: spanner.NullFloat32{Valid: true, Float32: 3.14}},
+		{in: []spanner.NullFloat32{{Valid: true, Float32: 3.14}}},
+		{in: pointerTo(float32(3.14))},
+		{in: []*float32{pointerTo(float32(3.14))}, scan: pointerTo([]spanner.NullFloat32{})},
+		// float64 variants
+		{in: float64(3.14)},
+		{in: []float64{3.14}, scan: pointerTo([]spanner.NullFloat64{})},
+		{in: spanner.NullFloat64{Valid: true, Float64: 3.14}},
+		{in: []spanner.NullFloat64{{Valid: true, Float64: 3.14}}},
+		{in: pointerTo(float64(3.14))},
+		{in: []*float64{pointerTo(float64(3.14))}, scan: pointerTo([]spanner.NullFloat64{})},
+		// Numeric, big.Rat variants
+		{in: *big.NewRat(19, 17), skipeq: true},
+		{in: []big.Rat{*big.NewRat(19, 17)}, scan: pointerTo([]spanner.NullNumeric{})},
+		{in: big.NewRat(19, 17), skipeq: true},
+		{in: []*big.Rat{big.NewRat(19, 17)}, scan: pointerTo([]spanner.NullNumeric{})},
+		{in: spanner.NullNumeric{Valid: true, Numeric: *big.NewRat(19, 100)}},
+		{in: []spanner.NullNumeric{{Valid: true, Numeric: *big.NewRat(19, 100)}}},
+		// time.Time variants
+		{in: now},
+		{in: []time.Time{now}, scan: pointerTo([]spanner.NullTime{})},
+		{in: spanner.NullTime{Valid: true, Time: now}},
+		{in: []spanner.NullTime{{Valid: true, Time: now}}},
+		{in: pointerTo(now)},
+		{in: []*time.Time{pointerTo(now)}, scan: pointerTo([]spanner.NullTime{})},
+		// civil.Date variants
+		{in: civil.DateOf(now)},
+		{in: []civil.Date{civil.DateOf(now)}, scan: pointerTo([]spanner.NullDate{})},
+		{in: spanner.NullDate{Valid: true, Date: civil.DateOf(now)}},
+		{in: []spanner.NullDate{{Valid: true, Date: civil.DateOf(now)}}},
+		{in: pointerTo(civil.DateOf(now))},
+		{in: []*civil.Date{pointerTo(civil.DateOf(now))}, scan: pointerTo([]spanner.NullDate{})},
+		// JSON variants
+		{in: spanner.NullJSON{Valid: true, Value: map[string]any{"a": 13}}, skipeq: true},
+		{in: []spanner.NullJSON{{Valid: true, Value: map[string]any{"a": 13}}}, skipeq: true},
+	}
+
+	for _, test := range tests {
+		t.Run(fmt.Sprintf("%T", test.in), func(t *testing.T) {
+			out := test.scan
+			if out == nil {
+				inType := reflect.TypeOf(test.in)
+				out = reflect.New(inType).Interface()
+			}
+
+			err := db.QueryRow("SELECT @in", test.in).Scan(out)
+			if err != nil {
+				t.Fatalf("failed to query and scan: %v", err)
+			}
+
+			if test.scan == nil && !test.skipeq {
+				// if the scanned type and input type are the same
+				// then we can easily check the result.
+				outelem := reflect.ValueOf(out).Elem().Interface()
+				if !reflect.DeepEqual(test.in, outelem) {
+					t.Fatalf("wrong result:\ngot  %#v\nwant %#v", outelem, test.in)
+				}
+			}
+		})
+	}
+}
+
 func TestExecContextDml(t *testing.T) {
 	skipIfShort(t)
 	t.Parallel()
