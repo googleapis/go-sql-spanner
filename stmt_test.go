@@ -22,6 +22,7 @@ import (
 
 func TestConvertParam(t *testing.T) {
 	check := func(in, want driver.Value) {
+		t.Helper()
 		got := convertParam(in)
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("in:%#v want:%#v got:%#v", in, want, got)
@@ -29,16 +30,20 @@ func TestConvertParam(t *testing.T) {
 	}
 
 	check(uint(197), int64(197))
-	check(pointerTo[uint](197), pointerTo[int64](197))
+	check(pointerTo(uint(197)), pointerTo(int64(197)))
 	check((*uint)(nil), (*int64)(nil))
 
 	check([]uint{197}, []int64{197})
-	check(pointerTo[[]uint]([]uint{197}), pointerTo[[]int64]([]int64{197}))
-	check((*[]uint)(nil), (*[]int64)(nil))
+	check(pointerTo([]uint{197}), []int64{197})
+	check([]*uint{pointerTo(uint(197))}, []*int64{pointerTo(int64(197))})
+	check(([]*uint)(nil), ([]*int64)(nil))
+	check((*[]uint)(nil), ([]int64)(nil))
 
 	check([]int{197}, []int64{197})
-	check(pointerTo[[]int]([]int{197}), pointerTo[[]int64]([]int64{197}))
-	check((*[]int)(nil), (*[]int64)(nil))
+	check([]*int{pointerTo(int(197))}, []*int64{pointerTo(int64(197))})
+	check(pointerTo([]int{197}), []int64{197})
+	check(([]*int)(nil), ([]*int64)(nil))
+	check((*[]int)(nil), ([]int64)(nil))
 }
 
 func pointerTo[T any](v T) *T { return &v }

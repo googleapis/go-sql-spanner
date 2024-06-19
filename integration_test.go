@@ -435,17 +435,19 @@ func TestTypeRoundtrip(t *testing.T) {
 		{in: []*string{pointerTo("hello")}, scan: pointerTo([]spanner.NullString{})},
 		// []byte variants
 		{in: []byte{1, 2, 3}},
-		{in: [][]byte{[]byte{1, 2, 3}}},
+		{in: [][]byte{{1, 2, 3}}},
 		// uint, *uint variants
 		{in: uint(197)},
 		{in: []uint{197}, scan: pointerTo([]spanner.NullInt64{})},
 		{in: pointerTo(uint(197))},
 		{in: []*uint{pointerTo(uint(197))}, scan: pointerTo([]spanner.NullInt64{})},
+		{in: pointerTo([]uint{197}), scan: pointerTo([]spanner.NullInt64{})},
 		// int, *int variants
 		{in: int(197)},
 		{in: []int{197}, scan: pointerTo([]spanner.NullInt64{})},
 		{in: pointerTo(int(197))},
 		{in: []*int{pointerTo(197)}, scan: pointerTo([]spanner.NullInt64{})},
+		{in: pointerTo([]int{197}), scan: pointerTo([]spanner.NullInt64{})},
 		// int64, *int64 variants
 		{in: int64(197)},
 		{in: []int64{}, scan: pointerTo([]spanner.NullInt64{})},
