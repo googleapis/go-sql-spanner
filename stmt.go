@@ -95,6 +95,9 @@ func convertParam(v driver.Value) driver.Value {
 	case int:
 		return int64(v)
 	case []int:
+		if v == nil {
+			return []int64(nil)
+		}
 		res := make([]int64, len(v))
 		for i, val := range v {
 			res[i] = int64(val)
@@ -103,6 +106,9 @@ func convertParam(v driver.Value) driver.Value {
 	case uint:
 		return int64(v)
 	case []uint:
+		if v == nil {
+			return []int64(nil)
+		}
 		res := make([]int64, len(v))
 		for i, val := range v {
 			res[i] = int64(val)
@@ -114,30 +120,58 @@ func convertParam(v driver.Value) driver.Value {
 		}
 		vi := int64(*v)
 		return &vi
+	case []*int:
+		if v == nil {
+			return []*int64(nil)
+		}
+		res := make([]*int64, len(v))
+		for i, val := range v {
+			if val == nil {
+				res[i] = nil
+			} else {
+				z := int64(*val)
+				res[i] = &z
+			}
+		}
+		return res
 	case *[]int:
 		if v == nil {
-			return (*[]int64)(nil)
+			return []int64(nil)
 		}
 		res := make([]int64, len(*v))
 		for i, val := range *v {
 			res[i] = int64(val)
 		}
-		return &res
+		return res
 	case *uint:
 		if v == nil {
 			return (*int64)(nil)
 		}
 		vi := int64(*v)
 		return &vi
+	case []*uint:
+		if v == nil {
+			return []*int64(nil)
+		}
+		res := make([]*int64, len(v))
+		for i, val := range v {
+			if val == nil {
+				res[i] = nil
+			} else {
+				z := int64(*val)
+				res[i] = &z
+			}
+		}
+		return res
 	case *[]uint:
 		if v == nil {
-			return (*[]int64)(nil)
+			return []int64(nil)
 		}
 		res := make([]int64, len(*v))
 		for i, val := range *v {
 			res[i] = int64(val)
 		}
-		return &res
+		return res
 	}
 }
 
