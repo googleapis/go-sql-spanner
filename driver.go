@@ -237,7 +237,7 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 	}
 	if strval, ok := connectorConfig.params["numchannels"]; ok {
 		if val, err := strconv.Atoi(strval); err == nil && val > 0 {
-			config.NumChannels = val
+			opts = append(opts, option.WithGRPCConnectionPool(val))
 		}
 	}
 	if strval, ok := connectorConfig.params["rpcpriority"]; ok {

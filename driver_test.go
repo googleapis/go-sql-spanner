@@ -181,7 +181,6 @@ func TestExtractDnsParts(t *testing.T) {
 					WriteSessions:                     0.2,
 					HealthCheckInterval:               spanner.DefaultSessionPoolConfig.HealthCheckInterval,
 					HealthCheckWorkers:                spanner.DefaultSessionPoolConfig.HealthCheckWorkers,
-					MaxBurst:                          spanner.DefaultSessionPoolConfig.MaxBurst,
 					MaxIdle:                           spanner.DefaultSessionPoolConfig.MaxIdle,
 					TrackSessionHandles:               spanner.DefaultSessionPoolConfig.TrackSessionHandles,
 					InactiveTransactionRemovalOptions: spanner.DefaultSessionPoolConfig.InactiveTransactionRemovalOptions,

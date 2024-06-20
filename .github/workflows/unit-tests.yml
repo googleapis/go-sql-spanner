@@ -52,7 +52,6 @@ jobs:
           fi
 
       - name: staticcheck .
-        continue-on-error: true
         uses: dominikh/staticcheck-action@v1.2.0
         with:
           version: "latest"
