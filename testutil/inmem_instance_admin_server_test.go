@@ -70,8 +70,8 @@ func TestInstanceAdminGetInstance(t *testing.T) {
 
 	mockInstanceAdmin.SetResps(append(mockInstanceAdmin.Resps()[:0], expectedResponse))
 
-	var formattedName string = fmt.Sprintf("projects/%s/instances/%s", "[PROJECT]", "[INSTANCE]")
-	var request = &instancepb.GetInstanceRequest{
+	formattedName := fmt.Sprintf("projects/%s/instances/%s", "[PROJECT]", "[INSTANCE]")
+	request := &instancepb.GetInstanceRequest{
 		Name: formattedName,
 	}
 

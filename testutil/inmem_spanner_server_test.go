@@ -361,7 +361,7 @@ func TestSpannerExecuteSqlDml(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var rowCount int64 = response.Stats.GetRowCountExact()
+	rowCount := response.Stats.GetRowCountExact()
 	if rowCount != updateRowCount {
 		t.Fatalf("Update count mismatch\nGot: %d\nWant: %d", rowCount, updateRowCount)
 	}
@@ -480,7 +480,7 @@ func TestSpannerExecuteBatchDml(t *testing.T) {
 	}
 	var totalRowCount int64
 	for _, res := range response.ResultSets {
-		var rowCount int64 = res.Stats.GetRowCountExact()
+		rowCount := res.Stats.GetRowCountExact()
 		if rowCount != updateRowCount {
 			t.Fatalf("Update count mismatch\nGot: %d\nWant: %d", rowCount, updateRowCount)
 		}
