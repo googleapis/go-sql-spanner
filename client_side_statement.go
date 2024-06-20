@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner"
-	sppb "google.golang.org/genproto/googleapis/spanner/v1"
+	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -232,33 +232,33 @@ func matchesToMap(re *regexp.Regexp, s string) map[string]string {
 // one row. This is used for client side statements that return a result set
 // containing a BOOL value.
 func createBooleanIterator(column string, value bool) (*clientSideIterator, error) {
-	return createSingleValueIterator(column, value, sppb.TypeCode_BOOL)
+	return createSingleValueIterator(column, value, spannerpb.TypeCode_BOOL)
 }
 
 // createStringIterator creates a row iterator with a single STRING column with
 // one row. This is used for client side statements that return a result set
 // containing a STRING value.
 func createStringIterator(column string, value string) (*clientSideIterator, error) {
-	return createSingleValueIterator(column, value, sppb.TypeCode_STRING)
+	return createSingleValueIterator(column, value, spannerpb.TypeCode_STRING)
 }
 
 // createTimestampIterator creates a row iterator with a single TIMESTAMP column with
 // one row. This is used for client side statements that return a result set
 // containing a TIMESTAMP value.
 func createTimestampIterator(column string, value *time.Time) (*clientSideIterator, error) {
-	return createSingleValueIterator(column, value, sppb.TypeCode_TIMESTAMP)
+	return createSingleValueIterator(column, value, spannerpb.TypeCode_TIMESTAMP)
 }
 
-func createSingleValueIterator(column string, value interface{}, code sppb.TypeCode) (*clientSideIterator, error) {
+func createSingleValueIterator(column string, value interface{}, code spannerpb.TypeCode) (*clientSideIterator, error) {
 	row, err := spanner.NewRow([]string{column}, []interface{}{value})
 	if err != nil {
 		return nil, err
 	}
 	return &clientSideIterator{
-		metadata: &sppb.ResultSetMetadata{
-			RowType: &sppb.StructType{
-				Fields: []*sppb.StructType_Field{
-					{Name: column, Type: &sppb.Type{Code: code}},
+		metadata: &spannerpb.ResultSetMetadata{
+			RowType: &spannerpb.StructType{
+				Fields: []*spannerpb.StructType_Field{
+					{Name: column, Type: &spannerpb.Type{Code: code}},
 				},
 			},
 		},
@@ -270,7 +270,7 @@ func createSingleValueIterator(column string, value interface{}, code sppb.TypeC
 // statements. All values are created and kept in memory, and this struct
 // should only be used for small result sets.
 type clientSideIterator struct {
-	metadata *sppb.ResultSetMetadata
+	metadata *spannerpb.ResultSetMetadata
 	rows     []*spanner.Row
 	index    int
 	stopped  bool
@@ -291,6 +291,6 @@ func (t *clientSideIterator) Stop() {
 	t.metadata = nil
 }
 
-func (t *clientSideIterator) Metadata() *sppb.ResultSetMetadata {
+func (t *clientSideIterator) Metadata() *spannerpb.ResultSetMetadata {
 	return t.metadata
 }
