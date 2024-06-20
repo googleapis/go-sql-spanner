@@ -61,7 +61,6 @@ jobs:
           working-directory: "."
 
       - name: staticcheck ./examples
-        continue-on-error: true
         uses: dominikh/staticcheck-action@v1.2.0
         with:
           version: "latest"
@@ -70,7 +69,6 @@ jobs:
           working-directory: "./examples"
 
       - name: staticcheck ./benchmarks
-        continue-on-error: true
         uses: dominikh/staticcheck-action@v1.2.0
         with:
           version: "latest"
