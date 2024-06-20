@@ -27,7 +27,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.22.x
+          go-version: 1.23.x
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -52,7 +52,7 @@ jobs:
           fi
 
       - name: staticcheck .
-        uses: dominikh/staticcheck-action@v1.2.0
+        uses: dominikh/staticcheck-action@v1.3.1
         with:
           version: "latest"
           install-go: false
@@ -60,7 +60,7 @@ jobs:
           working-directory: "."
 
       - name: staticcheck ./examples
-        uses: dominikh/staticcheck-action@v1.2.0
+        uses: dominikh/staticcheck-action@v1.3.1
         with:
           version: "latest"
           install-go: false
