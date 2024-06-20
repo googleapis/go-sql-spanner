@@ -119,7 +119,7 @@ func (s *server) Update(ctx context.Context, req *pb.UpdateQuery) (*pb.EmptyResp
 	for _, q := range req.Queries {
 		_, err = tx.ExecContext(ctx, q)
 		if err != nil {
-			log.Fatalf("failed to execute query: v", err)
+			log.Fatalf("failed to execute query: %v", err)
 		}
 	}
 	// Run the active DML batch.
