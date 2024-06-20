@@ -20,6 +20,7 @@ jobs:
         uses: actions/checkout@v4
       - name: Run unit tests
         run: go test -race -short
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -29,14 +30,18 @@ jobs:
           go-version: 1.22.x
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: vet
+
+      - name: vet .
         run: go vet ./...
+
       - name: vet ./examples
         working-directory: ./examples
         run: go vet ./...
+
       - name: vet ./benchmarks
         working-directory: ./benchmarks
         run: go vet ./...
+
       - name: gofmt
         run: |
           OUT=$(gofmt -s -d .)
@@ -45,3 +50,20 @@ jobs:
             echo "Code unformatted, please run 'gofmt -w -s .'"
             exit 1
           fi
+
+      - name: staticcheck .
+        continue-on-error: true
+        uses: dominikh/staticcheck-action@v1.2.0
+        with:
+          version: "latest"
+          install-go: false
+          checks: "all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-U1000"
+          working-directory: "."
+
+      - name: staticcheck ./examples
+        uses: dominikh/staticcheck-action@v1.2.0
+        with:
+          version: "latest"
+          install-go: false
+          checks: "all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-U1000"
+          working-directory: "./examples"

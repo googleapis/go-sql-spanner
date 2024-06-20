@@ -30,7 +30,7 @@ func helloWorld(projectId, instanceId, databaseId string) error {
 	ctx := context.Background()
 	db, err := sql.Open("spanner", fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId))
 	if err != nil {
-		return fmt.Errorf("failed to open database connection: %v\n", err)
+		return fmt.Errorf("failed to open database connection: %v", err)
 	}
 	defer db.Close()
 
