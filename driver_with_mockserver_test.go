@@ -1918,7 +1918,11 @@ func TestCommitTimestamp(t *testing.T) {
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
@@ -1953,7 +1957,11 @@ func TestCommitTimestampAutocommit(t *testing.T) {
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
@@ -1984,7 +1992,11 @@ func TestCommitTimestampFailsAfterRollback(t *testing.T) {
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
@@ -2013,7 +2025,11 @@ func TestCommitTimestampFailsAfterAutocommitQuery(t *testing.T) {
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
@@ -2040,7 +2056,11 @@ func TestShowVariableCommitTimestamp(t *testing.T) {
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
@@ -2268,7 +2288,11 @@ func TestExcludeTxnFromChangeStreams_AutoCommitUpdate(t *testing.T) {
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
@@ -2312,7 +2336,11 @@ func TestExcludeTxnFromChangeStreams_AutoCommitBatchDml(t *testing.T) {
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
@@ -2347,7 +2375,11 @@ func TestExcludeTxnFromChangeStreams_PartitionedDml(t *testing.T) {
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
@@ -2374,7 +2406,11 @@ func TestExcludeTxnFromChangeStreams_Transaction(t *testing.T) {
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
