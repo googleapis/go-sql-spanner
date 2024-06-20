@@ -1502,6 +1502,9 @@ func TestDdlBatch(t *testing.T) {
 
 	statements := []string{"CREATE TABLE FOO", "CREATE TABLE BAR"}
 	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer conn.Close()
 
 	if _, err = conn.ExecContext(ctx, "START BATCH DDL"); err != nil {
@@ -1543,6 +1546,9 @@ func TestAbortDdlBatch(t *testing.T) {
 
 	statements := []string{"CREATE TABLE FOO", "CREATE TABLE BAR"}
 	c, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer c.Close()
 
 	if _, err = c.ExecContext(ctx, "START BATCH DDL"); err != nil {
