@@ -181,6 +181,7 @@ func TestExtractDnsParts(t *testing.T) {
 					WriteSessions:                     0.2,
 					HealthCheckInterval:               spanner.DefaultSessionPoolConfig.HealthCheckInterval,
 					HealthCheckWorkers:                spanner.DefaultSessionPoolConfig.HealthCheckWorkers,
+					MaxBurst:                          spanner.DefaultSessionPoolConfig.MaxBurst, //lint:ignore SA1019 because it's a spanner default.
 					MaxIdle:                           spanner.DefaultSessionPoolConfig.MaxIdle,
 					TrackSessionHandles:               spanner.DefaultSessionPoolConfig.TrackSessionHandles,
 					InactiveTransactionRemovalOptions: spanner.DefaultSessionPoolConfig.InactiveTransactionRemovalOptions,
