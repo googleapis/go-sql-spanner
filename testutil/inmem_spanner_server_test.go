@@ -70,7 +70,7 @@ func TestMain(m *testing.M) {
 	go serv.Serve(lis)
 
 	serverAddress = lis.Addr().String()
-	conn, err := grpc.Dial(serverAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(serverAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatal(err)
 	}
