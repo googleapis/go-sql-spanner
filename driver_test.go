@@ -183,7 +183,6 @@ func TestExtractDnsParts(t *testing.T) {
 					TrackSessionHandles:               spanner.DefaultSessionPoolConfig.TrackSessionHandles,
 					InactiveTransactionRemovalOptions: spanner.DefaultSessionPoolConfig.InactiveTransactionRemovalOptions,
 				},
-				NumChannels:          10,
 				UserAgent:            userAgent,
 				DisableRouteToLeader: true,
 				QueryOptions:         spanner.QueryOptions{Priority: spannerpb.RequestOptions_PRIORITY_MEDIUM, Options: &spannerpb.ExecuteSqlRequest_QueryOptions{OptimizerVersion: "1", OptimizerStatisticsPackage: "latest"}},
@@ -210,15 +209,15 @@ func TestExtractDnsParts(t *testing.T) {
 				if tc.wantErr {
 					t.Error("did not encounter expected error")
 				}
-				if !cmp.Equal(config, tc.wantConnectorConfig, cmp.AllowUnexported(connectorConfig{})) {
-					t.Errorf("connector config mismatch for %q\ngot: %v\nwant %v", tc.input, config, tc.wantConnectorConfig)
+				if diff := cmp.Diff(config, tc.wantConnectorConfig, cmp.AllowUnexported(connectorConfig{})); diff != "" {
+					t.Errorf("connector config mismatch for %q\n%v", tc.input, diff)
 				}
 				conn, err := newConnector(&Driver{connectors: make(map[string]*connector)}, tc.input)
 				if err != nil {
 					t.Errorf("failed to get connector for %q: %v", tc.input, err)
 				}
-				if !cmp.Equal(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{}, spanner.InactiveTransactionRemovalOptions{}, spannerpb.ExecuteSqlRequest_QueryOptions{})) {
-					t.Errorf("connector Spanner client config mismatch for %q\n Got: %v\nWant: %v", tc.input, conn.spannerClientConfig, tc.wantSpannerConfig)
+				if diff := cmp.Diff(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{}, spanner.InactiveTransactionRemovalOptions{}, spannerpb.ExecuteSqlRequest_QueryOptions{})); diff != "" {
+					t.Errorf("connector Spanner client config mismatch for %q\n%v", tc.input, diff)
 				}
 			}
 		})
