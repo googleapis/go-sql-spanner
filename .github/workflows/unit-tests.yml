@@ -56,7 +56,7 @@ jobs:
         with:
           version: "latest"
           install-go: false
-          checks: "all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-U1000"
+          checks: "inherit,-U1000"
           working-directory: "."
 
       - name: staticcheck ./examples
@@ -64,5 +64,5 @@ jobs:
         with:
           version: "latest"
           install-go: false
-          checks: "all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-U1000"
+          checks: "inherit,-U1000"
           working-directory: "./examples"
