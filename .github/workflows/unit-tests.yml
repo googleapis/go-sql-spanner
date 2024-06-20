@@ -37,3 +37,11 @@ jobs:
       - name: vet ./benchmarks
         working-directory: ./benchmarks
         run: go vet ./...
+      - name: gofmt
+        run: |
+          OUT=$(gofmt -s -d .)
+          if [ -n "$OUT" ]; then
+            echo -e "$OUT"
+            echo "Code unformatted, please run 'gofmt -w -s .'"
+            exit 1
+          fi
