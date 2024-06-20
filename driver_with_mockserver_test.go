@@ -2225,7 +2225,8 @@ func TestStressClientReuse(t *testing.T) {
 	_, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
-	rand.Seed(time.Now().UnixNano())
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+
 	numSessions := 10
 	numClients := 5
 	numParallel := 50
@@ -2241,6 +2242,8 @@ func TestStressClientReuse(t *testing.T) {
 		}
 		// Execute random operations in parallel on the database.
 		for i := 0; i < numParallel; i++ {
+			doUpdate := rng.Int()%2 == 0
+
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -2248,7 +2251,7 @@ func TestStressClientReuse(t *testing.T) {
 				if err != nil {
 					t.Errorf("failed to get a connection: %v", err)
 				}
-				if rand.Int()%2 == 0 {
+				if doUpdate {
 					if _, err := conn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
 						t.Errorf("failed to execute update on connection: %v", err)
 					}
