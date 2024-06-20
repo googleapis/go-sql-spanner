@@ -29,9 +29,9 @@ import (
 // It is therefore recommended that DDL statements are always executed in batches whenever possible.
 //
 // DDL batches can be executed in two ways using the Spanner go sql driver:
-// 1. By executing the SQL statements `START BATCH DDL` and `RUN BATCH`.
-// 2. By unwrapping the Spanner specific driver interface spannerdriver.Driver and calling the
-//    spannerdriver.Driver#StartBatchDDL and spannerdriver.Driver#RunBatch methods.
+//  1. By executing the SQL statements `START BATCH DDL` and `RUN BATCH`.
+//  2. By unwrapping the Spanner specific driver interface spannerdriver.Driver and calling the
+//     spannerdriver.Driver#StartBatchDDL and spannerdriver.Driver#RunBatch methods.
 //
 // This sample shows how to use both possibilities.
 //
