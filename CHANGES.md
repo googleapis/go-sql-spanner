@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.5.0](https://github.com/googleapis/go-sql-spanner/compare/v1.4.0...v1.5.0) (2024-07-01)
+
+
+### Features
+
+* Add -race to testing ([#263](https://github.com/googleapis/go-sql-spanner/issues/263)) ([3af784b](https://github.com/googleapis/go-sql-spanner/commit/3af784b0a786c7079f14a63cbef5da4ad7ad3138))
+* Add fuzzing for statement parser ([#250](https://github.com/googleapis/go-sql-spanner/issues/250)) ([2e74813](https://github.com/googleapis/go-sql-spanner/commit/2e7481307b02ec2deb98599e22362ee727d0fc1b))
+* Add int support ([#260](https://github.com/googleapis/go-sql-spanner/issues/260)) ([ec15462](https://github.com/googleapis/go-sql-spanner/commit/ec1546238603f409a0aba6627459365c46a92c2b)), refs [#257](https://github.com/googleapis/go-sql-spanner/issues/257)
+* **examples/data-types:** Add float32 ([#261](https://github.com/googleapis/go-sql-spanner/issues/261)) ([4d6d1ef](https://github.com/googleapis/go-sql-spanner/commit/4d6d1ef0856cd6b964675cb64a3f4c7335e010dc))
+
+
+### Bug Fixes
+
+* []*int and []*uint ([#267](https://github.com/googleapis/go-sql-spanner/issues/267)) ([d24b55a](https://github.com/googleapis/go-sql-spanner/commit/d24b55ade2c4c4f5ce01d1f3fcbec41e6ad0d50c))
+* **examples:** Make compilable and add a test runner for the samples ([#256](https://github.com/googleapis/go-sql-spanner/issues/256)) ([b9c0b4d](https://github.com/googleapis/go-sql-spanner/commit/b9c0b4d5e5fbfdb3bb358d9a54f66029855a0b2f))
+* Prevent potential panic in RemoveStatementHint ([#253](https://github.com/googleapis/go-sql-spanner/issues/253)) ([7d7155b](https://github.com/googleapis/go-sql-spanner/commit/7d7155b2bbc430ed88420d8bf92abbb59638adb4)), refs [#251](https://github.com/googleapis/go-sql-spanner/issues/251)
+
 ## [1.4.0](https://github.com/googleapis/go-sql-spanner/compare/v1.3.1...v1.4.0) (2024-05-30)
 
 
