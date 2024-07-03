@@ -455,6 +455,11 @@ func TestTypeRoundtrip(t *testing.T) {
 		{in: []spanner.NullInt64{{Valid: true, Int64: 197}}},
 		{in: pointerTo(int64(197))},
 		{in: []*int64{pointerTo(int64(197))}, scan: pointerTo([]spanner.NullInt64{})},
+		// uint64, *uint64 variants
+		{in: uint64(197)},
+		{in: []uint64{}, scan: pointerTo([]spanner.NullInt64{})},
+		{in: pointerTo(uint64(197))},
+		{in: []*uint64{pointerTo(uint64(197))}, scan: pointerTo([]spanner.NullInt64{})},
 		// bool variants
 		{in: true},
 		{in: []bool{true}, scan: pointerTo([]spanner.NullBool{})},

@@ -780,6 +780,10 @@ func checkIsValidType(v driver.Value) bool {
 	case []spanner.NullInt64:
 	case *int64:
 	case []*int64:
+	case uint64:
+	case []uint64:
+	case *uint64:
+	case []*uint64:
 	case bool:
 	case []bool:
 	case spanner.NullBool:
