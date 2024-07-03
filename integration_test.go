@@ -1854,55 +1854,57 @@ func TestAllTypes(t *testing.T) {
                                                @timestamp, @json, @boolArray, @stringArray, @bytesArray, @int64Array,
                                                @float64Array, @numericArray, @dateArray, @timestampArray, @jsonArray)`)
 	for _, test := range tests {
-		if runsOnEmulator() && test.skipOnEmulator {
-			t.Logf("skipping test %q on emulator", test.name)
-			continue
-		}
-		res, err := stmt.ExecContext(ctx, test.input...)
-		if err != nil {
-			t.Fatalf("%s: insert failed: %v", test.name, err)
-		}
-		affected, err := res.RowsAffected()
-		if err != nil {
-			t.Fatalf("could not get rows affected: %v", err)
-		}
-		if g, w := affected, int64(1); g != w {
-			t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", g, w)
-		}
-		// Read the row back.
-		row := db.QueryRowContext(ctx, "SELECT * FROM TestAllTypes WHERE key=@key", test.key)
-		var allTypesRow AllTypesRow
-		err = row.Scan(
-			&allTypesRow.key, &allTypesRow.boolCol, &allTypesRow.stringCol, &allTypesRow.bytesCol, &allTypesRow.int64Col,
-			&allTypesRow.float64Col, &allTypesRow.numericCol, &allTypesRow.dateCol, &allTypesRow.timestampCol, &allTypesRow.jsonCol,
-			&allTypesRow.boolArrayCol, &allTypesRow.stringArrayCol, &allTypesRow.bytesArrayCol, &allTypesRow.int64ArrayCol,
-			&allTypesRow.float64ArrayCol, &allTypesRow.numericArrayCol, &allTypesRow.dateArrayCol, &allTypesRow.timestampArrayCol,
-			&allTypesRow.jsonArrayCol,
-		)
-		if err != nil {
-			t.Fatalf("could not query row: %v", err)
-		}
-		if !cmp.Equal(allTypesRow, test.want, cmp.AllowUnexported(AllTypesRow{}, big.Rat{}, big.Int{}), cmp.FilterValues(func(v1, v2 interface{}) bool {
-			if !runsOnEmulator() {
+		t.Run(test.name, func(t *testing.T) {
+			if test.skipOnEmulator && runsOnEmulator() {
+				t.Skip("skipping on emulator")
+			}
+
+			res, err := stmt.ExecContext(ctx, test.input...)
+			if err != nil {
+				t.Fatalf("insert failed: %v", err)
+			}
+			affected, err := res.RowsAffected()
+			if err != nil {
+				t.Fatalf("could not get rows affected: %v", err)
+			}
+			if g, w := affected, int64(1); g != w {
+				t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", g, w)
+			}
+			// Read the row back.
+			row := db.QueryRowContext(ctx, "SELECT * FROM TestAllTypes WHERE key=@key", test.key)
+			var allTypesRow AllTypesRow
+			err = row.Scan(
+				&allTypesRow.key, &allTypesRow.boolCol, &allTypesRow.stringCol, &allTypesRow.bytesCol, &allTypesRow.int64Col,
+				&allTypesRow.float64Col, &allTypesRow.numericCol, &allTypesRow.dateCol, &allTypesRow.timestampCol, &allTypesRow.jsonCol,
+				&allTypesRow.boolArrayCol, &allTypesRow.stringArrayCol, &allTypesRow.bytesArrayCol, &allTypesRow.int64ArrayCol,
+				&allTypesRow.float64ArrayCol, &allTypesRow.numericArrayCol, &allTypesRow.dateArrayCol, &allTypesRow.timestampArrayCol,
+				&allTypesRow.jsonArrayCol,
+			)
+			if err != nil {
+				t.Fatalf("could not query row: %v", err)
+			}
+			if !cmp.Equal(allTypesRow, test.want, cmp.AllowUnexported(AllTypesRow{}, big.Rat{}, big.Int{}), cmp.FilterValues(func(v1, v2 interface{}) bool {
+				if !runsOnEmulator() {
+					return false
+				}
+				// TODO: Remove the following exceptions once the emulator supports JSON.
+				if reflect.TypeOf(v1) == reflect.TypeOf("") && reflect.TypeOf(v2) == reflect.TypeOf(spanner.NullString{}) {
+					return true
+				}
+				if reflect.TypeOf(v2) == reflect.TypeOf("") && reflect.TypeOf(v1) == reflect.TypeOf(spanner.NullString{}) {
+					return true
+				}
+				if reflect.TypeOf(v1) == reflect.TypeOf(nil) && reflect.TypeOf(v2) == reflect.TypeOf(spanner.NullString{}) {
+					return true
+				}
+				if reflect.TypeOf(v2) == reflect.TypeOf(nil) && reflect.TypeOf(v1) == reflect.TypeOf(spanner.NullString{}) {
+					return true
+				}
 				return false
+			}, cmp.Ignore())) {
+				t.Fatalf("row mismatch\nGot:  %v\nWant: %v", allTypesRow, test.want)
 			}
-			// TODO: Remove the following exceptions once the emulator supports JSON.
-			if reflect.TypeOf(v1) == reflect.TypeOf("") && reflect.TypeOf(v2) == reflect.TypeOf(spanner.NullString{}) {
-				return true
-			}
-			if reflect.TypeOf(v2) == reflect.TypeOf("") && reflect.TypeOf(v1) == reflect.TypeOf(spanner.NullString{}) {
-				return true
-			}
-			if reflect.TypeOf(v1) == reflect.TypeOf(nil) && reflect.TypeOf(v2) == reflect.TypeOf(spanner.NullString{}) {
-				return true
-			}
-			if reflect.TypeOf(v2) == reflect.TypeOf(nil) && reflect.TypeOf(v1) == reflect.TypeOf(spanner.NullString{}) {
-				return true
-			}
-			return false
-		}, cmp.Ignore())) {
-			t.Fatalf("row mismatch\nGot:  %v\nWant: %v", allTypesRow, test.want)
-		}
+		})
 	}
 }
 
