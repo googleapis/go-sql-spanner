@@ -10,7 +10,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/go-sql-spanner v1.5.0
 	google.golang.org/api v0.188.0
-	google.golang.org/grpc v1.65.0
+	google.golang.org/grpc v1.64.1
 	google.golang.org/protobuf v1.34.2
 )
 
