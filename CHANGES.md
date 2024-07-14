@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/googleapis/go-sql-spanner/compare/v1.5.0...v1.6.0) (2024-07-14)
+
+
+### Features
+
+* Add uint64 support ([#272](https://github.com/googleapis/go-sql-spanner/issues/272)) ([5ed831a](https://github.com/googleapis/go-sql-spanner/commit/5ed831a5739753e67679ca237372eebc54de5091))
+
 ## [1.5.0](https://github.com/googleapis/go-sql-spanner/compare/v1.4.0...v1.5.0) (2024-07-01)
 
 
