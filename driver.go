@@ -20,6 +20,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"math/big"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -36,6 +37,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 const userAgent = "go-sql-spanner/1.0.2"
@@ -748,6 +751,10 @@ func (c *conn) IsValid() bool {
 func checkIsValidType(v driver.Value) bool {
 	switch v.(type) {
 	default:
+		// google-cloud-go/spanner knows how to deal with these
+		if isStructOrArrayOfStructValue(v) || isAnArrayOfProtoColumn(v) {
+			return true
+		}
 		return false
 	case nil:
 	case sql.NullInt64:
@@ -1052,3 +1059,32 @@ func (c *conn) createPartitionedDmlQueryOptions() spanner.QueryOptions {
 	defer func() { c.excludeTxnFromChangeStreams = false }()
 	return spanner.QueryOptions{ExcludeTxnFromChangeStreams: c.excludeTxnFromChangeStreams}
 }
+
+/* The following is the same implementation as in google-cloud-go/spanner */
+
+func isStructOrArrayOfStructValue(v interface{}) bool {
+	typ := reflect.TypeOf(v)
+	if typ.Kind() == reflect.Slice {
+		typ = typ.Elem()
+	}
+	if typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+	return typ.Kind() == reflect.Struct
+}
+
+func isAnArrayOfProtoColumn(v interface{}) bool {
+	typ := reflect.TypeOf(v)
+	if typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+	if typ.Kind() == reflect.Slice {
+		typ = typ.Elem()
+	}
+	return typ.Implements(protoMsgReflectType) || typ.Implements(protoEnumReflectType)
+}
+
+var (
+	protoMsgReflectType  = reflect.TypeOf((*proto.Message)(nil)).Elem()
+	protoEnumReflectType = reflect.TypeOf((*protoreflect.Enum)(nil)).Elem()
+)
