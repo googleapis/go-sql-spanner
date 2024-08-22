@@ -3,15 +3,15 @@ module github.com/googleapis/go-sql-spanner
 go 1.20
 
 require (
-	cloud.google.com/go v0.115.0
-	cloud.google.com/go/longrunning v0.5.10
-	cloud.google.com/go/spanner v1.64.0
+	cloud.google.com/go v0.115.1
+	cloud.google.com/go/longrunning v0.6.0
+	cloud.google.com/go/spanner v1.67.0
 	github.com/golang/protobuf v1.5.4
 	github.com/google/go-cmp v0.6.0
-	google.golang.org/api v0.188.0
-	google.golang.org/genproto v0.0.0-20240711142825-46eb208f015d
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240711142825-46eb208f015d
-	google.golang.org/grpc v1.64.1
+	google.golang.org/api v0.194.0
+	google.golang.org/genproto fc7c04adadcd
+	google.golang.org/genproto/googleapis/rpc fc7c04adadcd
+	google.golang.org/grpc v1.65.0
 	google.golang.org/protobuf v1.34.2
 )
 
