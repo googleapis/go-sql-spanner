@@ -989,6 +989,170 @@ func TestFindParams_Errors(t *testing.T) {
 	}
 }
 
+func TestSkip(t *testing.T) {
+	tests := []struct {
+		input   string
+		pos     int
+		skipped string
+		invalid bool
+	}{
+		{
+			input:   "",
+			skipped: "",
+		},
+		{
+			input:   "1 ",
+			skipped: "1",
+		},
+		{
+			input:   "12 ",
+			skipped: "1",
+		},
+		{
+			input:   "12 ",
+			pos:     1,
+			skipped: "2",
+		},
+		{
+			input:   "12",
+			pos:     2,
+			skipped: "",
+		},
+		{
+			input:   "'foo'  ",
+			skipped: "'foo'",
+		},
+		{
+			input:   "'foo''bar'  ",
+			skipped: "'foo'",
+		},
+		{
+			input:   "'foo'  'bar'  ",
+			skipped: "'foo'",
+		},
+		{
+			input:   "'foo''bar'  ",
+			pos:     5,
+			skipped: "'bar'",
+		},
+		{
+			input:   `'foo"bar"'  `,
+			skipped: `'foo"bar"'`,
+		},
+		{
+			input:   `"foo'bar'"  `,
+			skipped: `"foo'bar'"`,
+		},
+		{
+			input:   "`foo'bar'`  ",
+			skipped: "`foo'bar'`",
+		},
+		{
+			input:   "'''foo'bar'''  ",
+			skipped: "'''foo'bar'''",
+		},
+		{
+			input:   "'''foo\\'bar'''  ",
+			skipped: "'''foo\\'bar'''",
+		},
+		{
+			input:   "'''foo\\'\\'bar'''  ",
+			skipped: "'''foo\\'\\'bar'''",
+		},
+		{
+			input:   "'''foo\\'\\'\\'bar'''  ",
+			skipped: "'''foo\\'\\'\\'bar'''",
+		},
+		{
+			input:   "```foo`bar```  ",
+			skipped: "```foo`bar```",
+		},
+		{
+			input:   `"""foo"bar"""  `,
+			skipped: `"""foo"bar"""`,
+		},
+		{
+			input:   "-- comment",
+			skipped: "-- comment",
+		},
+		{
+			input:   "-- comment\nselect * from foo",
+			skipped: "-- comment\n",
+		},
+		{
+			input:   "# comment",
+			skipped: "# comment",
+		},
+		{
+			input:   "# comment\nselect * from foo",
+			skipped: "# comment\n",
+		},
+		{
+			input:   "/* comment */",
+			skipped: "/* comment */",
+		},
+		{
+			input:   "/* comment */ select * from foo",
+			skipped: "/* comment */",
+		},
+		{
+			input:   "/* comment /* GoogleSQL does not support nested comments */ select * from foo",
+			skipped: "/* comment /* GoogleSQL does not support nested comments */",
+		},
+		{
+			// GoogleSQL does not support dollar-quoted strings.
+			input:   "$tag$not a string$tag$ select * from foo",
+			skipped: "$",
+		},
+		{
+			input:   "/* 'test' */ foo",
+			skipped: "/* 'test' */",
+		},
+		{
+			input:   "-- 'test' \n foo",
+			skipped: "-- 'test' \n",
+		},
+		{
+			input:   "'/* test */' foo",
+			skipped: "'/* test */'",
+		},
+		{
+			input:   "'foo\\''  ",
+			skipped: "'foo\\''",
+		},
+		{
+			input:   "r'foo\\''  ",
+			pos:     1,
+			skipped: "'foo\\''",
+		},
+		{
+			input:   "'''foo\\'\\'\\'bar'''  ",
+			skipped: "'''foo\\'\\'\\'bar'''",
+		},
+		{
+			input:   "'foo\n'  ",
+			invalid: true,
+		},
+		{
+			input:   "'''foo\n'''  ",
+			skipped: "'''foo\n'''",
+		},
+	}
+	for _, test := range tests {
+		pos, err := skip([]rune(test.input), test.pos)
+		if test.invalid && err == nil {
+			t.Errorf("missing expected error for %s", test.input)
+		} else if !test.invalid && err != nil {
+			t.Errorf("got unexpected error for %s: %v", test.input, err)
+		} else {
+			skipped := test.input[test.pos:pos]
+			if skipped != test.skipped {
+				t.Errorf("skipped mismatch\nGot:  %v\nWant: %v", skipped, test.skipped)
+			}
+		}
+	}
+}
+
 var fuzzQuerySamples = []string{"", "SELECT 1;", "RUN BATCH", "ABORT BATCH", "Show variable Retry_Aborts_Internally", "@{JOIN_METHOD=HASH_JOIN SELECT * FROM PersonsTable"}
 
 func init() {
