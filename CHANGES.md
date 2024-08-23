@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/googleapis/go-sql-spanner/compare/v1.6.0...v1.7.0) (2024-08-23)
+
+
+### Features
+
+* Support structs in queries ([#282](https://github.com/googleapis/go-sql-spanner/issues/282)) ([21f8b75](https://github.com/googleapis/go-sql-spanner/commit/21f8b75ae3fcfd0de3751fc8a6639d9289a35fe0)), refs [#281](https://github.com/googleapis/go-sql-spanner/issues/281)
+
 ## [1.6.0](https://github.com/googleapis/go-sql-spanner/compare/v1.5.0...v1.6.0) (2024-07-14)
 
 
