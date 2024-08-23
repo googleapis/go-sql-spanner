@@ -143,8 +143,9 @@ See also the [examples](/examples) directory for further code samples.
 
 ## Emulator
 
-See the [Google Cloud Spanner Emulator](https://cloud.google.com/spanner/docs/emulator) support to learn how to start the emulator.
-Once the emulator is started and the host environmental flag is set, the driver should just work.
+See [Google Cloud Spanner Emulator](https://cloud.google.com/spanner/docs/emulator) to learn how to start the emulator.
+Once the emulator is started and the host environmental flag is set, the driver will automatically connect to the
+emulator.
 
 ```
 $ gcloud beta emulators spanner start
@@ -153,7 +154,7 @@ $ export SPANNER_EMULATOR_HOST=localhost:9010
 
 ## Spanner PostgreSQL Interface
 
-This driver works specifically with the Spanner GoogleSQL dialect. For the
+This driver only works with the Spanner GoogleSQL dialect. For the
 Spanner PostgreSQL dialect, any PostgreSQL driver that implements the
 [database/sql](https://golang.org/pkg/database/sql/) interface can be used
 in combination with
@@ -176,9 +177,9 @@ error.
 Our libraries are compatible with at least the three most recent, major Go
 releases. They are currently compatible with:
 
+- Go 1.23
 - Go 1.22
 - Go 1.21
-- Go 1.20
 
 ## Authorization
 
