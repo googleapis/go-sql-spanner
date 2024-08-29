@@ -2374,36 +2374,69 @@ func TestExcludeTxnFromChangeStreams_Transaction(t *testing.T) {
 	}
 }
 
-func TestIdleConnections(t *testing.T) {
+func TestMaxIdleConnectionsNonZero(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
-	db, _, teardown := setupTestDBConnection(t)
+	// Set MinSessions=1, so we can use the number of BatchCreateSessions requests as an indication
+	// of the number of clients that was created.
+	db, server, teardown := setupTestDBConnectionWithParams(t, "MinSessions=1")
+	defer teardown()
+
+	db.SetMaxIdleConns(2)
+	for i := 0; i < 2; i++ {
+		openAndCloseConn(t, db)
+	}
+
+	// Verify that only one client was created.
+	// This happens because we have a non-zero value for the number of idle connections.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
+	if g, w := len(batchRequests), 1; g != w {
+		t.Fatalf("BatchCreateSessions requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestMaxIdleConnectionsZero(t *testing.T) {
+	t.Parallel()
+
+	// Set MinSessions=1, so we can use the number of BatchCreateSessions requests as an indication
+	// of the number of clients that was created.
+	db, server, teardown := setupTestDBConnectionWithParams(t, "MinSessions=1")
 	defer teardown()
 
 	db.SetMaxIdleConns(0)
-
 	for i := 0; i < 2; i++ {
-		func() {
-			conn, err := db.Conn(ctx)
-			if err != nil {
-				t.Fatalf("failed to get a connection: %v", err)
-			}
-			defer func() {
-				err = conn.Close()
-				if err != nil {
-					t.Fatalf("failed to close connection: %v", err)
-				}
-			}()
+		openAndCloseConn(t, db)
+	}
 
-			var result int64
-			if err := conn.QueryRowContext(ctx, "SELECT 1").Scan(&result); err != nil {
-				t.Fatalf("failed to select: %v", err)
-			}
-			if result != 1 {
-				t.Fatalf("expected 1 got %v", result)
-			}
-		}()
+	// Verify that two clients were created and closed.
+	// This should happen because we do not keep any idle connections open.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
+	if g, w := len(batchRequests), 2; g != w {
+		t.Fatalf("BatchCreateSessions requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func openAndCloseConn(t *testing.T, db *sql.DB) {
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+	defer func() {
+		err = conn.Close()
+		if err != nil {
+			t.Fatalf("failed to close connection: %v", err)
+		}
+	}()
+
+	var result int64
+	if err := conn.QueryRowContext(ctx, "SELECT 1").Scan(&result); err != nil {
+		t.Fatalf("failed to select: %v", err)
+	}
+	if result != 1 {
+		t.Fatalf("expected 1 got %v", result)
 	}
 }
 
