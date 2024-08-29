@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.7.1](https://github.com/googleapis/go-sql-spanner/compare/v1.7.0...v1.7.1) (2024-08-29)
+
+
+### Bug Fixes
+
+* Driver.Valuer method was being ignored ([#289](https://github.com/googleapis/go-sql-spanner/issues/289)) ([78fb05d](https://github.com/googleapis/go-sql-spanner/commit/78fb05dedbb13e1fce54accc795d49c1d7425f2e)), refs [#281](https://github.com/googleapis/go-sql-spanner/issues/281)
+* Reconnect after all idle connections close ([#290](https://github.com/googleapis/go-sql-spanner/issues/290)) ([b0cdd9d](https://github.com/googleapis/go-sql-spanner/commit/b0cdd9d568b0fa5f55884a5ac701c14f8720dbaa))
+
 ## [1.7.0](https://github.com/googleapis/go-sql-spanner/compare/v1.6.0...v1.7.0) (2024-08-23)
 
 
