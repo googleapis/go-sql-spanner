@@ -748,13 +748,11 @@ func (c *conn) IsValid() bool {
 	return !c.closed
 }
 
+// checkIsValidType returns true for types that do not need extra conversion
+// for spanner.
 func checkIsValidType(v driver.Value) bool {
 	switch v.(type) {
 	default:
-		// google-cloud-go/spanner knows how to deal with these
-		if isStructOrArrayOfStructValue(v) || isAnArrayOfProtoColumn(v) {
-			return true
-		}
 		return false
 	case nil:
 	case sql.NullInt64:
@@ -851,6 +849,12 @@ func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
 			return nil
 		}
 	}
+
+	// google-cloud-go/spanner knows how to deal with these
+	if isStructOrArrayOfStructValue(value.Value) || isAnArrayOfProtoColumn(value.Value) {
+		return nil
+	}
+
 	return spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "unsupported value type: %T", value.Value))
 }
 

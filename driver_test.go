@@ -467,3 +467,52 @@ func TestConn_GetCommitTimestampAfterAutocommitQuery(t *testing.T) {
 		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
+
+func TestConn_CheckNamedValue(t *testing.T) {
+	c := &conn{}
+
+	type Person struct {
+		Name string
+		Age  int64
+	}
+
+	tests := []struct {
+		in   any
+		want any
+	}{
+		// basic types should stay unchanged
+		{in: int64(256), want: int64(256)},
+		// driver.Valuer types should call .Value func
+		{in: &ValuerPerson{Name: "hello", Age: 123}, want: "hello"},
+		// structs should be sent to spanner
+		{in: &Person{Name: "hello", Age: 123}, want: &Person{Name: "hello", Age: 123}},
+	}
+
+	for _, test := range tests {
+		value := &driver.NamedValue{
+			Ordinal: 1,
+			Value:   test.in,
+		}
+
+		err := c.CheckNamedValue(value)
+		if err != nil {
+			t.Errorf("expected no error, got: %v", err)
+			continue
+		}
+
+		if diff := cmp.Diff(test.want, value.Value); diff != "" {
+			t.Errorf("wrong result, got %#v expected %#v:\n%v", value.Value, test.want, diff)
+		}
+	}
+}
+
+// ValuerPerson implements driver.Valuer
+type ValuerPerson struct {
+	Name string
+	Age  int64
+}
+
+// Value implements conversion func for database.
+func (p *ValuerPerson) Value() (driver.Value, error) {
+	return p.Name, nil
+}
