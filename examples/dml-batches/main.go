@@ -31,9 +31,9 @@ var createTableStatement = "CREATE TABLE Singers (SingerId INT64, Name STRING(MA
 // that are needed.
 //
 // DML batches can be executed in two ways using the Spanner go sql driver:
-// 1. By executing the SQL statements `START BATCH DML` and `RUN BATCH`.
-// 2. By unwrapping the Spanner specific driver interface spannerdriver.Driver and calling the
-//    spannerdriver.Driver#StartBatchDML and spannerdriver.Driver#RunBatch methods.
+//  1. By executing the SQL statements `START BATCH DML` and `RUN BATCH`.
+//  2. By unwrapping the Spanner specific driver interface spannerdriver.Driver and calling the
+//     spannerdriver.Driver#StartBatchDML and spannerdriver.Driver#RunBatch methods.
 //
 // This sample shows how to use both possibilities.
 //

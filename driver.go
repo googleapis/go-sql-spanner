@@ -25,7 +25,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"cloud.google.com/go/civil"
@@ -156,6 +155,9 @@ type connector struct {
 	dsn             string
 	connectorConfig connectorConfig
 
+	closerMu sync.RWMutex
+	closed   bool
+
 	// spannerClientConfig represents the optional advanced configuration to be used
 	// by the Google Cloud Spanner client.
 	spannerClientConfig spanner.ClientConfig
@@ -169,7 +171,7 @@ type connector struct {
 	// propagated to the caller. This option is enabled by default.
 	retryAbortsInternally bool
 
-	initClient     sync.Once
+	initClient     sync.Mutex
 	client         *spanner.Client
 	clientErr      error
 	adminClient    *adminapi.DatabaseAdminClient
@@ -264,6 +266,7 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 		}
 	}
 	config.UserAgent = userAgent
+
 	c := &connector{
 		driver:                d,
 		dsn:                   dsn,
@@ -277,6 +280,11 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 }
 
 func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
+	c.closerMu.RLock()
+	defer c.closerMu.RUnlock()
+	if c.closed {
+		return nil, fmt.Errorf("connector has been closed")
+	}
 	return openDriverConn(ctx, c)
 }
 
@@ -288,17 +296,10 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		c.connectorConfig.instance,
 		c.connectorConfig.database)
 
-	c.initClient.Do(func() {
-		c.client, c.clientErr = spanner.NewClientWithConfig(ctx, databaseName, c.spannerClientConfig, opts...)
-		c.adminClient, c.adminClientErr = adminapi.NewDatabaseAdminClient(ctx, opts...)
-	})
-	if c.clientErr != nil {
-		return nil, c.clientErr
+	if err := c.increaseConnCount(ctx, databaseName, opts); err != nil {
+		return nil, err
 	}
-	if c.adminClientErr != nil {
-		return nil, c.adminClientErr
-	}
-	atomic.AddInt32(&c.connCount, 1)
+
 	return &conn{
 		connector:                  c,
 		client:                     c.client,
@@ -311,8 +312,78 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 	}, nil
 }
 
+// increaseConnCount initializes the client and increases the number of connections that are active.
+func (c *connector) increaseConnCount(ctx context.Context, databaseName string, opts []option.ClientOption) error {
+	c.initClient.Lock()
+	defer c.initClient.Unlock()
+
+	if c.clientErr != nil {
+		return c.clientErr
+	}
+	if c.adminClientErr != nil {
+		return c.adminClientErr
+	}
+
+	if c.client == nil {
+		c.client, c.clientErr = spanner.NewClientWithConfig(ctx, databaseName, c.spannerClientConfig, opts...)
+		if c.clientErr != nil {
+			return c.clientErr
+		}
+
+		c.adminClient, c.adminClientErr = adminapi.NewDatabaseAdminClient(ctx, opts...)
+		if c.adminClientErr != nil {
+			c.client = nil
+			c.client.Close()
+			c.adminClient = nil
+			return c.adminClientErr
+		}
+	}
+
+	c.connCount++
+	return nil
+}
+
+// decreaseConnCount decreases the number of connections that are active and closes the underlying clients if it was the
+// last connection.
+func (c *connector) decreaseConnCount() error {
+	c.initClient.Lock()
+	defer c.initClient.Unlock()
+
+	c.connCount--
+	if c.connCount > 0 {
+		return nil
+	}
+
+	return c.closeClients()
+}
+
 func (c *connector) Driver() driver.Driver {
 	return c.driver
+}
+
+func (c *connector) Close() error {
+	c.closerMu.Lock()
+	c.closed = true
+	c.closerMu.Unlock()
+
+	c.driver.mu.Lock()
+	delete(c.driver.connectors, c.dsn)
+	c.driver.mu.Unlock()
+
+	return c.closeClients()
+}
+
+// Closes the underlying clients.
+func (c *connector) closeClients() (err error) {
+	if c.client != nil {
+		c.client.Close()
+		c.client = nil
+	}
+	if c.adminClient != nil {
+		err = c.adminClient.Close()
+		c.adminClient = nil
+	}
+	return err
 }
 
 // SpannerConn is the public interface for the raw Spanner connection for the
@@ -954,18 +1025,7 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 }
 
 func (c *conn) Close() error {
-	// Check if this is the last open connection of the connector.
-	if count := atomic.AddInt32(&c.connector.connCount, -1); count > 0 {
-		return nil
-	}
-
-	// This was the last connection. Remove the connector and close the Spanner clients.
-	c.connector.driver.mu.Lock()
-	delete(c.connector.driver.connectors, c.connector.dsn)
-	c.connector.driver.mu.Unlock()
-
-	c.client.Close()
-	return c.adminClient.Close()
+	return c.connector.decreaseConnCount()
 }
 
 func (c *conn) Begin() (driver.Tx, error) {

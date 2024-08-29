@@ -2372,7 +2372,118 @@ func TestExcludeTxnFromChangeStreams_Transaction(t *testing.T) {
 	if g, w := exclude, false; g != w {
 		t.Fatalf("exclude_txn_from_change_streams mismatch\n Got: %v\nWant: %v", g, w)
 	}
+}
 
+func TestMaxIdleConnectionsNonZero(t *testing.T) {
+	t.Parallel()
+
+	// Set MinSessions=1, so we can use the number of BatchCreateSessions requests as an indication
+	// of the number of clients that was created.
+	db, server, teardown := setupTestDBConnectionWithParams(t, "MinSessions=1")
+	defer teardown()
+
+	db.SetMaxIdleConns(2)
+	for i := 0; i < 2; i++ {
+		openAndCloseConn(t, db)
+	}
+
+	// Verify that only one client was created.
+	// This happens because we have a non-zero value for the number of idle connections.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
+	if g, w := len(batchRequests), 1; g != w {
+		t.Fatalf("BatchCreateSessions requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestMaxIdleConnectionsZero(t *testing.T) {
+	t.Parallel()
+
+	// Set MinSessions=1, so we can use the number of BatchCreateSessions requests as an indication
+	// of the number of clients that was created.
+	db, server, teardown := setupTestDBConnectionWithParams(t, "MinSessions=1")
+	defer teardown()
+
+	db.SetMaxIdleConns(0)
+	for i := 0; i < 2; i++ {
+		openAndCloseConn(t, db)
+	}
+
+	// Verify that two clients were created and closed.
+	// This should happen because we do not keep any idle connections open.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
+	if g, w := len(batchRequests), 2; g != w {
+		t.Fatalf("BatchCreateSessions requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func openAndCloseConn(t *testing.T, db *sql.DB) {
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+	defer func() {
+		err = conn.Close()
+		if err != nil {
+			t.Fatalf("failed to close connection: %v", err)
+		}
+	}()
+
+	var result int64
+	if err := conn.QueryRowContext(ctx, "SELECT 1").Scan(&result); err != nil {
+		t.Fatalf("failed to select: %v", err)
+	}
+	if result != 1 {
+		t.Fatalf("expected 1 got %v", result)
+	}
+}
+
+func TestCannotReuseClosedConnector(t *testing.T) {
+	// Note: This test cannot be parallel, as it inspects the size of the shared
+	// map of connectors in the driver. There is no guarantee how many connectors
+	// will be open when the test is running, if there are also other tests running
+	// in parallel.
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+	_ = conn.Close()
+	connectors := db.Driver().(*Driver).connectors
+	if g, w := len(connectors), 1; g != w {
+		t.Fatal("underlying connector has not been created")
+	}
+	var connector *connector
+	for _, v := range connectors {
+		connector = v
+	}
+	if connector.closed {
+		t.Fatal("connector is closed")
+	}
+
+	if err := db.Close(); err != nil {
+		t.Fatalf("failed to close connector: %v", err)
+	}
+	_, err = db.Conn(ctx)
+	if err == nil {
+		t.Fatal("missing error for getting a connection from a closed connector")
+	}
+	if g, w := err.Error(), "sql: database is closed"; g != w {
+		t.Fatalf("error mismatch for getting a connection from a closed connector\n Got: %v\nWant: %v", g, w)
+	}
+	// Verify that the underlying connector also has been closed.
+	if g, w := len(connectors), 0; g != w {
+		t.Fatal("underlying connector has not been closed")
+	}
+	if !connector.closed {
+		t.Fatal("connector is not closed")
+	}
 }
 
 func numeric(v string) big.Rat {
