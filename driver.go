@@ -25,7 +25,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"cloud.google.com/go/civil"
@@ -169,7 +168,7 @@ type connector struct {
 	// propagated to the caller. This option is enabled by default.
 	retryAbortsInternally bool
 
-	initClient     sync.Once
+	initClient     sync.Mutex
 	client         *spanner.Client
 	clientErr      error
 	adminClient    *adminapi.DatabaseAdminClient
@@ -264,6 +263,7 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 		}
 	}
 	config.UserAgent = userAgent
+
 	c := &connector{
 		driver:                d,
 		dsn:                   dsn,
@@ -288,17 +288,10 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		c.connectorConfig.instance,
 		c.connectorConfig.database)
 
-	c.initClient.Do(func() {
-		c.client, c.clientErr = spanner.NewClientWithConfig(ctx, databaseName, c.spannerClientConfig, opts...)
-		c.adminClient, c.adminClientErr = adminapi.NewDatabaseAdminClient(ctx, opts...)
-	})
-	if c.clientErr != nil {
-		return nil, c.clientErr
+	if err := c.increaseConnCount(ctx, databaseName, opts); err != nil {
+		return nil, err
 	}
-	if c.adminClientErr != nil {
-		return nil, c.adminClientErr
-	}
-	atomic.AddInt32(&c.connCount, 1)
+
 	return &conn{
 		connector:                  c,
 		client:                     c.client,
@@ -309,6 +302,72 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		execSingleDMLTransactional: execInNewRWTransaction,
 		execSingleDMLPartitioned:   execAsPartitionedDML,
 	}, nil
+}
+
+// increaseConnCount initializes the client and increases the number of connections that are active.
+func (c *connector) increaseConnCount(ctx context.Context, databaseName string, opts []option.ClientOption) error {
+	c.initClient.Lock()
+	defer c.initClient.Unlock()
+
+	if c.clientErr != nil {
+		return c.clientErr
+	}
+	if c.adminClientErr != nil {
+		return c.adminClientErr
+	}
+
+	if c.client == nil {
+		// In case all the connections on the connector was closed,
+		// the connector is removed from the driver.
+		//
+		// Let's add ourselves back, assuming there's no conflicting connector.
+		c.driver.mu.Lock()
+		if _, exists := c.driver.connectors[c.dsn]; !exists {
+			c.driver.connectors[c.dsn] = c
+		}
+		c.driver.mu.Unlock()
+
+		c.client, c.clientErr = spanner.NewClientWithConfig(ctx, databaseName, c.spannerClientConfig, opts...)
+		if c.clientErr != nil {
+			return c.clientErr
+		}
+
+		c.adminClient, c.adminClientErr = adminapi.NewDatabaseAdminClient(ctx, opts...)
+		if c.adminClientErr != nil {
+			c.client = nil
+			c.client.Close()
+			c.adminClient = nil
+			return c.adminClientErr
+		}
+	}
+
+	c.connCount++
+	return nil
+}
+
+// decreaseConnCount initializes the client and increases the number of connections that are active.
+func (c *connector) decreaseConnCount() error {
+	c.initClient.Lock()
+	defer c.initClient.Unlock()
+
+	c.connCount--
+	if c.connCount > 0 {
+		return nil
+	}
+
+	// When this was the last connection then we remove ourselves from the
+	// driver cache, to avoid leaks; and close the client and adminClient.
+	c.driver.mu.Lock()
+	if c.driver.connectors[c.dsn] == c {
+		delete(c.driver.connectors, c.dsn)
+	}
+	c.driver.mu.Unlock()
+
+	c.client.Close()
+	c.client = nil
+	err := c.adminClient.Close()
+	c.adminClient = nil
+	return err
 }
 
 func (c *connector) Driver() driver.Driver {
@@ -950,18 +1009,7 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 }
 
 func (c *conn) Close() error {
-	// Check if this is the last open connection of the connector.
-	if count := atomic.AddInt32(&c.connector.connCount, -1); count > 0 {
-		return nil
-	}
-
-	// This was the last connection. Remove the connector and close the Spanner clients.
-	c.connector.driver.mu.Lock()
-	delete(c.connector.driver.connectors, c.connector.dsn)
-	c.connector.driver.mu.Unlock()
-
-	c.client.Close()
-	return c.adminClient.Close()
+	return c.connector.decreaseConnCount()
 }
 
 func (c *conn) Begin() (driver.Tx, error) {

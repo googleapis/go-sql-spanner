@@ -2372,7 +2372,39 @@ func TestExcludeTxnFromChangeStreams_Transaction(t *testing.T) {
 	if g, w := exclude, false; g != w {
 		t.Fatalf("exclude_txn_from_change_streams mismatch\n Got: %v\nWant: %v", g, w)
 	}
+}
 
+func TestIdleConnections(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	db.SetMaxIdleConns(0)
+
+	for i := 0; i < 2; i++ {
+		func() {
+			conn, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatalf("failed to get a connection: %v", err)
+			}
+			defer func() {
+				err = conn.Close()
+				if err != nil {
+					t.Fatalf("failed to close connection: %v", err)
+				}
+			}()
+
+			var result int64
+			if err := conn.QueryRowContext(ctx, "SELECT 1").Scan(&result); err != nil {
+				t.Fatalf("failed to select: %v", err)
+			}
+			if result != 1 {
+				t.Fatalf("expected 1 got %v", result)
+			}
+		}()
+	}
 }
 
 func numeric(v string) big.Rat {
