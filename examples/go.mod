@@ -2,8 +2,6 @@ module github.com/googleapis/go-sql-spanner/examples
 
 go 1.21
 
-toolchain go1.22.3
-
 replace github.com/googleapis/go-sql-spanner => ../
 
 require (
