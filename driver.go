@@ -155,6 +155,9 @@ type connector struct {
 	dsn             string
 	connectorConfig connectorConfig
 
+	closerMu sync.RWMutex
+	closed   bool
+
 	// spannerClientConfig represents the optional advanced configuration to be used
 	// by the Google Cloud Spanner client.
 	spannerClientConfig spanner.ClientConfig
@@ -277,6 +280,11 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 }
 
 func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
+	c.closerMu.RLock()
+	defer c.closerMu.RUnlock()
+	if c.closed {
+		return nil, fmt.Errorf("connector has been closed")
+	}
 	return openDriverConn(ctx, c)
 }
 
@@ -317,16 +325,6 @@ func (c *connector) increaseConnCount(ctx context.Context, databaseName string, 
 	}
 
 	if c.client == nil {
-		// In case all the connections on the connector was closed,
-		// the connector is removed from the driver.
-		//
-		// Let's add ourselves back, assuming there's no conflicting connector.
-		c.driver.mu.Lock()
-		if _, exists := c.driver.connectors[c.dsn]; !exists {
-			c.driver.connectors[c.dsn] = c
-		}
-		c.driver.mu.Unlock()
-
 		c.client, c.clientErr = spanner.NewClientWithConfig(ctx, databaseName, c.spannerClientConfig, opts...)
 		if c.clientErr != nil {
 			return c.clientErr
@@ -345,7 +343,8 @@ func (c *connector) increaseConnCount(ctx context.Context, databaseName string, 
 	return nil
 }
 
-// decreaseConnCount initializes the client and increases the number of connections that are active.
+// decreaseConnCount decreases the number of connections that are active and closes the underlying clients if it was the
+// last connection.
 func (c *connector) decreaseConnCount() error {
 	c.initClient.Lock()
 	defer c.initClient.Unlock()
@@ -355,23 +354,36 @@ func (c *connector) decreaseConnCount() error {
 		return nil
 	}
 
-	// When this was the last connection then we remove ourselves from the
-	// driver cache, to avoid leaks; and close the client and adminClient.
-	c.driver.mu.Lock()
-	if c.driver.connectors[c.dsn] == c {
-		delete(c.driver.connectors, c.dsn)
-	}
-	c.driver.mu.Unlock()
-
-	c.client.Close()
-	c.client = nil
-	err := c.adminClient.Close()
-	c.adminClient = nil
-	return err
+	return c.closeClients()
 }
 
 func (c *connector) Driver() driver.Driver {
 	return c.driver
+}
+
+func (c *connector) Close() error {
+	c.closerMu.Lock()
+	c.closed = true
+	c.closerMu.Unlock()
+
+	c.driver.mu.Lock()
+	delete(c.driver.connectors, c.dsn)
+	c.driver.mu.Unlock()
+
+	return c.closeClients()
+}
+
+// Closes the underlying clients.
+func (c *connector) closeClients() (err error) {
+	if c.client != nil {
+		c.client.Close()
+		c.client = nil
+	}
+	if c.adminClient != nil {
+		err = c.adminClient.Close()
+		c.adminClient = nil
+	}
+	return err
 }
 
 // SpannerConn is the public interface for the raw Spanner connection for the

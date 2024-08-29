@@ -2440,6 +2440,52 @@ func openAndCloseConn(t *testing.T, db *sql.DB) {
 	}
 }
 
+func TestCannotReuseClosedConnector(t *testing.T) {
+	// Note: This test cannot be parallel, as it inspects the size of the shared
+	// map of connectors in the driver. There is no guarantee how many connectors
+	// will be open when the test is running, if there are also other tests running
+	// in parallel.
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+	_ = conn.Close()
+	connectors := db.Driver().(*Driver).connectors
+	if g, w := len(connectors), 1; g != w {
+		t.Fatal("underlying connector has not been created")
+	}
+	var connector *connector
+	for _, v := range connectors {
+		connector = v
+	}
+	if connector.closed {
+		t.Fatal("connector is closed")
+	}
+
+	if err := db.Close(); err != nil {
+		t.Fatalf("failed to close connector: %v", err)
+	}
+	_, err = db.Conn(ctx)
+	if err == nil {
+		t.Fatal("missing error for getting a connection from a closed connector")
+	}
+	if g, w := err.Error(), "sql: database is closed"; g != w {
+		t.Fatalf("error mismatch for getting a connection from a closed connector\n Got: %v\nWant: %v", g, w)
+	}
+	// Verify that the underlying connector also has been closed.
+	if g, w := len(connectors), 0; g != w {
+		t.Fatal("underlying connector has not been closed")
+	}
+	if !connector.closed {
+		t.Fatal("connector is not closed")
+	}
+}
+
 func numeric(v string) big.Rat {
 	res, _ := big.NewRat(1, 1).SetString(v)
 	return *res
