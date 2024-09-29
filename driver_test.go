@@ -193,7 +193,7 @@ func TestExtractDnsParts(t *testing.T) {
 			},
 		},
 		{
-			// intential error case
+			// intentional error case
 			input:   "project/p/instances/i/databases/d",
 			wantErr: true,
 		},
@@ -476,6 +476,8 @@ func TestConn_CheckNamedValue(t *testing.T) {
 		Age  int64
 	}
 
+	var testNil *ValuerNil
+
 	tests := []struct {
 		in   any
 		want any
@@ -486,6 +488,8 @@ func TestConn_CheckNamedValue(t *testing.T) {
 		{in: &ValuerPerson{Name: "hello", Age: 123}, want: "hello"},
 		// structs should be sent to spanner
 		{in: &Person{Name: "hello", Age: 123}, want: &Person{Name: "hello", Age: 123}},
+		// nil pointer of type that implements driver.Valuer via value receiver should use nil
+		{in: testNil, want: nil},
 	}
 
 	for _, test := range tests {
@@ -515,4 +519,15 @@ type ValuerPerson struct {
 // Value implements conversion func for database.
 func (p *ValuerPerson) Value() (driver.Value, error) {
 	return p.Name, nil
+}
+
+// ValuerNil implements driver.Valuer
+type ValuerNil struct {
+	Name string
+}
+
+// Value implements conversion func for database. It explicitly implements driver.Valuer via a value receiver to
+// test the driver for its ability to handle nil pointers to structs that implement driver.Valuer via value receivers
+func (v ValuerNil) Value() (driver.Value, error) {
+	return v.Name, nil
 }
