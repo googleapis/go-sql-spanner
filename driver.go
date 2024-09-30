@@ -200,6 +200,9 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 	if strval, ok := connectorConfig.params["credentials"]; ok {
 		opts = append(opts, option.WithCredentialsFile(strval))
 	}
+	if strval, ok := connectorConfig.params["credentialsjson"]; ok {
+		opts = append(opts, option.WithCredentialsJSON([]byte(strval)))
+	}
 	if strval, ok := connectorConfig.params["useplaintext"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil && val {
 			opts = append(opts, option.WithGRPCDialOption(grpc.WithInsecure()), option.WithoutAuthentication())
