@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.2](https://github.com/googleapis/go-sql-spanner/compare/v1.7.1...v1.7.2) (2024-09-30)
+
+
+### Bug Fixes
+
+* Do not panic when nil is passed in as a query parameter to a pointer of type that implements driver.Valuer via a value receiver ([#296](https://github.com/googleapis/go-sql-spanner/issues/296)) ([816847b](https://github.com/googleapis/go-sql-spanner/commit/816847b09031a272af228350448d774d97ee6d7b))
+
 ## [1.7.1](https://github.com/googleapis/go-sql-spanner/compare/v1.7.0...v1.7.1) (2024-08-29)
 
 
