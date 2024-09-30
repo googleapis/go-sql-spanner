@@ -4,14 +4,14 @@ go 1.21
 
 require (
 	cloud.google.com/go v0.115.1
-	cloud.google.com/go/longrunning v0.6.0
-	cloud.google.com/go/spanner v1.67.0
+	cloud.google.com/go/longrunning v0.6.1
+	cloud.google.com/go/spanner v1.68.0
 	github.com/golang/protobuf v1.5.4
 	github.com/google/go-cmp v0.6.0
-	google.golang.org/api v0.195.0
-	google.golang.org/genproto v0.0.0-20240827150818-7e3bb234dfed
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240827150818-7e3bb234dfed
-	google.golang.org/grpc v1.66.0
+	google.golang.org/api v0.199.0
+	google.golang.org/genproto af27646dc61f
+	google.golang.org/genproto/googleapis/rpc af27646dc61f
+	google.golang.org/grpc v1.67.0
 	google.golang.org/protobuf v1.34.2
 )
 
