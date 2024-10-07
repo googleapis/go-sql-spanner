@@ -5,14 +5,14 @@ go 1.21
 require (
 	cloud.google.com/go v0.115.1
 	cloud.google.com/go/longrunning v0.6.1
-	cloud.google.com/go/spanner v1.68.0
+	cloud.google.com/go/spanner v1.69.0
 	github.com/golang/protobuf v1.5.4
 	github.com/google/go-cmp v0.6.0
 	google.golang.org/api v0.199.0
-	google.golang.org/genproto v0.0.0-20240930140551-af27646dc61f
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240930140551-af27646dc61f
-	google.golang.org/grpc v1.67.0
-	google.golang.org/protobuf v1.34.2
+	google.golang.org/genproto 5fefd90f89a9
+	google.golang.org/genproto/googleapis/rpc 5fefd90f89a9
+	google.golang.org/grpc v1.67.1
+	google.golang.org/protobuf v1.35.1
 )
 
 require (
