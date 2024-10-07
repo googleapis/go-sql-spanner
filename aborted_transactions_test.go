@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"reflect"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
@@ -31,10 +32,11 @@ import (
 func TestCommitAborted(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnection(t)
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1;maxSessions=1")
 	defer teardown()
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
@@ -56,10 +58,11 @@ func TestCommitAborted(t *testing.T) {
 func TestCommitAbortedWithInternalRetriesDisabled(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnectionWithParams(t, "retryAbortsInternally=false")
+	db, server, teardown := setupTestDBConnectionWithParams(t, "retryAbortsInternally=false;minSessions=1;maxSessions=1")
 	defer teardown()
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
@@ -82,10 +85,11 @@ func TestCommitAbortedWithInternalRetriesDisabled(t *testing.T) {
 func TestUpdateAborted(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnection(t)
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1;maxSessions=1")
 	defer teardown()
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
@@ -122,10 +126,11 @@ func TestUpdateAborted(t *testing.T) {
 func TestBatchUpdateAborted(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnection(t)
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1;maxSessions=1")
 	defer teardown()
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
@@ -359,13 +364,14 @@ func testRetryReadWriteTransactionWithQuery(t *testing.T, setupServer func(serve
 
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnection(t)
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1;maxSessions=1")
 	defer teardown()
 
 	if setupServer != nil {
 		setupServer(server.TestSpanner)
 	}
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
