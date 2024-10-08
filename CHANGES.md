@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.3](https://github.com/googleapis/go-sql-spanner/compare/v1.7.2...v1.7.3) (2024-10-08)
+
+
+### Bug Fixes
+
+* Avoid session leak on transaction retry ([#300](https://github.com/googleapis/go-sql-spanner/issues/300)) ([#301](https://github.com/googleapis/go-sql-spanner/issues/301)) ([129248c](https://github.com/googleapis/go-sql-spanner/commit/129248c4caa86ba41e2d9b27a9a6c9a0533fd302))
+
 ## [1.7.2](https://github.com/googleapis/go-sql-spanner/compare/v1.7.1...v1.7.2) (2024-09-30)
 
 
