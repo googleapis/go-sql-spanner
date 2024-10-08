@@ -1858,6 +1858,9 @@ func TestAllTypes(t *testing.T) {
                                                @key, @bool, @string, @bytes, @int64, @float64, @numeric, @date,
                                                @timestamp, @json, @boolArray, @stringArray, @bytesArray, @int64Array,
                                                @float64Array, @numericArray, @dateArray, @timestampArray, @jsonArray)`)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			if test.skipOnEmulator && runsOnEmulator() {
@@ -1942,6 +1945,9 @@ func TestQueryInReadWriteTransaction(t *testing.T) {
                                                @key, @bool, @string, @bytes, @int64, @float64, @numeric, @date,
                                                @timestamp, @json, @boolArray, @stringArray, @bytesArray, @int64Array,
                                                @float64Array, @numericArray, @dateArray, @timestampArray, @jsonArray)`)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for row := int64(0); row < wantRowCount; row++ {
 		res, err := stmt.ExecContext(ctx, row, row%2 == 0, fmt.Sprintf("%v", row), []byte(fmt.Sprintf("%v", row)),
 			row, float64(row)/float64(3), numeric(fmt.Sprintf("%v.%v", row, row)),
@@ -2022,7 +2028,7 @@ func TestPDML(t *testing.T) {
 	}
 	defer db.Close()
 	// Insert a couple of test rows.
-	res, err := db.ExecContext(
+	_, err = db.ExecContext(
 		ctx, `INSERT INTO Singers (SingerId, FirstName, LastName)
 					VALUES (1, 'First1', 'Last1'),
 					       (2, 'First2', 'Last2'),
@@ -2043,7 +2049,7 @@ func TestPDML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to switch to PDML mode: %v", err)
 	}
-	res, err = conn.ExecContext(ctx, "DELETE FROM Singers WHERE TRUE")
+	res, err := conn.ExecContext(ctx, "DELETE FROM Singers WHERE TRUE")
 	if err != nil {
 		t.Fatalf("delete statement failed: %v", err)
 	}

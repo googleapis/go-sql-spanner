@@ -35,6 +35,7 @@ import (
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -205,7 +206,10 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 	}
 	if strval, ok := connectorConfig.params["useplaintext"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil && val {
-			opts = append(opts, option.WithGRPCDialOption(grpc.WithInsecure()), option.WithoutAuthentication())
+			opts = append(opts,
+				option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+				option.WithoutAuthentication(),
+			)
 		}
 	}
 	retryAbortsInternally := true
@@ -229,7 +233,7 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 	}
 	if strval, ok := connectorConfig.params["numchannels"]; ok {
 		if val, err := strconv.Atoi(strval); err == nil && val > 0 {
-			config.NumChannels = val
+			opts = append(opts, option.WithGRPCConnectionPool(val))
 		}
 	}
 	if strval, ok := connectorConfig.params["rpcpriority"]; ok {
