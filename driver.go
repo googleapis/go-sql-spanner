@@ -171,7 +171,7 @@ type connector struct {
 	// propagated to the caller. This option is enabled by default.
 	retryAbortsInternally bool
 
-	initClient     sync.Mutex
+	clientMu       sync.Mutex
 	client         *spanner.Client
 	clientErr      error
 	adminClient    *adminapi.DatabaseAdminClient
@@ -317,8 +317,8 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 
 // increaseConnCount initializes the client and increases the number of connections that are active.
 func (c *connector) increaseConnCount(ctx context.Context, databaseName string, opts []option.ClientOption) error {
-	c.initClient.Lock()
-	defer c.initClient.Unlock()
+	c.clientMu.Lock()
+	defer c.clientMu.Unlock()
 
 	if c.clientErr != nil {
 		return c.clientErr
@@ -349,8 +349,8 @@ func (c *connector) increaseConnCount(ctx context.Context, databaseName string, 
 // decreaseConnCount decreases the number of connections that are active and closes the underlying clients if it was the
 // last connection.
 func (c *connector) decreaseConnCount() error {
-	c.initClient.Lock()
-	defer c.initClient.Unlock()
+	c.clientMu.Lock()
+	defer c.clientMu.Unlock()
 
 	c.connCount--
 	if c.connCount > 0 {
@@ -373,6 +373,8 @@ func (c *connector) Close() error {
 	delete(c.driver.connectors, c.dsn)
 	c.driver.mu.Unlock()
 
+	c.clientMu.Lock()
+	defer c.clientMu.Unlock()
 	return c.closeClients()
 }
 
