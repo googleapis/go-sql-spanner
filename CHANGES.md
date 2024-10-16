@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.4](https://github.com/googleapis/go-sql-spanner/compare/v1.7.3...v1.7.4) (2024-10-16)
+
+
+### Bug Fixes
+
+* Data-race with concurrent scan and close ([#304](https://github.com/googleapis/go-sql-spanner/issues/304)) ([cdbea5c](https://github.com/googleapis/go-sql-spanner/commit/cdbea5c87f90c1db40f84a837a1b8ace187dc64f))
+
 ## [1.7.3](https://github.com/googleapis/go-sql-spanner/compare/v1.7.2...v1.7.3) (2024-10-08)
 
 
