@@ -119,6 +119,39 @@ func TestSimpleQuery(t *testing.T) {
 	}
 }
 
+func TestConcurrentScanAndClose(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	rows, err := db.QueryContext(context.Background(), testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Only fetch the first row of the query to make sure that the rows are not auto-closed
+	// when the end of the stream is reached.
+	rows.Next()
+	var got int64
+	err = rows.Scan(&got)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Close both the database and the rows (connection) in parallel.
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_ = db.Close()
+	}()
+	go func() {
+		defer wg.Done()
+		_ = rows.Close()
+	}()
+	wg.Wait()
+}
+
 func TestSingleQueryWithTimestampBound(t *testing.T) {
 	t.Parallel()
 
