@@ -270,7 +270,7 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 			config.DisableRouteToLeader = val
 		}
 	}
-	if strval, ok := connectorConfig.params["enableEndToEndTracing"]; ok {
+	if strval, ok := connectorConfig.params["enableendtoendtracing"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil {
 			config.EnableEndToEndTracing = val
 		}
@@ -1150,8 +1150,8 @@ var valuerReflectType = reflect.TypeOf((*driver.Valuer)(nil)).Elem()
 // to those types to mean nil/NULL, just like the Go database/sql package.
 func callValuerValue(vr driver.Valuer) (v driver.Value, err error) {
 	if rv := reflect.ValueOf(vr); rv.Kind() == reflect.Ptr &&
-		rv.IsNil() &&
-		rv.Type().Elem().Implements(valuerReflectType) {
+			rv.IsNil() &&
+			rv.Type().Elem().Implements(valuerReflectType) {
 		return nil, nil
 	}
 	return vr.Value()

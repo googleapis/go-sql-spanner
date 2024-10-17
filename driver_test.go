@@ -165,7 +165,7 @@ func TestExtractDnsParts(t *testing.T) {
 					"maxsessions":                "1000",
 					"numchannels":                "10",
 					"disableroutetoleader":       "true",
-					"enableEndToEndTracing":      "true",
+					"enableendtoendtracing":      "true",
 					"rpcpriority":                "Medium",
 					"optimizerversion":           "1",
 					"optimizerstatisticspackage": "latest",
