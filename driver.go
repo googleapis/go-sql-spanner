@@ -57,6 +57,8 @@ const userAgent = "go-sql-spanner/1.0.2"
 //     - disableRouteToLeader: Boolean that indicates if all the requests of type read-write and PDML
 //     need to be routed to the leader region.
 //     The default is false
+//     - enableEndToEndTracing: Boolean that indicates if end-to-end tracing is enabled
+//     The default is false
 //     - minSessions: The minimum number of sessions in the backing session pool. The default is 100.
 //     - maxSessions: The maximum number of sessions in the backing session pool. The default is 400.
 //     - numChannels: The number of gRPC channels to use to communicate with Cloud Spanner. The default is 4.
@@ -64,7 +66,7 @@ const userAgent = "go-sql-spanner/1.0.2"
 //     - optimizerStatisticsPackage: Sets the default query optimizer statistic package to use for this connection.
 //     - rpcPriority: Sets the priority for all RPC invocations from this connection (HIGH/MEDIUM/LOW). The default is HIGH.
 //
-// Example: `localhost:9010/projects/test-project/instances/test-instance/databases/test-database;usePlainText=true;disableRouteToLeader=true`
+// Example: `localhost:9010/projects/test-project/instances/test-instance/databases/test-database;usePlainText=true;disableRouteToLeader=true,enableEndToEndTracing=true`
 var dsnRegExp = regexp.MustCompile(`((?P<HOSTGROUP>[\w.-]+(?:\.[\w\.-]+)*[\w\-\._~:/?#\[\]@!\$&'\(\)\*\+,;=.]+)/)?projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID)))(/instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+)(/databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?)?(([\?|;])(?P<PARAMSGROUP>.*))?`)
 
 var _ driver.DriverContext = &Driver{}
@@ -266,6 +268,11 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 	if strval, ok := connectorConfig.params["disableroutetoleader"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil {
 			config.DisableRouteToLeader = val
+		}
+	}
+	if strval, ok := connectorConfig.params["enableEndToEndTracing"]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			config.EnableEndToEndTracing = val
 		}
 	}
 	config.UserAgent = userAgent
