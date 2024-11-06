@@ -16,6 +16,7 @@ package spannerdriver
 
 import (
 	"database/sql/driver"
+	"fmt"
 	"io"
 	"sync"
 
@@ -265,7 +266,11 @@ func (r *rows) Next(dest []driver.Value) error {
 					return err
 				}
 				dest[i] = v
+			default:
+				return fmt.Errorf("unsupported element type ARRAY<%v>", col.Type.ArrayElementType.Code)
 			}
+		default:
+			return fmt.Errorf("unsupported element type %v", col.Type.Code)
 		}
 		// TODO: Implement struct
 	}
