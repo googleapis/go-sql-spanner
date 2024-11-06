@@ -479,6 +479,10 @@ type SpannerConn interface {
 	// was executed on the connection, or an error if the connection has not executed a read/write transaction
 	// that committed successfully. The timestamp is in the local timezone.
 	CommitTimestamp() (commitTimestamp time.Time, err error)
+
+	// UnderlyingClient returns the underlying client to the database.
+	// This should not be used together with transactions and batching.
+	UnderlyingClient() (client *spanner.Client, err error)
 }
 
 type conn struct {
@@ -541,6 +545,16 @@ const (
 	Transactional AutocommitDMLMode = iota
 	PartitionedNonAtomic
 )
+
+func (c *conn) UnderlyingClient() (*spanner.Client, error) {
+	if c.inTransaction() {
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot access *spanner.Client when in a transaction"))
+	}
+	if c.batch != nil {
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot access *spanner.Client with an active batch"))
+	}
+	return c.client, nil
+}
 
 func (c *conn) CommitTimestamp() (time.Time, error) {
 	if c.commitTs == nil {
@@ -1150,8 +1164,8 @@ var valuerReflectType = reflect.TypeOf((*driver.Valuer)(nil)).Elem()
 // to those types to mean nil/NULL, just like the Go database/sql package.
 func callValuerValue(vr driver.Valuer) (v driver.Value, err error) {
 	if rv := reflect.ValueOf(vr); rv.Kind() == reflect.Ptr &&
-			rv.IsNil() &&
-			rv.Type().Elem().Implements(valuerReflectType) {
+		rv.IsNil() &&
+		rv.Type().Elem().Implements(valuerReflectType) {
 		return nil, nil
 	}
 	return vr.Value()
