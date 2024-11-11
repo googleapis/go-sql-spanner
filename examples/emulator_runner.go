@@ -93,6 +93,7 @@ func startEmulator() error {
 		Image:        "gcr.io/cloud-spanner-emulator/emulator",
 		ExposedPorts: nat.PortSet{"9010": {}},
 	}, &container.HostConfig{
+		AutoRemove:   true,
 		PortBindings: map[nat.Port][]nat.PortBinding{"9010": {{HostIP: "0.0.0.0", HostPort: "9010"}}},
 	}, nil, nil, "")
 	if err != nil {
