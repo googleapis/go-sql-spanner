@@ -552,12 +552,6 @@ const (
 )
 
 func (c *conn) UnderlyingClient() (*spanner.Client, error) {
-	if c.inTransaction() {
-		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot access *spanner.Client when in a transaction"))
-	}
-	if c.batch != nil {
-		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot access *spanner.Client with an active batch"))
-	}
 	return c.client, nil
 }
 
