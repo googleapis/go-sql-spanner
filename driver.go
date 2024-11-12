@@ -480,8 +480,13 @@ type SpannerConn interface {
 	// that committed successfully. The timestamp is in the local timezone.
 	CommitTimestamp() (commitTimestamp time.Time, err error)
 
-	// UnderlyingClient returns the underlying client to the database.
-	// This should not be used together with transactions and batching.
+	// UnderlyingClient returns the underlying Spanner client for the database.
+	// The client cannot be used to access the current transaction or batch on
+	// this connection. Executing a transaction or batch using the client that is
+	// returned, does not affect this connection.
+	// Note that multiple connections share the same Spanner client. Calling
+	// this function on different connections to the same database, can
+	// return the same Spanner client.
 	UnderlyingClient() (client *spanner.Client, err error)
 }
 
