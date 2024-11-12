@@ -6,11 +6,11 @@ replace github.com/googleapis/go-sql-spanner => ../
 
 require (
 	cloud.google.com/go v0.116.0
-	cloud.google.com/go/spanner v1.70.0
+	cloud.google.com/go/spanner v1.72.0
 	github.com/google/uuid v1.6.0
-	github.com/googleapis/go-sql-spanner v1.7.3
-	google.golang.org/api v0.201.0
-	google.golang.org/grpc v1.67.1
+	github.com/googleapis/go-sql-spanner v1.7.4
+	google.golang.org/api v0.205.0
+	google.golang.org/grpc v1.68.0
 	google.golang.org/protobuf v1.35.1
 )
 
