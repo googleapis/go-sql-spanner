@@ -36,6 +36,7 @@ import (
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -206,9 +207,16 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 	if strval, ok := connectorConfig.params["credentialsjson"]; ok {
 		opts = append(opts, option.WithCredentialsJSON([]byte(strval)))
 	}
+	config := spanner.ClientConfig{
+		SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+	}
 	if strval, ok := connectorConfig.params["useplaintext"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil && val {
-			opts = append(opts, option.WithGRPCDialOption(grpc.WithInsecure()), option.WithoutAuthentication())
+			opts = append(opts,
+				option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+				option.WithoutAuthentication())
+			// TODO: Add connection string property for disabling native metrics.
+			config.DisableNativeMetrics = true
 		}
 	}
 	retryAbortsInternally := true
@@ -216,9 +224,6 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 		if val, err := strconv.ParseBool(strval); err == nil && !val {
 			retryAbortsInternally = false
 		}
-	}
-	config := spanner.ClientConfig{
-		SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 	}
 	if strval, ok := connectorConfig.params["minsessions"]; ok {
 		if val, err := strconv.ParseUint(strval, 10, 64); err == nil {
@@ -573,6 +578,15 @@ type SpannerConn interface {
 	// was executed on the connection, or an error if the connection has not executed a read/write transaction
 	// that committed successfully. The timestamp is in the local timezone.
 	CommitTimestamp() (commitTimestamp time.Time, err error)
+
+	// UnderlyingClient returns the underlying Spanner client for the database.
+	// The client cannot be used to access the current transaction or batch on
+	// this connection. Executing a transaction or batch using the client that is
+	// returned, does not affect this connection.
+	// Note that multiple connections share the same Spanner client. Calling
+	// this function on different connections to the same database, can
+	// return the same Spanner client.
+	UnderlyingClient() (client *spanner.Client, err error)
 }
 
 type conn struct {
@@ -635,6 +649,10 @@ const (
 	Transactional AutocommitDMLMode = iota
 	PartitionedNonAtomic
 )
+
+func (c *conn) UnderlyingClient() (*spanner.Client, error) {
+	return c.client, nil
+}
 
 func (c *conn) CommitTimestamp() (time.Time, error) {
 	if c.commitTs == nil {

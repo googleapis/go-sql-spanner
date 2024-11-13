@@ -2879,6 +2879,7 @@ func setupMockedTestServerWithConfigAndClientOptions(t *testing.T, config spanne
 	opts = append(opts, clientOptions...)
 	ctx := context.Background()
 	formattedDatabase := fmt.Sprintf("projects/%s/instances/%s/databases/%s", "[PROJECT]", "[INSTANCE]", "[DATABASE]")
+	config.DisableNativeMetrics = true
 	client, err := spanner.NewClientWithConfig(ctx, formattedDatabase, config, opts...)
 	if err != nil {
 		t.Fatal(err)
