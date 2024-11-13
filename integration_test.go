@@ -24,6 +24,7 @@ import (
 	"math"
 	"math/big"
 	"math/rand"
+	"net"
 	"os"
 	"reflect"
 	"strconv"
@@ -505,6 +506,9 @@ func TestTypeRoundtrip(t *testing.T) {
 		// JSON variants
 		{in: spanner.NullJSON{Valid: true, Value: map[string]any{"a": 13}}, skipeq: true},
 		{in: []spanner.NullJSON{{Valid: true, Value: map[string]any{"a": 13}}}, skipeq: true},
+		// Standard library type alias examples
+		{in: net.IPv6loopback},
+		{in: time.Duration(1)},
 	}
 
 	for _, test := range tests {

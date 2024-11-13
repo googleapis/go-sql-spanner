@@ -935,11 +935,12 @@ func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
 	if checkIsValidType(value.Value) {
 		return nil
 	}
-	if valuer, ok := value.Value.(driver.Valuer); ok {
-		v, err := callValuerValue(valuer)
-		if err != nil {
-			return err
-		}
+
+	// Convert the value using the default sql driver. This uses driver.Valuer,
+	// if implemented, and falls back to reflection. If the converted value is
+	// a supported spanner type, use it. Otherwise, ignore any errors and
+	// continue checking other supported spanner specific types.
+	if v, err := driver.DefaultParameterConverter.ConvertValue(value.Value); err == nil {
 		if checkIsValidType(v) {
 			value.Value = v
 			return nil

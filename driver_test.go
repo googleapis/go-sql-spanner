@@ -17,6 +17,7 @@ package spannerdriver
 import (
 	"context"
 	"database/sql/driver"
+	"net"
 	"testing"
 	"time"
 
@@ -492,6 +493,11 @@ func TestConn_CheckNamedValue(t *testing.T) {
 		{in: &Person{Name: "hello", Age: 123}, want: &Person{Name: "hello", Age: 123}},
 		// nil pointer of type that implements driver.Valuer via value receiver should use nil
 		{in: testNil, want: nil},
+		// net.IP reflects to []byte. Allow model structs to have fields with
+		// types that reflect to types supported by spanner.
+		{in: net.IPv6loopback, want: []byte(net.IPv6loopback)},
+		// Similarly, time.Duration is just an int64.
+		{in: time.Duration(1), want: int64(time.Duration(1))},
 	}
 
 	for _, test := range tests {
