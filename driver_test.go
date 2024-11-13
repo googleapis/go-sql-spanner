@@ -100,8 +100,9 @@ func TestExtractDnsParts(t *testing.T) {
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
-				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
-				UserAgent:         userAgent,
+				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
+				UserAgent:            userAgent,
+				DisableNativeMetrics: true,
 			},
 		},
 		{
@@ -149,8 +150,9 @@ func TestExtractDnsParts(t *testing.T) {
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
-				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
-				UserAgent:         userAgent,
+				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
+				UserAgent:            userAgent,
+				DisableNativeMetrics: true,
 			},
 		},
 		{

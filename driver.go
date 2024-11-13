@@ -35,6 +35,7 @@ import (
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -205,9 +206,16 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 	if strval, ok := connectorConfig.params["credentialsjson"]; ok {
 		opts = append(opts, option.WithCredentialsJSON([]byte(strval)))
 	}
+	config := spanner.ClientConfig{
+		SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+	}
 	if strval, ok := connectorConfig.params["useplaintext"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil && val {
-			opts = append(opts, option.WithGRPCDialOption(grpc.WithInsecure()), option.WithoutAuthentication())
+			opts = append(opts,
+				option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+				option.WithoutAuthentication())
+			// TODO: Add connection string property for disabling native metrics.
+			config.DisableNativeMetrics = true
 		}
 	}
 	retryAbortsInternally := true
@@ -215,9 +223,6 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 		if val, err := strconv.ParseBool(strval); err == nil && !val {
 			retryAbortsInternally = false
 		}
-	}
-	config := spanner.ClientConfig{
-		SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 	}
 	if strval, ok := connectorConfig.params["minsessions"]; ok {
 		if val, err := strconv.ParseUint(strval, 10, 64); err == nil {

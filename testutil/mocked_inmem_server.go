@@ -17,7 +17,6 @@ package testutil
 import (
 	"encoding/base64"
 	"fmt"
-	"google.golang.org/protobuf/types/known/structpb"
 	"net"
 	"strconv"
 	"testing"
@@ -27,6 +26,8 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // SelectFooFromBar is a SELECT statement that is added to the mocked test
@@ -118,7 +119,7 @@ func (s *MockedSpannerInMemTestServer) setupMockedServerWithAddr(t *testing.T, a
 	s.Address = lis.Addr().String()
 	opts := []option.ClientOption{
 		option.WithEndpoint(s.Address),
-		option.WithGRPCDialOption(grpc.WithInsecure()),
+		option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
 		option.WithoutAuthentication(),
 	}
 	return opts
