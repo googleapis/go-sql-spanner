@@ -1109,7 +1109,7 @@ func TestQueryWithDuplicateNamedParameter(t *testing.T) {
 	defer teardown()
 
 	s := "insert into users (id, name) values (@name, @name)"
-	server.TestSpanner.PutStatementResult(s, &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult(s, &testutil.StatementResult{
 		Type:        testutil.StatementResultUpdateCount,
 		UpdateCount: 1,
 	})
@@ -1139,7 +1139,7 @@ func TestQueryWithReusedNamedParameter(t *testing.T) {
 	defer teardown()
 
 	s := "insert into users (id, name) values (@name, @name)"
-	server.TestSpanner.PutStatementResult(s, &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult(s, &testutil.StatementResult{
 		Type:        testutil.StatementResultUpdateCount,
 		UpdateCount: 1,
 	})
@@ -1169,7 +1169,7 @@ func TestQueryWithReusedPositionalParameter(t *testing.T) {
 	defer teardown()
 
 	s := "insert into users (id, name) values (@name, @name)"
-	server.TestSpanner.PutStatementResult(s, &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult(s, &testutil.StatementResult{
 		Type:        testutil.StatementResultUpdateCount,
 		UpdateCount: 1,
 	})
@@ -1199,7 +1199,7 @@ func TestQueryWithMissingPositionalParameter(t *testing.T) {
 	defer teardown()
 
 	s := "insert into users (id, name) values (@name, @name)"
-	server.TestSpanner.PutStatementResult(s, &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult(s, &testutil.StatementResult{
 		Type:        testutil.StatementResultUpdateCount,
 		UpdateCount: 1,
 	})
@@ -1229,11 +1229,11 @@ func TestDdlInAutocommit(t *testing.T) {
 	defer teardown()
 
 	var expectedResponse = &emptypb.Empty{}
-	any, _ := anypb.New(expectedResponse)
+	anyMsg, _ := anypb.New(expectedResponse)
 	server.TestDatabaseAdmin.SetResps([]proto.Message{
 		&longrunningpb.Operation{
 			Done:   true,
-			Result: &longrunningpb.Operation_Response{Response: any},
+			Result: &longrunningpb.Operation_Response{Response: anyMsg},
 			Name:   "test-operation",
 		},
 	})
@@ -1491,11 +1491,11 @@ func TestDdlBatch(t *testing.T) {
 	defer teardown()
 
 	var expectedResponse = &emptypb.Empty{}
-	any, _ := anypb.New(expectedResponse)
+	anyMsg, _ := anypb.New(expectedResponse)
 	server.TestDatabaseAdmin.SetResps([]proto.Message{
 		&longrunningpb.Operation{
 			Done:   true,
-			Result: &longrunningpb.Operation_Response{Response: any},
+			Result: &longrunningpb.Operation_Response{Response: anyMsg},
 			Name:   "test-operation",
 		},
 	})
@@ -1667,7 +1667,7 @@ func TestPartitionedDml(t *testing.T) {
 		t.Fatalf("could not set autocommit dml mode: %v", err)
 	}
 
-	server.TestSpanner.PutStatementResult("DELETE FROM Foo WHERE TRUE", &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult("DELETE FROM Foo WHERE TRUE", &testutil.StatementResult{
 		Type:        testutil.StatementResultUpdateCount,
 		UpdateCount: 200,
 	})
@@ -1721,11 +1721,11 @@ func TestAutocommitBatchDml(t *testing.T) {
 	if _, err := c.ExecContext(ctx, "START BATCH DML"); err != nil {
 		t.Fatalf("could not start a DML batch: %v", err)
 	}
-	server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (1, 'One')", &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (1, 'One')", &testutil.StatementResult{
 		Type:        testutil.StatementResultUpdateCount,
 		UpdateCount: 1,
 	})
-	server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (2, 'Two')", &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (2, 'Two')", &testutil.StatementResult{
 		Type:        testutil.StatementResultUpdateCount,
 		UpdateCount: 1,
 	})
@@ -1805,11 +1805,11 @@ func TestTransactionBatchDml(t *testing.T) {
 	if _, err := tx.ExecContext(ctx, "START BATCH DML"); err != nil {
 		t.Fatalf("could not start a DML batch: %v", err)
 	}
-	server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (1, 'One')", &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (1, 'One')", &testutil.StatementResult{
 		Type:        testutil.StatementResultUpdateCount,
 		UpdateCount: 1,
 	})
-	server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (2, 'Two')", &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (2, 'Two')", &testutil.StatementResult{
 		Type:        testutil.StatementResultUpdateCount,
 		UpdateCount: 1,
 	})
@@ -1875,7 +1875,7 @@ func TestTransactionBatchDml(t *testing.T) {
 
 	// Executing another DML statement on the same transaction now that the batch has been
 	// executed should cause the statement to be sent to Spanner.
-	server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (3, 'Three')", &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (3, 'Three')", &testutil.StatementResult{
 		Type:        testutil.StatementResultUpdateCount,
 		UpdateCount: 1,
 	})
@@ -2311,10 +2311,10 @@ func TestExcludeTxnFromChangeStreams_AutoCommitBatchDml(t *testing.T) {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
 
-	conn.ExecContext(ctx, "set exclude_txn_from_change_streams = true")
-	conn.ExecContext(ctx, "start batch dml")
-	conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
-	conn.ExecContext(ctx, "run batch")
+	_, _ = conn.ExecContext(ctx, "set exclude_txn_from_change_streams = true")
+	_, _ = conn.ExecContext(ctx, "start batch dml")
+	_, _ = conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
+	_, _ = conn.ExecContext(ctx, "run batch")
 	requests := drainRequestsFromServer(server.TestSpanner)
 	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	if g, w := len(batchRequests), 1; g != w {
@@ -2380,13 +2380,13 @@ func TestExcludeTxnFromChangeStreams_Transaction(t *testing.T) {
 	if g, w := exclude, false; g != w {
 		t.Fatalf("exclude_txn_from_change_streams mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	conn.ExecContext(ctx, "set exclude_txn_from_change_streams = true")
+	_, _ = conn.ExecContext(ctx, "set exclude_txn_from_change_streams = true")
 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
-	tx.Commit()
+	_, _ = conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
+	_ = tx.Commit()
 
 	requests := drainRequestsFromServer(server.TestSpanner)
 	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
@@ -2516,6 +2516,301 @@ func TestCannotReuseClosedConnector(t *testing.T) {
 	}
 	if !connector.closed {
 		t.Fatal("connector is not closed")
+	}
+}
+
+func TestRunTransaction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	err := RunTransaction(ctx, db, nil, func(ctx context.Context, tx *sql.Tx) error {
+		rows, err := tx.Query(testutil.SelectFooFromBar)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		// Verify that internal retries are disabled during RunTransaction
+		row := tx.QueryRow("show variable retry_aborts_internally")
+		var retry bool
+		if err := row.Scan(&retry); err != nil {
+			return err
+		}
+		if retry {
+			return fmt.Errorf("internal retries should be disabled during RunTransaction")
+		}
+
+		for want := int64(1); rows.Next(); want++ {
+			cols, err := rows.Columns()
+			if err != nil {
+				return err
+			}
+			if !cmp.Equal(cols, []string{"FOO"}) {
+				return fmt.Errorf("cols mismatch\nGot: %v\nWant: %v", cols, []string{"FOO"})
+			}
+			var got int64
+			err = rows.Scan(&got)
+			if err != nil {
+				return err
+			}
+			if got != want {
+				return fmt.Errorf("value mismatch\nGot: %v\nWant: %v", got, want)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify that internal retries are enabled again after RunTransaction
+	row := db.QueryRow("show variable retry_aborts_internally")
+	var retry bool
+	if err := row.Scan(&retry); err != nil {
+		t.Fatal(err)
+	}
+	if !retry {
+		t.Fatal("internal retries should be enabled after RunTransaction")
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if req.Transaction == nil {
+		t.Fatalf("missing transaction for ExecuteSqlRequest")
+	}
+	if req.Transaction.GetId() == nil {
+		t.Fatalf("missing id selector for ExecuteSqlRequest")
+	}
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	commitReq := commitRequests[0].(*sppb.CommitRequest)
+	if c, e := commitReq.GetTransactionId(), req.Transaction.GetId(); !cmp.Equal(c, e) {
+		t.Fatalf("transaction id mismatch\nCommit: %c\nExecute: %v", c, e)
+	}
+}
+
+func TestRunTransactionCommitAborted(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	attempts := 0
+	err := RunTransaction(ctx, db, nil, func(ctx context.Context, tx *sql.Tx) error {
+		attempts++
+		rows, err := tx.Query(testutil.SelectFooFromBar)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for want := int64(1); rows.Next(); want++ {
+			cols, err := rows.Columns()
+			if err != nil {
+				return err
+			}
+			if !cmp.Equal(cols, []string{"FOO"}) {
+				return fmt.Errorf("cols mismatch\nGot: %v\nWant: %v", cols, []string{"FOO"})
+			}
+			var got int64
+			err = rows.Scan(&got)
+			if err != nil {
+				return err
+			}
+			if got != want {
+				return fmt.Errorf("value mismatch\nGot: %v\nWant: %v", got, want)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		// Instruct the mock server to abort the transaction.
+		if attempts == 1 {
+			server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+				Errors: []error{gstatus.Error(codes.Aborted, "Aborted")},
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	// There should be two requests, as the transaction is aborted and retried.
+	if g, w := len(sqlRequests), 2; g != w {
+		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 2; g != w {
+		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	for i := 0; i < 2; i++ {
+		req := sqlRequests[i].(*sppb.ExecuteSqlRequest)
+		if req.Transaction == nil {
+			t.Fatalf("missing transaction for ExecuteSqlRequest")
+		}
+		if req.Transaction.GetId() == nil {
+			t.Fatalf("missing id selector for ExecuteSqlRequest")
+		}
+		commitReq := commitRequests[i].(*sppb.CommitRequest)
+		if c, e := commitReq.GetTransactionId(), req.Transaction.GetId(); !cmp.Equal(c, e) {
+			t.Fatalf("transaction id mismatch\nCommit: %c\nExecute: %v", c, e)
+		}
+	}
+}
+
+func TestRunTransactionQueryAborted(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	attempts := 0
+	err := RunTransaction(ctx, db, nil, func(ctx context.Context, tx *sql.Tx) error {
+		attempts++
+		// Instruct the mock server to abort the transaction.
+		if attempts == 1 {
+			server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
+				Errors: []error{gstatus.Error(codes.Aborted, "Aborted")},
+			})
+		}
+		rows, err := tx.Query(testutil.SelectFooFromBar)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for want := int64(1); rows.Next(); want++ {
+			cols, err := rows.Columns()
+			if err != nil {
+				return err
+			}
+			if !cmp.Equal(cols, []string{"FOO"}) {
+				return fmt.Errorf("cols mismatch\nGot: %v\nWant: %v", cols, []string{"FOO"})
+			}
+			var got int64
+			err = rows.Scan(&got)
+			if err != nil {
+				return err
+			}
+			if got != want {
+				return fmt.Errorf("value mismatch\nGot: %v\nWant: %v", got, want)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	// There should be two ExecuteSql requests, as the transaction is aborted and retried.
+	if g, w := len(sqlRequests), 2; g != w {
+		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	// There should be only 1 CommitRequest, as the transaction is aborted before
+	// the first commit attempt.
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := sqlRequests[1].(*sppb.ExecuteSqlRequest)
+	if req.Transaction == nil {
+		t.Fatalf("missing transaction for ExecuteSqlRequest")
+	}
+	if req.Transaction.GetId() == nil {
+		t.Fatalf("missing id selector for ExecuteSqlRequest")
+	}
+	commitReq := commitRequests[0].(*sppb.CommitRequest)
+	if c, e := commitReq.GetTransactionId(), req.Transaction.GetId(); !cmp.Equal(c, e) {
+		t.Fatalf("transaction id mismatch\nCommit: %c\nExecute: %v", c, e)
+	}
+}
+
+func TestRunTransactionQueryError(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	attempts := 0
+	err := RunTransaction(ctx, db, nil, func(ctx context.Context, tx *sql.Tx) error {
+		attempts++
+		// Instruct the mock server to abort the transaction.
+		if attempts == 1 {
+			server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
+				Errors: []error{gstatus.Error(codes.NotFound, "Table not found")},
+			})
+		}
+		rows, err := tx.Query(testutil.SelectFooFromBar)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for want := int64(1); rows.Next(); want++ {
+			cols, err := rows.Columns()
+			if err != nil {
+				return err
+			}
+			if !cmp.Equal(cols, []string{"FOO"}) {
+				return fmt.Errorf("cols mismatch\nGot: %v\nWant: %v", cols, []string{"FOO"})
+			}
+			var got int64
+			err = rows.Scan(&got)
+			if err != nil {
+				return err
+			}
+			if got != want {
+				return fmt.Errorf("value mismatch\nGot: %v\nWant: %v", got, want)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err == nil {
+		t.Fatal("missing transaction error")
+	}
+	if g, w := spanner.ErrCode(err), codes.NotFound; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	// There should be no CommitRequest, as the transaction failed
+	if g, w := len(commitRequests), 0; g != w {
+		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	// There should be a RollbackRequest, as the transaction failed.
+	rollbackRequests := requestsOfType(requests, reflect.TypeOf(&sppb.RollbackRequest{}))
+	// There should be no CommitRequest, as the transaction failed
+	if g, w := len(rollbackRequests), 1; g != w {
+		t.Fatalf("rollback requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
 }
 

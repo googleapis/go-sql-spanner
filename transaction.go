@@ -117,6 +117,9 @@ func (tx *readOnlyTransaction) BufferWrite([]*spanner.Mutation) error {
 // that was aborted by Cloud Spanner, and where the internal retry attempt
 // failed because it detected that the results during the retry were different
 // from the initial attempt.
+//
+// Use the RunTransaction function to execute a read/write transaction in a
+// retry loop. This function will never return ErrAbortedDueToConcurrentModification.
 var ErrAbortedDueToConcurrentModification = status.Error(codes.Aborted, "Transaction was aborted due to a concurrent modification")
 
 // readWriteTransaction is the internal structure for go/sql read/write

@@ -86,6 +86,38 @@ tx, err := conn.BeginTx(ctx, &sql.TxOptions{
 })
 ```
 
+## Transaction Runner (Retry Transactions)
+
+Spanner can abort a read/write transaction if concurrent modifications are detected
+that would violate the transaction consistency. When this happens, the driver will
+return the `ErrAbortedDueToConcurrentModification` error. You can use the
+`RunTransaction` function to let the driver automatically retry transactions that
+are aborted by Spanner.
+
+```go
+package sample
+
+import (
+  "context"
+  "database/sql"
+  "fmt"
+
+  _ "github.com/googleapis/go-sql-spanner"
+  spannerdriver "github.com/googleapis/go-sql-spanner"
+)
+
+spannerdriver.RunTransaction(ctx, db, &sql.TxOptions{}, func(ctx context.Context, tx *sql.Tx) error {
+    row := tx.QueryRowContext(ctx, "select Name from Singers where SingerId=@id", 123)
+    var name string
+    if err := row.Scan(&name); err != nil {
+        return err
+    }
+    return nil
+})
+```
+
+See also the [transaction runner sample](./examples/run-transaction/main.go).
+
 ## DDL Statements
 
 [DDL statements](https://cloud.google.com/spanner/docs/data-definition-language)
