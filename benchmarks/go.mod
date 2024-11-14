@@ -2,13 +2,13 @@ module github.com/googleapis/go-sql-spanner/benchmarks
 
 go 1.22.7
 
-toolchain go1.22.9
+toolchain go1.23.3
 
 replace github.com/googleapis/go-sql-spanner => ../
 
 require (
 	cloud.google.com/go v0.116.0
-	cloud.google.com/go/spanner v1.72.0
+	cloud.google.com/go/spanner v1.73.0
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/go-sql-spanner v1.7.4
 	google.golang.org/api v0.205.0
@@ -55,7 +55,7 @@ require (
 	golang.org/x/sys v0.26.0 // indirect
 	golang.org/x/text v0.19.0 // indirect
 	golang.org/x/time v0.7.0 // indirect
-	google.golang.org/genproto v0.0.0-20241104194629-dd2ea8efbc28 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20241021214115-324edc3d5d38 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20241104194629-dd2ea8efbc28 // indirect
+	google.golang.org/genproto v0.0.0-20241113202542-65e8d215514f // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20241104194629-dd2ea8efbc28 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20241113202542-65e8d215514f // indirect
 )

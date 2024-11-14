@@ -249,11 +249,7 @@ func (tx *readWriteTransaction) runWithRetry(ctx context.Context, f func(ctx con
 // retry retries the entire read/write transaction on a new Spanner transaction.
 // It will return ErrAbortedDueToConcurrentModification if the retry fails.
 func (tx *readWriteTransaction) retry(ctx context.Context) (err error) {
-	// TODO: This should use t.ResetForRetry(ctx) instead when that function is available.
-	if tx.rwTx != nil {
-		tx.rwTx.Rollback(tx.ctx)
-	}
-	tx.rwTx, err = spanner.NewReadWriteStmtBasedTransaction(ctx, tx.client)
+	tx.rwTx, err = tx.rwTx.ResetForRetry(ctx)
 	if err != nil {
 		return err
 	}
