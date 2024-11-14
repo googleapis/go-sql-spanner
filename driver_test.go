@@ -18,6 +18,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"net"
+	"reflect"
 	"testing"
 	"time"
 
@@ -422,6 +423,52 @@ func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
 	// Executing a single query during a DML batch is allowed.
 	if _, err := c.QueryContext(ctx, "SELECT * FROM Foo", []driver.NamedValue{}); err != nil {
 		t.Fatalf("executing query failed: %v", err)
+	}
+}
+
+func TestConn_GetBatchedStatements(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	c := &conn{}
+	if !reflect.DeepEqual(c.GetBatchedStatements(), []spanner.Statement{}) {
+		t.Fatal("conn should return an empty slice when no batch is active")
+	}
+	if err := c.StartBatchDDL(); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(c.GetBatchedStatements(), []spanner.Statement{}) {
+		t.Fatal("conn should return an empty slice when a batch contains no statements")
+	}
+	if _, err := c.ExecContext(ctx, "create table table1", []driver.NamedValue{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ExecContext(ctx, "create table table2", []driver.NamedValue{}); err != nil {
+		t.Fatal(err)
+	}
+	batchedStatements := c.GetBatchedStatements()
+	if !reflect.DeepEqual([]spanner.Statement{
+		{SQL: "create table table1", Params: map[string]interface{}{}},
+		{SQL: "create table table2", Params: map[string]interface{}{}},
+	}, batchedStatements) {
+		t.Errorf("unexpected batched statements: %v", batchedStatements)
+	}
+
+	// Changing the returned slice does not change the batched statements.
+	batchedStatements[0] = spanner.Statement{SQL: "drop table table1"}
+	batchedStatements2 := c.GetBatchedStatements()
+	if !reflect.DeepEqual([]spanner.Statement{
+		{SQL: "create table table1", Params: map[string]interface{}{}},
+		{SQL: "create table table2", Params: map[string]interface{}{}},
+	}, batchedStatements2) {
+		t.Errorf("unexpected batched statements: %v", batchedStatements2)
+	}
+
+	if err := c.AbortBatch(); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(c.GetBatchedStatements(), []spanner.Statement{}) {
+		t.Fatal("conn should return an empty slice when no batch is active")
 	}
 }
 
