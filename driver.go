@@ -451,7 +451,7 @@ func RunTransaction(ctx context.Context, db *sql.DB, opts *sql.TxOptions, f func
 	}
 	// Reset the flag for internal retries after the transaction (if applicable).
 	if origRetryAborts {
-		defer spannerConn.SetRetryAbortsInternally(origRetryAborts)
+		defer func() { _ = spannerConn.SetRetryAbortsInternally(origRetryAborts) }()
 	}
 
 	tx, err := conn.BeginTx(ctx, opts)
@@ -470,6 +470,10 @@ func RunTransaction(ctx context.Context, db *sql.DB, opts *sql.TxOptions, f func
 		// 1. The connection is not a Spanner connection.
 		// 2. Or the error code is not Aborted.
 		if spannerConn == nil || spanner.ErrCode(err) != codes.Aborted {
+			// We don't really need to call Rollback here if the error happened
+			// during the Commit. However, the SQL package treats this as a no-op
+			// and just returns an ErrTxDone if we do, so this is simpler than
+			// keeping track of where the error happened.
 			_ = tx.Rollback()
 			return err
 		}

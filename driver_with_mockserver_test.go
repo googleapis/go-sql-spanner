@@ -2752,15 +2752,10 @@ func TestRunTransactionQueryError(t *testing.T) {
 	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
-	attempts := 0
 	err := RunTransaction(ctx, db, nil, func(ctx context.Context, tx *sql.Tx) error {
-		attempts++
-		// Instruct the mock server to abort the transaction.
-		if attempts == 1 {
-			server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
-				Errors: []error{gstatus.Error(codes.NotFound, "Table not found")},
-			})
-		}
+		server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
+			Errors: []error{gstatus.Error(codes.NotFound, "Table not found")},
+		})
 		rows, err := tx.Query(testutil.SelectFooFromBar)
 		if err != nil {
 			return err
@@ -2808,7 +2803,75 @@ func TestRunTransactionQueryError(t *testing.T) {
 	}
 	// There should be a RollbackRequest, as the transaction failed.
 	rollbackRequests := requestsOfType(requests, reflect.TypeOf(&sppb.RollbackRequest{}))
+	if g, w := len(rollbackRequests), 1; g != w {
+		t.Fatalf("rollback requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+}
+
+func TestRunTransactionCommitError(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	err := RunTransaction(ctx, db, nil, func(ctx context.Context, tx *sql.Tx) error {
+		rows, err := tx.Query(testutil.SelectFooFromBar)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for want := int64(1); rows.Next(); want++ {
+			cols, err := rows.Columns()
+			if err != nil {
+				return err
+			}
+			if !cmp.Equal(cols, []string{"FOO"}) {
+				return fmt.Errorf("cols mismatch\nGot: %v\nWant: %v", cols, []string{"FOO"})
+			}
+			var got int64
+			err = rows.Scan(&got)
+			if err != nil {
+				return err
+			}
+			if got != want {
+				return fmt.Errorf("value mismatch\nGot: %v\nWant: %v", got, want)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		// Add an error for the Commit RPC. This will make the transaction fail,
+		// as the commit fails.
+		server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+			Errors: []error{gstatus.Error(codes.FailedPrecondition, "Unique key constraint violation")},
+		})
+		return nil
+	})
+	if err == nil {
+		t.Fatal("missing transaction error")
+	}
+	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	// There should be no CommitRequest, as the transaction failed
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	// A Rollback request should normally not be necessary, as the Commit RPC
+	// already closed the transaction. However, the Spanner client also sends
+	// a RollbackRequest if a Commit fails.
+	// TODO: Revisit once the client library has been checked whether it is really
+	//       necessary to send a Rollback after a failed Commit.
+	rollbackRequests := requestsOfType(requests, reflect.TypeOf(&sppb.RollbackRequest{}))
 	if g, w := len(rollbackRequests), 1; g != w {
 		t.Fatalf("rollback requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
