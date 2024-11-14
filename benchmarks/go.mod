@@ -2,7 +2,7 @@ module github.com/googleapis/go-sql-spanner/benchmarks
 
 go 1.22.7
 
-toolchain go1.22.9
+toolchain go1.23.3
 
 replace github.com/googleapis/go-sql-spanner => ../
 
