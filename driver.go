@@ -22,6 +22,7 @@ import (
 	"math/big"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -760,12 +761,10 @@ func (c *conn) InDMLBatch() bool {
 }
 
 func (c *conn) GetBatchedStatements() []spanner.Statement {
-	if c.batch == nil {
+	if c.batch == nil || c.batch.statements == nil {
 		return []spanner.Statement{}
 	}
-	res := make([]spanner.Statement, len(c.batch.statements))
-	copy(res, c.batch.statements)
-	return res
+	return slices.Clone(c.batch.statements)
 }
 
 func (c *conn) inBatch() bool {
