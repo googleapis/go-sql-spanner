@@ -535,6 +535,10 @@ type SpannerConn interface {
 	InDDLBatch() bool
 	// InDMLBatch returns true if the connection is currently in a DML batch.
 	InDMLBatch() bool
+	// GetBatchedStatements returns a copy of the statements that are currently
+	// buffered to be executed as a DML or DDL batch. It returns an empty slice
+	// if no batch is active, or if there are no statements buffered.
+	GetBatchedStatements() []spanner.Statement
 
 	// RetryAbortsInternally returns true if the connection automatically
 	// retries all aborted transactions.
@@ -753,6 +757,15 @@ func (c *conn) InDDLBatch() bool {
 
 func (c *conn) InDMLBatch() bool {
 	return (c.batch != nil && c.batch.tp == dml) || (c.inReadWriteTransaction() && c.tx.(*readWriteTransaction).batch != nil)
+}
+
+func (c *conn) GetBatchedStatements() []spanner.Statement {
+	if c.batch == nil {
+		return []spanner.Statement{}
+	}
+	res := make([]spanner.Statement, len(c.batch.statements))
+	copy(res, c.batch.statements)
+	return res
 }
 
 func (c *conn) inBatch() bool {
