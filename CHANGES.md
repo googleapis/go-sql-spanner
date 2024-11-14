@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.8.0](https://github.com/googleapis/go-sql-spanner/compare/v1.7.4...v1.8.0) (2024-11-14)
+
+
+### Features
+
+* Add connection property for enableEndToEndTracing ([#307](https://github.com/googleapis/go-sql-spanner/issues/307)) ([c39f57f](https://github.com/googleapis/go-sql-spanner/commit/c39f57f06cbccd7cdde1091c844a916fddc3d67b))
+* Add method for getting batched statements ([#318](https://github.com/googleapis/go-sql-spanner/issues/318)) ([03d4818](https://github.com/googleapis/go-sql-spanner/commit/03d4818582030e24fb48b96a911ef313c33d701b))
+* Add transaction runner for better transaction retries ([#315](https://github.com/googleapis/go-sql-spanner/issues/315)) ([3731176](https://github.com/googleapis/go-sql-spanner/commit/3731176c8f2aed8101a6e726c9c8a66b13525d02))
+* Expose underlying *spanner.Client ([#313](https://github.com/googleapis/go-sql-spanner/issues/313)) ([29e69c7](https://github.com/googleapis/go-sql-spanner/commit/29e69c7c4d98782c6bec45934911efdd84371f74))
+
+
+### Bug Fixes
+
+* Autoremove container in examples ([#314](https://github.com/googleapis/go-sql-spanner/issues/314)) ([51a9a54](https://github.com/googleapis/go-sql-spanner/commit/51a9a5451688f6beac876fbb73998268b8f24b56))
+* Return error when value conversion is missing ([#311](https://github.com/googleapis/go-sql-spanner/issues/311)) ([a0bc939](https://github.com/googleapis/go-sql-spanner/commit/a0bc93948f4f43b2b550cba8cf40a24043933528)), refs [#309](https://github.com/googleapis/go-sql-spanner/issues/309)
+
 ## [1.7.4](https://github.com/googleapis/go-sql-spanner/compare/v1.7.3...v1.7.4) (2024-10-16)
 
 
