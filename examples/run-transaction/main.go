@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"sync"
 
-	_ "github.com/googleapis/go-sql-spanner"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
 	"github.com/googleapis/go-sql-spanner/examples"
 )
