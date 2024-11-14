@@ -1150,27 +1150,6 @@ func (c *conn) createPartitionedDmlQueryOptions() spanner.QueryOptions {
 	return spanner.QueryOptions{ExcludeTxnFromChangeStreams: c.excludeTxnFromChangeStreams}
 }
 
-// callValuerValue is from Go's database/sql package to handle a special case,
-// in the same way that database/sql does, for nil pointers to types that implement
-// driver.Valuer with value receivers.
-
-var valuerReflectType = reflect.TypeOf((*driver.Valuer)(nil)).Elem()
-
-// callValuerValue returns vr.Value(), with one exception:
-// If vr.Value is a value receiver method on a pointer type and the pointer is nil,
-// it would panic at runtime. This treats it like nil instead.
-//
-// This is so people can implement driver.Value on value types and still use nil pointers
-// to those types to mean nil/NULL, just like the Go database/sql package.
-func callValuerValue(vr driver.Valuer) (v driver.Value, err error) {
-	if rv := reflect.ValueOf(vr); rv.Kind() == reflect.Ptr &&
-		rv.IsNil() &&
-		rv.Type().Elem().Implements(valuerReflectType) {
-		return nil, nil
-	}
-	return vr.Value()
-}
-
 /* The following is the same implementation as in google-cloud-go/spanner */
 
 func isStructOrArrayOfStructValue(v interface{}) bool {
