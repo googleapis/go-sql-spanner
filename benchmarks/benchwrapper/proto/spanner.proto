@@ -15,7 +15,7 @@
 syntax = "proto3";
 
 package spanner_bench;
-option go_package = "./spanner_bench";
+option go_package = "./proto";
 
 
 message Singer {
