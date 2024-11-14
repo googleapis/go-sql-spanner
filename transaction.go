@@ -32,6 +32,7 @@ import (
 type contextTransaction interface {
 	Commit() error
 	Rollback() error
+	resetForRetry(ctx context.Context) error
 	Query(ctx context.Context, stmt spanner.Statement) rowIterator
 	ExecContext(ctx context.Context, stmt spanner.Statement) (int64, error)
 
@@ -86,6 +87,11 @@ func (tx *readOnlyTransaction) Rollback() error {
 		tx.roTx.Close()
 	}
 	tx.close()
+	return nil
+}
+
+func (tx *readOnlyTransaction) resetForRetry(ctx context.Context) error {
+	// no-op
 	return nil
 }
 
@@ -292,6 +298,15 @@ func (tx *readWriteTransaction) Rollback() error {
 		tx.rwTx.Rollback(tx.ctx)
 	}
 	tx.close(nil, nil)
+	return nil
+}
+
+func (tx *readWriteTransaction) resetForRetry(ctx context.Context) error {
+	t, err := tx.rwTx.ResetForRetry(ctx)
+	if err != nil {
+		return err
+	}
+	tx.rwTx = t
 	return nil
 }
 
