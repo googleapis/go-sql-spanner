@@ -299,7 +299,6 @@ func findParams(positionalParamChar rune, sql string) (string, []string, error) 
 		return sql, namedParams, nil
 	}
 	sql = strings.TrimSpace(parsedSQL.String())
-	sql = strings.TrimSuffix(sql, ";")
 	return sql, namedParams, nil
 }
 
