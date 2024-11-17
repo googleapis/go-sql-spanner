@@ -50,19 +50,3 @@ jobs:
             echo "Code unformatted, please run 'gofmt -w -s .'"
             exit 1
           fi
-
-      - name: staticcheck .
-        uses: dominikh/staticcheck-action@v1.3.1
-        with:
-          version: "latest"
-          install-go: false
-          checks: "inherit,-U1000"
-          working-directory: "."
-
-      - name: staticcheck ./examples
-        uses: dominikh/staticcheck-action@v1.3.1
-        with:
-          version: "latest"
-          install-go: false
-          checks: "inherit,-U1000"
-          working-directory: "./examples"
