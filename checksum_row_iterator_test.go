@@ -196,6 +196,9 @@ func TestUpdateChecksumForNullValues(t *testing.T) {
 	enc2 := gob.NewEncoder(buffer2)
 	initial2 := new([32]byte)
 	checksum2, err := updateChecksum(enc2, buffer2, initial2, row)
+	if err != nil {
+		t.Fatalf("failed to update checksum: %v", err)
+	}
 	if *checksum != *checksum2 {
 		t.Fatalf("recalculated checksum does not match the initial calculation")
 	}

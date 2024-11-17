@@ -59,7 +59,7 @@ func dataTypes(projectId, instanceId, databaseId string) error {
 	ctx := context.Background()
 	db, err := sql.Open("spanner", fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId))
 	if err != nil {
-		return fmt.Errorf("failed to open database connection: %v\n", err)
+		return fmt.Errorf("failed to open database connection: %v", err)
 	}
 	defer db.Close()
 
@@ -75,7 +75,7 @@ func dataTypes(projectId, instanceId, databaseId string) error {
 		1, true, "string", []byte("bytes"), 100, float32(3.14), 3.14, *big.NewRat(1, 1), civil.DateOf(time.Now()), time.Now(),
 		[]bool{true, false}, []string{"s1", "s2"}, [][]byte{[]byte("b1"), []byte("b2")}, []int64{1, 2},
 		[]float32{1.1, 2.2}, []float64{1.1, 2.2}, []big.Rat{*big.NewRat(1, 2), *big.NewRat(1, 3)},
-		[]civil.Date{{2021, 10, 12}, {2021, 10, 13}},
+		[]civil.Date{{Year: 2021, Month: 10, Day: 12}, {Year: 2021, Month: 10, Day: 13}},
 		[]time.Time{time.Now(), time.Now().Add(24 * time.Hour)}); err != nil {
 		return fmt.Errorf("failed to insert a record with all non-null values using DML: %v", err)
 	}

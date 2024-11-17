@@ -56,6 +56,29 @@ var (
 	}
 )
 
+var random struct {
+	mu   sync.Mutex
+	rand *rand.Rand
+}
+
+func init() { random.rand = rand.New(rand.NewSource(time.Now().UnixNano())) }
+
+func randBytes(n int) []byte {
+	random.mu.Lock()
+	defer random.mu.Unlock()
+
+	data := make([]byte, n)
+	_, _ = random.rand.Read(data)
+	return data
+}
+
+func randDuration(max time.Duration) time.Duration {
+	random.mu.Lock()
+	defer random.mu.Unlock()
+
+	return time.Duration(random.rand.Int63n(int64(max)))
+}
+
 // StatementResultType indicates the type of result returned by a SQL
 // statement.
 type StatementResultType int
@@ -658,14 +681,14 @@ func (s *inMemSpannerServer) simulateExecutionTime(method string, req interface{
 	executionTime, ok := s.executionTimes[method]
 	s.mu.Unlock()
 	if ok {
-		var randTime int64
+		var randTime time.Duration
 		if executionTime.RandomExecutionTime > 0 {
-			randTime = rand.Int63n(int64(executionTime.RandomExecutionTime))
+			randTime = randDuration(executionTime.RandomExecutionTime)
 		}
-		totalExecutionTime := time.Duration(int64(executionTime.MinimumExecutionTime) + randTime)
+		totalExecutionTime := executionTime.MinimumExecutionTime + randTime
 		<-time.After(totalExecutionTime)
 		s.mu.Lock()
-		if executionTime.Errors != nil && len(executionTime.Errors) > 0 {
+		if len(executionTime.Errors) > 0 {
 			err := executionTime.Errors[0]
 			if !executionTime.KeepError {
 				executionTime.Errors = executionTime.Errors[1:]
@@ -1105,12 +1128,10 @@ func (s *inMemSpannerServer) PartitionQuery(ctx context.Context, req *spannerpb.
 	}
 	var partitions []*spannerpb.Partition
 	for i := int64(0); i < req.PartitionOptions.MaxPartitions; i++ {
-		token := make([]byte, 10)
-		_, err := rand.Read(token)
 		if err != nil {
 			return nil, gstatus.Error(codes.Internal, "failed to generate random partition token")
 		}
-		partitions = append(partitions, &spannerpb.Partition{PartitionToken: token})
+		partitions = append(partitions, &spannerpb.Partition{PartitionToken: randBytes(10)})
 	}
 	return &spannerpb.PartitionResponse{
 		Partitions:  partitions,

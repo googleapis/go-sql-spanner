@@ -20,7 +20,6 @@ import (
 	"fmt"
 
 	"cloud.google.com/go/spanner"
-	_ "github.com/googleapis/go-sql-spanner"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
 	"github.com/googleapis/go-sql-spanner/examples"
 )
@@ -30,7 +29,7 @@ func underlyingClient(projectId, instanceId, databaseId string) error {
 	ctx := context.Background()
 	db, err := sql.Open("spanner", fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId))
 	if err != nil {
-		return fmt.Errorf("failed to open database connection: %v\n", err)
+		return fmt.Errorf("failed to open database connection: %v", err)
 	}
 	defer db.Close()
 

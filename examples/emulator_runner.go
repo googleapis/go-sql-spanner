@@ -100,7 +100,7 @@ func startEmulator() error {
 		return err
 	}
 	containerId = resp.ID
-	if err := cli.ContainerStart(ctx, containerId, types.ContainerStartOptions{}); err != nil {
+	if err := cli.ContainerStart(ctx, containerId, container.StartOptions{}); err != nil {
 		return err
 	}
 	// Wait max 10 seconds or until the emulator is running.

@@ -1502,6 +1502,9 @@ func TestDdlBatch(t *testing.T) {
 
 	statements := []string{"CREATE TABLE FOO", "CREATE TABLE BAR"}
 	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer conn.Close()
 
 	if _, err = conn.ExecContext(ctx, "START BATCH DDL"); err != nil {
@@ -1543,6 +1546,9 @@ func TestAbortDdlBatch(t *testing.T) {
 
 	statements := []string{"CREATE TABLE FOO", "CREATE TABLE BAR"}
 	c, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer c.Close()
 
 	if _, err = c.ExecContext(ctx, "START BATCH DDL"); err != nil {
@@ -1912,7 +1918,11 @@ func TestCommitTimestamp(t *testing.T) {
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
@@ -1947,7 +1957,11 @@ func TestCommitTimestampAutocommit(t *testing.T) {
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
@@ -1978,7 +1992,11 @@ func TestCommitTimestampFailsAfterRollback(t *testing.T) {
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
@@ -2007,7 +2025,11 @@ func TestCommitTimestampFailsAfterAutocommitQuery(t *testing.T) {
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
@@ -2034,7 +2056,11 @@ func TestShowVariableCommitTimestamp(t *testing.T) {
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
@@ -2199,7 +2225,8 @@ func TestStressClientReuse(t *testing.T) {
 	_, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
-	rand.Seed(time.Now().UnixNano())
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+
 	numSessions := 10
 	numClients := 5
 	numParallel := 50
@@ -2215,6 +2242,8 @@ func TestStressClientReuse(t *testing.T) {
 		}
 		// Execute random operations in parallel on the database.
 		for i := 0; i < numParallel; i++ {
+			doUpdate := rng.Int()%2 == 0
+
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -2222,7 +2251,7 @@ func TestStressClientReuse(t *testing.T) {
 				if err != nil {
 					t.Errorf("failed to get a connection: %v", err)
 				}
-				if rand.Int()%2 == 0 {
+				if doUpdate {
 					if _, err := conn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
 						t.Errorf("failed to execute update on connection: %v", err)
 					}
@@ -2262,7 +2291,11 @@ func TestExcludeTxnFromChangeStreams_AutoCommitUpdate(t *testing.T) {
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
@@ -2306,7 +2339,11 @@ func TestExcludeTxnFromChangeStreams_AutoCommitBatchDml(t *testing.T) {
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
@@ -2341,7 +2378,11 @@ func TestExcludeTxnFromChangeStreams_PartitionedDml(t *testing.T) {
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
@@ -2368,7 +2409,11 @@ func TestExcludeTxnFromChangeStreams_Transaction(t *testing.T) {
 	defer teardown()
 
 	conn, err := db.Conn(ctx)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}

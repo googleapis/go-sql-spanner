@@ -19,7 +19,6 @@ import (
 	"database/sql"
 	"fmt"
 
-	_ "github.com/googleapis/go-sql-spanner"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
 	"github.com/googleapis/go-sql-spanner/examples"
 )
@@ -59,9 +58,15 @@ func dmlBatch(projectId, instanceId, databaseId string) error {
 	}
 	// Insert a number of DML statements on the transaction. These statements will be buffered locally in the
 	// transaction and will only be sent to Spanner once RUN BATCH is executed.
-	_, err = tx.ExecContext(ctx, "INSERT INTO Singers (SingerId, Name) VALUES (@id, @name)", 1, "Singer 1")
-	_, err = tx.ExecContext(ctx, "INSERT INTO Singers (SingerId, Name) VALUES (@id, @name)", 2, "Singer 2")
-	_, err = tx.ExecContext(ctx, "INSERT INTO Singers (SingerId, Name) VALUES (@id, @name)", 3, "Singer 3")
+	if _, err := tx.ExecContext(ctx, "INSERT INTO Singers (SingerId, Name) VALUES (@id, @name)", 1, "Singer 1"); err != nil {
+		return fmt.Errorf("failed to insert: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO Singers (SingerId, Name) VALUES (@id, @name)", 2, "Singer 2"); err != nil {
+		return fmt.Errorf("failed to insert: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO Singers (SingerId, Name) VALUES (@id, @name)", 3, "Singer 3"); err != nil {
+		return fmt.Errorf("failed to insert: %v", err)
+	}
 	// Run the active DML batch.
 	if _, err := tx.ExecContext(ctx, "RUN BATCH"); err != nil {
 		return fmt.Errorf("failed to execute RUN BATCH: %v", err)
@@ -90,9 +95,15 @@ func dmlBatch(projectId, instanceId, databaseId string) error {
 		return fmt.Errorf("failed to start DML batch: %v", err)
 	}
 	// Note that we execute the DML statements on the connection that started the DML batch.
-	_, err = conn.ExecContext(ctx, "INSERT INTO Singers (SingerId, Name) VALUES (@id, @name)", 4, "Singer 4")
-	_, err = conn.ExecContext(ctx, "INSERT INTO Singers (SingerId, Name) VALUES (@id, @name)", 5, "Singer 5")
-	_, err = conn.ExecContext(ctx, "INSERT INTO Singers (SingerId, Name) VALUES (@id, @name)", 6, "Singer 6")
+	if _, err := conn.ExecContext(ctx, "INSERT INTO Singers (SingerId, Name) VALUES (@id, @name)", 4, "Singer 4"); err != nil {
+		return fmt.Errorf("failed to insert: %v", err)
+	}
+	if _, err := conn.ExecContext(ctx, "INSERT INTO Singers (SingerId, Name) VALUES (@id, @name)", 5, "Singer 5"); err != nil {
+		return fmt.Errorf("failed to insert: %v", err)
+	}
+	if _, err := conn.ExecContext(ctx, "INSERT INTO Singers (SingerId, Name) VALUES (@id, @name)", 6, "Singer 6"); err != nil {
+		return fmt.Errorf("failed to insert: %v", err)
+	}
 	// Run the batch. This will apply all the batched DML statements to the database in one atomic operation.
 	if err := conn.Raw(func(driverConn interface{}) error {
 		return driverConn.(spannerdriver.SpannerConn).RunBatch(ctx)

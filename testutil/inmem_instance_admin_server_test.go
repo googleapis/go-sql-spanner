@@ -27,6 +27,7 @@ import (
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -48,7 +49,7 @@ func setupInstanceAdminServer() {
 	}
 	go serv.Serve(lis)
 
-	conn, err := grpc.Dial(lis.Addr().String(), grpc.WithInsecure())
+	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -69,8 +70,8 @@ func TestInstanceAdminGetInstance(t *testing.T) {
 
 	mockInstanceAdmin.SetResps(append(mockInstanceAdmin.Resps()[:0], expectedResponse))
 
-	var formattedName string = fmt.Sprintf("projects/%s/instances/%s", "[PROJECT]", "[INSTANCE]")
-	var request = &instancepb.GetInstanceRequest{
+	formattedName := fmt.Sprintf("projects/%s/instances/%s", "[PROJECT]", "[INSTANCE]")
+	request := &instancepb.GetInstanceRequest{
 		Name: formattedName,
 	}
 
