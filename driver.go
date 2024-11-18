@@ -282,6 +282,11 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 			config.EnableEndToEndTracing = val
 		}
 	}
+	if strval, ok := connectorConfig.params["disablenativemetrics"]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			config.DisableNativeMetrics = val
+		}
+	}
 	config.UserAgent = userAgent
 
 	c := &connector{
