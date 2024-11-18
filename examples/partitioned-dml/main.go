@@ -43,6 +43,7 @@ func partitionedDml(projectId, instanceId, databaseId string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get a connection: %v", err)
 	}
+	defer conn.Close()
 	if err := conn.Raw(func(driverConn interface{}) error {
 		_, err := driverConn.(spannerdriver.SpannerConn).Apply(ctx, []*spanner.Mutation{
 			spanner.InsertOrUpdateMap("Singers", map[string]interface{}{"SingerId": 1, "Name": "Singer 1"}),

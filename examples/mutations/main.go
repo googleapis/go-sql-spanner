@@ -44,6 +44,7 @@ func mutations(projectId, instanceId, databaseId string) error {
 	if err != nil {
 		return err
 	}
+	defer conn.Close()
 
 	// Mutations can be written outside an explicit transaction using SpannerConn#Apply.
 	var commitTimestamp time.Time
