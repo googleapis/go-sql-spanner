@@ -158,7 +158,7 @@ func TestExtractDnsParts(t *testing.T) {
 			},
 		},
 		{
-			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?minSessions=200;maxSessions=1000;numChannels=10;disableRouteToLeader=true;enableEndToEndTracing=true;rpcPriority=Medium;optimizerVersion=1;optimizerStatisticsPackage=latest;databaseRole=child",
+			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?minSessions=200;maxSessions=1000;numChannels=10;disableRouteToLeader=true;enableEndToEndTracing=true;disableNativeMetrics=true;rpcPriority=Medium;optimizerVersion=1;optimizerStatisticsPackage=latest;databaseRole=child",
 			wantConnectorConfig: connectorConfig{
 				host:     "spanner.googleapis.com",
 				project:  "p",
@@ -170,6 +170,7 @@ func TestExtractDnsParts(t *testing.T) {
 					"numchannels":                "10",
 					"disableroutetoleader":       "true",
 					"enableendtoendtracing":      "true",
+					"disablenativemetrics":       "true",
 					"rpcpriority":                "Medium",
 					"optimizerversion":           "1",
 					"optimizerstatisticspackage": "latest",
@@ -191,6 +192,7 @@ func TestExtractDnsParts(t *testing.T) {
 				UserAgent:             userAgent,
 				DisableRouteToLeader:  true,
 				EnableEndToEndTracing: true,
+				DisableNativeMetrics:  true,
 				QueryOptions:          spanner.QueryOptions{Priority: spannerpb.RequestOptions_PRIORITY_MEDIUM, Options: &spannerpb.ExecuteSqlRequest_QueryOptions{OptimizerVersion: "1", OptimizerStatisticsPackage: "latest"}},
 				ReadOptions:           spanner.ReadOptions{Priority: spannerpb.RequestOptions_PRIORITY_MEDIUM},
 				TransactionOptions:    spanner.TransactionOptions{CommitPriority: spannerpb.RequestOptions_PRIORITY_MEDIUM},
