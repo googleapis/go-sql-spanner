@@ -50,6 +50,7 @@ func ddlBatches(projectId, instanceId, databaseId string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get connection: %v", err)
 	}
+	defer conn.Close()
 	// Start a DDL batch on the connection.
 	if _, err := conn.ExecContext(ctx, "START BATCH DDL"); err != nil {
 		return fmt.Errorf("START BATCH DDL failed: %v", err)

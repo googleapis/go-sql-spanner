@@ -65,6 +65,7 @@ func staleReads(projectId, instanceId, databaseId string) error {
 	if err != nil {
 		return err
 	}
+	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, fmt.Sprintf("SET READ_ONLY_STALENESS='READ_TIMESTAMP %s'", t.Format(time.RFC3339Nano))); err != nil {
 		return err
 	}

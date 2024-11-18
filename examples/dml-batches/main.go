@@ -89,6 +89,7 @@ func dmlBatch(projectId, instanceId, databaseId string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get connection: %v", err)
 	}
+	defer conn.Close()
 	if err := conn.Raw(func(driverConn interface{}) error {
 		return driverConn.(spannerdriver.SpannerConn).StartBatchDML()
 	}); err != nil {
