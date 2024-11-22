@@ -62,3 +62,7 @@ jobs:
       - name: staticcheck ./examples
         working-directory: ./examples
         run: staticcheck -checks "inherit,-U1000" ./...
+
+      - name: staticcheck ./benchmarks
+        working-directory: ./benchmarks
+        run: staticcheck -checks "inherit,-U1000" ./...
