@@ -6,13 +6,13 @@ toolchain go1.23.3
 
 require (
 	cloud.google.com/go v0.116.0
-	cloud.google.com/go/longrunning v0.6.2
+	cloud.google.com/go/longrunning v0.6.3
 	cloud.google.com/go/spanner v1.73.0
 	github.com/golang/protobuf v1.5.4
 	github.com/google/go-cmp v0.6.0
 	github.com/googleapis/gax-go/v2 v2.14.0
-	google.golang.org/api v0.206.0
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20241113202542-65e8d215514f
+	google.golang.org/api v0.209.0
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20241118233622-e639e219e697
 	google.golang.org/grpc v1.68.0
 	google.golang.org/protobuf v1.35.2
 )
