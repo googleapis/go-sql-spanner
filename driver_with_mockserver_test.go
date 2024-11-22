@@ -2922,6 +2922,78 @@ func TestRunTransactionCommitError(t *testing.T) {
 	}
 }
 
+func TestTransactionWithLevelDisableRetryAborts(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: WithDisableRetryAborts(sql.LevelSerializable)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := tx.Query(testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for want := int64(1); rows.Next(); want++ {
+		cols, err := rows.Columns()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !cmp.Equal(cols, []string{"FOO"}) {
+			t.Fatalf("cols mismatch\nGot: %v\nWant: %v", cols, []string{"FOO"})
+		}
+		var got int64
+		err = rows.Scan(&got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("value mismatch\nGot: %v\nWant: %v", got, want)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate that the transaction was aborted.
+	server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+		Errors: []error{gstatus.Error(codes.Aborted, "Aborted")},
+	})
+	// Committing the transaction should fail, as we have disabled internal retries.
+	err = tx.Commit()
+	if err == nil {
+		t.Fatal("missing aborted error after commit")
+	}
+	code := spanner.ErrCode(err)
+	if w, g := code, codes.Aborted; w != g {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if req.Transaction == nil {
+		t.Fatalf("missing transaction for ExecuteSqlRequest")
+	}
+	if req.Transaction.GetId() == nil {
+		t.Fatalf("missing id selector for ExecuteSqlRequest")
+	}
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	commitReq := commitRequests[0].(*sppb.CommitRequest)
+	if c, e := commitReq.GetTransactionId(), req.Transaction.GetId(); !cmp.Equal(c, e) {
+		t.Fatalf("transaction id mismatch\nCommit: %c\nExecute: %v", c, e)
+	}
+}
+
 func numeric(v string) big.Rat {
 	res, _ := big.NewRat(1, 1).SetString(v)
 	return *res

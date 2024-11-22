@@ -1216,6 +1216,20 @@ func (c *conn) resetTransactionForRetry(ctx context.Context, errDuringCommit boo
 	return c.tx.resetForRetry(ctx)
 }
 
+type spannerIsolationLevel sql.IsolationLevel
+
+const (
+	levelNone spannerIsolationLevel = iota
+	levelDisableRetryAborts
+)
+
+// WithDisableRetryAborts returns a specific Spanner isolation level that contains
+// both the given standard isolation level and a custom Spanner isolation level that
+// disables internal retries for aborted transactions for a single transaction.
+func WithDisableRetryAborts(level sql.IsolationLevel) sql.IsolationLevel {
+	return sql.IsolationLevel(levelDisableRetryAborts)<<8 + level
+}
+
 func (c *conn) Begin() (driver.Tx, error) {
 	return c.BeginTx(context.Background(), driver.TxOptions{})
 }
@@ -1230,6 +1244,15 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 	}
 	if c.inBatch() {
 		return nil, status.Error(codes.FailedPrecondition, "This connection has an active batch. Run or abort the batch before starting a new transaction.")
+	}
+	disableRetryAborts := false
+	sil := opts.Isolation >> 8
+	opts.Isolation = opts.Isolation - sil
+	if sil > 0 {
+		switch spannerIsolationLevel(sil) {
+		case levelDisableRetryAborts:
+			disableRetryAborts = true
+		}
 	}
 
 	if opts.ReadOnly {
@@ -1259,7 +1282,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 				c.commitTs = commitTs
 			}
 		},
-		retryAborts: c.retryAborts,
+		retryAborts: c.retryAborts && !disableRetryAborts,
 	}
 	c.commitTs = nil
 	return c.tx, nil
