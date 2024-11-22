@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.9.0](https://github.com/googleapis/go-sql-spanner/compare/v1.8.0...v1.9.0) (2024-11-22)
+
+
+### Features
+
+* **.github:** Add staticcheck ([#326](https://github.com/googleapis/go-sql-spanner/issues/326)) ([9d4f987](https://github.com/googleapis/go-sql-spanner/commit/9d4f98704e44554cf3d155b87a44051844dea578))
+* Add isolation level option for disabling internal retries ([#327](https://github.com/googleapis/go-sql-spanner/issues/327)) ([118a177](https://github.com/googleapis/go-sql-spanner/commit/118a177855fcc7a14a95e357e1e92c8279c0d0a7))
+* Add option for disabling native metrics ([#323](https://github.com/googleapis/go-sql-spanner/issues/323)) ([3c45d27](https://github.com/googleapis/go-sql-spanner/commit/3c45d2748213d9a571952f847b45b2843f1b5a29)), refs [#310](https://github.com/googleapis/go-sql-spanner/issues/310)
+
+
+### Bug Fixes
+
+* **benchmarks:** Staticcheck errors ([#325](https://github.com/googleapis/go-sql-spanner/issues/325)) ([0ed841e](https://github.com/googleapis/go-sql-spanner/commit/0ed841e037dce1c160e2e8058647f0d615a911d3))
+
+
+### Performance Improvements
+
+* Use resetForRetry for retrying aborted transactions ([#319](https://github.com/googleapis/go-sql-spanner/issues/319)) ([1ceb9ee](https://github.com/googleapis/go-sql-spanner/commit/1ceb9ee4a780b51e0fa9889719d4e67245ccb825))
+
+
+### Documentation
+
+* Add missing conn.Close() calls ([#324](https://github.com/googleapis/go-sql-spanner/issues/324)) ([b4803a6](https://github.com/googleapis/go-sql-spanner/commit/b4803a6488b11b7216e2f4c541eadbd99e53cce2))
+
 ## [1.8.0](https://github.com/googleapis/go-sql-spanner/compare/v1.7.4...v1.8.0) (2024-11-14)
 
 
