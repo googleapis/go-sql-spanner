@@ -245,12 +245,6 @@ func skipIfShort(t *testing.T) {
 	}
 }
 
-func skipIfEmulator(t *testing.T, msg string) {
-	if runsOnEmulator() {
-		t.Skip(msg)
-	}
-}
-
 func TestQueryContext(t *testing.T) {
 	skipIfShort(t)
 	t.Parallel()

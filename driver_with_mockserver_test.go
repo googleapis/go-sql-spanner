@@ -3011,13 +3011,6 @@ func date(v string) civil.Date {
 	return res
 }
 
-func nullDate(valid bool, v string) spanner.NullDate {
-	if !valid {
-		return spanner.NullDate{}
-	}
-	return spanner.NullDate{Valid: true, Date: date(v)}
-}
-
 func nullJson(valid bool, v string) spanner.NullJSON {
 	if !valid {
 		return spanner.NullJSON{}

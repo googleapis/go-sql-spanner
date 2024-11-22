@@ -336,8 +336,7 @@ type clientSideStatement struct {
 	ResultType                    string `json:"resultType"`
 	Regex                         string `json:"regex"`
 	regexp                        *regexp.Regexp
-	MethodName                    string `json:"method"`
-	method                        func(query string) error
+	MethodName                    string   `json:"method"`
 	ExampleStatements             []string `json:"exampleStatements"`
 	ExamplePrerequisiteStatements []string `json:"examplePrerequisiteStatements"`
 
