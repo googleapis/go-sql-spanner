@@ -30,8 +30,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-var ddlStatements = map[string]bool{"CREATE": true, "DROP": true, "ALTER": true}
-var selectStatements = map[string]bool{"SELECT": true, "WITH": true}
+var ddlStatements = map[string]bool{"CREATE": true, "DROP": true, "ALTER": true, "ANALYZE": true, "GRANT": true, "REVOKE": true, "RENAME": true}
+var selectStatements = map[string]bool{"SELECT": true, "WITH": true, "GRAPH": true, "FROM": true}
 var dmlStatements = map[string]bool{"INSERT": true, "UPDATE": true, "DELETE": true}
 var selectAndDmlStatements = union(selectStatements, dmlStatements)
 
