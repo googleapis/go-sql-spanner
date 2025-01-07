@@ -381,6 +381,14 @@ func TestRemoveStatementHint(t *testing.T) {
 			want:  `SELECT * FROM PersonsTable`,
 		},
 		{
+			input: `@{JOIN_METHOD=HASH_JOIN} FROM Produce |> WHERE item != 'bananas'`,
+			want:  `FROM Produce |> WHERE item != 'bananas'`,
+		},
+		{
+			input: `@{JOIN_METHOD=HASH_JOIN} GRAPH FinGraph MATCH (n) RETURN LABELS(n) AS label, n.id`,
+			want:  `GRAPH FinGraph MATCH (n) RETURN LABELS(n) AS label, n.id`,
+		},
+		{
 			input: `@ {JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable`,
 			want:  `SELECT * FROM PersonsTable`,
 		},
@@ -840,6 +848,26 @@ func TestIsDdl(t *testing.T) {
 			name:  "input with only spaces",
 			input: "    \t\n  ",
 			want:  false,
+		},
+		{
+			name:  "analyze",
+			input: `analyze`,
+			want:  true,
+		},
+		{
+			name:  "grant",
+			input: `GRANT SELECT ON TABLE employees TO ROLE hr_rep;`,
+			want:  true,
+		},
+		{
+			name:  "revoke",
+			input: `REVOKE SELECT ON TABLE employees TO ROLE hr_rep;`,
+			want:  true,
+		},
+		{
+			name:  "rename",
+			input: `rename table foo to bar`,
+			want:  true,
 		},
 	}
 
