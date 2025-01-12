@@ -73,9 +73,11 @@ const userAgent = "go-sql-spanner/1.0.2"
 var dsnRegExp = regexp.MustCompile(`((?P<HOSTGROUP>[\w.-]+(?:\.[\w\.-]+)*[\w\-\._~:/?#\[\]@!\$&'\(\)\*\+,;=.]+)/)?projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID)))(/instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+)(/databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?)?(([\?|;])(?P<PARAMSGROUP>.*))?`)
 
 var _ driver.DriverContext = &Driver{}
+var spannerDriver *Driver
 
 func init() {
-	sql.Register("spanner", &Driver{connectors: make(map[string]*connector)})
+	spannerDriver = &Driver{connectors: make(map[string]*connector)}
+	sql.Register("spanner", spannerDriver)
 }
 
 // Driver represents a Google Cloud Spanner database/sql driver.
@@ -89,7 +91,7 @@ type Driver struct {
 //
 // Example: projects/$PROJECT/instances/$INSTANCE/databases/$DATABASE
 func (d *Driver) Open(name string) (driver.Conn, error) {
-	c, err := newConnector(d, name)
+	c, err := newConnector(d, name, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +99,20 @@ func (d *Driver) Open(name string) (driver.Conn, error) {
 }
 
 func (d *Driver) OpenConnector(name string) (driver.Connector, error) {
-	return newConnector(d, name)
+	return newConnector(d, name, nil)
+}
+
+// CreateConnector creates a new driver.Connector for Spanner.
+// A driver.Connector represents a fixed configuration for Spanner and can create
+// any number of equivalent connections for use by multiple goroutines by passing
+// the driver.Connector in to the function sql.OpenDB.
+//
+// Use this method if you want to supply custom configuration for your Spanner
+// connections, and cache the connector that is returned in your application.
+// The same connector should be used to create all connections that should share
+// the same configuration and underlying Spanner client.
+func CreateConnector(dsn string, configurator func(config *spanner.ClientConfig, opts *[]option.ClientOption)) (driver.Connector, error) {
+	return newConnector(spannerDriver, dsn, configurator)
 }
 
 type connectorConfig struct {
@@ -184,7 +199,7 @@ type connector struct {
 	connCount      int32
 }
 
-func newConnector(d *Driver, dsn string) (*connector, error) {
+func newConnector(d *Driver, dsn string, configurator func(config *spanner.ClientConfig, opts *[]option.ClientOption)) (*connector, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.connectors == nil {
@@ -288,6 +303,9 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 		}
 	}
 	config.UserAgent = userAgent
+	if configurator != nil {
+		configurator(&config, &opts)
+	}
 
 	c := &connector{
 		driver:                d,

@@ -16,7 +16,9 @@ package spannerdriver
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
+	"fmt"
 	"net"
 	"reflect"
 	"testing"
@@ -26,6 +28,7 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 )
 
@@ -220,7 +223,7 @@ func TestExtractDnsParts(t *testing.T) {
 				if diff := cmp.Diff(config, tc.wantConnectorConfig, cmp.AllowUnexported(connectorConfig{})); diff != "" {
 					t.Errorf("connector config mismatch for %q\n%v", tc.input, diff)
 				}
-				conn, err := newConnector(&Driver{connectors: make(map[string]*connector)}, tc.input)
+				conn, err := newConnector(&Driver{connectors: make(map[string]*connector)}, tc.input, nil)
 				if err != nil {
 					t.Errorf("failed to get connector for %q: %v", tc.input, err)
 				}
@@ -231,6 +234,20 @@ func TestExtractDnsParts(t *testing.T) {
 		})
 	}
 
+}
+
+func ExampleCreateConnector() {
+	dsn := "projects/my-project/instances/my-instance/databases/my-database"
+	configurator := func(config *spanner.ClientConfig, opts *[]option.ClientOption) {
+		config.DisableRouteToLeader = true
+	}
+	c, err := CreateConnector(dsn, configurator)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	db := sql.OpenDB(c)
+	defer db.Close()
 }
 
 func TestConnection_Reset(t *testing.T) {

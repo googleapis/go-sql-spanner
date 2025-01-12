@@ -37,6 +37,8 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -2994,6 +2996,66 @@ func TestTransactionWithLevelDisableRetryAborts(t *testing.T) {
 	}
 }
 
+func TestCustomClientConfig(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	mu := sync.Mutex{}
+	mu.Lock()
+	interceptorInvoked := false
+	routeToLeaderHeaderFound := false
+	mu.Unlock()
+	db, server, teardown := setupTestDBConnectionWithConfigurator(t, "", func(config *spanner.ClientConfig, opts *[]option.ClientOption) {
+		config.QueryOptions = spanner.QueryOptions{Options: &sppb.ExecuteSqlRequest_QueryOptions{OptimizerVersion: "1"}}
+		config.DisableRouteToLeader = true
+
+		dopt := grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+			mu.Lock()
+			defer mu.Unlock()
+			interceptorInvoked = true
+			md, ok := metadata.FromOutgoingContext(ctx)
+			if !ok {
+				t.Fatalf("missing metadata for method %q", method)
+			}
+			if md.Get("x-goog-spanner-route-to-leader") != nil {
+				routeToLeaderHeaderFound = true
+			}
+			return invoker(ctx, method, req, reply, cc, opts...)
+		})
+		*opts = append(*opts, option.WithGRPCDialOption(dopt))
+	})
+	defer teardown()
+	rows, err := db.QueryContext(ctx, testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	rows.Next()
+	if rows.Err() != nil {
+		t.Fatal(rows.Err())
+	}
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := req.QueryOptions.OptimizerVersion, "1"; g != w {
+		t.Errorf("query optimizer version mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !interceptorInvoked {
+		t.Errorf("interceptor was not invoked")
+	}
+
+	if routeToLeaderHeaderFound {
+		t.Errorf("disabling route-to-leader did not work")
+	}
+}
+
 func numeric(v string) big.Rat {
 	res, _ := big.NewRat(1, 1).SetString(v)
 	return *res
@@ -3040,6 +3102,21 @@ func setupTestDBConnectionWithParams(t *testing.T, params string) (db *sql.DB, s
 		serverTeardown()
 		t.Fatal(err)
 	}
+	return db, server, func() {
+		_ = db.Close()
+		serverTeardown()
+	}
+}
+
+func setupTestDBConnectionWithConfigurator(t *testing.T, params string, configurator func(config *spanner.ClientConfig, opts *[]option.ClientOption)) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+	server, _, serverTeardown := setupMockedTestServer(t)
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;%s", server.Address, params)
+	c, err := CreateConnector(dsn, configurator)
+	if err != nil {
+		serverTeardown()
+		t.Fatal(err)
+	}
+	db = sql.OpenDB(c)
 	return db, server, func() {
 		_ = db.Close()
 		serverTeardown()
