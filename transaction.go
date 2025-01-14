@@ -33,10 +33,10 @@ type contextTransaction interface {
 	Commit() error
 	Rollback() error
 	resetForRetry(ctx context.Context) error
-	Query(ctx context.Context, stmt spanner.Statement) rowIterator
-	ExecContext(ctx context.Context, stmt spanner.Statement) (int64, error)
+	Query(ctx context.Context, stmt spanner.Statement, options spanner.QueryOptions) rowIterator
+	ExecContext(ctx context.Context, stmt spanner.Statement, options spanner.QueryOptions) (int64, error)
 
-	StartBatchDML() (driver.Result, error)
+	StartBatchDML(options spanner.QueryOptions) (driver.Result, error)
 	RunBatch(ctx context.Context) (driver.Result, error)
 	AbortBatch() (driver.Result, error)
 
@@ -95,15 +95,15 @@ func (tx *readOnlyTransaction) resetForRetry(ctx context.Context) error {
 	return nil
 }
 
-func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement) rowIterator {
-	return &readOnlyRowIterator{tx.roTx.Query(ctx, stmt)}
+func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement, options spanner.QueryOptions) rowIterator {
+	return &readOnlyRowIterator{tx.roTx.QueryWithOptions(ctx, stmt, options)}
 }
 
-func (tx *readOnlyTransaction) ExecContext(_ context.Context, stmt spanner.Statement) (int64, error) {
+func (tx *readOnlyTransaction) ExecContext(_ context.Context, _ spanner.Statement, _ spanner.QueryOptions) (int64, error) {
 	return 0, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
-func (tx *readOnlyTransaction) StartBatchDML() (driver.Result, error) {
+func (tx *readOnlyTransaction) StartBatchDML(_ spanner.QueryOptions) (driver.Result, error) {
 	return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
@@ -175,7 +175,8 @@ type retriableStatement interface {
 // retriableUpdate implements retriableStatement for update statements.
 type retriableUpdate struct {
 	// stmt is the statement that was executed on Spanner.
-	stmt spanner.Statement
+	stmt    spanner.Statement
+	options spanner.QueryOptions
 	// c is the record count that was returned by Spanner.
 	c int64
 	// err is the error that was returned by Spanner.
@@ -186,7 +187,7 @@ type retriableUpdate struct {
 // of the statement during the retry is equal to the result during the initial
 // attempt.
 func (ru *retriableUpdate) retry(ctx context.Context, tx *spanner.ReadWriteStmtBasedTransaction) error {
-	c, err := tx.Update(ctx, ru.stmt)
+	c, err := tx.UpdateWithOptions(ctx, ru.stmt, ru.options)
 	if err != nil && spanner.ErrCode(err) == codes.Aborted {
 		return err
 	}
@@ -203,6 +204,7 @@ func (ru *retriableUpdate) retry(ctx context.Context, tx *spanner.ReadWriteStmtB
 type retriableBatchUpdate struct {
 	// statements are the statement that were executed on Spanner.
 	statements []spanner.Statement
+	options    spanner.QueryOptions
 	// c is the record counts that were returned by Spanner.
 	c []int64
 	// err is the error that was returned by Spanner.
@@ -213,7 +215,7 @@ type retriableBatchUpdate struct {
 // of the statement during the retry is equal to the result during the initial
 // attempt.
 func (ru *retriableBatchUpdate) retry(ctx context.Context, tx *spanner.ReadWriteStmtBasedTransaction) error {
-	c, err := tx.BatchUpdate(ctx, ru.statements)
+	c, err := tx.BatchUpdateWithOptions(ctx, ru.statements, ru.options)
 	if err != nil && spanner.ErrCode(err) == codes.Aborted {
 		return err
 	}
@@ -313,21 +315,22 @@ func (tx *readWriteTransaction) resetForRetry(ctx context.Context) error {
 // Query executes a query using the read/write transaction and returns a
 // rowIterator that will automatically retry the read/write transaction if the
 // transaction is aborted during the query or while iterating the returned rows.
-func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement) rowIterator {
+func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement, options spanner.QueryOptions) rowIterator {
 	// If internal retries have been disabled, we don't need to keep track of a
 	// running checksum for all results that we have seen.
 	if !tx.retryAborts {
-		return &readOnlyRowIterator{tx.rwTx.Query(ctx, stmt)}
+		return &readOnlyRowIterator{tx.rwTx.QueryWithOptions(ctx, stmt, options)}
 	}
 
 	// If retries are enabled, we need to use a row iterator that will keep
 	// track of a running checksum of all the results that we see.
 	buffer := &bytes.Buffer{}
 	it := &checksumRowIterator{
-		RowIterator: tx.rwTx.Query(ctx, stmt),
+		RowIterator: tx.rwTx.QueryWithOptions(ctx, stmt, options),
 		ctx:         ctx,
 		tx:          tx,
 		stmt:        stmt,
+		options:     options,
 		buffer:      buffer,
 		enc:         gob.NewEncoder(buffer),
 	}
@@ -335,33 +338,34 @@ func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statemen
 	return it
 }
 
-func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.Statement) (res int64, err error) {
+func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.Statement, options spanner.QueryOptions) (res int64, err error) {
 	if tx.batch != nil {
 		tx.batch.statements = append(tx.batch.statements, stmt)
 		return 0, nil
 	}
 
 	if !tx.retryAborts {
-		return tx.rwTx.Update(ctx, stmt)
+		return tx.rwTx.UpdateWithOptions(ctx, stmt, options)
 	}
 
 	err = tx.runWithRetry(ctx, func(ctx context.Context) error {
-		res, err = tx.rwTx.Update(ctx, stmt)
+		res, err = tx.rwTx.UpdateWithOptions(ctx, stmt, options)
 		return err
 	})
 	tx.statements = append(tx.statements, &retriableUpdate{
-		stmt: stmt,
-		c:    res,
-		err:  err,
+		stmt:    stmt,
+		options: options,
+		c:       res,
+		err:     err,
 	})
 	return res, err
 }
 
-func (tx *readWriteTransaction) StartBatchDML() (driver.Result, error) {
+func (tx *readWriteTransaction) StartBatchDML(options spanner.QueryOptions) (driver.Result, error) {
 	if tx.batch != nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This transaction already has an active batch."))
 	}
-	tx.batch = &batch{tp: dml}
+	tx.batch = &batch{tp: dml, options: options}
 	return driver.ResultNoRows, nil
 }
 
@@ -386,21 +390,23 @@ func (tx *readWriteTransaction) AbortBatch() (driver.Result, error) {
 
 func (tx *readWriteTransaction) runDmlBatch(ctx context.Context) (driver.Result, error) {
 	statements := tx.batch.statements
+	options := tx.batch.options
 	tx.batch = nil
 
 	if !tx.retryAborts {
-		affected, err := tx.rwTx.BatchUpdate(ctx, statements)
+		affected, err := tx.rwTx.BatchUpdateWithOptions(ctx, statements, options)
 		return &result{rowsAffected: sum(affected)}, err
 	}
 
 	var affected []int64
 	var err error
 	err = tx.runWithRetry(ctx, func(ctx context.Context) error {
-		affected, err = tx.rwTx.BatchUpdate(ctx, statements)
+		affected, err = tx.rwTx.BatchUpdateWithOptions(ctx, statements, options)
 		return err
 	})
 	tx.statements = append(tx.statements, &retriableBatchUpdate{
 		statements: statements,
+		options:    options,
 		c:          affected,
 		err:        err,
 	})

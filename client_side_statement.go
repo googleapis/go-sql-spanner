@@ -93,6 +93,22 @@ func (s *statementExecutor) ShowExcludeTxnFromChangeStreams(_ context.Context, c
 	return &rows{it: it}, nil
 }
 
+func (s *statementExecutor) ShowTransactionTag(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	it, err := createStringIterator("TransactionTag", c.TransactionTag())
+	if err != nil {
+		return nil, err
+	}
+	return &rows{it: it}, nil
+}
+
+func (s *statementExecutor) ShowStatementTag(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	it, err := createStringIterator("StatementTag", c.StatementTag())
+	if err != nil {
+		return nil, err
+	}
+	return &rows{it: it}, nil
+}
+
 func (s *statementExecutor) StartBatchDdl(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Result, error) {
 	return c.startBatchDDL()
 }
@@ -145,6 +161,35 @@ func (s *statementExecutor) SetExcludeTxnFromChangeStreams(_ context.Context, c 
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid boolean value: %s", params))
 	}
 	return c.setExcludeTxnFromChangeStreams(exclude)
+}
+
+func (s *statementExecutor) SetTransactionTag(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
+	tag, err := parseTag(params)
+	if err != nil {
+		return nil, err
+	}
+	return c.setTransactionTag(tag)
+}
+
+func (s *statementExecutor) SetStatementTag(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
+	tag, err := parseTag(params)
+	if err != nil {
+		return nil, err
+	}
+	return c.setStatementTag(tag)
+}
+
+func parseTag(params string) (string, error) {
+	if params == "" {
+		return "", spanner.ToSpannerError(status.Error(codes.InvalidArgument, "no value given for tag"))
+	}
+	tag := strings.TrimSpace(params)
+	if !(strings.HasPrefix(tag, "'") && strings.HasSuffix(tag, "'")) {
+		return "", spanner.ToSpannerError(status.Error(codes.InvalidArgument, "missing single quotes around tag"))
+	}
+	tag = strings.TrimLeft(tag, "'")
+	tag = strings.TrimRight(tag, "'")
+	return tag, nil
 }
 
 var strongRegexp = regexp.MustCompile("(?i)'STRONG'")

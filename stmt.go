@@ -27,6 +27,7 @@ type stmt struct {
 	conn    *conn
 	numArgs int
 	query   string
+	options *spanner.QueryOptions
 }
 
 func (s *stmt) Close() error {
@@ -55,13 +56,31 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 		return nil, err
 	}
 
+	var options spanner.QueryOptions
+	if s.options != nil {
+		options = *s.options
+	} else {
+		options = s.conn.createQueryOptions()
+	}
 	var it rowIterator
 	if s.conn.tx != nil {
-		it = s.conn.tx.Query(ctx, ss)
+		it = s.conn.tx.Query(ctx, ss, options)
 	} else {
-		it = &readOnlyRowIterator{s.conn.client.Single().WithTimestampBound(s.conn.readOnlyStaleness).Query(ctx, ss)}
+		it = &readOnlyRowIterator{s.conn.client.Single().WithTimestampBound(s.conn.readOnlyStaleness).QueryWithOptions(ctx, ss, options)}
 	}
 	return &rows{it: it}, nil
+}
+
+func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
+	if value == nil {
+		return nil
+	}
+	options, ok := value.Value.(spanner.QueryOptions)
+	if ok {
+		s.options = &options
+		return driver.ErrRemoveArgument
+	}
+	return nil
 }
 
 func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, error) {

@@ -49,9 +49,10 @@ type checksumRowIterator struct {
 	*spanner.RowIterator
 	metadata *sppb.ResultSetMetadata
 
-	ctx  context.Context
-	tx   *readWriteTransaction
-	stmt spanner.Statement
+	ctx     context.Context
+	tx      *readWriteTransaction
+	stmt    spanner.Statement
+	options spanner.QueryOptions
 	// nc (nextCount) indicates the number of times that next has been called
 	// on the iterator. Next() will be called the same number of times during
 	// a retry.
@@ -160,7 +161,7 @@ func createMetadataChecksum(enc *gob.Encoder, buffer *bytes.Buffer, metadata *sp
 func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteStmtBasedTransaction) error {
 	buffer := &bytes.Buffer{}
 	enc := gob.NewEncoder(buffer)
-	retryIt := tx.Query(ctx, it.stmt)
+	retryIt := tx.QueryWithOptions(ctx, it.stmt, it.options)
 	// If the original iterator had been stopped, we should also always stop the
 	// new iterator.
 	if it.stopped {
