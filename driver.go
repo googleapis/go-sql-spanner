@@ -43,7 +43,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-const userAgent = "go-sql-spanner/1.0.2"
+const userAgent = "go-sql-spanner/1.9.0" // x-release-please-version
 
 // dsnRegExpString describes the valid values for a dsn (connection name) for
 // Google Cloud Spanner. The string consists of the following parts:
