@@ -24,9 +24,10 @@ import (
 )
 
 type stmt struct {
-	conn    *conn
-	numArgs int
-	query   string
+	conn        *conn
+	numArgs     int
+	query       string
+	execOptions ExecOptions
 }
 
 func (s *stmt) Close() error {
@@ -61,7 +62,19 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 	} else {
 		it = &readOnlyRowIterator{s.conn.client.Single().WithTimestampBound(s.conn.readOnlyStaleness).Query(ctx, ss)}
 	}
-	return &rows{it: it}, nil
+	return &rows{it: it, decodeOption: s.execOptions.DecodeOption}, nil
+}
+
+func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
+	if value == nil {
+		return nil
+	}
+
+	if execOptions, ok := value.Value.(ExecOptions); ok {
+		s.execOptions = execOptions
+		return driver.ErrRemoveArgument
+	}
+	return nil
 }
 
 func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, error) {
