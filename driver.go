@@ -34,6 +34,7 @@ import (
 	adminpb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/gax-go/v2"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -323,14 +324,15 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 	}
 
 	return &conn{
-		connector:                  c,
-		client:                     c.client,
-		adminClient:                c.adminClient,
-		database:                   databaseName,
-		retryAborts:                c.retryAbortsInternally,
-		execSingleQuery:            queryInSingleUse,
-		execSingleDMLTransactional: execInNewRWTransaction,
-		execSingleDMLPartitioned:   execAsPartitionedDML,
+		connector:                    c,
+		client:                       c.client,
+		adminClient:                  c.adminClient,
+		database:                     databaseName,
+		retryAborts:                  c.retryAbortsInternally,
+		execSingleQuery:              queryInSingleUse,
+		execSingleQueryTransactional: queryInNewRWTransaction,
+		execSingleDMLTransactional:   execInNewRWTransaction,
+		execSingleDMLPartitioned:     execAsPartitionedDML,
 	}, nil
 }
 
@@ -638,9 +640,10 @@ type conn struct {
 	database      string
 	retryAborts   bool
 
-	execSingleQuery            func(ctx context.Context, c *spanner.Client, statement spanner.Statement, bound spanner.TimestampBound) *spanner.RowIterator
-	execSingleDMLTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement, transactionOptions spanner.TransactionOptions) (int64, time.Time, error)
-	execSingleDMLPartitioned   func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options spanner.QueryOptions) (int64, error)
+	execSingleQuery              func(ctx context.Context, c *spanner.Client, statement spanner.Statement, bound spanner.TimestampBound) *spanner.RowIterator
+	execSingleQueryTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement, transactionOptions spanner.TransactionOptions) (rowIterator, time.Time, error)
+	execSingleDMLTransactional   func(ctx context.Context, c *spanner.Client, statement spanner.Statement, transactionOptions spanner.TransactionOptions) (int64, time.Time, error)
+	execSingleDMLPartitioned     func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options spanner.QueryOptions) (int64, error)
 
 	// batch is the currently active DDL or DML batch on this connection.
 	batch *batch
@@ -1130,7 +1133,21 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 	}
 	var iter rowIterator
 	if c.tx == nil {
-		iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt, c.readOnlyStaleness)}
+		statementType := detectStatementType(query)
+		if statementType == statementTypeDml {
+			// Use a read/write transaction to execute the statement.
+			var commitTs time.Time
+			iter, commitTs, err = c.execSingleQueryTransactional(ctx, c.client, stmt, c.createTransactionOptions())
+			if err != nil {
+				return nil, err
+			}
+			c.commitTs = &commitTs
+		} else {
+			// The statement was either detected as being a query, or potentially not recognized at all.
+			// In that case, just default to using a single-use read-only transaction and let Spanner
+			// return an error if the statement is not suited for that type of transaction.
+			iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt, c.readOnlyStaleness)}
+		}
 	} else {
 		iter = c.tx.Query(ctx, stmt)
 	}
@@ -1149,12 +1166,9 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 	// Clear the commit timestamp of this connection before we execute the statement.
 	c.commitTs = nil
 
+	statementType := detectStatementType(query)
 	// Use admin API if DDL statement is provided.
-	isDDL, err := isDDL(query)
-	if err != nil {
-		return nil, err
-	}
-	if isDDL {
+	if statementType == statementTypeDdl {
 		// Spanner does not support DDL in transactions, and although it is technically possible to execute DDL
 		// statements while a transaction is active, we return an error to avoid any confusion whether the DDL
 		// statement is executed as part of the active transaction or not.
@@ -1310,6 +1324,60 @@ func (c *conn) inReadWriteTransaction() bool {
 
 func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound) *spanner.RowIterator {
 	return c.Single().WithTimestampBound(tb).Query(ctx, statement)
+}
+
+type wrappedRowIterator struct {
+	*spanner.RowIterator
+
+	noRows   bool
+	firstRow *spanner.Row
+}
+
+func (ri *wrappedRowIterator) Next() (*spanner.Row, error) {
+	if ri.noRows {
+		return nil, iterator.Done
+	}
+	if ri.firstRow != nil {
+		defer func() { ri.firstRow = nil }()
+		return ri.firstRow, nil
+	}
+	return ri.RowIterator.Next()
+}
+
+func (ri *wrappedRowIterator) Stop() {
+	ri.RowIterator.Stop()
+}
+
+func (ri *wrappedRowIterator) Metadata() *spannerpb.ResultSetMetadata {
+	return ri.RowIterator.Metadata
+}
+
+func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, options spanner.TransactionOptions) (rowIterator, time.Time, error) {
+	var result *wrappedRowIterator
+	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
+		it := tx.Query(ctx, statement)
+		row, err := it.Next()
+		if err == iterator.Done {
+			result = &wrappedRowIterator{
+				RowIterator: it,
+				noRows:      true,
+			}
+		} else if err != nil {
+			it.Stop()
+			return err
+		} else {
+			result = &wrappedRowIterator{
+				RowIterator: it,
+				firstRow:    row,
+			}
+		}
+		return nil
+	}
+	resp, err := c.ReadWriteTransactionWithOptions(ctx, fn, options)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	return result, resp.CommitTs, nil
 }
 
 func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, options spanner.TransactionOptions) (int64, time.Time, error) {

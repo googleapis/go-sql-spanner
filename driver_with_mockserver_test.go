@@ -1222,6 +1222,65 @@ func TestQueryWithMissingPositionalParameter(t *testing.T) {
 	}
 }
 
+func TestDmlReturningInAutocommit(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	s := "insert into users (id, name) values (@id, @name) then return id"
+	_ = server.TestSpanner.PutStatementResult(
+		s,
+		&testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: testutil.CreateSelect1ResultSet(),
+		},
+	)
+
+	for _, prepare := range []bool{false, true} {
+		var rows *sql.Rows
+		var err error
+		if prepare {
+			var stmt *sql.Stmt
+			stmt, err = db.PrepareContext(ctx, s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows, err = stmt.QueryContext(ctx, sql.Named("id", 1), sql.Named("name", "bar"))
+		} else {
+			rows, err = db.QueryContext(ctx, s, sql.Named("id", 1), sql.Named("name", "bar"))
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !rows.Next() {
+			t.Fatal("missing row")
+		}
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		if g, w := id, 1; g != w {
+			t.Fatalf("id mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if rows.Next() {
+			t.Fatal("got more rows than expected")
+		}
+
+		// Verify that a read/write transaction was used.
+		requests := drainRequestsFromServer(server.TestSpanner)
+		sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+		if g, w := len(sqlRequests), 1; g != w {
+			t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
+		}
+		commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+		if g, w := len(commitRequests), 1; g != w {
+			t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+		}
+	}
+}
+
 func TestDdlInAutocommit(t *testing.T) {
 	t.Parallel()
 
