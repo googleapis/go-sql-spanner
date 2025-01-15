@@ -700,10 +700,10 @@ func FuzzFindParams(f *testing.F) {
 	})
 }
 
-// note: isDDL function does not check validity of statement
-// just that the statement begins with a DDL instruction.
-// Other checking performed by database.
-func TestIsDdl(t *testing.T) {
+// Note: The detectStatementType function does not check validity of a statement,
+// only whether the statement begins with a DDL instruction.
+// Actual validity checks are performed by the database.
+func TestStatementIsDdl(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
@@ -872,10 +872,7 @@ func TestIsDdl(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		got, err := isDDL(tc.input)
-		if err != nil {
-			t.Error(err)
-		}
+		got := detectStatementType(tc.input) == statementTypeDdl
 		if got != tc.want {
 			t.Errorf("isDDL test failed, %s: wanted %t got %t.", tc.name, tc.want, got)
 		}
@@ -888,7 +885,7 @@ func FuzzIsDdl(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, input string) {
-		_, _ = isDDL(input)
+		_ = isDDL(input)
 	})
 }
 
@@ -1014,6 +1011,68 @@ func TestFindParams_Errors(t *testing.T) {
 	_, _, err = findParams('?', "SELECT 'Hello World\nFROM SomeTable WHERE id=@id")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
+	}
+}
+
+func TestDetectStatementType(t *testing.T) {
+	tests := []struct {
+		input string
+		want  statementType
+	}{
+		{
+			input: "select 1",
+			want:  statementTypeQuery,
+		},
+		{
+			input: "from test",
+			want:  statementTypeQuery,
+		},
+		{
+			input: "with t as (select 1) select * from t",
+			want:  statementTypeQuery,
+		},
+		{
+			input: "GRAPH FinGraph\nMATCH (n)\nRETURN LABELS(n) AS label, n.id",
+			want:  statementTypeQuery,
+		},
+		{
+			input: "/* this is a comment */ -- this is also a comment\n @  { statement_hint_key=value } select 1",
+			want:  statementTypeQuery,
+		},
+		{
+			input: "update foo set bar=1 where true",
+			want:  statementTypeDml,
+		},
+		{
+			input: "insert into foo (id, value) select 1, 'test'",
+			want:  statementTypeDml,
+		},
+		{
+			input: "delete from foo where true",
+			want:  statementTypeDml,
+		},
+		{
+			input: "delete from foo where true then return *",
+			want:  statementTypeDml,
+		},
+		{
+			input: "create table foo (id int64) primary key (id)",
+			want:  statementTypeDdl,
+		},
+		{
+			input: "drop table if exists foo",
+			want:  statementTypeDdl,
+		},
+		{
+			input: "input from borkisland",
+			want:  statementTypeUnknown,
+		},
+	}
+
+	for _, test := range tests {
+		if g, w := detectStatementType(test.input), test.want; g != w {
+			t.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
+		}
 	}
 }
 

@@ -29,7 +29,7 @@ var createTableStatement = "CREATE TABLE Singers (SingerId INT64, Name STRING(MA
 // Example for using transaction tags and statement tags through SQL statements.
 //
 // Tags can also be set programmatically using spannerdriver.RunTransactionWithOptions
-// and the query argument spannerdriver.StatementTag.
+// and the spannerdriver.ExecOptions.
 //
 // Execute the sample with the command `go run main.go` from this directory.
 func tagsWithSqlStatements(projectId, instanceId, databaseId string) error {
@@ -131,14 +131,14 @@ func tagsProgrammatically(projectId, instanceId, databaseId string) error {
 	if err := spannerdriver.RunTransactionWithOptions(ctx, db, &sql.TxOptions{}, func(ctx context.Context, tx *sql.Tx) error {
 		fmt.Println("Executing statement with tag 'insert_singer'")
 		// Pass in a value of spanner.QueryOptions to specify the options that should be used for a DML statement.
-		_, err = tx.ExecContext(ctx, "INSERT INTO Singers (SingerId, Name) VALUES (@id, @name)", spanner.QueryOptions{RequestTag: "insert_singer"}, 123, "Bruce Allison")
+		_, err = tx.ExecContext(ctx, "INSERT INTO Singers (SingerId, Name) VALUES (@id, @name)", spannerdriver.ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "insert_singer"}}, 123, "Bruce Allison")
 		if err != nil {
 			return err
 		}
 
 		fmt.Println("Executing statement with tag 'select_singer'")
 		// Pass in a value of spanner.QueryOptions to specify the options that should be used for a query.
-		rows, err := tx.QueryContext(ctx, "SELECT SingerId, Name FROM Singers WHERE SingerId = ?", spanner.QueryOptions{RequestTag: "select_singer"}, 123)
+		rows, err := tx.QueryContext(ctx, "SELECT SingerId, Name FROM Singers WHERE SingerId = ?", spannerdriver.ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "select_singer"}}, 123)
 		if err != nil {
 			return err
 		}

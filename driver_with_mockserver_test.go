@@ -1062,6 +1062,103 @@ func TestQueryWithNullParameters(t *testing.T) {
 	}
 }
 
+func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	query := "SELECT * FROM Test"
+	_ = server.TestSpanner.PutStatementResult(
+		query,
+		&testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: testutil.CreateResultSetWithAllTypes(false),
+		},
+	)
+
+	for _, prepare := range []bool{false, true} {
+		var rows *sql.Rows
+		if prepare {
+			stmt, err := db.Prepare(query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows, err = stmt.QueryContext(context.Background(), ExecOptions{DecodeOption: DecodeOptionProto})
+			if err != nil {
+				t.Fatal(err)
+			}
+			stmt.Close()
+		} else {
+			var err error
+			rows, err = db.QueryContext(context.Background(), query, ExecOptions{DecodeOption: DecodeOptionProto})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		for rows.Next() {
+			var b spanner.GenericColumnValue
+			var s spanner.GenericColumnValue
+			var bt spanner.GenericColumnValue
+			var i spanner.GenericColumnValue
+			var f32 spanner.GenericColumnValue
+			var f spanner.GenericColumnValue
+			var r spanner.GenericColumnValue
+			var d spanner.GenericColumnValue
+			var ts spanner.GenericColumnValue
+			var j spanner.GenericColumnValue
+			var bArray spanner.GenericColumnValue
+			var sArray spanner.GenericColumnValue
+			var btArray spanner.GenericColumnValue
+			var iArray spanner.GenericColumnValue
+			var f32Array spanner.GenericColumnValue
+			var fArray spanner.GenericColumnValue
+			var rArray spanner.GenericColumnValue
+			var dArray spanner.GenericColumnValue
+			var tsArray spanner.GenericColumnValue
+			var jArray spanner.GenericColumnValue
+			err := rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if g, w := b.Value.GetBoolValue(), true; g != w {
+				t.Errorf("row value mismatch for bool\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := s.Value.GetStringValue(), "test"; g != w {
+				t.Errorf("row value mismatch for string\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := bt.Value.GetStringValue(), base64.RawURLEncoding.EncodeToString([]byte("testbytes")); !cmp.Equal(g, w) {
+				t.Errorf("row value mismatch for bytes\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := i.Value.GetStringValue(), "5"; g != w {
+				t.Errorf("row value mismatch for int64\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := float32(f32.Value.GetNumberValue()), float32(3.14); g != w {
+				t.Errorf("row value mismatch for float32\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := f.Value.GetNumberValue(), 3.14; g != w {
+				t.Errorf("row value mismatch for float64\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := r.Value.GetStringValue(), "6.626"; g != w {
+				t.Errorf("row value mismatch for numeric\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := d.Value.GetStringValue(), "2021-07-21"; g != w {
+				t.Errorf("row value mismatch for date\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := ts.Value.GetStringValue(), "2021-07-21T21:07:59.339911800Z"; g != w {
+				t.Errorf("row value mismatch for timestamp\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := j.Value.GetStringValue(), `{"key": "value", "other-key": ["value1", "value2"]}`; g != w {
+				t.Errorf("row value mismatch for json\n Got: %v\nWant: %v", g, w)
+			}
+		}
+		if rows.Err() != nil {
+			t.Fatal(rows.Err())
+		}
+		rows.Close()
+	}
+}
+
 func TestDmlInAutocommit(t *testing.T) {
 	t.Parallel()
 
@@ -1219,6 +1316,65 @@ func TestQueryWithMissingPositionalParameter(t *testing.T) {
 	}
 	if g, w := req.Params.Fields["name"].GetStringValue(), "foo"; g != w {
 		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestDmlReturningInAutocommit(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	s := "insert into users (id, name) values (@id, @name) then return id"
+	_ = server.TestSpanner.PutStatementResult(
+		s,
+		&testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: testutil.CreateSelect1ResultSet(),
+		},
+	)
+
+	for _, prepare := range []bool{false, true} {
+		var rows *sql.Rows
+		var err error
+		if prepare {
+			var stmt *sql.Stmt
+			stmt, err = db.PrepareContext(ctx, s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows, err = stmt.QueryContext(ctx, sql.Named("id", 1), sql.Named("name", "bar"))
+		} else {
+			rows, err = db.QueryContext(ctx, s, sql.Named("id", 1), sql.Named("name", "bar"))
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !rows.Next() {
+			t.Fatal("missing row")
+		}
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		if g, w := id, 1; g != w {
+			t.Fatalf("id mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if rows.Next() {
+			t.Fatal("got more rows than expected")
+		}
+
+		// Verify that a read/write transaction was used.
+		requests := drainRequestsFromServer(server.TestSpanner)
+		sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+		if g, w := len(sqlRequests), 1; g != w {
+			t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
+		}
+		commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+		if g, w := len(commitRequests), 1; g != w {
+			t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+		}
 	}
 }
 
@@ -2348,10 +2504,18 @@ func TestExcludeTxnFromChangeStreams_AutoCommitBatchDml(t *testing.T) {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
 
-	_, _ = conn.ExecContext(ctx, "set exclude_txn_from_change_streams = true")
-	_, _ = conn.ExecContext(ctx, "start batch dml")
-	_, _ = conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
-	_, _ = conn.ExecContext(ctx, "run batch")
+	if _, err := conn.ExecContext(ctx, "set exclude_txn_from_change_streams = true"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, "start batch dml"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, "run batch"); err != nil {
+		t.Fatal(err)
+	}
 	requests := drainRequestsFromServer(server.TestSpanner)
 	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	if g, w := len(batchRequests), 1; g != w {
@@ -2387,9 +2551,15 @@ func TestExcludeTxnFromChangeStreams_PartitionedDml(t *testing.T) {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
 
-	conn.ExecContext(ctx, "set exclude_txn_from_change_streams = true")
-	conn.ExecContext(ctx, "set autocommit_dml_mode = 'partitioned_non_atomic'")
-	conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
+	if _, err := conn.ExecContext(ctx, "set exclude_txn_from_change_streams = true"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, "set autocommit_dml_mode = 'partitioned_non_atomic'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
 	requests := drainRequestsFromServer(server.TestSpanner)
 	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
 	if g, w := len(beginRequests), 1; g != w {
@@ -2738,7 +2908,7 @@ func TestTag_ReadWriteTransaction_Retry(t *testing.T) {
 
 		var rows *sql.Rows
 		if useArgs {
-			rows, _ = tx.QueryContext(ctx, testutil.SelectFooFromBar, spanner.QueryOptions{RequestTag: "tag_1"})
+			rows, _ = tx.QueryContext(ctx, testutil.SelectFooFromBar, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_1"}})
 		} else {
 			_, _ = tx.ExecContext(ctx, "set statement_tag='tag_1'")
 			rows, _ = tx.QueryContext(ctx, testutil.SelectFooFromBar)
@@ -2748,14 +2918,14 @@ func TestTag_ReadWriteTransaction_Retry(t *testing.T) {
 		rows.Close()
 
 		if useArgs {
-			_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo, spanner.QueryOptions{RequestTag: "tag_2"})
+			_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_2"}})
 		} else {
 			_, _ = tx.ExecContext(ctx, "set statement_tag='tag_2'")
 			_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
 		}
 
 		if useArgs {
-			_, _ = tx.ExecContext(ctx, "start batch dml", spanner.QueryOptions{RequestTag: "tag_3"})
+			_, _ = tx.ExecContext(ctx, "start batch dml", ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_3"}})
 		} else {
 			_, _ = tx.ExecContext(ctx, "set statement_tag = 'tag_3'")
 			_, _ = tx.ExecContext(ctx, "start batch dml")
@@ -2866,7 +3036,7 @@ func TestTag_RunTransaction_Retry(t *testing.T) {
 			attempts++
 			var rows *sql.Rows
 			if useArgs {
-				rows, _ = tx.QueryContext(ctx, testutil.SelectFooFromBar, spanner.QueryOptions{RequestTag: "tag_1"})
+				rows, _ = tx.QueryContext(ctx, testutil.SelectFooFromBar, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_1"}})
 			} else {
 				_, _ = tx.ExecContext(ctx, "set statement_tag='tag_1'")
 				rows, _ = tx.QueryContext(ctx, testutil.SelectFooFromBar)
@@ -2876,14 +3046,14 @@ func TestTag_RunTransaction_Retry(t *testing.T) {
 			rows.Close()
 
 			if useArgs {
-				_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo, spanner.QueryOptions{RequestTag: "tag_2"})
+				_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_2"}})
 			} else {
 				_, _ = tx.ExecContext(ctx, "set statement_tag='tag_2'")
 				_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
 			}
 
 			if useArgs {
-				_, _ = tx.ExecContext(ctx, "start batch dml", spanner.QueryOptions{RequestTag: "tag_3"})
+				_, _ = tx.ExecContext(ctx, "start batch dml", ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_3"}})
 			} else {
 				_, _ = tx.ExecContext(ctx, "set statement_tag = 'tag_3'")
 				_, _ = tx.ExecContext(ctx, "start batch dml")
@@ -2921,7 +3091,7 @@ func TestTag_RunTransaction_Retry(t *testing.T) {
 				}
 			}
 			if g, w := execRequest.RequestOptions.RequestTag, fmt.Sprintf("tag_%d", (i%2)+1); g != w {
-				t.Fatalf("statement tag mismatch\n Got: %v\nWant: %v", g, w)
+				t.Fatalf("useArgs: %v, statement tag mismatch\n Got: %v\nWant: %v", useArgs, g, w)
 			}
 		}
 

@@ -365,7 +365,7 @@ func (tx *readWriteTransaction) StartBatchDML(options spanner.QueryOptions) (dri
 	if tx.batch != nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This transaction already has an active batch."))
 	}
-	tx.batch = &batch{tp: dml, options: options}
+	tx.batch = &batch{tp: dml, options: ExecOptions{QueryOptions: options}}
 	return driver.ResultNoRows, nil
 }
 
@@ -394,19 +394,19 @@ func (tx *readWriteTransaction) runDmlBatch(ctx context.Context) (driver.Result,
 	tx.batch = nil
 
 	if !tx.retryAborts {
-		affected, err := tx.rwTx.BatchUpdateWithOptions(ctx, statements, options)
+		affected, err := tx.rwTx.BatchUpdateWithOptions(ctx, statements, options.QueryOptions)
 		return &result{rowsAffected: sum(affected)}, err
 	}
 
 	var affected []int64
 	var err error
 	err = tx.runWithRetry(ctx, func(ctx context.Context) error {
-		affected, err = tx.rwTx.BatchUpdateWithOptions(ctx, statements, options)
+		affected, err = tx.rwTx.BatchUpdateWithOptions(ctx, statements, options.QueryOptions)
 		return err
 	})
 	tx.statements = append(tx.statements, &retriableBatchUpdate{
 		statements: statements,
-		options:    options,
+		options:    options.QueryOptions,
 		c:          affected,
 		err:        err,
 	})

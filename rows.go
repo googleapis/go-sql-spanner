@@ -28,9 +28,10 @@ import (
 type rows struct {
 	it rowIterator
 
-	colsOnce sync.Once
-	dirtyErr error
-	cols     []string
+	colsOnce     sync.Once
+	dirtyErr     error
+	cols         []string
+	decodeOption DecodeOption
 
 	dirtyRow *spanner.Row
 }
@@ -106,6 +107,10 @@ func (r *rows) Next(dest []driver.Value) error {
 		var col spanner.GenericColumnValue
 		if err := row.Column(i, &col); err != nil {
 			return err
+		}
+		if r.decodeOption == DecodeOptionProto {
+			dest[i] = col
+			continue
 		}
 		switch col.Type.Code {
 		case sppb.TypeCode_INT64:

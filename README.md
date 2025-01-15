@@ -66,16 +66,18 @@ db.ExecContext(ctx, "DELETE FROM tweets WHERE id = @id", 14544498215374)
 ```
 
 ### Query Options
-Query options can be passed in as arguments to a query. Any value of type
-`spanner.QueryOptions` will be passed through to the Spanner client as the
-query options to use for the query or DML statement, and will be skipped
-when parsing the actual query parameters.
+Query options can be passed in as arguments to a query. Pass in a value of
+type `spannerdriver.ExecOptions` to supply additional execution options for
+a statement. The `spanner.QueryOptions` will be passed through to the Spanner
+client as the query options to use for the query or DML statement.
 
 ```go
 tx.ExecContext(ctx, "INSERT INTO Singers (SingerId, Name) VALUES (@id, @name)",
-	spanner.QueryOptions{RequestTag: "insert_singer"}, 123, "Bruce Allison")
+	spannerdriver.ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "insert_singer"}},
+    123, "Bruce Allison")
 tx.QueryContext(ctx, "SELECT SingerId, Name FROM Singers WHERE SingerId = ?",
-	spanner.QueryOptions{RequestTag: "select_singer"}, 123)
+    spannerdriver.ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "select_singer"}},
+    123)
 ```
 
 Statement tags (request tags) can also be set using the custom SQL statement
