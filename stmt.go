@@ -24,10 +24,11 @@ import (
 )
 
 type stmt struct {
-	conn        *conn
-	numArgs     int
-	query       string
-	execOptions ExecOptions
+	conn          *conn
+	numArgs       int
+	query         string
+	statementType statementType
+	execOptions   ExecOptions
 }
 
 func (s *stmt) Close() error {
@@ -60,7 +61,21 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 	if s.conn.tx != nil {
 		it = s.conn.tx.Query(ctx, ss)
 	} else {
-		it = &readOnlyRowIterator{s.conn.client.Single().WithTimestampBound(s.conn.readOnlyStaleness).Query(ctx, ss)}
+		if s.statementType == statementTypeUnknown {
+			s.statementType = detectStatementType(s.query)
+		}
+		if s.statementType == statementTypeDml {
+			// Use a read/write transaction to execute the statement.
+			it, _, err = s.conn.execSingleQueryTransactional(ctx, s.conn.client, ss, s.conn.createTransactionOptions())
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			// The statement was either detected as being a query, or potentially not recognized at all.
+			// In that case, just default to using a single-use read-only transaction and let Spanner
+			// return an error if the statement is not suited for that type of transaction.
+			it = &readOnlyRowIterator{s.conn.client.Single().WithTimestampBound(s.conn.readOnlyStaleness).Query(ctx, ss)}
+		}
 	}
 	return &rows{it: it, decodeOption: s.execOptions.DecodeOption}, nil
 }
