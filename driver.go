@@ -79,6 +79,30 @@ func init() {
 	sql.Register("spanner", &Driver{connectors: make(map[string]*connector)})
 }
 
+// ExecOptions can be passed in as an argument to the Query, QueryContext,
+// Exec, and ExecContext functions to specify additional execution options
+// for a statement.
+type ExecOptions struct {
+	// DecodeOption indicates how the returned rows should be decoded.
+	DecodeOption DecodeOption
+}
+
+type DecodeOption int
+
+const (
+	// DecodeOptionNormal decodes into idiomatic Go types (e.g. bool, string, int64, etc.)
+	DecodeOptionNormal DecodeOption = iota
+
+	// DecodeOptionProto does not decode the returned rows at all, and instead just returns
+	// the underlying protobuf objects. Use this for advanced use-cases where you want
+	// direct access to the underlying values.
+	// All values should be scanned into an instance of spanner.GenericColumnValue like this:
+	//
+	// 	var v spanner.GenericColumnValue
+	// 	row.Scan(&v)
+	DecodeOptionProto
+)
+
 // Driver represents a Google Cloud Spanner database/sql driver.
 type Driver struct {
 	mu         sync.Mutex
@@ -655,9 +679,13 @@ type conn struct {
 	autocommitDMLMode AutocommitDMLMode
 	// readOnlyStaleness is used for queries in autocommit mode and for read-only transactions.
 	readOnlyStaleness spanner.TimestampBound
-	// excludeTxnFromChangeStreams is used to exlude the next transaction from change streams with the DDL option
+	// excludeTxnFromChangeStreams is used to exclude the next transaction from change streams with the DDL option
 	// `allow_txn_exclusion=true`
 	excludeTxnFromChangeStreams bool
+	// execOptions are applied to the next statement that is executed on this connection.
+	// It can only be set by passing it in as an argument to ExecContext or QueryContext
+	// and is cleared after each execution.
+	execOptions ExecOptions
 }
 
 type batchType int
@@ -1080,6 +1108,12 @@ func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
 	if value == nil {
 		return nil
 	}
+
+	if execOptions, ok := value.Value.(ExecOptions); ok {
+		c.execOptions = execOptions
+		return driver.ErrRemoveArgument
+	}
+
 	if checkIsValidType(value.Value) {
 		return nil
 	}
@@ -1116,6 +1150,8 @@ func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, e
 }
 
 func (c *conn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	execOptions := c.options()
+
 	// Execute client side statement if it is one.
 	clientStmt, err := parseClientSideStatement(c, query)
 	if err != nil {
@@ -1151,10 +1187,13 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 	} else {
 		iter = c.tx.Query(ctx, stmt)
 	}
-	return &rows{it: iter}, nil
+	return &rows{it: iter, decodeOption: execOptions.DecodeOption}, nil
 }
 
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	// Make sure options are reset after calling this method.
+	_ = c.options()
+
 	// Execute client side statement if it is one.
 	stmt, err := parseClientSideStatement(c, query)
 	if err != nil {
@@ -1207,6 +1246,12 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 		return nil, err
 	}
 	return &result{rowsAffected: rowsAffected}, nil
+}
+
+// options returns and resets the ExecOptions for the next statement.
+func (c *conn) options() ExecOptions {
+	defer func() { c.execOptions = ExecOptions{} }()
+	return c.execOptions
 }
 
 func (c *conn) Close() error {
