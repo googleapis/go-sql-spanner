@@ -2504,10 +2504,18 @@ func TestExcludeTxnFromChangeStreams_AutoCommitBatchDml(t *testing.T) {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
 
-	_, _ = conn.ExecContext(ctx, "set exclude_txn_from_change_streams = true")
-	_, _ = conn.ExecContext(ctx, "start batch dml")
-	_, _ = conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
-	_, _ = conn.ExecContext(ctx, "run batch")
+	if _, err := conn.ExecContext(ctx, "set exclude_txn_from_change_streams = true"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, "start batch dml"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, "run batch"); err != nil {
+		t.Fatal(err)
+	}
 	requests := drainRequestsFromServer(server.TestSpanner)
 	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	if g, w := len(batchRequests), 1; g != w {
@@ -2543,9 +2551,15 @@ func TestExcludeTxnFromChangeStreams_PartitionedDml(t *testing.T) {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
 
-	conn.ExecContext(ctx, "set exclude_txn_from_change_streams = true")
-	conn.ExecContext(ctx, "set autocommit_dml_mode = 'partitioned_non_atomic'")
-	conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
+	if _, err := conn.ExecContext(ctx, "set exclude_txn_from_change_streams = true"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, "set autocommit_dml_mode = 'partitioned_non_atomic'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
 	requests := drainRequestsFromServer(server.TestSpanner)
 	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
 	if g, w := len(beginRequests), 1; g != w {
@@ -2605,6 +2619,531 @@ func TestExcludeTxnFromChangeStreams_Transaction(t *testing.T) {
 	}
 	if g, w := exclude, false; g != w {
 		t.Fatalf("exclude_txn_from_change_streams mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestTag_Query_AutoCommit(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+
+	_, _ = conn.ExecContext(ctx, "set statement_tag = 'tag_1'")
+	iter, err := conn.QueryContext(ctx, testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatalf("failed to execute query: %v", err)
+	}
+	// Just consume the results to ensure that the query is executed.
+	for iter.Next() {
+		if iter.Err() != nil {
+			t.Fatal(iter.Err())
+		}
+	}
+	iter.Close()
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	// The ExecuteSqlRequest and CommitRequest should have a transaction tag.
+	execRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests), 1; g != w {
+		t.Fatalf("number of execute requests mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	execRequest := execRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := execRequest.RequestOptions.TransactionTag, ""; g != w {
+		t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := execRequest.RequestOptions.RequestTag, "tag_1"; g != w {
+		t.Fatalf("statement tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Verify that the tag is reset after the statement.
+	var statementTag string
+	if err := conn.QueryRowContext(ctx, "SHOW VARIABLE STATEMENT_TAG").Scan(&statementTag); err != nil {
+		t.Fatalf("failed to get statement_tag: %v", err)
+	}
+	if g, w := statementTag, ""; g != w {
+		t.Fatalf("statement_tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestTag_Update_AutoCommit(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+
+	_, _ = conn.ExecContext(ctx, "set transaction_tag = 'my_transaction_tag'")
+	_, _ = conn.ExecContext(ctx, "set statement_tag = 'tag_1'")
+	_, _ = conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	// The ExecuteSqlRequest and CommitRequest should have a transaction tag.
+	execRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests), 1; g != w {
+		t.Fatalf("number of execute requests mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	execRequest := execRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := execRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+		t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := execRequest.RequestOptions.RequestTag, "tag_1"; g != w {
+		t.Fatalf("statement tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("number of commit request mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	commitRequest := commitRequests[0].(*sppb.CommitRequest)
+	if g, w := commitRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+		t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Verify that the tag is reset after the statement.
+	var transactionTag string
+	if err := conn.QueryRowContext(ctx, "SHOW VARIABLE TRANSACTION_TAG").Scan(&transactionTag); err != nil {
+		t.Fatalf("failed to get transaction_tag: %v", err)
+	}
+	if g, w := transactionTag, ""; g != w {
+		t.Fatalf("transaction_tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestTag_AutoCommit_BatchDml(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+
+	_, _ = conn.ExecContext(ctx, "set transaction_tag = 'my_transaction_tag'")
+	_, _ = conn.ExecContext(ctx, "set statement_tag = 'tag_1'")
+	_, _ = conn.ExecContext(ctx, "start batch dml")
+	_, _ = conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
+	_, _ = conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
+	_, _ = conn.ExecContext(ctx, "run batch")
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	// The ExecuteBatchDmlRequest and CommitRequest should have a transaction tag.
+	execRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if g, w := len(execRequests), 1; g != w {
+		t.Fatalf("number of execute requests mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	execRequest := execRequests[0].(*sppb.ExecuteBatchDmlRequest)
+	if g, w := execRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+		t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := execRequest.RequestOptions.RequestTag, "tag_1"; g != w {
+		t.Fatalf("statement tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("number of commit request mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	commitRequest := commitRequests[0].(*sppb.CommitRequest)
+	if g, w := commitRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+		t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Verify that the tag is reset after the statement.
+	var transactionTag string
+	if err := conn.QueryRowContext(ctx, "SHOW VARIABLE TRANSACTION_TAG").Scan(&transactionTag); err != nil {
+		t.Fatalf("failed to get transaction_tag: %v", err)
+	}
+	if g, w := transactionTag, ""; g != w {
+		t.Fatalf("transaction_tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestTag_ReadWriteTransaction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+
+	var transactionTag string
+	if err := conn.QueryRowContext(ctx, "SHOW VARIABLE TRANSACTION_TAG").Scan(&transactionTag); err != nil {
+		t.Fatalf("failed to get transaction tag: %v", err)
+	}
+	if g, w := transactionTag, ""; g != w {
+		t.Fatalf("transaction_tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	_, _ = conn.ExecContext(ctx, "set transaction_tag = 'my_transaction_tag'")
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = tx.ExecContext(ctx, "set statement_tag = 'tag_1'")
+	rows, _ := tx.QueryContext(ctx, testutil.SelectFooFromBar)
+	for rows.Next() {
+	}
+	rows.Close()
+
+	_, _ = tx.ExecContext(ctx, "set statement_tag = 'tag_2'")
+	_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
+
+	_, _ = tx.ExecContext(ctx, "set statement_tag = 'tag_3'")
+	_, _ = tx.ExecContext(ctx, "start batch dml")
+	_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
+	_, _ = tx.ExecContext(ctx, "run batch")
+	_ = tx.Commit()
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	// The ExecuteSqlRequest and CommitRequest should have a transaction tag.
+	execRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests), 2; g != w {
+		t.Fatalf("number of execute requests mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	for i := 0; i < len(execRequests); i++ {
+		execRequest := execRequests[i].(*sppb.ExecuteSqlRequest)
+		if g, w := execRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+			t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if g, w := execRequest.RequestOptions.RequestTag, fmt.Sprintf("tag_%d", (i%2)+1); g != w {
+			t.Fatalf("statement tag mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+
+	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if g, w := len(batchRequests), 1; g != w {
+		t.Fatalf("number of batch request mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	batchRequest := batchRequests[0].(*sppb.ExecuteBatchDmlRequest)
+	if g, w := batchRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+		t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := batchRequest.RequestOptions.RequestTag, "tag_3"; g != w {
+		t.Fatalf("statement tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("number of commit request mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	commitRequest := commitRequests[0].(*sppb.CommitRequest)
+	if g, w := commitRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+		t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Verify that the tag is reset after the transaction.
+	if err := conn.QueryRowContext(ctx, "SHOW VARIABLE TRANSACTION_TAG").Scan(&transactionTag); err != nil {
+		t.Fatalf("failed to get transaction_tag: %v", err)
+	}
+	if g, w := transactionTag, ""; g != w {
+		t.Fatalf("transaction_tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestTag_ReadWriteTransaction_Retry(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+
+	for _, useArgs := range []bool{false, true} {
+		var transactionTag string
+		if err := conn.QueryRowContext(ctx, "SHOW VARIABLE TRANSACTION_TAG").Scan(&transactionTag); err != nil {
+			t.Fatalf("failed to get transaction tag: %v", err)
+		}
+		if g, w := transactionTag, ""; g != w {
+			t.Fatalf("transaction_tag mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		_, _ = conn.ExecContext(ctx, "set transaction_tag = 'my_transaction_tag'")
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var rows *sql.Rows
+		if useArgs {
+			rows, _ = tx.QueryContext(ctx, testutil.SelectFooFromBar, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_1"}})
+		} else {
+			_, _ = tx.ExecContext(ctx, "set statement_tag='tag_1'")
+			rows, _ = tx.QueryContext(ctx, testutil.SelectFooFromBar)
+		}
+		for rows.Next() {
+		}
+		rows.Close()
+
+		if useArgs {
+			_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_2"}})
+		} else {
+			_, _ = tx.ExecContext(ctx, "set statement_tag='tag_2'")
+			_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
+		}
+
+		if useArgs {
+			_, _ = tx.ExecContext(ctx, "start batch dml", ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_3"}})
+		} else {
+			_, _ = tx.ExecContext(ctx, "set statement_tag = 'tag_3'")
+			_, _ = tx.ExecContext(ctx, "start batch dml")
+		}
+		_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
+		_, _ = tx.ExecContext(ctx, "run batch")
+
+		server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+			Errors: []error{gstatus.Error(codes.Aborted, "Aborted")},
+		})
+		_ = tx.Commit()
+
+		requests := drainRequestsFromServer(server.TestSpanner)
+		// The ExecuteSqlRequest and CommitRequest should have a transaction tag.
+		execRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+		if g, w := len(execRequests), 4; g != w {
+			t.Fatalf("number of execute requests mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		for i := 0; i < len(execRequests); i++ {
+			execRequest := execRequests[i].(*sppb.ExecuteSqlRequest)
+			// TODO: Remove when https://github.com/googleapis/google-cloud-go/pull/11443
+			//       has been merged.
+			if i < 2 {
+				if g, w := execRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+				}
+			} else {
+				if g, w := execRequest.RequestOptions.TransactionTag, ""; g != w {
+					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+				}
+			}
+			if g, w := execRequest.RequestOptions.RequestTag, fmt.Sprintf("tag_%d", (i%2)+1); g != w {
+				t.Fatalf("statement tag mismatch\n Got: %v\nWant: %v", g, w)
+			}
+		}
+
+		batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+		if g, w := len(batchRequests), 2; g != w {
+			t.Fatalf("number of batch request mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		for i := 0; i < len(batchRequests); i++ {
+			batchRequest := batchRequests[i].(*sppb.ExecuteBatchDmlRequest)
+			// TODO: Remove when https://github.com/googleapis/google-cloud-go/pull/11443
+			//       has been merged.
+			if i < 1 {
+				if g, w := batchRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+				}
+			} else {
+				if g, w := batchRequest.RequestOptions.TransactionTag, ""; g != w {
+					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+				}
+			}
+			if g, w := batchRequest.RequestOptions.RequestTag, "tag_3"; g != w {
+				t.Fatalf("statement tag mismatch\n Got: %v\nWant: %v", g, w)
+			}
+		}
+
+		commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+		if g, w := len(commitRequests), 2; g != w {
+			t.Fatalf("number of commit request mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		for i := 0; i < len(commitRequests); i++ {
+			commitRequest := commitRequests[i].(*sppb.CommitRequest)
+			// TODO: Remove when https://github.com/googleapis/google-cloud-go/pull/11443
+			//       has been merged.
+			if i < 1 {
+				if g, w := commitRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+				}
+			} else {
+				if g, w := commitRequest.RequestOptions.TransactionTag, ""; g != w {
+					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+				}
+			}
+		}
+
+		// Verify that the tag is reset after the transaction.
+		if err := conn.QueryRowContext(ctx, "SHOW VARIABLE TRANSACTION_TAG").Scan(&transactionTag); err != nil {
+			t.Fatalf("failed to get transaction_tag: %v", err)
+		}
+		if g, w := transactionTag, ""; g != w {
+			t.Fatalf("transaction_tag mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+}
+
+func TestTag_RunTransaction_Retry(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+
+	for _, useArgs := range []bool{false, true} {
+		attempts := 0
+		err = RunTransactionWithOptions(ctx, db, &sql.TxOptions{}, func(ctx context.Context, tx *sql.Tx) error {
+			attempts++
+			var rows *sql.Rows
+			if useArgs {
+				rows, _ = tx.QueryContext(ctx, testutil.SelectFooFromBar, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_1"}})
+			} else {
+				_, _ = tx.ExecContext(ctx, "set statement_tag='tag_1'")
+				rows, _ = tx.QueryContext(ctx, testutil.SelectFooFromBar)
+			}
+			for rows.Next() {
+			}
+			rows.Close()
+
+			if useArgs {
+				_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_2"}})
+			} else {
+				_, _ = tx.ExecContext(ctx, "set statement_tag='tag_2'")
+				_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
+			}
+
+			if useArgs {
+				_, _ = tx.ExecContext(ctx, "start batch dml", ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_3"}})
+			} else {
+				_, _ = tx.ExecContext(ctx, "set statement_tag = 'tag_3'")
+				_, _ = tx.ExecContext(ctx, "start batch dml")
+			}
+			_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
+			_, _ = tx.ExecContext(ctx, "run batch")
+			if attempts == 1 {
+				server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+					Errors: []error{gstatus.Error(codes.Aborted, "Aborted")},
+				})
+			}
+			return nil
+		}, spanner.TransactionOptions{TransactionTag: "my_transaction_tag"})
+		if err != nil {
+			t.Fatalf("failed to run transaction: %v", err)
+		}
+
+		requests := drainRequestsFromServer(server.TestSpanner)
+		// The ExecuteSqlRequest and CommitRequest should have a transaction tag.
+		execRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+		if g, w := len(execRequests), 4; g != w {
+			t.Fatalf("number of execute requests mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		for i := 0; i < len(execRequests); i++ {
+			execRequest := execRequests[i].(*sppb.ExecuteSqlRequest)
+			// TODO: Remove when https://github.com/googleapis/google-cloud-go/pull/11443
+			//       has been merged.
+			if i < 2 {
+				if g, w := execRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+				}
+			} else {
+				if g, w := execRequest.RequestOptions.TransactionTag, ""; g != w {
+					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+				}
+			}
+			if g, w := execRequest.RequestOptions.RequestTag, fmt.Sprintf("tag_%d", (i%2)+1); g != w {
+				t.Fatalf("useArgs: %v, statement tag mismatch\n Got: %v\nWant: %v", useArgs, g, w)
+			}
+		}
+
+		batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+		if g, w := len(batchRequests), 2; g != w {
+			t.Fatalf("number of batch request mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		for i := 0; i < len(batchRequests); i++ {
+			batchRequest := batchRequests[i].(*sppb.ExecuteBatchDmlRequest)
+			// TODO: Remove when https://github.com/googleapis/google-cloud-go/pull/11443
+			//       has been merged.
+			if i < 1 {
+				if g, w := batchRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+				}
+			} else {
+				if g, w := batchRequest.RequestOptions.TransactionTag, ""; g != w {
+					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+				}
+			}
+			if g, w := batchRequest.RequestOptions.RequestTag, "tag_3"; g != w {
+				t.Fatalf("statement tag mismatch\n Got: %v\nWant: %v", g, w)
+			}
+		}
+
+		commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+		if g, w := len(commitRequests), 2; g != w {
+			t.Fatalf("number of commit request mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		for i := 0; i < len(commitRequests); i++ {
+			commitRequest := commitRequests[i].(*sppb.CommitRequest)
+			// TODO: Remove when https://github.com/googleapis/google-cloud-go/pull/11443
+			//       has been merged.
+			if i < 1 {
+				if g, w := commitRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+				}
+			} else {
+				if g, w := commitRequest.RequestOptions.TransactionTag, ""; g != w {
+					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+				}
+			}
+		}
+
+		// Verify that the transaction tag is reset after the transaction.
+		var transactionTag string
+		if err := conn.QueryRowContext(ctx, "SHOW VARIABLE TRANSACTION_TAG").Scan(&transactionTag); err != nil {
+			t.Fatalf("failed to get transaction_tag: %v", err)
+		}
+		if g, w := transactionTag, ""; g != w {
+			t.Fatalf("transaction_tag mismatch\n Got: %v\nWant: %v", g, w)
+		}
 	}
 }
 
