@@ -876,9 +876,29 @@ func TestExecContextDml(t *testing.T) {
 		}
 
 		// Clear table for next test.
-		_, err = db.ExecContext(ctx, `DELETE FROM TestExecContextDml WHERE true`)
-		if (err != nil) && (!tc.then.wantError) {
-			t.Errorf("%s: unexpected query error: %v", tc.name, err)
+		it, err := db.QueryContext(ctx, `DELETE FROM TestExecContextDml WHERE true THEN RETURN *`)
+		if err != nil {
+			if !tc.then.wantError {
+				t.Errorf("%s: unexpected query error: %v", tc.name, err)
+			}
+		} else {
+			if cols, err := it.Columns(); err != nil {
+				t.Errorf("%s: unexpected Columns() error: %v", tc.name, err)
+			} else {
+				if g, w := len(cols), 6; g != w {
+					t.Errorf("%s: column number mismatch\n Got: %v\nWant: %v", tc.name, g, w)
+				}
+				if !cmp.Equal(cols, []string{"key", "testString", "testBytes", "testInt", "testFloat", "testBool"}) {
+					t.Errorf("%s: column names mismatch: %v", tc.name, cols)
+				}
+			}
+			for it.Next() {
+				if err := it.Err(); err != nil {
+					t.Errorf("%s: unexpected iterator error: %v", tc.name, err)
+					break
+				}
+			}
+			it.Close()
 		}
 	}
 }

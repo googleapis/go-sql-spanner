@@ -161,6 +161,11 @@ func removeCommentsAndTrim(sql string) (string, error) {
 // Removes any statement hints at the beginning of the statement.
 // It assumes that any comments have already been removed.
 func removeStatementHint(sql string) string {
+	// Return quickly if the statement does not start with a hint.
+	if len(sql) < 2 || sql[0] != '@' {
+		return sql
+	}
+
 	// Valid statement hints at the beginning of a query statement can only contain a fixed set of
 	// possible values. Although it is possible to add a @{FORCE_INDEX=...} as a statement hint, the
 	// only allowed value is _BASE_TABLE. This means that we can safely assume that the statement
@@ -303,20 +308,36 @@ func findParams(positionalParamChar rune, sql string) (string, []string, error) 
 }
 
 // isDDL returns true if the given sql string is a DDL statement.
-func isDDL(query string) (bool, error) {
-	query, err := removeCommentsAndTrim(query)
-	if err != nil {
-		return false, err
-	}
+// This function assumes that any comments and hints at the start
+// of the sql string have been removed.
+func isDDL(query string) bool {
+	return isStatementType(query, ddlStatements)
+}
+
+// isDml returns true if the given sql string is a Dml statement.
+// This function assumes that any comments and hints at the start
+// of the sql string have been removed.
+func isDml(query string) bool {
+	return isStatementType(query, dmlStatements)
+}
+
+// isQuery returns true if the given sql string is a SELECT statement.
+// This function assumes that any comments and hints at the start
+// of the sql string have been removed.
+func isQuery(query string) bool {
+	return isStatementType(query, selectStatements)
+}
+
+func isStatementType(query string, keywords map[string]bool) bool {
 	// We can safely check if the string starts with a specific string, as we
 	// have already removed all leading spaces, and there are no keywords that
-	// start with the same substring as one of the DDL keywords.
-	for ddl := range ddlStatements {
-		if len(query) >= len(ddl) && strings.EqualFold(query[:len(ddl)], ddl) {
-			return true, nil
+	// start with the same substring as one of the keywords.
+	for keyword := range keywords {
+		if len(query) >= len(keyword) && strings.EqualFold(query[:len(keyword)], keyword) {
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
 
 // clientSideStatements are loaded from the client_side_statements.json file.
@@ -430,4 +451,31 @@ func parseClientSideStatement(c *conn, query string) (*executableClientSideState
 		}
 	}
 	return nil, nil
+}
+
+type statementType int
+
+const (
+	statementTypeUnknown statementType = iota
+	statementTypeQuery
+	statementTypeDml
+	statementTypeDdl
+)
+
+// detectStatementType returns the type of SQL statement based on the first
+// keyword that is found in the SQL statement.
+func detectStatementType(sql string) statementType {
+	sql, err := removeCommentsAndTrim(sql)
+	if err != nil {
+		return statementTypeUnknown
+	}
+	sql = removeStatementHint(sql)
+	if isQuery(sql) {
+		return statementTypeQuery
+	} else if isDml(sql) {
+		return statementTypeDml
+	} else if isDDL(sql) {
+		return statementTypeDdl
+	}
+	return statementTypeUnknown
 }
