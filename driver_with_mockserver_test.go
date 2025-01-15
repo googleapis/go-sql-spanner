@@ -1062,6 +1062,103 @@ func TestQueryWithNullParameters(t *testing.T) {
 	}
 }
 
+func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	query := "SELECT * FROM Test"
+	_ = server.TestSpanner.PutStatementResult(
+		query,
+		&testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: testutil.CreateResultSetWithAllTypes(false),
+		},
+	)
+
+	for _, prepare := range []bool{false, true} {
+		var rows *sql.Rows
+		if prepare {
+			stmt, err := db.Prepare(query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows, err = stmt.QueryContext(context.Background(), ExecOptions{DecodeOption: DecodeOptionProto})
+			if err != nil {
+				t.Fatal(err)
+			}
+			stmt.Close()
+		} else {
+			var err error
+			rows, err = db.QueryContext(context.Background(), query, ExecOptions{DecodeOption: DecodeOptionProto})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		for rows.Next() {
+			var b spanner.GenericColumnValue
+			var s spanner.GenericColumnValue
+			var bt spanner.GenericColumnValue
+			var i spanner.GenericColumnValue
+			var f32 spanner.GenericColumnValue
+			var f spanner.GenericColumnValue
+			var r spanner.GenericColumnValue
+			var d spanner.GenericColumnValue
+			var ts spanner.GenericColumnValue
+			var j spanner.GenericColumnValue
+			var bArray spanner.GenericColumnValue
+			var sArray spanner.GenericColumnValue
+			var btArray spanner.GenericColumnValue
+			var iArray spanner.GenericColumnValue
+			var f32Array spanner.GenericColumnValue
+			var fArray spanner.GenericColumnValue
+			var rArray spanner.GenericColumnValue
+			var dArray spanner.GenericColumnValue
+			var tsArray spanner.GenericColumnValue
+			var jArray spanner.GenericColumnValue
+			err := rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if g, w := b.Value.GetBoolValue(), true; g != w {
+				t.Errorf("row value mismatch for bool\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := s.Value.GetStringValue(), "test"; g != w {
+				t.Errorf("row value mismatch for string\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := bt.Value.GetStringValue(), base64.RawURLEncoding.EncodeToString([]byte("testbytes")); !cmp.Equal(g, w) {
+				t.Errorf("row value mismatch for bytes\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := i.Value.GetStringValue(), "5"; g != w {
+				t.Errorf("row value mismatch for int64\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := float32(f32.Value.GetNumberValue()), float32(3.14); g != w {
+				t.Errorf("row value mismatch for float32\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := f.Value.GetNumberValue(), 3.14; g != w {
+				t.Errorf("row value mismatch for float64\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := r.Value.GetStringValue(), "6.626"; g != w {
+				t.Errorf("row value mismatch for numeric\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := d.Value.GetStringValue(), "2021-07-21"; g != w {
+				t.Errorf("row value mismatch for date\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := ts.Value.GetStringValue(), "2021-07-21T21:07:59.339911800Z"; g != w {
+				t.Errorf("row value mismatch for timestamp\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := j.Value.GetStringValue(), `{"key": "value", "other-key": ["value1", "value2"]}`; g != w {
+				t.Errorf("row value mismatch for json\n Got: %v\nWant: %v", g, w)
+			}
+		}
+		if rows.Err() != nil {
+			t.Fatal(rows.Err())
+		}
+		rows.Close()
+	}
+}
+
 func TestDmlInAutocommit(t *testing.T) {
 	t.Parallel()
 
