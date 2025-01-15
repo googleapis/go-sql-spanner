@@ -61,6 +61,112 @@ func parseParameters(sql string) (string, []string, error) {
 	return findParams('?', sql)
 }
 
+// Skips all whitespaces from the given position and returns the
+// position of the next non-whitespace character or len(sql) if
+// the string does not contain any whitespaces after pos.
+func skipWhitespaces(sql []rune, pos int) int {
+	for ; pos < len(sql); pos++ {
+		c := sql[pos]
+		if c == '-' && len(sql) > pos+1 && sql[pos+1] == '-' {
+			// This is a single line comment starting with '--'.
+			skipSingleLineComment(sql, pos+2)
+		} else if c == '#' {
+			// This is a single line comment starting with '#'.
+			skipSingleLineComment(sql, pos+1)
+		} else if c == '/' && len(sql) > pos+1 && sql[pos+1] == '*' {
+			// This is a multi line comment starting with '/*'.
+			skipMultiLineComment(sql, pos)
+		} else if !unicode.IsSpace(c) {
+			break
+		}
+	}
+	return pos
+}
+
+// Skips the next character, quoted literal, quoted identifier or comment in
+// the given sql string from the given position and returns the position of the
+// next character.
+func skip(sql []rune, pos int) (int, error) {
+	if pos >= len(sql) {
+		return pos, nil
+	}
+	c := sql[pos]
+
+	if c == '\'' || c == '"' || c == '`' {
+		// This is a quoted string or quoted identifier.
+		return skipQuoted(sql, pos, c)
+	} else if c == '-' && len(sql) > pos+1 && sql[pos+1] == '-' {
+		// This is a single line comment starting with '--'.
+		return skipSingleLineComment(sql, pos+2), nil
+	} else if c == '#' {
+		// This is a single line comment starting with '#'.
+		return skipSingleLineComment(sql, pos+1), nil
+	} else if c == '/' && len(sql) > pos+1 && sql[pos+1] == '*' {
+		// This is a multi line comment starting with '/*'.
+		return skipMultiLineComment(sql, pos), nil
+	}
+	return pos + 1, nil
+}
+
+func skipSingleLineComment(sql []rune, pos int) int {
+	for ; pos < len(sql) && sql[pos] != '\n'; pos++ {
+	}
+	return min(pos+1, len(sql))
+}
+
+func skipMultiLineComment(sql []rune, pos int) int {
+	// Skip '/*'.
+	pos = pos + 2
+	// Search for the first '*/' sequence. Note that GoogleSQL does not support
+	// nested comments, so any occurrence of '/*' inside the comment does not
+	// have any special meaning.
+	for ; pos < len(sql); pos++ {
+		if sql[pos] == '*' && len(sql) > pos+1 && sql[pos+1] == '/' {
+			return pos + 2
+		}
+	}
+	return pos
+}
+
+func skipQuoted(sql []rune, pos int, quote rune) (int, error) {
+	isTripleQuoted := len(sql) > pos+2 && sql[pos+1] == quote && sql[pos+2] == quote
+	if isTripleQuoted {
+		pos += 3
+	} else {
+		pos += 1
+	}
+	for ; pos < len(sql); pos++ {
+		c := sql[pos]
+		if c == quote {
+			if isTripleQuoted {
+				// Check if this is the end of the triple-quoted string.
+				if len(sql) > pos+2 && sql[pos+1] == quote && sql[pos+2] == quote {
+					return pos + 3, nil
+				}
+			} else {
+				// This was the end quote.
+				return pos + 1, nil
+			}
+		} else if len(sql) > pos+1 && c == '\\' && sql[pos+1] == quote {
+			// This is an escaped quote (e.g. 'foo\'bar').
+			// Note that in raw strings, the \ officially does not start an
+			// escape sequence, but the result is still the same, as in a raw
+			// string 'both characters are preserved'.
+			pos += 1
+		} else if !isTripleQuoted && c == '\n' {
+			break
+		}
+	}
+	return 0, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", string(sql)))
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // RemoveCommentsAndTrim removes any comments in the query string and trims any
 // spaces at the beginning and end of the query. This makes checking what type
 // of query a string is a lot easier, as only the first word(s) need to be
