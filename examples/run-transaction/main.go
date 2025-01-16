@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"sync"
 
+	"cloud.google.com/go/spanner"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
 	"github.com/googleapis/go-sql-spanner/examples"
 )
@@ -59,7 +60,7 @@ func runTransaction(projectId, instanceId, databaseId string) error {
 			// will be aborted and retried by Spanner multiple times. The end result
 			// will still be that all transactions succeed and the name contains all
 			// indexes in an undefined order.
-			errors[index] = spannerdriver.RunTransaction(ctx, db, &sql.TxOptions{}, func(ctx context.Context, tx *sql.Tx) error {
+			errors[index] = spannerdriver.RunTransactionWithOptions(ctx, db, &sql.TxOptions{}, func(ctx context.Context, tx *sql.Tx) error {
 				// Query the singer in the transaction. This will take a lock on the row and guarantee that
 				// the value that we read is still the same when the transaction is committed. If not, Spanner
 				// will abort the transaction, and the transaction will be retried.
@@ -82,7 +83,7 @@ func runTransaction(projectId, instanceId, databaseId string) error {
 					return fmt.Errorf("unexpected affected row count: %d", affected)
 				}
 				return nil
-			})
+			}, spanner.TransactionOptions{TransactionTag: "sample_transaction"})
 		}()
 	}
 	wg.Wait()

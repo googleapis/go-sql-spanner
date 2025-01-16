@@ -61,6 +61,24 @@ var jsonFile = `{
 		"exampleStatements": ["show variable exclude_txn_from_change_streams"]
 	},
 	{
+		"name": "SHOW VARIABLE TRANSACTION_TAG",
+		"executorName": "ClientSideStatementNoParamExecutor",
+		"resultType": "RESULT_SET",
+		"statementType": "SHOW_TRANSACTION_TAG",
+		"regex": "(?is)\\A\\s*show\\s+variable\\s+transaction_tag\\s*\\z",
+		"method": "statementShowTransactionTag",
+		"exampleStatements": ["show variable transaction_tag"]
+	},
+	{
+		"name": "SHOW VARIABLE STATEMENT_TAG",
+		"executorName": "ClientSideStatementNoParamExecutor",
+		"resultType": "RESULT_SET",
+		"statementType": "SHOW_STATEMENT_TAG",
+		"regex": "(?is)\\A\\s*show\\s+variable\\s+statement_tag\\s*\\z",
+		"method": "statementShowStatementTag",
+		"exampleStatements": ["show variable statement_tag"]
+	},
+	{
       "name": "START BATCH DDL",
       "executorName": "ClientSideStatementNoParamExecutor",
       "resultType": "NO_RESULT",
@@ -164,6 +182,36 @@ var jsonFile = `{
 			"separator": "=",
 			"allowedValues": "(TRUE|FALSE)",
 			"converterName": "ClientSideStatementValueConverters$BooleanConverter"
+		}
+	},
+	{
+		"name": "SET TRANSACTION_TAG = '<tag>'",
+		"executorName": "ClientSideStatementSetExecutor",
+		"resultType": "NO_RESULT",
+		"statementType": "SET_TRANSACTION_TAG",
+		"regex": "(?is)\\A\\s*set\\s+transaction_tag\\s*(?:=)\\s*(.*)\\z",
+		"method": "statementSetTransactionTag",
+		"exampleStatements": ["set transaction_tag='tag1'", "set transaction_tag='tag2'", "set transaction_tag=''", "set transaction_tag='test_tag'"],
+        "setStatement": {
+          "propertyName": "TRANSACTION_TAG",
+           "separator": "=",
+           "allowedValues": "'(.*)'",
+           "converterName": "ClientSideStatementValueConverters$StringValueConverter"
+		}
+	},
+	{
+		"name": "SET STATEMENT_TAG = '<tag>'",
+		"executorName": "ClientSideStatementSetExecutor",
+		"resultType": "NO_RESULT",
+		"statementType": "SET_STATEMENT_TAG",
+		"regex": "(?is)\\A\\s*set\\s+statement_tag\\s*(?:=)\\s*(.*)\\z",
+		"method": "statementSetStatementTag",
+		"exampleStatements": ["set statement_tag='tag1'", "set statement_tag='tag2'", "set statement_tag=''", "set statement_tag='test_tag'"],
+        "setStatement": {
+          "propertyName": "STATEMENT_TAG",
+           "separator": "=",
+           "allowedValues": "'(.*)'",
+           "converterName": "ClientSideStatementValueConverters$StringValueConverter"
 		}
 	}
   ]
