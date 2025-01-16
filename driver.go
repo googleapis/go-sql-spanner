@@ -122,7 +122,7 @@ type Driver struct {
 //
 // Example: projects/$PROJECT/instances/$INSTANCE/databases/$DATABASE
 func (d *Driver) Open(name string) (driver.Conn, error) {
-	c, err := newConnector(d, name, nil)
+	c, err := newOrCachedConnector(d, name)
 	if err != nil {
 		return nil, err
 	}
@@ -130,34 +130,53 @@ func (d *Driver) Open(name string) (driver.Conn, error) {
 }
 
 func (d *Driver) OpenConnector(name string) (driver.Connector, error) {
-	return newConnector(d, name, nil)
+	return newOrCachedConnector(d, name)
 }
 
 // CreateConnector creates a new driver.Connector for Spanner.
-// A driver.Connector represents a fixed configuration for Spanner and can create
-// any number of equivalent connections for use by multiple goroutines by passing
-// the driver.Connector in to the function sql.OpenDB.
+// A connector can be passed in to sql.OpenDB to obtain a sql.DB.
 //
 // Use this method if you want to supply custom configuration for your Spanner
 // connections, and cache the connector that is returned in your application.
 // The same connector should be used to create all connections that should share
-// the same configuration and underlying Spanner client.
-func CreateConnector(dsn string, configurator func(config *spanner.ClientConfig, opts *[]option.ClientOption)) (driver.Connector, error) {
-	return newConnector(spannerDriver, dsn, configurator)
+// the same configuration and the same underlying Spanner client.
+//
+// Note: This function always creates a new connector, even if one with the same
+// configuration has been created previously.
+func CreateConnector(config ConnectorConfig) (driver.Connector, error) {
+	return createConnector(spannerDriver, config)
 }
 
-type connectorConfig struct {
-	host     string
-	project  string
-	instance string
-	database string
-	params   map[string]string
+// ConnectorConfig contains the configuration for a Spanner driver.Connector.
+type ConnectorConfig struct {
+	// Host is the Spanner host that the connector should connect to.
+	// Leave this empty to use the standard Spanner API endpoint.
+	Host string
+
+	// Project, Instance, and Database identify the database that the connector
+	// should create connections for.
+	Project  string
+	Instance string
+	Database string
+
+	// Params contains key/value pairs for commonly used configuration parameters
+	// for connections. The valid values are the same as the parameters that can
+	// be added to a connection string.
+	Params map[string]string
+
+	// Configurator is called with the spanner.ClientConfig and []option.ClientOption
+	// that will be used to create connections by the driver.Connector. Use this
+	// function to set any further advanced configuration options that cannot be set
+	// with a standard key/value pair in the Params map.
+	Configurator func(config *spanner.ClientConfig, opts *[]option.ClientOption)
 }
 
-func extractConnectorConfig(dsn string) (connectorConfig, error) {
+// ExtractConnectorConfig extracts a ConnectorConfig for Spanner from the given
+// data source name.
+func ExtractConnectorConfig(dsn string) (ConnectorConfig, error) {
 	match := dsnRegExp.FindStringSubmatch(dsn)
 	if match == nil {
-		return connectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection string: %s", dsn))
+		return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection string: %s", dsn))
 	}
 	matches := make(map[string]string)
 	for i, name := range dsnRegExp.SubexpNames() {
@@ -168,15 +187,15 @@ func extractConnectorConfig(dsn string) (connectorConfig, error) {
 	paramsString := matches["PARAMSGROUP"]
 	params, err := extractConnectorParams(paramsString)
 	if err != nil {
-		return connectorConfig{}, err
+		return ConnectorConfig{}, err
 	}
 
-	return connectorConfig{
-		host:     matches["HOSTGROUP"],
-		project:  matches["PROJECTGROUP"],
-		instance: matches["INSTANCEGROUP"],
-		database: matches["DATABASEGROUP"],
-		params:   params,
+	return ConnectorConfig{
+		Host:     matches["HOSTGROUP"],
+		Project:  matches["PROJECTGROUP"],
+		Instance: matches["INSTANCEGROUP"],
+		Database: matches["DATABASEGROUP"],
+		Params:   params,
 	}, nil
 }
 
@@ -203,8 +222,8 @@ func extractConnectorParams(paramsString string) (map[string]string, error) {
 
 type connector struct {
 	driver          *Driver
-	dsn             string
-	connectorConfig connectorConfig
+	connectorConfig ConnectorConfig
+	cacheKey        string
 
 	closerMu sync.RWMutex
 	closed   bool
@@ -230,7 +249,7 @@ type connector struct {
 	connCount      int32
 }
 
-func newConnector(d *Driver, dsn string, configurator func(config *spanner.ClientConfig, opts *[]option.ClientOption)) (*connector, error) {
+func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.connectors == nil {
@@ -240,24 +259,34 @@ func newConnector(d *Driver, dsn string, configurator func(config *spanner.Clien
 		return c, nil
 	}
 
-	connectorConfig, err := extractConnectorConfig(dsn)
+	connectorConfig, err := ExtractConnectorConfig(dsn)
 	if err != nil {
 		return nil, err
 	}
-	opts := make([]option.ClientOption, 0)
-	if connectorConfig.host != "" {
-		opts = append(opts, option.WithEndpoint(connectorConfig.host))
+	c, err := createConnector(d, connectorConfig)
+	if err != nil {
+		return nil, err
 	}
-	if strval, ok := connectorConfig.params["credentials"]; ok {
+	c.cacheKey = dsn
+	d.connectors[dsn] = c
+	return c, nil
+}
+
+func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, error) {
+	opts := make([]option.ClientOption, 0)
+	if connectorConfig.Host != "" {
+		opts = append(opts, option.WithEndpoint(connectorConfig.Host))
+	}
+	if strval, ok := connectorConfig.Params["credentials"]; ok {
 		opts = append(opts, option.WithCredentialsFile(strval))
 	}
-	if strval, ok := connectorConfig.params["credentialsjson"]; ok {
+	if strval, ok := connectorConfig.Params["credentialsjson"]; ok {
 		opts = append(opts, option.WithCredentialsJSON([]byte(strval)))
 	}
 	config := spanner.ClientConfig{
 		SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 	}
-	if strval, ok := connectorConfig.params["useplaintext"]; ok {
+	if strval, ok := connectorConfig.Params["useplaintext"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil && val {
 			opts = append(opts,
 				option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
@@ -267,27 +296,27 @@ func newConnector(d *Driver, dsn string, configurator func(config *spanner.Clien
 		}
 	}
 	retryAbortsInternally := true
-	if strval, ok := connectorConfig.params["retryabortsinternally"]; ok {
+	if strval, ok := connectorConfig.Params["retryabortsinternally"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil && !val {
 			retryAbortsInternally = false
 		}
 	}
-	if strval, ok := connectorConfig.params["minsessions"]; ok {
+	if strval, ok := connectorConfig.Params["minsessions"]; ok {
 		if val, err := strconv.ParseUint(strval, 10, 64); err == nil {
 			config.MinOpened = val
 		}
 	}
-	if strval, ok := connectorConfig.params["maxsessions"]; ok {
+	if strval, ok := connectorConfig.Params["maxsessions"]; ok {
 		if val, err := strconv.ParseUint(strval, 10, 64); err == nil {
 			config.MaxOpened = val
 		}
 	}
-	if strval, ok := connectorConfig.params["numchannels"]; ok {
+	if strval, ok := connectorConfig.Params["numchannels"]; ok {
 		if val, err := strconv.Atoi(strval); err == nil && val > 0 {
 			opts = append(opts, option.WithGRPCConnectionPool(val))
 		}
 	}
-	if strval, ok := connectorConfig.params["rpcpriority"]; ok {
+	if strval, ok := connectorConfig.Params["rpcpriority"]; ok {
 		var priority spannerpb.RequestOptions_Priority
 		switch strings.ToUpper(strval) {
 		case "LOW":
@@ -303,50 +332,48 @@ func newConnector(d *Driver, dsn string, configurator func(config *spanner.Clien
 		config.TransactionOptions.CommitPriority = priority
 		config.QueryOptions.Priority = priority
 	}
-	if strval, ok := connectorConfig.params["optimizerversion"]; ok {
+	if strval, ok := connectorConfig.Params["optimizerversion"]; ok {
 		if config.QueryOptions.Options == nil {
 			config.QueryOptions.Options = &spannerpb.ExecuteSqlRequest_QueryOptions{}
 		}
 		config.QueryOptions.Options.OptimizerVersion = strval
 	}
-	if strval, ok := connectorConfig.params["optimizerstatisticspackage"]; ok {
+	if strval, ok := connectorConfig.Params["optimizerstatisticspackage"]; ok {
 		if config.QueryOptions.Options == nil {
 			config.QueryOptions.Options = &spannerpb.ExecuteSqlRequest_QueryOptions{}
 		}
 		config.QueryOptions.Options.OptimizerStatisticsPackage = strval
 	}
-	if strval, ok := connectorConfig.params["databaserole"]; ok {
+	if strval, ok := connectorConfig.Params["databaserole"]; ok {
 		config.DatabaseRole = strval
 	}
-	if strval, ok := connectorConfig.params["disableroutetoleader"]; ok {
+	if strval, ok := connectorConfig.Params["disableroutetoleader"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil {
 			config.DisableRouteToLeader = val
 		}
 	}
-	if strval, ok := connectorConfig.params["enableendtoendtracing"]; ok {
+	if strval, ok := connectorConfig.Params["enableendtoendtracing"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil {
 			config.EnableEndToEndTracing = val
 		}
 	}
-	if strval, ok := connectorConfig.params["disablenativemetrics"]; ok {
+	if strval, ok := connectorConfig.Params["disablenativemetrics"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil {
 			config.DisableNativeMetrics = val
 		}
 	}
 	config.UserAgent = userAgent
-	if configurator != nil {
-		configurator(&config, &opts)
+	if connectorConfig.Configurator != nil {
+		connectorConfig.Configurator(&config, &opts)
 	}
 
 	c := &connector{
 		driver:                d,
-		dsn:                   dsn,
 		connectorConfig:       connectorConfig,
 		spannerClientConfig:   config,
 		options:               opts,
 		retryAbortsInternally: retryAbortsInternally,
 	}
-	d.connectors[dsn] = c
 	return c, nil
 }
 
@@ -360,12 +387,12 @@ func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
 }
 
 func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
-	opts := append(c.options, option.WithUserAgent(userAgent))
+	opts := c.options
 	databaseName := fmt.Sprintf(
 		"projects/%s/instances/%s/databases/%s",
-		c.connectorConfig.project,
-		c.connectorConfig.instance,
-		c.connectorConfig.database)
+		c.connectorConfig.Project,
+		c.connectorConfig.Instance,
+		c.connectorConfig.Database)
 
 	if err := c.increaseConnCount(ctx, databaseName, opts); err != nil {
 		return nil, err
@@ -438,9 +465,11 @@ func (c *connector) Close() error {
 	c.closed = true
 	c.closerMu.Unlock()
 
-	c.driver.mu.Lock()
-	delete(c.driver.connectors, c.dsn)
-	c.driver.mu.Unlock()
+	if c.cacheKey != "" {
+		c.driver.mu.Lock()
+		delete(c.driver.connectors, c.cacheKey)
+		c.driver.mu.Unlock()
+	}
 
 	c.clientMu.Lock()
 	defer c.clientMu.Unlock()

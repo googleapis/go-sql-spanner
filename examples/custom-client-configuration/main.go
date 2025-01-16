@@ -33,14 +33,20 @@ import (
 func customClientConfiguration(projectId, instanceId, databaseId string) error {
 	ctx := context.Background()
 
-	dsn := fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId)
-	// Create a function that sets the Spanner client configuration for the database connection.
-	configureFunction := func(config *spanner.ClientConfig, opts *[]option.ClientOption) {
-		// Set a default query optimizer version that the client should use.
-		config.QueryOptions = spanner.QueryOptions{Options: &spannerpb.ExecuteSqlRequest_QueryOptions{OptimizerVersion: "1"}}
+	connectorConfig := spannerdriver.ConnectorConfig{
+		Project:  projectId,
+		Instance: instanceId,
+		Database: databaseId,
+
+		// Create a function that sets the Spanner client configuration for the database connection.
+		Configurator: func(config *spanner.ClientConfig, opts *[]option.ClientOption) {
+			// Set a default query optimizer version that the client should use.
+			config.QueryOptions = spanner.QueryOptions{Options: &spannerpb.ExecuteSqlRequest_QueryOptions{OptimizerVersion: "1"}}
+		},
 	}
-	// Create a Connector for Spanner. This Connector instance should be re-used for all connections.
-	c, err := spannerdriver.CreateConnector(dsn, configureFunction)
+
+	// Create a Connector for Spanner to create a DB with a custom configuration.
+	c, err := spannerdriver.CreateConnector(connectorConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create connector: %v", err)
 	}

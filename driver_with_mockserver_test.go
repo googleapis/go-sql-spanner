@@ -3806,7 +3806,13 @@ func setupTestDBConnectionWithParams(t *testing.T, params string) (db *sql.DB, s
 func setupTestDBConnectionWithConfigurator(t *testing.T, params string, configurator func(config *spanner.ClientConfig, opts *[]option.ClientOption)) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
 	server, _, serverTeardown := setupMockedTestServer(t)
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;%s", server.Address, params)
-	c, err := CreateConnector(dsn, configurator)
+	config, err := ExtractConnectorConfig(dsn)
+	config.Configurator = configurator
+	if err != nil {
+		serverTeardown()
+		t.Fatal(err)
+	}
+	c, err := CreateConnector(config)
 	if err != nil {
 		serverTeardown()
 		t.Fatal(err)
