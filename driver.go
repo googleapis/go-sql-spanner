@@ -1289,6 +1289,10 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 	}
 
 	execOptions := c.options()
+	return c.queryContext(ctx, query, execOptions, args)
+}
+
+func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
 	// Clear the commit timestamp of this connection before we execute the query.
 	c.commitTs = nil
 
@@ -1329,7 +1333,10 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 		return stmt.ExecContext(ctx, args)
 	}
 	execOptions := c.options()
+	return c.execContext(ctx, query, execOptions, args)
+}
 
+func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	// Clear the commit timestamp of this connection before we execute the statement.
 	c.commitTs = nil
 
