@@ -1168,6 +1168,8 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 			var d spanner.GenericColumnValue
 			var ts spanner.GenericColumnValue
 			var j spanner.GenericColumnValue
+			var p spanner.GenericColumnValue
+			var e spanner.GenericColumnValue
 			var bArray spanner.GenericColumnValue
 			var sArray spanner.GenericColumnValue
 			var btArray spanner.GenericColumnValue
@@ -1178,7 +1180,9 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 			var dArray spanner.GenericColumnValue
 			var tsArray spanner.GenericColumnValue
 			var jArray spanner.GenericColumnValue
-			err := rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray)
+			var pArray spanner.GenericColumnValue
+			var eArray spanner.GenericColumnValue
+			err := rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &pArray, &eArray)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1211,6 +1215,12 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 			}
 			if g, w := j.Value.GetStringValue(), `{"key": "value", "other-key": ["value1", "value2"]}`; g != w {
 				t.Errorf("row value mismatch for json\n Got: %v\nWant: %v", g, w)
+			}
+			if p.Value.GetStringValue() == "" {
+				t.Errorf("row value mismatch for proto\n Got: %v\nWant: A non-empty string", p.Value.GetStringValue())
+			}
+			if g, w := e.Value.GetStringValue(), "3"; g != w {
+				t.Errorf("row value mismatch for enum\n Got: %v\nWant: %v", g, w)
 			}
 		}
 		if rows.Err() != nil {
