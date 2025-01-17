@@ -24,9 +24,12 @@ import (
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
+	pb "cloud.google.com/go/spanner/testdata/protos"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -223,7 +226,7 @@ func createSingersRow(idx int64) *structpb.ListValue {
 
 func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 	index := 0
-	fields := make([]*spannerpb.StructType_Field, 20)
+	fields := make([]*spannerpb.StructType_Field, 24)
 	fields[index] = &spannerpb.StructType_Field{
 		Name: "ColBool",
 		Type: &spannerpb.Type{Code: spannerpb.TypeCode_BOOL},
@@ -272,6 +275,16 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 	fields[index] = &spannerpb.StructType_Field{
 		Name: "ColJson",
 		Type: &spannerpb.Type{Code: spannerpb.TypeCode_JSON},
+	}
+	index++
+	fields[index] = &spannerpb.StructType_Field{
+		Name: "ColProto",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_PROTO},
+	}
+	index++
+	fields[index] = &spannerpb.StructType_Field{
+		Name: "ColProtoEnum",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_ENUM},
 	}
 	index++
 	fields[index] = &spannerpb.StructType_Field{
@@ -353,6 +366,22 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 			ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_JSON},
 		},
 	}
+	index++
+	fields[index] = &spannerpb.StructType_Field{
+		Name: "ColProtoArray",
+		Type: &spannerpb.Type{
+			Code:             spannerpb.TypeCode_ARRAY,
+			ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_PROTO},
+		},
+	}
+	index++
+	fields[index] = &spannerpb.StructType_Field{
+		Name: "ColProtoEnumArray",
+		Type: &spannerpb.Type{
+			Code:             spannerpb.TypeCode_ARRAY,
+			ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_ENUM},
+		},
+	}
 	rowType := &spannerpb.StructType{
 		Fields: fields,
 	}
@@ -366,6 +395,22 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 			rowValue[i] = &structpb.Value{Kind: &structpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}}
 		}
 	} else {
+		singerEnumValue := pb.Genre_ROCK
+		singerProtoMsg := pb.SingerInfo{
+			SingerId:    proto.Int64(1),
+			BirthDate:   proto.String("January"),
+			Nationality: proto.String("Country1"),
+			Genre:       &singerEnumValue,
+		}
+
+		singer2ProtoEnum := pb.Genre_FOLK
+		singer2ProtoMsg := pb.SingerInfo{
+			SingerId:    proto.Int64(2),
+			BirthDate:   proto.String("February"),
+			Nationality: proto.String("Country2"),
+			Genre:       &singer2ProtoEnum,
+		}
+
 		index = 0
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_BoolValue{BoolValue: true}}
 		index++
@@ -386,6 +431,10 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "2021-07-21T21:07:59.339911800Z"}}
 		index++
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: `{"key": "value", "other-key": ["value1", "value2"]}`}}
+		index++
+		rowValue[index] = protoMessageProto(&singerProtoMsg)
+		index++
+		rowValue[index] = protoEnumProto(&singerEnumValue)
 		index++
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
 			ListValue: &structpb.ListValue{Values: []*structpb.Value{
@@ -466,6 +515,22 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 				{Kind: &structpb.Value_StringValue{StringValue: `{"key2": "value2", "other-key2": ["value1", "value2"]}`}},
 			}},
 		}}
+		index++
+		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
+			ListValue: &structpb.ListValue{Values: []*structpb.Value{
+				protoMessageProto(&singerProtoMsg),
+				{Kind: &structpb.Value_NullValue{}},
+				protoMessageProto(&singer2ProtoMsg),
+			}},
+		}}
+		index++
+		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
+			ListValue: &structpb.ListValue{Values: []*structpb.Value{
+				protoEnumProto(&singerEnumValue),
+				{Kind: &structpb.Value_NullValue{}},
+				protoEnumProto(&singer2ProtoEnum),
+			}},
+		}}
 	}
 	rows[0] = &structpb.ListValue{
 		Values: rowValue,
@@ -474,6 +539,15 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 		Metadata: metadata,
 		Rows:     rows,
 	}
+}
+
+func protoMessageProto(m proto.Message) *structpb.Value {
+	var b, _ = proto.Marshal(m)
+	return &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString(b)}}
+}
+
+func protoEnumProto(e protoreflect.Enum) *structpb.Value {
+	return &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: strconv.FormatInt(int64(e.Number()), 10)}}
 }
 
 func CreateSelect1ResultSet() *spannerpb.ResultSet {

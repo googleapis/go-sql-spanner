@@ -113,7 +113,7 @@ func (r *rows) Next(dest []driver.Value) error {
 			continue
 		}
 		switch col.Type.Code {
-		case sppb.TypeCode_INT64:
+		case sppb.TypeCode_INT64, sppb.TypeCode_ENUM:
 			var v spanner.NullInt64
 			if err := col.Decode(&v); err != nil {
 				return err
@@ -172,7 +172,7 @@ func (r *rows) Next(dest []driver.Value) error {
 			// for JSON in the Go sql package. That means that instead of returning
 			// nil we should return a NullJSON with valid=false.
 			dest[i] = v
-		case sppb.TypeCode_BYTES:
+		case sppb.TypeCode_BYTES, sppb.TypeCode_PROTO:
 			// The column value is a base64 encoded string.
 			var v []byte
 			if err := col.Decode(&v); err != nil {
@@ -211,7 +211,7 @@ func (r *rows) Next(dest []driver.Value) error {
 			}
 		case sppb.TypeCode_ARRAY:
 			switch col.Type.ArrayElementType.Code {
-			case sppb.TypeCode_INT64:
+			case sppb.TypeCode_INT64, sppb.TypeCode_ENUM:
 				var v []spanner.NullInt64
 				if err := col.Decode(&v); err != nil {
 					return err
@@ -247,7 +247,7 @@ func (r *rows) Next(dest []driver.Value) error {
 					return err
 				}
 				dest[i] = v
-			case sppb.TypeCode_BYTES:
+			case sppb.TypeCode_BYTES, sppb.TypeCode_PROTO:
 				var v [][]byte
 				if err := col.Decode(&v); err != nil {
 					return err
