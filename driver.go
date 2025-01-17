@@ -656,6 +656,13 @@ type SpannerConn interface {
 	// read/write transaction is started.
 	SetTransactionTag(transactionTag string) error
 
+	// MaxCommitDelay returns the max commit delay that will be applied to read/write
+	// transactions on this connection.
+	MaxCommitDelay() time.Duration
+	// SetMaxCommitDelay sets the max commit delay that will be applied to read/write
+	// transactions on this connection.
+	SetMaxCommitDelay(delay time.Duration) error
+
 	// ExcludeTxnFromChangeStreams returns true if the next transaction should be excluded from change streams with the
 	// DDL option `allow_txn_exclusion=true`.
 	ExcludeTxnFromChangeStreams() bool
@@ -727,6 +734,8 @@ type conn struct {
 	autocommitDMLMode AutocommitDMLMode
 	// readOnlyStaleness is used for queries in autocommit mode and for read-only transactions.
 	readOnlyStaleness spanner.TimestampBound
+	// maxCommitDelay is applied to commit requests both in autocommit and read/write transactions.
+	maxCommitDelay time.Duration
 
 	// execOptions are applied to the next statement that is executed on this connection.
 	// It can be set by passing it in as an argument to ExecContext or QueryContext
@@ -820,6 +829,20 @@ func (c *conn) SetReadOnlyStaleness(staleness spanner.TimestampBound) error {
 
 func (c *conn) setReadOnlyStaleness(staleness spanner.TimestampBound) (driver.Result, error) {
 	c.readOnlyStaleness = staleness
+	return driver.ResultNoRows, nil
+}
+
+func (c *conn) MaxCommitDelay() time.Duration {
+	return c.maxCommitDelay
+}
+
+func (c *conn) SetMaxCommitDelay(delay time.Duration) error {
+	_, err := c.setMaxCommitDelay(delay)
+	return err
+}
+
+func (c *conn) setMaxCommitDelay(delay time.Duration) (driver.Result, error) {
+	c.maxCommitDelay = delay
 	return driver.ResultNoRows, nil
 }
 
@@ -1093,6 +1116,7 @@ func (c *conn) ResetSession(_ context.Context) error {
 	c.retryAborts = true
 	c.autocommitDMLMode = Transactional
 	c.readOnlyStaleness = spanner.TimestampBound{}
+	c.maxCommitDelay = time.Duration(0)
 	return nil
 }
 
