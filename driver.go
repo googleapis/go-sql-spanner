@@ -104,6 +104,10 @@ type ExecOptions struct {
 	TransactionOptions spanner.TransactionOptions
 	// QueryOptions are the query options that will be used for the statement.
 	QueryOptions spanner.QueryOptions
+
+	// PartitionedQueryOptions are used for partitioned queries, and ignored
+	// for all other statements.
+	PartitionedQueryOptions PartitionedQueryOptions
 }
 
 type DecodeOption int
@@ -743,6 +747,11 @@ type SpannerConn interface {
 	// setTransactionOptions sets the TransactionOptions that should be used
 	// for this transaction.
 	withTransactionOptions(options spanner.TransactionOptions)
+
+	// withTempBatchReadOnlyTransactionOptions sets the options that should be used
+	// for the next batch read-only transaction. This method should only be called
+	// directly before starting a new batch read-only transaction.
+	withTempBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransactionOptions)
 }
 
 var _ SpannerConn = &conn{}
@@ -781,6 +790,10 @@ type conn struct {
 	// It can be set by passing it in as an argument to ExecContext or QueryContext
 	// and is cleared after each execution.
 	execOptions ExecOptions
+
+	// tempBatchReadOnlyTransactionOptions are temporarily set right before a
+	// batch read-only transaction is started on a Spanner connection.
+	tempBatchReadOnlyTransactionOptions *BatchReadOnlyTransactionOptions
 }
 
 type batchType int
@@ -1299,6 +1312,13 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
 	// Clear the commit timestamp of this connection before we execute the query.
 	c.commitTs = nil
+	if execOptions.PartitionedQueryOptions.AutoPartitionQuery {
+		// TODO: Implement
+		return nil, spanner.ToSpannerError(status.Errorf(codes.Unimplemented, "auto-partitioning queries not yet implemented"))
+	}
+	if pq := execOptions.PartitionedQueryOptions.ExecutePartition.PartitionedQuery; pq != nil {
+		return pq.execute(ctx, execOptions.PartitionedQueryOptions.ExecutePartition.Index)
+	}
 
 	stmt, err := prepareSpannerStmt(query, args)
 	if err != nil {
@@ -1315,6 +1335,8 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 				return nil, err
 			}
 			c.commitTs = &commitTs
+		} else if execOptions.PartitionedQueryOptions.PartitionQuery {
+			return nil, spanner.ToSpannerError(status.Errorf(codes.Unimplemented, "auto-partitioning queries not yet implemented"))
 		} else {
 			// The statement was either detected as being a query, or potentially not recognized at all.
 			// In that case, just default to using a single-use read-only transaction and let Spanner
@@ -1322,6 +1344,9 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 			iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt, c.readOnlyStaleness, execOptions)}
 		}
 	} else {
+		if execOptions.PartitionedQueryOptions.PartitionQuery {
+			return c.tx.partitionQuery(ctx, stmt, execOptions)
+		}
 		iter = c.tx.Query(ctx, stmt, execOptions.QueryOptions)
 	}
 	return &rows{it: iter, decodeOption: execOptions.DecodeOption}, nil
@@ -1418,11 +1443,24 @@ func (c *conn) withTransactionOptions(options spanner.TransactionOptions) {
 	c.execOptions.TransactionOptions = options
 }
 
+func (c *conn) withTempBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransactionOptions) {
+	c.tempBatchReadOnlyTransactionOptions = options
+}
+
+func (c *conn) getBatchReadOnlyTransactionOptions() BatchReadOnlyTransactionOptions {
+	if c.tempBatchReadOnlyTransactionOptions != nil {
+		defer func() { c.tempBatchReadOnlyTransactionOptions = nil }()
+		return *c.tempBatchReadOnlyTransactionOptions
+	}
+	return BatchReadOnlyTransactionOptions{TimestampBound: c.readOnlyStaleness}
+}
+
 type spannerIsolationLevel sql.IsolationLevel
 
 const (
 	levelNone spannerIsolationLevel = iota
 	levelDisableRetryAborts
+	levelBatchReadOnly
 )
 
 // WithDisableRetryAborts returns a specific Spanner isolation level that contains
@@ -1430,6 +1468,14 @@ const (
 // disables internal retries for aborted transactions for a single transaction.
 func WithDisableRetryAborts(level sql.IsolationLevel) sql.IsolationLevel {
 	return sql.IsolationLevel(levelDisableRetryAborts)<<8 + level
+}
+
+// WithBatchReadOnly returns a specific Spanner isolation level that contains
+// both the given standard isolation level and a custom Spanner isolation level that
+// instructs Spanner to use a spanner.BatchReadOnlyTransaction. This isolation level
+// should only be used for read-only transactions.
+func WithBatchReadOnly(level sql.IsolationLevel) sql.IsolationLevel {
+	return sql.IsolationLevel(levelBatchReadOnly)<<8 + level
 }
 
 func (c *conn) Begin() (driver.Tx, error) {
@@ -1441,6 +1487,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		c.resetForRetry = false
 		return c.tx, nil
 	}
+	batchReadOnlyTxOpts := c.getBatchReadOnlyTransactionOptions()
 	if c.inTransaction() {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "already in a transaction"))
 	}
@@ -1450,22 +1497,46 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 
 	execOptions := c.options()
 	disableRetryAborts := false
+	batchReadOnly := false
 	sil := opts.Isolation >> 8
+	// TODO: Fix this, the original isolation level is not correctly restored.
 	opts.Isolation = opts.Isolation - sil
 	if sil > 0 {
 		switch spannerIsolationLevel(sil) {
 		case levelDisableRetryAborts:
 			disableRetryAborts = true
+		case levelBatchReadOnly:
+			batchReadOnly = true
 		}
+	}
+	if batchReadOnly && !opts.ReadOnly {
+		return nil, status.Error(codes.InvalidArgument, "levelBatchReadOnly can only be used for read-only transactions")
 	}
 
 	if opts.ReadOnly {
-		logger := c.logger.With("tx", "ro")
-		ro := c.client.ReadOnlyTransaction().WithTimestampBound(c.readOnlyStaleness)
+		var logger *slog.Logger
+		var ro *spanner.ReadOnlyTransaction
+		var bo *spanner.BatchReadOnlyTransaction
+		if batchReadOnly {
+			logger = c.logger.With("tx", "batchro")
+			var err error
+			bo, err = c.client.BatchReadOnlyTransaction(ctx, batchReadOnlyTxOpts.TimestampBound)
+			if err != nil {
+				return nil, err
+			}
+			ro = &bo.ReadOnlyTransaction
+		} else {
+			logger = c.logger.With("tx", "ro")
+			ro = c.client.ReadOnlyTransaction().WithTimestampBound(c.readOnlyStaleness)
+		}
 		c.tx = &readOnlyTransaction{
 			roTx:   ro,
+			boTx:   bo,
 			logger: logger,
 			close: func() {
+				if batchReadOnlyTxOpts.close != nil {
+					batchReadOnlyTxOpts.close()
+				}
 				c.tx = nil
 			},
 		}

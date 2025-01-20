@@ -36,6 +36,7 @@ type contextTransaction interface {
 	Rollback() error
 	resetForRetry(ctx context.Context) error
 	Query(ctx context.Context, stmt spanner.Statement, options spanner.QueryOptions) rowIterator
+	partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (driver.Rows, error)
 	ExecContext(ctx context.Context, stmt spanner.Statement, options spanner.QueryOptions) (int64, error)
 
 	StartBatchDML(options spanner.QueryOptions) (driver.Result, error)
@@ -69,6 +70,7 @@ func (ri *readOnlyRowIterator) Metadata() *sppb.ResultSetMetadata {
 
 type readOnlyTransaction struct {
 	roTx   *spanner.ReadOnlyTransaction
+	boTx   *spanner.BatchReadOnlyTransaction
 	logger *slog.Logger
 	close  func()
 }
@@ -77,7 +79,9 @@ func (tx *readOnlyTransaction) Commit() error {
 	tx.logger.Debug("committing transaction")
 	// Read-only transactions don't really commit, but closing the transaction
 	// will return the session to the pool.
-	if tx.roTx != nil {
+	if tx.boTx != nil {
+		tx.boTx.Close()
+	} else if tx.roTx != nil {
 		tx.roTx.Close()
 	}
 	tx.close()
@@ -103,6 +107,23 @@ func (tx *readOnlyTransaction) resetForRetry(ctx context.Context) error {
 func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement, options spanner.QueryOptions) rowIterator {
 	tx.logger.DebugContext(ctx, "Query", "stmt", stmt.SQL)
 	return &readOnlyRowIterator{tx.roTx.QueryWithOptions(ctx, stmt, options)}
+}
+
+func (tx *readOnlyTransaction) partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (driver.Rows, error) {
+	if tx.boTx == nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "partitionQuery is only supported for batch read-only transactions"))
+	}
+	partitions, err := tx.boTx.PartitionQueryWithOptions(ctx, stmt, execOptions.PartitionedQueryOptions.PartitionOptions, execOptions.QueryOptions)
+	if err != nil {
+		return nil, err
+	}
+	pq := &PartitionedQuery{
+		stmt:        stmt,
+		execOptions: execOptions,
+		tx:          tx.boTx,
+		Partitions:  partitions,
+	}
+	return &partitionedQueryRows{partitionedQuery: pq}, nil
 }
 
 func (tx *readOnlyTransaction) ExecContext(_ context.Context, _ spanner.Statement, _ spanner.QueryOptions) (int64, error) {
@@ -361,6 +382,10 @@ func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statemen
 	}
 	tx.statements = append(tx.statements, it)
 	return it
+}
+
+func (tx *readWriteTransaction) partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (driver.Rows, error) {
+	return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read/write transactions cannot partition queries"))
 }
 
 func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.Statement, options spanner.QueryOptions) (res int64, err error) {
