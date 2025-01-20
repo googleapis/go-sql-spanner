@@ -33,6 +33,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
+	pb "cloud.google.com/go/spanner/testdata/protos"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/googleapis/go-sql-spanner/testutil"
@@ -550,6 +551,8 @@ func TestQueryWithAllTypes(t *testing.T) {
 		var d civil.Date
 		var ts time.Time
 		var j spanner.NullJSON
+		var p []byte
+		var e int64
 		var bArray []spanner.NullBool
 		var sArray []spanner.NullString
 		var btArray [][]byte
@@ -560,7 +563,9 @@ func TestQueryWithAllTypes(t *testing.T) {
 		var dArray []spanner.NullDate
 		var tsArray []spanner.NullTime
 		var jArray []spanner.NullJSON
-		err = rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray)
+		var pArray [][]byte
+		var eArray []spanner.NullInt64
+		err = rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &pArray, &eArray)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -591,10 +596,25 @@ func TestQueryWithAllTypes(t *testing.T) {
 		if g, w := ts, time.Date(2021, 7, 21, 21, 7, 59, 339911800, time.UTC); g != w {
 			t.Errorf("row value mismatch for timestamp\nGot: %v\nWant: %v", g, w)
 		}
-		if !runsOnEmulator() {
-			if g, w := j, nullJson(true, `{"key":"value","other-key":["value1","value2"]}`); !cmp.Equal(g, w) {
-				t.Errorf("row value mismatch for json\nGot: %v\nWant: %v", g, w)
-			}
+		if g, w := j, nullJson(true, `{"key":"value","other-key":["value1","value2"]}`); !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for json\nGot: %v\nWant: %v", g, w)
+		}
+		wantSingerEnumValue := pb.Genre_ROCK
+		wantSingerProtoMsg := pb.SingerInfo{
+			SingerId:    proto.Int64(1),
+			BirthDate:   proto.String("January"),
+			Nationality: proto.String("Country1"),
+			Genre:       &wantSingerEnumValue,
+		}
+		gotSingerProto := pb.SingerInfo{}
+		if err := proto.Unmarshal(p, &gotSingerProto); err != nil {
+			t.Fatalf("failed to unmarshal proto: %v", err)
+		}
+		if g, w := &gotSingerProto, &wantSingerProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
+			t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := pb.Genre(e), wantSingerEnumValue; g != w {
+			t.Errorf("row value mismatch for enum\nGot: %v\nWant: %v", g, w)
 		}
 		if g, w := bArray, []spanner.NullBool{{Valid: true, Bool: true}, {}, {Valid: true, Bool: false}}; !cmp.Equal(g, w) {
 			t.Errorf("row value mismatch for bool array\nGot: %v\nWant: %v", g, w)
@@ -623,14 +643,39 @@ func TestQueryWithAllTypes(t *testing.T) {
 		if g, w := tsArray, []spanner.NullTime{{Valid: true, Time: ts1}, {}, {Valid: true, Time: ts2}}; !cmp.Equal(g, w) {
 			t.Errorf("row value mismatch for timestamp array\nGot: %v\nWant: %v", g, w)
 		}
-		if !runsOnEmulator() {
-			if g, w := jArray, []spanner.NullJSON{
-				nullJson(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`),
-				nullJson(false, ""),
-				nullJson(true, `{"key2": "value2", "other-key2": ["value1", "value2"]}`),
-			}; !cmp.Equal(g, w) {
-				t.Errorf("row value mismatch for json array\nGot: %v\nWant: %v", g, w)
-			}
+		if g, w := jArray, []spanner.NullJSON{
+			nullJson(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`),
+			nullJson(false, ""),
+			nullJson(true, `{"key2": "value2", "other-key2": ["value1", "value2"]}`),
+		}; !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for json array\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := len(pArray), 3; g != w {
+			t.Errorf("row value length mismatch for proto array\nGot: %v\nWant: %v", g, w)
+		}
+		wantSinger2ProtoEnum := pb.Genre_FOLK
+		wantSinger2ProtoMsg := pb.SingerInfo{
+			SingerId:    proto.Int64(2),
+			BirthDate:   proto.String("February"),
+			Nationality: proto.String("Country2"),
+			Genre:       &wantSinger2ProtoEnum,
+		}
+		gotSingerProto1 := pb.SingerInfo{}
+		if err := proto.Unmarshal(pArray[0], &gotSingerProto1); err != nil {
+			t.Fatalf("failed to unmarshal proto: %v", err)
+		}
+		gotSingerProto2 := pb.SingerInfo{}
+		if err := proto.Unmarshal(pArray[2], &gotSingerProto2); err != nil {
+			t.Fatalf("failed to unmarshal proto: %v", err)
+		}
+		if g, w := &gotSingerProto1, &wantSingerProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
+			t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := pArray[1], []byte(nil); !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := &gotSingerProto2, &wantSinger2ProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
+			t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
 		}
 	}
 	if rows.Err() != nil {
@@ -963,6 +1008,8 @@ func TestQueryWithNullParameters(t *testing.T) {
 			var d spanner.NullDate    // There's no equivalent sql type.
 			var ts sql.NullTime
 			var j spanner.NullJSON // There's no equivalent sql type.
+			var p []byte           // Proto columns are returned as bytes.
+			var e sql.NullInt64    // Enum columns are returned as int64.
 			var bArray []spanner.NullBool
 			var sArray []spanner.NullString
 			var btArray [][]byte
@@ -973,7 +1020,9 @@ func TestQueryWithNullParameters(t *testing.T) {
 			var dArray []spanner.NullDate
 			var tsArray []spanner.NullTime
 			var jArray []spanner.NullJSON
-			err = rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray)
+			var pArray [][]byte
+			var eArray []spanner.NullInt64
+			err = rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &pArray, &eArray)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1007,6 +1056,12 @@ func TestQueryWithNullParameters(t *testing.T) {
 			if j.Valid {
 				t.Errorf("row value mismatch for json\nGot: %v\nWant: %v", j, spanner.NullJSON{})
 			}
+			if p != nil {
+				t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", p, nil)
+			}
+			if e.Valid {
+				t.Errorf("row value mismatch for enum\nGot: %v\nWant: %v", e, spanner.NullInt64{})
+			}
 			if bArray != nil {
 				t.Errorf("row value mismatch for bool array\nGot: %v\nWant: %v", bArray, nil)
 			}
@@ -1036,6 +1091,12 @@ func TestQueryWithNullParameters(t *testing.T) {
 			}
 			if jArray != nil {
 				t.Errorf("row value mismatch for json array\nGot: %v\nWant: %v", jArray, nil)
+			}
+			if pArray != nil {
+				t.Errorf("row value mismatch for proto array\nGot: %v\nWant: %v", pArray, nil)
+			}
+			if eArray != nil {
+				t.Errorf("row value mismatch for enum array\nGot: %v\nWant: %v", eArray, nil)
 			}
 		}
 		if rows.Err() != nil {
@@ -1107,6 +1168,8 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 			var d spanner.GenericColumnValue
 			var ts spanner.GenericColumnValue
 			var j spanner.GenericColumnValue
+			var p spanner.GenericColumnValue
+			var e spanner.GenericColumnValue
 			var bArray spanner.GenericColumnValue
 			var sArray spanner.GenericColumnValue
 			var btArray spanner.GenericColumnValue
@@ -1117,7 +1180,9 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 			var dArray spanner.GenericColumnValue
 			var tsArray spanner.GenericColumnValue
 			var jArray spanner.GenericColumnValue
-			err := rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray)
+			var pArray spanner.GenericColumnValue
+			var eArray spanner.GenericColumnValue
+			err := rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &pArray, &eArray)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1150,6 +1215,12 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 			}
 			if g, w := j.Value.GetStringValue(), `{"key": "value", "other-key": ["value1", "value2"]}`; g != w {
 				t.Errorf("row value mismatch for json\n Got: %v\nWant: %v", g, w)
+			}
+			if p.Value.GetStringValue() == "" {
+				t.Errorf("row value mismatch for proto\n Got: %v\nWant: A non-empty string", p.Value.GetStringValue())
+			}
+			if g, w := e.Value.GetStringValue(), "3"; g != w {
+				t.Errorf("row value mismatch for enum\n Got: %v\nWant: %v", g, w)
 			}
 		}
 		if rows.Err() != nil {

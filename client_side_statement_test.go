@@ -27,7 +27,7 @@ import (
 )
 
 func TestStatementExecutor_StartBatchDdl(t *testing.T) {
-	c := &conn{retryAborts: true}
+	c := &conn{retryAborts: true, logger: noopLogger}
 	s := &statementExecutor{}
 	ctx := context.Background()
 
@@ -58,7 +58,7 @@ func TestStatementExecutor_StartBatchDdl(t *testing.T) {
 }
 
 func TestStatementExecutor_StartBatchDml(t *testing.T) {
-	c := &conn{retryAborts: true}
+	c := &conn{retryAborts: true, logger: noopLogger}
 	s := &statementExecutor{}
 	ctx := context.Background()
 
@@ -82,20 +82,20 @@ func TestStatementExecutor_StartBatchDml(t *testing.T) {
 	}
 
 	// Starting a DML batch while the connection is in a read-only transaction is not allowed.
-	c.tx = &readOnlyTransaction{}
+	c.tx = &readOnlyTransaction{logger: noopLogger}
 	if _, err := s.StartBatchDml(ctx, c, "", nil); spanner.ErrCode(err) != codes.FailedPrecondition {
 		t.Fatalf("error mismatch for starting a DML batch while in a read-only transaction\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
 	}
 
 	// Starting a DML batch while the connection is in a read/write transaction is allowed.
-	c.tx = &readWriteTransaction{}
+	c.tx = &readWriteTransaction{logger: noopLogger}
 	if _, err := s.StartBatchDml(ctx, c, "", nil); err != nil {
 		t.Fatalf("could not start a DML batch while in a read/write transaction: %v", err)
 	}
 }
 
 func TestStatementExecutor_RetryAbortsInternally(t *testing.T) {
-	c := &conn{retryAborts: true}
+	c := &conn{retryAborts: true, logger: noopLogger}
 	s := &statementExecutor{}
 	ctx := context.Background()
 	for i, test := range []struct {
@@ -151,7 +151,7 @@ func TestStatementExecutor_RetryAbortsInternally(t *testing.T) {
 }
 
 func TestStatementExecutor_AutocommitDmlMode(t *testing.T) {
-	c := &conn{}
+	c := &conn{logger: noopLogger}
 	s := &statementExecutor{}
 	ctx := context.Background()
 	for i, test := range []struct {
@@ -207,7 +207,7 @@ func TestStatementExecutor_AutocommitDmlMode(t *testing.T) {
 }
 
 func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
-	c := &conn{}
+	c := &conn{logger: noopLogger}
 	s := &statementExecutor{}
 	ctx := context.Background()
 	for i, test := range []struct {
@@ -278,7 +278,7 @@ func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
 func TestShowCommitTimestamp(t *testing.T) {
 	t.Parallel()
 
-	c := &conn{retryAborts: true}
+	c := &conn{retryAborts: true, logger: noopLogger}
 	s := &statementExecutor{}
 	ctx := context.Background()
 
@@ -320,7 +320,7 @@ func TestShowCommitTimestamp(t *testing.T) {
 }
 
 func TestStatementExecutor_ExcludeTxnFromChangeStreams(t *testing.T) {
-	c := &conn{retryAborts: true}
+	c := &conn{retryAborts: true, logger: noopLogger}
 	s := &statementExecutor{}
 	ctx := context.Background()
 	for i, test := range []struct {
@@ -389,7 +389,7 @@ func TestStatementExecutor_SetTransactionTag(t *testing.T) {
 		{"", "tag-with-missing-opening-quote'", true},
 		{"", "'tag-with-missing-closing-quote", true},
 	} {
-		c := &conn{retryAborts: true}
+		c := &conn{retryAborts: true, logger: noopLogger}
 		s := &statementExecutor{}
 
 		it, err := s.ShowTransactionTag(ctx, c, "", nil)

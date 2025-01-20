@@ -75,6 +75,10 @@ type checksumRowIterator struct {
 	err      error
 }
 
+func (it *checksumRowIterator) String() string {
+	return it.stmt.SQL
+}
+
 func (it *checksumRowIterator) Next() (row *spanner.Row, err error) {
 	if it.stopped {
 		return nil, errNextAfterSTop

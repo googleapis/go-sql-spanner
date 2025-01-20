@@ -19,6 +19,8 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"io"
+	"log/slog"
 	"math/big"
 	"reflect"
 	"regexp"
@@ -33,6 +35,7 @@ import (
 	adminapi "cloud.google.com/go/spanner/admin/database/apiv1"
 	adminpb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
+	"github.com/google/uuid"
 	"github.com/googleapis/gax-go/v2"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
@@ -45,6 +48,16 @@ import (
 )
 
 const userAgent = "go-sql-spanner/1.9.0" // x-release-please-version
+
+// LevelNotice is the default logging level that the Spanner database/sql driver
+// uses for informational logs. This level is deliberately chosen to be one level
+// lower than the default log level, which is slog.LevelInfo. This prevents the
+// driver from adding noise to any default logger that has been set for the
+// application.
+const LevelNotice = slog.LevelInfo - 1
+
+// Logger that discards everything and skips (almost) all logs.
+var noopLogger = slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError + 1}))
 
 // dsnRegExpString describes the valid values for a dsn (connection name) for
 // Google Cloud Spanner. The string consists of the following parts:
@@ -137,6 +150,13 @@ type connectorConfig struct {
 	instance string
 	database string
 	params   map[string]string
+
+	logger *slog.Logger
+	name   string
+}
+
+func (cc *connectorConfig) String() string {
+	return cc.name
 }
 
 func extractConnectorConfig(dsn string) (connectorConfig, error) {
@@ -162,6 +182,7 @@ func extractConnectorConfig(dsn string) (connectorConfig, error) {
 		instance: matches["INSTANCEGROUP"],
 		database: matches["DATABASEGROUP"],
 		params:   params,
+		name:     dsn,
 	}, nil
 }
 
@@ -190,6 +211,7 @@ type connector struct {
 	driver          *Driver
 	dsn             string
 	connectorConfig connectorConfig
+	logger          *slog.Logger
 
 	closerMu sync.RWMutex
 	closed   bool
@@ -319,11 +341,24 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 		}
 	}
 	config.UserAgent = userAgent
+	var logger *slog.Logger
+	if connectorConfig.logger == nil {
+		d := slog.Default()
+		if d == nil {
+			logger = noopLogger
+		} else {
+			logger = d
+		}
+	} else {
+		logger = connectorConfig.logger
+	}
+	logger = logger.With("config", &connectorConfig)
 
 	c := &connector{
 		driver:                d,
 		dsn:                   dsn,
 		connectorConfig:       connectorConfig,
+		logger:                logger,
 		spannerClientConfig:   config,
 		options:               opts,
 		retryAbortsInternally: retryAbortsInternally,
@@ -342,6 +377,8 @@ func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
 }
 
 func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
+	c.logger.Log(ctx, LevelNotice, "opening connection")
+
 	opts := append(c.options, option.WithUserAgent(userAgent))
 	databaseName := fmt.Sprintf(
 		"projects/%s/instances/%s/databases/%s",
@@ -353,10 +390,14 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		return nil, err
 	}
 
+	connId := uuid.New().String()
+	logger := c.logger.With("connId", connId)
 	return &conn{
 		connector:                    c,
 		client:                       c.client,
 		adminClient:                  c.adminClient,
+		connId:                       connId,
+		logger:                       logger,
 		database:                     databaseName,
 		retryAborts:                  c.retryAbortsInternally,
 		execSingleQuery:              queryInSingleUse,
@@ -379,11 +420,13 @@ func (c *connector) increaseConnCount(ctx context.Context, databaseName string, 
 	}
 
 	if c.client == nil {
+		c.logger.Log(ctx, LevelNotice, "creating Spanner client")
 		c.client, c.clientErr = spanner.NewClientWithConfig(ctx, databaseName, c.spannerClientConfig, opts...)
 		if c.clientErr != nil {
 			return c.clientErr
 		}
 
+		c.logger.Log(ctx, LevelNotice, "creating Spanner Admin client")
 		c.adminClient, c.adminClientErr = adminapi.NewDatabaseAdminClient(ctx, opts...)
 		if c.adminClientErr != nil {
 			c.client = nil
@@ -394,6 +437,7 @@ func (c *connector) increaseConnCount(ctx context.Context, databaseName string, 
 	}
 
 	c.connCount++
+	c.logger.DebugContext(ctx, "increased conn count", "connCount", c.connCount)
 	return nil
 }
 
@@ -404,6 +448,7 @@ func (c *connector) decreaseConnCount() error {
 	defer c.clientMu.Unlock()
 
 	c.connCount--
+	c.logger.Debug("decreased conn count", "connCount", c.connCount)
 	if c.connCount > 0 {
 		return nil
 	}
@@ -416,6 +461,7 @@ func (c *connector) Driver() driver.Driver {
 }
 
 func (c *connector) Close() error {
+	c.logger.Debug("closing connector")
 	c.closerMu.Lock()
 	c.closed = true
 	c.closerMu.Unlock()
@@ -431,6 +477,7 @@ func (c *connector) Close() error {
 
 // Closes the underlying clients.
 func (c *connector) closeClients() (err error) {
+	c.logger.Debug("closing clients")
 	if c.client != nil {
 		c.client.Close()
 		c.client = nil
@@ -712,6 +759,8 @@ type conn struct {
 	closed        bool
 	client        *spanner.Client
 	adminClient   *adminapi.DatabaseAdminClient
+	connId        string
+	logger        *slog.Logger
 	tx            contextTransaction
 	prevTx        contextTransaction
 	resetForRetry bool
@@ -940,6 +989,7 @@ func (c *conn) startBatchDDL() (driver.Result, error) {
 	if c.inTransaction() {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection has an active transaction. DDL batches in transactions are not supported."))
 	}
+	c.logger.Debug("started ddl batch")
 	c.batch = &batch{tp: ddl}
 	return driver.ResultNoRows, nil
 }
@@ -957,6 +1007,7 @@ func (c *conn) startBatchDML() (driver.Result, error) {
 	if c.inReadOnlyTransaction() {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection has an active read-only transaction. Read-only transactions cannot execute DML batches."))
 	}
+	c.logger.Debug("starting dml batch")
 	c.batch = &batch{tp: dml, options: execOptions}
 	return driver.ResultNoRows, nil
 }
@@ -1266,6 +1317,10 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 	}
 
 	execOptions := c.options()
+	return c.queryContext(ctx, query, execOptions, args)
+}
+
+func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
 	// Clear the commit timestamp of this connection before we execute the query.
 	c.commitTs = nil
 
@@ -1306,7 +1361,10 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 		return stmt.ExecContext(ctx, args)
 	}
 	execOptions := c.options()
+	return c.execContext(ctx, query, execOptions, args)
+}
 
+func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	// Clear the commit timestamp of this connection before we execute the statement.
 	c.commitTs = nil
 
@@ -1426,9 +1484,11 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 	}
 
 	if opts.ReadOnly {
+		logger := c.logger.With("tx", "ro")
 		ro := c.client.ReadOnlyTransaction().WithTimestampBound(c.readOnlyStaleness)
 		c.tx = &readOnlyTransaction{
-			roTx: ro,
+			roTx:   ro,
+			logger: logger,
 			close: func() {
 				c.tx = nil
 			},
@@ -1440,9 +1500,11 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 	if err != nil {
 		return nil, err
 	}
+	logger := c.logger.With("tx", "rw")
 	c.tx = &readWriteTransaction{
 		ctx:    ctx,
 		client: c.client,
+		logger: logger,
 		rwTx:   tx,
 		close: func(commitTs *time.Time, commitErr error) {
 			c.prevTx = c.tx

@@ -23,6 +23,11 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+var _ driver.Stmt = &stmt{}
+var _ driver.StmtExecContext = &stmt{}
+var _ driver.StmtQueryContext = &stmt{}
+var _ driver.NamedValueChecker = &stmt{}
+
 type stmt struct {
 	conn          *conn
 	numArgs       int
@@ -39,45 +44,20 @@ func (s *stmt) NumInput() int {
 	return s.numArgs
 }
 
-func (s *stmt) Exec(args []driver.Value) (driver.Result, error) {
+func (s *stmt) Exec(_ []driver.Value) (driver.Result, error) {
 	return nil, spanner.ToSpannerError(status.Errorf(codes.Unimplemented, "use ExecContext instead"))
 }
 
 func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
-	return s.conn.ExecContext(ctx, s.query, args)
+	return s.conn.execContext(ctx, s.query, s.execOptions, args)
 }
 
-func (s *stmt) Query(args []driver.Value) (driver.Rows, error) {
+func (s *stmt) Query(_ []driver.Value) (driver.Rows, error) {
 	return nil, spanner.ToSpannerError(status.Errorf(codes.Unimplemented, "use QueryContext instead"))
 }
 
 func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
-	ss, err := prepareSpannerStmt(s.query, args)
-	if err != nil {
-		return nil, err
-	}
-
-	var it rowIterator
-	if s.conn.tx != nil {
-		it = s.conn.tx.Query(ctx, ss, s.execOptions.QueryOptions)
-	} else {
-		if s.statementType == statementTypeUnknown {
-			s.statementType = detectStatementType(s.query)
-		}
-		if s.statementType == statementTypeDml {
-			// Use a read/write transaction to execute the statement.
-			it, _, err = s.conn.execSingleQueryTransactional(ctx, s.conn.client, ss, s.execOptions)
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			// The statement was either detected as being a query, or potentially not recognized at all.
-			// In that case, just default to using a single-use read-only transaction and let Spanner
-			// return an error if the statement is not suited for that type of transaction.
-			it = &readOnlyRowIterator{s.conn.client.Single().WithTimestampBound(s.conn.readOnlyStaleness).QueryWithOptions(ctx, ss, s.execOptions.QueryOptions)}
-		}
-	}
-	return &rows{it: it, decodeOption: s.execOptions.DecodeOption}, nil
+	return s.conn.queryContext(ctx, s.query, s.execOptions, args)
 }
 
 func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {

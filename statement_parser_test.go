@@ -956,7 +956,7 @@ func TestParseClientSideStatement(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		statement, err := parseClientSideStatement(&conn{}, tc.input)
+		statement, err := parseClientSideStatement(&conn{logger: noopLogger}, tc.input)
 		if err != nil {
 			t.Fatalf("failed to parse statement %s: %v", tc.name, err)
 		}
@@ -988,7 +988,7 @@ func FuzzParseClientSideStatement(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, input string) {
-		_, _ = parseClientSideStatement(&conn{}, input)
+		_, _ = parseClientSideStatement(&conn{logger: noopLogger}, input)
 	})
 }
 
