@@ -545,29 +545,22 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		_ = conn.Close()
 	}()
 
-	// We don't need to keep track of a running checksum for retries when using
-	// this method, so we disable internal retries.
-	// Retries will instead be handled by the loop below.
-	origRetryAborts := false
-	var spannerConn SpannerConn
+	isSpannerConn := false
 	if err := conn.Raw(func(driverConn any) error {
-		var ok bool
-		spannerConn, ok = driverConn.(SpannerConn)
-		if !ok {
+		var spannerConn SpannerConn
+		spannerConn, isSpannerConn = driverConn.(SpannerConn)
+		if !isSpannerConn {
 			// It is not a Spanner connection, so just ignore and continue without any special handling.
 			return nil
 		}
 		spannerConn.withTransactionOptions(spannerOptions)
-		origRetryAborts = spannerConn.RetryAbortsInternally()
+		// We don't need to keep track of a running checksum for retries when using
+		// this method, so we disable internal retries.
+		// Retries will instead be handled by the loop below.
+		// This setting is automatically reset when the connection is closed.
 		return spannerConn.SetRetryAbortsInternally(false)
 	}); err != nil {
 		return err
-	}
-	// Reset the flag for internal retries after the transaction (if applicable).
-	if origRetryAborts {
-		defer func() {
-			_ = spannerConn.SetRetryAbortsInternally(origRetryAborts)
-		}()
 	}
 
 	tx, err := conn.BeginTx(ctx, opts)
@@ -587,7 +580,7 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		// Rollback and return the error if:
 		// 1. The connection is not a Spanner connection.
 		// 2. Or the error code is not Aborted.
-		if spannerConn == nil || spanner.ErrCode(err) != codes.Aborted {
+		if !isSpannerConn || spanner.ErrCode(err) != codes.Aborted {
 			// We don't really need to call Rollback here if the error happened
 			// during the Commit. However, the SQL package treats this as a no-op
 			// and just returns an ErrTxDone if we do, so this is simpler than
@@ -611,7 +604,7 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		}
 
 		// Reset the transaction after it was aborted.
-		err = spannerConn.resetTransactionForRetry(ctx, errDuringCommit)
+		err = resetTransactionForRetry(ctx, conn, errDuringCommit)
 		if err != nil {
 			_ = tx.Rollback()
 			return err
@@ -628,6 +621,16 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 			}
 		}
 	}
+}
+
+func resetTransactionForRetry(ctx context.Context, conn *sql.Conn, errDuringCommit bool) error {
+	return conn.Raw(func(driverConn any) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			return spanner.ToSpannerError(status.Error(codes.InvalidArgument, "not a Spanner connection"))
+		}
+		return spannerConn.resetTransactionForRetry(ctx, errDuringCommit)
+	})
 }
 
 // SpannerConn is the public interface for the raw Spanner connection for the

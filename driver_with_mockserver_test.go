@@ -3218,6 +3218,57 @@ func TestTag_RunTransaction_Retry(t *testing.T) {
 	}
 }
 
+func TestTag_RunTransactionWithOptions_IsNotSticky(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	if err := RunTransactionWithOptions(ctx, db, &sql.TxOptions{}, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
+		if err != nil {
+			return err
+		}
+		return nil
+	}, spanner.TransactionOptions{
+		CommitOptions: spanner.CommitOptions{ReturnCommitStats: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	requests := drainRequestsFromServer(server.TestSpanner)
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("number of commit request mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	commitRequest := commitRequests[0].(*sppb.CommitRequest)
+	if g, w := commitRequest.ReturnCommitStats, true; g != w {
+		t.Fatalf("return_commit_stats mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Verify that the transaction options are not used for the next transaction.
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	requests = drainRequestsFromServer(server.TestSpanner)
+	commitRequests = requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("number of commit request mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	commitRequest = commitRequests[0].(*sppb.CommitRequest)
+	// ReturnCommitStats should be false for this transaction.
+	if g, w := commitRequest.ReturnCommitStats, false; g != w {
+		t.Fatalf("return_commit_stats mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
 func TestMaxIdleConnectionsNonZero(t *testing.T) {
 	t.Parallel()
 
