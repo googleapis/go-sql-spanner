@@ -783,12 +783,10 @@ type conn struct {
 	autocommitDMLMode AutocommitDMLMode
 	// readOnlyStaleness is used for queries in autocommit mode and for read-only transactions.
 	readOnlyStaleness spanner.TimestampBound
-	// maxCommitDelay is applied to commit requests both in autocommit and read/write transactions.
-	maxCommitDelay time.Duration
 
-	// execOptions are applied to the next statement that is executed on this connection.
-	// It can be set by passing it in as an argument to ExecContext or QueryContext
-	// and is cleared after each execution.
+	// execOptions are applied to the next statement or transaction that is executed
+	// on this connection. It can also be set by passing it in as an argument to
+	// ExecContext or QueryContext.
 	execOptions ExecOptions
 }
 
@@ -882,7 +880,7 @@ func (c *conn) setReadOnlyStaleness(staleness spanner.TimestampBound) (driver.Re
 }
 
 func (c *conn) MaxCommitDelay() time.Duration {
-	return c.maxCommitDelay
+	return *c.execOptions.TransactionOptions.CommitOptions.MaxCommitDelay
 }
 
 func (c *conn) SetMaxCommitDelay(delay time.Duration) error {
@@ -891,7 +889,7 @@ func (c *conn) SetMaxCommitDelay(delay time.Duration) error {
 }
 
 func (c *conn) setMaxCommitDelay(delay time.Duration) (driver.Result, error) {
-	c.maxCommitDelay = delay
+	c.execOptions.TransactionOptions.CommitOptions.MaxCommitDelay = &delay
 	return driver.ResultNoRows, nil
 }
 
@@ -1167,7 +1165,7 @@ func (c *conn) ResetSession(_ context.Context) error {
 	c.retryAborts = true
 	c.autocommitDMLMode = Transactional
 	c.readOnlyStaleness = spanner.TimestampBound{}
-	c.maxCommitDelay = time.Duration(0)
+	c.execOptions = ExecOptions{}
 	return nil
 }
 
@@ -1413,7 +1411,10 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 
 // options returns and resets the ExecOptions for the next statement.
 func (c *conn) options() ExecOptions {
-	defer func() { c.execOptions = ExecOptions{} }()
+	defer func() {
+		c.execOptions.TransactionOptions.TransactionTag = ""
+		c.execOptions.QueryOptions.RequestTag = ""
+	}()
 	return c.execOptions
 }
 
