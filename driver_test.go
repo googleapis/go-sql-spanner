@@ -220,6 +220,7 @@ func TestExtractDnsParts(t *testing.T) {
 				if tc.wantErr {
 					t.Error("did not encounter expected error")
 				}
+				tc.wantConnectorConfig.name = tc.input
 				if diff := cmp.Diff(config, tc.wantConnectorConfig, cmp.AllowUnexported(ConnectorConfig{})); diff != "" {
 					t.Errorf("connector config mismatch for %q\n%v", tc.input, diff)
 				}
@@ -260,10 +261,12 @@ func ExampleCreateConnector() {
 func TestConnection_Reset(t *testing.T) {
 	txClosed := false
 	c := conn{
+		logger:            noopLogger,
 		readOnlyStaleness: spanner.ExactStaleness(time.Second),
 		batch:             &batch{tp: dml},
 		commitTs:          &time.Time{},
 		tx: &readOnlyTransaction{
+			logger: noopLogger,
 			close: func() {
 				txClosed = true
 			},
@@ -289,7 +292,8 @@ func TestConnection_Reset(t *testing.T) {
 
 func TestConnection_NoNestedTransactions(t *testing.T) {
 	c := conn{
-		tx: &readOnlyTransaction{},
+		logger: noopLogger,
+		tx:     &readOnlyTransaction{},
 	}
 	_, err := c.BeginTx(context.Background(), driver.TxOptions{})
 	if err == nil {
@@ -298,7 +302,7 @@ func TestConnection_NoNestedTransactions(t *testing.T) {
 }
 
 func TestConn_AbortBatch(t *testing.T) {
-	c := &conn{}
+	c := &conn{logger: noopLogger}
 	if err := c.StartBatchDDL(); err != nil {
 		t.Fatalf("failed to start DDL batch: %v", err)
 	}
@@ -332,12 +336,12 @@ func TestConn_StartBatchDdl(t *testing.T) {
 		c       *conn
 		wantErr bool
 	}{
-		{"Default", &conn{}, false},
-		{"In DDL batch", &conn{batch: &batch{tp: ddl}}, true},
-		{"In DML batch", &conn{batch: &batch{tp: dml}}, true},
-		{"In read/write transaction", &conn{tx: &readWriteTransaction{}}, true},
-		{"In read-only transaction", &conn{tx: &readOnlyTransaction{}}, true},
-		{"In read/write transaction with a DML batch", &conn{tx: &readWriteTransaction{batch: &batch{tp: dml}}}, true},
+		{"Default", &conn{logger: noopLogger}, false},
+		{"In DDL batch", &conn{logger: noopLogger, batch: &batch{tp: ddl}}, true},
+		{"In DML batch", &conn{logger: noopLogger, batch: &batch{tp: dml}}, true},
+		{"In read/write transaction", &conn{logger: noopLogger, tx: &readWriteTransaction{}}, true},
+		{"In read-only transaction", &conn{logger: noopLogger, tx: &readOnlyTransaction{}}, true},
+		{"In read/write transaction with a DML batch", &conn{logger: noopLogger, tx: &readWriteTransaction{batch: &batch{tp: dml}}}, true},
 	} {
 		err := test.c.StartBatchDDL()
 		if test.wantErr {
@@ -361,12 +365,12 @@ func TestConn_StartBatchDml(t *testing.T) {
 		c       *conn
 		wantErr bool
 	}{
-		{"Default", &conn{}, false},
-		{"In DDL batch", &conn{batch: &batch{tp: ddl}}, true},
-		{"In DML batch", &conn{batch: &batch{tp: dml}}, true},
-		{"In read/write transaction", &conn{tx: &readWriteTransaction{}}, false},
-		{"In read-only transaction", &conn{tx: &readOnlyTransaction{}}, true},
-		{"In read/write transaction with a DML batch", &conn{tx: &readWriteTransaction{batch: &batch{tp: dml}}}, true},
+		{"Default", &conn{logger: noopLogger}, false},
+		{"In DDL batch", &conn{logger: noopLogger, batch: &batch{tp: ddl}}, true},
+		{"In DML batch", &conn{logger: noopLogger, batch: &batch{tp: dml}}, true},
+		{"In read/write transaction", &conn{logger: noopLogger, tx: &readWriteTransaction{logger: noopLogger}}, false},
+		{"In read-only transaction", &conn{logger: noopLogger, tx: &readOnlyTransaction{logger: noopLogger}}, true},
+		{"In read/write transaction with a DML batch", &conn{logger: noopLogger, tx: &readWriteTransaction{logger: noopLogger, batch: &batch{tp: dml}}}, true},
 	} {
 		err := test.c.StartBatchDML()
 		if test.wantErr {
@@ -386,7 +390,8 @@ func TestConn_StartBatchDml(t *testing.T) {
 
 func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 	c := &conn{
-		batch: &batch{tp: ddl},
+		logger: noopLogger,
+		batch:  &batch{tp: ddl},
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
@@ -419,7 +424,8 @@ func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 
 func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
 	c := &conn{
-		batch: &batch{tp: dml},
+		logger: noopLogger,
+		batch:  &batch{tp: dml},
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
@@ -455,7 +461,7 @@ func TestConn_GetBatchedStatements(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	c := &conn{}
+	c := &conn{logger: noopLogger}
 	if !reflect.DeepEqual(c.GetBatchedStatements(), []spanner.Statement{}) {
 		t.Fatal("conn should return an empty slice when no batch is active")
 	}
@@ -500,6 +506,7 @@ func TestConn_GetBatchedStatements(t *testing.T) {
 func TestConn_GetCommitTimestampAfterAutocommitDml(t *testing.T) {
 	want := time.Now()
 	c := &conn{
+		logger: noopLogger,
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
@@ -525,6 +532,7 @@ func TestConn_GetCommitTimestampAfterAutocommitDml(t *testing.T) {
 
 func TestConn_GetCommitTimestampAfterAutocommitQuery(t *testing.T) {
 	c := &conn{
+		logger: noopLogger,
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
@@ -546,7 +554,7 @@ func TestConn_GetCommitTimestampAfterAutocommitQuery(t *testing.T) {
 }
 
 func TestConn_CheckNamedValue(t *testing.T) {
-	c := &conn{}
+	c := &conn{logger: noopLogger}
 
 	type Person struct {
 		Name string
