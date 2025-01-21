@@ -3395,12 +3395,13 @@ func TestRunTransaction(t *testing.T) {
 		}
 		defer rows.Close()
 		// Verify that internal retries are disabled during RunTransaction
-		row := tx.QueryRow("show variable retry_aborts_internally")
-		var retry bool
-		if err := row.Scan(&retry); err != nil {
-			return err
+		txi := reflect.ValueOf(tx).Elem().FieldByName("txi")
+		rwTx := (*readWriteTransaction)(txi.Elem().UnsafePointer())
+		// Verify that getting the transaction through reflection worked.
+		if g, w := rwTx.ctx, ctx; g != w {
+			return fmt.Errorf("getting the transaction through reflection failed")
 		}
-		if retry {
+		if rwTx.retryAborts {
 			return fmt.Errorf("internal retries should be disabled during RunTransaction")
 		}
 
@@ -3429,7 +3430,7 @@ func TestRunTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Verify that internal retries are enabled again after RunTransaction
+	// Verify that internal retries are still enabled after RunTransaction
 	row := db.QueryRow("show variable retry_aborts_internally")
 	var retry bool
 	if err := row.Scan(&retry); err != nil {
