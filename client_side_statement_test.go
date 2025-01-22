@@ -375,6 +375,66 @@ func TestStatementExecutor_ExcludeTxnFromChangeStreams(t *testing.T) {
 	}
 }
 
+func TestStatementExecutor_MaxCommitDelay(t *testing.T) {
+	c := &conn{logger: noopLogger}
+	s := &statementExecutor{}
+	ctx := context.Background()
+	for i, test := range []struct {
+		wantValue  time.Duration
+		setValue   string
+		wantSetErr bool
+	}{
+		{time.Second, "'1s'", false},
+		{10 * time.Millisecond, "'10ms'", false},
+		{20 * time.Microsecond, "'20us'", false},
+		{30 * time.Nanosecond, "'30ns'", false},
+		{time.Duration(0), "NULL", false},
+		{100 * time.Millisecond, "100", false},
+		{100 * time.Millisecond, "true", true},
+		{100 * time.Millisecond, "ms", true},
+		{100 * time.Millisecond, "'ms'", true},
+		{100 * time.Millisecond, "20ms", true},
+		{100 * time.Millisecond, "'10'", true},
+		{100 * time.Millisecond, "'10ms", true},
+		{100 * time.Millisecond, "10ms'", true},
+	} {
+		res, err := s.SetMaxCommitDelay(ctx, c, test.setValue, nil)
+		if test.wantSetErr {
+			if err == nil {
+				t.Fatalf("%d: missing expected error for value %q", i, test.setValue)
+			}
+		} else {
+			if err != nil {
+				t.Fatalf("%d: could not set new value %q for max_commit_delay: %v", i, test.setValue, err)
+			}
+			if res != driver.ResultNoRows {
+				t.Fatalf("%d: result mismatch\nGot: %v\nWant: %v", i, res, driver.ResultNoRows)
+			}
+		}
+
+		it, err := s.ShowMaxCommitDelay(ctx, c, "", nil)
+		if err != nil {
+			t.Fatalf("%d: could not get current max_commit_delay value from connection: %v", i, err)
+		}
+		cols := it.Columns()
+		wantCols := []string{"MaxCommitDelay"}
+		if !cmp.Equal(cols, wantCols) {
+			t.Fatalf("%d: column names mismatch\nGot: %v\nWant: %v", i, cols, wantCols)
+		}
+		values := make([]driver.Value, len(cols))
+		if err := it.Next(values); err != nil {
+			t.Fatalf("%d: failed to get first row for max_commit_delay: %v", i, err)
+		}
+		wantValues := []driver.Value{test.wantValue.String()}
+		if !cmp.Equal(values, wantValues) {
+			t.Fatalf("%d: max_commit_delay values mismatch\nGot: %v\nWant: %v", i, values, wantValues)
+		}
+		if err := it.Next(values); err != io.EOF {
+			t.Fatalf("%d: error mismatch\nGot: %v\nWant: %v", i, err, io.EOF)
+		}
+	}
+}
+
 func TestStatementExecutor_SetTransactionTag(t *testing.T) {
 	ctx := context.Background()
 	for i, test := range []struct {
