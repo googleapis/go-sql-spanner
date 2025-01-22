@@ -655,6 +655,51 @@ type ReadWriteTransactionOptions struct {
 	close func()
 }
 
+// BeginReadWriteTransaction begins a read/write transaction on a Spanner database.
+// This function allows more options to be passed in that the generic sql.DB.BeginTx
+// function.
+//
+// NOTE: You *MUST* end the transaction by calling either Commit or Rollback on
+// the transaction. Failure to do so will cause the connection that is used for
+// the transaction to be leaked.
+func BeginReadWriteTransaction(ctx context.Context, db *sql.DB, options ReadWriteTransactionOptions) (*sql.Tx, error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	options.close = func() {
+		// Close the connection asynchronously, as the transaction will still
+		// be active when we hit this point.
+		go conn.Close()
+	}
+	if err := withTempReadWriteTransactionOptions(conn, &options); err != nil {
+		return nil, err
+	}
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		clearTempReadWriteTransactionOptions(conn)
+		return nil, err
+	}
+	return tx, nil
+}
+
+func withTempReadWriteTransactionOptions(conn *sql.Conn, options *ReadWriteTransactionOptions) error {
+	return conn.Raw(func(driverConn any) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			// It is not a Spanner connection.
+			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
+		}
+		spannerConn.withTempTransactionOptions(options)
+		return nil
+	})
+}
+
+func clearTempReadWriteTransactionOptions(conn *sql.Conn) {
+	_ = withTempReadWriteTransactionOptions(conn, nil)
+	_ = conn.Close()
+}
+
 // SpannerConn is the public interface for the raw Spanner connection for the
 // sql driver. This interface can be used with the db.Conn().Raw() method.
 type SpannerConn interface {
