@@ -19,6 +19,7 @@ import (
 	"reflect"
 	"testing"
 
+	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/testutil"
 )
@@ -85,7 +86,10 @@ func TestPartitionQuery(t *testing.T) {
 
 	// Partition a query using the batch transaction that was started.
 	rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar,
-		ExecOptions{PartitionedQueryOptions: PartitionedQueryOptions{PartitionQuery: true}})
+		ExecOptions{
+			PartitionedQueryOptions: PartitionedQueryOptions{PartitionQuery: true},
+			QueryOptions:            spanner.QueryOptions{DataBoostEnabled: true},
+		})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,6 +162,10 @@ func TestPartitionQuery(t *testing.T) {
 	executeRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), len(pq.Partitions); g != w {
 		t.Fatalf("num execute requests mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	executeRequest := executeRequests[0].(*sppb.ExecuteSqlRequest)
+	if !executeRequest.DataBoostEnabled {
+		t.Fatal("missing DataBoostEnabled option")
 	}
 	// (Batch) read-only transactions should not be committed.
 	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))

@@ -21,6 +21,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"cloud.google.com/go/spanner"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
 	"github.com/googleapis/go-sql-spanner/examples"
 )
@@ -28,7 +29,9 @@ import (
 var createTableStatement = "CREATE TABLE Singers (SingerId INT64, Name STRING(MAX)) PRIMARY KEY (SingerId)"
 
 // Sample showing how to use a batch read-only transaction to partition a query and
-// execute each of the partitions.
+// execute each of the partitions. This sample also shows how to use DataBoost.
+// See https://cloud.google.com/spanner/docs/databoost/databoost-overview for more
+// information.
 //
 // Execute the sample with the command `go run main.go` from this directory.
 func readOnlyTransaction(projectId, instanceId, databaseId string) error {
@@ -60,6 +63,12 @@ func readOnlyTransaction(projectId, instanceId, databaseId string) error {
 			// Set this option to true to only partition the query.
 			// The query will return one row containing a spannerdriver.PartitionedQuery
 			PartitionQuery: true,
+		},
+		QueryOptions: spanner.QueryOptions{
+			// Set DataBoostEnabled to true to enable DataBoost.
+			// See https://cloud.google.com/spanner/docs/databoost/databoost-overview
+			// for more information.
+			DataBoostEnabled: true,
 		},
 	})
 	var pq spannerdriver.PartitionedQuery
