@@ -345,7 +345,18 @@ func TestSimpleReadWriteTransaction(t *testing.T) {
 
 	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
-	tx, err := db.Begin()
+
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "set max_commit_delay='10ms'"); err != nil {
+		t.Fatal(err)
+	}
+
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,6 +410,9 @@ func TestSimpleReadWriteTransaction(t *testing.T) {
 	commitReq := commitRequests[0].(*sppb.CommitRequest)
 	if c, e := commitReq.GetTransactionId(), req.Transaction.GetId(); !cmp.Equal(c, e) {
 		t.Fatalf("transaction id mismatch\nCommit: %c\nExecute: %v", c, e)
+	}
+	if g, w := commitReq.MaxCommitDelay.Nanos, int32(time.Millisecond*10); g != w {
+		t.Fatalf("max_commit_delay mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
@@ -1237,7 +1251,18 @@ func TestDmlInAutocommit(t *testing.T) {
 
 	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
-	res, err := db.ExecContext(context.Background(), testutil.UpdateBarSetFoo)
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_, err = conn.ExecContext(ctx, "set max_commit_delay=100")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1269,6 +1294,9 @@ func TestDmlInAutocommit(t *testing.T) {
 	commitReq := commitRequests[0].(*sppb.CommitRequest)
 	if commitReq.GetTransactionId() == nil {
 		t.Fatalf("missing id selector for CommitRequest")
+	}
+	if g, w := commitReq.MaxCommitDelay.Nanos, int32(time.Millisecond*100); g != w {
+		t.Fatalf("max_commit_delay mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
@@ -2686,11 +2714,11 @@ func TestExcludeTxnFromChangeStreams_Transaction(t *testing.T) {
 		t.Fatalf("missing ExcludeTxnFromChangeStreams option on BeginTransaction option")
 	}
 
-	// Verify that the flag is reset after the transaction.
+	// Verify that the flag is NOT reset after the transaction.
 	if err := conn.QueryRowContext(ctx, "SHOW VARIABLE EXCLUDE_TXN_FROM_CHANGE_STREAMS").Scan(&exclude); err != nil {
 		t.Fatalf("failed to get exclude setting: %v", err)
 	}
-	if g, w := exclude, false; g != w {
+	if g, w := exclude, true; g != w {
 		t.Fatalf("exclude_txn_from_change_streams mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
