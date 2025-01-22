@@ -1334,10 +1334,6 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
 	// Clear the commit timestamp of this connection before we execute the query.
 	c.commitTs = nil
-	if execOptions.PartitionedQueryOptions.AutoPartitionQuery {
-		// TODO: Implement
-		return nil, spanner.ToSpannerError(status.Errorf(codes.Unimplemented, "auto-partitioning queries not yet implemented"))
-	}
 	if pq := execOptions.PartitionedQueryOptions.ExecutePartition.PartitionedQuery; pq != nil {
 		return pq.execute(ctx, execOptions.PartitionedQueryOptions.ExecutePartition.Index)
 	}
@@ -1358,6 +1354,9 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 			}
 			c.commitTs = &commitTs
 		} else if execOptions.PartitionedQueryOptions.PartitionQuery {
+			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "PartitionQuery is only supported in batch read-only transactions"))
+		} else if execOptions.PartitionedQueryOptions.AutoPartitionQuery {
+			// TODO: Implement
 			return nil, spanner.ToSpannerError(status.Errorf(codes.Unimplemented, "auto-partitioning queries not yet implemented"))
 		} else {
 			// The statement was either detected as being a query, or potentially not recognized at all.

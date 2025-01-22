@@ -16,12 +16,14 @@ package spannerdriver
 
 import (
 	"context"
+	"database/sql"
 	"reflect"
 	"testing"
 
 	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/testutil"
+	"google.golang.org/grpc/codes"
 )
 
 func TestBeginBatchReadOnlyTransaction(t *testing.T) {
@@ -171,5 +173,54 @@ func TestPartitionQuery(t *testing.T) {
 	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 0; g != w {
 		t.Fatalf("num commit requests mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestPartitionQueryWithoutTx(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	_, err := db.QueryContext(ctx, testutil.SelectFooFromBar, ExecOptions{
+		PartitionedQueryOptions: PartitionedQueryOptions{
+			PartitionQuery: true,
+		},
+	})
+	if err == nil {
+		t.Fatal("missing error for PartitionQuery without transaction")
+	}
+	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestPartitionQueryInTx(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	for _, readOnly := range []bool{true, false} {
+		// PartitionQuery is not supported in normal transactions, only
+		// in BatchReadOnlyTransactions.
+		tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: readOnly})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = tx.QueryContext(ctx, testutil.SelectFooFromBar, ExecOptions{
+			PartitionedQueryOptions: PartitionedQueryOptions{
+				PartitionQuery: true,
+			},
+		})
+		tx.Rollback()
+		if err == nil {
+			t.Fatal("missing error for PartitionQuery in transaction")
+		}
+		if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+			t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+		}
 	}
 }
