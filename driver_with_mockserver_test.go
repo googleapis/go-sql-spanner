@@ -3862,6 +3862,9 @@ func TestBeginReadWriteTransaction(t *testing.T) {
 	}
 
 	rows, err := tx.Query(testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Verify that internal retries are disabled during this transaction.
 	txi := reflect.ValueOf(tx).Elem().FieldByName("txi")
 	rwTx := (*readWriteTransaction)(txi.Elem().UnsafePointer())
