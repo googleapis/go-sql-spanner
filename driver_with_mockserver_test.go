@@ -3842,6 +3842,105 @@ func TestTransactionWithLevelDisableRetryAborts(t *testing.T) {
 	}
 }
 
+func TestBeginReadWriteTransaction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	tag := "my_tx_tag"
+	tx, err := BeginReadWriteTransaction(ctx, db, ReadWriteTransactionOptions{
+		DisableInternalRetries: true,
+		TransactionOptions: spanner.TransactionOptions{
+			TransactionTag: tag,
+			CommitPriority: sppb.RequestOptions_PRIORITY_LOW,
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to start transaction: %v", err)
+	}
+
+	rows, err := tx.Query(testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify that internal retries are disabled during this transaction.
+	txi := reflect.ValueOf(tx).Elem().FieldByName("txi")
+	rwTx := (*readWriteTransaction)(txi.Elem().UnsafePointer())
+	// Verify that getting the transaction through reflection worked.
+	if g, w := rwTx.ctx, ctx; g != w {
+		t.Fatal("getting the transaction through reflection failed")
+	}
+	if rwTx.retryAborts {
+		t.Fatal("internal retries should be disabled during this transaction")
+	}
+
+	for want := int64(1); rows.Next(); want++ {
+		cols, err := rows.Columns()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !cmp.Equal(cols, []string{"FOO"}) {
+			t.Fatalf("cols mismatch\nGot: %v\nWant: %v", cols, []string{"FOO"})
+		}
+		var got int64
+		err = rows.Scan(&got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("value mismatch\nGot: %v\nWant: %v", got, want)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify that internal retries are still enabled after the transaction finished.
+	row := db.QueryRow("show variable retry_aborts_internally")
+	var retry bool
+	if err := row.Scan(&retry); err != nil {
+		t.Fatal(err)
+	}
+	if !retry {
+		t.Fatal("internal retries should still be enabled")
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if req.Transaction == nil {
+		t.Fatalf("missing transaction for ExecuteSqlRequest")
+	}
+	if req.Transaction.GetId() == nil {
+		t.Fatalf("missing id selector for ExecuteSqlRequest")
+	}
+	if g, w := req.RequestOptions.TransactionTag, tag; g != w {
+		t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	commitReq := commitRequests[0].(*sppb.CommitRequest)
+	if c, e := commitReq.GetTransactionId(), req.Transaction.GetId(); !cmp.Equal(c, e) {
+		t.Fatalf("transaction id mismatch\nCommit: %c\nExecute: %v", c, e)
+	}
+	if g, w := commitReq.RequestOptions.TransactionTag, tag; g != w {
+		t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := commitReq.RequestOptions.Priority, sppb.RequestOptions_PRIORITY_LOW; g != w {
+		t.Fatalf("commit priority mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
 func TestCustomClientConfig(t *testing.T) {
 	t.Parallel()
 
