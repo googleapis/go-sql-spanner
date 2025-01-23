@@ -591,6 +591,13 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		_ = conn.Close()
 	}()
 
+	// We don't need to keep track of a running checksum for retries when using
+	// this method, so we disable internal retries.
+	// Retries will instead be handled by the loop below.
+	transactionOptions := &ReadWriteTransactionOptions{
+		TransactionOptions:     spannerOptions,
+		DisableInternalRetries: true,
+	}
 	isSpannerConn := false
 	if err := conn.Raw(func(driverConn any) error {
 		var spannerConn SpannerConn
@@ -599,12 +606,8 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 			// It is not a Spanner connection, so just ignore and continue without any special handling.
 			return nil
 		}
-		spannerConn.withTransactionOptions(spannerOptions)
-		// We don't need to keep track of a running checksum for retries when using
-		// this method, so we disable internal retries.
-		// Retries will instead be handled by the loop below.
-		// This setting is automatically reset when the connection is closed.
-		return spannerConn.SetRetryAbortsInternally(false)
+		spannerConn.withTempTransactionOptions(transactionOptions)
+		return nil
 	}); err != nil {
 		return err
 	}
@@ -677,6 +680,25 @@ func resetTransactionForRetry(ctx context.Context, conn *sql.Conn, errDuringComm
 		}
 		return spannerConn.resetTransactionForRetry(ctx, errDuringCommit)
 	})
+}
+
+type ReadWriteTransactionOptions struct {
+	// TransactionOptions are passed through to the Spanner client to use for
+	// the read/write transaction.
+	TransactionOptions spanner.TransactionOptions
+	// DisableInternalRetries disables checksum-based retries of Aborted errors
+	// for this transaction. By default, read/write transactions keep track of
+	// a running checksum of all results it receives from Spanner. If Spanner
+	// aborts the transaction, the transaction is retried by the driver and the
+	// checksums of the initial attempt and the retry are compared. If the
+	// checksums differ, the transaction fails with an Aborted error.
+	//
+	// If DisableInternalRetries is set to true, checksum-based retries are
+	// disabled, and any Aborted error from Spanner is propagated to the
+	// application.
+	DisableInternalRetries bool
+
+	close func()
 }
 
 // SpannerConn is the public interface for the raw Spanner connection for the
@@ -796,9 +818,10 @@ type SpannerConn interface {
 	// returned.
 	resetTransactionForRetry(ctx context.Context, errDuringCommit bool) error
 
-	// setTransactionOptions sets the TransactionOptions that should be used
-	// for this transaction.
-	withTransactionOptions(options spanner.TransactionOptions)
+	// withTempTransactionOptions sets the TransactionOptions that should be used
+	// for the next read/write transaction. This method should only be called
+	// directly before starting a new read/write transaction.
+	withTempTransactionOptions(options *ReadWriteTransactionOptions)
 }
 
 var _ SpannerConn = &conn{}
@@ -837,6 +860,8 @@ type conn struct {
 	// on this connection. It can also be set by passing it in as an argument to
 	// ExecContext or QueryContext.
 	execOptions ExecOptions
+
+	tempTransactionOptions *ReadWriteTransactionOptions
 }
 
 type batchType int
@@ -1488,8 +1513,24 @@ func (c *conn) resetTransactionForRetry(ctx context.Context, errDuringCommit boo
 	return c.tx.resetForRetry(ctx)
 }
 
-func (c *conn) withTransactionOptions(options spanner.TransactionOptions) {
-	c.execOptions.TransactionOptions = options
+func (c *conn) withTempTransactionOptions(options *ReadWriteTransactionOptions) {
+	c.tempTransactionOptions = options
+}
+
+func (c *conn) getTransactionOptions() ReadWriteTransactionOptions {
+	if c.tempTransactionOptions != nil {
+		defer func() { c.tempTransactionOptions = nil }()
+		return *c.tempTransactionOptions
+	}
+	// Clear the transaction tag that has been set on the connection after returning
+	// from this function.
+	defer func() {
+		c.execOptions.TransactionOptions.TransactionTag = ""
+	}()
+	return ReadWriteTransactionOptions{
+		TransactionOptions:     c.execOptions.TransactionOptions,
+		DisableInternalRetries: !c.retryAborts,
+	}
 }
 
 type spannerIsolationLevel sql.IsolationLevel
@@ -1515,6 +1556,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		c.resetForRetry = false
 		return c.tx, nil
 	}
+	readWriteTransactionOptions := c.getTransactionOptions()
 	if c.inTransaction() {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "already in a transaction"))
 	}
@@ -1522,7 +1564,8 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		return nil, status.Error(codes.FailedPrecondition, "This connection has an active batch. Run or abort the batch before starting a new transaction.")
 	}
 
-	execOptions := c.options()
+	// Determine whether internal retries have been disabled using a special
+	// value for the transaction isolation level.
 	disableRetryAborts := false
 	sil := opts.Isolation >> 8
 	opts.Isolation = opts.Isolation - sil
@@ -1546,7 +1589,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		return c.tx, nil
 	}
 
-	tx, err := spanner.NewReadWriteStmtBasedTransactionWithOptions(ctx, c.client, execOptions.TransactionOptions)
+	tx, err := spanner.NewReadWriteStmtBasedTransactionWithOptions(ctx, c.client, readWriteTransactionOptions.TransactionOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -1563,7 +1606,8 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 				c.commitTs = commitTs
 			}
 		},
-		retryAborts: c.retryAborts && !disableRetryAborts,
+		// Disable internal retries if any of these options have been set.
+		retryAborts: !readWriteTransactionOptions.DisableInternalRetries && !disableRetryAborts,
 	}
 	c.commitTs = nil
 	return c.tx, nil
