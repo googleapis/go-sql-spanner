@@ -61,6 +61,15 @@ var jsonFile = `{
 		"exampleStatements": ["show variable exclude_txn_from_change_streams"]
 	},
 	{
+		"name": "SHOW VARIABLE MAX_COMMIT_DELAY",
+		"executorName": "ClientSideStatementNoParamExecutor",
+		"resultType": "RESULT_SET",
+		"statementType": "SHOW_MAX_COMMIT_DELAY",
+		"regex": "(?is)\\A\\s*show\\s+variable\\s+max_commit_delay\\s*\\z",
+		"method": "statementShowMaxCommitDelay",
+		"exampleStatements": ["show variable max_commit_delay"]
+	},
+	{
 		"name": "SHOW VARIABLE TRANSACTION_TAG",
 		"executorName": "ClientSideStatementNoParamExecutor",
 		"resultType": "RESULT_SET",
@@ -182,6 +191,33 @@ var jsonFile = `{
 			"separator": "=",
 			"allowedValues": "(TRUE|FALSE)",
 			"converterName": "ClientSideStatementValueConverters$BooleanConverter"
+		}
+	},
+	{
+		"name": "SET MAX_COMMIT_DELAY = '<duration>'|NULL",
+		"executorName": "ClientSideStatementSetExecutor",
+		"resultType": "NO_RESULT",
+		"statementType": "SET_MAX_COMMIT_DELAY",
+		"regex": "(?is)\\A\\s*set\\s+max_commit_delay\\s*(?:=)\\s*(.*)\\z",
+		"method": "statementSetMaxCommitDelay",
+		"exampleStatements": [
+			"set max_commit_delay=null",
+			"set max_commit_delay = null",
+			"set max_commit_delay = null ",
+			"set max_commit_delay=1000",
+			"set max_commit_delay = 1000",
+			"set max_commit_delay = 1000 ",
+			"set max_commit_delay='1s'",
+			"set max_commit_delay = '1s'",
+			"set max_commit_delay = '1s' ",
+			"set max_commit_delay='100ms'",
+			"set max_commit_delay='10000us'",
+			"set max_commit_delay='9223372036854775807ns'"],
+		"setStatement": {
+			"propertyName": "MAX_COMMIT_DELAY",
+			"separator": "=",
+			"allowedValues": "('(\\d{1,19})(s|ms|us|ns)'|\\d{1,19}|NULL)",
+			"converterName": "ClientSideStatementValueConverters$DurationConverter"
 		}
 	},
 	{

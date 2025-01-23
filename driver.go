@@ -87,9 +87,11 @@ var noopLogger = slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{L
 var dsnRegExp = regexp.MustCompile(`((?P<HOSTGROUP>[\w.-]+(?:\.[\w\.-]+)*[\w\-\._~:/?#\[\]@!\$&'\(\)\*\+,;=.]+)/)?projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID)))(/instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+)(/databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?)?(([\?|;])(?P<PARAMSGROUP>.*))?`)
 
 var _ driver.DriverContext = &Driver{}
+var spannerDriver *Driver
 
 func init() {
-	sql.Register("spanner", &Driver{connectors: make(map[string]*connector)})
+	spannerDriver = &Driver{connectors: make(map[string]*connector)}
+	sql.Register("spanner", spannerDriver)
 }
 
 // ExecOptions can be passed in as an argument to the Query, QueryContext,
@@ -133,7 +135,7 @@ type Driver struct {
 //
 // Example: projects/$PROJECT/instances/$INSTANCE/databases/$DATABASE
 func (d *Driver) Open(name string) (driver.Conn, error) {
-	c, err := newConnector(d, name)
+	c, err := newOrCachedConnector(d, name)
 	if err != nil {
 		return nil, err
 	}
@@ -141,28 +143,60 @@ func (d *Driver) Open(name string) (driver.Conn, error) {
 }
 
 func (d *Driver) OpenConnector(name string) (driver.Connector, error) {
-	return newConnector(d, name)
+	return newOrCachedConnector(d, name)
 }
 
-type connectorConfig struct {
-	host     string
-	project  string
-	instance string
-	database string
-	params   map[string]string
+// CreateConnector creates a new driver.Connector for Spanner.
+// A connector can be passed in to sql.OpenDB to obtain a sql.DB.
+//
+// Use this method if you want to supply custom configuration for your Spanner
+// connections, and cache the connector that is returned in your application.
+// The same connector should be used to create all connections that should share
+// the same configuration and the same underlying Spanner client.
+//
+// Note: This function always creates a new connector, even if one with the same
+// configuration has been created previously.
+func CreateConnector(config ConnectorConfig) (driver.Connector, error) {
+	return createConnector(spannerDriver, config)
+}
+
+// ConnectorConfig contains the configuration for a Spanner driver.Connector.
+type ConnectorConfig struct {
+	// Host is the Spanner host that the connector should connect to.
+	// Leave this empty to use the standard Spanner API endpoint.
+	Host string
+
+	// Project, Instance, and Database identify the database that the connector
+	// should create connections for.
+	Project  string
+	Instance string
+	Database string
+
+	// Params contains key/value pairs for commonly used configuration parameters
+	// for connections. The valid values are the same as the parameters that can
+	// be added to a connection string.
+	Params map[string]string
 
 	logger *slog.Logger
 	name   string
+
+	// Configurator is called with the spanner.ClientConfig and []option.ClientOption
+	// that will be used to create connections by the driver.Connector. Use this
+	// function to set any further advanced configuration options that cannot be set
+	// with a standard key/value pair in the Params map.
+	Configurator func(config *spanner.ClientConfig, opts *[]option.ClientOption)
 }
 
-func (cc *connectorConfig) String() string {
+func (cc *ConnectorConfig) String() string {
 	return cc.name
 }
 
-func extractConnectorConfig(dsn string) (connectorConfig, error) {
+// ExtractConnectorConfig extracts a ConnectorConfig for Spanner from the given
+// data source name.
+func ExtractConnectorConfig(dsn string) (ConnectorConfig, error) {
 	match := dsnRegExp.FindStringSubmatch(dsn)
 	if match == nil {
-		return connectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection string: %s", dsn))
+		return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection string: %s", dsn))
 	}
 	matches := make(map[string]string)
 	for i, name := range dsnRegExp.SubexpNames() {
@@ -173,15 +207,15 @@ func extractConnectorConfig(dsn string) (connectorConfig, error) {
 	paramsString := matches["PARAMSGROUP"]
 	params, err := extractConnectorParams(paramsString)
 	if err != nil {
-		return connectorConfig{}, err
+		return ConnectorConfig{}, err
 	}
 
-	return connectorConfig{
-		host:     matches["HOSTGROUP"],
-		project:  matches["PROJECTGROUP"],
-		instance: matches["INSTANCEGROUP"],
-		database: matches["DATABASEGROUP"],
-		params:   params,
+	return ConnectorConfig{
+		Host:     matches["HOSTGROUP"],
+		Project:  matches["PROJECTGROUP"],
+		Instance: matches["INSTANCEGROUP"],
+		Database: matches["DATABASEGROUP"],
+		Params:   params,
 		name:     dsn,
 	}, nil
 }
@@ -209,8 +243,8 @@ func extractConnectorParams(paramsString string) (map[string]string, error) {
 
 type connector struct {
 	driver          *Driver
-	dsn             string
-	connectorConfig connectorConfig
+	connectorConfig ConnectorConfig
+	cacheKey        string
 	logger          *slog.Logger
 
 	closerMu sync.RWMutex
@@ -237,7 +271,7 @@ type connector struct {
 	connCount      int32
 }
 
-func newConnector(d *Driver, dsn string) (*connector, error) {
+func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.connectors == nil {
@@ -247,24 +281,34 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 		return c, nil
 	}
 
-	connectorConfig, err := extractConnectorConfig(dsn)
+	connectorConfig, err := ExtractConnectorConfig(dsn)
 	if err != nil {
 		return nil, err
 	}
-	opts := make([]option.ClientOption, 0)
-	if connectorConfig.host != "" {
-		opts = append(opts, option.WithEndpoint(connectorConfig.host))
+	c, err := createConnector(d, connectorConfig)
+	if err != nil {
+		return nil, err
 	}
-	if strval, ok := connectorConfig.params["credentials"]; ok {
+	c.cacheKey = dsn
+	d.connectors[dsn] = c
+	return c, nil
+}
+
+func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, error) {
+	opts := make([]option.ClientOption, 0)
+	if connectorConfig.Host != "" {
+		opts = append(opts, option.WithEndpoint(connectorConfig.Host))
+	}
+	if strval, ok := connectorConfig.Params["credentials"]; ok {
 		opts = append(opts, option.WithCredentialsFile(strval))
 	}
-	if strval, ok := connectorConfig.params["credentialsjson"]; ok {
+	if strval, ok := connectorConfig.Params["credentialsjson"]; ok {
 		opts = append(opts, option.WithCredentialsJSON([]byte(strval)))
 	}
 	config := spanner.ClientConfig{
 		SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 	}
-	if strval, ok := connectorConfig.params["useplaintext"]; ok {
+	if strval, ok := connectorConfig.Params["useplaintext"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil && val {
 			opts = append(opts,
 				option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
@@ -274,27 +318,27 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 		}
 	}
 	retryAbortsInternally := true
-	if strval, ok := connectorConfig.params["retryabortsinternally"]; ok {
+	if strval, ok := connectorConfig.Params["retryabortsinternally"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil && !val {
 			retryAbortsInternally = false
 		}
 	}
-	if strval, ok := connectorConfig.params["minsessions"]; ok {
+	if strval, ok := connectorConfig.Params["minsessions"]; ok {
 		if val, err := strconv.ParseUint(strval, 10, 64); err == nil {
 			config.MinOpened = val
 		}
 	}
-	if strval, ok := connectorConfig.params["maxsessions"]; ok {
+	if strval, ok := connectorConfig.Params["maxsessions"]; ok {
 		if val, err := strconv.ParseUint(strval, 10, 64); err == nil {
 			config.MaxOpened = val
 		}
 	}
-	if strval, ok := connectorConfig.params["numchannels"]; ok {
+	if strval, ok := connectorConfig.Params["numchannels"]; ok {
 		if val, err := strconv.Atoi(strval); err == nil && val > 0 {
 			opts = append(opts, option.WithGRPCConnectionPool(val))
 		}
 	}
-	if strval, ok := connectorConfig.params["rpcpriority"]; ok {
+	if strval, ok := connectorConfig.Params["rpcpriority"]; ok {
 		var priority spannerpb.RequestOptions_Priority
 		switch strings.ToUpper(strval) {
 		case "LOW":
@@ -310,32 +354,32 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 		config.TransactionOptions.CommitPriority = priority
 		config.QueryOptions.Priority = priority
 	}
-	if strval, ok := connectorConfig.params["optimizerversion"]; ok {
+	if strval, ok := connectorConfig.Params["optimizerversion"]; ok {
 		if config.QueryOptions.Options == nil {
 			config.QueryOptions.Options = &spannerpb.ExecuteSqlRequest_QueryOptions{}
 		}
 		config.QueryOptions.Options.OptimizerVersion = strval
 	}
-	if strval, ok := connectorConfig.params["optimizerstatisticspackage"]; ok {
+	if strval, ok := connectorConfig.Params["optimizerstatisticspackage"]; ok {
 		if config.QueryOptions.Options == nil {
 			config.QueryOptions.Options = &spannerpb.ExecuteSqlRequest_QueryOptions{}
 		}
 		config.QueryOptions.Options.OptimizerStatisticsPackage = strval
 	}
-	if strval, ok := connectorConfig.params["databaserole"]; ok {
+	if strval, ok := connectorConfig.Params["databaserole"]; ok {
 		config.DatabaseRole = strval
 	}
-	if strval, ok := connectorConfig.params["disableroutetoleader"]; ok {
+	if strval, ok := connectorConfig.Params["disableroutetoleader"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil {
 			config.DisableRouteToLeader = val
 		}
 	}
-	if strval, ok := connectorConfig.params["enableendtoendtracing"]; ok {
+	if strval, ok := connectorConfig.Params["enableendtoendtracing"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil {
 			config.EnableEndToEndTracing = val
 		}
 	}
-	if strval, ok := connectorConfig.params["disablenativemetrics"]; ok {
+	if strval, ok := connectorConfig.Params["disablenativemetrics"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil {
 			config.DisableNativeMetrics = val
 		}
@@ -353,17 +397,18 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 		logger = connectorConfig.logger
 	}
 	logger = logger.With("config", &connectorConfig)
+	if connectorConfig.Configurator != nil {
+		connectorConfig.Configurator(&config, &opts)
+	}
 
 	c := &connector{
 		driver:                d,
-		dsn:                   dsn,
 		connectorConfig:       connectorConfig,
 		logger:                logger,
 		spannerClientConfig:   config,
 		options:               opts,
 		retryAbortsInternally: retryAbortsInternally,
 	}
-	d.connectors[dsn] = c
 	return c, nil
 }
 
@@ -377,14 +422,13 @@ func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
 }
 
 func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
+	opts := c.options
 	c.logger.Log(ctx, LevelNotice, "opening connection")
-
-	opts := append(c.options, option.WithUserAgent(userAgent))
 	databaseName := fmt.Sprintf(
 		"projects/%s/instances/%s/databases/%s",
-		c.connectorConfig.project,
-		c.connectorConfig.instance,
-		c.connectorConfig.database)
+		c.connectorConfig.Project,
+		c.connectorConfig.Instance,
+		c.connectorConfig.Database)
 
 	if err := c.increaseConnCount(ctx, databaseName, opts); err != nil {
 		return nil, err
@@ -466,9 +510,11 @@ func (c *connector) Close() error {
 	c.closed = true
 	c.closerMu.Unlock()
 
-	c.driver.mu.Lock()
-	delete(c.driver.connectors, c.dsn)
-	c.driver.mu.Unlock()
+	if c.cacheKey != "" {
+		c.driver.mu.Lock()
+		delete(c.driver.connectors, c.cacheKey)
+		c.driver.mu.Unlock()
+	}
 
 	c.clientMu.Lock()
 	defer c.clientMu.Unlock()
@@ -548,26 +594,22 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 	// We don't need to keep track of a running checksum for retries when using
 	// this method, so we disable internal retries.
 	// Retries will instead be handled by the loop below.
-	origRetryAborts := false
-	var spannerConn SpannerConn
+	transactionOptions := &ReadWriteTransactionOptions{
+		TransactionOptions:     spannerOptions,
+		DisableInternalRetries: true,
+	}
+	isSpannerConn := false
 	if err := conn.Raw(func(driverConn any) error {
-		var ok bool
-		spannerConn, ok = driverConn.(SpannerConn)
-		if !ok {
+		var spannerConn SpannerConn
+		spannerConn, isSpannerConn = driverConn.(SpannerConn)
+		if !isSpannerConn {
 			// It is not a Spanner connection, so just ignore and continue without any special handling.
 			return nil
 		}
-		spannerConn.withTransactionOptions(spannerOptions)
-		origRetryAborts = spannerConn.RetryAbortsInternally()
-		return spannerConn.SetRetryAbortsInternally(false)
+		spannerConn.withTempTransactionOptions(transactionOptions)
+		return nil
 	}); err != nil {
 		return err
-	}
-	// Reset the flag for internal retries after the transaction (if applicable).
-	if origRetryAborts {
-		defer func() {
-			_ = spannerConn.SetRetryAbortsInternally(origRetryAborts)
-		}()
 	}
 
 	tx, err := conn.BeginTx(ctx, opts)
@@ -587,7 +629,7 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		// Rollback and return the error if:
 		// 1. The connection is not a Spanner connection.
 		// 2. Or the error code is not Aborted.
-		if spannerConn == nil || spanner.ErrCode(err) != codes.Aborted {
+		if !isSpannerConn || spanner.ErrCode(err) != codes.Aborted {
 			// We don't really need to call Rollback here if the error happened
 			// during the Commit. However, the SQL package treats this as a no-op
 			// and just returns an ErrTxDone if we do, so this is simpler than
@@ -611,7 +653,7 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		}
 
 		// Reset the transaction after it was aborted.
-		err = spannerConn.resetTransactionForRetry(ctx, errDuringCommit)
+		err = resetTransactionForRetry(ctx, conn, errDuringCommit)
 		if err != nil {
 			_ = tx.Rollback()
 			return err
@@ -628,6 +670,80 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 			}
 		}
 	}
+}
+
+func resetTransactionForRetry(ctx context.Context, conn *sql.Conn, errDuringCommit bool) error {
+	return conn.Raw(func(driverConn any) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			return spanner.ToSpannerError(status.Error(codes.InvalidArgument, "not a Spanner connection"))
+		}
+		return spannerConn.resetTransactionForRetry(ctx, errDuringCommit)
+	})
+}
+
+type ReadWriteTransactionOptions struct {
+	// TransactionOptions are passed through to the Spanner client to use for
+	// the read/write transaction.
+	TransactionOptions spanner.TransactionOptions
+	// DisableInternalRetries disables checksum-based retries of Aborted errors
+	// for this transaction. By default, read/write transactions keep track of
+	// a running checksum of all results it receives from Spanner. If Spanner
+	// aborts the transaction, the transaction is retried by the driver and the
+	// checksums of the initial attempt and the retry are compared. If the
+	// checksums differ, the transaction fails with an Aborted error.
+	//
+	// If DisableInternalRetries is set to true, checksum-based retries are
+	// disabled, and any Aborted error from Spanner is propagated to the
+	// application.
+	DisableInternalRetries bool
+
+	close func()
+}
+
+// BeginReadWriteTransaction begins a read/write transaction on a Spanner database.
+// This function allows more options to be passed in that the generic sql.DB.BeginTx
+// function.
+//
+// NOTE: You *MUST* end the transaction by calling either Commit or Rollback on
+// the transaction. Failure to do so will cause the connection that is used for
+// the transaction to be leaked.
+func BeginReadWriteTransaction(ctx context.Context, db *sql.DB, options ReadWriteTransactionOptions) (*sql.Tx, error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	options.close = func() {
+		// Close the connection asynchronously, as the transaction will still
+		// be active when we hit this point.
+		go conn.Close()
+	}
+	if err := withTempReadWriteTransactionOptions(conn, &options); err != nil {
+		return nil, err
+	}
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		clearTempReadWriteTransactionOptions(conn)
+		return nil, err
+	}
+	return tx, nil
+}
+
+func withTempReadWriteTransactionOptions(conn *sql.Conn, options *ReadWriteTransactionOptions) error {
+	return conn.Raw(func(driverConn any) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			// It is not a Spanner connection.
+			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
+		}
+		spannerConn.withTempTransactionOptions(options)
+		return nil
+	})
+}
+
+func clearTempReadWriteTransactionOptions(conn *sql.Conn) {
+	_ = withTempReadWriteTransactionOptions(conn, nil)
+	_ = conn.Close()
 }
 
 // ReadOnlyTransactionOptions can be used to create a read-only transaction
@@ -754,6 +870,13 @@ type SpannerConn interface {
 	// read/write transaction is started.
 	SetTransactionTag(transactionTag string) error
 
+	// MaxCommitDelay returns the max commit delay that will be applied to read/write
+	// transactions on this connection.
+	MaxCommitDelay() time.Duration
+	// SetMaxCommitDelay sets the max commit delay that will be applied to read/write
+	// transactions on this connection.
+	SetMaxCommitDelay(delay time.Duration) error
+
 	// ExcludeTxnFromChangeStreams returns true if the next transaction should be excluded from change streams with the
 	// DDL option `allow_txn_exclusion=true`.
 	ExcludeTxnFromChangeStreams() bool
@@ -791,9 +914,10 @@ type SpannerConn interface {
 	// returned.
 	resetTransactionForRetry(ctx context.Context, errDuringCommit bool) error
 
-	// withTransactionOptions sets the TransactionOptions that should be used
-	// for this transaction.
-	withTransactionOptions(options spanner.TransactionOptions)
+	// withTempTransactionOptions sets the TransactionOptions that should be used
+	// for the next read/write transaction. This method should only be called
+	// directly before starting a new read/write transaction.
+	withTempTransactionOptions(options *ReadWriteTransactionOptions)
 
 	// withTempReadOnlyTransactionOptions sets the options that should be used
 	// for the next read-only transaction. This method should only be called
@@ -833,11 +957,12 @@ type conn struct {
 	// readOnlyStaleness is used for queries in autocommit mode and for read-only transactions.
 	readOnlyStaleness spanner.TimestampBound
 
-	// execOptions are applied to the next statement that is executed on this connection.
-	// It can be set by passing it in as an argument to ExecContext or QueryContext
-	// and is cleared after each execution.
+	// execOptions are applied to the next statement or transaction that is executed
+	// on this connection. It can also be set by passing it in as an argument to
+	// ExecContext or QueryContext.
 	execOptions ExecOptions
 
+	tempTransactionOptions *ReadWriteTransactionOptions
 	// tempReadOnlyTransactionOptions are temporarily set right before a read-only
 	// transaction is started on a Spanner connection.
 	tempReadOnlyTransactionOptions *ReadOnlyTransactionOptions
@@ -929,6 +1054,20 @@ func (c *conn) SetReadOnlyStaleness(staleness spanner.TimestampBound) error {
 
 func (c *conn) setReadOnlyStaleness(staleness spanner.TimestampBound) (driver.Result, error) {
 	c.readOnlyStaleness = staleness
+	return driver.ResultNoRows, nil
+}
+
+func (c *conn) MaxCommitDelay() time.Duration {
+	return *c.execOptions.TransactionOptions.CommitOptions.MaxCommitDelay
+}
+
+func (c *conn) SetMaxCommitDelay(delay time.Duration) error {
+	_, err := c.setMaxCommitDelay(delay)
+	return err
+}
+
+func (c *conn) setMaxCommitDelay(delay time.Duration) (driver.Result, error) {
+	c.execOptions.TransactionOptions.CommitOptions.MaxCommitDelay = &delay
 	return driver.ResultNoRows, nil
 }
 
@@ -1204,6 +1343,7 @@ func (c *conn) ResetSession(_ context.Context) error {
 	c.retryAborts = true
 	c.autocommitDMLMode = Transactional
 	c.readOnlyStaleness = spanner.TimestampBound{}
+	c.execOptions = ExecOptions{}
 	return nil
 }
 
@@ -1449,7 +1589,10 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 
 // options returns and resets the ExecOptions for the next statement.
 func (c *conn) options() ExecOptions {
-	defer func() { c.execOptions = ExecOptions{} }()
+	defer func() {
+		c.execOptions.TransactionOptions.TransactionTag = ""
+		c.execOptions.QueryOptions.RequestTag = ""
+	}()
 	return c.execOptions
 }
 
@@ -1474,8 +1617,24 @@ func (c *conn) resetTransactionForRetry(ctx context.Context, errDuringCommit boo
 	return c.tx.resetForRetry(ctx)
 }
 
-func (c *conn) withTransactionOptions(options spanner.TransactionOptions) {
-	c.execOptions.TransactionOptions = options
+func (c *conn) withTempTransactionOptions(options *ReadWriteTransactionOptions) {
+	c.tempTransactionOptions = options
+}
+
+func (c *conn) getTransactionOptions() ReadWriteTransactionOptions {
+	if c.tempTransactionOptions != nil {
+		defer func() { c.tempTransactionOptions = nil }()
+		return *c.tempTransactionOptions
+	}
+	// Clear the transaction tag that has been set on the connection after returning
+	// from this function.
+	defer func() {
+		c.execOptions.TransactionOptions.TransactionTag = ""
+	}()
+	return ReadWriteTransactionOptions{
+		TransactionOptions:     c.execOptions.TransactionOptions,
+		DisableInternalRetries: !c.retryAborts,
+	}
 }
 
 func (c *conn) withTempReadOnlyTransactionOptions(options *ReadOnlyTransactionOptions) {
@@ -1514,6 +1673,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		return c.tx, nil
 	}
 	readOnlyTxOpts := c.getReadOnlyTransactionOptions()
+	readWriteTransactionOptions := c.getTransactionOptions()
 	if c.inTransaction() {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "already in a transaction"))
 	}
@@ -1521,7 +1681,8 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		return nil, status.Error(codes.FailedPrecondition, "This connection has an active batch. Run or abort the batch before starting a new transaction.")
 	}
 
-	execOptions := c.options()
+	// Determine whether internal retries have been disabled using a special
+	// value for the transaction isolation level.
 	disableRetryAborts := false
 	sil := opts.Isolation >> 8
 	opts.Isolation = opts.Isolation - sil
@@ -1548,7 +1709,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		return c.tx, nil
 	}
 
-	tx, err := spanner.NewReadWriteStmtBasedTransactionWithOptions(ctx, c.client, execOptions.TransactionOptions)
+	tx, err := spanner.NewReadWriteStmtBasedTransactionWithOptions(ctx, c.client, readWriteTransactionOptions.TransactionOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -1565,7 +1726,8 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 				c.commitTs = commitTs
 			}
 		},
-		retryAborts: c.retryAborts && !disableRetryAborts,
+		// Disable internal retries if any of these options have been set.
+		retryAborts: !readWriteTransactionOptions.DisableInternalRetries && !disableRetryAborts,
 	}
 	c.commitTs = nil
 	return c.tx, nil
