@@ -38,6 +38,8 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -3246,6 +3248,57 @@ func TestTag_RunTransaction_Retry(t *testing.T) {
 	}
 }
 
+func TestTag_RunTransactionWithOptions_IsNotSticky(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	if err := RunTransactionWithOptions(ctx, db, &sql.TxOptions{}, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
+		if err != nil {
+			return err
+		}
+		return nil
+	}, spanner.TransactionOptions{
+		CommitOptions: spanner.CommitOptions{ReturnCommitStats: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	requests := drainRequestsFromServer(server.TestSpanner)
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("number of commit request mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	commitRequest := commitRequests[0].(*sppb.CommitRequest)
+	if g, w := commitRequest.ReturnCommitStats, true; g != w {
+		t.Fatalf("return_commit_stats mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Verify that the transaction options are not used for the next transaction.
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	requests = drainRequestsFromServer(server.TestSpanner)
+	commitRequests = requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("number of commit request mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	commitRequest = commitRequests[0].(*sppb.CommitRequest)
+	// ReturnCommitStats should be false for this transaction.
+	if g, w := commitRequest.ReturnCommitStats, false; g != w {
+		t.Fatalf("return_commit_stats mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
 func TestMaxIdleConnectionsNonZero(t *testing.T) {
 	t.Parallel()
 
@@ -3372,12 +3425,13 @@ func TestRunTransaction(t *testing.T) {
 		}
 		defer rows.Close()
 		// Verify that internal retries are disabled during RunTransaction
-		row := tx.QueryRow("show variable retry_aborts_internally")
-		var retry bool
-		if err := row.Scan(&retry); err != nil {
-			return err
+		txi := reflect.ValueOf(tx).Elem().FieldByName("txi")
+		rwTx := (*readWriteTransaction)(txi.Elem().UnsafePointer())
+		// Verify that getting the transaction through reflection worked.
+		if g, w := rwTx.ctx, ctx; g != w {
+			return fmt.Errorf("getting the transaction through reflection failed")
 		}
-		if retry {
+		if rwTx.retryAborts {
 			return fmt.Errorf("internal retries should be disabled during RunTransaction")
 		}
 
@@ -3406,7 +3460,7 @@ func TestRunTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Verify that internal retries are enabled again after RunTransaction
+	// Verify that internal retries are still enabled after RunTransaction
 	row := db.QueryRow("show variable retry_aborts_internally")
 	var retry bool
 	if err := row.Scan(&retry); err != nil {
@@ -3788,6 +3842,165 @@ func TestTransactionWithLevelDisableRetryAborts(t *testing.T) {
 	}
 }
 
+func TestBeginReadWriteTransaction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	tag := "my_tx_tag"
+	tx, err := BeginReadWriteTransaction(ctx, db, ReadWriteTransactionOptions{
+		DisableInternalRetries: true,
+		TransactionOptions: spanner.TransactionOptions{
+			TransactionTag: tag,
+			CommitPriority: sppb.RequestOptions_PRIORITY_LOW,
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to start transaction: %v", err)
+	}
+
+	rows, err := tx.Query(testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify that internal retries are disabled during this transaction.
+	txi := reflect.ValueOf(tx).Elem().FieldByName("txi")
+	rwTx := (*readWriteTransaction)(txi.Elem().UnsafePointer())
+	// Verify that getting the transaction through reflection worked.
+	if g, w := rwTx.ctx, ctx; g != w {
+		t.Fatal("getting the transaction through reflection failed")
+	}
+	if rwTx.retryAborts {
+		t.Fatal("internal retries should be disabled during this transaction")
+	}
+
+	for want := int64(1); rows.Next(); want++ {
+		cols, err := rows.Columns()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !cmp.Equal(cols, []string{"FOO"}) {
+			t.Fatalf("cols mismatch\nGot: %v\nWant: %v", cols, []string{"FOO"})
+		}
+		var got int64
+		err = rows.Scan(&got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("value mismatch\nGot: %v\nWant: %v", got, want)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify that internal retries are still enabled after the transaction finished.
+	row := db.QueryRow("show variable retry_aborts_internally")
+	var retry bool
+	if err := row.Scan(&retry); err != nil {
+		t.Fatal(err)
+	}
+	if !retry {
+		t.Fatal("internal retries should still be enabled")
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if req.Transaction == nil {
+		t.Fatalf("missing transaction for ExecuteSqlRequest")
+	}
+	if req.Transaction.GetId() == nil {
+		t.Fatalf("missing id selector for ExecuteSqlRequest")
+	}
+	if g, w := req.RequestOptions.TransactionTag, tag; g != w {
+		t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	commitReq := commitRequests[0].(*sppb.CommitRequest)
+	if c, e := commitReq.GetTransactionId(), req.Transaction.GetId(); !cmp.Equal(c, e) {
+		t.Fatalf("transaction id mismatch\nCommit: %c\nExecute: %v", c, e)
+	}
+	if g, w := commitReq.RequestOptions.TransactionTag, tag; g != w {
+		t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := commitReq.RequestOptions.Priority, sppb.RequestOptions_PRIORITY_LOW; g != w {
+		t.Fatalf("commit priority mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestCustomClientConfig(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	mu := sync.Mutex{}
+	mu.Lock()
+	interceptorInvoked := false
+	routeToLeaderHeaderFound := false
+	mu.Unlock()
+	db, server, teardown := setupTestDBConnectionWithConfigurator(t, "", func(config *spanner.ClientConfig, opts *[]option.ClientOption) {
+		config.QueryOptions = spanner.QueryOptions{Options: &sppb.ExecuteSqlRequest_QueryOptions{OptimizerVersion: "1"}}
+		config.DisableRouteToLeader = true
+
+		dopt := grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+			mu.Lock()
+			defer mu.Unlock()
+			interceptorInvoked = true
+			md, ok := metadata.FromOutgoingContext(ctx)
+			if !ok {
+				t.Fatalf("missing metadata for method %q", method)
+			}
+			if md.Get("x-goog-spanner-route-to-leader") != nil {
+				routeToLeaderHeaderFound = true
+			}
+			return invoker(ctx, method, req, reply, cc, opts...)
+		})
+		*opts = append(*opts, option.WithGRPCDialOption(dopt))
+	})
+	defer teardown()
+	rows, err := db.QueryContext(ctx, testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	rows.Next()
+	if rows.Err() != nil {
+		t.Fatal(rows.Err())
+	}
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := req.QueryOptions.OptimizerVersion, "1"; g != w {
+		t.Errorf("query optimizer version mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !interceptorInvoked {
+		t.Errorf("interceptor was not invoked")
+	}
+
+	if routeToLeaderHeaderFound {
+		t.Errorf("disabling route-to-leader did not work")
+	}
+}
+
 func numeric(v string) big.Rat {
 	res, _ := big.NewRat(1, 1).SetString(v)
 	return *res
@@ -3834,6 +4047,27 @@ func setupTestDBConnectionWithParams(t *testing.T, params string) (db *sql.DB, s
 		serverTeardown()
 		t.Fatal(err)
 	}
+	return db, server, func() {
+		_ = db.Close()
+		serverTeardown()
+	}
+}
+
+func setupTestDBConnectionWithConfigurator(t *testing.T, params string, configurator func(config *spanner.ClientConfig, opts *[]option.ClientOption)) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+	server, _, serverTeardown := setupMockedTestServer(t)
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;%s", server.Address, params)
+	config, err := ExtractConnectorConfig(dsn)
+	config.Configurator = configurator
+	if err != nil {
+		serverTeardown()
+		t.Fatal(err)
+	}
+	c, err := CreateConnector(config)
+	if err != nil {
+		serverTeardown()
+		t.Fatal(err)
+	}
+	db = sql.OpenDB(c)
 	return db, server, func() {
 		_ = db.Close()
 		serverTeardown()
