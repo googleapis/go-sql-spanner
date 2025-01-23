@@ -1486,7 +1486,10 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 		if execOptions.PartitionedQueryOptions.PartitionQuery {
 			return c.tx.partitionQuery(ctx, stmt, execOptions)
 		}
-		iter = c.tx.Query(ctx, stmt, execOptions.QueryOptions)
+		iter, err = c.tx.Query(ctx, stmt, execOptions)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &rows{it: iter, decodeOption: execOptions.DecodeOption}, nil
 }

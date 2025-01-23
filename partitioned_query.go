@@ -42,6 +42,11 @@ type PartitionedQueryOptions struct {
 	// that are executed in a spanner.BatchReadOnlyTransaction and for
 	// ad-hoc queries outside a transaction.
 	AutoPartitionQuery bool
+	// MaxParallelism is the maximum number of goroutines that will be
+	// used to read data from an auto-partitioned query. This option
+	// is only used if AutoPartitionQuery has been set to true.
+	// Defaults to runtime.NumCPU.
+	MaxParallelism int
 
 	// PartitionQuery instructs the driver to only partition the query that
 	// is being executed, instead of actually executing the query. The returned
@@ -190,7 +195,7 @@ func (pq *PartitionedQuery) Execute(ctx context.Context, index int, db *sql.DB) 
 	})
 }
 
-func (pq *PartitionedQuery) execute(ctx context.Context, index int) (driver.Rows, error) {
+func (pq *PartitionedQuery) execute(ctx context.Context, index int) (*rows, error) {
 	if index < 0 || index >= len(pq.Partitions) {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid partition index: %d", index))
 	}

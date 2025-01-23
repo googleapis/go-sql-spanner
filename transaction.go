@@ -35,7 +35,7 @@ type contextTransaction interface {
 	Commit() error
 	Rollback() error
 	resetForRetry(ctx context.Context) error
-	Query(ctx context.Context, stmt spanner.Statement, options spanner.QueryOptions) rowIterator
+	Query(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (rowIterator, error)
 	partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (driver.Rows, error)
 	ExecContext(ctx context.Context, stmt spanner.Statement, options spanner.QueryOptions) (int64, error)
 
@@ -104,12 +104,32 @@ func (tx *readOnlyTransaction) resetForRetry(ctx context.Context) error {
 	return nil
 }
 
-func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement, options spanner.QueryOptions) rowIterator {
+func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (rowIterator, error) {
 	tx.logger.DebugContext(ctx, "Query", "stmt", stmt.SQL)
-	return &readOnlyRowIterator{tx.roTx.QueryWithOptions(ctx, stmt, options)}
+	if execOptions.PartitionedQueryOptions.AutoPartitionQuery {
+		if tx.boTx == nil {
+			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "AutoPartitionQuery is only supported for batch read-only transactions"))
+		}
+		pq, err := tx.partitionQueryTemp(ctx, stmt, execOptions)
+		if err != nil {
+			return nil, err
+		}
+		mi := createMergedIterator(tx.logger, pq, execOptions.PartitionedQueryOptions.MaxParallelism)
+		mi.run(ctx)
+		return mi, nil
+	}
+	return &readOnlyRowIterator{tx.roTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions)}, nil
 }
 
 func (tx *readOnlyTransaction) partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (driver.Rows, error) {
+	pq, err := tx.partitionQueryTemp(ctx, stmt, execOptions)
+	if err != nil {
+		return nil, err
+	}
+	return &partitionedQueryRows{partitionedQuery: pq}, nil
+}
+
+func (tx *readOnlyTransaction) partitionQueryTemp(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (*PartitionedQuery, error) {
 	if tx.boTx == nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "partitionQuery is only supported for batch read-only transactions"))
 	}
@@ -117,13 +137,12 @@ func (tx *readOnlyTransaction) partitionQuery(ctx context.Context, stmt spanner.
 	if err != nil {
 		return nil, err
 	}
-	pq := &PartitionedQuery{
+	return &PartitionedQuery{
 		stmt:        stmt,
 		execOptions: execOptions,
 		tx:          tx.boTx,
 		Partitions:  partitions,
-	}
-	return &partitionedQueryRows{partitionedQuery: pq}, nil
+	}, nil
 }
 
 func (tx *readOnlyTransaction) ExecContext(_ context.Context, _ spanner.Statement, _ spanner.QueryOptions) (int64, error) {
@@ -360,28 +379,28 @@ func (tx *readWriteTransaction) resetForRetry(ctx context.Context) error {
 // Query executes a query using the read/write transaction and returns a
 // rowIterator that will automatically retry the read/write transaction if the
 // transaction is aborted during the query or while iterating the returned rows.
-func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement, options spanner.QueryOptions) rowIterator {
+func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (rowIterator, error) {
 	tx.logger.Debug("Query", "stmt", stmt.SQL)
 	// If internal retries have been disabled, we don't need to keep track of a
 	// running checksum for all results that we have seen.
 	if !tx.retryAborts {
-		return &readOnlyRowIterator{tx.rwTx.QueryWithOptions(ctx, stmt, options)}
+		return &readOnlyRowIterator{tx.rwTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions)}, nil
 	}
 
 	// If retries are enabled, we need to use a row iterator that will keep
 	// track of a running checksum of all the results that we see.
 	buffer := &bytes.Buffer{}
 	it := &checksumRowIterator{
-		RowIterator: tx.rwTx.QueryWithOptions(ctx, stmt, options),
+		RowIterator: tx.rwTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions),
 		ctx:         ctx,
 		tx:          tx,
 		stmt:        stmt,
-		options:     options,
+		options:     execOptions.QueryOptions,
 		buffer:      buffer,
 		enc:         gob.NewEncoder(buffer),
 	}
 	tx.statements = append(tx.statements, it)
-	return it
+	return it, nil
 }
 
 func (tx *readWriteTransaction) partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (driver.Rows, error) {

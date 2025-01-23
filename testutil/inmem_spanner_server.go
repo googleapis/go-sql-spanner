@@ -1135,16 +1135,13 @@ func (s *inMemSpannerServer) PartitionQuery(ctx context.Context, req *spannerpb.
 		if err != nil {
 			return nil, gstatus.Error(codes.Internal, "failed to generate random partition token")
 		}
-		partitions = append(partitions, &spannerpb.Partition{PartitionToken: randBytes(10)})
+		token := fmt.Sprintf("%s: %v", req.Sql, i)
+		partitions = append(partitions, &spannerpb.Partition{PartitionToken: []byte(token)})
 	}
 	return &spannerpb.PartitionResponse{
 		Partitions:  partitions,
 		Transaction: tx,
 	}, nil
-}
-
-func randRange(min, max int) int {
-	return rand.Intn(max-min) + min
 }
 
 func (s *inMemSpannerServer) PartitionRead(ctx context.Context, req *spannerpb.PartitionReadRequest) (*spannerpb.PartitionResponse, error) {

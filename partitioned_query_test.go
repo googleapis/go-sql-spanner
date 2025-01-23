@@ -17,7 +17,10 @@ package spannerdriver
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"math/rand"
 	"reflect"
+	"slices"
 	"testing"
 
 	"cloud.google.com/go/spanner"
@@ -222,5 +225,102 @@ func TestPartitionQueryInTx(t *testing.T) {
 		if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
 			t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
 		}
+	}
+}
+
+func TestAutoPartitionQuery(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	tx, err := BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	maxPartitions := rand.Intn(10) + 1
+	// Setup results for each partition.
+	allResults := make([]int64, 0, 1000)
+	for index := 0; index < maxPartitions; index++ {
+		numResults := rand.Intn(200)
+		partitionResults := make([]int64, numResults, numResults)
+		for i := 0; i < numResults; i++ {
+			partitionResults[i] = rand.Int63()
+		}
+		allResults = append(allResults, partitionResults...)
+		res := testutil.CreateSingleColumnResultSet(partitionResults, "FOO")
+		token := fmt.Sprintf("%s: %v", testutil.SelectFooFromBar, index)
+		if err := server.TestSpanner.PutPartitionResult(
+			[]byte(token),
+			&testutil.StatementResult{Type: testutil.StatementResultResultSet, ResultSet: res}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Automatically partition and execute a query.
+	rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar,
+		ExecOptions{
+			PartitionedQueryOptions: PartitionedQueryOptions{
+				AutoPartitionQuery: true,
+				MaxParallelism:     rand.Intn(10) + 1,
+				PartitionOptions: spanner.PartitionOptions{
+					MaxPartitions: int64(maxPartitions),
+				},
+			},
+			QueryOptions: spanner.QueryOptions{DataBoostEnabled: true},
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	count := 0
+	for rows.Next() {
+		var v int64
+		if err := rows.Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Contains(allResults, v) {
+			t.Fatalf("unexpected row value: %v", v)
+		}
+		count++
+	}
+	if g, w := count, len(allResults); g != w {
+		t.Fatalf("row count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	if g, w := len(beginRequests), 1; g != w {
+		t.Fatalf("num begin requests mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	beginRequest := beginRequests[0].(*sppb.BeginTransactionRequest)
+	if !beginRequest.Options.GetReadOnly().GetStrong() {
+		t.Fatal("missing strong timestamp bound option")
+	}
+	partitionRequests := requestsOfType(requests, reflect.TypeOf(&sppb.PartitionQueryRequest{}))
+	if g, w := len(partitionRequests), 1; g != w {
+		t.Fatalf("num partition requests mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	executeRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), maxPartitions; g != w {
+		t.Fatalf("num execute requests mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	executeRequest := executeRequests[0].(*sppb.ExecuteSqlRequest)
+	if !executeRequest.DataBoostEnabled {
+		t.Fatal("missing DataBoostEnabled option")
+	}
+	// (Batch) read-only transactions should not be committed.
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 0; g != w {
+		t.Fatalf("num commit requests mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
