@@ -246,6 +246,6 @@ func (it *checksumRowIterator) Stop() {
 	}
 }
 
-func (it *checksumRowIterator) Metadata() *sppb.ResultSetMetadata {
-	return it.metadata
+func (it *checksumRowIterator) Metadata() (*sppb.ResultSetMetadata, error) {
+	return it.metadata, nil
 }

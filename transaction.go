@@ -49,7 +49,7 @@ type contextTransaction interface {
 type rowIterator interface {
 	Next() (*spanner.Row, error)
 	Stop()
-	Metadata() *sppb.ResultSetMetadata
+	Metadata() (*sppb.ResultSetMetadata, error)
 }
 
 type readOnlyRowIterator struct {
@@ -64,8 +64,8 @@ func (ri *readOnlyRowIterator) Stop() {
 	ri.RowIterator.Stop()
 }
 
-func (ri *readOnlyRowIterator) Metadata() *sppb.ResultSetMetadata {
-	return ri.RowIterator.Metadata
+func (ri *readOnlyRowIterator) Metadata() (*sppb.ResultSetMetadata, error) {
+	return ri.RowIterator.Metadata, nil
 }
 
 type readOnlyTransaction struct {
@@ -115,7 +115,10 @@ func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement
 			return nil, err
 		}
 		mi := createMergedIterator(tx.logger, pq, execOptions.PartitionedQueryOptions.MaxParallelism)
-		mi.run(ctx)
+		if err := mi.run(ctx); err != nil {
+			mi.Stop()
+			return nil, err
+		}
 		return mi, nil
 	}
 	return &readOnlyRowIterator{tx.roTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions)}, nil

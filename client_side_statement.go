@@ -368,6 +368,6 @@ func (t *clientSideIterator) Stop() {
 	t.metadata = nil
 }
 
-func (t *clientSideIterator) Metadata() *spannerpb.ResultSetMetadata {
-	return t.metadata
+func (t *clientSideIterator) Metadata() (*spannerpb.ResultSetMetadata, error) {
+	return t.metadata, nil
 }
