@@ -224,11 +224,20 @@ func convertParam(v driver.Value) driver.Value {
 }
 
 type result struct {
-	rowsAffected int64
+	rowsAffected    int64
+	lastInsertId    int64
+	hasLastInsertId bool
 }
 
 func (r *result) LastInsertId() (int64, error) {
-	return 0, spanner.ToSpannerError(status.Errorf(codes.Unimplemented, "Cloud Spanner does not support auto-generated ids"))
+	if r.hasLastInsertId {
+		return r.lastInsertId, nil
+	}
+	return 0, spanner.ToSpannerError(status.Errorf(
+		codes.FailedPrecondition,
+		"LastInsertId is only supported for INSERT statements that use a THEN RETURN clause "+
+			"and that return exactly one row and one column "+
+			"(e.g. `INSERT INTO MyTable (Val) values ('val1') THEN RETURN Id`)"))
 }
 
 func (r *result) RowsAffected() (int64, error) {

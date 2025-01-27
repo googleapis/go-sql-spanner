@@ -395,8 +395,8 @@ func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, time.Time, error) {
-			return 0, time.Time{}, nil
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
+			return &result{}, time.Time{}, nil
 		},
 		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
 			return 0, nil
@@ -429,8 +429,8 @@ func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, time.Time, error) {
-			return 0, time.Time{}, nil
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
+			return &result{}, time.Time{}, nil
 		},
 		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
 			return 0, nil
@@ -510,8 +510,8 @@ func TestConn_GetCommitTimestampAfterAutocommitDml(t *testing.T) {
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, time.Time, error) {
-			return 0, want, nil
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
+			return &result{}, want, nil
 		},
 		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
 			return 0, nil
@@ -536,8 +536,8 @@ func TestConn_GetCommitTimestampAfterAutocommitQuery(t *testing.T) {
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, time.Time, error) {
-			return 0, time.Time{}, nil
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
+			return &result{}, time.Time{}, nil
 		},
 		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
 			return 0, nil

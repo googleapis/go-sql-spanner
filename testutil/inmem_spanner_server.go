@@ -178,6 +178,11 @@ func (s *StatementResult) ToPartialResultSets(resumeToken []byte) (result []*spa
 			Metadata: s.ResultSet.Metadata,
 		})
 	}
+	if s.UpdateCount > 0 {
+		result[len(result)-1].Stats = &spannerpb.ResultSetStats{
+			RowCount: &spannerpb.ResultSetStats_RowCountExact{RowCountExact: s.UpdateCount},
+		}
+	}
 	return result, nil
 }
 
@@ -188,10 +193,17 @@ func min(x, y uint64) uint64 {
 	return x
 }
 
-func (s *StatementResult) updateCountToPartialResultSet(exact bool) *spannerpb.PartialResultSet {
-	return &spannerpb.PartialResultSet{
+func (s *StatementResult) updateCountToPartialResultSet(exact bool, resultSetWithTx *spannerpb.ResultSet) *spannerpb.PartialResultSet {
+	res := &spannerpb.PartialResultSet{
+		Metadata: &spannerpb.ResultSetMetadata{
+			RowType: &spannerpb.StructType{},
+		},
 		Stats: s.convertUpdateCountToResultSet(exact).Stats,
 	}
+	if resultSetWithTx != nil && resultSetWithTx.Metadata != nil && resultSetWithTx.Metadata.Transaction != nil {
+		res.Metadata.Transaction = resultSetWithTx.Metadata.Transaction
+	}
+	return res
 }
 
 // Converts an update count to a ResultSet, as DML statements also return the
@@ -905,7 +917,7 @@ func (s *inMemSpannerServer) executeStreamingSQL(req *spannerpb.ExecuteSqlReques
 		return err
 	}
 	s.mu.Lock()
-	statementResult.getResultSetWithTransactionSet(req.GetTransaction(), id)
+	resWithTx := statementResult.getResultSetWithTransactionSet(req.GetTransaction(), id)
 	isPartitionedDml := s.partitionedDmlTransactions[string(id)]
 	s.mu.Unlock()
 	switch statementResult.Type {
@@ -939,7 +951,7 @@ func (s *inMemSpannerServer) executeStreamingSQL(req *spannerpb.ExecuteSqlReques
 		}
 		return nil
 	case StatementResultUpdateCount:
-		part := statementResult.updateCountToPartialResultSet(!isPartitionedDml)
+		part := statementResult.updateCountToPartialResultSet(!isPartitionedDml, resWithTx.ResultSet)
 		if err := stream.Send(part); err != nil {
 			return err
 		}
