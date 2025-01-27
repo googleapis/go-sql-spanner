@@ -321,6 +321,7 @@ func TestAutoPartitionQuery_ExecuteError(t *testing.T) {
 	ctx := context.Background()
 	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
+	db.SetMaxOpenConns(1)
 
 	for maxResultsPerPartition := range []int{0, 1, 5, 50, 200} {
 		tx, err := BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{})
