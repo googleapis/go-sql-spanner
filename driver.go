@@ -1645,6 +1645,9 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		logger: logger,
 		rwTx:   tx,
 		close: func(commitTs *time.Time, commitErr error) {
+			if readWriteTransactionOptions.close != nil {
+				readWriteTransactionOptions.close()
+			}
 			c.prevTx = c.tx
 			c.tx = nil
 			if commitErr == nil {
