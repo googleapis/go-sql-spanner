@@ -33,7 +33,8 @@ func WriteDataWithMutations(ctx context.Context, w io.Writer, databaseName strin
 	}
 	defer db.Close()
 
-	// Get a connection so that we can get access to the Spanner specific connection interface SpannerConn.
+	// Get a connection so that we can get access to the Spanner specific
+	// connection interface SpannerConn.
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return err

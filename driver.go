@@ -47,7 +47,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-const userAgent = "go-sql-spanner/1.9.0" // x-release-please-version
+const userAgent = "go-sql-spanner/1.10.0" // x-release-please-version
 
 // LevelNotice is the default logging level that the Spanner database/sql driver
 // uses for informational logs. This level is deliberately chosen to be one level
@@ -746,6 +746,57 @@ func clearTempReadWriteTransactionOptions(conn *sql.Conn) {
 	_ = conn.Close()
 }
 
+// ReadOnlyTransactionOptions can be used to create a read-only transaction
+// on a Spanner connection.
+type ReadOnlyTransactionOptions struct {
+	TimestampBound spanner.TimestampBound
+
+	close func()
+}
+
+// BeginReadOnlyTransaction begins a read-only transaction on a Spanner database.
+//
+// NOTE: You *MUST* end the transaction by calling either Commit or Rollback on
+// the transaction. Failure to do so will cause the connection that is used for
+// the transaction to be leaked.
+func BeginReadOnlyTransaction(ctx context.Context, db *sql.DB, options ReadOnlyTransactionOptions) (*sql.Tx, error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	options.close = func() {
+		// Close the connection asynchronously, as the transaction will still
+		// be active when we hit this point.
+		go conn.Close()
+	}
+	if err := withTempReadOnlyTransactionOptions(conn, &options); err != nil {
+		return nil, err
+	}
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		clearTempReadOnlyTransactionOptions(conn)
+		return nil, err
+	}
+	return tx, nil
+}
+
+func withTempReadOnlyTransactionOptions(conn *sql.Conn, options *ReadOnlyTransactionOptions) error {
+	return conn.Raw(func(driverConn any) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			// It is not a Spanner connection.
+			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
+		}
+		spannerConn.withTempReadOnlyTransactionOptions(options)
+		return nil
+	})
+}
+
+func clearTempReadOnlyTransactionOptions(conn *sql.Conn) {
+	_ = withTempReadOnlyTransactionOptions(conn, nil)
+	_ = conn.Close()
+}
+
 // SpannerConn is the public interface for the raw Spanner connection for the
 // sql driver. This interface can be used with the db.Conn().Raw() method.
 type SpannerConn interface {
@@ -867,6 +918,11 @@ type SpannerConn interface {
 	// for the next read/write transaction. This method should only be called
 	// directly before starting a new read/write transaction.
 	withTempTransactionOptions(options *ReadWriteTransactionOptions)
+
+	// withTempReadOnlyTransactionOptions sets the options that should be used
+	// for the next read-only transaction. This method should only be called
+	// directly before starting a new read-only transaction.
+	withTempReadOnlyTransactionOptions(options *ReadOnlyTransactionOptions)
 }
 
 var _ SpannerConn = &conn{}
@@ -907,6 +963,9 @@ type conn struct {
 	execOptions ExecOptions
 
 	tempTransactionOptions *ReadWriteTransactionOptions
+	// tempReadOnlyTransactionOptions are temporarily set right before a read-only
+	// transaction is started on a Spanner connection.
+	tempReadOnlyTransactionOptions *ReadOnlyTransactionOptions
 }
 
 type batchType int
@@ -1578,6 +1637,18 @@ func (c *conn) getTransactionOptions() ReadWriteTransactionOptions {
 	}
 }
 
+func (c *conn) withTempReadOnlyTransactionOptions(options *ReadOnlyTransactionOptions) {
+	c.tempReadOnlyTransactionOptions = options
+}
+
+func (c *conn) getReadOnlyTransactionOptions() ReadOnlyTransactionOptions {
+	if c.tempReadOnlyTransactionOptions != nil {
+		defer func() { c.tempReadOnlyTransactionOptions = nil }()
+		return *c.tempReadOnlyTransactionOptions
+	}
+	return ReadOnlyTransactionOptions{TimestampBound: c.readOnlyStaleness}
+}
+
 type spannerIsolationLevel sql.IsolationLevel
 
 const (
@@ -1601,6 +1672,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		c.resetForRetry = false
 		return c.tx, nil
 	}
+	readOnlyTxOpts := c.getReadOnlyTransactionOptions()
 	readWriteTransactionOptions := c.getTransactionOptions()
 	if c.inTransaction() {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "already in a transaction"))
@@ -1623,11 +1695,14 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 
 	if opts.ReadOnly {
 		logger := c.logger.With("tx", "ro")
-		ro := c.client.ReadOnlyTransaction().WithTimestampBound(c.readOnlyStaleness)
+		ro := c.client.ReadOnlyTransaction().WithTimestampBound(readOnlyTxOpts.TimestampBound)
 		c.tx = &readOnlyTransaction{
 			roTx:   ro,
 			logger: logger,
 			close: func() {
+				if readOnlyTxOpts.close != nil {
+					readOnlyTxOpts.close()
+				}
 				c.tx = nil
 			},
 		}
@@ -1645,6 +1720,9 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		logger: logger,
 		rwTx:   tx,
 		close: func(commitTs *time.Time, commitErr error) {
+			if readWriteTransactionOptions.close != nil {
+				readWriteTransactionOptions.close()
+			}
 			c.prevTx = c.tx
 			c.tx = nil
 			if commitErr == nil {
