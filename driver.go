@@ -47,7 +47,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-const userAgent = "go-sql-spanner/1.9.0" // x-release-please-version
+const userAgent = "go-sql-spanner/1.10.0" // x-release-please-version
 
 // LevelNotice is the default logging level that the Spanner database/sql driver
 // uses for informational logs. This level is deliberately chosen to be one level
