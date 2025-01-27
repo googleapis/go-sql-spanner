@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/spanner"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
@@ -48,6 +49,8 @@ func TestNoLeak(t *testing.T) {
 		readOnlyTxWithStaleness(ctx, t, db)
 		readOnlyTxWithStaleness(ctx, t, db)
 		simpleReadWriteTx(ctx, t, db)
+		runTransactionRetry(ctx, t, server, db)
+		readOnlyTxWithOptions(ctx, t, db)
 	}
 }
 
@@ -92,6 +95,9 @@ func simpleQuery(ctx context.Context, t *testing.T, db *sql.DB) {
 
 func concurrentScanAndClose(ctx context.Context, t *testing.T, db *sql.DB) {
 	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	rows, err := conn.QueryContext(ctx, testutil.SelectFooFromBar)
 	if err != nil {
 		t.Fatal(err)
@@ -261,4 +267,70 @@ func simpleReadWriteTx(ctx context.Context, t *testing.T, db *sql.DB) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func runTransactionRetry(ctx context.Context, t *testing.T, server *testutil.MockedSpannerInMemTestServer, db *sql.DB) {
+	var attempts int
+	err := RunTransactionWithOptions(ctx, db, &sql.TxOptions{}, func(ctx context.Context, tx *sql.Tx) error {
+		attempts++
+		rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_1"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_2"}}); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := tx.ExecContext(ctx, "start batch dml", ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_3"}}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.ExecContext(ctx, "run batch"); err != nil {
+			t.Fatal(err)
+		}
+		if attempts == 1 {
+			server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+				Errors: []error{gstatus.Error(codes.Aborted, "Aborted")},
+			})
+		}
+		return nil
+	}, spanner.TransactionOptions{TransactionTag: "my_transaction_tag"})
+	if err != nil {
+		t.Fatalf("failed to run transaction: %v", err)
+	}
+}
+
+func readOnlyTxWithOptions(ctx context.Context, t *testing.T, db *sql.DB) {
+	tx, err := BeginReadOnlyTransaction(ctx, db,
+		ReadOnlyTransactionOptions{TimestampBound: spanner.ExactStaleness(10 * time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	useTx := func(tx *sql.Tx) {
+		rows, err := tx.Query(testutil.SelectFooFromBar)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for rows.Next() {
+		}
+		if rows.Err() != nil {
+			t.Fatal(rows.Err())
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	useTx(tx)
 }
