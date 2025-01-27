@@ -340,6 +340,69 @@ func TestReadOnlyTransactionWithStaleness(t *testing.T) {
 	}
 }
 
+func TestReadOnlyTransactionWithOptions(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	// Set max open connections to 1 to force a failure if there is a connection leak.
+	db.SetMaxOpenConns(1)
+
+	tx, err := BeginReadOnlyTransaction(ctx, db,
+		ReadOnlyTransactionOptions{TimestampBound: spanner.ExactStaleness(10 * time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	useTx := func(tx *sql.Tx) {
+		rows, err := tx.Query(testutil.SelectFooFromBar)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for rows.Next() {
+		}
+		if rows.Err() != nil {
+			t.Fatal(rows.Err())
+		}
+		_ = rows.Close()
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	useTx(tx)
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	beginReadOnlyRequests := filterBeginReadOnlyRequests(requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
+	if g, w := len(beginReadOnlyRequests), 1; g != w {
+		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	beginReq := beginReadOnlyRequests[0]
+	if beginReq.GetOptions().GetReadOnly().GetExactStaleness() == nil {
+		t.Fatalf("missing exact_staleness option on BeginTransaction request")
+	}
+
+	// Verify that the staleness option is not 'sticky' on the database.
+	// Running a second transaction also verifies that there is no connection
+	// leak, as the database has max one connection in the pool.
+	tx, err = db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	useTx(tx)
+
+	requests = drainRequestsFromServer(server.TestSpanner)
+	beginReadOnlyRequests = filterBeginReadOnlyRequests(requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
+	if g, w := len(beginReadOnlyRequests), 1; g != w {
+		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	beginReq = beginReadOnlyRequests[0]
+	if beginReq.GetOptions().GetReadOnly().GetExactStaleness() != nil {
+		t.Fatalf("got unexpected exact_staleness option on BeginTransaction request")
+	}
+}
+
 func TestSimpleReadWriteTransaction(t *testing.T) {
 	t.Parallel()
 
