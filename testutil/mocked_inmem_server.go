@@ -134,7 +134,7 @@ func (s *MockedSpannerInMemTestServer) setupSelect1Result() {
 }
 
 func (s *MockedSpannerInMemTestServer) setupFooResults() {
-	resultSet := CreateSingleColumnResultSet(selectFooFromBarResults, "FOO")
+	resultSet := CreateSingleColumnInt64ResultSet(selectFooFromBarResults, "FOO")
 	result := &StatementResult{Type: StatementResultResultSet, ResultSet: resultSet}
 	s.TestSpanner.PutStatementResult(SelectFooFromBar, result)
 	s.TestSpanner.PutStatementResult(UpdateBarSetFoo, &StatementResult{
@@ -551,14 +551,31 @@ func protoEnumProto(e protoreflect.Enum) *structpb.Value {
 }
 
 func CreateSelect1ResultSet() *spannerpb.ResultSet {
-	return CreateSingleColumnResultSet([]int64{1}, "")
+	return CreateSingleColumnInt64ResultSet([]int64{1}, "")
 }
 
-func CreateSingleColumnResultSet(values []int64, name string) *spannerpb.ResultSet {
+func CreateSingleColumnInt64ResultSet(values []int64, name string) *spannerpb.ResultSet {
+	return CreateSingleColumnResultSet(values, func(v int64) *structpb.Value {
+		return &structpb.Value{
+			Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%v", v)},
+		}
+	}, name, spannerpb.TypeCode_INT64)
+}
+
+func CreateSingleColumnProtoResultSet(values [][]byte, name string) *spannerpb.ResultSet {
+	return CreateSingleColumnResultSet(values, func(v []byte) *structpb.Value {
+		str := base64.StdEncoding.EncodeToString(v)
+		return &structpb.Value{
+			Kind: &structpb.Value_StringValue{StringValue: str},
+		}
+	}, name, spannerpb.TypeCode_PROTO)
+}
+
+func CreateSingleColumnResultSet[V any](values []V, converter func(V) *structpb.Value, name string, typeCode spannerpb.TypeCode) *spannerpb.ResultSet {
 	fields := make([]*spannerpb.StructType_Field, 1)
 	fields[0] = &spannerpb.StructType_Field{
 		Name: name,
-		Type: &spannerpb.Type{Code: spannerpb.TypeCode_INT64},
+		Type: &spannerpb.Type{Code: typeCode},
 	}
 	rowType := &spannerpb.StructType{
 		Fields: fields,
@@ -569,9 +586,7 @@ func CreateSingleColumnResultSet(values []int64, name string) *spannerpb.ResultS
 	rows := make([]*structpb.ListValue, len(values))
 	for i, v := range values {
 		rowValue := make([]*structpb.Value, 1)
-		rowValue[0] = &structpb.Value{
-			Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%v", v)},
-		}
+		rowValue[0] = converter(v)
 		rows[i] = &structpb.ListValue{
 			Values: rowValue,
 		}
