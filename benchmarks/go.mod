@@ -8,10 +8,10 @@ replace github.com/googleapis/go-sql-spanner => ../
 
 require (
 	cloud.google.com/go v0.118.0
-	cloud.google.com/go/spanner v1.73.0
+	cloud.google.com/go/spanner v1.74.0
 	github.com/google/uuid v1.6.0
-	github.com/googleapis/go-sql-spanner v1.9.0
-	google.golang.org/api v0.218.0
+	github.com/googleapis/go-sql-spanner v1.10.0
+	google.golang.org/api v0.219.0
 	google.golang.org/grpc v1.70.0
 	google.golang.org/protobuf v1.36.4
 )
