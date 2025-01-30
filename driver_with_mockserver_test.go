@@ -1263,7 +1263,7 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 			var eArray spanner.GenericColumnValue
 			err := rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &pArray, &eArray)
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("prepare: %v: failed to scan values: %v", prepare, err)
 			}
 			if g, w := b.Value.GetBoolValue(), true; g != w {
 				t.Errorf("row value mismatch for bool\nGot: %v\nWant: %v", g, w)
