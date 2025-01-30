@@ -62,7 +62,12 @@ func (r *rows) getColumns() {
 				return
 			}
 		}
-		rowType := r.it.Metadata().RowType
+		metadata, err := r.it.Metadata()
+		if err != nil {
+			r.dirtyErr = err
+			return
+		}
+		rowType := metadata.RowType
 		r.cols = make([]string, len(rowType.Fields))
 		for i, c := range rowType.Fields {
 			r.cols[i] = c.Name
@@ -82,16 +87,16 @@ func (r *rows) getColumns() {
 func (r *rows) Next(dest []driver.Value) error {
 	r.getColumns()
 	var row *spanner.Row
-	if r.dirtyRow != nil {
-		row = r.dirtyRow
-		r.dirtyRow = nil
-	} else if r.dirtyErr != nil {
+	if r.dirtyErr != nil {
 		err := r.dirtyErr
 		r.dirtyErr = nil
 		if err == iterator.Done {
 			return io.EOF
 		}
 		return err
+	} else if r.dirtyRow != nil {
+		row = r.dirtyRow
+		r.dirtyRow = nil
 	} else {
 		var err error
 		row, err = r.it.Next() // returns io.EOF when there is no next

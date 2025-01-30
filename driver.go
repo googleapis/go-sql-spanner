@@ -1547,7 +1547,10 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 		if execOptions.PartitionedQueryOptions.PartitionQuery {
 			return c.tx.partitionQuery(ctx, stmt, execOptions)
 		}
-		iter = c.tx.Query(ctx, stmt, execOptions.QueryOptions)
+		iter, err = c.tx.Query(ctx, stmt, execOptions)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &rows{it: iter, decodeOption: execOptions.DecodeOption}, nil
 }
@@ -1853,8 +1856,8 @@ func (ri *wrappedRowIterator) Stop() {
 	ri.RowIterator.Stop()
 }
 
-func (ri *wrappedRowIterator) Metadata() *spannerpb.ResultSetMetadata {
-	return ri.RowIterator.Metadata
+func (ri *wrappedRowIterator) Metadata() (*spannerpb.ResultSetMetadata, error) {
+	return ri.RowIterator.Metadata, nil
 }
 
 func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (rowIterator, time.Time, error) {

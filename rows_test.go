@@ -43,8 +43,8 @@ func (t *testIterator) Next() (*spanner.Row, error) {
 func (t *testIterator) Stop() {
 }
 
-func (t *testIterator) Metadata() *sppb.ResultSetMetadata {
-	return t.metadata
+func (t *testIterator) Metadata() (*sppb.ResultSetMetadata, error) {
+	return t.metadata, nil
 }
 
 func newRow(t *testing.T, cols []string, vals []interface{}) *spanner.Row {
