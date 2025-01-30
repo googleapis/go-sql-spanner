@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.1](https://github.com/googleapis/go-sql-spanner/compare/v1.10.0...v1.10.1) (2025-01-30)
+
+
+### Bug Fixes
+
+* Prepared statements should also support valuer/scanner ([#365](https://github.com/googleapis/go-sql-spanner/issues/365)) ([4d13c65](https://github.com/googleapis/go-sql-spanner/commit/4d13c6596919b6b12d5a3a07695dbfd2a83f5a04))
+
 ## [1.10.0](https://github.com/googleapis/go-sql-spanner/compare/v1.9.0...v1.10.0) (2025-01-27)
 
 
