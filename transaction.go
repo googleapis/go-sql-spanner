@@ -110,7 +110,7 @@ func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement
 		if tx.boTx == nil {
 			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "AutoPartitionQuery is only supported for batch read-only transactions"))
 		}
-		pq, err := tx.partitionQueryTemp(ctx, stmt, execOptions)
+		pq, err := tx.createPartitionedQuery(ctx, stmt, execOptions)
 		if err != nil {
 			return nil, err
 		}
@@ -125,14 +125,14 @@ func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement
 }
 
 func (tx *readOnlyTransaction) partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (driver.Rows, error) {
-	pq, err := tx.partitionQueryTemp(ctx, stmt, execOptions)
+	pq, err := tx.createPartitionedQuery(ctx, stmt, execOptions)
 	if err != nil {
 		return nil, err
 	}
 	return &partitionedQueryRows{partitionedQuery: pq}, nil
 }
 
-func (tx *readOnlyTransaction) partitionQueryTemp(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (*PartitionedQuery, error) {
+func (tx *readOnlyTransaction) createPartitionedQuery(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (*PartitionedQuery, error) {
 	if tx.boTx == nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "partitionQuery is only supported for batch read-only transactions"))
 	}
