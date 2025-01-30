@@ -240,9 +240,7 @@ func (m *mergedRowIterator) Stop() {
 	m.stopLocked()
 	m.mu.Unlock()
 	// Block until all producers have stopped.
-	select {
-	case <-m.producersDone:
-	}
+	<-m.producersDone
 }
 
 func (m *mergedRowIterator) stopLocked() {

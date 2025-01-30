@@ -244,6 +244,9 @@ func TestAutoPartitionQuery(t *testing.T) {
 
 		// Setup results for each partition.
 		maxPartitions, allResults, err := setupRandomPartitionResults(server, testutil.SelectFooFromBar, maxResultsPerPartition)
+		if err != nil {
+			t.Fatalf("failed to set up partition results: %v", err)
+		}
 
 		// Automatically partition and execute a query.
 		rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar,
@@ -335,6 +338,9 @@ func TestAutoPartitionQuery_ExecuteError(t *testing.T) {
 		})
 		// Also setup results for the partitioned query.
 		maxPartitions, allResults, err := setupRandomPartitionResults(server, testutil.SelectFooFromBar, maxResultsPerPartition)
+		if err != nil {
+			t.Fatalf("failed to set up partition results: %v", err)
+		}
 
 		// Automatically partition and execute a query.
 		rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar,
@@ -388,7 +394,7 @@ func setupRandomPartitionResults(server *testutil.MockedSpannerInMemTestServer, 
 		} else {
 			numResults = 0
 		}
-		partitionResults := make([]int64, numResults, numResults)
+		partitionResults := make([]int64, numResults)
 		for i := 0; i < numResults; i++ {
 			partitionResults[i] = rand.Int63()
 		}
