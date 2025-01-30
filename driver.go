@@ -1511,6 +1511,8 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
 	// Clear the commit timestamp of this connection before we execute the query.
 	c.commitTs = nil
+	// Check if the execution options contains an instruction to execute
+	// a specific partition of a PartitionedQuery.
 	if pq := execOptions.PartitionedQueryOptions.ExecutePartition.PartitionedQuery; pq != nil {
 		return pq.execute(ctx, execOptions.PartitionedQueryOptions.ExecutePartition.Index)
 	}

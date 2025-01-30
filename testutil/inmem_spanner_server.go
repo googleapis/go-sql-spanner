@@ -1143,10 +1143,6 @@ func (s *inMemSpannerServer) PartitionQuery(ctx context.Context, req *spannerpb.
 	}, nil
 }
 
-func randRange(min, max int) int {
-	return rand.Intn(max-min) + min
-}
-
 func (s *inMemSpannerServer) PartitionRead(ctx context.Context, req *spannerpb.PartitionReadRequest) (*spannerpb.PartitionResponse, error) {
 	return s.PartitionQuery(ctx, &spannerpb.PartitionQueryRequest{
 		Session:          req.Session,
