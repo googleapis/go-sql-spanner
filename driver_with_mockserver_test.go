@@ -3110,16 +3110,8 @@ func TestTag_ReadWriteTransaction_Retry(t *testing.T) {
 		}
 		for i := 0; i < len(execRequests); i++ {
 			execRequest := execRequests[i].(*sppb.ExecuteSqlRequest)
-			// TODO: Remove when https://github.com/googleapis/google-cloud-go/pull/11443
-			//       has been merged.
-			if i < 2 {
-				if g, w := execRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
-			} else {
-				if g, w := execRequest.RequestOptions.TransactionTag, ""; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
+			if g, w := execRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+				t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
 			}
 			if g, w := execRequest.RequestOptions.RequestTag, fmt.Sprintf("tag_%d", (i%2)+1); g != w {
 				t.Fatalf("statement tag mismatch\n Got: %v\nWant: %v", g, w)
@@ -3132,16 +3124,8 @@ func TestTag_ReadWriteTransaction_Retry(t *testing.T) {
 		}
 		for i := 0; i < len(batchRequests); i++ {
 			batchRequest := batchRequests[i].(*sppb.ExecuteBatchDmlRequest)
-			// TODO: Remove when https://github.com/googleapis/google-cloud-go/pull/11443
-			//       has been merged.
-			if i < 1 {
-				if g, w := batchRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
-			} else {
-				if g, w := batchRequest.RequestOptions.TransactionTag, ""; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
+			if g, w := batchRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+				t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
 			}
 			if g, w := batchRequest.RequestOptions.RequestTag, "tag_3"; g != w {
 				t.Fatalf("statement tag mismatch\n Got: %v\nWant: %v", g, w)
@@ -3154,16 +3138,8 @@ func TestTag_ReadWriteTransaction_Retry(t *testing.T) {
 		}
 		for i := 0; i < len(commitRequests); i++ {
 			commitRequest := commitRequests[i].(*sppb.CommitRequest)
-			// TODO: Remove when https://github.com/googleapis/google-cloud-go/pull/11443
-			//       has been merged.
-			if i < 1 {
-				if g, w := commitRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
-			} else {
-				if g, w := commitRequest.RequestOptions.TransactionTag, ""; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
+			if g, w := commitRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+				t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
 			}
 		}
 
@@ -3243,16 +3219,8 @@ func TestTag_RunTransaction_Retry(t *testing.T) {
 		}
 		for i := 0; i < len(execRequests); i++ {
 			execRequest := execRequests[i].(*sppb.ExecuteSqlRequest)
-			// TODO: Remove when https://github.com/googleapis/google-cloud-go/pull/11443
-			//       has been merged.
-			if i < 2 {
-				if g, w := execRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
-			} else {
-				if g, w := execRequest.RequestOptions.TransactionTag, ""; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
+			if g, w := execRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+				t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
 			}
 			if g, w := execRequest.RequestOptions.RequestTag, fmt.Sprintf("tag_%d", (i%2)+1); g != w {
 				t.Fatalf("useArgs: %v, statement tag mismatch\n Got: %v\nWant: %v", useArgs, g, w)
@@ -3265,16 +3233,8 @@ func TestTag_RunTransaction_Retry(t *testing.T) {
 		}
 		for i := 0; i < len(batchRequests); i++ {
 			batchRequest := batchRequests[i].(*sppb.ExecuteBatchDmlRequest)
-			// TODO: Remove when https://github.com/googleapis/google-cloud-go/pull/11443
-			//       has been merged.
-			if i < 1 {
-				if g, w := batchRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
-			} else {
-				if g, w := batchRequest.RequestOptions.TransactionTag, ""; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
+			if g, w := batchRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+				t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
 			}
 			if g, w := batchRequest.RequestOptions.RequestTag, "tag_3"; g != w {
 				t.Fatalf("statement tag mismatch\n Got: %v\nWant: %v", g, w)
@@ -3287,16 +3247,8 @@ func TestTag_RunTransaction_Retry(t *testing.T) {
 		}
 		for i := 0; i < len(commitRequests); i++ {
 			commitRequest := commitRequests[i].(*sppb.CommitRequest)
-			// TODO: Remove when https://github.com/googleapis/google-cloud-go/pull/11443
-			//       has been merged.
-			if i < 1 {
-				if g, w := commitRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
-			} else {
-				if g, w := commitRequest.RequestOptions.TransactionTag, ""; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
+			if g, w := commitRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+				t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
 			}
 		}
 
