@@ -4141,6 +4141,25 @@ func setupTestDBConnectionWithConfigurator(t *testing.T, params string, configur
 	}
 }
 
+func setupTestDBConnectionWithConnectorConfig(t *testing.T, config ConnectorConfig) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+	server, _, serverTeardown := setupMockedTestServer(t)
+	config.Host = server.Address
+	if config.Params == nil {
+		config.Params = make(map[string]string)
+	}
+	config.Params["useplaintext"] = "true"
+	c, err := CreateConnector(config)
+	if err != nil {
+		serverTeardown()
+		t.Fatal(err)
+	}
+	db = sql.OpenDB(c)
+	return db, server, func() {
+		_ = db.Close()
+		serverTeardown()
+	}
+}
+
 func setupMockedTestServer(t *testing.T) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
 	return setupMockedTestServerWithConfig(t, spanner.ClientConfig{})
 }

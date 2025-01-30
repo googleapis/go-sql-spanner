@@ -177,6 +177,12 @@ type ConnectorConfig struct {
 	// be added to a connection string.
 	Params map[string]string
 
+	// The initial values for automatic DML batching.
+	// The values in the Params map take precedence above these.
+	AutoBatchDml                               bool
+	AutoBatchDmlUpdateCount                    int64
+	DisableAutoBatchDmlUpdateCountVerification bool
+
 	logger *slog.Logger
 	name   string
 
@@ -323,6 +329,21 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			retryAbortsInternally = false
 		}
 	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("AutoBatchDml")]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			connectorConfig.AutoBatchDml = val
+		}
+	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("AutoBatchDmlUpdateCount")]; ok {
+		if val, err := strconv.ParseInt(strval, 10, 64); err == nil {
+			connectorConfig.AutoBatchDmlUpdateCount = val
+		}
+	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("AutoBatchDmlUpdateCountVerification")]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			connectorConfig.DisableAutoBatchDmlUpdateCountVerification = !val
+		}
+	}
 	if strval, ok := connectorConfig.Params["minsessions"]; ok {
 		if val, err := strconv.ParseUint(strval, 10, 64); err == nil {
 			config.MinOpened = val
@@ -437,13 +458,18 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 	connId := uuid.New().String()
 	logger := c.logger.With("connId", connId)
 	return &conn{
-		connector:                    c,
-		client:                       c.client,
-		adminClient:                  c.adminClient,
-		connId:                       connId,
-		logger:                       logger,
-		database:                     databaseName,
-		retryAborts:                  c.retryAbortsInternally,
+		connector:   c,
+		client:      c.client,
+		adminClient: c.adminClient,
+		connId:      connId,
+		logger:      logger,
+		database:    databaseName,
+		retryAborts: c.retryAbortsInternally,
+
+		autoBatchDml:                        c.connectorConfig.AutoBatchDml,
+		autoBatchDmlUpdateCount:             c.connectorConfig.AutoBatchDmlUpdateCount,
+		autoBatchDmlUpdateCountVerification: !c.connectorConfig.DisableAutoBatchDmlUpdateCountVerification,
+
 		execSingleQuery:              queryInSingleUse,
 		execSingleQueryTransactional: queryInNewRWTransaction,
 		execSingleDMLTransactional:   execInNewRWTransaction,
@@ -836,6 +862,25 @@ type SpannerConn interface {
 	// if no batch is active, or if there are no statements buffered.
 	GetBatchedStatements() []spanner.Statement
 
+	// AutoBatchDml determines whether DML statements should automatically
+	// be batched and sent to Spanner when a non-DML statement is encountered.
+	// The update count that is returned for DML statements that are buffered
+	// is by default 1. This default can be changed by setting the connection
+	// variable AutoBatchDmlUpdateCount to a value other than 1.
+	// This feature is only used in read/write transactions. DML statements
+	// outside transactions are always executed directly.
+	AutoBatchDml() bool
+	SetAutoBatchDml(autoBatch bool) error
+	// AutoBatchDmlUpdateCount determines the update count that is returned for
+	// DML statements that are executed when AutoBatchDml is true.
+	AutoBatchDmlUpdateCount() int64
+	SetAutoBatchDmlUpdateCount(updateCount int64) error
+	// AutoBatchDmlUpdateCountVerification enables/disables the verification
+	// that the update count that was returned for automatically batched DML
+	// statements was correct.
+	AutoBatchDmlUpdateCountVerification() bool
+	SetAutoBatchDmlUpdateCountVerification(verify bool) error
+
 	// RetryAbortsInternally returns true if the connection automatically
 	// retries all aborted transactions.
 	RetryAbortsInternally() bool
@@ -948,6 +993,16 @@ type conn struct {
 
 	// batch is the currently active DDL or DML batch on this connection.
 	batch *batch
+	// autoBatchDml determines whether DML statements should automatically
+	// be batched and sent to Spanner when a non-DML statement is encountered.
+	autoBatchDml bool
+	// autoBatchDmlUpdateCount determines the update count that is returned for
+	// DML statements that are executed when autoBatchDml is true.
+	autoBatchDmlUpdateCount int64
+	// autoBatchDmlUpdateCountVerification enables/disables the verification
+	// that the update count that was returned for automatically batched DML
+	// statements was correct.
+	autoBatchDmlUpdateCountVerification bool
 
 	// autocommitDMLMode determines the type of DML to use when a single DML
 	// statement is executed on a connection. The default is Transactional, but
@@ -976,9 +1031,11 @@ const (
 )
 
 type batch struct {
-	tp         batchType
-	statements []spanner.Statement
-	options    ExecOptions
+	tp           batchType
+	statements   []spanner.Statement
+	returnValues []int64
+	options      ExecOptions
+	automatic    bool
 }
 
 // AutocommitDMLMode indicates whether a single DML statement should be executed
@@ -1119,13 +1176,40 @@ func (c *conn) setStatementTag(statementTag string) (driver.Result, error) {
 	return driver.ResultNoRows, nil
 }
 
+func (c *conn) AutoBatchDml() bool {
+	return c.autoBatchDml
+}
+
+func (c *conn) SetAutoBatchDml(autoBatch bool) error {
+	c.autoBatchDml = autoBatch
+	return nil
+}
+
+func (c *conn) AutoBatchDmlUpdateCount() int64 {
+	return c.autoBatchDmlUpdateCount
+}
+
+func (c *conn) SetAutoBatchDmlUpdateCount(updateCount int64) error {
+	c.autoBatchDmlUpdateCount = updateCount
+	return nil
+}
+
+func (c *conn) AutoBatchDmlUpdateCountVerification() bool {
+	return c.autoBatchDmlUpdateCountVerification
+}
+
+func (c *conn) SetAutoBatchDmlUpdateCountVerification(verify bool) error {
+	c.autoBatchDmlUpdateCountVerification = verify
+	return nil
+}
+
 func (c *conn) StartBatchDDL() error {
 	_, err := c.startBatchDDL()
 	return err
 }
 
 func (c *conn) StartBatchDML() error {
-	_, err := c.startBatchDML()
+	_, err := c.startBatchDML( /* automatic = */ false)
 	return err
 }
 
@@ -1170,11 +1254,11 @@ func (c *conn) startBatchDDL() (driver.Result, error) {
 	return driver.ResultNoRows, nil
 }
 
-func (c *conn) startBatchDML() (driver.Result, error) {
+func (c *conn) startBatchDML(automatic bool) (driver.Result, error) {
 	execOptions := c.options()
 
 	if c.inTransaction() {
-		return c.tx.StartBatchDML(execOptions.QueryOptions)
+		return c.tx.StartBatchDML(execOptions.QueryOptions, automatic)
 	}
 
 	if c.batch != nil {
@@ -1183,7 +1267,7 @@ func (c *conn) startBatchDML() (driver.Result, error) {
 	if c.inReadOnlyTransaction() {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection has an active read-only transaction. Read-only transactions cannot execute DML batches."))
 	}
-	c.logger.Debug("starting dml batch")
+	c.logger.Debug("starting dml batch outside transaction")
 	c.batch = &batch{tp: dml, options: execOptions}
 	return driver.ResultNoRows, nil
 }
@@ -1340,6 +1424,10 @@ func (c *conn) ResetSession(_ context.Context) error {
 	}
 	c.commitTs = nil
 	c.batch = nil
+	c.autoBatchDml = c.connector.connectorConfig.AutoBatchDml
+	c.autoBatchDmlUpdateCount = c.connector.connectorConfig.AutoBatchDmlUpdateCount
+	c.autoBatchDmlUpdateCountVerification = !c.connector.connectorConfig.DisableAutoBatchDmlUpdateCountVerification
+	// TODO: Reset the following fields to the connector default
 	c.retryAborts = true
 	c.autocommitDMLMode = Transactional
 	c.readOnlyStaleness = spanner.TimestampBound{}
@@ -1522,7 +1610,10 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 			iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt, c.readOnlyStaleness, execOptions)}
 		}
 	} else {
-		iter = c.tx.Query(ctx, stmt, execOptions.QueryOptions)
+		iter, err = c.tx.Query(ctx, stmt, execOptions.QueryOptions)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &rows{it: iter, decodeOption: execOptions.DecodeOption}, nil
 }
@@ -1559,6 +1650,13 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 	ss, err := prepareSpannerStmt(query, args)
 	if err != nil {
 		return nil, err
+	}
+
+	// Start an automatic DML batch.
+	if c.autoBatchDml && !c.inBatch() && c.inReadWriteTransaction() {
+		if _, err := c.startBatchDML( /* automatic = */ true); err != nil {
+			return nil, err
+		}
 	}
 
 	var rowsAffected int64
@@ -1716,7 +1814,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 	logger := c.logger.With("tx", "rw")
 	c.tx = &readWriteTransaction{
 		ctx:    ctx,
-		client: c.client,
+		conn:   c,
 		logger: logger,
 		rwTx:   tx,
 		close: func(commitTs *time.Time, commitErr error) {

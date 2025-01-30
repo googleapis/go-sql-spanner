@@ -224,7 +224,8 @@ func convertParam(v driver.Value) driver.Value {
 }
 
 type result struct {
-	rowsAffected int64
+	rowsAffected      int64
+	batchUpdateCounts []int64
 }
 
 func (r *result) LastInsertId() (int64, error) {

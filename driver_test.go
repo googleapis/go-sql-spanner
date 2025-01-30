@@ -261,7 +261,10 @@ func ExampleCreateConnector() {
 func TestConnection_Reset(t *testing.T) {
 	txClosed := false
 	c := conn{
-		logger:            noopLogger,
+		logger: noopLogger,
+		connector: &connector{
+			connectorConfig: ConnectorConfig{},
+		},
 		readOnlyStaleness: spanner.ExactStaleness(time.Second),
 		batch:             &batch{tp: dml},
 		commitTs:          &time.Time{},
