@@ -1522,6 +1522,21 @@ func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
 		return nil
 	}
 
+	// Convert directly if the value implements driver.Valuer. Although this
+	// is also done by the default converter in the sql driver, that conversion
+	// requires the value that is returned by Value() to be one of the base
+	// types that is supported by database/sql. By doing this check here first,
+	// we also support driver.Valuer types that return a Spanner-supported type,
+	// such as for example []string.
+	if valuer, ok := value.Value.(driver.Valuer); ok {
+		if v, err := callValuerValue(valuer); err == nil {
+			if checkIsValidType(v) {
+				value.Value = v
+				return nil
+			}
+		}
+	}
+
 	// Convert the value using the default sql driver. This uses driver.Valuer,
 	// if implemented, and falls back to reflection. If the converted value is
 	// a supported spanner type, use it. Otherwise, ignore any errors and
@@ -1904,6 +1919,18 @@ func execAsPartitionedDML(ctx context.Context, c *spanner.Client, statement span
 	queryOptions := options.QueryOptions
 	queryOptions.ExcludeTxnFromChangeStreams = options.TransactionOptions.ExcludeTxnFromChangeStreams
 	return c.PartitionedUpdateWithOptions(ctx, statement, queryOptions)
+}
+
+/* Copied from types.go in database/sql */
+var valuerReflectType = reflect.TypeOf((*driver.Valuer)(nil)).Elem()
+
+func callValuerValue(vr driver.Valuer) (v driver.Value, err error) {
+	if rv := reflect.ValueOf(vr); rv.Kind() == reflect.Pointer &&
+		rv.IsNil() &&
+		rv.Type().Elem().Implements(valuerReflectType) {
+		return nil, nil
+	}
+	return vr.Value()
 }
 
 /* The following is the same implementation as in google-cloud-go/spanner */
