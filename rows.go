@@ -34,8 +34,8 @@ type rows struct {
 	dirtyErr error
 	cols     []string
 
-	decodeOption            DecodeOption
-	decodeToPrimitiveArrays bool
+	decodeOption         DecodeOption
+	decodeToNativeArrays bool
 
 	dirtyRow *spanner.Row
 }
@@ -216,7 +216,7 @@ func (r *rows) Next(dest []driver.Value) error {
 		case sppb.TypeCode_ARRAY:
 			switch col.Type.ArrayElementType.Code {
 			case sppb.TypeCode_INT64, sppb.TypeCode_ENUM:
-				if r.decodeToPrimitiveArrays {
+				if r.decodeToNativeArrays {
 					var v []int64
 					if err := col.Decode(&v); err != nil {
 						return err
@@ -230,7 +230,7 @@ func (r *rows) Next(dest []driver.Value) error {
 					dest[i] = v
 				}
 			case sppb.TypeCode_FLOAT32:
-				if r.decodeToPrimitiveArrays {
+				if r.decodeToNativeArrays {
 					var v []float32
 					if err := col.Decode(&v); err != nil {
 						return err
@@ -244,7 +244,7 @@ func (r *rows) Next(dest []driver.Value) error {
 					dest[i] = v
 				}
 			case sppb.TypeCode_FLOAT64:
-				if r.decodeToPrimitiveArrays {
+				if r.decodeToNativeArrays {
 					var v []float64
 					if err := col.Decode(&v); err != nil {
 						return err
@@ -264,7 +264,7 @@ func (r *rows) Next(dest []driver.Value) error {
 				}
 				dest[i] = v
 			case sppb.TypeCode_STRING:
-				if r.decodeToPrimitiveArrays {
+				if r.decodeToNativeArrays {
 					var v []string
 					if err := col.Decode(&v); err != nil {
 						return err
@@ -290,7 +290,7 @@ func (r *rows) Next(dest []driver.Value) error {
 				}
 				dest[i] = v
 			case sppb.TypeCode_BOOL:
-				if r.decodeToPrimitiveArrays {
+				if r.decodeToNativeArrays {
 					var v []bool
 					if err := col.Decode(&v); err != nil {
 						return err
@@ -304,7 +304,7 @@ func (r *rows) Next(dest []driver.Value) error {
 					dest[i] = v
 				}
 			case sppb.TypeCode_DATE:
-				if r.decodeToPrimitiveArrays {
+				if r.decodeToNativeArrays {
 					var v []civil.Date
 					if err := col.Decode(&v); err != nil {
 						return err
@@ -318,7 +318,7 @@ func (r *rows) Next(dest []driver.Value) error {
 					dest[i] = v
 				}
 			case sppb.TypeCode_TIMESTAMP:
-				if r.decodeToPrimitiveArrays {
+				if r.decodeToNativeArrays {
 					var v []time.Time
 					if err := col.Decode(&v); err != nil {
 						return err

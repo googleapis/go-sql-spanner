@@ -19,12 +19,12 @@ import (
 	"database/sql"
 	"fmt"
 	"math/big"
-	"os"
 	"time"
 
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
 	_ "github.com/googleapis/go-sql-spanner"
+	spannerdriver "github.com/googleapis/go-sql-spanner"
 	"github.com/googleapis/go-sql-spanner/examples"
 )
 
@@ -53,6 +53,7 @@ var createTableStatement = `CREATE TABLE AllTypes (
 // Sample showing how to work with the different data types that are supported by Cloud Spanner:
 // 1. How to get data from columns of each type.
 // 2. How to set data of each type as a statement parameter.
+// 3. How to get arrays as both spanner.Null* types as well as native Go types (e.g. []bool).
 //
 // Execute the sample with the command `go run main.go` from this directory.
 func dataTypes(projectId, instanceId, databaseId string) error {
@@ -97,27 +98,30 @@ func dataTypes(projectId, instanceId, databaseId string) error {
 	}
 	fmt.Print("Inserted a test record with all typed null values\n")
 
-	// The Go sql driver supports inserting untyped nil values for NULL values. Cloud Spanner also supports untyped NULL
-	// values. The Spanner emulator however does not (yet) support this, which is why this part of the code sample is
-	// currently disabled on the emulator. Running it against a real Cloud Spanner database works.
-	if os.Getenv("SPANNER_EMULATOR_HOST") == "" {
-		if _, err := db.ExecContext(ctx, `INSERT INTO AllTypes (
+	// The Go sql driver supports inserting untyped nil values for NULL values.
+	if _, err := db.ExecContext(ctx, `INSERT INTO AllTypes (
                       key, bool, string, bytes, int64, float32, float64, numeric, date, timestamp,
                       boolArray, stringArray, bytesArray, int64Array, float32Array, float64Array, numericArray, dateArray, timestampArray)
                       VALUES (@key, @bool, @string, @bytes, @int64, @float32, @float64, @numeric, @date, @timestamp,
                               @boolArray, @stringArray, @bytesArray, @int64Array, @float32Array, @float64Array, @numericArray, @dateArray, @timestampArray)`,
-			3, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-			nil, nil, nil, nil, nil, nil, nil, nil, nil); err != nil {
-			return fmt.Errorf("failed to insert a record with all untyped null values using DML: %v", err)
-		}
-		fmt.Print("Inserted a test record with all untyped null values\n")
+		3, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil); err != nil {
+		return fmt.Errorf("failed to insert a record with all untyped null values using DML: %v", err)
 	}
+	fmt.Print("Inserted a test record with all untyped null values\n")
 
 	// You can use the same types for getting data from a column as for setting the data in a statement parameter,
-	// except for ARRAY columns. Arrays must be stored in a []spanner.Null* variable, as all arrays may always
-	// contain NULL elements in the array.
+	// except for some ARRAY columns:
+	// 1. Arrays that contain any element that is NULL must use the corresponding []spanner.Null* type.
+	// 2. Arrays of type JSON and NUMERIC must always use []spanner.NullJson and []spanner.NullNumeric.
+	// 3. Arrays of other types can use the Go native type (e.g. []bool). For this, the option
+	//    DecodeToNativeArray must be enabled, either by passing in a spannerdriver.ExecOptions to a query,
+	//    or by setting the option on the connection.
 	var r1 nativeTypes
-	if err := db.QueryRowContext(ctx, "SELECT * FROM AllTypes WHERE key=@key", 1).Scan(
+	if err := db.QueryRowContext(ctx,
+		"SELECT * FROM AllTypes WHERE key=@key",
+		spannerdriver.ExecOptions{DecodeToNativeArrays: true},
+		1).Scan(
 		&r1.key, &r1.bool, &r1.string, &r1.bytes, &r1.int64, &r1.float32, &r1.float64, &r1.numeric, &r1.date, &r1.timestamp,
 		&r1.boolArray, &r1.stringArray, &r1.bytesArray, &r1.int64Array, &r1.float32Array, &r1.float64Array, &r1.numericArray, &r1.dateArray, &r1.timestampArray,
 	); err != nil {
@@ -161,18 +165,21 @@ type nativeTypes struct {
 	numeric   big.Rat
 	date      civil.Date
 	timestamp time.Time
-	// Array types must always use the Null* types, because an array may always
+	// Array types use Null* types by default, because an array may always
 	// contain NULL elements in the array itself (even if the ARRAY column is
-	// defined as NOT NULL).
-	boolArray      []spanner.NullBool
-	stringArray    []spanner.NullString
+	// defined as NOT NULL). The Spanner database/sql driver can also return
+	// arrays as native Go arrays. To enable this, set the option DecodeToNativeArrays
+	// either on the connection or by passing in a spannerdriver.ExecOptions to a query.
+	// ARRAY<NUMERIC> cannot be decoded to a native Go type.
+	boolArray      []bool
+	stringArray    []string
 	bytesArray     [][]byte
-	int64Array     []spanner.NullInt64
-	float32Array   []spanner.NullFloat32
-	float64Array   []spanner.NullFloat64
+	int64Array     []int64
+	float32Array   []float32
+	float64Array   []float64
 	numericArray   []spanner.NullNumeric
-	dateArray      []spanner.NullDate
-	timestampArray []spanner.NullTime
+	dateArray      []civil.Date
+	timestampArray []time.Time
 }
 
 type nullTypes struct {

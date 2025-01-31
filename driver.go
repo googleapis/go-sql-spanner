@@ -100,8 +100,8 @@ func init() {
 type ExecOptions struct {
 	// DecodeOption indicates how the returned rows should be decoded.
 	DecodeOption DecodeOption
-	// DecodeToPrimitiveArrays determines whether arrays that have a Go
-	// primitive type should use that. This option has an effect on arrays
+	// DecodeToNativeArrays determines whether arrays that have a Go
+	// native type should use that. This option has an effect on arrays
 	// that contain:
 	//   * BOOL
 	//   * INT64 and ENUM
@@ -118,7 +118,7 @@ type ExecOptions struct {
 	//   * []spanner.NullFloat64
 	//   * []spanner.NullDate
 	//   * []spanner.NullTime
-	// By setting DecodeToPrimitiveArrays, these arrays will instead be
+	// By setting DecodeToNativeArrays, these arrays will instead be
 	// decoded to:
 	//   * []bool
 	//   * []int64
@@ -130,7 +130,7 @@ type ExecOptions struct {
 	// If this option is used with rows that contains an array with
 	// at least one NULL element, the decoding will fail.
 	// This option has no effect on arrays of type JSON, NUMERIC and BYTES.
-	DecodeToPrimitiveArrays bool
+	DecodeToNativeArrays bool
 
 	// TransactionOptions are the transaction options that will be used for
 	// the transaction that is started by the statement.
@@ -208,14 +208,14 @@ type ConnectorConfig struct {
 	// be added to a connection string.
 	Params map[string]string
 
-	// DecodeToPrimitiveArrays determines whether arrays that have a Go primitive
+	// DecodeToNativeArrays determines whether arrays that have a Go native
 	// type should be decoded to those types rather than the corresponding
 	// spanner.NullTypeName type.
 	// Enabling this option will for example decode ARRAY<BOOL> to []bool instead
 	// of []spanner.NullBool.
 	//
-	// See ExecOptions.DecodeToPrimitiveArrays for more information.
-	DecodeToPrimitiveArrays bool
+	// See ExecOptions.DecodeToNativeArrays for more information.
+	DecodeToNativeArrays bool
 
 	logger *slog.Logger
 	name   string
@@ -424,9 +424,9 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			config.DisableNativeMetrics = val
 		}
 	}
-	if strval, ok := connectorConfig.Params[strings.ToLower("DecodeToPrimitiveArrays")]; ok {
+	if strval, ok := connectorConfig.Params[strings.ToLower("DecodeToNativeArrays")]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil {
-			connectorConfig.DecodeToPrimitiveArrays = val
+			connectorConfig.DecodeToNativeArrays = val
 		}
 	}
 	config.UserAgent = userAgent
@@ -932,16 +932,16 @@ type SpannerConn interface {
 	// DDL option `allow_txn_exclusion=true`.
 	SetExcludeTxnFromChangeStreams(excludeTxnFromChangeStreams bool) error
 
-	// DecodeToPrimitiveArrays indicates whether arrays with a Go primitive type
-	// should be decoded to those primitive types instead of the corresponding
+	// DecodeToNativeArrays indicates whether arrays with a Go native type
+	// should be decoded to those native types instead of the corresponding
 	// spanner.NullTypeName (e.g. []bool vs []spanner.NullBool).
-	// See ExecOptions.DecodeToPrimitiveArrays for more information.
-	DecodeToPrimitiveArrays() bool
-	// SetDecodeToPrimitiveArrays sets whether arrays with a Go primitive type
-	// should be decoded to those primitive types instead of the corresponding
+	// See ExecOptions.DecodeToNativeArrays for more information.
+	DecodeToNativeArrays() bool
+	// SetDecodeToNativeArrays sets whether arrays with a Go native type
+	// should be decoded to those native types instead of the corresponding
 	// spanner.NullTypeName (e.g. []bool vs []spanner.NullBool).
-	// See ExecOptions.DecodeToPrimitiveArrays for more information.
-	SetDecodeToPrimitiveArrays(decodeToPrimitiveArrays bool) error
+	// See ExecOptions.DecodeToNativeArrays for more information.
+	SetDecodeToNativeArrays(decodeToNativeArrays bool) error
 
 	// Apply writes an array of mutations to the database. This method may only be called while the connection
 	// is outside a transaction. Use BufferWrite to write mutations in a transaction.
@@ -1147,12 +1147,12 @@ func (c *conn) setExcludeTxnFromChangeStreams(excludeTxnFromChangeStreams bool) 
 	return driver.ResultNoRows, nil
 }
 
-func (c *conn) DecodeToPrimitiveArrays() bool {
-	return c.execOptions.DecodeToPrimitiveArrays
+func (c *conn) DecodeToNativeArrays() bool {
+	return c.execOptions.DecodeToNativeArrays
 }
 
-func (c *conn) SetDecodeToPrimitiveArrays(decodeToPrimitiveArrays bool) error {
-	c.execOptions.DecodeToPrimitiveArrays = decodeToPrimitiveArrays
+func (c *conn) SetDecodeToNativeArrays(decodeToNativeArrays bool) error {
+	c.execOptions.DecodeToNativeArrays = decodeToNativeArrays
 	return nil
 }
 
@@ -1412,7 +1412,7 @@ func (c *conn) ResetSession(_ context.Context) error {
 	c.autocommitDMLMode = Transactional
 	c.readOnlyStaleness = spanner.TimestampBound{}
 	c.execOptions = ExecOptions{
-		DecodeToPrimitiveArrays: c.connector.connectorConfig.DecodeToPrimitiveArrays,
+		DecodeToNativeArrays: c.connector.connectorConfig.DecodeToNativeArrays,
 	}
 	return nil
 }
@@ -1596,7 +1596,7 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 	} else {
 		iter = c.tx.Query(ctx, stmt, execOptions.QueryOptions)
 	}
-	return &rows{it: iter, decodeOption: execOptions.DecodeOption, decodeToPrimitiveArrays: execOptions.DecodeToPrimitiveArrays}, nil
+	return &rows{it: iter, decodeOption: execOptions.DecodeOption, decodeToNativeArrays: execOptions.DecodeToNativeArrays}, nil
 }
 
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {

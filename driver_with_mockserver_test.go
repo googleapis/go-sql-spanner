@@ -1309,10 +1309,10 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 	}
 }
 
-func TestQueryWithAllPrimitiveTypes(t *testing.T) {
+func TestQueryWithAllNativeTypes(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnectionWithParams(t, "DecodeToPrimitiveArrays=true")
+	db, server, teardown := setupTestDBConnectionWithParams(t, "DecodeToNativeArrays=true")
 	defer teardown()
 	query := `SELECT *
              FROM Test
