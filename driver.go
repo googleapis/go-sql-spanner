@@ -47,7 +47,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-const userAgent = "go-sql-spanner/1.10.0" // x-release-please-version
+const userAgent = "go-sql-spanner/1.10.1" // x-release-please-version
 
 // LevelNotice is the default logging level that the Spanner database/sql driver
 // uses for informational logs. This level is deliberately chosen to be one level
@@ -100,6 +100,37 @@ func init() {
 type ExecOptions struct {
 	// DecodeOption indicates how the returned rows should be decoded.
 	DecodeOption DecodeOption
+	// DecodeToNativeArrays determines whether arrays that have a Go
+	// native type should use that. This option has an effect on arrays
+	// that contain:
+	//   * BOOL
+	//   * INT64 and ENUM
+	//   * STRING
+	//   * FLOAT32
+	//   * FLOAT64
+	//   * DATE
+	//   * TIMESTAMP
+	// These arrays will by default be decoded to the following types:
+	//   * []spanner.NullBool
+	//   * []spanner.NullInt64
+	//   * []spanner.NullString
+	//   * []spanner.NullFloat32
+	//   * []spanner.NullFloat64
+	//   * []spanner.NullDate
+	//   * []spanner.NullTime
+	// By setting DecodeToNativeArrays, these arrays will instead be
+	// decoded to:
+	//   * []bool
+	//   * []int64
+	//   * []string
+	//   * []float32
+	//   * []float64
+	//   * []civil.Date
+	//   * []time.Time
+	// If this option is used with rows that contains an array with
+	// at least one NULL element, the decoding will fail.
+	// This option has no effect on arrays of type JSON, NUMERIC and BYTES.
+	DecodeToNativeArrays bool
 
 	// TransactionOptions are the transaction options that will be used for
 	// the transaction that is started by the statement.
@@ -180,6 +211,15 @@ type ConnectorConfig struct {
 	// for connections. The valid values are the same as the parameters that can
 	// be added to a connection string.
 	Params map[string]string
+
+	// DecodeToNativeArrays determines whether arrays that have a Go native
+	// type should be decoded to those types rather than the corresponding
+	// spanner.NullTypeName type.
+	// Enabling this option will for example decode ARRAY<BOOL> to []bool instead
+	// of []spanner.NullBool.
+	//
+	// See ExecOptions.DecodeToNativeArrays for more information.
+	DecodeToNativeArrays bool
 
 	logger *slog.Logger
 	name   string
@@ -388,6 +428,11 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			config.DisableNativeMetrics = val
 		}
 	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("DecodeToNativeArrays")]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			connectorConfig.DecodeToNativeArrays = val
+		}
+	}
 	config.UserAgent = userAgent
 	var logger *slog.Logger
 	if connectorConfig.logger == nil {
@@ -440,7 +485,7 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 
 	connId := uuid.New().String()
 	logger := c.logger.With("connId", connId)
-	return &conn{
+	connection := &conn{
 		connector:                    c,
 		client:                       c.client,
 		adminClient:                  c.adminClient,
@@ -452,7 +497,10 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		execSingleQueryTransactional: queryInNewRWTransaction,
 		execSingleDMLTransactional:   execInNewRWTransaction,
 		execSingleDMLPartitioned:     execAsPartitionedDML,
-	}, nil
+	}
+	// Initialize the session.
+	_ = connection.ResetSession(context.Background())
+	return connection, nil
 }
 
 // increaseConnCount initializes the client and increases the number of connections that are active.
@@ -888,6 +936,17 @@ type SpannerConn interface {
 	// DDL option `allow_txn_exclusion=true`.
 	SetExcludeTxnFromChangeStreams(excludeTxnFromChangeStreams bool) error
 
+	// DecodeToNativeArrays indicates whether arrays with a Go native type
+	// should be decoded to those native types instead of the corresponding
+	// spanner.NullTypeName (e.g. []bool vs []spanner.NullBool).
+	// See ExecOptions.DecodeToNativeArrays for more information.
+	DecodeToNativeArrays() bool
+	// SetDecodeToNativeArrays sets whether arrays with a Go native type
+	// should be decoded to those native types instead of the corresponding
+	// spanner.NullTypeName (e.g. []bool vs []spanner.NullBool).
+	// See ExecOptions.DecodeToNativeArrays for more information.
+	SetDecodeToNativeArrays(decodeToNativeArrays bool) error
+
 	// Apply writes an array of mutations to the database. This method may only be called while the connection
 	// is outside a transaction. Use BufferWrite to write mutations in a transaction.
 	// See also spanner.Client#Apply
@@ -1098,6 +1157,15 @@ func (c *conn) setExcludeTxnFromChangeStreams(excludeTxnFromChangeStreams bool) 
 	}
 	c.execOptions.TransactionOptions.ExcludeTxnFromChangeStreams = excludeTxnFromChangeStreams
 	return driver.ResultNoRows, nil
+}
+
+func (c *conn) DecodeToNativeArrays() bool {
+	return c.execOptions.DecodeToNativeArrays
+}
+
+func (c *conn) SetDecodeToNativeArrays(decodeToNativeArrays bool) error {
+	c.execOptions.DecodeToNativeArrays = decodeToNativeArrays
+	return nil
 }
 
 func (c *conn) TransactionTag() string {
@@ -1352,10 +1420,12 @@ func (c *conn) ResetSession(_ context.Context) error {
 	}
 	c.commitTs = nil
 	c.batch = nil
-	c.retryAborts = true
+	c.retryAborts = c.connector.retryAbortsInternally
 	c.autocommitDMLMode = Transactional
 	c.readOnlyStaleness = spanner.TimestampBound{}
-	c.execOptions = ExecOptions{}
+	c.execOptions = ExecOptions{
+		DecodeToNativeArrays: c.connector.connectorConfig.DecodeToNativeArrays,
+	}
 	return nil
 }
 
@@ -1454,12 +1524,29 @@ func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
 	}
 
 	if execOptions, ok := value.Value.(ExecOptions); ok {
+		// TODO: This should use a temp value to prevent ExecOptions for one
+		//       statement from becoming 'sticky' for all following statements.
 		c.execOptions = execOptions
 		return driver.ErrRemoveArgument
 	}
 
 	if checkIsValidType(value.Value) {
 		return nil
+	}
+
+	// Convert directly if the value implements driver.Valuer. Although this
+	// is also done by the default converter in the sql driver, that conversion
+	// requires the value that is returned by Value() to be one of the base
+	// types that is supported by database/sql. By doing this check here first,
+	// we also support driver.Valuer types that return a Spanner-supported type,
+	// such as for example []string.
+	if valuer, ok := value.Value.(driver.Valuer); ok {
+		if v, err := callValuerValue(valuer); err == nil {
+			if checkIsValidType(v) {
+				value.Value = v
+				return nil
+			}
+		}
 	}
 
 	// Convert the value using the default sql driver. This uses driver.Valuer,
@@ -1552,7 +1639,7 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 			return nil, err
 		}
 	}
-	return &rows{it: iter, decodeOption: execOptions.DecodeOption}, nil
+	return &rows{it: iter, decodeOption: execOptions.DecodeOption, decodeToNativeArrays: execOptions.DecodeToNativeArrays}, nil
 }
 
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
@@ -1906,6 +1993,18 @@ func execAsPartitionedDML(ctx context.Context, c *spanner.Client, statement span
 	queryOptions := options.QueryOptions
 	queryOptions.ExcludeTxnFromChangeStreams = options.TransactionOptions.ExcludeTxnFromChangeStreams
 	return c.PartitionedUpdateWithOptions(ctx, statement, queryOptions)
+}
+
+/* Copied from types.go in database/sql */
+var valuerReflectType = reflect.TypeOf((*driver.Valuer)(nil)).Elem()
+
+func callValuerValue(vr driver.Valuer) (v driver.Value, err error) {
+	if rv := reflect.ValueOf(vr); rv.Kind() == reflect.Pointer &&
+		rv.IsNil() &&
+		rv.Type().Elem().Implements(valuerReflectType) {
+		return nil, nil
+	}
+	return vr.Value()
 }
 
 /* The following is the same implementation as in google-cloud-go/spanner */

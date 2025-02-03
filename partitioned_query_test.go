@@ -115,7 +115,7 @@ func TestPartitionQuery(t *testing.T) {
 
 	// Setup results for each partition.
 	for index, partition := range pq.Partitions {
-		res := testutil.CreateSingleColumnResultSet([]int64{int64(index)}, "FOO")
+		res := testutil.CreateSingleColumnInt64ResultSet([]int64{int64(index)}, "FOO")
 		if err := server.TestSpanner.PutPartitionResult(
 			partition.GetPartitionToken(),
 			&testutil.StatementResult{Type: testutil.StatementResultResultSet, ResultSet: res}); err != nil {
@@ -399,7 +399,7 @@ func setupRandomPartitionResults(server *testutil.MockedSpannerInMemTestServer, 
 			partitionResults[i] = rand.Int63()
 		}
 		allResults = append(allResults, partitionResults...)
-		res := testutil.CreateSingleColumnResultSet(partitionResults, "FOO")
+		res := testutil.CreateSingleColumnInt64ResultSet(partitionResults, "FOO")
 		token := fmt.Sprintf("%s: %v", sql, index)
 		if err := server.TestSpanner.PutPartitionResult(
 			[]byte(token),
