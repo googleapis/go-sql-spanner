@@ -35,6 +35,33 @@ var jsonFile = `{
       "exampleStatements": ["show variable retry_aborts_internally"],
       "examplePrerequisiteStatements": ["set readonly=false", "set autocommit=false"]
     },
+	{
+	  "name": "SHOW VARIABLE AUTO_BATCH_DML",
+	  "executorName": "ClientSideStatementNoParamExecutor",
+	  "resultType": "RESULT_SET",
+	  "statementType": "SHOW_AUTO_BATCH_DML",
+	  "regex": "(?is)\\A\\s*show\\s+variable\\s+auto_batch_dml\\s*\\z",
+	  "method": "statementShowAutoBatchDml",
+	  "exampleStatements": ["show variable auto_batch_dml"]
+	},
+	{
+	  "name": "SHOW VARIABLE AUTO_BATCH_DML_UPDATE_COUNT",
+	  "executorName": "ClientSideStatementNoParamExecutor",
+	  "resultType": "RESULT_SET",
+	  "statementType": "SHOW_AUTO_BATCH_DML_UPDATE_COUNT",
+	  "regex": "(?is)\\A\\s*show\\s+variable\\s+auto_batch_dml_update_count\\s*\\z",
+	  "method": "statementShowAutoBatchDmlUpdateCount",
+	  "exampleStatements": ["show variable auto_batch_dml_update_count"]
+	},
+	{
+	  "name": "SHOW VARIABLE AUTO_BATCH_DML_UPDATE_COUNT_VERIFICATION",
+	  "executorName": "ClientSideStatementNoParamExecutor",
+	  "resultType": "RESULT_SET",
+	  "statementType": "SHOW_AUTO_BATCH_DML_UPDATE_COUNT_VERIFICATION",
+	  "regex": "(?is)\\A\\s*show\\s+variable\\s+auto_batch_dml_update_count_verification\\s*\\z",
+	  "method": "statementShowAutoBatchDmlUpdateCountVerification",
+	  "exampleStatements": ["show variable auto_batch_dml_update_count_verification"]
+	},
     {
       "name": "SHOW VARIABLE AUTOCOMMIT_DML_MODE",
       "executorName": "ClientSideStatementNoParamExecutor",
@@ -136,6 +163,51 @@ var jsonFile = `{
         "converterName": "ClientSideStatementValueConverters$BooleanConverter"
       }
     },
+	{
+	  "name": "SET AUTO_BATCH_DML = TRUE|FALSE",
+	  "executorName": "ClientSideStatementSetExecutor",
+	  "resultType": "NO_RESULT",
+	  "statementType": "SET_AUTO_BATCH_DML",
+	  "regex": "(?is)\\A\\s*set\\s+auto_batch_dml\\s*(?:=)\\s*(.*)\\z",
+	  "method": "statementSetAutoBatchDml",
+	  "exampleStatements": ["set auto_batch_dml = true", "set auto_batch_dml = false"],
+	  "setStatement": {
+	    "propertyName": "AUTO_BATCH_DML",
+	    "separator": "=",
+	    "allowedValues": "(TRUE|FALSE)",
+	    "converterName": "ClientSideStatementValueConverters$BooleanConverter"
+	  }
+	},
+	{
+	  "name": "SET AUTO_BATCH_DML_UPDATE_COUNT = <INT64>",
+	  "executorName": "ClientSideStatementSetExecutor",
+	  "resultType": "NO_RESULT",
+	  "statementType": "SET_AUTO_BATCH_DML_UPDATE_COUNT",
+	  "regex": "(?is)\\A\\s*set\\s+auto_batch_dml_update_count\\s*(?:=)\\s*(.*)\\z",
+	  "method": "statementSetAutoBatchDmlUpdateCount",
+	  "exampleStatements": ["set auto_batch_dml_update_count = 0", "set auto_batch_dml_update_count = 100"],
+	  "setStatement": {
+	    "propertyName": "AUTO_BATCH_DML_UPDATE_COUNT",
+	    "separator": "=",
+	    "allowedValues": "(\\d{1,19})",
+	    "converterName": "ClientSideStatementValueConverters$LongConverter"
+	  }
+	},
+	{
+	  "name": "SET AUTO_BATCH_DML_UPDATE_COUNT_VERIFICATION = TRUE|FALSE",
+	  "executorName": "ClientSideStatementSetExecutor",
+	  "resultType": "NO_RESULT",
+	  "statementType": "SET_AUTO_BATCH_DML_UPDATE_COUNT_VERIFICATION",
+	  "regex": "(?is)\\A\\s*set\\s+auto_batch_dml_update_count_verification\\s*(?:=)\\s*(.*)\\z",
+	  "method": "statementSetAutoBatchDmlUpdateCountVerification",
+	  "exampleStatements": ["set auto_batch_dml_update_count_verification = true", "set auto_batch_dml_update_count_verification = false"],
+	  "setStatement": {
+	    "propertyName": "AUTO_BATCH_DML_UPDATE_COUNT_VERIFICATION",
+	    "separator": "=",
+	    "allowedValues": "(TRUE|FALSE)",
+	    "converterName": "ClientSideStatementValueConverters$BooleanConverter"
+	  }
+	},
     {
       "name": "SET AUTOCOMMIT_DML_MODE = 'PARTITIONED_NON_ATOMIC'|'TRANSACTIONAL'",
       "executorName": "ClientSideStatementSetExecutor",
