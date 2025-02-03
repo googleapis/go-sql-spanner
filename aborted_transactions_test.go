@@ -174,7 +174,7 @@ func TestEmptyQueryAbortedTwice(t *testing.T) {
 	testRetryReadWriteTransactionWithQueryWithRetrySuccess(t, func(server testutil.InMemSpannerServer) {
 		server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 			Type:      testutil.StatementResultResultSet,
-			ResultSet: testutil.CreateSingleColumnResultSet([]int64{}, "FOO"),
+			ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{}, "FOO"),
 		})
 		server.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
 			Errors: []error{status.Error(codes.Aborted, "Aborted"), status.Error(codes.Aborted, "Aborted")},
@@ -245,7 +245,7 @@ func TestQueryConsumedHalfway_RetryContainsMoreResults_CommitAborted(t *testing.
 		func(server testutil.InMemSpannerServer) {
 			server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 				Type:      testutil.StatementResultResultSet,
-				ResultSet: testutil.CreateSingleColumnResultSet([]int64{1, 2, 3}, "FOO"),
+				ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{1, 2, 3}, "FOO"),
 			})
 		}, nil)
 }
@@ -289,7 +289,7 @@ func TestQueryAbortedWithMoreResultsDuringRetry(t *testing.T) {
 			// before the transaction is committed. This will cause the retry to fail.
 			server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 				Type:      testutil.StatementResultResultSet,
-				ResultSet: testutil.CreateSingleColumnResultSet([]int64{1, 2, 3}, "FOO"),
+				ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{1, 2, 3}, "FOO"),
 			})
 		}, ErrAbortedDueToConcurrentModification)
 }
@@ -305,7 +305,7 @@ func TestQueryAbortedWithLessResultsDuringRetry(t *testing.T) {
 			// before the transaction is committed. This will cause the retry to fail.
 			server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 				Type:      testutil.StatementResultResultSet,
-				ResultSet: testutil.CreateSingleColumnResultSet([]int64{1}, "FOO"),
+				ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{1}, "FOO"),
 			})
 		}, ErrAbortedDueToConcurrentModification)
 }
@@ -317,7 +317,7 @@ func TestQueryWithEmptyResult_CommitAborted(t *testing.T) {
 		// Let the query return an empty result set with only one column.
 		server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 			Type:      testutil.StatementResultResultSet,
-			ResultSet: testutil.CreateSingleColumnResultSet([]int64{}, "FOO"),
+			ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{}, "FOO"),
 		})
 		server.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
 			Errors: []error{status.Error(codes.Aborted, "Aborted")},
@@ -332,7 +332,7 @@ func TestQueryWithNewColumn_CommitAborted(t *testing.T) {
 		// Let the query return an empty result set with only one column.
 		server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 			Type:      testutil.StatementResultResultSet,
-			ResultSet: testutil.CreateSingleColumnResultSet([]int64{}, "FOO"),
+			ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{}, "FOO"),
 		})
 		server.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
 			Errors: []error{status.Error(codes.Aborted, "Aborted")},
@@ -479,7 +479,7 @@ func TestQueryAbortedHalfway_WithDifferentResultsInFirstHalf(t *testing.T) {
 	// ErrAbortedDueToConcurrentModification error.
 	server.TestSpanner.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 		Type:      testutil.StatementResultResultSet,
-		ResultSet: testutil.CreateSingleColumnResultSet([]int64{2, 2}, "FOO"),
+		ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{2, 2}, "FOO"),
 	})
 
 	// This should now fail with an ErrAbortedDueToConcurrentModification error.
@@ -544,7 +544,7 @@ func TestQueryAbortedHalfway_WithDifferentResultsInSecondHalf(t *testing.T) {
 	// been seen by the user.
 	server.TestSpanner.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 		Type:      testutil.StatementResultResultSet,
-		ResultSet: testutil.CreateSingleColumnResultSet([]int64{1, 3}, "FOO"),
+		ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{1, 3}, "FOO"),
 	})
 
 	// This should succeed and return the new result.

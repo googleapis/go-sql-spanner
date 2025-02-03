@@ -69,7 +69,7 @@ func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
 		s.execOptions = execOptions
 		return driver.ErrRemoveArgument
 	}
-	return nil
+	return s.conn.CheckNamedValue(value)
 }
 
 func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, error) {
