@@ -235,85 +235,100 @@ func TestAutoPartitionQuery(t *testing.T) {
 	ctx := context.Background()
 	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
+	db.SetMaxOpenConns(1)
 
-	for maxResultsPerPartition := range []int{0, 1, 5, 50, 200} {
-		tx, err := BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{})
-		if err != nil {
-			t.Fatal(err)
-		}
+	type queryExecutor interface {
+		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	}
 
-		// Setup results for each partition.
-		maxPartitions, allResults, err := setupRandomPartitionResults(server, testutil.SelectFooFromBar, maxResultsPerPartition)
-		if err != nil {
-			t.Fatalf("failed to set up partition results: %v", err)
-		}
-
-		// Automatically partition and execute a query.
-		rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar,
-			ExecOptions{
-				PartitionedQueryOptions: PartitionedQueryOptions{
-					AutoPartitionQuery: true,
-					MaxParallelism:     rand.Intn(10) + 1,
-					PartitionOptions: spanner.PartitionOptions{
-						MaxPartitions: int64(maxPartitions),
-					},
-				},
-				QueryOptions: spanner.QueryOptions{DataBoostEnabled: true},
-			})
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		count := 0
-		for rows.Next() {
-			var v int64
-			if err := rows.Scan(&v); err != nil {
+	for _, withTx := range []bool{true, false} {
+		for maxResultsPerPartition := range []int{0, 1, 5, 50, 200} {
+			var tx queryExecutor
+			var err error
+			if withTx {
+				tx, err = BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{})
+			} else {
+				tx = db
+			}
+			if err != nil {
 				t.Fatal(err)
 			}
-			if !slices.Contains(allResults, v) {
-				t.Fatalf("unexpected row value: %v", v)
+
+			// Setup results for each partition.
+			maxPartitions, allResults, err := setupRandomPartitionResults(server, testutil.SelectFooFromBar, maxResultsPerPartition)
+			if err != nil {
+				t.Fatalf("failed to set up partition results: %v", err)
 			}
-			count++
-		}
-		if rows.Err() != nil {
-			t.Fatal(rows.Err())
-		}
-		if g, w := count, len(allResults); g != w {
-			t.Fatalf("row count mismatch\n Got: %v\nWant: %v", g, w)
-		}
-		if err := rows.Close(); err != nil {
-			t.Fatal(err)
-		}
 
-		if err := tx.Commit(); err != nil {
-			t.Fatal(err)
-		}
+			// Automatically partition and execute a query.
+			rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar,
+				ExecOptions{
+					PartitionedQueryOptions: PartitionedQueryOptions{
+						AutoPartitionQuery: true,
+						MaxParallelism:     rand.Intn(10) + 1,
+						PartitionOptions: spanner.PartitionOptions{
+							MaxPartitions: int64(maxPartitions),
+						},
+					},
+					QueryOptions: spanner.QueryOptions{DataBoostEnabled: true},
+				})
+			if err != nil {
+				t.Fatal(err)
+			}
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
-		if g, w := len(beginRequests), 1; g != w {
-			t.Fatalf("num begin requests mismatch\n Got: %v\nWant: %v", g, w)
-		}
-		beginRequest := beginRequests[0].(*sppb.BeginTransactionRequest)
-		if !beginRequest.Options.GetReadOnly().GetStrong() {
-			t.Fatal("missing strong timestamp bound option")
-		}
-		partitionRequests := requestsOfType(requests, reflect.TypeOf(&sppb.PartitionQueryRequest{}))
-		if g, w := len(partitionRequests), 1; g != w {
-			t.Fatalf("num partition requests mismatch\n Got: %v\nWant: %v", g, w)
-		}
-		executeRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
-		if g, w := len(executeRequests), maxPartitions; g != w {
-			t.Fatalf("num execute requests mismatch\n Got: %v\nWant: %v", g, w)
-		}
-		executeRequest := executeRequests[0].(*sppb.ExecuteSqlRequest)
-		if !executeRequest.DataBoostEnabled {
-			t.Fatal("missing DataBoostEnabled option")
-		}
-		// (Batch) read-only transactions should not be committed.
-		commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
-		if g, w := len(commitRequests), 0; g != w {
-			t.Fatalf("num commit requests mismatch\n Got: %v\nWant: %v", g, w)
+			count := 0
+			for rows.Next() {
+				var v int64
+				if err := rows.Scan(&v); err != nil {
+					t.Fatal(err)
+				}
+				if !slices.Contains(allResults, v) {
+					t.Fatalf("unexpected row value: %v", v)
+				}
+				count++
+			}
+			if rows.Err() != nil {
+				t.Fatal(rows.Err())
+			}
+			if g, w := count, len(allResults); g != w {
+				t.Fatalf("row count mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			if err := rows.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			if tx, ok := tx.(*sql.Tx); ok {
+				if err := tx.Commit(); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			requests := drainRequestsFromServer(server.TestSpanner)
+			beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+			if g, w := len(beginRequests), 1; g != w {
+				t.Fatalf("num begin requests mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			beginRequest := beginRequests[0].(*sppb.BeginTransactionRequest)
+			if !beginRequest.Options.GetReadOnly().GetStrong() {
+				t.Fatal("missing strong timestamp bound option")
+			}
+			partitionRequests := requestsOfType(requests, reflect.TypeOf(&sppb.PartitionQueryRequest{}))
+			if g, w := len(partitionRequests), 1; g != w {
+				t.Fatalf("num partition requests mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			executeRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+			if g, w := len(executeRequests), maxPartitions; g != w {
+				t.Fatalf("num execute requests mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			executeRequest := executeRequests[0].(*sppb.ExecuteSqlRequest)
+			if !executeRequest.DataBoostEnabled {
+				t.Fatal("missing DataBoostEnabled option")
+			}
+			// (Batch) read-only transactions should not be committed.
+			commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+			if g, w := len(commitRequests), 0; g != w {
+				t.Fatalf("num commit requests mismatch\n Got: %v\nWant: %v", g, w)
+			}
 		}
 	}
 }

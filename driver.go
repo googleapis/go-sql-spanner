@@ -1710,8 +1710,7 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 		} else if execOptions.PartitionedQueryOptions.PartitionQuery {
 			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "PartitionQuery is only supported in batch read-only transactions"))
 		} else if execOptions.PartitionedQueryOptions.AutoPartitionQuery {
-			// TODO: Implement
-			return nil, spanner.ToSpannerError(status.Errorf(codes.Unimplemented, "auto-partitioning queries not yet implemented"))
+			return c.executeAutoPartitionedQuery(ctx, query, args)
 		} else {
 			// The statement was either detected as being a query, or potentially not recognized at all.
 			// In that case, just default to using a single-use read-only transaction and let Spanner
@@ -1894,6 +1893,10 @@ func WithBatchReadOnly(level sql.IsolationLevel) sql.IsolationLevel {
 	return sql.IsolationLevel(levelBatchReadOnly)<<8 + level
 }
 
+func withBatchReadOnly(level driver.IsolationLevel) driver.IsolationLevel {
+	return driver.IsolationLevel(levelBatchReadOnly)<<8 + level
+}
+
 func (c *conn) Begin() (driver.Tx, error) {
 	return c.BeginTx(context.Background(), driver.TxOptions{})
 }
@@ -2014,6 +2017,24 @@ func (c *conn) inReadWriteTransaction() bool {
 
 func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 	return c.Single().WithTimestampBound(tb).QueryWithOptions(ctx, statement, options.QueryOptions)
+}
+
+func (c *conn) executeAutoPartitionedQuery(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	tx, err := c.BeginTx(ctx, driver.TxOptions{ReadOnly: true, Isolation: withBatchReadOnly(driver.IsolationLevel(sql.LevelDefault))})
+	if err != nil {
+		return nil, err
+	}
+	r, err := c.QueryContext(ctx, query, args)
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	if rows, ok := r.(*rows); ok {
+		rows.close = func() error {
+			return tx.Commit()
+		}
+	}
+	return r, nil
 }
 
 type wrappedRowIterator struct {

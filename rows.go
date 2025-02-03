@@ -28,7 +28,8 @@ import (
 )
 
 type rows struct {
-	it rowIterator
+	it    rowIterator
+	close func() error
 
 	colsOnce sync.Once
 	dirtyErr error
@@ -52,6 +53,11 @@ func (r *rows) Columns() []string {
 // Close closes the rows iterator.
 func (r *rows) Close() error {
 	r.it.Stop()
+	if r.close != nil {
+		if err := r.close(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
