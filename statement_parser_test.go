@@ -872,7 +872,7 @@ func TestStatementIsDdl(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		got := detectStatementType(tc.input) == statementTypeDdl
+		got := detectStatementType(tc.input).statementType == statementTypeDdl
 		if got != tc.want {
 			t.Errorf("isDDL test failed, %s: wanted %t got %t.", tc.name, tc.want, got)
 		}
@@ -1070,7 +1070,7 @@ func TestDetectStatementType(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		if g, w := detectStatementType(test.input), test.want; g != w {
+		if g, w := detectStatementType(test.input).statementType, test.want; g != w {
 			t.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 		}
 	}

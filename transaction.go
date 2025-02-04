@@ -437,6 +437,7 @@ func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.St
 		return updateCount, nil
 	}
 
+	// TODO: Support LastInsertId in read/write transactions.
 	if !tx.retryAborts {
 		return tx.rwTx.UpdateWithOptions(ctx, stmt, options)
 	}
