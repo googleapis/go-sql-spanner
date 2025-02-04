@@ -20,7 +20,9 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"slices"
 
+	"cloud.google.com/go/spanner"
 	_ "github.com/googleapis/go-sql-spanner"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
 )
@@ -35,20 +37,45 @@ func DataBoost(ctx context.Context, w io.Writer, databaseName string) error {
 	// Run a partitioned query that uses Data Boost.
 	rows, err := db.QueryContext(ctx,
 		"SELECT SingerId, FirstName, LastName from Singers",
-		// TODO: Add partition options
-		spannerdriver.ExecOptions{})
+		spannerdriver.ExecOptions{
+			PartitionedQueryOptions: spannerdriver.PartitionedQueryOptions{
+				// AutoPartitionQuery instructs the Spanner database/sql driver to
+				// automatically partition the query and execute each partition in parallel.
+				// The rows are returned as one result set in undefined order.
+				AutoPartitionQuery: true,
+			},
+			QueryOptions: spanner.QueryOptions{
+				// Set DataBoostEnabled to true to enable DataBoost.
+				// See https://cloud.google.com/spanner/docs/databoost/databoost-overview
+				// for more information.
+				DataBoostEnabled: true,
+			},
+		})
 	defer rows.Close()
 	if err != nil {
 		return err
 	}
+	type Singer struct {
+		SingerId  int64
+		FirstName string
+		LastName  string
+	}
+	var singers []Singer
 	for rows.Next() {
-		var singerId int64
-		var firstName, lastName string
-		err = rows.Scan(&singerId, &firstName, &lastName)
+		var singer Singer
+		err = rows.Scan(&singer.SingerId, &singer.FirstName, &singer.LastName)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(w, "%v %v %v\n", singerId, firstName, lastName)
+		singers = append(singers, singer)
+	}
+	// Queries that use the AutoPartition option return rows in undefined order,
+	// so we need to sort them in memory to guarantee the output order.
+	slices.SortFunc(singers, func(a, b Singer) int {
+		return int(a.SingerId - b.SingerId)
+	})
+	for _, s := range singers {
+		fmt.Fprintf(w, "%v %v %v\n", s.SingerId, s.FirstName, s.LastName)
 	}
 
 	return nil

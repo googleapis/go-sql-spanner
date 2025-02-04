@@ -52,6 +52,7 @@ func TestSamples(t *testing.T) {
 	testSample(t, ctx, &b, databaseName, samples.WriteWithTransactionUsingDml, "WriteWithTransactionUsingDml", "Transferred marketing budget from Album 2 to Album 1\n")
 	testSample(t, ctx, &b, databaseName, samples.Tags, "Tags", "Reduced marketing budget\n")
 	testSample(t, ctx, &b, databaseName, samples.ReadOnlyTransaction, "ReadOnlyTransaction", "1 1 Total Junk\n1 2 Go, Go, Go\n2 1 Green\n2 2 Forever Hold Your Peace\n2 3 Terrified\n2 2 Forever Hold Your Peace\n1 2 Go, Go, Go\n2 1 Green\n2 3 Terrified\n1 1 Total Junk\n")
+	testSample(t, ctx, &b, databaseName, samples.DataBoost, "DataBoost", "1 Marc Richards\n2 Catalina Smith\n3 Alice Trentor\n4 Lea Martin\n5 David Lomond\n12 Melissa Garcia\n13 Russel Morales\n14 Jacqueline Long\n15 Dylan Shaw\n16 Sarah Wilson\n17 Ethan Miller\n18 Maya Patel\n")
 }
 
 func testSample(t *testing.T, ctx context.Context, b *bytes.Buffer, databaseName string, sample func(ctx context.Context, w io.Writer, databaseName string) error, sampleName, want string) {
