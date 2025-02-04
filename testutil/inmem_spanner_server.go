@@ -1138,12 +1138,17 @@ func (s *inMemSpannerServer) PartitionQuery(ctx context.Context, req *spannerpb.
 			return nil, err
 		}
 	}
-	var partitions []*spannerpb.Partition
-	for i := int64(0); i < req.PartitionOptions.MaxPartitions; i++ {
+	numPartitions := req.PartitionOptions.MaxPartitions
+	if numPartitions == 0 {
+		numPartitions = int64(rand.Intn(10) + 1)
+	}
+	partitions := make([]*spannerpb.Partition, 0, numPartitions)
+	for i := int64(0); i < numPartitions; i++ {
 		if err != nil {
 			return nil, gstatus.Error(codes.Internal, "failed to generate random partition token")
 		}
-		partitions = append(partitions, &spannerpb.Partition{PartitionToken: randBytes(10)})
+		token := fmt.Sprintf("%s: %v", req.Sql, i)
+		partitions = append(partitions, &spannerpb.Partition{PartitionToken: []byte(token)})
 	}
 	return &spannerpb.PartitionResponse{
 		Partitions:  partitions,
