@@ -47,7 +47,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-const userAgent = "go-sql-spanner/1.9.0" // x-release-please-version
+const userAgent = "go-sql-spanner/1.10.1" // x-release-please-version
 
 // LevelNotice is the default logging level that the Spanner database/sql driver
 // uses for informational logs. This level is deliberately chosen to be one level
@@ -100,6 +100,37 @@ func init() {
 type ExecOptions struct {
 	// DecodeOption indicates how the returned rows should be decoded.
 	DecodeOption DecodeOption
+	// DecodeToNativeArrays determines whether arrays that have a Go
+	// native type should use that. This option has an effect on arrays
+	// that contain:
+	//   * BOOL
+	//   * INT64 and ENUM
+	//   * STRING
+	//   * FLOAT32
+	//   * FLOAT64
+	//   * DATE
+	//   * TIMESTAMP
+	// These arrays will by default be decoded to the following types:
+	//   * []spanner.NullBool
+	//   * []spanner.NullInt64
+	//   * []spanner.NullString
+	//   * []spanner.NullFloat32
+	//   * []spanner.NullFloat64
+	//   * []spanner.NullDate
+	//   * []spanner.NullTime
+	// By setting DecodeToNativeArrays, these arrays will instead be
+	// decoded to:
+	//   * []bool
+	//   * []int64
+	//   * []string
+	//   * []float32
+	//   * []float64
+	//   * []civil.Date
+	//   * []time.Time
+	// If this option is used with rows that contains an array with
+	// at least one NULL element, the decoding will fail.
+	// This option has no effect on arrays of type JSON, NUMERIC and BYTES.
+	DecodeToNativeArrays bool
 
 	// TransactionOptions are the transaction options that will be used for
 	// the transaction that is started by the statement.
@@ -176,6 +207,21 @@ type ConnectorConfig struct {
 	// for connections. The valid values are the same as the parameters that can
 	// be added to a connection string.
 	Params map[string]string
+
+	// The initial values for automatic DML batching.
+	// The values in the Params map take precedence above these.
+	AutoBatchDml                               bool
+	AutoBatchDmlUpdateCount                    int64
+	DisableAutoBatchDmlUpdateCountVerification bool
+
+	// DecodeToNativeArrays determines whether arrays that have a Go native
+	// type should be decoded to those types rather than the corresponding
+	// spanner.NullTypeName type.
+	// Enabling this option will for example decode ARRAY<BOOL> to []bool instead
+	// of []spanner.NullBool.
+	//
+	// See ExecOptions.DecodeToNativeArrays for more information.
+	DecodeToNativeArrays bool
 
 	logger *slog.Logger
 	name   string
@@ -323,6 +369,21 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			retryAbortsInternally = false
 		}
 	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("AutoBatchDml")]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			connectorConfig.AutoBatchDml = val
+		}
+	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("AutoBatchDmlUpdateCount")]; ok {
+		if val, err := strconv.ParseInt(strval, 10, 64); err == nil {
+			connectorConfig.AutoBatchDmlUpdateCount = val
+		}
+	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("AutoBatchDmlUpdateCountVerification")]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			connectorConfig.DisableAutoBatchDmlUpdateCountVerification = !val
+		}
+	}
 	if strval, ok := connectorConfig.Params["minsessions"]; ok {
 		if val, err := strconv.ParseUint(strval, 10, 64); err == nil {
 			config.MinOpened = val
@@ -384,6 +445,11 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			config.DisableNativeMetrics = val
 		}
 	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("DecodeToNativeArrays")]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			connectorConfig.DecodeToNativeArrays = val
+		}
+	}
 	config.UserAgent = userAgent
 	var logger *slog.Logger
 	if connectorConfig.logger == nil {
@@ -436,19 +502,27 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 
 	connId := uuid.New().String()
 	logger := c.logger.With("connId", connId)
-	return &conn{
-		connector:                    c,
-		client:                       c.client,
-		adminClient:                  c.adminClient,
-		connId:                       connId,
-		logger:                       logger,
-		database:                     databaseName,
-		retryAborts:                  c.retryAbortsInternally,
+	connection := &conn{
+		connector:   c,
+		client:      c.client,
+		adminClient: c.adminClient,
+		connId:      connId,
+		logger:      logger,
+		database:    databaseName,
+		retryAborts: c.retryAbortsInternally,
+
+		autoBatchDml:                        c.connectorConfig.AutoBatchDml,
+		autoBatchDmlUpdateCount:             c.connectorConfig.AutoBatchDmlUpdateCount,
+		autoBatchDmlUpdateCountVerification: !c.connectorConfig.DisableAutoBatchDmlUpdateCountVerification,
+
 		execSingleQuery:              queryInSingleUse,
 		execSingleQueryTransactional: queryInNewRWTransaction,
 		execSingleDMLTransactional:   execInNewRWTransaction,
 		execSingleDMLPartitioned:     execAsPartitionedDML,
-	}, nil
+	}
+	// Initialize the session.
+	_ = connection.ResetSession(context.Background())
+	return connection, nil
 }
 
 // increaseConnCount initializes the client and increases the number of connections that are active.
@@ -746,6 +820,57 @@ func clearTempReadWriteTransactionOptions(conn *sql.Conn) {
 	_ = conn.Close()
 }
 
+// ReadOnlyTransactionOptions can be used to create a read-only transaction
+// on a Spanner connection.
+type ReadOnlyTransactionOptions struct {
+	TimestampBound spanner.TimestampBound
+
+	close func()
+}
+
+// BeginReadOnlyTransaction begins a read-only transaction on a Spanner database.
+//
+// NOTE: You *MUST* end the transaction by calling either Commit or Rollback on
+// the transaction. Failure to do so will cause the connection that is used for
+// the transaction to be leaked.
+func BeginReadOnlyTransaction(ctx context.Context, db *sql.DB, options ReadOnlyTransactionOptions) (*sql.Tx, error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	options.close = func() {
+		// Close the connection asynchronously, as the transaction will still
+		// be active when we hit this point.
+		go conn.Close()
+	}
+	if err := withTempReadOnlyTransactionOptions(conn, &options); err != nil {
+		return nil, err
+	}
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		clearTempReadOnlyTransactionOptions(conn)
+		return nil, err
+	}
+	return tx, nil
+}
+
+func withTempReadOnlyTransactionOptions(conn *sql.Conn, options *ReadOnlyTransactionOptions) error {
+	return conn.Raw(func(driverConn any) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			// It is not a Spanner connection.
+			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
+		}
+		spannerConn.withTempReadOnlyTransactionOptions(options)
+		return nil
+	})
+}
+
+func clearTempReadOnlyTransactionOptions(conn *sql.Conn) {
+	_ = withTempReadOnlyTransactionOptions(conn, nil)
+	_ = conn.Close()
+}
+
 // SpannerConn is the public interface for the raw Spanner connection for the
 // sql driver. This interface can be used with the db.Conn().Raw() method.
 type SpannerConn interface {
@@ -784,6 +909,25 @@ type SpannerConn interface {
 	// buffered to be executed as a DML or DDL batch. It returns an empty slice
 	// if no batch is active, or if there are no statements buffered.
 	GetBatchedStatements() []spanner.Statement
+
+	// AutoBatchDml determines whether DML statements should automatically
+	// be batched and sent to Spanner when a non-DML statement is encountered.
+	// The update count that is returned for DML statements that are buffered
+	// is by default 1. This default can be changed by setting the connection
+	// variable AutoBatchDmlUpdateCount to a value other than 1.
+	// This feature is only used in read/write transactions. DML statements
+	// outside transactions are always executed directly.
+	AutoBatchDml() bool
+	SetAutoBatchDml(autoBatch bool) error
+	// AutoBatchDmlUpdateCount determines the update count that is returned for
+	// DML statements that are executed when AutoBatchDml is true.
+	AutoBatchDmlUpdateCount() int64
+	SetAutoBatchDmlUpdateCount(updateCount int64) error
+	// AutoBatchDmlUpdateCountVerification enables/disables the verification
+	// that the update count that was returned for automatically batched DML
+	// statements was correct.
+	AutoBatchDmlUpdateCountVerification() bool
+	SetAutoBatchDmlUpdateCountVerification(verify bool) error
 
 	// RetryAbortsInternally returns true if the connection automatically
 	// retries all aborted transactions.
@@ -833,6 +977,17 @@ type SpannerConn interface {
 	// DDL option `allow_txn_exclusion=true`.
 	SetExcludeTxnFromChangeStreams(excludeTxnFromChangeStreams bool) error
 
+	// DecodeToNativeArrays indicates whether arrays with a Go native type
+	// should be decoded to those native types instead of the corresponding
+	// spanner.NullTypeName (e.g. []bool vs []spanner.NullBool).
+	// See ExecOptions.DecodeToNativeArrays for more information.
+	DecodeToNativeArrays() bool
+	// SetDecodeToNativeArrays sets whether arrays with a Go native type
+	// should be decoded to those native types instead of the corresponding
+	// spanner.NullTypeName (e.g. []bool vs []spanner.NullBool).
+	// See ExecOptions.DecodeToNativeArrays for more information.
+	SetDecodeToNativeArrays(decodeToNativeArrays bool) error
+
 	// Apply writes an array of mutations to the database. This method may only be called while the connection
 	// is outside a transaction. Use BufferWrite to write mutations in a transaction.
 	// See also spanner.Client#Apply
@@ -867,6 +1022,11 @@ type SpannerConn interface {
 	// for the next read/write transaction. This method should only be called
 	// directly before starting a new read/write transaction.
 	withTempTransactionOptions(options *ReadWriteTransactionOptions)
+
+	// withTempReadOnlyTransactionOptions sets the options that should be used
+	// for the next read-only transaction. This method should only be called
+	// directly before starting a new read-only transaction.
+	withTempReadOnlyTransactionOptions(options *ReadOnlyTransactionOptions)
 }
 
 var _ SpannerConn = &conn{}
@@ -892,6 +1052,16 @@ type conn struct {
 
 	// batch is the currently active DDL or DML batch on this connection.
 	batch *batch
+	// autoBatchDml determines whether DML statements should automatically
+	// be batched and sent to Spanner when a non-DML statement is encountered.
+	autoBatchDml bool
+	// autoBatchDmlUpdateCount determines the update count that is returned for
+	// DML statements that are executed when autoBatchDml is true.
+	autoBatchDmlUpdateCount int64
+	// autoBatchDmlUpdateCountVerification enables/disables the verification
+	// that the update count that was returned for automatically batched DML
+	// statements was correct.
+	autoBatchDmlUpdateCountVerification bool
 
 	// autocommitDMLMode determines the type of DML to use when a single DML
 	// statement is executed on a connection. The default is Transactional, but
@@ -907,6 +1077,9 @@ type conn struct {
 	execOptions ExecOptions
 
 	tempTransactionOptions *ReadWriteTransactionOptions
+	// tempReadOnlyTransactionOptions are temporarily set right before a read-only
+	// transaction is started on a Spanner connection.
+	tempReadOnlyTransactionOptions *ReadOnlyTransactionOptions
 }
 
 type batchType int
@@ -917,9 +1090,11 @@ const (
 )
 
 type batch struct {
-	tp         batchType
-	statements []spanner.Statement
-	options    ExecOptions
+	tp           batchType
+	statements   []spanner.Statement
+	returnValues []int64
+	options      ExecOptions
+	automatic    bool
 }
 
 // AutocommitDMLMode indicates whether a single DML statement should be executed
@@ -1029,6 +1204,15 @@ func (c *conn) setExcludeTxnFromChangeStreams(excludeTxnFromChangeStreams bool) 
 	return driver.ResultNoRows, nil
 }
 
+func (c *conn) DecodeToNativeArrays() bool {
+	return c.execOptions.DecodeToNativeArrays
+}
+
+func (c *conn) SetDecodeToNativeArrays(decodeToNativeArrays bool) error {
+	c.execOptions.DecodeToNativeArrays = decodeToNativeArrays
+	return nil
+}
+
 func (c *conn) TransactionTag() string {
 	return c.execOptions.TransactionOptions.TransactionTag
 }
@@ -1060,13 +1244,40 @@ func (c *conn) setStatementTag(statementTag string) (driver.Result, error) {
 	return driver.ResultNoRows, nil
 }
 
+func (c *conn) AutoBatchDml() bool {
+	return c.autoBatchDml
+}
+
+func (c *conn) SetAutoBatchDml(autoBatch bool) error {
+	c.autoBatchDml = autoBatch
+	return nil
+}
+
+func (c *conn) AutoBatchDmlUpdateCount() int64 {
+	return c.autoBatchDmlUpdateCount
+}
+
+func (c *conn) SetAutoBatchDmlUpdateCount(updateCount int64) error {
+	c.autoBatchDmlUpdateCount = updateCount
+	return nil
+}
+
+func (c *conn) AutoBatchDmlUpdateCountVerification() bool {
+	return c.autoBatchDmlUpdateCountVerification
+}
+
+func (c *conn) SetAutoBatchDmlUpdateCountVerification(verify bool) error {
+	c.autoBatchDmlUpdateCountVerification = verify
+	return nil
+}
+
 func (c *conn) StartBatchDDL() error {
 	_, err := c.startBatchDDL()
 	return err
 }
 
 func (c *conn) StartBatchDML() error {
-	_, err := c.startBatchDML()
+	_, err := c.startBatchDML( /* automatic = */ false)
 	return err
 }
 
@@ -1111,11 +1322,11 @@ func (c *conn) startBatchDDL() (driver.Result, error) {
 	return driver.ResultNoRows, nil
 }
 
-func (c *conn) startBatchDML() (driver.Result, error) {
+func (c *conn) startBatchDML(automatic bool) (driver.Result, error) {
 	execOptions := c.options()
 
 	if c.inTransaction() {
-		return c.tx.StartBatchDML(execOptions.QueryOptions)
+		return c.tx.StartBatchDML(execOptions.QueryOptions, automatic)
 	}
 
 	if c.batch != nil {
@@ -1124,7 +1335,7 @@ func (c *conn) startBatchDML() (driver.Result, error) {
 	if c.inReadOnlyTransaction() {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection has an active read-only transaction. Read-only transactions cannot execute DML batches."))
 	}
-	c.logger.Debug("starting dml batch")
+	c.logger.Debug("starting dml batch outside transaction")
 	c.batch = &batch{tp: dml, options: execOptions}
 	return driver.ResultNoRows, nil
 }
@@ -1281,10 +1492,16 @@ func (c *conn) ResetSession(_ context.Context) error {
 	}
 	c.commitTs = nil
 	c.batch = nil
-	c.retryAborts = true
+	c.autoBatchDml = c.connector.connectorConfig.AutoBatchDml
+	c.autoBatchDmlUpdateCount = c.connector.connectorConfig.AutoBatchDmlUpdateCount
+	c.autoBatchDmlUpdateCountVerification = !c.connector.connectorConfig.DisableAutoBatchDmlUpdateCountVerification
+	c.retryAborts = c.connector.retryAbortsInternally
+	// TODO: Reset the following fields to the connector default
 	c.autocommitDMLMode = Transactional
 	c.readOnlyStaleness = spanner.TimestampBound{}
-	c.execOptions = ExecOptions{}
+	c.execOptions = ExecOptions{
+		DecodeToNativeArrays: c.connector.connectorConfig.DecodeToNativeArrays,
+	}
 	return nil
 }
 
@@ -1383,12 +1600,29 @@ func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
 	}
 
 	if execOptions, ok := value.Value.(ExecOptions); ok {
+		// TODO: This should use a temp value to prevent ExecOptions for one
+		//       statement from becoming 'sticky' for all following statements.
 		c.execOptions = execOptions
 		return driver.ErrRemoveArgument
 	}
 
 	if checkIsValidType(value.Value) {
 		return nil
+	}
+
+	// Convert directly if the value implements driver.Valuer. Although this
+	// is also done by the default converter in the sql driver, that conversion
+	// requires the value that is returned by Value() to be one of the base
+	// types that is supported by database/sql. By doing this check here first,
+	// we also support driver.Valuer types that return a Spanner-supported type,
+	// such as for example []string.
+	if valuer, ok := value.Value.(driver.Valuer); ok {
+		if v, err := callValuerValue(valuer); err == nil {
+			if checkIsValidType(v) {
+				value.Value = v
+				return nil
+			}
+		}
 	}
 
 	// Convert the value using the default sql driver. This uses driver.Valuer,
@@ -1463,9 +1697,12 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 			iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt, c.readOnlyStaleness, execOptions)}
 		}
 	} else {
-		iter = c.tx.Query(ctx, stmt, execOptions.QueryOptions)
+		iter, err = c.tx.Query(ctx, stmt, execOptions.QueryOptions)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return &rows{it: iter, decodeOption: execOptions.DecodeOption}, nil
+	return &rows{it: iter, decodeOption: execOptions.DecodeOption, decodeToNativeArrays: execOptions.DecodeToNativeArrays}, nil
 }
 
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
@@ -1500,6 +1737,13 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 	ss, err := prepareSpannerStmt(query, args)
 	if err != nil {
 		return nil, err
+	}
+
+	// Start an automatic DML batch.
+	if c.autoBatchDml && !c.inBatch() && c.inReadWriteTransaction() {
+		if _, err := c.startBatchDML( /* automatic = */ true); err != nil {
+			return nil, err
+		}
 	}
 
 	var res *result
@@ -1583,6 +1827,18 @@ func (c *conn) getTransactionOptions() ReadWriteTransactionOptions {
 	}
 }
 
+func (c *conn) withTempReadOnlyTransactionOptions(options *ReadOnlyTransactionOptions) {
+	c.tempReadOnlyTransactionOptions = options
+}
+
+func (c *conn) getReadOnlyTransactionOptions() ReadOnlyTransactionOptions {
+	if c.tempReadOnlyTransactionOptions != nil {
+		defer func() { c.tempReadOnlyTransactionOptions = nil }()
+		return *c.tempReadOnlyTransactionOptions
+	}
+	return ReadOnlyTransactionOptions{TimestampBound: c.readOnlyStaleness}
+}
+
 type spannerIsolationLevel sql.IsolationLevel
 
 const (
@@ -1606,6 +1862,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		c.resetForRetry = false
 		return c.tx, nil
 	}
+	readOnlyTxOpts := c.getReadOnlyTransactionOptions()
 	readWriteTransactionOptions := c.getTransactionOptions()
 	if c.inTransaction() {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "already in a transaction"))
@@ -1628,11 +1885,14 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 
 	if opts.ReadOnly {
 		logger := c.logger.With("tx", "ro")
-		ro := c.client.ReadOnlyTransaction().WithTimestampBound(c.readOnlyStaleness)
+		ro := c.client.ReadOnlyTransaction().WithTimestampBound(readOnlyTxOpts.TimestampBound)
 		c.tx = &readOnlyTransaction{
 			roTx:   ro,
 			logger: logger,
 			close: func() {
+				if readOnlyTxOpts.close != nil {
+					readOnlyTxOpts.close()
+				}
 				c.tx = nil
 			},
 		}
@@ -1646,10 +1906,13 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 	logger := c.logger.With("tx", "rw")
 	c.tx = &readWriteTransaction{
 		ctx:    ctx,
-		client: c.client,
+		conn:   c,
 		logger: logger,
 		rwTx:   tx,
 		close: func(commitTs *time.Time, commitErr error) {
+			if readWriteTransactionOptions.close != nil {
+				readWriteTransactionOptions.close()
+			}
 			c.prevTx = c.tx
 			c.tx = nil
 			if commitErr == nil {
@@ -1786,6 +2049,18 @@ func execAsPartitionedDML(ctx context.Context, c *spanner.Client, statement span
 	queryOptions := options.QueryOptions
 	queryOptions.ExcludeTxnFromChangeStreams = options.TransactionOptions.ExcludeTxnFromChangeStreams
 	return c.PartitionedUpdateWithOptions(ctx, statement, queryOptions)
+}
+
+/* Copied from types.go in database/sql */
+var valuerReflectType = reflect.TypeOf((*driver.Valuer)(nil)).Elem()
+
+func callValuerValue(vr driver.Valuer) (v driver.Value, err error) {
+	if rv := reflect.ValueOf(vr); rv.Kind() == reflect.Pointer &&
+		rv.IsNil() &&
+		rv.Type().Elem().Implements(valuerReflectType) {
+		return nil, nil
+	}
+	return vr.Value()
 }
 
 /* The following is the same implementation as in google-cloud-go/spanner */

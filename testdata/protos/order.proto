@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+option go_package = "concertspb/";
+package examples.concerts;
+
+message Address {
+  optional string street = 1;
+  optional string city = 2;
+  optional string state = 3;
+  optional string country = 4;
+}
+
+message Item {
+  optional string product_name = 1;
+  optional int32 quantity = 2;
+}
+
+message TicketOrder {
+  optional string order_number = 1;
+  optional int64 date = 2;
+  optional Address shipping_address = 3;
+  repeated Item line_item = 4;
+}
+
+message TicketOrderHistory {
+  optional string order_number = 1;
+  optional int64 date = 2;
+}

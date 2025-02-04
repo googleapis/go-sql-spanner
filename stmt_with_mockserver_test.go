@@ -16,11 +16,18 @@ package spannerdriver
 
 import (
 	"context"
+	"encoding/base64"
+	"reflect"
 	"strings"
 	"testing"
 
+	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/googleapis/go-sql-spanner/testdata/protos/concertspb"
 	"github.com/googleapis/go-sql-spanner/testutil"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestPrepareQuery(t *testing.T) {
@@ -96,5 +103,79 @@ func TestPrepareDml(t *testing.T) {
 		t.Fatalf("failed to get rows affected: %v", err)
 	} else if g, w := rowsAffected, int64(1); g != w {
 		t.Fatalf("rows affected mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestPrepareWithValuerScanner(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	items := []*concertspb.Item{concertspb.CreateItem("test-product", 2)}
+	shippingAddress := concertspb.CreateAddress("Test Street 1", "Bentheim", "NDS", "DE")
+	ticketOrder := concertspb.CreateTicketOrder("123", 1, shippingAddress, items)
+	bytes, err := proto.Marshal(ticketOrder)
+	if err != nil {
+		t.Fatalf("failed to marshal proto: %v", err)
+	}
+	query := "select TicketOrder from test where TicketOrder=?"
+	if err := server.TestSpanner.PutStatementResult(
+		strings.Replace(query, "?", "@p1", 1),
+		&testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: testutil.CreateSingleColumnProtoResultSet([][]byte{bytes}, "TicketOrder"),
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	stmt, err := db.PrepareContext(ctx, query)
+	if err != nil {
+		t.Fatalf("failed to prepare query: %v", err)
+	}
+
+	rows, err := stmt.QueryContext(ctx, ticketOrder)
+	if err != nil {
+		t.Fatalf("failed to execute query: %v", err)
+	}
+	defer rows.Close()
+
+	var value concertspb.TicketOrder
+	if rows.Next() {
+		if err := rows.Scan(&value); err != nil {
+			t.Fatalf("failed to scan row value: %v", err)
+		}
+		if g, w := &value, ticketOrder; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(concertspb.TicketOrder{}, concertspb.Address{}, concertspb.Item{})) {
+			t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if rows.Next() {
+			t.Fatal("found more than one row")
+		}
+	} else {
+		t.Fatal("no rows found")
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("failed to read rows: %v", err)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatalf("failed to close rows: %v", err)
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("number of execute requests mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	params := executeRequests[0].(*spannerpb.ExecuteSqlRequest).Params
+	if g, w := len(params.Fields), 1; g != w {
+		t.Fatalf("params length mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	wantParamValue := &structpb.Value{
+		Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString(bytes)},
+	}
+	if g, w := params.Fields["p1"], wantParamValue; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(structpb.Value{})) {
+		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }

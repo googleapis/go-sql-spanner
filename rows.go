@@ -19,7 +19,9 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
+	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"google.golang.org/api/iterator"
@@ -28,10 +30,12 @@ import (
 type rows struct {
 	it rowIterator
 
-	colsOnce     sync.Once
-	dirtyErr     error
-	cols         []string
-	decodeOption DecodeOption
+	colsOnce sync.Once
+	dirtyErr error
+	cols     []string
+
+	decodeOption         DecodeOption
+	decodeToNativeArrays bool
 
 	dirtyRow *spanner.Row
 }
@@ -212,23 +216,47 @@ func (r *rows) Next(dest []driver.Value) error {
 		case sppb.TypeCode_ARRAY:
 			switch col.Type.ArrayElementType.Code {
 			case sppb.TypeCode_INT64, sppb.TypeCode_ENUM:
-				var v []spanner.NullInt64
-				if err := col.Decode(&v); err != nil {
-					return err
+				if r.decodeToNativeArrays {
+					var v []int64
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
+				} else {
+					var v []spanner.NullInt64
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
 				}
-				dest[i] = v
 			case sppb.TypeCode_FLOAT32:
-				var v []spanner.NullFloat32
-				if err := col.Decode(&v); err != nil {
-					return err
+				if r.decodeToNativeArrays {
+					var v []float32
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
+				} else {
+					var v []spanner.NullFloat32
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
 				}
-				dest[i] = v
 			case sppb.TypeCode_FLOAT64:
-				var v []spanner.NullFloat64
-				if err := col.Decode(&v); err != nil {
-					return err
+				if r.decodeToNativeArrays {
+					var v []float64
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
+				} else {
+					var v []spanner.NullFloat64
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
 				}
-				dest[i] = v
 			case sppb.TypeCode_NUMERIC:
 				var v []spanner.NullNumeric
 				if err := col.Decode(&v); err != nil {
@@ -236,11 +264,19 @@ func (r *rows) Next(dest []driver.Value) error {
 				}
 				dest[i] = v
 			case sppb.TypeCode_STRING:
-				var v []spanner.NullString
-				if err := col.Decode(&v); err != nil {
-					return err
+				if r.decodeToNativeArrays {
+					var v []string
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
+				} else {
+					var v []spanner.NullString
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
 				}
-				dest[i] = v
 			case sppb.TypeCode_JSON:
 				var v []spanner.NullJSON
 				if err := col.Decode(&v); err != nil {
@@ -254,23 +290,47 @@ func (r *rows) Next(dest []driver.Value) error {
 				}
 				dest[i] = v
 			case sppb.TypeCode_BOOL:
-				var v []spanner.NullBool
-				if err := col.Decode(&v); err != nil {
-					return err
+				if r.decodeToNativeArrays {
+					var v []bool
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
+				} else {
+					var v []spanner.NullBool
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
 				}
-				dest[i] = v
 			case sppb.TypeCode_DATE:
-				var v []spanner.NullDate
-				if err := col.Decode(&v); err != nil {
-					return err
+				if r.decodeToNativeArrays {
+					var v []civil.Date
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
+				} else {
+					var v []spanner.NullDate
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
 				}
-				dest[i] = v
 			case sppb.TypeCode_TIMESTAMP:
-				var v []spanner.NullTime
-				if err := col.Decode(&v); err != nil {
-					return err
+				if r.decodeToNativeArrays {
+					var v []time.Time
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
+				} else {
+					var v []spanner.NullTime
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
 				}
-				dest[i] = v
 			default:
 				return fmt.Errorf("unsupported element type ARRAY<%v>", col.Type.ArrayElementType.Code)
 			}

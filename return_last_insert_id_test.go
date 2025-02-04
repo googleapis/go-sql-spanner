@@ -63,7 +63,7 @@ func TestReturnLastInsertId_WithThenReturn(t *testing.T) {
 	query := "insert into test (value) values ('One') then return id"
 	if err := server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
 		Type:        testutil.StatementResultResultSet,
-		ResultSet:   testutil.CreateSingleColumnResultSet([]int64{generatedId}, "id"),
+		ResultSet:   testutil.CreateSingleColumnInt64ResultSet([]int64{generatedId}, "id"),
 		UpdateCount: 1,
 	}); err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func TestReturnLastInsertId_WithThenReturnMultipleRows(t *testing.T) {
 	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
-	resultSet := testutil.CreateSingleColumnResultSet([]int64{1, 2}, "id")
+	resultSet := testutil.CreateSingleColumnInt64ResultSet([]int64{1, 2}, "id")
 	query := "insert into test (value) values ('One'), ('Two') then return id"
 	if err := server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
 		Type:        testutil.StatementResultResultSet,
