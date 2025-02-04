@@ -33,6 +33,12 @@ var createTableStatement = "CREATE TABLE Singers (SingerId INT64, Name STRING(MA
 // See https://cloud.google.com/spanner/docs/databoost/databoost-overview for more
 // information.
 //
+// You can also use the AutoPartition option with the Spanner database/sql driver
+// to instruct the driver to automatically partition a query, execute each
+// partition in parallel, and return the results as a single result stream.
+// See the auto-partition-queries sample for more information:
+// https://github.com/googleapis/go-sql-spanner/blob/-/examples/auto-partition-queries
+//
 // Execute the sample with the command `go run main.go` from this directory.
 func readOnlyTransaction(projectId, instanceId, databaseId string) error {
 	ctx := context.Background()
