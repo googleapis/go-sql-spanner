@@ -27,6 +27,7 @@ import (
 	"net"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"sync"
 	"testing"
@@ -1706,6 +1707,91 @@ func verifyResult(ctx context.Context, stmt *sql.Stmt, empty bool) error {
 		return fmt.Errorf("failed to close rows: %v", err)
 	}
 	return nil
+}
+
+func TestAutoPartitionedQuery(t *testing.T) {
+	skipIfShort(t)
+	t.Parallel()
+
+	ctx := context.Background()
+	dsn, cleanup, err := createTestDB(ctx,
+		`CREATE TABLE Singers (
+          SingerId INT64,
+          FirstName STRING(MAX),
+          LastName STRING(MAX),
+        ) PRIMARY KEY (SingerId)`)
+	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	type Singer struct {
+		Id        int64
+		FirstName string
+		LastName  string
+	}
+	want := []Singer{
+		{1, "First1", "Last1"},
+		{2, "First2", "Last2"},
+		{3, "First3", "Last3"},
+	}
+
+	// Insert 3 test rows.
+	res, err := db.ExecContext(ctx, "INSERT INTO Singers (SingerId, FirstName, LastName) "+
+		"VALUES (1, 'First1', 'Last1'), (2, 'First2', 'Last2'), (3, 'First3', 'Last3')")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := res.RowsAffected()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g, w := c, int64(3); g != w {
+		t.Fatalf("rows affected mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	rows, err := db.QueryContext(ctx, "SELECT * FROM Singers", ExecOptions{
+		PartitionedQueryOptions: PartitionedQueryOptions{
+			AutoPartitionQuery: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to execute auto-partitioned query: %v", err)
+	}
+	var got []Singer
+	for rows.Next() {
+		s := Singer{}
+		if err := rows.Scan(&s.Id, &s.FirstName, &s.LastName); err != nil {
+			t.Fatalf("failed to scan row: %v", err)
+		}
+		got = append(got, s)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterating over rows failed: %v", err)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatalf("closing rows failed: %v", err)
+	}
+	if g, w := len(got), len(want); g != w {
+		t.Fatalf("slice length mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	slices.SortFunc(got, func(a, b Singer) int {
+		if a.Id > b.Id {
+			return 1
+		}
+		if a.Id < b.Id {
+			return -1
+		}
+		return 0
+	})
+	if g, w := got, want; !reflect.DeepEqual(g, w) {
+		t.Fatalf("data mismatch\n Got: %v\nWant: %v", g, w)
+	}
 }
 
 func TestAllTypes(t *testing.T) {

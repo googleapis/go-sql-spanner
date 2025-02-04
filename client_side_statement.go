@@ -69,6 +69,30 @@ func (s *statementExecutor) ShowRetryAbortsInternally(_ context.Context, c *conn
 	return &rows{it: it}, nil
 }
 
+func (s *statementExecutor) ShowAutoBatchDml(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	it, err := createBooleanIterator("AutoBatchDml", c.AutoBatchDml())
+	if err != nil {
+		return nil, err
+	}
+	return &rows{it: it}, nil
+}
+
+func (s *statementExecutor) ShowAutoBatchDmlUpdateCount(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	it, err := createInt64Iterator("AutoBatchDmlUpdateCount", c.AutoBatchDmlUpdateCount())
+	if err != nil {
+		return nil, err
+	}
+	return &rows{it: it}, nil
+}
+
+func (s *statementExecutor) ShowAutoBatchDmlUpdateCountVerification(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	it, err := createBooleanIterator("AutoBatchDmlUpdateCountVerification", c.AutoBatchDmlUpdateCountVerification())
+	if err != nil {
+		return nil, err
+	}
+	return &rows{it: it}, nil
+}
+
 func (s *statementExecutor) ShowAutocommitDmlMode(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
 	it, err := createStringIterator("AutocommitDMLMode", c.AutocommitDMLMode().String())
 	if err != nil {
@@ -122,7 +146,7 @@ func (s *statementExecutor) StartBatchDdl(_ context.Context, c *conn, _ string, 
 }
 
 func (s *statementExecutor) StartBatchDml(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Result, error) {
-	return c.startBatchDML()
+	return c.startBatchDML( /* automatic = */ false)
 }
 
 func (s *statementExecutor) RunBatch(ctx context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Result, error) {
@@ -142,6 +166,46 @@ func (s *statementExecutor) SetRetryAbortsInternally(_ context.Context, c *conn,
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid boolean value: %s", params))
 	}
 	return c.setRetryAbortsInternally(retry)
+}
+
+func (s *statementExecutor) SetAutoBatchDml(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
+	return setBoolVariable("AutoBatchDml", func(value bool) (driver.Result, error) {
+		return driver.ResultNoRows, c.SetAutoBatchDml(value)
+	}, params)
+}
+
+func (s *statementExecutor) SetAutoBatchDmlUpdateCount(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
+	return setInt64Variable("AutoBatchDmlUpdateCount", func(value int64) (driver.Result, error) {
+		return driver.ResultNoRows, c.SetAutoBatchDmlUpdateCount(value)
+	}, params)
+}
+
+func (s *statementExecutor) SetAutoBatchDmlUpdateCountVerification(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
+	return setBoolVariable("AutoBatchDmlUpdateCountVerification", func(value bool) (driver.Result, error) {
+		return driver.ResultNoRows, c.SetAutoBatchDmlUpdateCountVerification(value)
+	}, params)
+}
+
+func setBoolVariable(name string, f func(value bool) (driver.Result, error), params string) (driver.Result, error) {
+	if params == "" {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "no value given for %s", name))
+	}
+	value, err := strconv.ParseBool(params)
+	if err != nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid boolean value: %s", params))
+	}
+	return f(value)
+}
+
+func setInt64Variable(name string, f func(value int64) (driver.Result, error), params string) (driver.Result, error) {
+	if params == "" {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "no value given for %s", name))
+	}
+	value, err := strconv.ParseInt(params, 10, 64)
+	if err != nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid int64 value: %s", params))
+	}
+	return f(value)
 }
 
 func (s *statementExecutor) SetAutocommitDmlMode(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
@@ -312,6 +376,13 @@ func createBooleanIterator(column string, value bool) (*clientSideIterator, erro
 	return createSingleValueIterator(column, value, spannerpb.TypeCode_BOOL)
 }
 
+// createInt64Iterator creates a row iterator with a single INT64 column with
+// one row. This is used for client side statements that return a result set
+// containing an INT64 value.
+func createInt64Iterator(column string, value int64) (*clientSideIterator, error) {
+	return createSingleValueIterator(column, value, spannerpb.TypeCode_INT64)
+}
+
 // createStringIterator creates a row iterator with a single STRING column with
 // one row. This is used for client side statements that return a result set
 // containing a STRING value.
@@ -368,6 +439,6 @@ func (t *clientSideIterator) Stop() {
 	t.metadata = nil
 }
 
-func (t *clientSideIterator) Metadata() *spannerpb.ResultSetMetadata {
-	return t.metadata
+func (t *clientSideIterator) Metadata() (*spannerpb.ResultSetMetadata, error) {
+	return t.metadata, nil
 }

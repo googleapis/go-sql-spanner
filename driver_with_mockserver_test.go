@@ -575,7 +575,7 @@ func TestQueryWithAllTypes(t *testing.T) {
 		query,
 		&testutil.StatementResult{
 			Type:      testutil.StatementResultResultSet,
-			ResultSet: testutil.CreateResultSetWithAllTypes(false),
+			ResultSet: testutil.CreateResultSetWithAllTypes(false, true),
 		},
 	)
 
@@ -1008,7 +1008,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 		query,
 		&testutil.StatementResult{
 			Type:      testutil.StatementResultResultSet,
-			ResultSet: testutil.CreateResultSetWithAllTypes(true),
+			ResultSet: testutil.CreateResultSetWithAllTypes(true, true),
 		},
 	)
 
@@ -1212,7 +1212,7 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 		query,
 		&testutil.StatementResult{
 			Type:      testutil.StatementResultResultSet,
-			ResultSet: testutil.CreateResultSetWithAllTypes(false),
+			ResultSet: testutil.CreateResultSetWithAllTypes(false, true),
 		},
 	)
 
@@ -1263,7 +1263,7 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 			var eArray spanner.GenericColumnValue
 			err := rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &pArray, &eArray)
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("prepare: %v: failed to scan values: %v", prepare, err)
 			}
 			if g, w := b.Value.GetBoolValue(), true; g != w {
 				t.Errorf("row value mismatch for bool\nGot: %v\nWant: %v", g, w)
@@ -1306,6 +1306,433 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 			t.Fatal(rows.Err())
 		}
 		rows.Close()
+	}
+}
+
+func TestQueryWithAllNativeTypes(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnectionWithParams(t, "DecodeToNativeArrays=true")
+	defer teardown()
+	query := `SELECT *
+             FROM Test
+             WHERE ColBool=@bool 
+             AND   ColString=@string
+             AND   ColBytes=@bytes
+             AND   ColInt=@int64
+             AND   ColFloat32=@float32
+             AND   ColFloat64=@float64
+             AND   ColNumeric=@numeric
+             AND   ColDate=@date
+             AND   ColTimestamp=@timestamp
+             AND   ColJson=@json
+             AND   ColBoolArray=@boolArray
+             AND   ColStringArray=@stringArray
+             AND   ColBytesArray=@bytesArray
+             AND   ColIntArray=@int64Array
+             AND   ColFloat32Array=@float32Array
+             AND   ColFloat64Array=@float64Array
+             AND   ColNumericArray=@numericArray
+             AND   ColDateArray=@dateArray
+             AND   ColTimestampArray=@timestampArray
+             AND   ColJsonArray=@jsonArray`
+	_ = server.TestSpanner.PutStatementResult(
+		query,
+		&testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: testutil.CreateResultSetWithAllTypes(false, false),
+		},
+	)
+
+	stmt, err := db.Prepare(query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stmt.Close()
+	ts, _ := time.Parse(time.RFC3339Nano, "2021-07-22T10:26:17.123Z")
+	ts1, _ := time.Parse(time.RFC3339Nano, "2021-07-21T21:07:59.339911800Z")
+	ts2, _ := time.Parse(time.RFC3339Nano, "2021-07-27T21:07:59.339911800Z")
+	tsAlt, _ := time.Parse(time.RFC3339Nano, "2000-01-01T00:00:00Z")
+	rows, err := stmt.QueryContext(
+		context.Background(),
+		true,
+		"test",
+		[]byte("testbytes"),
+		uint(5),
+		float32(3.14),
+		3.14,
+		numeric("6.626"),
+		civil.Date{Year: 2021, Month: 7, Day: 21},
+		ts,
+		nullJson(true, `{"key":"value","other-key":["value1","value2"]}`),
+		[]bool{true, false},
+		[]string{"test1", "test2"},
+		[][]byte{[]byte("testbytes1"), []byte("testbytes2")},
+		[]int64{1, 2},
+		[]float32{3.14, -99.99},
+		[]float64{6.626, 10.01},
+		[]spanner.NullNumeric{nullNumeric(true, "3.14"), nullNumeric(true, "10.01")},
+		[]civil.Date{{Year: 2000, Month: 2, Day: 29}, {Year: 2021, Month: 7, Day: 27}},
+		[]time.Time{ts1, ts2},
+		[]spanner.NullJSON{
+			nullJson(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`),
+			nullJson(true, `{"key2": "value2", "other-key2": ["value1", "value2"]}`),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var b bool
+		var s string
+		var bt []byte
+		var i int64
+		var f32 float32
+		var f float64
+		var r big.Rat
+		var d civil.Date
+		var ts time.Time
+		var j spanner.NullJSON
+		var p []byte
+		var e int64
+		var bArray []bool
+		var sArray []string
+		var btArray [][]byte
+		var iArray []int64
+		var f32Array []float32
+		var fArray []float64
+		var rArray []spanner.NullNumeric
+		var dArray []civil.Date
+		var tsArray []time.Time
+		var jArray []spanner.NullJSON
+		var pArray [][]byte
+		var eArray []int64
+		err = rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &pArray, &eArray)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g, w := b, true; g != w {
+			t.Errorf("row value mismatch for bool\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := s, "test"; g != w {
+			t.Errorf("row value mismatch for string\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := bt, []byte("testbytes"); !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for bytes\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := i, int64(5); g != w {
+			t.Errorf("row value mismatch for int64\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := f32, float32(3.14); g != w {
+			t.Errorf("row value mismatch for float32\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := f, 3.14; g != w {
+			t.Errorf("row value mismatch for float64\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := r, numeric("6.626"); g.Cmp(&w) != 0 {
+			t.Errorf("row value mismatch for numeric\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := d, date("2021-07-21"); !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for date\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := ts, time.Date(2021, 7, 21, 21, 7, 59, 339911800, time.UTC); g != w {
+			t.Errorf("row value mismatch for timestamp\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := j, nullJson(true, `{"key":"value","other-key":["value1","value2"]}`); !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for json\nGot: %v\nWant: %v", g, w)
+		}
+		wantSingerEnumValue := pb.Genre_ROCK
+		wantSingerProtoMsg := pb.SingerInfo{
+			SingerId:    proto.Int64(1),
+			BirthDate:   proto.String("January"),
+			Nationality: proto.String("Country1"),
+			Genre:       &wantSingerEnumValue,
+		}
+		gotSingerProto := pb.SingerInfo{}
+		if err := proto.Unmarshal(p, &gotSingerProto); err != nil {
+			t.Fatalf("failed to unmarshal proto: %v", err)
+		}
+		if g, w := &gotSingerProto, &wantSingerProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
+			t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := pb.Genre(e), wantSingerEnumValue; g != w {
+			t.Errorf("row value mismatch for enum\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := bArray, []bool{true, true, false}; !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for bool array\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := sArray, []string{"test1", "alt", "test2"}; !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for string array\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := btArray, [][]byte{[]byte("testbytes1"), []byte("altbytes"), []byte("testbytes2")}; !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for bytes array\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := iArray, []int64{1, 0, 2}; !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for int array\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := f32Array, []float32{3.14, 0.0, -99.99}; !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for float32 array\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := fArray, []float64{6.626, 0.0, 10.01}; !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for float64 array\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := rArray, []spanner.NullNumeric{nullNumeric(true, "3.14"), nullNumeric(true, "1.0"), nullNumeric(true, "10.01")}; !cmp.Equal(g, w, cmp.AllowUnexported(big.Rat{}, big.Int{})) {
+			t.Errorf("row value mismatch for numeric array\n Got: %v\nWant: %v", g, w)
+		}
+		if g, w := dArray, []civil.Date{{Year: 2000, Month: 2, Day: 29}, {Year: 2000, Month: 1, Day: 1}, {Year: 2021, Month: 7, Day: 27}}; !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for date array\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := tsArray, []time.Time{ts1, tsAlt, ts2}; !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for timestamp array\n Got: %v\nWant: %v", g, w)
+		}
+		if g, w := jArray, []spanner.NullJSON{
+			nullJson(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`),
+			nullJson(true, "{}"),
+			nullJson(true, `{"key2": "value2", "other-key2": ["value1", "value2"]}`),
+		}; !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for json array\n Got: %v\nWant: %v", g, w)
+		}
+		if g, w := len(pArray), 3; g != w {
+			t.Errorf("row value length mismatch for proto array\nGot: %v\nWant: %v", g, w)
+		}
+		wantSinger2ProtoEnum := pb.Genre_FOLK
+		wantSinger2ProtoMsg := pb.SingerInfo{
+			SingerId:    proto.Int64(2),
+			BirthDate:   proto.String("February"),
+			Nationality: proto.String("Country2"),
+			Genre:       &wantSinger2ProtoEnum,
+		}
+		gotSingerProto1 := pb.SingerInfo{}
+		if err := proto.Unmarshal(pArray[0], &gotSingerProto1); err != nil {
+			t.Fatalf("failed to unmarshal proto: %v", err)
+		}
+		gotSingerProtoAlt := pb.SingerInfo{}
+		if err := proto.Unmarshal(pArray[1], &gotSingerProtoAlt); err != nil {
+			t.Fatalf("failed to unmarshal proto: %v", err)
+		}
+		gotSingerProto2 := pb.SingerInfo{}
+		if err := proto.Unmarshal(pArray[2], &gotSingerProto2); err != nil {
+			t.Fatalf("failed to unmarshal proto: %v", err)
+		}
+		if g, w := &gotSingerProto1, &wantSingerProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
+			t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := &gotSingerProtoAlt, &wantSingerProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
+			t.Errorf("row value mismatch for proto\n Got: %v\nWant: %v", g, w)
+		}
+		if g, w := &gotSingerProto2, &wantSinger2ProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
+			t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
+		}
+	}
+	if rows.Err() != nil {
+		t.Fatal(rows.Err())
+	}
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := len(req.ParamTypes), 20; g != w {
+		t.Fatalf("param types length mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	if g, w := len(req.Params.Fields), 20; g != w {
+		t.Fatalf("params length mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	wantParams := []struct {
+		name  string
+		code  sppb.TypeCode
+		array bool
+		value interface{}
+	}{
+		{
+			name:  "bool",
+			code:  sppb.TypeCode_BOOL,
+			value: true,
+		},
+		{
+			name:  "string",
+			code:  sppb.TypeCode_STRING,
+			value: "test",
+		},
+		{
+			name:  "bytes",
+			code:  sppb.TypeCode_BYTES,
+			value: base64.StdEncoding.EncodeToString([]byte("testbytes")),
+		},
+		{
+			name:  "int64",
+			code:  sppb.TypeCode_INT64,
+			value: "5",
+		},
+		{
+			name:  "float32",
+			code:  sppb.TypeCode_FLOAT32,
+			value: float64(float32(3.14)),
+		},
+		{
+			name:  "float64",
+			code:  sppb.TypeCode_FLOAT64,
+			value: 3.14,
+		},
+		{
+			name:  "numeric",
+			code:  sppb.TypeCode_NUMERIC,
+			value: "6.626000000",
+		},
+		{
+			name:  "date",
+			code:  sppb.TypeCode_DATE,
+			value: "2021-07-21",
+		},
+		{
+			name:  "timestamp",
+			code:  sppb.TypeCode_TIMESTAMP,
+			value: "2021-07-22T10:26:17.123Z",
+		},
+		{
+			name:  "json",
+			code:  sppb.TypeCode_JSON,
+			value: `{"key":"value","other-key":["value1","value2"]}`,
+		},
+		{
+			name:  "boolArray",
+			code:  sppb.TypeCode_BOOL,
+			array: true,
+			value: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_BoolValue{BoolValue: true}},
+				{Kind: &structpb.Value_BoolValue{BoolValue: false}},
+			}},
+		},
+		{
+			name:  "stringArray",
+			code:  sppb.TypeCode_STRING,
+			array: true,
+			value: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: "test1"}},
+				{Kind: &structpb.Value_StringValue{StringValue: "test2"}},
+			}},
+		},
+		{
+			name:  "bytesArray",
+			code:  sppb.TypeCode_BYTES,
+			array: true,
+			value: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString([]byte("testbytes1"))}},
+				{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString([]byte("testbytes2"))}},
+			}},
+		},
+		{
+			name:  "int64Array",
+			code:  sppb.TypeCode_INT64,
+			array: true,
+			value: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: "1"}},
+				{Kind: &structpb.Value_StringValue{StringValue: "2"}},
+			}},
+		},
+		{
+			name:  "float32Array",
+			code:  sppb.TypeCode_FLOAT32,
+			array: true,
+			value: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_NumberValue{NumberValue: float64(float32(3.14))}},
+				{Kind: &structpb.Value_NumberValue{NumberValue: float64(float32(-99.99))}},
+			}},
+		},
+		{
+			name:  "float64Array",
+			code:  sppb.TypeCode_FLOAT64,
+			array: true,
+			value: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_NumberValue{NumberValue: 6.626}},
+				{Kind: &structpb.Value_NumberValue{NumberValue: 10.01}},
+			}},
+		},
+		{
+			name:  "numericArray",
+			code:  sppb.TypeCode_NUMERIC,
+			array: true,
+			value: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: "3.140000000"}},
+				{Kind: &structpb.Value_StringValue{StringValue: "10.010000000"}},
+			}},
+		},
+		{
+			name:  "dateArray",
+			code:  sppb.TypeCode_DATE,
+			array: true,
+			value: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: "2000-02-29"}},
+				{Kind: &structpb.Value_StringValue{StringValue: "2021-07-27"}},
+			}},
+		},
+		{
+			name:  "timestampArray",
+			code:  sppb.TypeCode_TIMESTAMP,
+			array: true,
+			value: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: "2021-07-21T21:07:59.3399118Z"}},
+				{Kind: &structpb.Value_StringValue{StringValue: "2021-07-27T21:07:59.3399118Z"}},
+			}},
+		},
+		{
+			name:  "jsonArray",
+			code:  sppb.TypeCode_JSON,
+			array: true,
+			value: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: `{"key1":"value1","other-key1":["value1","value2"]}`}},
+				{Kind: &structpb.Value_StringValue{StringValue: `{"key2":"value2","other-key2":["value1","value2"]}`}},
+			}},
+		},
+	}
+	for _, wantParam := range wantParams {
+		if pt, ok := req.ParamTypes[wantParam.name]; ok {
+			if wantParam.array {
+				if g, w := pt.Code, sppb.TypeCode_ARRAY; g != w {
+					t.Errorf("param type mismatch\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := pt.ArrayElementType.Code, wantParam.code; g != w {
+					t.Errorf("param array element type mismatch\nGot: %v\nWant: %v", g, w)
+				}
+			} else {
+				if g, w := pt.Code, wantParam.code; g != w {
+					t.Errorf("param type mismatch\nGot: %v\nWant: %v", g, w)
+				}
+			}
+		} else {
+			t.Errorf("no param type found for @%s", wantParam.name)
+		}
+		if val, ok := req.Params.Fields[wantParam.name]; ok {
+			var g interface{}
+			if wantParam.array {
+				g = val.GetListValue()
+			} else {
+				switch wantParam.code {
+				case sppb.TypeCode_BOOL:
+					g = val.GetBoolValue()
+				case sppb.TypeCode_FLOAT32:
+					g = val.GetNumberValue()
+				case sppb.TypeCode_FLOAT64:
+					g = val.GetNumberValue()
+				default:
+					g = val.GetStringValue()
+				}
+			}
+			if wantParam.array {
+				if !cmp.Equal(g, wantParam.value, cmpopts.IgnoreUnexported(structpb.ListValue{}, structpb.Value{})) {
+					t.Errorf("array param value mismatch\nGot:  %v\nWant: %v", g, wantParam.value)
+				}
+			} else {
+				if g != wantParam.value {
+					t.Errorf("param value mismatch\nGot: %v\nWant: %v", g, wantParam.value)
+				}
+			}
+		} else {
+			t.Errorf("no value found for param @%s", wantParam.name)
+		}
 	}
 }
 
@@ -3110,16 +3537,8 @@ func TestTag_ReadWriteTransaction_Retry(t *testing.T) {
 		}
 		for i := 0; i < len(execRequests); i++ {
 			execRequest := execRequests[i].(*sppb.ExecuteSqlRequest)
-			// TODO: Remove when https://github.com/googleapis/google-cloud-go/pull/11443
-			//       has been merged.
-			if i < 2 {
-				if g, w := execRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
-			} else {
-				if g, w := execRequest.RequestOptions.TransactionTag, ""; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
+			if g, w := execRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+				t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
 			}
 			if g, w := execRequest.RequestOptions.RequestTag, fmt.Sprintf("tag_%d", (i%2)+1); g != w {
 				t.Fatalf("statement tag mismatch\n Got: %v\nWant: %v", g, w)
@@ -3132,16 +3551,8 @@ func TestTag_ReadWriteTransaction_Retry(t *testing.T) {
 		}
 		for i := 0; i < len(batchRequests); i++ {
 			batchRequest := batchRequests[i].(*sppb.ExecuteBatchDmlRequest)
-			// TODO: Remove when https://github.com/googleapis/google-cloud-go/pull/11443
-			//       has been merged.
-			if i < 1 {
-				if g, w := batchRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
-			} else {
-				if g, w := batchRequest.RequestOptions.TransactionTag, ""; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
+			if g, w := batchRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+				t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
 			}
 			if g, w := batchRequest.RequestOptions.RequestTag, "tag_3"; g != w {
 				t.Fatalf("statement tag mismatch\n Got: %v\nWant: %v", g, w)
@@ -3154,16 +3565,8 @@ func TestTag_ReadWriteTransaction_Retry(t *testing.T) {
 		}
 		for i := 0; i < len(commitRequests); i++ {
 			commitRequest := commitRequests[i].(*sppb.CommitRequest)
-			// TODO: Remove when https://github.com/googleapis/google-cloud-go/pull/11443
-			//       has been merged.
-			if i < 1 {
-				if g, w := commitRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
-			} else {
-				if g, w := commitRequest.RequestOptions.TransactionTag, ""; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
+			if g, w := commitRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+				t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
 			}
 		}
 
@@ -3243,16 +3646,8 @@ func TestTag_RunTransaction_Retry(t *testing.T) {
 		}
 		for i := 0; i < len(execRequests); i++ {
 			execRequest := execRequests[i].(*sppb.ExecuteSqlRequest)
-			// TODO: Remove when https://github.com/googleapis/google-cloud-go/pull/11443
-			//       has been merged.
-			if i < 2 {
-				if g, w := execRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
-			} else {
-				if g, w := execRequest.RequestOptions.TransactionTag, ""; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
+			if g, w := execRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+				t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
 			}
 			if g, w := execRequest.RequestOptions.RequestTag, fmt.Sprintf("tag_%d", (i%2)+1); g != w {
 				t.Fatalf("useArgs: %v, statement tag mismatch\n Got: %v\nWant: %v", useArgs, g, w)
@@ -3265,16 +3660,8 @@ func TestTag_RunTransaction_Retry(t *testing.T) {
 		}
 		for i := 0; i < len(batchRequests); i++ {
 			batchRequest := batchRequests[i].(*sppb.ExecuteBatchDmlRequest)
-			// TODO: Remove when https://github.com/googleapis/google-cloud-go/pull/11443
-			//       has been merged.
-			if i < 1 {
-				if g, w := batchRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
-			} else {
-				if g, w := batchRequest.RequestOptions.TransactionTag, ""; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
+			if g, w := batchRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+				t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
 			}
 			if g, w := batchRequest.RequestOptions.RequestTag, "tag_3"; g != w {
 				t.Fatalf("statement tag mismatch\n Got: %v\nWant: %v", g, w)
@@ -3287,16 +3674,8 @@ func TestTag_RunTransaction_Retry(t *testing.T) {
 		}
 		for i := 0; i < len(commitRequests); i++ {
 			commitRequest := commitRequests[i].(*sppb.CommitRequest)
-			// TODO: Remove when https://github.com/googleapis/google-cloud-go/pull/11443
-			//       has been merged.
-			if i < 1 {
-				if g, w := commitRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
-			} else {
-				if g, w := commitRequest.RequestOptions.TransactionTag, ""; g != w {
-					t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
-				}
+			if g, w := commitRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+				t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
 			}
 		}
 
@@ -4129,6 +4508,25 @@ func setupTestDBConnectionWithConfigurator(t *testing.T, params string, configur
 		serverTeardown()
 		t.Fatal(err)
 	}
+	c, err := CreateConnector(config)
+	if err != nil {
+		serverTeardown()
+		t.Fatal(err)
+	}
+	db = sql.OpenDB(c)
+	return db, server, func() {
+		_ = db.Close()
+		serverTeardown()
+	}
+}
+
+func setupTestDBConnectionWithConnectorConfig(t *testing.T, config ConnectorConfig) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+	server, _, serverTeardown := setupMockedTestServer(t)
+	config.Host = server.Address
+	if config.Params == nil {
+		config.Params = make(map[string]string)
+	}
+	config.Params["useplaintext"] = "true"
 	c, err := CreateConnector(config)
 	if err != nil {
 		serverTeardown()

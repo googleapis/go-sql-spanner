@@ -134,7 +134,7 @@ func (s *MockedSpannerInMemTestServer) setupSelect1Result() {
 }
 
 func (s *MockedSpannerInMemTestServer) setupFooResults() {
-	resultSet := CreateSingleColumnResultSet(selectFooFromBarResults, "FOO")
+	resultSet := CreateSingleColumnInt64ResultSet(selectFooFromBarResults, "FOO")
 	result := &StatementResult{Type: StatementResultResultSet, ResultSet: resultSet}
 	s.TestSpanner.PutStatementResult(SelectFooFromBar, result)
 	s.TestSpanner.PutStatementResult(UpdateBarSetFoo, &StatementResult{
@@ -224,7 +224,7 @@ func createSingersRow(idx int64) *structpb.ListValue {
 	}
 }
 
-func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
+func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb.ResultSet {
 	index := 0
 	fields := make([]*spannerpb.StructType_Field, 24)
 	fields[index] = &spannerpb.StructType_Field{
@@ -439,7 +439,7 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
 			ListValue: &structpb.ListValue{Values: []*structpb.Value{
 				{Kind: &structpb.Value_BoolValue{BoolValue: true}},
-				{Kind: &structpb.Value_NullValue{}},
+				nullValueOrAlt(nullValuesInArrays, &structpb.Value{Kind: &structpb.Value_BoolValue{BoolValue: true}}),
 				{Kind: &structpb.Value_BoolValue{BoolValue: false}},
 			}},
 		}}
@@ -447,7 +447,7 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
 			ListValue: &structpb.ListValue{Values: []*structpb.Value{
 				{Kind: &structpb.Value_StringValue{StringValue: "test1"}},
-				{Kind: &structpb.Value_NullValue{}},
+				nullValueOrAlt(nullValuesInArrays, &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "alt"}}),
 				{Kind: &structpb.Value_StringValue{StringValue: "test2"}},
 			}},
 		}}
@@ -455,7 +455,7 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
 			ListValue: &structpb.ListValue{Values: []*structpb.Value{
 				{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString([]byte("testbytes1"))}},
-				{Kind: &structpb.Value_NullValue{}},
+				nullValueOrAlt(nullValuesInArrays, &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString([]byte("altbytes"))}}),
 				{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString([]byte("testbytes2"))}},
 			}},
 		}}
@@ -463,7 +463,7 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
 			ListValue: &structpb.ListValue{Values: []*structpb.Value{
 				{Kind: &structpb.Value_StringValue{StringValue: "1"}},
-				{Kind: &structpb.Value_NullValue{}},
+				nullValueOrAlt(nullValuesInArrays, &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "0"}}),
 				{Kind: &structpb.Value_StringValue{StringValue: "2"}},
 			}},
 		}}
@@ -471,7 +471,7 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
 			ListValue: &structpb.ListValue{Values: []*structpb.Value{
 				{Kind: &structpb.Value_NumberValue{NumberValue: float64(float32(3.14))}},
-				{Kind: &structpb.Value_NullValue{}},
+				nullValueOrAlt(nullValuesInArrays, &structpb.Value{Kind: &structpb.Value_NumberValue{NumberValue: float64(float32(0.0))}}),
 				{Kind: &structpb.Value_NumberValue{NumberValue: float64(float32(-99.99))}},
 			}},
 		}}
@@ -479,7 +479,7 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
 			ListValue: &structpb.ListValue{Values: []*structpb.Value{
 				{Kind: &structpb.Value_NumberValue{NumberValue: 6.626}},
-				{Kind: &structpb.Value_NullValue{}},
+				nullValueOrAlt(nullValuesInArrays, &structpb.Value{Kind: &structpb.Value_NumberValue{NumberValue: 0.0}}),
 				{Kind: &structpb.Value_NumberValue{NumberValue: 10.01}},
 			}},
 		}}
@@ -487,7 +487,7 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
 			ListValue: &structpb.ListValue{Values: []*structpb.Value{
 				{Kind: &structpb.Value_StringValue{StringValue: "3.14"}},
-				{Kind: &structpb.Value_NullValue{}},
+				nullValueOrAlt(nullValuesInArrays, &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "1.0"}}),
 				{Kind: &structpb.Value_StringValue{StringValue: "10.01"}},
 			}},
 		}}
@@ -495,7 +495,7 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
 			ListValue: &structpb.ListValue{Values: []*structpb.Value{
 				{Kind: &structpb.Value_StringValue{StringValue: "2000-02-29"}},
-				{Kind: &structpb.Value_NullValue{}},
+				nullValueOrAlt(nullValuesInArrays, &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "2000-01-01"}}),
 				{Kind: &structpb.Value_StringValue{StringValue: "2021-07-27"}},
 			}},
 		}}
@@ -503,7 +503,7 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
 			ListValue: &structpb.ListValue{Values: []*structpb.Value{
 				{Kind: &structpb.Value_StringValue{StringValue: "2021-07-21T21:07:59.339911800Z"}},
-				{Kind: &structpb.Value_NullValue{}},
+				nullValueOrAlt(nullValuesInArrays, &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "2000-01-01T00:00:00Z"}}),
 				{Kind: &structpb.Value_StringValue{StringValue: "2021-07-27T21:07:59.339911800Z"}},
 			}},
 		}}
@@ -511,7 +511,7 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
 			ListValue: &structpb.ListValue{Values: []*structpb.Value{
 				{Kind: &structpb.Value_StringValue{StringValue: `{"key1": "value1", "other-key1": ["value1", "value2"]}`}},
-				{Kind: &structpb.Value_NullValue{}},
+				nullValueOrAlt(nullValuesInArrays, &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "{}"}}),
 				{Kind: &structpb.Value_StringValue{StringValue: `{"key2": "value2", "other-key2": ["value1", "value2"]}`}},
 			}},
 		}}
@@ -519,7 +519,7 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
 			ListValue: &structpb.ListValue{Values: []*structpb.Value{
 				protoMessageProto(&singerProtoMsg),
-				{Kind: &structpb.Value_NullValue{}},
+				nullValueOrAlt(nullValuesInArrays, protoMessageProto(&singerProtoMsg)),
 				protoMessageProto(&singer2ProtoMsg),
 			}},
 		}}
@@ -527,7 +527,7 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
 			ListValue: &structpb.ListValue{Values: []*structpb.Value{
 				protoEnumProto(&singerEnumValue),
-				{Kind: &structpb.Value_NullValue{}},
+				nullValueOrAlt(nullValuesInArrays, protoEnumProto(&singerEnumValue)),
 				protoEnumProto(&singer2ProtoEnum),
 			}},
 		}}
@@ -541,6 +541,13 @@ func CreateResultSetWithAllTypes(nullValues bool) *spannerpb.ResultSet {
 	}
 }
 
+func nullValueOrAlt(nullValue bool, alt *structpb.Value) *structpb.Value {
+	if nullValue {
+		return &structpb.Value{Kind: &structpb.Value_NullValue{}}
+	}
+	return alt
+}
+
 func protoMessageProto(m proto.Message) *structpb.Value {
 	var b, _ = proto.Marshal(m)
 	return &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString(b)}}
@@ -551,14 +558,31 @@ func protoEnumProto(e protoreflect.Enum) *structpb.Value {
 }
 
 func CreateSelect1ResultSet() *spannerpb.ResultSet {
-	return CreateSingleColumnResultSet([]int64{1}, "")
+	return CreateSingleColumnInt64ResultSet([]int64{1}, "")
 }
 
-func CreateSingleColumnResultSet(values []int64, name string) *spannerpb.ResultSet {
+func CreateSingleColumnInt64ResultSet(values []int64, name string) *spannerpb.ResultSet {
+	return CreateSingleColumnResultSet(values, func(v int64) *structpb.Value {
+		return &structpb.Value{
+			Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%v", v)},
+		}
+	}, name, spannerpb.TypeCode_INT64)
+}
+
+func CreateSingleColumnProtoResultSet(values [][]byte, name string) *spannerpb.ResultSet {
+	return CreateSingleColumnResultSet(values, func(v []byte) *structpb.Value {
+		str := base64.StdEncoding.EncodeToString(v)
+		return &structpb.Value{
+			Kind: &structpb.Value_StringValue{StringValue: str},
+		}
+	}, name, spannerpb.TypeCode_PROTO)
+}
+
+func CreateSingleColumnResultSet[V any](values []V, converter func(V) *structpb.Value, name string, typeCode spannerpb.TypeCode) *spannerpb.ResultSet {
 	fields := make([]*spannerpb.StructType_Field, 1)
 	fields[0] = &spannerpb.StructType_Field{
 		Name: name,
-		Type: &spannerpb.Type{Code: spannerpb.TypeCode_INT64},
+		Type: &spannerpb.Type{Code: typeCode},
 	}
 	rowType := &spannerpb.StructType{
 		Fields: fields,
@@ -569,9 +593,7 @@ func CreateSingleColumnResultSet(values []int64, name string) *spannerpb.ResultS
 	rows := make([]*structpb.ListValue, len(values))
 	for i, v := range values {
 		rowValue := make([]*structpb.Value, 1)
-		rowValue[0] = &structpb.Value{
-			Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%v", v)},
-		}
+		rowValue[0] = converter(v)
 		rows[i] = &structpb.ListValue{
 			Values: rowValue,
 		}
