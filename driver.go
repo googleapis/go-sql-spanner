@@ -1767,9 +1767,7 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 			}
 		}
 	} else {
-		var rowsAffected int64
-		rowsAffected, err = c.tx.ExecContext(ctx, ss, execOptions.QueryOptions)
-		res = &result{rowsAffected: rowsAffected}
+		res, err = c.tx.ExecContext(ctx, ss, statementInfo, execOptions.QueryOptions)
 	}
 	if err != nil {
 		return nil, err
@@ -2007,42 +2005,52 @@ func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement s
 var errInvalidDmlForExecContext = spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "Exec and ExecContext can only be used with INSERT statements with a THEN RETURN clause that return exactly one row with one column of type INT64. Use Query or QueryContext for DML statements other than INSERT and/or with THEN RETURN clauses that return other/more data."))
 
 func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
-	var rowsAffected int64
-	var lastInsertId int64
-	var hasLastInsertId bool
+	var res *result
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
-		it := tx.QueryWithOptions(ctx, statement, options.QueryOptions)
-		defer it.Stop()
-		row, err := it.Next()
-		if err != nil && err != iterator.Done {
+		var err error
+		res, err = execTransactionalDML(ctx, tx, statement, statementInfo, options.QueryOptions)
+		if err != nil {
 			return err
 		}
-		if len(it.Metadata.RowType.Fields) != 0 && !(len(it.Metadata.RowType.Fields) == 1 &&
-			it.Metadata.RowType.Fields[0].Type.Code == spannerpb.TypeCode_INT64 &&
-			statementInfo.dmlType == dmlTypeInsert) {
-			return errInvalidDmlForExecContext
-		}
-		if err != iterator.Done {
-			if err := row.Column(0, &lastInsertId); err != nil {
-				return err
-			}
-			// Verify that the result set only contains one row.
-			_, err = it.Next()
-			if err == iterator.Done {
-				hasLastInsertId = true
-			} else {
-				// Statement returned more than one row.
-				return errInvalidDmlForExecContext
-			}
-		}
-		rowsAffected = it.RowCount
 		return nil
 	}
 	resp, err := c.ReadWriteTransactionWithOptions(ctx, fn, options.TransactionOptions)
 	if err != nil {
 		return &result{}, time.Time{}, err
 	}
-	return &result{rowsAffected: rowsAffected, lastInsertId: lastInsertId, hasLastInsertId: hasLastInsertId}, resp.CommitTs, nil
+	return res, resp.CommitTs, nil
+}
+
+func execTransactionalDML(ctx context.Context, tx spannerTransaction, statement spanner.Statement, statementInfo *statementInfo, options spanner.QueryOptions) (*result, error) {
+	var rowsAffected int64
+	var lastInsertId int64
+	var hasLastInsertId bool
+	it := tx.QueryWithOptions(ctx, statement, options)
+	defer it.Stop()
+	row, err := it.Next()
+	if err != nil && err != iterator.Done {
+		return nil, err
+	}
+	if len(it.Metadata.RowType.Fields) != 0 && !(len(it.Metadata.RowType.Fields) == 1 &&
+		it.Metadata.RowType.Fields[0].Type.Code == spannerpb.TypeCode_INT64 &&
+		statementInfo.dmlType == dmlTypeInsert) {
+		return nil, errInvalidDmlForExecContext
+	}
+	if err != iterator.Done {
+		if err := row.Column(0, &lastInsertId); err != nil {
+			return nil, err
+		}
+		// Verify that the result set only contains one row.
+		_, err = it.Next()
+		if err == iterator.Done {
+			hasLastInsertId = true
+		} else {
+			// Statement returned more than one row.
+			return nil, errInvalidDmlForExecContext
+		}
+	}
+	rowsAffected = it.RowCount
+	return &result{rowsAffected: rowsAffected, lastInsertId: lastInsertId, hasLastInsertId: hasLastInsertId}, nil
 }
 
 func execAsPartitionedDML(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
