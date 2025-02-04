@@ -32,7 +32,10 @@ import (
 
 var ddlStatements = map[string]bool{"CREATE": true, "DROP": true, "ALTER": true, "ANALYZE": true, "GRANT": true, "REVOKE": true, "RENAME": true}
 var selectStatements = map[string]bool{"SELECT": true, "WITH": true, "GRAPH": true, "FROM": true}
-var dmlStatements = map[string]bool{"INSERT": true, "UPDATE": true, "DELETE": true}
+var insertStatements = map[string]bool{"INSERT": true}
+var updateStatements = map[string]bool{"UPDATE": true}
+var deleteStatements = map[string]bool{"DELETE": true}
+var dmlStatements = union(insertStatements, union(updateStatements, deleteStatements))
 var selectAndDmlStatements = union(selectStatements, dmlStatements)
 
 func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
@@ -462,20 +465,48 @@ const (
 	statementTypeDdl
 )
 
+type dmlType int
+
+const (
+	dmlTypeUnknown dmlType = iota
+	dmlTypeInsert
+	dmlTypeUpdate
+	dmlTypeDelete
+)
+
+type statementInfo struct {
+	statementType statementType
+	dmlType       dmlType
+}
+
 // detectStatementType returns the type of SQL statement based on the first
 // keyword that is found in the SQL statement.
-func detectStatementType(sql string) statementType {
+func detectStatementType(sql string) *statementInfo {
 	sql, err := removeCommentsAndTrim(sql)
 	if err != nil {
-		return statementTypeUnknown
+		return &statementInfo{statementType: statementTypeUnknown}
 	}
 	sql = removeStatementHint(sql)
 	if isQuery(sql) {
-		return statementTypeQuery
+		return &statementInfo{statementType: statementTypeQuery}
 	} else if isDml(sql) {
-		return statementTypeDml
+		return &statementInfo{
+			statementType: statementTypeDml,
+			dmlType:       detectDmlType(sql),
+		}
 	} else if isDDL(sql) {
-		return statementTypeDdl
+		return &statementInfo{statementType: statementTypeDdl}
 	}
-	return statementTypeUnknown
+	return &statementInfo{statementType: statementTypeUnknown}
+}
+
+func detectDmlType(sql string) dmlType {
+	if isStatementType(sql, insertStatements) {
+		return dmlTypeInsert
+	} else if isStatementType(sql, updateStatements) {
+		return dmlTypeUpdate
+	} else if isStatementType(sql, deleteStatements) {
+		return dmlTypeDelete
+	}
+	return dmlTypeUnknown
 }

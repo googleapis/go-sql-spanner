@@ -1047,7 +1047,7 @@ type conn struct {
 
 	execSingleQuery              func(ctx context.Context, c *spanner.Client, statement spanner.Statement, bound spanner.TimestampBound, options ExecOptions) *spanner.RowIterator
 	execSingleQueryTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (rowIterator, time.Time, error)
-	execSingleDMLTransactional   func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, time.Time, error)
+	execSingleDMLTransactional   func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error)
 	execSingleDMLPartitioned     func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error)
 
 	// batch is the currently active DDL or DML batch on this connection.
@@ -1682,7 +1682,7 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 	var iter rowIterator
 	if c.tx == nil {
 		statementType := detectStatementType(query)
-		if statementType == statementTypeDml {
+		if statementType.statementType == statementTypeDml {
 			// Use a read/write transaction to execute the statement.
 			var commitTs time.Time
 			iter, commitTs, err = c.execSingleQueryTransactional(ctx, c.client, stmt, execOptions)
@@ -1722,9 +1722,9 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 	// Clear the commit timestamp of this connection before we execute the statement.
 	c.commitTs = nil
 
-	statementType := detectStatementType(query)
+	statementInfo := detectStatementType(query)
 	// Use admin API if DDL statement is provided.
-	if statementType == statementTypeDdl {
+	if statementInfo.statementType == statementTypeDdl {
 		// Spanner does not support DDL in transactions, and although it is technically possible to execute DDL
 		// statements while a transaction is active, we return an error to avoid any confusion whether the DDL
 		// statement is executed as part of the active transaction or not.
@@ -1746,30 +1746,35 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 		}
 	}
 
-	var rowsAffected int64
+	var res *result
 	var commitTs time.Time
 	if c.tx == nil {
 		if c.InDMLBatch() {
 			c.batch.statements = append(c.batch.statements, ss)
+			res = &result{}
 		} else {
 			if c.autocommitDMLMode == Transactional {
-				rowsAffected, commitTs, err = c.execSingleDMLTransactional(ctx, c.client, ss, execOptions)
+				res, commitTs, err = c.execSingleDMLTransactional(ctx, c.client, ss, statementInfo, execOptions)
 				if err == nil {
 					c.commitTs = &commitTs
 				}
 			} else if c.autocommitDMLMode == PartitionedNonAtomic {
+				var rowsAffected int64
 				rowsAffected, err = c.execSingleDMLPartitioned(ctx, c.client, ss, execOptions)
+				res = &result{rowsAffected: rowsAffected}
 			} else {
 				return nil, status.Errorf(codes.FailedPrecondition, "connection in invalid state for DML statements: %s", c.autocommitDMLMode.String())
 			}
 		}
 	} else {
+		var rowsAffected int64
 		rowsAffected, err = c.tx.ExecContext(ctx, ss, execOptions.QueryOptions)
+		res = &result{rowsAffected: rowsAffected}
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &result{rowsAffected: rowsAffected}, nil
+	return res, nil
 }
 
 // options returns and resets the ExecOptions for the next statement.
@@ -1999,18 +2004,45 @@ func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement s
 	return result, resp.CommitTs, nil
 }
 
-func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, time.Time, error) {
+var errInvalidDmlForExecContext = spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "Exec and ExecContext can only be used with INSERT statements with a THEN RETURN clause that return exactly one row with one column of type INT64. Use Query or QueryContext for DML statements other than INSERT and/or with THEN RETURN clauses that return other/more data."))
+
+func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
 	var rowsAffected int64
+	var lastInsertId int64
+	var hasLastInsertId bool
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
-		count, err := tx.UpdateWithOptions(ctx, statement, options.QueryOptions)
-		rowsAffected = count
-		return err
+		it := tx.QueryWithOptions(ctx, statement, options.QueryOptions)
+		defer it.Stop()
+		row, err := it.Next()
+		if err != nil && err != iterator.Done {
+			return err
+		}
+		if len(it.Metadata.RowType.Fields) != 0 && !(len(it.Metadata.RowType.Fields) == 1 &&
+			it.Metadata.RowType.Fields[0].Type.Code == spannerpb.TypeCode_INT64 &&
+			statementInfo.dmlType == dmlTypeInsert) {
+			return errInvalidDmlForExecContext
+		}
+		if err != iterator.Done {
+			if err := row.Column(0, &lastInsertId); err != nil {
+				return err
+			}
+			// Verify that the result set only contains one row.
+			_, err = it.Next()
+			if err == iterator.Done {
+				hasLastInsertId = true
+			} else {
+				// Statement returned more than one row.
+				return errInvalidDmlForExecContext
+			}
+		}
+		rowsAffected = it.RowCount
+		return nil
 	}
 	resp, err := c.ReadWriteTransactionWithOptions(ctx, fn, options.TransactionOptions)
 	if err != nil {
-		return 0, time.Time{}, err
+		return &result{}, time.Time{}, err
 	}
-	return rowsAffected, resp.CommitTs, nil
+	return &result{rowsAffected: rowsAffected, lastInsertId: lastInsertId, hasLastInsertId: hasLastInsertId}, resp.CommitTs, nil
 }
 
 func execAsPartitionedDML(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
