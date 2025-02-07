@@ -142,7 +142,7 @@ func TestRows_Next_Unsupported(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error, but got nil")
 	}
-	const expectedError = "unsupported element type TYPE_CODE_UNSPECIFIED"
+	const expectedError = "unsupported type TYPE_CODE_UNSPECIFIED, use spannerdriver.ExecOptions{DecodeOption: spannerdriver.DecodeOptionProto} to return the underlying protobuf value"
 	if err.Error() != expectedError {
 		t.Fatalf("expected error %q, but got %q", expectedError, err.Error())
 	}

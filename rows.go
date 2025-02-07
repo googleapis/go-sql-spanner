@@ -343,12 +343,15 @@ func (r *rows) Next(dest []driver.Value) error {
 					dest[i] = v
 				}
 			default:
-				return fmt.Errorf("unsupported element type ARRAY<%v>", col.Type.ArrayElementType.Code)
+				return fmt.Errorf("unsupported array element type ARRAY<%v>, "+
+					"use spannerdriver.ExecOptions{DecodeOption: spannerdriver.DecodeOptionProto} "+
+					"to return the underlying protobuf value", col.Type.ArrayElementType.Code)
 			}
 		default:
-			return fmt.Errorf("unsupported element type %v", col.Type.Code)
+			return fmt.Errorf("unsupported type %v, "+
+				"use spannerdriver.ExecOptions{DecodeOption: spannerdriver.DecodeOptionProto} "+
+				"to return the underlying protobuf value", col.Type.Code)
 		}
-		// TODO: Implement struct
 	}
 	return nil
 }
