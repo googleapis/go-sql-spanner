@@ -29,6 +29,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// spannerTransaction is the generic interface for both spanner.ReadWriteTransaction
+// and spanner.ReadWriteStmtBasedTransaction.
+type spannerTransaction interface {
+	QueryWithOptions(ctx context.Context, statement spanner.Statement, opts spanner.QueryOptions) *spanner.RowIterator
+}
+
 // contextTransaction is the combination of both read/write and read-only
 // transactions.
 type contextTransaction interface {
@@ -37,7 +43,7 @@ type contextTransaction interface {
 	resetForRetry(ctx context.Context) error
 	Query(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (rowIterator, error)
 	partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (driver.Rows, error)
-	ExecContext(ctx context.Context, stmt spanner.Statement, options spanner.QueryOptions) (int64, error)
+	ExecContext(ctx context.Context, stmt spanner.Statement, statementInfo *statementInfo, options spanner.QueryOptions) (*result, error)
 
 	StartBatchDML(options spanner.QueryOptions, automatic bool) (driver.Result, error)
 	RunBatch(ctx context.Context) (driver.Result, error)
@@ -148,8 +154,8 @@ func (tx *readOnlyTransaction) createPartitionedQuery(ctx context.Context, stmt 
 	}, nil
 }
 
-func (tx *readOnlyTransaction) ExecContext(_ context.Context, _ spanner.Statement, _ spanner.QueryOptions) (int64, error) {
-	return 0, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read-only transactions cannot write"))
+func (tx *readOnlyTransaction) ExecContext(_ context.Context, _ spanner.Statement, _ *statementInfo, _ spanner.QueryOptions) (*result, error) {
+	return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
 func (tx *readOnlyTransaction) StartBatchDML(_ spanner.QueryOptions, _ bool) (driver.Result, error) {
@@ -225,10 +231,11 @@ type retriableStatement interface {
 // retriableUpdate implements retriableStatement for update statements.
 type retriableUpdate struct {
 	// stmt is the statement that was executed on Spanner.
-	stmt    spanner.Statement
-	options spanner.QueryOptions
-	// c is the record count that was returned by Spanner.
-	c int64
+	stmt     spanner.Statement
+	stmtInfo *statementInfo
+	options  spanner.QueryOptions
+	// res is the record count and other results that were returned by Spanner.
+	res result
 	// err is the error that was returned by Spanner.
 	err error
 }
@@ -241,17 +248,17 @@ func (ru *retriableUpdate) String() string {
 // of the statement during the retry is equal to the result during the initial
 // attempt.
 func (ru *retriableUpdate) retry(ctx context.Context, tx *spanner.ReadWriteStmtBasedTransaction) error {
-	c, err := tx.UpdateWithOptions(ctx, ru.stmt, ru.options)
+	res, err := execTransactionalDML(ctx, tx, ru.stmt, ru.stmtInfo, ru.options)
 	if err != nil && spanner.ErrCode(err) == codes.Aborted {
 		return err
 	}
-	if !errorsEqualForRetry(err, ru.err) {
-		return ErrAbortedDueToConcurrentModification
+	if err != nil && errorsEqualForRetry(err, ru.err) {
+		return nil
 	}
-	if c != ru.c {
-		return ErrAbortedDueToConcurrentModification
+	if res != nil && res.rowsAffected == ru.res.rowsAffected && res.hasLastInsertId == ru.res.hasLastInsertId && res.lastInsertId == ru.res.lastInsertId {
+		return nil
 	}
-	return nil
+	return ErrAbortedDueToConcurrentModification
 }
 
 // retriableBatchUpdate implements retriableStatement for Batch DML.
@@ -424,7 +431,7 @@ func (tx *readWriteTransaction) partitionQuery(ctx context.Context, stmt spanner
 	return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read/write transactions cannot partition queries"))
 }
 
-func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.Statement, options spanner.QueryOptions) (res int64, err error) {
+func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.Statement, statementInfo *statementInfo, options spanner.QueryOptions) (res *result, err error) {
 	tx.logger.Debug("ExecContext", "stmt", stmt.SQL)
 	if tx.batch != nil {
 		tx.logger.Debug("adding statement to batch")
@@ -434,24 +441,27 @@ func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.St
 			updateCount = tx.conn.autoBatchDmlUpdateCount
 		}
 		tx.batch.returnValues = append(tx.batch.returnValues, updateCount)
-		return updateCount, nil
+		return &result{rowsAffected: updateCount}, nil
 	}
 
-	// TODO: Support LastInsertId in read/write transactions.
 	if !tx.retryAborts {
-		return tx.rwTx.UpdateWithOptions(ctx, stmt, options)
+		return execTransactionalDML(ctx, tx.rwTx, stmt, statementInfo, options)
 	}
 
 	err = tx.runWithRetry(ctx, func(ctx context.Context) error {
-		res, err = tx.rwTx.UpdateWithOptions(ctx, stmt, options)
+		res, err = execTransactionalDML(ctx, tx.rwTx, stmt, statementInfo, options)
 		return err
 	})
-	tx.statements = append(tx.statements, &retriableUpdate{
-		stmt:    stmt,
-		options: options,
-		c:       res,
-		err:     err,
-	})
+	retryableStmt := &retriableUpdate{
+		stmt:     stmt,
+		stmtInfo: statementInfo,
+		options:  options,
+		err:      err,
+	}
+	if res != nil {
+		retryableStmt.res = *res
+	}
+	tx.statements = append(tx.statements, retryableStmt)
 	return res, err
 }
 
