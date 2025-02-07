@@ -36,8 +36,8 @@ func ReadOnlyTransaction(ctx context.Context, w io.Writer, databaseName string) 
 
 	albumsOrderedById, err := tx.QueryContext(ctx,
 		`SELECT SingerId, AlbumId, AlbumTitle
-         FROM Albums
-         ORDER BY SingerId, AlbumId`)
+		FROM Albums
+		ORDER BY SingerId, AlbumId`)
 	defer albumsOrderedById.Close()
 	if err != nil {
 		return err

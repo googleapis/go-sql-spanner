@@ -38,7 +38,7 @@ func AddColumn(ctx context.Context, w io.Writer, databaseName string) error {
 		return err
 	}
 
-	fmt.Fprint(w, "Added marketing_budget column\n")
+	fmt.Fprint(w, "Added MarketingBudget column\n")
 	return nil
 }
 

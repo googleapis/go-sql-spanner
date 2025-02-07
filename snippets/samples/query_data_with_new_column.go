@@ -33,8 +33,8 @@ func QueryNewColumn(ctx context.Context, w io.Writer, databaseName string) error
 
 	rows, err := db.QueryContext(ctx,
 		`SELECT SingerId, AlbumId, MarketingBudget
-         FROM Albums
-         ORDER BY SingerId, AlbumId`)
+		FROM Albums
+		ORDER BY SingerId, AlbumId`)
 	defer rows.Close()
 	if err != nil {
 		return err

@@ -68,7 +68,7 @@ func DdlBatch(ctx context.Context, w io.Writer, databaseName string) error {
 		return err
 	}
 
-	fmt.Fprint(w, "Added venues and concerts tables\n")
+	fmt.Fprint(w, "Added Venues and Concerts tables\n")
 	return nil
 }
 

@@ -33,8 +33,8 @@ func QueryDataWithParameter(ctx context.Context, w io.Writer, databaseName strin
 
 	rows, err := db.QueryContext(ctx,
 		`SELECT SingerId, FirstName, LastName
-         FROM Singers
-         WHERE LastName = ?`, "Garcia")
+		FROM Singers
+		WHERE LastName = ?`, "Garcia")
 	defer rows.Close()
 	if err != nil {
 		return err
