@@ -230,15 +230,17 @@ type result struct {
 	batchUpdateCounts []int64
 }
 
+var errNoLastInsertId = spanner.ToSpannerError(
+	status.Errorf(codes.FailedPrecondition,
+		"LastInsertId is only supported for INSERT statements that use a THEN RETURN clause "+
+			"and that return exactly one row and one column "+
+			"(e.g. `INSERT INTO MyTable (Val) values ('val1') THEN RETURN Id`)"))
+
 func (r *result) LastInsertId() (int64, error) {
 	if r.hasLastInsertId {
 		return r.lastInsertId, nil
 	}
-	return 0, spanner.ToSpannerError(status.Errorf(
-		codes.FailedPrecondition,
-		"LastInsertId is only supported for INSERT statements that use a THEN RETURN clause "+
-			"and that return exactly one row and one column "+
-			"(e.g. `INSERT INTO MyTable (Val) values ('val1') THEN RETURN Id`)"))
+	return 0, errNoLastInsertId
 }
 
 func (r *result) RowsAffected() (int64, error) {

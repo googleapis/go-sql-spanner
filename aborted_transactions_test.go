@@ -94,7 +94,7 @@ func TestUpdateAborted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
 	}
-	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteSql, testutil.SimulatedExecutionTime{
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
 		Errors: []error{status.Error(codes.Aborted, "Aborted")},
 	})
 	res, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
@@ -588,7 +588,7 @@ func TestSecondUpdateAborted(t *testing.T) {
 		t.Fatalf("update singers failed: %v", err)
 	}
 
-	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteSql, testutil.SimulatedExecutionTime{
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
 		Errors: []error{status.Error(codes.Aborted, "Aborted")},
 	})
 	// This statement will return Aborted, the transaction will be retried internally and the statement is
@@ -695,7 +695,7 @@ func TestSecondUpdateAborted_FirstStatementWithSameError(t *testing.T) {
 		t.Fatalf("error code mismatch\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.NotFound)
 	}
 
-	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteSql, testutil.SimulatedExecutionTime{
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
 		Errors: []error{status.Error(codes.Aborted, "Aborted")},
 	})
 	// This statement will return Aborted, the transaction will be retried internally and the statement is
@@ -786,7 +786,7 @@ func testSecondUpdateAborted_FirstResultChanged(t *testing.T, firstResult *testu
 	// Update the result to simulate a different result during the retry.
 	server.TestSpanner.PutStatementResult(testutil.UpdateSingersSetLastName, secondResult)
 
-	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteSql, testutil.SimulatedExecutionTime{
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
 		Errors: []error{status.Error(codes.Aborted, "Aborted")},
 	})
 	// This statement will return Aborted and the transaction will be retried internally. That
@@ -967,6 +967,89 @@ func TestBatchUpdateAbortedWithError_DifferentErrorDuringRetry(t *testing.T) {
 	// The commit should be attempted only once.
 	if g, w := len(commitReqs), 1; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+}
+
+func TestLastInsertId(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	query := "insert into singers (name) values ('foo') then return id"
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type:        testutil.StatementResultResultSet,
+		ResultSet:   testutil.CreateSingleColumnInt64ResultSet([]int64{1}, "id"),
+		UpdateCount: 1,
+	})
+
+	ctx := context.Background()
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin failed: %v", err)
+	}
+	if res, err := tx.ExecContext(ctx, query); err != nil {
+		t.Fatalf("failed to execute statement: %v", err)
+	} else {
+		if id, err := res.LastInsertId(); err != nil {
+			t.Fatalf("failed to get last insert id: %v", err)
+		} else if g, w := id, int64(1); g != w {
+			t.Fatalf("last insert id mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if c, err := res.RowsAffected(); err != nil {
+			t.Fatalf("failed to get update count: %v", err)
+		} else if g, w := c, int64(1); g != w {
+			t.Fatalf("update count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("failed to commit: %v", err)
+	}
+}
+
+func TestLastInsertIdChanged(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	query := "insert into singers (name) values ('foo') then return id"
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type:        testutil.StatementResultResultSet,
+		ResultSet:   testutil.CreateSingleColumnInt64ResultSet([]int64{1}, "id"),
+		UpdateCount: 1,
+	})
+
+	ctx := context.Background()
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin failed: %v", err)
+	}
+	if res, err := tx.ExecContext(ctx, query); err != nil {
+		t.Fatalf("failed to execute statement: %v", err)
+	} else {
+		if id, err := res.LastInsertId(); err != nil {
+			t.Fatalf("failed to get last insert id: %v", err)
+		} else if g, w := id, int64(1); g != w {
+			t.Fatalf("last insert id mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if c, err := res.RowsAffected(); err != nil {
+			t.Fatalf("failed to get update count: %v", err)
+		} else if g, w := c, int64(1); g != w {
+			t.Fatalf("update count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+	// Abort the transaction and change the returned ID.
+	server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+		Errors: []error{status.Error(codes.Aborted, "Aborted")},
+	})
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type:        testutil.StatementResultResultSet,
+		ResultSet:   testutil.CreateSingleColumnInt64ResultSet([]int64{2}, "id"),
+		UpdateCount: 1,
+	})
+	if err := tx.Commit(); err != ErrAbortedDueToConcurrentModification {
+		t.Fatalf("commit error mismatch\n Got: %v\nWant: %v", err, ErrAbortedDueToConcurrentModification)
 	}
 }
 

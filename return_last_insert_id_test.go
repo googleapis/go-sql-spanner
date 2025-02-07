@@ -16,12 +16,18 @@ package spannerdriver
 
 import (
 	"context"
+	"database/sql"
 	"math/bits"
 	"testing"
 
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/testutil"
 )
+
+type queryExecutor interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
 
 func TestReturnLastInsertId_NoThenReturn(t *testing.T) {
 	t.Parallel()
@@ -38,17 +44,34 @@ func TestReturnLastInsertId_NoThenReturn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := db.ExecContext(ctx, query)
-	if err != nil {
-		t.Fatalf("failed to execute statement: %v", err)
-	}
-	if c, err := res.RowsAffected(); err != nil {
-		t.Fatalf("failed to get rows affected: %v", err)
-	} else if g, w := c, int64(1); g != w {
-		t.Fatalf("affected rows mismatch\n Got: %v\nWant: %v", g, w)
-	}
-	if _, err := res.LastInsertId(); err == nil {
-		t.Fatal("missing expected error for last insert id")
+	for _, useTx := range []bool{true, false} {
+		var tx queryExecutor
+		var err error
+		if useTx {
+			tx, err = db.BeginTx(ctx, &sql.TxOptions{})
+			if err != nil {
+				t.Fatalf("failed to start transaction: %v", err)
+			}
+		} else {
+			tx = db
+		}
+		res, err := tx.ExecContext(ctx, query)
+		if err != nil {
+			t.Fatalf("failed to execute statement: %v", err)
+		}
+		if c, err := res.RowsAffected(); err != nil {
+			t.Fatalf("failed to get rows affected: %v", err)
+		} else if g, w := c, int64(1); g != w {
+			t.Fatalf("affected rows mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if _, err := res.LastInsertId(); err != errNoLastInsertId {
+			t.Fatalf("missing expected error for last insert id, got %v", err)
+		}
+		if tx, ok := tx.(*sql.Tx); ok {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 }
 
@@ -69,19 +92,36 @@ func TestReturnLastInsertId_WithThenReturn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := db.ExecContext(ctx, query)
-	if err != nil {
-		t.Fatalf("failed to execute statement: %v", err)
-	}
-	if c, err := res.RowsAffected(); err != nil {
-		t.Fatalf("failed to get rows affected: %v", err)
-	} else if g, w := c, int64(1); g != w {
-		t.Fatalf("affected rows mismatch\n Got: %v\nWant: %v", g, w)
-	}
-	if id, err := res.LastInsertId(); err != nil {
-		t.Fatalf("failed to get LastInsertId: %v", err)
-	} else if g, w := id, generatedId; g != w {
-		t.Fatalf("affected rows mismatch\n Got: %v\nWant: %v", g, w)
+	for _, useTx := range []bool{true, false} {
+		var tx queryExecutor
+		var err error
+		if useTx {
+			tx, err = db.BeginTx(ctx, &sql.TxOptions{})
+			if err != nil {
+				t.Fatalf("failed to start transaction: %v", err)
+			}
+		} else {
+			tx = db
+		}
+		res, err := tx.ExecContext(ctx, query)
+		if err != nil {
+			t.Fatalf("failed to execute statement: %v", err)
+		}
+		if c, err := res.RowsAffected(); err != nil {
+			t.Fatalf("failed to get rows affected: %v", err)
+		} else if g, w := c, int64(1); g != w {
+			t.Fatalf("affected rows mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if id, err := res.LastInsertId(); err != nil {
+			t.Fatalf("failed to get LastInsertId: %v", err)
+		} else if g, w := id, generatedId; g != w {
+			t.Fatalf("affected rows mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if tx, ok := tx.(*sql.Tx); ok {
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 }
 
@@ -103,8 +143,25 @@ func TestReturnLastInsertId_WithThenReturnNonInt64Col(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := db.ExecContext(ctx, query); err != errInvalidDmlForExecContext {
-		t.Fatal("missing expected error for ExecContext")
+	for _, useTx := range []bool{true, false} {
+		var tx queryExecutor
+		var err error
+		if useTx {
+			tx, err = db.BeginTx(ctx, &sql.TxOptions{})
+			if err != nil {
+				t.Fatalf("failed to start transaction: %v", err)
+			}
+		} else {
+			tx = db
+		}
+		if _, err := tx.ExecContext(ctx, query); err != errInvalidDmlForExecContext {
+			t.Fatalf("missing expected error for ExecContext, got %v", err)
+		}
+		if tx, ok := tx.(*sql.Tx); ok {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 }
 
@@ -125,10 +182,28 @@ func TestReturnLastInsertId_WithThenReturnMultipleColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := db.ExecContext(ctx, query); err != errInvalidDmlForExecContext {
-		t.Fatal("missing expected error for ExecContext")
+	for _, useTx := range []bool{true, false} {
+		var tx queryExecutor
+		var err error
+		if useTx {
+			tx, err = db.BeginTx(ctx, &sql.TxOptions{})
+			if err != nil {
+				t.Fatalf("failed to start transaction: %v", err)
+			}
+		} else {
+			tx = db
+		}
+		if _, err := tx.ExecContext(ctx, query); err != errInvalidDmlForExecContext {
+			t.Fatalf("missing expected error for ExecContext, got %v", err)
+		}
+		if tx, ok := tx.(*sql.Tx); ok {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 }
+
 func TestReturnLastInsertId_WithThenReturnMultipleRows(t *testing.T) {
 	t.Parallel()
 
@@ -146,7 +221,24 @@ func TestReturnLastInsertId_WithThenReturnMultipleRows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := db.ExecContext(ctx, query); err != errInvalidDmlForExecContext {
-		t.Fatal("missing expected error for ExecContext")
+	for _, useTx := range []bool{true, false} {
+		var tx queryExecutor
+		var err error
+		if useTx {
+			tx, err = db.BeginTx(ctx, &sql.TxOptions{})
+			if err != nil {
+				t.Fatalf("failed to start transaction: %v", err)
+			}
+		} else {
+			tx = db
+		}
+		if _, err := tx.ExecContext(ctx, query); err != errInvalidDmlForExecContext {
+			t.Fatalf("missing expected error for ExecContext, got %v", err)
+		}
+		if tx, ok := tx.(*sql.Tx); ok {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 }
