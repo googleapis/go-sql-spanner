@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.11.0](https://github.com/googleapis/go-sql-spanner/compare/v1.10.1...v1.11.0) (2025-02-10)
+
+
+### Features
+
+* DML auto-batching ([#366](https://github.com/googleapis/go-sql-spanner/issues/366)) ([73db4a3](https://github.com/googleapis/go-sql-spanner/commit/73db4a356f44855c301098cdaf689a8e4ac122db))
+* Option for decode to native array ([#369](https://github.com/googleapis/go-sql-spanner/issues/369)) ([05952e0](https://github.com/googleapis/go-sql-spanner/commit/05952e0cc56e7cc6c47b006c4d2cac5a730c9193))
+* Partitioned queries ([#351](https://github.com/googleapis/go-sql-spanner/issues/351)) ([86d1922](https://github.com/googleapis/go-sql-spanner/commit/86d19228548a378be3b79f37ff8413a587cfec0b))
+* Support LastInsertId in transactions ([#372](https://github.com/googleapis/go-sql-spanner/issues/372)) ([eb9a4ef](https://github.com/googleapis/go-sql-spanner/commit/eb9a4efcc4d33b984dfd83389c5e04eee79121bc)), refs [#346](https://github.com/googleapis/go-sql-spanner/issues/346)
+* Support LastInsertId outside explicit transactions ([#362](https://github.com/googleapis/go-sql-spanner/issues/362)) ([8d38601](https://github.com/googleapis/go-sql-spanner/commit/8d386016ac62b2315003e3668c1e37776c7b6335)), refs [#346](https://github.com/googleapis/go-sql-spanner/issues/346)
+
 ## [1.10.1](https://github.com/googleapis/go-sql-spanner/compare/v1.10.0...v1.10.1) (2025-01-30)
 
 
