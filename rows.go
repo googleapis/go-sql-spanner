@@ -19,19 +19,24 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
+	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"google.golang.org/api/iterator"
 )
 
 type rows struct {
-	it rowIterator
+	it    rowIterator
+	close func() error
 
-	colsOnce     sync.Once
-	dirtyErr     error
-	cols         []string
-	decodeOption DecodeOption
+	colsOnce sync.Once
+	dirtyErr error
+	cols     []string
+
+	decodeOption         DecodeOption
+	decodeToNativeArrays bool
 
 	dirtyRow *spanner.Row
 }
@@ -48,6 +53,11 @@ func (r *rows) Columns() []string {
 // Close closes the rows iterator.
 func (r *rows) Close() error {
 	r.it.Stop()
+	if r.close != nil {
+		if err := r.close(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -62,7 +72,12 @@ func (r *rows) getColumns() {
 				return
 			}
 		}
-		rowType := r.it.Metadata().RowType
+		metadata, err := r.it.Metadata()
+		if err != nil {
+			r.dirtyErr = err
+			return
+		}
+		rowType := metadata.RowType
 		r.cols = make([]string, len(rowType.Fields))
 		for i, c := range rowType.Fields {
 			r.cols[i] = c.Name
@@ -82,16 +97,16 @@ func (r *rows) getColumns() {
 func (r *rows) Next(dest []driver.Value) error {
 	r.getColumns()
 	var row *spanner.Row
-	if r.dirtyRow != nil {
-		row = r.dirtyRow
-		r.dirtyRow = nil
-	} else if r.dirtyErr != nil {
+	if r.dirtyErr != nil {
 		err := r.dirtyErr
 		r.dirtyErr = nil
 		if err == iterator.Done {
 			return io.EOF
 		}
 		return err
+	} else if r.dirtyRow != nil {
+		row = r.dirtyRow
+		r.dirtyRow = nil
 	} else {
 		var err error
 		row, err = r.it.Next() // returns io.EOF when there is no next
@@ -212,23 +227,47 @@ func (r *rows) Next(dest []driver.Value) error {
 		case sppb.TypeCode_ARRAY:
 			switch col.Type.ArrayElementType.Code {
 			case sppb.TypeCode_INT64, sppb.TypeCode_ENUM:
-				var v []spanner.NullInt64
-				if err := col.Decode(&v); err != nil {
-					return err
+				if r.decodeToNativeArrays {
+					var v []int64
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
+				} else {
+					var v []spanner.NullInt64
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
 				}
-				dest[i] = v
 			case sppb.TypeCode_FLOAT32:
-				var v []spanner.NullFloat32
-				if err := col.Decode(&v); err != nil {
-					return err
+				if r.decodeToNativeArrays {
+					var v []float32
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
+				} else {
+					var v []spanner.NullFloat32
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
 				}
-				dest[i] = v
 			case sppb.TypeCode_FLOAT64:
-				var v []spanner.NullFloat64
-				if err := col.Decode(&v); err != nil {
-					return err
+				if r.decodeToNativeArrays {
+					var v []float64
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
+				} else {
+					var v []spanner.NullFloat64
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
 				}
-				dest[i] = v
 			case sppb.TypeCode_NUMERIC:
 				var v []spanner.NullNumeric
 				if err := col.Decode(&v); err != nil {
@@ -236,11 +275,19 @@ func (r *rows) Next(dest []driver.Value) error {
 				}
 				dest[i] = v
 			case sppb.TypeCode_STRING:
-				var v []spanner.NullString
-				if err := col.Decode(&v); err != nil {
-					return err
+				if r.decodeToNativeArrays {
+					var v []string
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
+				} else {
+					var v []spanner.NullString
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
 				}
-				dest[i] = v
 			case sppb.TypeCode_JSON:
 				var v []spanner.NullJSON
 				if err := col.Decode(&v); err != nil {
@@ -254,30 +301,57 @@ func (r *rows) Next(dest []driver.Value) error {
 				}
 				dest[i] = v
 			case sppb.TypeCode_BOOL:
-				var v []spanner.NullBool
-				if err := col.Decode(&v); err != nil {
-					return err
+				if r.decodeToNativeArrays {
+					var v []bool
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
+				} else {
+					var v []spanner.NullBool
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
 				}
-				dest[i] = v
 			case sppb.TypeCode_DATE:
-				var v []spanner.NullDate
-				if err := col.Decode(&v); err != nil {
-					return err
+				if r.decodeToNativeArrays {
+					var v []civil.Date
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
+				} else {
+					var v []spanner.NullDate
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
 				}
-				dest[i] = v
 			case sppb.TypeCode_TIMESTAMP:
-				var v []spanner.NullTime
-				if err := col.Decode(&v); err != nil {
-					return err
+				if r.decodeToNativeArrays {
+					var v []time.Time
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
+				} else {
+					var v []spanner.NullTime
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
 				}
-				dest[i] = v
 			default:
-				return fmt.Errorf("unsupported element type ARRAY<%v>", col.Type.ArrayElementType.Code)
+				return fmt.Errorf("unsupported array element type ARRAY<%v>, "+
+					"use spannerdriver.ExecOptions{DecodeOption: spannerdriver.DecodeOptionProto} "+
+					"to return the underlying protobuf value", col.Type.ArrayElementType.Code)
 			}
 		default:
-			return fmt.Errorf("unsupported element type %v", col.Type.Code)
+			return fmt.Errorf("unsupported type %v, "+
+				"use spannerdriver.ExecOptions{DecodeOption: spannerdriver.DecodeOptionProto} "+
+				"to return the underlying protobuf value", col.Type.Code)
 		}
-		// TODO: Implement struct
 	}
 	return nil
 }

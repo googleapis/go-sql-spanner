@@ -16,7 +16,9 @@ package spannerdriver
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
+	"fmt"
 	"net"
 	"reflect"
 	"testing"
@@ -26,23 +28,24 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 )
 
 func TestExtractDnsParts(t *testing.T) {
 	tests := []struct {
 		input               string
-		wantConnectorConfig connectorConfig
+		wantConnectorConfig ConnectorConfig
 		wantSpannerConfig   spanner.ClientConfig
 		wantErr             bool
 	}{
 		{
 			input: "projects/p/instances/i/databases/d",
-			wantConnectorConfig: connectorConfig{
-				project:  "p",
-				instance: "i",
-				database: "d",
-				params:   map[string]string{},
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
@@ -51,11 +54,11 @@ func TestExtractDnsParts(t *testing.T) {
 		},
 		{
 			input: "projects/DEFAULT_PROJECT_ID/instances/test-instance/databases/test-database",
-			wantConnectorConfig: connectorConfig{
-				project:  "DEFAULT_PROJECT_ID",
-				instance: "test-instance",
-				database: "test-database",
-				params:   map[string]string{},
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "DEFAULT_PROJECT_ID",
+				Instance: "test-instance",
+				Database: "test-database",
+				Params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
@@ -64,12 +67,12 @@ func TestExtractDnsParts(t *testing.T) {
 		},
 		{
 			input: "localhost:9010/projects/p/instances/i/databases/d",
-			wantConnectorConfig: connectorConfig{
-				host:     "localhost:9010",
-				project:  "p",
-				instance: "i",
-				database: "d",
-				params:   map[string]string{},
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
@@ -78,12 +81,12 @@ func TestExtractDnsParts(t *testing.T) {
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d",
-			wantConnectorConfig: connectorConfig{
-				host:     "spanner.googleapis.com",
-				project:  "p",
-				instance: "i",
-				database: "d",
-				params:   map[string]string{},
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "spanner.googleapis.com",
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
@@ -92,12 +95,12 @@ func TestExtractDnsParts(t *testing.T) {
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?usePlainText=true",
-			wantConnectorConfig: connectorConfig{
-				host:     "spanner.googleapis.com",
-				project:  "p",
-				instance: "i",
-				database: "d",
-				params: map[string]string{
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "spanner.googleapis.com",
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
 					"useplaintext": "true",
 				},
 			},
@@ -109,12 +112,12 @@ func TestExtractDnsParts(t *testing.T) {
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d;credentials=/path/to/credentials.json",
-			wantConnectorConfig: connectorConfig{
-				host:     "spanner.googleapis.com",
-				project:  "p",
-				instance: "i",
-				database: "d",
-				params: map[string]string{
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "spanner.googleapis.com",
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
 					"credentials": "/path/to/credentials.json",
 				},
 			},
@@ -125,12 +128,12 @@ func TestExtractDnsParts(t *testing.T) {
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?credentials=/path/to/credentials.json;readonly=true",
-			wantConnectorConfig: connectorConfig{
-				host:     "spanner.googleapis.com",
-				project:  "p",
-				instance: "i",
-				database: "d",
-				params: map[string]string{
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "spanner.googleapis.com",
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
 					"credentials": "/path/to/credentials.json",
 					"readonly":    "true",
 				},
@@ -142,12 +145,12 @@ func TestExtractDnsParts(t *testing.T) {
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?usePlainText=true;",
-			wantConnectorConfig: connectorConfig{
-				host:     "spanner.googleapis.com",
-				project:  "p",
-				instance: "i",
-				database: "d",
-				params: map[string]string{
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "spanner.googleapis.com",
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
 					"useplaintext": "true",
 				},
 			},
@@ -159,12 +162,12 @@ func TestExtractDnsParts(t *testing.T) {
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?minSessions=200;maxSessions=1000;numChannels=10;disableRouteToLeader=true;enableEndToEndTracing=true;disableNativeMetrics=true;rpcPriority=Medium;optimizerVersion=1;optimizerStatisticsPackage=latest;databaseRole=child",
-			wantConnectorConfig: connectorConfig{
-				host:     "spanner.googleapis.com",
-				project:  "p",
-				instance: "i",
-				database: "d",
-				params: map[string]string{
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "spanner.googleapis.com",
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
 					"minsessions":                "200",
 					"maxsessions":                "1000",
 					"numchannels":                "10",
@@ -207,7 +210,7 @@ func TestExtractDnsParts(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
-			config, err := extractConnectorConfig(tc.input)
+			config, err := ExtractConnectorConfig(tc.input)
 			if err != nil {
 				if tc.wantErr {
 					return
@@ -218,10 +221,10 @@ func TestExtractDnsParts(t *testing.T) {
 					t.Error("did not encounter expected error")
 				}
 				tc.wantConnectorConfig.name = tc.input
-				if diff := cmp.Diff(config, tc.wantConnectorConfig, cmp.AllowUnexported(connectorConfig{})); diff != "" {
+				if diff := cmp.Diff(config, tc.wantConnectorConfig, cmp.AllowUnexported(ConnectorConfig{})); diff != "" {
 					t.Errorf("connector config mismatch for %q\n%v", tc.input, diff)
 				}
-				conn, err := newConnector(&Driver{connectors: make(map[string]*connector)}, tc.input)
+				conn, err := newOrCachedConnector(&Driver{connectors: make(map[string]*connector)}, tc.input)
 				if err != nil {
 					t.Errorf("failed to get connector for %q: %v", tc.input, err)
 				}
@@ -234,10 +237,34 @@ func TestExtractDnsParts(t *testing.T) {
 
 }
 
+func ExampleCreateConnector() {
+	connectorConfig := ConnectorConfig{
+		Project:  "my-project",
+		Instance: "my-instance",
+		Database: "my-database",
+
+		Configurator: func(config *spanner.ClientConfig, opts *[]option.ClientOption) {
+			config.DisableRouteToLeader = true
+		},
+	}
+	c, err := CreateConnector(connectorConfig)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	db := sql.OpenDB(c)
+	// Use the database ...
+
+	defer db.Close()
+}
+
 func TestConnection_Reset(t *testing.T) {
 	txClosed := false
 	c := conn{
-		logger:            noopLogger,
+		logger: noopLogger,
+		connector: &connector{
+			connectorConfig: ConnectorConfig{},
+		},
 		readOnlyStaleness: spanner.ExactStaleness(time.Second),
 		batch:             &batch{tp: dml},
 		commitTs:          &time.Time{},
@@ -371,8 +398,8 @@ func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, time.Time, error) {
-			return 0, time.Time{}, nil
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
+			return &result{}, time.Time{}, nil
 		},
 		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
 			return 0, nil
@@ -405,8 +432,8 @@ func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, time.Time, error) {
-			return 0, time.Time{}, nil
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
+			return &result{}, time.Time{}, nil
 		},
 		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
 			return 0, nil
@@ -486,8 +513,8 @@ func TestConn_GetCommitTimestampAfterAutocommitDml(t *testing.T) {
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, time.Time, error) {
-			return 0, want, nil
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
+			return &result{}, want, nil
 		},
 		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
 			return 0, nil
@@ -512,8 +539,8 @@ func TestConn_GetCommitTimestampAfterAutocommitQuery(t *testing.T) {
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, time.Time, error) {
-			return 0, time.Time{}, nil
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
+			return &result{}, time.Time{}, nil
 		},
 		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
 			return 0, nil
