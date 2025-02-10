@@ -13,3 +13,20 @@
 // limitations under the License.
 
 package spannerdriver
+
+import "cloud.google.com/go/spanner"
+
+type batchType int
+
+const (
+	ddl batchType = iota
+	dml
+)
+
+type batch struct {
+	tp           batchType
+	statements   []spanner.Statement
+	returnValues []int64
+	options      ExecOptions
+	automatic    bool
+}

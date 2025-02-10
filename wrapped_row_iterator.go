@@ -13,3 +13,35 @@
 // limitations under the License.
 
 package spannerdriver
+
+import (
+	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/apiv1/spannerpb"
+	"google.golang.org/api/iterator"
+)
+
+type wrappedRowIterator struct {
+	*spanner.RowIterator
+
+	noRows   bool
+	firstRow *spanner.Row
+}
+
+func (ri *wrappedRowIterator) Next() (*spanner.Row, error) {
+	if ri.noRows {
+		return nil, iterator.Done
+	}
+	if ri.firstRow != nil {
+		defer func() { ri.firstRow = nil }()
+		return ri.firstRow, nil
+	}
+	return ri.RowIterator.Next()
+}
+
+func (ri *wrappedRowIterator) Stop() {
+	ri.RowIterator.Stop()
+}
+
+func (ri *wrappedRowIterator) Metadata() (*spannerpb.ResultSetMetadata, error) {
+	return ri.RowIterator.Metadata, nil
+}

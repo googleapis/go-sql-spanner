@@ -13,3 +13,52 @@
 // limitations under the License.
 
 package spannerdriver
+
+import (
+	"database/sql/driver"
+	"reflect"
+
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+)
+
+/* Copied from types.go in database/sql */
+var valuerReflectType = reflect.TypeOf((*driver.Valuer)(nil)).Elem()
+
+func callValuerValue(vr driver.Valuer) (v driver.Value, err error) {
+	if rv := reflect.ValueOf(vr); rv.Kind() == reflect.Pointer &&
+		rv.IsNil() &&
+		rv.Type().Elem().Implements(valuerReflectType) {
+		return nil, nil
+	}
+	return vr.Value()
+}
+
+/* The following is the same implementation as in google-cloud-go/spanner */
+
+func isStructOrArrayOfStructValue(v interface{}) bool {
+	typ := reflect.TypeOf(v)
+	if typ.Kind() == reflect.Slice {
+		typ = typ.Elem()
+	}
+	if typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+	return typ.Kind() == reflect.Struct
+}
+
+func isAnArrayOfProtoColumn(v interface{}) bool {
+	typ := reflect.TypeOf(v)
+	if typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+	if typ.Kind() == reflect.Slice {
+		typ = typ.Elem()
+	}
+	return typ.Implements(protoMsgReflectType) || typ.Implements(protoEnumReflectType)
+}
+
+var (
+	protoMsgReflectType  = reflect.TypeOf((*proto.Message)(nil)).Elem()
+	protoEnumReflectType = reflect.TypeOf((*protoreflect.Enum)(nil)).Elem()
+)
