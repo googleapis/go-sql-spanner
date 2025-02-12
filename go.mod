@@ -2,7 +2,7 @@ module github.com/googleapis/go-sql-spanner
 
 go 1.22.7
 
-toolchain go1.23.6
+toolchain go1.24.0
 
 require (
 	cloud.google.com/go v0.118.2
