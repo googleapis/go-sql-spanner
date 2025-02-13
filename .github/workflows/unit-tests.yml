@@ -43,6 +43,10 @@ jobs:
         working-directory: ./examples
         run: go vet ./...
 
+      - name: vet ./snippets
+        working-directory: ./snippets
+        run: go vet ./...
+
       - name: vet ./benchmarks
         working-directory: ./benchmarks
         run: go vet ./...
