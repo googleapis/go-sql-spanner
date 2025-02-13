@@ -42,24 +42,24 @@ func DdlBatch(ctx context.Context, w io.Writer, databaseName string) error {
 	}
 	if _, err := conn.ExecContext(ctx,
 		`CREATE TABLE Venues (
-				VenueId     INT64 NOT NULL,
-				Name        STRING(1024),
-				Description JSON,
-			) PRIMARY KEY (VenueId)`); err != nil {
+			VenueId     INT64 NOT NULL,
+			Name        STRING(1024),
+			Description JSON,
+		) PRIMARY KEY (VenueId)`); err != nil {
 		return err
 	}
 	if _, err := conn.ExecContext(ctx,
 		`CREATE TABLE Concerts (
-				ConcertId INT64 NOT NULL,
-				VenueId   INT64 NOT NULL,
-				SingerId  INT64 NOT NULL,
-				StartTime TIMESTAMP,
-				EndTime   TIMESTAMP,
-				CONSTRAINT Fk_Concerts_Venues FOREIGN KEY
-                      (VenueId) REFERENCES Venues (VenueId),
-                CONSTRAINT Fk_Concerts_Singers FOREIGN KEY
-                      (SingerId) REFERENCES Singers (SingerId),
-			) PRIMARY KEY (ConcertId)`); err != nil {
+			ConcertId INT64 NOT NULL,
+			VenueId   INT64 NOT NULL,
+			SingerId  INT64 NOT NULL,
+			StartTime TIMESTAMP,
+			EndTime   TIMESTAMP,
+			CONSTRAINT Fk_Concerts_Venues FOREIGN KEY
+				(VenueId) REFERENCES Venues (VenueId),
+			CONSTRAINT Fk_Concerts_Singers FOREIGN KEY
+				(SingerId) REFERENCES Singers (SingerId),
+		) PRIMARY KEY (ConcertId)`); err != nil {
 		return err
 	}
 	// `run batch` sends the DDL statements to Spanner and blocks until

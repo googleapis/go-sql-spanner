@@ -37,8 +37,10 @@ func WriteWithTransactionUsingDml(ctx context.Context, w io.Writer, databaseName
 	if err != nil {
 		return err
 	}
+	// The Spanner database/sql driver supports both positional and named
+	// query parameters. This query uses named query parameters.
 	const selectSql = "SELECT MarketingBudget " +
-		"from Albums " +
+		"FROM Albums " +
 		"WHERE SingerId = @singerId and AlbumId = @albumId"
 	// Get the marketing_budget of singer 2 / album 2.
 	row := tx.QueryRowContext(ctx, selectSql,

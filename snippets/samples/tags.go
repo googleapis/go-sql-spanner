@@ -45,8 +45,7 @@ func Tags(ctx context.Context, w io.Writer, databaseName string) error {
 	}
 
 	// Pass in an argument of type spannerdriver.ExecOptions to supply
-	// additional options for a statement. This argument will be removed
-	// from the list of arguments that is used as query parameters.
+	// additional options for a statement.
 	row := tx.QueryRowContext(ctx, "SELECT MarketingBudget "+
 		"FROM Albums "+
 		"WHERE SingerId=? and AlbumId=?",

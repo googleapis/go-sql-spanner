@@ -25,9 +25,10 @@ import (
 )
 
 func CreateConnection(ctx context.Context, w io.Writer, databaseName string) error {
-	// The dataSourceName should start with a fully qualified Spanner database name.
+	// The dataSourceName should start with a fully qualified Spanner database name
+	// in the format `projects/my-project/instances/my-instance/databases/my-database`.
 	// Additional properties can be added after the database name by
-	// adding `;name=value`.
+	// adding one or more `;name=value` pairs.
 
 	dsn := fmt.Sprintf("%s;numChannels=8", databaseName)
 	db, err := sql.Open("spanner", dsn)
