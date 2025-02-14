@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.11.1](https://github.com/googleapis/go-sql-spanner/compare/v1.11.0...v1.11.1) (2025-02-14)
+
+
+### Bug Fixes
+
+* Session leak when tx was aborted during commit ([#382](https://github.com/googleapis/go-sql-spanner/issues/382)) ([1bccea5](https://github.com/googleapis/go-sql-spanner/commit/1bccea5dfec553af94a78d22420d71c7b2bda84b)), refs [#380](https://github.com/googleapis/go-sql-spanner/issues/380)
+
+
+### Documentation
+
+* Add samples for getting started guide ([#361](https://github.com/googleapis/go-sql-spanner/issues/361)) ([da4e3c8](https://github.com/googleapis/go-sql-spanner/commit/da4e3c8c1f3adcf2567d45fc89311cb3865bb846))
+
 ## [1.11.0](https://github.com/googleapis/go-sql-spanner/compare/v1.10.1...v1.11.0) (2025-02-10)
 
 
