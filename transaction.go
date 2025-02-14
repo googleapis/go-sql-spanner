@@ -365,6 +365,9 @@ func (tx *readWriteTransaction) Commit() (err error) {
 			commitTs, err = tx.rwTx.Commit(ctx)
 			return err
 		})
+		if err == ErrAbortedDueToConcurrentModification {
+			tx.rwTx.Rollback(context.Background())
+		}
 	}
 	tx.close(&commitTs, err)
 	return err
