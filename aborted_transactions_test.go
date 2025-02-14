@@ -53,6 +53,11 @@ func TestCommitAborted(t *testing.T) {
 	if g, w := len(commitReqs), 2; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
+
+	// Verify that the db is still usable.
+	if _, err := db.ExecContext(ctx, testutil.UpdateSingersSetLastName); err != nil {
+		t.Fatalf("failed to execute statement after transaction: %v", err)
+	}
 }
 
 func TestCommitAbortedWithInternalRetriesDisabled(t *testing.T) {
@@ -79,6 +84,11 @@ func TestCommitAbortedWithInternalRetriesDisabled(t *testing.T) {
 	commitReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitReqs), 1; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+
+	// Verify that the db is still usable.
+	if _, err := db.ExecContext(ctx, testutil.UpdateSingersSetLastName); err != nil {
+		t.Fatalf("failed to execute statement after transaction: %v", err)
 	}
 }
 
@@ -121,6 +131,11 @@ func TestUpdateAborted(t *testing.T) {
 	if g, w := len(commitReqs), 1; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
+
+	// Verify that the db is still usable.
+	if _, err := db.ExecContext(ctx, testutil.UpdateSingersSetLastName); err != nil {
+		t.Fatalf("failed to execute statement after transaction: %v", err)
+	}
 }
 
 func TestBatchUpdateAborted(t *testing.T) {
@@ -160,6 +175,11 @@ func TestBatchUpdateAborted(t *testing.T) {
 	if g, w := len(commitReqs), 1; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
+
+	// Verify that the db is still usable.
+	if _, err := db.ExecContext(ctx, testutil.UpdateSingersSetLastName); err != nil {
+		t.Fatalf("failed to execute statement after transaction: %v", err)
+	}
 }
 
 func TestQueryAborted(t *testing.T) {
@@ -172,7 +192,7 @@ func TestQueryAborted(t *testing.T) {
 
 func TestEmptyQueryAbortedTwice(t *testing.T) {
 	testRetryReadWriteTransactionWithQueryWithRetrySuccess(t, func(server testutil.InMemSpannerServer) {
-		server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
+		_ = server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 			Type:      testutil.StatementResultResultSet,
 			ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{}, "FOO"),
 		})
@@ -243,7 +263,7 @@ func TestQueryConsumedHalfway_RetryContainsMoreResults_CommitAborted(t *testing.
 		})
 	}, codes.OK, 2, 2, 2,
 		func(server testutil.InMemSpannerServer) {
-			server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
+			_ = server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 				Type:      testutil.StatementResultResultSet,
 				ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{1, 2, 3}, "FOO"),
 			})
@@ -253,7 +273,7 @@ func TestQueryConsumedHalfway_RetryContainsMoreResults_CommitAborted(t *testing.
 func TestQueryWithError_CommitAborted(t *testing.T) {
 	testRetryReadWriteTransactionWithQueryWithRetrySuccess(t, func(server testutil.InMemSpannerServer) {
 		// Let the query return a Table not found error.
-		server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
+		_ = server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 			Type: testutil.StatementResultError,
 			Err:  status.Errorf(codes.NotFound, "Table not found"),
 		})
@@ -287,7 +307,7 @@ func TestQueryAbortedWithMoreResultsDuringRetry(t *testing.T) {
 			})
 			// Replace the original query result with a new one with an additional row
 			// before the transaction is committed. This will cause the retry to fail.
-			server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
+			_ = server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 				Type:      testutil.StatementResultResultSet,
 				ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{1, 2, 3}, "FOO"),
 			})
@@ -303,7 +323,7 @@ func TestQueryAbortedWithLessResultsDuringRetry(t *testing.T) {
 			})
 			// Replace the original query result with a new one with an additional row
 			// before the transaction is committed. This will cause the retry to fail.
-			server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
+			_ = server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 				Type:      testutil.StatementResultResultSet,
 				ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{1}, "FOO"),
 			})
@@ -315,7 +335,7 @@ func TestQueryAbortedWithLessResultsDuringRetry(t *testing.T) {
 func TestQueryWithEmptyResult_CommitAborted(t *testing.T) {
 	testRetryReadWriteTransactionWithQueryWithRetrySuccess(t, func(server testutil.InMemSpannerServer) {
 		// Let the query return an empty result set with only one column.
-		server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
+		_ = server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 			Type:      testutil.StatementResultResultSet,
 			ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{}, "FOO"),
 		})
@@ -330,7 +350,7 @@ func TestQueryWithEmptyResult_CommitAborted(t *testing.T) {
 func TestQueryWithNewColumn_CommitAborted(t *testing.T) {
 	testRetryReadWriteTransactionWithQuery(t, func(server testutil.InMemSpannerServer) {
 		// Let the query return an empty result set with only one column.
-		server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
+		_ = server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 			Type:      testutil.StatementResultResultSet,
 			ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{}, "FOO"),
 		})
@@ -341,7 +361,7 @@ func TestQueryWithNewColumn_CommitAborted(t *testing.T) {
 		func(server testutil.InMemSpannerServer) {
 			// Let the query return an empty result set with two columns during the retry.
 			// This should cause a retry failure.
-			server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
+			_ = server.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 				Type:      testutil.StatementResultResultSet,
 				ResultSet: testutil.CreateTwoColumnResultSet([][2]int64{}, [2]string{"FOO", "BAR"}),
 			})
@@ -366,6 +386,7 @@ func testRetryReadWriteTransactionWithQuery(t *testing.T, setupServer func(serve
 
 	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1;maxSessions=1")
 	defer teardown()
+	db.SetMaxOpenConns(1)
 
 	if setupServer != nil {
 		setupServer(server.TestSpanner)
@@ -431,6 +452,12 @@ func testRetryReadWriteTransactionWithQuery(t *testing.T, setupServer func(serve
 	if g, w := len(commitReqs), wantCommitCount; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
+
+	// Execute another statement to ensure that the session that was used
+	// has been returned to the pool.
+	if _, err := db.ExecContext(ctx, testutil.UpdateSingersSetLastName); err != nil {
+		t.Fatalf("failed to execute statement after transaction: %v", err)
+	}
 }
 
 // Tests that a query that is aborted halfway the stream will be retried,
@@ -439,15 +466,17 @@ func testRetryReadWriteTransactionWithQuery(t *testing.T, setupServer func(serve
 func TestQueryAbortedHalfway_WithDifferentResultsInFirstHalf(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnection(t)
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1;maxSessions=1")
 	defer teardown()
+	db.SetMaxOpenConns(1)
 	// Ensure that the second call to Next() will fail with an Aborted error.
 	server.TestSpanner.AddPartialResultSetError(testutil.SelectFooFromBar, testutil.PartialResultSetExecutionTime{
 		ResumeToken: testutil.EncodeResumeToken(2),
 		Err:         status.Error(codes.Aborted, "Aborted"),
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
@@ -477,7 +506,7 @@ func TestQueryAbortedHalfway_WithDifferentResultsInFirstHalf(t *testing.T) {
 	// Replace the original query result with a new one with a different value
 	// for the first row. This should cause the transaction to fail with an
 	// ErrAbortedDueToConcurrentModification error.
-	server.TestSpanner.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 		Type:      testutil.StatementResultResultSet,
 		ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{2, 2}, "FOO"),
 	})
@@ -490,11 +519,19 @@ func TestQueryAbortedHalfway_WithDifferentResultsInFirstHalf(t *testing.T) {
 	if g, w := rows.Err(), ErrAbortedDueToConcurrentModification; g != w {
 		t.Fatalf("next error mismatch\nGot: %v\nWant: %v", g, w)
 	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("failed to rollback transaction: %v", err)
+	}
 
 	reqs := drainRequestsFromServer(server.TestSpanner)
 	execReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(execReqs), 2; g != w {
 		t.Fatalf("execute request count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+
+	// Verify that the db is still usable.
+	if _, err := db.ExecContext(ctx, testutil.UpdateSingersSetLastName); err != nil {
+		t.Fatalf("failed to execute statement after transaction: %v", err)
 	}
 }
 
@@ -503,15 +540,17 @@ func TestQueryAbortedHalfway_WithDifferentResultsInFirstHalf(t *testing.T) {
 func TestQueryAbortedHalfway_WithDifferentResultsInSecondHalf(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnection(t)
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1;maxSessions=1")
 	defer teardown()
+	db.SetMaxOpenConns(1)
 	// Ensure that the second call to Next() will fail with an Aborted error.
 	server.TestSpanner.AddPartialResultSetError(testutil.SelectFooFromBar, testutil.PartialResultSetExecutionTime{
 		ResumeToken: testutil.EncodeResumeToken(2),
 		Err:         status.Error(codes.Aborted, "Aborted"),
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
@@ -542,7 +581,7 @@ func TestQueryAbortedHalfway_WithDifferentResultsInSecondHalf(t *testing.T) {
 	// for the second row. This should not cause the transaction to fail with an
 	// ErrAbortedDueToConcurrentModification error as the result has not yet
 	// been seen by the user.
-	server.TestSpanner.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
 		Type:      testutil.StatementResultResultSet,
 		ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{1, 3}, "FOO"),
 	})
@@ -563,21 +602,31 @@ func TestQueryAbortedHalfway_WithDifferentResultsInSecondHalf(t *testing.T) {
 	if g, w := val, int64(3); g != w {
 		t.Fatalf("value mismatch\nGot: %v\nWant: %v", g, w)
 	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("failed to commit transaction: %v", err)
+	}
 
 	reqs := drainRequestsFromServer(server.TestSpanner)
 	execReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(execReqs), 2; g != w {
 		t.Fatalf("execute request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
+
+	// Verify that the db is still usable.
+	if _, err := db.ExecContext(ctx, testutil.UpdateSingersSetLastName); err != nil {
+		t.Fatalf("failed to execute statement after transaction: %v", err)
+	}
 }
 
 func TestSecondUpdateAborted(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnection(t)
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1;maxSessions=1")
 	defer teardown()
+	db.SetMaxOpenConns(1)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
@@ -619,15 +668,22 @@ func TestSecondUpdateAborted(t *testing.T) {
 	if g, w := len(commitReqs), 1; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
+
+	// Verify that the db is still usable.
+	if _, err := db.ExecContext(ctx, testutil.UpdateSingersSetLastName); err != nil {
+		t.Fatalf("failed to execute statement after transaction: %v", err)
+	}
 }
 
 func TestSecondBatchUpdateAborted(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnection(t)
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1;maxSessions=1")
 	defer teardown()
+	db.SetMaxOpenConns(1)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
@@ -671,20 +727,27 @@ func TestSecondBatchUpdateAborted(t *testing.T) {
 	if g, w := len(commitReqs), 1; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
+
+	// Verify that the db is still usable.
+	if _, err := db.ExecContext(ctx, testutil.UpdateSingersSetLastName); err != nil {
+		t.Fatalf("failed to execute statement after transaction: %v", err)
+	}
 }
 
 func TestSecondUpdateAborted_FirstStatementWithSameError(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnection(t)
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1;maxSessions=1")
 	defer teardown()
+	db.SetMaxOpenConns(1)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
 	}
-	server.TestSpanner.PutStatementResult(testutil.UpdateSingersSetLastName, &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult(testutil.UpdateSingersSetLastName, &testutil.StatementResult{
 		Type: testutil.StatementResultError,
 		Err:  status.Error(codes.NotFound, "Table not found"),
 	})
@@ -725,6 +788,11 @@ func TestSecondUpdateAborted_FirstStatementWithSameError(t *testing.T) {
 	commitReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitReqs), 1; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+
+	// Verify that the db is still usable.
+	if _, err := db.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("failed to execute statement after transaction: %v", err)
 	}
 }
 
@@ -769,13 +837,14 @@ func TestSecondUpdateAborted_FirstResultFromErrorToOtherError(t *testing.T) {
 func testSecondUpdateAborted_FirstResultChanged(t *testing.T, firstResult *testutil.StatementResult, secondResult *testutil.StatementResult) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnection(t)
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1;maxSessions=1")
 	defer teardown()
 	if firstResult != nil {
-		server.TestSpanner.PutStatementResult(testutil.UpdateSingersSetLastName, firstResult)
+		_ = server.TestSpanner.PutStatementResult(testutil.UpdateSingersSetLastName, firstResult)
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
@@ -784,7 +853,7 @@ func testSecondUpdateAborted_FirstResultChanged(t *testing.T, firstResult *testu
 	// the result is different during the retry.
 	_, _ = tx.ExecContext(ctx, testutil.UpdateSingersSetLastName)
 	// Update the result to simulate a different result during the retry.
-	server.TestSpanner.PutStatementResult(testutil.UpdateSingersSetLastName, secondResult)
+	_ = server.TestSpanner.PutStatementResult(testutil.UpdateSingersSetLastName, secondResult)
 
 	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
 		Errors: []error{status.Error(codes.Aborted, "Aborted")},
@@ -795,27 +864,37 @@ func testSecondUpdateAborted_FirstResultChanged(t *testing.T, firstResult *testu
 	if err != ErrAbortedDueToConcurrentModification {
 		t.Fatalf("update error mismatch\nGot: %v\nWant: %v", err, ErrAbortedDueToConcurrentModification)
 	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("failed to rollback transaction: %v", err)
+	}
 	reqs := drainRequestsFromServer(server.TestSpanner)
 	execReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	// The server should receive 3 execute statements, as only the first statement is retried.
 	if g, w := len(execReqs), 3; g != w {
 		t.Fatalf("execute request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
+
+	// Verify that the db is still usable.
+	if _, err := db.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("failed to execute statement after transaction: %v", err)
+	}
 }
 
 func TestBatchUpdateAbortedWithError(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnection(t)
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1;maxSessions=1")
 	defer teardown()
+	db.SetMaxOpenConns(1)
 
 	// Make sure that one of the DML statements will return an error.
-	server.TestSpanner.PutStatementResult(testutil.UpdateSingersSetLastName, &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult(testutil.UpdateSingersSetLastName, &testutil.StatementResult{
 		Type: testutil.StatementResultError,
 		Err:  status.Error(codes.NotFound, "Table not found"),
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
@@ -858,21 +937,28 @@ func TestBatchUpdateAbortedWithError(t *testing.T) {
 	if g, w := len(commitReqs), 2; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
+
+	// Verify that the db is still usable.
+	if _, err := db.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("failed to execute statement after transaction: %v", err)
+	}
 }
 
 func TestBatchUpdateAbortedWithError_DifferentRowCountDuringRetry(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnection(t)
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1;maxSessions=1")
 	defer teardown()
+	db.SetMaxOpenConns(1)
 
 	// Make sure that one of the DML statements will return an error.
-	server.TestSpanner.PutStatementResult(testutil.UpdateSingersSetLastName, &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult(testutil.UpdateSingersSetLastName, &testutil.StatementResult{
 		Type: testutil.StatementResultError,
 		Err:  status.Error(codes.NotFound, "Table not found"),
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
@@ -895,7 +981,7 @@ func TestBatchUpdateAbortedWithError_DifferentRowCountDuringRetry(t *testing.T) 
 
 	// Change the returned row count of the first DML statement. This will cause
 	// the retry to fail.
-	server.TestSpanner.PutStatementResult(testutil.UpdateBarSetFoo, &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult(testutil.UpdateBarSetFoo, &testutil.StatementResult{
 		Type:        testutil.StatementResultUpdateCount,
 		UpdateCount: testutil.UpdateBarSetFooRowCount + 1,
 	})
@@ -916,21 +1002,28 @@ func TestBatchUpdateAbortedWithError_DifferentRowCountDuringRetry(t *testing.T) 
 	if g, w := len(commitReqs), 1; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
+
+	// Verify that the db is still usable.
+	if _, err := db.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("failed to execute statement after transaction: %v", err)
+	}
 }
 
 func TestBatchUpdateAbortedWithError_DifferentErrorDuringRetry(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnection(t)
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1;maxSessions=1")
 	defer teardown()
+	db.SetMaxOpenConns(1)
 
 	// Make sure that one of the DML statements will return an error.
-	server.TestSpanner.PutStatementResult(testutil.UpdateSingersSetLastName, &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult(testutil.UpdateSingersSetLastName, &testutil.StatementResult{
 		Type: testutil.StatementResultError,
 		Err:  status.Error(codes.NotFound, "Table not found"),
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
@@ -947,7 +1040,7 @@ func TestBatchUpdateAbortedWithError_DifferentErrorDuringRetry(t *testing.T) {
 
 	// Remove the error for the DML statement and cause a retry. The missing
 	// error for the DML statement should fail the retry.
-	server.TestSpanner.PutStatementResult(testutil.UpdateSingersSetLastName, &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult(testutil.UpdateSingersSetLastName, &testutil.StatementResult{
 		Type:        testutil.StatementResultUpdateCount,
 		UpdateCount: testutil.UpdateSingersSetLastNameRowCount,
 	})
@@ -968,13 +1061,19 @@ func TestBatchUpdateAbortedWithError_DifferentErrorDuringRetry(t *testing.T) {
 	if g, w := len(commitReqs), 1; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
+
+	// Verify that the db is still usable.
+	if _, err := db.ExecContext(ctx, testutil.UpdateSingersSetLastName); err != nil {
+		t.Fatalf("failed to execute statement after transaction: %v", err)
+	}
 }
 
 func TestLastInsertId(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnection(t)
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1;maxSessions=1")
 	defer teardown()
+	db.SetMaxOpenConns(1)
 
 	query := "insert into singers (name) values ('foo') then return id"
 	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
@@ -983,7 +1082,8 @@ func TestLastInsertId(t *testing.T) {
 		UpdateCount: 1,
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
@@ -1005,13 +1105,19 @@ func TestLastInsertId(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
+
+	// Verify that the db is still usable.
+	if _, err := db.ExecContext(ctx, testutil.UpdateSingersSetLastName); err != nil {
+		t.Fatalf("failed to execute statement after transaction: %v", err)
+	}
 }
 
 func TestLastInsertIdChanged(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnection(t)
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1;maxSessions=1")
 	defer teardown()
+	db.SetMaxOpenConns(1)
 
 	query := "insert into singers (name) values ('foo') then return id"
 	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
@@ -1020,7 +1126,8 @@ func TestLastInsertIdChanged(t *testing.T) {
 		UpdateCount: 1,
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
@@ -1050,6 +1157,11 @@ func TestLastInsertIdChanged(t *testing.T) {
 	})
 	if err := tx.Commit(); err != ErrAbortedDueToConcurrentModification {
 		t.Fatalf("commit error mismatch\n Got: %v\nWant: %v", err, ErrAbortedDueToConcurrentModification)
+	}
+
+	// Verify that the db is still usable.
+	if _, err := db.ExecContext(ctx, testutil.UpdateSingersSetLastName); err != nil {
+		t.Fatalf("failed to execute statement after transaction: %v", err)
 	}
 }
 
