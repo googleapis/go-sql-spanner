@@ -233,14 +233,10 @@ initial attempt and the retry attempt, the Aborted error will be propagated
 to the client application as an `spannerdriver.ErrAbortedDueToConcurrentModification`
 error.
 
-## [Go Versions Supported](#supported-versions)
+## Go Versions Supported
 
-Our libraries are compatible with at least the three most recent, major Go
-releases. They are currently compatible with:
-
-- Go 1.23
-- Go 1.22
-- Go 1.21
+The Spanner database/sql driver follows the [Go release policy](https://go.dev/doc/devel/release)
+and supports the two latest major Go versions.
 
 ## Authorization
 
