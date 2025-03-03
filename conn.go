@@ -500,6 +500,7 @@ func (c *conn) runDDLBatch(ctx context.Context) (driver.Result, error) {
 func (c *conn) runDMLBatch(ctx context.Context) (driver.Result, error) {
 	statements := c.batch.statements
 	options := c.batch.options
+	options.QueryOptions.LastStatement = true
 	c.batch = nil
 	return c.execBatchDML(ctx, statements, options)
 }
@@ -1052,6 +1053,7 @@ func (c *conn) executeAutoPartitionedQuery(ctx context.Context, query string, ar
 
 func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (rowIterator, time.Time, error) {
 	var result *wrappedRowIterator
+	options.QueryOptions.LastStatement = true
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
 		it := tx.QueryWithOptions(ctx, statement, options.QueryOptions)
 		row, err := it.Next()
@@ -1082,6 +1084,7 @@ var errInvalidDmlForExecContext = spanner.ToSpannerError(status.Error(codes.Fail
 
 func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
 	var res *result
+	options.QueryOptions.LastStatement = true
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
 		var err error
 		res, err = execTransactionalDML(ctx, tx, statement, statementInfo, options.QueryOptions)

@@ -466,6 +466,9 @@ func TestSimpleReadWriteTransaction(t *testing.T) {
 	if req.Transaction.GetId() == nil {
 		t.Fatalf("missing id selector for ExecuteSqlRequest")
 	}
+	if req.LastStatement {
+		t.Fatalf("last statement set for ExecuteSqlRequest")
+	}
 	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
@@ -1777,6 +1780,9 @@ func TestDmlInAutocommit(t *testing.T) {
 	if _, ok := req.Transaction.Selector.(*sppb.TransactionSelector_Begin); !ok {
 		t.Fatalf("unsupported transaction type %T", req.Transaction.Selector)
 	}
+	if !req.LastStatement {
+		t.Fatal("missing LastStatement for ExecuteSqlRequest")
+	}
 	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
@@ -1961,6 +1967,9 @@ func TestDmlReturningInAutocommit(t *testing.T) {
 		sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 		if g, w := len(sqlRequests), 1; g != w {
 			t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
+		}
+		if !sqlRequests[0].(*sppb.ExecuteSqlRequest).LastStatement {
+			t.Fatal("missing LastStatement for ExecuteSqlRequest")
 		}
 		commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 		if g, w := len(commitRequests), 1; g != w {
@@ -2536,6 +2545,9 @@ func TestAutocommitBatchDml(t *testing.T) {
 	if len(batchRequests) != 1 {
 		t.Fatalf("BatchDML requests count mismatch\nGot: %v\nWant: %v", len(batchRequests), 1)
 	}
+	if !batchRequests[0].(*sppb.ExecuteBatchDmlRequest).LastStatements {
+		t.Fatal("last statements flag not set")
+	}
 	// The transaction should also have been committed.
 	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if len(commitRequests) != 1 {
@@ -2619,6 +2631,9 @@ func TestTransactionBatchDml(t *testing.T) {
 	batchRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	if len(batchRequests) != 1 {
 		t.Fatalf("BatchDML requests count mismatch\nGot: %v\nWant: %v", len(batchRequests), 1)
+	}
+	if batchRequests[0].(*sppb.ExecuteBatchDmlRequest).LastStatements {
+		t.Fatal("last statements flag set")
 	}
 	// The transaction should still be active.
 	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
