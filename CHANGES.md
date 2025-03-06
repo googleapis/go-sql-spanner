@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.2](https://github.com/googleapis/go-sql-spanner/compare/v1.11.1...v1.11.2) (2025-03-06)
+
+
+### Performance Improvements
+
+* Use last_statement optimization for auto-commit ([#387](https://github.com/googleapis/go-sql-spanner/issues/387)) ([21f4923](https://github.com/googleapis/go-sql-spanner/commit/21f4923ce1536f2b6e99973d6d804a277f5af863))
+
 ## [1.11.1](https://github.com/googleapis/go-sql-spanner/compare/v1.11.0...v1.11.1) (2025-02-14)
 
 
