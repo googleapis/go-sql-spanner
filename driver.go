@@ -135,6 +135,10 @@ type ExecOptions struct {
 	// PartitionedQueryOptions are used for partitioned queries, and ignored
 	// for all other statements.
 	PartitionedQueryOptions PartitionedQueryOptions
+
+	// AutoCommitDMLMode determines the type of transaction that DML statements
+	// that are executed outside explicit transactions use.
+	AutocommitDMLMode AutocommitDMLMode
 }
 
 type DecodeOption int
@@ -876,6 +880,8 @@ type AutocommitDMLMode int
 
 func (mode AutocommitDMLMode) String() string {
 	switch mode {
+	case Unspecified:
+		return "Unspecified"
 	case Transactional:
 		return "Transactional"
 	case PartitionedNonAtomic:
@@ -885,7 +891,16 @@ func (mode AutocommitDMLMode) String() string {
 }
 
 const (
-	Transactional AutocommitDMLMode = iota
+	// Unspecified DML mode uses the default of the current connection.
+	Unspecified AutocommitDMLMode = iota
+
+	// Transactional DML mode uses a regular, atomic read/write transaction to
+	// execute the DML statement.
+	Transactional
+
+	// PartitionedNonAtomic mode uses a Partitioned DML transaction to execute
+	// the DML statement. Partitioned DML transactions are not guaranteed to be
+	// atomic, but allow the statement to exceed the transactional mutation limit.
 	PartitionedNonAtomic
 )
 

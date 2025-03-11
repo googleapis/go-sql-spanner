@@ -283,6 +283,9 @@ func (c *conn) AutocommitDMLMode() AutocommitDMLMode {
 }
 
 func (c *conn) SetAutocommitDMLMode(mode AutocommitDMLMode) error {
+	if mode == Unspecified {
+		return spanner.ToSpannerError(status.Error(codes.InvalidArgument, "autocommit dml mode cannot be unspecified"))
+	}
 	_, err := c.setAutocommitDMLMode(mode)
 	return err
 }
@@ -815,17 +818,21 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 			c.batch.statements = append(c.batch.statements, ss)
 			res = &result{}
 		} else {
-			if c.autocommitDMLMode == Transactional {
+			dmlMode := c.autocommitDMLMode
+			if execOptions.AutocommitDMLMode != Unspecified {
+				dmlMode = execOptions.AutocommitDMLMode
+			}
+			if dmlMode == Transactional {
 				res, commitTs, err = c.execSingleDMLTransactional(ctx, c.client, ss, statementInfo, execOptions)
 				if err == nil {
 					c.commitTs = &commitTs
 				}
-			} else if c.autocommitDMLMode == PartitionedNonAtomic {
+			} else if dmlMode == PartitionedNonAtomic {
 				var rowsAffected int64
 				rowsAffected, err = c.execSingleDMLPartitioned(ctx, c.client, ss, execOptions)
 				res = &result{rowsAffected: rowsAffected}
 			} else {
-				return nil, status.Errorf(codes.FailedPrecondition, "connection in invalid state for DML statements: %s", c.autocommitDMLMode.String())
+				return nil, status.Errorf(codes.FailedPrecondition, "invalid dml mode: %s", dmlMode.String())
 			}
 		}
 	} else {
