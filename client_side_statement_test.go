@@ -151,7 +151,8 @@ func TestStatementExecutor_RetryAbortsInternally(t *testing.T) {
 }
 
 func TestStatementExecutor_AutocommitDmlMode(t *testing.T) {
-	c := &conn{logger: noopLogger}
+	c := &conn{logger: noopLogger, connector: &connector{}}
+	_ = c.ResetSession(context.Background())
 	s := &statementExecutor{}
 	ctx := context.Background()
 	for i, test := range []struct {
