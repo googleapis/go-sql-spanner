@@ -4227,6 +4227,21 @@ func TestRunTransactionCommitError(t *testing.T) {
 	}
 }
 
+func TestRunTransactionPanics(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	err := RunTransaction(ctx, db, nil, func(ctx context.Context, tx *sql.Tx) error {
+		panic(nil)
+	})
+	if err == nil {
+		t.Fatal("missing error from transaction runner")
+	}
+}
+
 func TestTransactionWithLevelDisableRetryAborts(t *testing.T) {
 	t.Parallel()
 
