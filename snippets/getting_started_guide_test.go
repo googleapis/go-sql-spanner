@@ -44,7 +44,6 @@ func TestSamples(t *testing.T) {
 			emulator.Terminate(context.Background())
 		}
 		t.Fatalf("failed to start emulator: %v", err)
-
 	}
 	defer emulator.Terminate(context.Background())
 
@@ -107,7 +106,7 @@ func startEmulator(projectID, instanceID, databaseID string) (testcontainers.Con
 		return emulator, fmt.Errorf("failed to get mapped port: %v", err)
 	}
 	port := mappedPort.Int()
-	// Set the env var to connec to the emulator.
+	// Set the env var to connect to the emulator.
 	if err := os.Setenv("SPANNER_EMULATOR_HOST", fmt.Sprintf("%s:%v", host, port)); err != nil {
 		return emulator, fmt.Errorf("failed to set env var for emulator: %v", err)
 	}
