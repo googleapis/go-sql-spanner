@@ -393,8 +393,9 @@ func TestConn_StartBatchDml(t *testing.T) {
 
 func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 	c := &conn{
-		logger: noopLogger,
-		batch:  &batch{tp: ddl},
+		logger:            noopLogger,
+		autocommitDMLMode: Transactional,
+		batch:             &batch{tp: ddl},
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
@@ -509,7 +510,8 @@ func TestConn_GetBatchedStatements(t *testing.T) {
 func TestConn_GetCommitTimestampAfterAutocommitDml(t *testing.T) {
 	want := time.Now()
 	c := &conn{
-		logger: noopLogger,
+		logger:            noopLogger,
+		autocommitDMLMode: Transactional,
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},

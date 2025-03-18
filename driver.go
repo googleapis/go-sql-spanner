@@ -140,6 +140,10 @@ type ExecOptions struct {
 	// PartitionedQueryOptions are used for partitioned queries, and ignored
 	// for all other statements.
 	PartitionedQueryOptions PartitionedQueryOptions
+
+	// AutoCommitDMLMode determines the type of transaction that DML statements
+	// that are executed outside explicit transactions use.
+	AutocommitDMLMode AutocommitDMLMode
 }
 
 type DecodeOption int
@@ -205,6 +209,16 @@ type ConnectorConfig struct {
 	Project  string
 	Instance string
 	Database string
+
+	// AutoConfigEmulator automatically creates a connection for the emulator
+	// and also automatically creates the Instance and Database on the emulator.
+	// Setting this option to true will:
+	// 1. Set the SPANNER_EMULATOR_HOST environment variable to either Host or
+	//    'localhost:9010' if no other host has been set.
+	// 2. Use plain text communication and NoCredentials.
+	// 3. Automatically create the Instance and the Database on the emulator if
+	//    any of those do not yet exist.
+	AutoConfigEmulator bool
 
 	// Params contains key/value pairs for commonly used configuration parameters
 	// for connections. The valid values are the same as the parameters that can
@@ -453,6 +467,11 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			connectorConfig.DecodeToNativeArrays = val
 		}
 	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("AutoConfigEmulator")]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			connectorConfig.AutoConfigEmulator = val
+		}
+	}
 
 	// Check if it is Spanner gorm that is creating the connection.
 	// If so, we should set a different user-agent header than the
@@ -487,6 +506,11 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	logger = logger.With("config", &connectorConfig)
 	if connectorConfig.Configurator != nil {
 		connectorConfig.Configurator(&config, &opts)
+	}
+	if connectorConfig.AutoConfigEmulator {
+		if err := autoConfigEmulator(context.Background(), connectorConfig.Host, connectorConfig.Project, connectorConfig.Instance, connectorConfig.Database); err != nil {
+			return nil, err
+		}
 	}
 
 	c := &connector{
@@ -726,7 +750,7 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		return err
 	}
 	for {
-		err = f(ctx, tx)
+		err = protected(ctx, tx, f)
 		errDuringCommit := false
 		if err == nil {
 			err = tx.Commit()
@@ -779,6 +803,15 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 			}
 		}
 	}
+
+}
+func protected(ctx context.Context, tx *sql.Tx, f func(ctx context.Context, tx *sql.Tx) error) (err error) {
+	defer func() {
+		if x := recover(); x != nil {
+			err = spanner.ToSpannerError(status.Errorf(codes.Unknown, "transaction function panic: %v", x))
+		}
+	}()
+	return f(ctx, tx)
 }
 
 func resetTransactionForRetry(ctx context.Context, conn *sql.Conn, errDuringCommit bool) error {
@@ -913,6 +946,8 @@ type AutocommitDMLMode int
 
 func (mode AutocommitDMLMode) String() string {
 	switch mode {
+	case Unspecified:
+		return "Unspecified"
 	case Transactional:
 		return "Transactional"
 	case PartitionedNonAtomic:
@@ -922,7 +957,16 @@ func (mode AutocommitDMLMode) String() string {
 }
 
 const (
-	Transactional AutocommitDMLMode = iota
+	// Unspecified DML mode uses the default of the current connection.
+	Unspecified AutocommitDMLMode = iota
+
+	// Transactional DML mode uses a regular, atomic read/write transaction to
+	// execute the DML statement.
+	Transactional
+
+	// PartitionedNonAtomic mode uses a Partitioned DML transaction to execute
+	// the DML statement. Partitioned DML transactions are not guaranteed to be
+	// atomic, but allow the statement to exceed the transactional mutation limit.
 	PartitionedNonAtomic
 )
 
