@@ -21,10 +21,12 @@ import (
 	"encoding/gob"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"time"
 
 	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
+	"github.com/googleapis/gax-go/v2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -314,11 +316,22 @@ func (tx *readWriteTransaction) runWithRetry(ctx context.Context, f func(ctx con
 			return
 		}
 		if spanner.ErrCode(err) == codes.Aborted {
+			delay, ok := spanner.ExtractRetryDelay(err)
+			if !ok {
+				delay = tx.randomRetryDelay()
+			}
+			if err := gax.Sleep(ctx, delay); err != nil {
+				return err
+			}
 			err = tx.retry(ctx)
 			continue
 		}
 		return
 	}
+}
+
+func (tx *readWriteTransaction) randomRetryDelay() time.Duration {
+	return time.Millisecond*time.Duration(rand.Int31n(30)) + time.Millisecond
 }
 
 // retry retries the entire read/write transaction on a new Spanner transaction.
