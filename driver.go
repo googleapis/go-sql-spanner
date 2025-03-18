@@ -205,6 +205,16 @@ type ConnectorConfig struct {
 	Instance string
 	Database string
 
+	// AutoConfigEmulator automatically creates a connection for the emulator
+	// and also automatically creates the Instance and Database on the emulator.
+	// Setting this option to true will:
+	// 1. Set the SPANNER_EMULATOR_HOST environment variable to either Host or
+	//    'localhost:9010' if no other host has been set.
+	// 2. Use plain text communication and NoCredentials.
+	// 3. Automatically create the Instance and the Database on the emulator if
+	//    any of those do not yet exist.
+	AutoConfigEmulator bool
+
 	// Params contains key/value pairs for commonly used configuration parameters
 	// for connections. The valid values are the same as the parameters that can
 	// be added to a connection string.
@@ -452,6 +462,11 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			connectorConfig.DecodeToNativeArrays = val
 		}
 	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("AutoConfigEmulator")]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			connectorConfig.AutoConfigEmulator = val
+		}
+	}
 	config.UserAgent = userAgent
 	var logger *slog.Logger
 	if connectorConfig.logger == nil {
@@ -467,6 +482,11 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	logger = logger.With("config", &connectorConfig)
 	if connectorConfig.Configurator != nil {
 		connectorConfig.Configurator(&config, &opts)
+	}
+	if connectorConfig.AutoConfigEmulator {
+		if err := autoConfigEmulator(context.Background(), connectorConfig.Host, connectorConfig.Project, connectorConfig.Instance, connectorConfig.Database); err != nil {
+			return nil, err
+		}
 	}
 
 	c := &connector{
