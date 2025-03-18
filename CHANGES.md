@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.12.0](https://github.com/googleapis/go-sql-spanner/compare/v1.11.2...v1.12.0) (2025-03-18)
+
+
+### Features
+
+* Add AutoConfigEmulator option ([#395](https://github.com/googleapis/go-sql-spanner/issues/395)) ([4193437](https://github.com/googleapis/go-sql-spanner/commit/4193437f27b419aecc7e2669543f3c931953fcc3)), refs [#384](https://github.com/googleapis/go-sql-spanner/issues/384)
+* Partitioned DML as ExecOption ([#393](https://github.com/googleapis/go-sql-spanner/issues/393)) ([ac2f7f2](https://github.com/googleapis/go-sql-spanner/commit/ac2f7f29979d026619cfded186b67714d540011c)), refs [#378](https://github.com/googleapis/go-sql-spanner/issues/378)
+* Use retry delay for aborted read/write transactions ([#398](https://github.com/googleapis/go-sql-spanner/issues/398)) ([b357353](https://github.com/googleapis/go-sql-spanner/commit/b357353b089c757c5f33d693bb18505902f5b307))
+
+
+### Bug Fixes
+
+* Protect transaction runner from panic in tx func ([#394](https://github.com/googleapis/go-sql-spanner/issues/394)) ([0dc0845](https://github.com/googleapis/go-sql-spanner/commit/0dc0845e56ca8a97fd76b6513c00fde87e67b939)), refs [#386](https://github.com/googleapis/go-sql-spanner/issues/386)
+
 ## [1.11.2](https://github.com/googleapis/go-sql-spanner/compare/v1.11.1...v1.11.2) (2025-03-06)
 
 

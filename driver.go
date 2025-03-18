@@ -41,7 +41,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const userAgent = "go-sql-spanner/1.11.2" // x-release-please-version
+const userAgent = "go-sql-spanner/1.12.0" // x-release-please-version
 
 // LevelNotice is the default logging level that the Spanner database/sql driver
 // uses for informational logs. This level is deliberately chosen to be one level
