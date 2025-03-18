@@ -693,7 +693,7 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		return err
 	}
 	for {
-		err = f(ctx, tx)
+		err = protected(ctx, tx, f)
 		errDuringCommit := false
 		if err == nil {
 			err = tx.Commit()
@@ -746,6 +746,15 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 			}
 		}
 	}
+
+}
+func protected(ctx context.Context, tx *sql.Tx, f func(ctx context.Context, tx *sql.Tx) error) (err error) {
+	defer func() {
+		if x := recover(); x != nil {
+			err = spanner.ToSpannerError(status.Errorf(codes.Unknown, "transaction function panic: %v", x))
+		}
+	}()
+	return f(ctx, tx)
 }
 
 func resetTransactionForRetry(ctx context.Context, conn *sql.Conn, errDuringCommit bool) error {
