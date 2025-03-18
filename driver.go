@@ -23,6 +23,8 @@ import (
 	"log/slog"
 	"math/big"
 	"regexp"
+	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,6 +44,9 @@ import (
 )
 
 const userAgent = "go-sql-spanner/1.11.2" // x-release-please-version
+
+const gormModule = "github.com/googleapis/go-gorm-spanner"
+const gormUserAgent = "go-gorm-spanner"
 
 // LevelNotice is the default logging level that the Spanner database/sql driver
 // uses for informational logs. This level is deliberately chosen to be one level
@@ -467,7 +472,15 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			connectorConfig.AutoConfigEmulator = val
 		}
 	}
-	config.UserAgent = userAgent
+
+	// Check if it is Spanner gorm that is creating the connection.
+	// If so, we should set a different user-agent header than the
+	// default go-sql-spanner header.
+	if isConnectionFromGorm() {
+		config.UserAgent = spannerGormHeader()
+	} else {
+		config.UserAgent = userAgent
+	}
 	var logger *slog.Logger
 	if connectorConfig.logger == nil {
 		d := slog.Default()
@@ -498,6 +511,34 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		retryAbortsInternally: retryAbortsInternally,
 	}
 	return c, nil
+}
+
+func isConnectionFromGorm() bool {
+	callers := make([]uintptr, 20)
+	length := runtime.Callers(0, callers)
+	frames := runtime.CallersFrames(callers[0:length])
+	gorm := false
+	for frame, more := frames.Next(); more; {
+		if strings.HasPrefix(frame.Function, gormModule) {
+			gorm = true
+			break
+		}
+		frame, more = frames.Next()
+	}
+	return gorm
+}
+
+func spannerGormHeader() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return gormUserAgent
+	}
+	for _, module := range info.Deps {
+		if module.Path == gormModule {
+			return fmt.Sprintf("%s/%s", gormUserAgent, module.Version)
+		}
+	}
+	return gormUserAgent
 }
 
 func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
