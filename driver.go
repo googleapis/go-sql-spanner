@@ -476,18 +476,7 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	// Check if it is Spanner gorm that is creating the connection.
 	// If so, we should set a different user-agent header than the
 	// default go-sql-spanner header.
-	callers := make([]uintptr, 20)
-	length := runtime.Callers(0, callers)
-	frames := runtime.CallersFrames(callers[0:length])
-	gorm := false
-	for frame, more := frames.Next(); more; {
-		if strings.HasPrefix(frame.Function, gormModule) {
-			gorm = true
-			break
-		}
-		frame, more = frames.Next()
-	}
-	if gorm {
+	if isConnectionFromGorm() {
 		config.UserAgent = spannerGormHeader()
 	} else {
 		config.UserAgent = userAgent
@@ -522,6 +511,21 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		retryAbortsInternally: retryAbortsInternally,
 	}
 	return c, nil
+}
+
+func isConnectionFromGorm() bool {
+	callers := make([]uintptr, 20)
+	length := runtime.Callers(0, callers)
+	frames := runtime.CallersFrames(callers[0:length])
+	gorm := false
+	for frame, more := frames.Next(); more; {
+		if strings.HasPrefix(frame.Function, gormModule) {
+			gorm = true
+			break
+		}
+		frame, more = frames.Next()
+	}
+	return gorm
 }
 
 func spannerGormHeader() string {
