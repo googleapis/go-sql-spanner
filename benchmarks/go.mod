@@ -7,11 +7,11 @@ toolchain go1.24.1
 replace github.com/googleapis/go-sql-spanner => ../
 
 require (
-	cloud.google.com/go v0.119.0
+	cloud.google.com/go v0.120.0
 	cloud.google.com/go/spanner v1.77.0
 	github.com/google/uuid v1.6.0
-	github.com/googleapis/go-sql-spanner v1.11.2
-	google.golang.org/api v0.226.0
+	github.com/googleapis/go-sql-spanner v1.12.0
+	google.golang.org/api v0.227.0
 	google.golang.org/grpc v1.71.0
 	google.golang.org/protobuf v1.36.5
 )
