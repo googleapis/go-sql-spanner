@@ -5,14 +5,14 @@ go 1.23.0
 toolchain go1.24.1
 
 require (
-	cloud.google.com/go v0.119.0
+	cloud.google.com/go v0.120.0
 	cloud.google.com/go/longrunning v0.6.6
 	cloud.google.com/go/spanner v1.77.0
 	github.com/golang/protobuf v1.5.4
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/gax-go/v2 v2.14.1
-	google.golang.org/api v0.226.0
+	google.golang.org/api v0.227.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250313205543-e70fdf4c4cb4
 	google.golang.org/grpc v1.71.0
 	google.golang.org/protobuf v1.36.5
