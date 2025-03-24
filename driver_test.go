@@ -234,7 +234,61 @@ func TestExtractDnsParts(t *testing.T) {
 			}
 		})
 	}
+}
 
+func TestToProtoIsolationLevel(t *testing.T) {
+	tests := []struct {
+		input   sql.IsolationLevel
+		want    spannerpb.TransactionOptions_IsolationLevel
+		wantErr bool
+	}{
+		{
+			input: sql.LevelSerializable,
+			want:  spannerpb.TransactionOptions_SERIALIZABLE,
+		},
+		{
+			input: sql.LevelRepeatableRead,
+			want:  spannerpb.TransactionOptions_REPEATABLE_READ,
+		},
+		{
+			input: sql.LevelSnapshot,
+			want:  spannerpb.TransactionOptions_REPEATABLE_READ,
+		},
+		{
+			input: sql.LevelDefault,
+			want:  spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED,
+		},
+		{
+			input:   sql.LevelReadUncommitted,
+			wantErr: true,
+		},
+		{
+			input:   sql.LevelReadCommitted,
+			wantErr: true,
+		},
+		{
+			input:   sql.LevelWriteCommitted,
+			wantErr: true,
+		},
+		{
+			input:   sql.LevelLinearizable,
+			wantErr: true,
+		},
+		{
+			input:   sql.IsolationLevel(1000),
+			wantErr: true,
+		},
+	}
+	for i, test := range tests {
+		g, err := toProtoIsolationLevel(test.input)
+		if test.wantErr && err == nil {
+			t.Errorf("test %d: expected error for input %v, got none", i, test.input)
+		} else if !test.wantErr && err != nil {
+			t.Errorf("test %d: unexpected error for input %v: %v", i, test.input, err)
+		} else if g != test.want {
+			t.Errorf("test %d:\n Got: %v\nWant: %v", i, g, test.want)
+		}
+	}
 }
 
 func ExampleCreateConnector() {
