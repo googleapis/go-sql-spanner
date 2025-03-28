@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.13.0](https://github.com/googleapis/go-sql-spanner/compare/v1.12.0...v1.13.0) (2025-03-28)
+
+
+### Features
+
+* Support default isolation level for connection ([#404](https://github.com/googleapis/go-sql-spanner/issues/404)) ([219fe6e](https://github.com/googleapis/go-sql-spanner/commit/219fe6e272455db1c2e9b479acaf1bf51fb9d917))
+* Support isolation level REPEATABLE READ ([#403](https://github.com/googleapis/go-sql-spanner/issues/403)) ([95ef5f3](https://github.com/googleapis/go-sql-spanner/commit/95ef5f34db8abf2c77c30e1991b7b6929950c5dc))
+
 ## [1.12.0](https://github.com/googleapis/go-sql-spanner/compare/v1.11.2...v1.12.0) (2025-03-18)
 
 
