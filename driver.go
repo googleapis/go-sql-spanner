@@ -231,6 +231,9 @@ type ConnectorConfig struct {
 	AutoBatchDmlUpdateCount                    int64
 	DisableAutoBatchDmlUpdateCountVerification bool
 
+	// IsolationLevel is the default isolation level for read/write transactions.
+	IsolationLevel sql.IsolationLevel
+
 	// DecodeToNativeArrays determines whether arrays that have a Go native
 	// type should be decoded to those types rather than the corresponding
 	// spanner.NullTypeName type.
@@ -470,6 +473,11 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	if strval, ok := connectorConfig.Params[strings.ToLower("AutoConfigEmulator")]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil {
 			connectorConfig.AutoConfigEmulator = val
+		}
+	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("IsolationLevel")]; ok {
+		if val, err := parseIsolationLevel(strval); err == nil {
+			connectorConfig.IsolationLevel = val
 		}
 	}
 
@@ -1056,6 +1064,28 @@ func checkIsValidType(v driver.Value) bool {
 	case spanner.GenericColumnValue:
 	}
 	return true
+}
+
+func parseIsolationLevel(val string) (sql.IsolationLevel, error) {
+	switch strings.Replace(strings.ToLower(strings.TrimSpace(val)), " ", "_", 1) {
+	case "default":
+		return sql.LevelDefault, nil
+	case "read_uncommitted":
+		return sql.LevelReadUncommitted, nil
+	case "read_committed":
+		return sql.LevelReadCommitted, nil
+	case "write_committed":
+		return sql.LevelWriteCommitted, nil
+	case "repeatable_read":
+		return sql.LevelRepeatableRead, nil
+	case "snapshot":
+		return sql.LevelSnapshot, nil
+	case "serializable":
+		return sql.LevelSerializable, nil
+	case "linearizable":
+		return sql.LevelLinearizable, nil
+	}
+	return sql.LevelDefault, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid or unsupported isolation level: %v", val))
 }
 
 func toProtoIsolationLevel(level sql.IsolationLevel) (spannerpb.TransactionOptions_IsolationLevel, error) {
