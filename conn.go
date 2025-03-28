@@ -942,14 +942,22 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 	disableRetryAborts := false
 	batchReadOnly := false
 	sil := opts.Isolation >> 8
-	// TODO: Fix this, the original isolation level is not correctly restored.
-	opts.Isolation = opts.Isolation - sil
+	opts.Isolation = opts.Isolation - sil<<8
+	if opts.Isolation != driver.IsolationLevel(sql.LevelDefault) {
+		level, err := toProtoIsolationLevel(sql.IsolationLevel(opts.Isolation))
+		if err != nil {
+			return nil, err
+		}
+		readWriteTransactionOptions.TransactionOptions.IsolationLevel = level
+	}
 	if sil > 0 {
 		switch spannerIsolationLevel(sil) {
 		case levelDisableRetryAborts:
 			disableRetryAborts = true
 		case levelBatchReadOnly:
 			batchReadOnly = true
+		default:
+			// ignore
 		}
 	}
 	if batchReadOnly && !opts.ReadOnly {

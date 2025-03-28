@@ -1058,6 +1058,27 @@ func checkIsValidType(v driver.Value) bool {
 	return true
 }
 
+func toProtoIsolationLevel(level sql.IsolationLevel) (spannerpb.TransactionOptions_IsolationLevel, error) {
+	switch level {
+	case sql.LevelSerializable:
+		return spannerpb.TransactionOptions_SERIALIZABLE, nil
+	case sql.LevelRepeatableRead:
+		return spannerpb.TransactionOptions_REPEATABLE_READ, nil
+	case sql.LevelSnapshot:
+		return spannerpb.TransactionOptions_REPEATABLE_READ, nil
+	case sql.LevelDefault:
+		return spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED, nil
+
+	// Unsupported and unknown isolation levels.
+	case sql.LevelReadUncommitted:
+	case sql.LevelReadCommitted:
+	case sql.LevelWriteCommitted:
+	case sql.LevelLinearizable:
+	default:
+	}
+	return spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid or unsupported isolation level: %v", level))
+}
+
 type spannerIsolationLevel sql.IsolationLevel
 
 const (
