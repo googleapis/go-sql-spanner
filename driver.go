@@ -250,7 +250,7 @@ type ConnectorConfig struct {
 	// that will be used to create connections by the driver.Connector. Use this
 	// function to set any further advanced configuration options that cannot be set
 	// with a standard key/value pair in the Params map.
-	Configurator func(config *spanner.ClientConfig, opts *[]option.ClientOption)
+	Configurator func(config *spanner.ClientConfig, opts *[]option.ClientOption) `json:"-"`
 }
 
 func (cc *ConnectorConfig) String() string {

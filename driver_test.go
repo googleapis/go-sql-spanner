@@ -18,6 +18,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"net"
 	"reflect"
@@ -742,6 +743,13 @@ func TestConn_CheckNamedValue(t *testing.T) {
 		if diff := cmp.Diff(test.want, value.Value); diff != "" {
 			t.Errorf("wrong result, got %#v expected %#v:\n%v", value.Value, test.want, diff)
 		}
+	}
+}
+
+func TestConnectorConfigJson(t *testing.T) {
+	_, err := json.Marshal(ConnectorConfig{})
+	if err != nil {
+		t.Fatalf("failed to marshal ConnectorConfig: %v", err)
 	}
 }
 
