@@ -10,7 +10,7 @@ require (
 	cloud.google.com/go/spanner v1.80.0
 	github.com/docker/docker v27.5.1+incompatible
 	github.com/googleapis/go-sql-spanner v1.13.0
-	github.com/testcontainers/testcontainers-go v0.35.0
+	github.com/testcontainers/testcontainers-go v0.37.0
 )
 
 require (
