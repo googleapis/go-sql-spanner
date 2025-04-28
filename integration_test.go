@@ -389,7 +389,7 @@ func TestQueryContext(t *testing.T) {
 	}
 }
 
-func TestTypeRoundtrip(t *testing.T) {
+func TestTypeRoundTrip(t *testing.T) {
 	skipIfShort(t)
 	t.Parallel()
 
