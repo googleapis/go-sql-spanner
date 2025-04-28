@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.1](https://github.com/googleapis/go-sql-spanner/compare/v1.13.0...v1.13.1) (2025-04-28)
+
+
+### Bug Fixes
+
+* Skip Configurator func when marshalling to json ([#411](https://github.com/googleapis/go-sql-spanner/issues/411)) ([d30ab5e](https://github.com/googleapis/go-sql-spanner/commit/d30ab5ec44c231194fffc49c7b490e1962e588dc))
+
 ## [1.13.0](https://github.com/googleapis/go-sql-spanner/compare/v1.12.0...v1.13.0) (2025-03-28)
 
 
