@@ -25,6 +25,7 @@ import (
 	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"google.golang.org/api/iterator"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 type rows struct {
@@ -205,14 +206,11 @@ func (r *rows) Next(dest []driver.Value) error {
 				dest[i] = nil
 			}
 		case sppb.TypeCode_DATE:
-			var v spanner.NullDate
-			if err := col.Decode(&v); err != nil {
-				return err
-			}
-			if v.Valid {
-				dest[i] = v.Date
-			} else {
+			_, isNull := col.Value.Kind.(*structpb.Value_NullValue)
+			if isNull {
 				dest[i] = nil
+			} else {
+				dest[i] = col.Value.GetStringValue()
 			}
 		case sppb.TypeCode_TIMESTAMP:
 			var v spanner.NullTime
