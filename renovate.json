@@ -5,14 +5,15 @@
     ":disableDependencyDashboard",
     "docker:disable"
   ],
-  "semanticCommits": false,
+  "semanticCommits": "enabled",
+  "semanticCommitType": "deps",
+  "semanticCommitScope": "",
   "postUpdateOptions": [
     "gomodTidy"
   ],
-  "commitMessagePrefix": "deps: ",
   "commitMessageAction": "update",
-  "groupName": "deps",
+  "groupName": "all dependencies",
   "constraints": {
-      "go": "1.20"
+      "go": "1.23"
   }
 }
