@@ -114,6 +114,13 @@ type SpannerConn interface {
 	// mode and for read-only transaction.
 	SetReadOnlyStaleness(staleness spanner.TimestampBound) error
 
+	// IsolationLevel returns the current default isolation level that is
+	// used for read/write transactions on this connection.
+	IsolationLevel() sql.IsolationLevel
+	// SetIsolationLevel sets the default isolation level to use for read/write
+	// transactions on this connection.
+	SetIsolationLevel(level sql.IsolationLevel) error
+
 	// TransactionTag returns the transaction tag that will be applied to the next
 	// read/write transaction on this connection. The transaction tag that is set
 	// on the connection is cleared when a read/write transaction is started.
@@ -235,6 +242,10 @@ type conn struct {
 	autocommitDMLMode AutocommitDMLMode
 	// readOnlyStaleness is used for queries in autocommit mode and for read-only transactions.
 	readOnlyStaleness spanner.TimestampBound
+	// isolationLevel determines the default isolation level that is used for read/write
+	// transactions on this connection. This default is ignored if the BeginTx function is
+	// called with an isolation level other than sql.LevelDefault.
+	isolationLevel sql.IsolationLevel
 
 	// execOptions are applied to the next statement or transaction that is executed
 	// on this connection. It can also be set by passing it in as an argument to
@@ -307,6 +318,15 @@ func (c *conn) SetReadOnlyStaleness(staleness spanner.TimestampBound) error {
 func (c *conn) setReadOnlyStaleness(staleness spanner.TimestampBound) (driver.Result, error) {
 	c.readOnlyStaleness = staleness
 	return driver.ResultNoRows, nil
+}
+
+func (c *conn) IsolationLevel() sql.IsolationLevel {
+	return c.isolationLevel
+}
+
+func (c *conn) SetIsolationLevel(level sql.IsolationLevel) error {
+	c.isolationLevel = level
+	return nil
 }
 
 func (c *conn) MaxCommitDelay() time.Duration {
@@ -633,6 +653,7 @@ func (c *conn) ResetSession(_ context.Context) error {
 	c.autoBatchDmlUpdateCount = c.connector.connectorConfig.AutoBatchDmlUpdateCount
 	c.autoBatchDmlUpdateCountVerification = !c.connector.connectorConfig.DisableAutoBatchDmlUpdateCountVerification
 	c.retryAborts = c.connector.retryAbortsInternally
+	c.isolationLevel = c.connector.connectorConfig.IsolationLevel
 	// TODO: Reset the following fields to the connector default
 	c.autocommitDMLMode = Transactional
 	c.readOnlyStaleness = spanner.TimestampBound{}
@@ -888,10 +909,20 @@ func (c *conn) getTransactionOptions() ReadWriteTransactionOptions {
 	defer func() {
 		c.execOptions.TransactionOptions.TransactionTag = ""
 	}()
-	return ReadWriteTransactionOptions{
+	txOpts := ReadWriteTransactionOptions{
 		TransactionOptions:     c.execOptions.TransactionOptions,
 		DisableInternalRetries: !c.retryAborts,
 	}
+	// Only use the default isolation level from the connection if the ExecOptions
+	// did not contain a more specific isolation level.
+	if txOpts.TransactionOptions.IsolationLevel == spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED {
+		// This should never really return an error, but we check just to be absolutely sure.
+		level, err := toProtoIsolationLevel(c.isolationLevel)
+		if err == nil {
+			txOpts.TransactionOptions.IsolationLevel = level
+		}
+	}
+	return txOpts
 }
 
 func (c *conn) withTempReadOnlyTransactionOptions(options *ReadOnlyTransactionOptions) {
@@ -942,14 +973,22 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 	disableRetryAborts := false
 	batchReadOnly := false
 	sil := opts.Isolation >> 8
-	// TODO: Fix this, the original isolation level is not correctly restored.
-	opts.Isolation = opts.Isolation - sil
+	opts.Isolation = opts.Isolation - sil<<8
+	if opts.Isolation != driver.IsolationLevel(sql.LevelDefault) {
+		level, err := toProtoIsolationLevel(sql.IsolationLevel(opts.Isolation))
+		if err != nil {
+			return nil, err
+		}
+		readWriteTransactionOptions.TransactionOptions.IsolationLevel = level
+	}
 	if sil > 0 {
 		switch spannerIsolationLevel(sil) {
 		case levelDisableRetryAborts:
 			disableRetryAborts = true
 		case levelBatchReadOnly:
 			batchReadOnly = true
+		default:
+			// ignore
 		}
 	}
 	if batchReadOnly && !opts.ReadOnly {

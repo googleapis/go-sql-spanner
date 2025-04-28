@@ -161,6 +161,21 @@ func TestExtractDnsParts(t *testing.T) {
 			},
 		},
 		{
+			input: "projects/p/instances/i/databases/d?isolationLevel=repeatable_read;",
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
+					"isolationlevel": "repeatable_read",
+				},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
+			},
+		},
+		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?minSessions=200;maxSessions=1000;numChannels=10;disableRouteToLeader=true;enableEndToEndTracing=true;disableNativeMetrics=true;rpcPriority=Medium;optimizerVersion=1;optimizerStatisticsPackage=latest;databaseRole=child",
 			wantConnectorConfig: ConnectorConfig{
 				Host:     "spanner.googleapis.com",
@@ -234,7 +249,132 @@ func TestExtractDnsParts(t *testing.T) {
 			}
 		})
 	}
+}
 
+func TestToProtoIsolationLevel(t *testing.T) {
+	tests := []struct {
+		input   sql.IsolationLevel
+		want    spannerpb.TransactionOptions_IsolationLevel
+		wantErr bool
+	}{
+		{
+			input: sql.LevelSerializable,
+			want:  spannerpb.TransactionOptions_SERIALIZABLE,
+		},
+		{
+			input: sql.LevelRepeatableRead,
+			want:  spannerpb.TransactionOptions_REPEATABLE_READ,
+		},
+		{
+			input: sql.LevelSnapshot,
+			want:  spannerpb.TransactionOptions_REPEATABLE_READ,
+		},
+		{
+			input: sql.LevelDefault,
+			want:  spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED,
+		},
+		{
+			input:   sql.LevelReadUncommitted,
+			wantErr: true,
+		},
+		{
+			input:   sql.LevelReadCommitted,
+			wantErr: true,
+		},
+		{
+			input:   sql.LevelWriteCommitted,
+			wantErr: true,
+		},
+		{
+			input:   sql.LevelLinearizable,
+			wantErr: true,
+		},
+		{
+			input:   sql.IsolationLevel(1000),
+			wantErr: true,
+		},
+	}
+	for i, test := range tests {
+		g, err := toProtoIsolationLevel(test.input)
+		if test.wantErr && err == nil {
+			t.Errorf("test %d: expected error for input %v, got none", i, test.input)
+		} else if !test.wantErr && err != nil {
+			t.Errorf("test %d: unexpected error for input %v: %v", i, test.input, err)
+		} else if g != test.want {
+			t.Errorf("test %d:\n Got: %v\nWant: %v", i, g, test.want)
+		}
+	}
+}
+
+func TestParseIsolationLevel(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    sql.IsolationLevel
+		wantErr bool
+	}{
+		{
+			input: "default",
+			want:  sql.LevelDefault,
+		},
+		{
+			input: " DEFAULT   ",
+			want:  sql.LevelDefault,
+		},
+		{
+			input: "read uncommitted",
+			want:  sql.LevelReadUncommitted,
+		},
+		{
+			input: "  read_uncommitted\n",
+			want:  sql.LevelReadUncommitted,
+		},
+		{
+			input: "read committed",
+			want:  sql.LevelReadCommitted,
+		},
+		{
+			input: "write committed",
+			want:  sql.LevelWriteCommitted,
+		},
+		{
+			input: "repeatable read",
+			want:  sql.LevelRepeatableRead,
+		},
+		{
+			input: "snapshot",
+			want:  sql.LevelSnapshot,
+		},
+		{
+			input: "serializable",
+			want:  sql.LevelSerializable,
+		},
+		{
+			input: "linearizable",
+			want:  sql.LevelLinearizable,
+		},
+		{
+			input:   "read serializable",
+			wantErr: true,
+		},
+		{
+			input:   "",
+			wantErr: true,
+		},
+		{
+			input:   "read-committed",
+			wantErr: true,
+		},
+	}
+	for _, tc := range tests {
+		level, err := parseIsolationLevel(tc.input)
+		if tc.wantErr && err == nil {
+			t.Errorf("parseIsolationLevel(%q): expected error", tc.input)
+		} else if !tc.wantErr && err != nil {
+			t.Errorf("parseIsolationLevel(%q): unexpected error: %v", tc.input, err)
+		} else if level != tc.want {
+			t.Errorf("parseIsolationLevel(%q): got %v, want %v", tc.input, level, tc.want)
+		}
+	}
 }
 
 func ExampleCreateConnector() {
