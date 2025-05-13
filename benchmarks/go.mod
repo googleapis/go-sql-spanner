@@ -2,16 +2,16 @@ module github.com/googleapis/go-sql-spanner/benchmarks
 
 go 1.24
 
-toolchain go1.24.2
+toolchain go1.24.3
 
 replace github.com/googleapis/go-sql-spanner => ../
 
 require (
-	cloud.google.com/go v0.120.1
-	cloud.google.com/go/spanner v1.80.0
+	cloud.google.com/go v0.121.0
+	cloud.google.com/go/spanner v1.81.0
 	github.com/google/uuid v1.6.0
-	github.com/googleapis/go-sql-spanner v1.12.0
-	google.golang.org/api v0.230.0
+	github.com/googleapis/go-sql-spanner v1.13.1
+	google.golang.org/api v0.232.0
 	google.golang.org/grpc v1.72.0
 	google.golang.org/protobuf v1.36.6
 )
