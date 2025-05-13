@@ -2,7 +2,6 @@
   "extends": [
     "config:base",
     "schedule:daily",
-    ":disableDependencyDashboard",
     "docker:disable"
   ],
   "semanticCommits": "enabled",
@@ -12,8 +11,5 @@
     "gomodTidy"
   ],
   "commitMessageAction": "update",
-  "groupName": "all dependencies",
-  "constraints": {
-      "go": "1.23"
-  }
+  "groupName": "all dependencies"
 }
