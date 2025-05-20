@@ -23,10 +23,17 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+var _ driver.Stmt = &stmt{}
+var _ driver.StmtExecContext = &stmt{}
+var _ driver.StmtQueryContext = &stmt{}
+var _ driver.NamedValueChecker = &stmt{}
+
 type stmt struct {
-	conn    *conn
-	numArgs int
-	query   string
+	conn          *conn
+	numArgs       int
+	query         string
+	statementType statementType
+	execOptions   ExecOptions
 }
 
 func (s *stmt) Close() error {
@@ -37,31 +44,32 @@ func (s *stmt) NumInput() int {
 	return s.numArgs
 }
 
-func (s *stmt) Exec(args []driver.Value) (driver.Result, error) {
+func (s *stmt) Exec(_ []driver.Value) (driver.Result, error) {
 	return nil, spanner.ToSpannerError(status.Errorf(codes.Unimplemented, "use ExecContext instead"))
 }
 
 func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
-	return s.conn.ExecContext(ctx, s.query, args)
+	return s.conn.execContext(ctx, s.query, s.execOptions, args)
 }
 
-func (s *stmt) Query(args []driver.Value) (driver.Rows, error) {
+func (s *stmt) Query(_ []driver.Value) (driver.Rows, error) {
 	return nil, spanner.ToSpannerError(status.Errorf(codes.Unimplemented, "use QueryContext instead"))
 }
 
 func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
-	ss, err := prepareSpannerStmt(s.query, args)
-	if err != nil {
-		return nil, err
+	return s.conn.queryContext(ctx, s.query, s.execOptions, args)
+}
+
+func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
+	if value == nil {
+		return nil
 	}
 
-	var it rowIterator
-	if s.conn.tx != nil {
-		it = s.conn.tx.Query(ctx, ss)
-	} else {
-		it = &readOnlyRowIterator{s.conn.client.Single().WithTimestampBound(s.conn.readOnlyStaleness).Query(ctx, ss)}
+	if execOptions, ok := value.Value.(ExecOptions); ok {
+		s.execOptions = execOptions
+		return driver.ErrRemoveArgument
 	}
-	return &rows{it: it}, nil
+	return s.conn.CheckNamedValue(value)
 }
 
 func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, error) {
@@ -216,11 +224,23 @@ func convertParam(v driver.Value) driver.Value {
 }
 
 type result struct {
-	rowsAffected int64
+	rowsAffected      int64
+	lastInsertId      int64
+	hasLastInsertId   bool
+	batchUpdateCounts []int64
 }
 
+var errNoLastInsertId = spanner.ToSpannerError(
+	status.Errorf(codes.FailedPrecondition,
+		"LastInsertId is only supported for INSERT statements that use a THEN RETURN clause "+
+			"and that return exactly one row and one column "+
+			"(e.g. `INSERT INTO MyTable (Val) values ('val1') THEN RETURN Id`)"))
+
 func (r *result) LastInsertId() (int64, error) {
-	return 0, spanner.ToSpannerError(status.Errorf(codes.Unimplemented, "Cloud Spanner does not support auto-generated ids"))
+	if r.hasLastInsertId {
+		return r.lastInsertId, nil
+	}
+	return 0, errNoLastInsertId
 }
 
 func (r *result) RowsAffected() (int64, error) {

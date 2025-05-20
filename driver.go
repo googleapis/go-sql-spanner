@@ -19,26 +19,44 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"io"
+	"log/slog"
 	"math/big"
 	"regexp"
+	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
 	adminapi "cloud.google.com/go/spanner/admin/database/apiv1"
-	adminpb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
+	"github.com/google/uuid"
+	"github.com/googleapis/gax-go/v2"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
-const userAgent = "go-sql-spanner/1.0.2"
+const userAgent = "go-sql-spanner/1.13.2" // x-release-please-version
+
+const gormModule = "github.com/googleapis/go-gorm-spanner"
+const gormUserAgent = "go-gorm-spanner"
+
+// LevelNotice is the default logging level that the Spanner database/sql driver
+// uses for informational logs. This level is deliberately chosen to be one level
+// lower than the default log level, which is slog.LevelInfo. This prevents the
+// driver from adding noise to any default logger that has been set for the
+// application.
+const LevelNotice = slog.LevelInfo - 1
+
+// Logger that discards everything and skips (almost) all logs.
+var noopLogger = slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError + 1}))
 
 // dsnRegExpString describes the valid values for a dsn (connection name) for
 // Google Cloud Spanner. The string consists of the following parts:
@@ -55,6 +73,8 @@ const userAgent = "go-sql-spanner/1.0.2"
 //     - disableRouteToLeader: Boolean that indicates if all the requests of type read-write and PDML
 //     need to be routed to the leader region.
 //     The default is false
+//     - enableEndToEndTracing: Boolean that indicates if end-to-end tracing is enabled
+//     The default is false
 //     - minSessions: The minimum number of sessions in the backing session pool. The default is 100.
 //     - maxSessions: The maximum number of sessions in the backing session pool. The default is 400.
 //     - numChannels: The number of gRPC channels to use to communicate with Cloud Spanner. The default is 4.
@@ -62,14 +82,85 @@ const userAgent = "go-sql-spanner/1.0.2"
 //     - optimizerStatisticsPackage: Sets the default query optimizer statistic package to use for this connection.
 //     - rpcPriority: Sets the priority for all RPC invocations from this connection (HIGH/MEDIUM/LOW). The default is HIGH.
 //
-// Example: `localhost:9010/projects/test-project/instances/test-instance/databases/test-database;usePlainText=true;disableRouteToLeader=true`
+// Example: `localhost:9010/projects/test-project/instances/test-instance/databases/test-database;usePlainText=true;disableRouteToLeader=true;enableEndToEndTracing=true`
 var dsnRegExp = regexp.MustCompile(`((?P<HOSTGROUP>[\w.-]+(?:\.[\w\.-]+)*[\w\-\._~:/?#\[\]@!\$&'\(\)\*\+,;=.]+)/)?projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID)))(/instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+)(/databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?)?(([\?|;])(?P<PARAMSGROUP>.*))?`)
 
 var _ driver.DriverContext = &Driver{}
+var spannerDriver *Driver
 
 func init() {
-	sql.Register("spanner", &Driver{connectors: make(map[string]*connector)})
+	spannerDriver = &Driver{connectors: make(map[string]*connector)}
+	sql.Register("spanner", spannerDriver)
 }
+
+// ExecOptions can be passed in as an argument to the Query, QueryContext,
+// Exec, and ExecContext functions to specify additional execution options
+// for a statement.
+type ExecOptions struct {
+	// DecodeOption indicates how the returned rows should be decoded.
+	DecodeOption DecodeOption
+	// DecodeToNativeArrays determines whether arrays that have a Go
+	// native type should use that. This option has an effect on arrays
+	// that contain:
+	//   * BOOL
+	//   * INT64 and ENUM
+	//   * STRING
+	//   * FLOAT32
+	//   * FLOAT64
+	//   * DATE
+	//   * TIMESTAMP
+	// These arrays will by default be decoded to the following types:
+	//   * []spanner.NullBool
+	//   * []spanner.NullInt64
+	//   * []spanner.NullString
+	//   * []spanner.NullFloat32
+	//   * []spanner.NullFloat64
+	//   * []spanner.NullDate
+	//   * []spanner.NullTime
+	// By setting DecodeToNativeArrays, these arrays will instead be
+	// decoded to:
+	//   * []bool
+	//   * []int64
+	//   * []string
+	//   * []float32
+	//   * []float64
+	//   * []civil.Date
+	//   * []time.Time
+	// If this option is used with rows that contains an array with
+	// at least one NULL element, the decoding will fail.
+	// This option has no effect on arrays of type JSON, NUMERIC and BYTES.
+	DecodeToNativeArrays bool
+
+	// TransactionOptions are the transaction options that will be used for
+	// the transaction that is started by the statement.
+	TransactionOptions spanner.TransactionOptions
+	// QueryOptions are the query options that will be used for the statement.
+	QueryOptions spanner.QueryOptions
+
+	// PartitionedQueryOptions are used for partitioned queries, and ignored
+	// for all other statements.
+	PartitionedQueryOptions PartitionedQueryOptions
+
+	// AutoCommitDMLMode determines the type of transaction that DML statements
+	// that are executed outside explicit transactions use.
+	AutocommitDMLMode AutocommitDMLMode
+}
+
+type DecodeOption int
+
+const (
+	// DecodeOptionNormal decodes into idiomatic Go types (e.g. bool, string, int64, etc.)
+	DecodeOptionNormal DecodeOption = iota
+
+	// DecodeOptionProto does not decode the returned rows at all, and instead just returns
+	// the underlying protobuf objects. Use this for advanced use-cases where you want
+	// direct access to the underlying values.
+	// All values should be scanned into an instance of spanner.GenericColumnValue like this:
+	//
+	// 	var v spanner.GenericColumnValue
+	// 	row.Scan(&v)
+	DecodeOptionProto
+)
 
 // Driver represents a Google Cloud Spanner database/sql driver.
 type Driver struct {
@@ -82,7 +173,7 @@ type Driver struct {
 //
 // Example: projects/$PROJECT/instances/$INSTANCE/databases/$DATABASE
 func (d *Driver) Open(name string) (driver.Conn, error) {
-	c, err := newConnector(d, name)
+	c, err := newOrCachedConnector(d, name)
 	if err != nil {
 		return nil, err
 	}
@@ -90,21 +181,88 @@ func (d *Driver) Open(name string) (driver.Conn, error) {
 }
 
 func (d *Driver) OpenConnector(name string) (driver.Connector, error) {
-	return newConnector(d, name)
+	return newOrCachedConnector(d, name)
 }
 
-type connectorConfig struct {
-	host     string
-	project  string
-	instance string
-	database string
-	params   map[string]string
+// CreateConnector creates a new driver.Connector for Spanner.
+// A connector can be passed in to sql.OpenDB to obtain a sql.DB.
+//
+// Use this method if you want to supply custom configuration for your Spanner
+// connections, and cache the connector that is returned in your application.
+// The same connector should be used to create all connections that should share
+// the same configuration and the same underlying Spanner client.
+//
+// Note: This function always creates a new connector, even if one with the same
+// configuration has been created previously.
+func CreateConnector(config ConnectorConfig) (driver.Connector, error) {
+	return createConnector(spannerDriver, config)
 }
 
-func extractConnectorConfig(dsn string) (connectorConfig, error) {
+// ConnectorConfig contains the configuration for a Spanner driver.Connector.
+type ConnectorConfig struct {
+	// Host is the Spanner host that the connector should connect to.
+	// Leave this empty to use the standard Spanner API endpoint.
+	Host string
+
+	// Project, Instance, and Database identify the database that the connector
+	// should create connections for.
+	Project  string
+	Instance string
+	Database string
+
+	// AutoConfigEmulator automatically creates a connection for the emulator
+	// and also automatically creates the Instance and Database on the emulator.
+	// Setting this option to true will:
+	// 1. Set the SPANNER_EMULATOR_HOST environment variable to either Host or
+	//    'localhost:9010' if no other host has been set.
+	// 2. Use plain text communication and NoCredentials.
+	// 3. Automatically create the Instance and the Database on the emulator if
+	//    any of those do not yet exist.
+	AutoConfigEmulator bool
+
+	// Params contains key/value pairs for commonly used configuration parameters
+	// for connections. The valid values are the same as the parameters that can
+	// be added to a connection string.
+	Params map[string]string
+
+	// The initial values for automatic DML batching.
+	// The values in the Params map take precedence above these.
+	AutoBatchDml                               bool
+	AutoBatchDmlUpdateCount                    int64
+	DisableAutoBatchDmlUpdateCountVerification bool
+
+	// IsolationLevel is the default isolation level for read/write transactions.
+	IsolationLevel sql.IsolationLevel
+
+	// DecodeToNativeArrays determines whether arrays that have a Go native
+	// type should be decoded to those types rather than the corresponding
+	// spanner.NullTypeName type.
+	// Enabling this option will for example decode ARRAY<BOOL> to []bool instead
+	// of []spanner.NullBool.
+	//
+	// See ExecOptions.DecodeToNativeArrays for more information.
+	DecodeToNativeArrays bool
+
+	logger *slog.Logger
+	name   string
+
+	// Configurator is called with the spanner.ClientConfig and []option.ClientOption
+	// that will be used to create connections by the driver.Connector. Use this
+	// function to set any further advanced configuration options that cannot be set
+	// with a standard key/value pair in the Params map.
+	Configurator func(config *spanner.ClientConfig, opts *[]option.ClientOption) `json:"-"`
+}
+
+func (cc *ConnectorConfig) String() string {
+	return cc.name
+}
+
+// ExtractConnectorConfig extracts a ConnectorConfig for Spanner from the given
+// data source name.
+func ExtractConnectorConfig(dsn string) (ConnectorConfig, error) {
 	match := dsnRegExp.FindStringSubmatch(dsn)
 	if match == nil {
-		return connectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection string: %s", dsn))
+		return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection string: %s", dsn))
 	}
 	matches := make(map[string]string)
 	for i, name := range dsnRegExp.SubexpNames() {
@@ -115,15 +273,16 @@ func extractConnectorConfig(dsn string) (connectorConfig, error) {
 	paramsString := matches["PARAMSGROUP"]
 	params, err := extractConnectorParams(paramsString)
 	if err != nil {
-		return connectorConfig{}, err
+		return ConnectorConfig{}, err
 	}
 
-	return connectorConfig{
-		host:     matches["HOSTGROUP"],
-		project:  matches["PROJECTGROUP"],
-		instance: matches["INSTANCEGROUP"],
-		database: matches["DATABASEGROUP"],
-		params:   params,
+	return ConnectorConfig{
+		Host:     matches["HOSTGROUP"],
+		Project:  matches["PROJECTGROUP"],
+		Instance: matches["INSTANCEGROUP"],
+		Database: matches["DATABASEGROUP"],
+		Params:   params,
+		name:     dsn,
 	}, nil
 }
 
@@ -150,8 +309,12 @@ func extractConnectorParams(paramsString string) (map[string]string, error) {
 
 type connector struct {
 	driver          *Driver
-	dsn             string
-	connectorConfig connectorConfig
+	connectorConfig ConnectorConfig
+	cacheKey        string
+	logger          *slog.Logger
+
+	closerMu sync.RWMutex
+	closed   bool
 
 	// spannerClientConfig represents the optional advanced configuration to be used
 	// by the Google Cloud Spanner client.
@@ -166,7 +329,7 @@ type connector struct {
 	// propagated to the caller. This option is enabled by default.
 	retryAbortsInternally bool
 
-	initClient     sync.Once
+	clientMu       sync.Mutex
 	client         *spanner.Client
 	clientErr      error
 	adminClient    *adminapi.DatabaseAdminClient
@@ -174,7 +337,7 @@ type connector struct {
 	connCount      int32
 }
 
-func newConnector(d *Driver, dsn string) (*connector, error) {
+func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.connectors == nil {
@@ -184,47 +347,79 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 		return c, nil
 	}
 
-	connectorConfig, err := extractConnectorConfig(dsn)
+	connectorConfig, err := ExtractConnectorConfig(dsn)
 	if err != nil {
 		return nil, err
 	}
-	opts := make([]option.ClientOption, 0)
-	if connectorConfig.host != "" {
-		opts = append(opts, option.WithEndpoint(connectorConfig.host))
+	c, err := createConnector(d, connectorConfig)
+	if err != nil {
+		return nil, err
 	}
-	if strval, ok := connectorConfig.params["credentials"]; ok {
+	c.cacheKey = dsn
+	d.connectors[dsn] = c
+	return c, nil
+}
+
+func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, error) {
+	opts := make([]option.ClientOption, 0)
+	if connectorConfig.Host != "" {
+		opts = append(opts, option.WithEndpoint(connectorConfig.Host))
+	}
+	if strval, ok := connectorConfig.Params["credentials"]; ok {
 		opts = append(opts, option.WithCredentialsFile(strval))
 	}
-	if strval, ok := connectorConfig.params["useplaintext"]; ok {
-		if val, err := strconv.ParseBool(strval); err == nil && val {
-			opts = append(opts, option.WithGRPCDialOption(grpc.WithInsecure()), option.WithoutAuthentication())
-		}
-	}
-	retryAbortsInternally := true
-	if strval, ok := connectorConfig.params["retryabortsinternally"]; ok {
-		if val, err := strconv.ParseBool(strval); err == nil && !val {
-			retryAbortsInternally = false
-		}
+	if strval, ok := connectorConfig.Params["credentialsjson"]; ok {
+		opts = append(opts, option.WithCredentialsJSON([]byte(strval)))
 	}
 	config := spanner.ClientConfig{
 		SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 	}
-	if strval, ok := connectorConfig.params["minsessions"]; ok {
+	if strval, ok := connectorConfig.Params["useplaintext"]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil && val {
+			opts = append(opts,
+				option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+				option.WithoutAuthentication())
+			// TODO: Add connection string property for disabling native metrics.
+			config.DisableNativeMetrics = true
+		}
+	}
+	retryAbortsInternally := true
+	if strval, ok := connectorConfig.Params["retryabortsinternally"]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil && !val {
+			retryAbortsInternally = false
+		}
+	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("AutoBatchDml")]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			connectorConfig.AutoBatchDml = val
+		}
+	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("AutoBatchDmlUpdateCount")]; ok {
+		if val, err := strconv.ParseInt(strval, 10, 64); err == nil {
+			connectorConfig.AutoBatchDmlUpdateCount = val
+		}
+	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("AutoBatchDmlUpdateCountVerification")]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			connectorConfig.DisableAutoBatchDmlUpdateCountVerification = !val
+		}
+	}
+	if strval, ok := connectorConfig.Params["minsessions"]; ok {
 		if val, err := strconv.ParseUint(strval, 10, 64); err == nil {
 			config.MinOpened = val
 		}
 	}
-	if strval, ok := connectorConfig.params["maxsessions"]; ok {
+	if strval, ok := connectorConfig.Params["maxsessions"]; ok {
 		if val, err := strconv.ParseUint(strval, 10, 64); err == nil {
 			config.MaxOpened = val
 		}
 	}
-	if strval, ok := connectorConfig.params["numchannels"]; ok {
+	if strval, ok := connectorConfig.Params["numchannels"]; ok {
 		if val, err := strconv.Atoi(strval); err == nil && val > 0 {
-			config.NumChannels = val
+			opts = append(opts, option.WithGRPCConnectionPool(val))
 		}
 	}
-	if strval, ok := connectorConfig.params["rpcpriority"]; ok {
+	if strval, ok := connectorConfig.Params["rpcpriority"]; ok {
 		var priority spannerpb.RequestOptions_Priority
 		switch strings.ToUpper(strval) {
 		case "LOW":
@@ -240,200 +435,520 @@ func newConnector(d *Driver, dsn string) (*connector, error) {
 		config.TransactionOptions.CommitPriority = priority
 		config.QueryOptions.Priority = priority
 	}
-	if strval, ok := connectorConfig.params["optimizerversion"]; ok {
+	if strval, ok := connectorConfig.Params["optimizerversion"]; ok {
 		if config.QueryOptions.Options == nil {
 			config.QueryOptions.Options = &spannerpb.ExecuteSqlRequest_QueryOptions{}
 		}
 		config.QueryOptions.Options.OptimizerVersion = strval
 	}
-	if strval, ok := connectorConfig.params["optimizerstatisticspackage"]; ok {
+	if strval, ok := connectorConfig.Params["optimizerstatisticspackage"]; ok {
 		if config.QueryOptions.Options == nil {
 			config.QueryOptions.Options = &spannerpb.ExecuteSqlRequest_QueryOptions{}
 		}
 		config.QueryOptions.Options.OptimizerStatisticsPackage = strval
 	}
-	if strval, ok := connectorConfig.params["databaserole"]; ok {
+	if strval, ok := connectorConfig.Params["databaserole"]; ok {
 		config.DatabaseRole = strval
 	}
-	if strval, ok := connectorConfig.params["disableroutetoleader"]; ok {
+	if strval, ok := connectorConfig.Params["disableroutetoleader"]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil {
 			config.DisableRouteToLeader = val
 		}
 	}
-	config.UserAgent = userAgent
+	if strval, ok := connectorConfig.Params["enableendtoendtracing"]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			config.EnableEndToEndTracing = val
+		}
+	}
+	if strval, ok := connectorConfig.Params["disablenativemetrics"]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			config.DisableNativeMetrics = val
+		}
+	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("DecodeToNativeArrays")]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			connectorConfig.DecodeToNativeArrays = val
+		}
+	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("AutoConfigEmulator")]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			connectorConfig.AutoConfigEmulator = val
+		}
+	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("IsolationLevel")]; ok {
+		if val, err := parseIsolationLevel(strval); err == nil {
+			connectorConfig.IsolationLevel = val
+		}
+	}
+
+	// Check if it is Spanner gorm that is creating the connection.
+	// If so, we should set a different user-agent header than the
+	// default go-sql-spanner header.
+	if isConnectionFromGorm() {
+		config.UserAgent = spannerGormHeader()
+	} else {
+		config.UserAgent = userAgent
+	}
+	var logger *slog.Logger
+	if connectorConfig.logger == nil {
+		d := slog.Default()
+		if d == nil {
+			logger = noopLogger
+		} else {
+			logger = d
+		}
+	} else {
+		logger = connectorConfig.logger
+	}
+	logger = logger.With("config", &connectorConfig)
+	if connectorConfig.Configurator != nil {
+		connectorConfig.Configurator(&config, &opts)
+	}
+	if connectorConfig.AutoConfigEmulator {
+		if err := autoConfigEmulator(context.Background(), connectorConfig.Host, connectorConfig.Project, connectorConfig.Instance, connectorConfig.Database); err != nil {
+			return nil, err
+		}
+	}
+
 	c := &connector{
 		driver:                d,
-		dsn:                   dsn,
 		connectorConfig:       connectorConfig,
+		logger:                logger,
 		spannerClientConfig:   config,
 		options:               opts,
 		retryAbortsInternally: retryAbortsInternally,
 	}
-	d.connectors[dsn] = c
 	return c, nil
 }
 
+func isConnectionFromGorm() bool {
+	callers := make([]uintptr, 20)
+	length := runtime.Callers(0, callers)
+	frames := runtime.CallersFrames(callers[0:length])
+	gorm := false
+	for frame, more := frames.Next(); more; {
+		if strings.HasPrefix(frame.Function, gormModule) {
+			gorm = true
+			break
+		}
+		frame, more = frames.Next()
+	}
+	return gorm
+}
+
+func spannerGormHeader() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return gormUserAgent
+	}
+	for _, module := range info.Deps {
+		if module.Path == gormModule {
+			return fmt.Sprintf("%s/%s", gormUserAgent, module.Version)
+		}
+	}
+	return gormUserAgent
+}
+
 func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
+	c.closerMu.RLock()
+	defer c.closerMu.RUnlock()
+	if c.closed {
+		return nil, fmt.Errorf("connector has been closed")
+	}
 	return openDriverConn(ctx, c)
 }
 
 func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
-	opts := append(c.options, option.WithUserAgent(userAgent))
+	opts := c.options
+	c.logger.Log(ctx, LevelNotice, "opening connection")
 	databaseName := fmt.Sprintf(
 		"projects/%s/instances/%s/databases/%s",
-		c.connectorConfig.project,
-		c.connectorConfig.instance,
-		c.connectorConfig.database)
+		c.connectorConfig.Project,
+		c.connectorConfig.Instance,
+		c.connectorConfig.Database)
 
-	c.initClient.Do(func() {
-		c.client, c.clientErr = spanner.NewClientWithConfig(ctx, databaseName, c.spannerClientConfig, opts...)
-		c.adminClient, c.adminClientErr = adminapi.NewDatabaseAdminClient(ctx, opts...)
-	})
+	if err := c.increaseConnCount(ctx, databaseName, opts); err != nil {
+		return nil, err
+	}
+
+	connId := uuid.New().String()
+	logger := c.logger.With("connId", connId)
+	connection := &conn{
+		connector:   c,
+		client:      c.client,
+		adminClient: c.adminClient,
+		connId:      connId,
+		logger:      logger,
+		database:    databaseName,
+		retryAborts: c.retryAbortsInternally,
+
+		autoBatchDml:                        c.connectorConfig.AutoBatchDml,
+		autoBatchDmlUpdateCount:             c.connectorConfig.AutoBatchDmlUpdateCount,
+		autoBatchDmlUpdateCountVerification: !c.connectorConfig.DisableAutoBatchDmlUpdateCountVerification,
+
+		execSingleQuery:              queryInSingleUse,
+		execSingleQueryTransactional: queryInNewRWTransaction,
+		execSingleDMLTransactional:   execInNewRWTransaction,
+		execSingleDMLPartitioned:     execAsPartitionedDML,
+	}
+	// Initialize the session.
+	_ = connection.ResetSession(context.Background())
+	return connection, nil
+}
+
+// increaseConnCount initializes the client and increases the number of connections that are active.
+func (c *connector) increaseConnCount(ctx context.Context, databaseName string, opts []option.ClientOption) error {
+	c.clientMu.Lock()
+	defer c.clientMu.Unlock()
+
 	if c.clientErr != nil {
-		return nil, c.clientErr
+		return c.clientErr
 	}
 	if c.adminClientErr != nil {
-		return nil, c.adminClientErr
+		return c.adminClientErr
 	}
-	atomic.AddInt32(&c.connCount, 1)
-	return &conn{
-		connector:                  c,
-		client:                     c.client,
-		adminClient:                c.adminClient,
-		database:                   databaseName,
-		retryAborts:                c.retryAbortsInternally,
-		execSingleQuery:            queryInSingleUse,
-		execSingleDMLTransactional: execInNewRWTransaction,
-		execSingleDMLPartitioned:   execAsPartitionedDML,
-	}, nil
+
+	if c.client == nil {
+		c.logger.Log(ctx, LevelNotice, "creating Spanner client")
+		c.client, c.clientErr = spanner.NewClientWithConfig(ctx, databaseName, c.spannerClientConfig, opts...)
+		if c.clientErr != nil {
+			return c.clientErr
+		}
+
+		c.logger.Log(ctx, LevelNotice, "creating Spanner Admin client")
+		c.adminClient, c.adminClientErr = adminapi.NewDatabaseAdminClient(ctx, opts...)
+		if c.adminClientErr != nil {
+			c.client = nil
+			c.client.Close()
+			c.adminClient = nil
+			return c.adminClientErr
+		}
+	}
+
+	c.connCount++
+	c.logger.DebugContext(ctx, "increased conn count", "connCount", c.connCount)
+	return nil
+}
+
+// decreaseConnCount decreases the number of connections that are active and closes the underlying clients if it was the
+// last connection.
+func (c *connector) decreaseConnCount() error {
+	c.clientMu.Lock()
+	defer c.clientMu.Unlock()
+
+	c.connCount--
+	c.logger.Debug("decreased conn count", "connCount", c.connCount)
+	if c.connCount > 0 {
+		return nil
+	}
+
+	return c.closeClients()
 }
 
 func (c *connector) Driver() driver.Driver {
 	return c.driver
 }
 
-// SpannerConn is the public interface for the raw Spanner connection for the
-// sql driver. This interface can be used with the db.Conn().Raw() method.
-type SpannerConn interface {
-	// StartBatchDDL starts a DDL batch on the connection. After calling this
-	// method all subsequent DDL statements will be cached locally. Calling
-	// RunBatch will send all cached DDL statements to Spanner as one batch.
-	// Use DDL batching to speed up the execution of multiple DDL statements.
-	// Note that a DDL batch is not atomic. It is possible that some DDL
-	// statements are executed successfully and some not.
-	// See https://cloud.google.com/spanner/docs/schema-updates#order_of_execution_of_statements_in_batches
-	// for more information on how Cloud Spanner handles DDL batches.
-	StartBatchDDL() error
-	// StartBatchDML starts a DML batch on the connection. After calling this
-	// method all subsequent DML statements will be cached locally. Calling
-	// RunBatch will send all cached DML statements to Spanner as one batch.
-	// Use DML batching to speed up the execution of multiple DML statements.
-	// DML batches can be executed both outside of a transaction and during
-	// a read/write transaction. If a DML batch is executed outside an active
-	// transaction, the batch will be applied atomically to the database if
-	// successful and rolled back if one or more of the statements fail.
-	// If a DML batch is executed as part of a transaction, the error will
-	// be returned to the application, and the application can decide whether
-	// to commit or rollback the transaction.
-	StartBatchDML() error
-	// RunBatch sends all batched DDL or DML statements to Spanner. This is a
-	// no-op if no statements have been batched or if there is no active batch.
-	RunBatch(ctx context.Context) error
-	// AbortBatch aborts the current DDL or DML batch and discards all batched
-	// statements.
-	AbortBatch() error
-	// InDDLBatch returns true if the connection is currently in a DDL batch.
-	InDDLBatch() bool
-	// InDMLBatch returns true if the connection is currently in a DML batch.
-	InDMLBatch() bool
+func (c *connector) Close() error {
+	c.logger.Debug("closing connector")
+	c.closerMu.Lock()
+	c.closed = true
+	c.closerMu.Unlock()
 
-	// RetryAbortsInternally returns true if the connection automatically
-	// retries all aborted transactions.
-	RetryAbortsInternally() bool
-	// SetRetryAbortsInternally enables/disables the automatic retry of aborted
-	// transactions. If disabled, any aborted error from a transaction will be
-	// propagated to the application.
-	SetRetryAbortsInternally(retry bool) error
+	if c.cacheKey != "" {
+		c.driver.mu.Lock()
+		delete(c.driver.connectors, c.cacheKey)
+		c.driver.mu.Unlock()
+	}
 
-	// AutocommitDMLMode returns the current mode that is used for DML
-	// statements outside a transaction. The default is Transactional.
-	AutocommitDMLMode() AutocommitDMLMode
-	// SetAutocommitDMLMode sets the mode to use for DML statements that are
-	// executed outside transactions. The default is Transactional. Change to
-	// PartitionedNonAtomic to use Partitioned DML instead of Transactional DML.
-	// See https://cloud.google.com/spanner/docs/dml-partitioned for more
-	// information on Partitioned DML.
-	SetAutocommitDMLMode(mode AutocommitDMLMode) error
-
-	// ReadOnlyStaleness returns the current staleness that is used for
-	// queries in autocommit mode, and for read-only transactions.
-	ReadOnlyStaleness() spanner.TimestampBound
-	// SetReadOnlyStaleness sets the staleness to use for queries in autocommit
-	// mode and for read-only transaction.
-	SetReadOnlyStaleness(staleness spanner.TimestampBound) error
-
-	// ExcludeTxnFromChangeStreams returns true if the next transaction should be excluded from change streams with the
-	// DDL option `allow_txn_exclusion=true`.
-	ExcludeTxnFromChangeStreams() bool
-	// SetExcludeTxnFromChangeStreams sets whether the next transaction should be excluded from change streams with the
-	// DDL option `allow_txn_exclusion=true`.
-	SetExcludeTxnFromChangeStreams(excludeTxnFromChangeStreams bool) error
-
-	// Apply writes an array of mutations to the database. This method may only be called while the connection
-	// is outside a transaction. Use BufferWrite to write mutations in a transaction.
-	// See also spanner.Client#Apply
-	Apply(ctx context.Context, ms []*spanner.Mutation, opts ...spanner.ApplyOption) (commitTimestamp time.Time, err error)
-
-	// BufferWrite writes an array of mutations to the current transaction. This method may only be called while the
-	// connection is in a read/write transaction. Use Apply to write mutations outside a transaction.
-	// See also spanner.ReadWriteTransaction#BufferWrite
-	BufferWrite(ms []*spanner.Mutation) error
-
-	// CommitTimestamp returns the commit timestamp of the last implicit or explicit read/write transaction that
-	// was executed on the connection, or an error if the connection has not executed a read/write transaction
-	// that committed successfully. The timestamp is in the local timezone.
-	CommitTimestamp() (commitTimestamp time.Time, err error)
+	c.clientMu.Lock()
+	defer c.clientMu.Unlock()
+	return c.closeClients()
 }
 
-type conn struct {
-	connector   *connector
-	closed      bool
-	client      *spanner.Client
-	adminClient *adminapi.DatabaseAdminClient
-	tx          contextTransaction
-	commitTs    *time.Time
-	database    string
-	retryAborts bool
-
-	execSingleQuery            func(ctx context.Context, c *spanner.Client, statement spanner.Statement, bound spanner.TimestampBound) *spanner.RowIterator
-	execSingleDMLTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement, transactionOptions spanner.TransactionOptions) (int64, time.Time, error)
-	execSingleDMLPartitioned   func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options spanner.QueryOptions) (int64, error)
-
-	// batch is the currently active DDL or DML batch on this connection.
-	batch *batch
-
-	// autocommitDMLMode determines the type of DML to use when a single DML
-	// statement is executed on a connection. The default is Transactional, but
-	// it can also be set to PartitionedNonAtomic to execute the statement as
-	// Partitioned DML.
-	autocommitDMLMode AutocommitDMLMode
-	// readOnlyStaleness is used for queries in autocommit mode and for read-only transactions.
-	readOnlyStaleness spanner.TimestampBound
-	// excludeTxnFromChangeStreams is used to exlude the next transaction from change streams with the DDL option
-	// `allow_txn_exclusion=true`
-	excludeTxnFromChangeStreams bool
+// Closes the underlying clients.
+func (c *connector) closeClients() (err error) {
+	c.logger.Debug("closing clients")
+	if c.client != nil {
+		c.client.Close()
+		c.client = nil
+	}
+	if c.adminClient != nil {
+		err = c.adminClient.Close()
+		c.adminClient = nil
+	}
+	return err
 }
 
-type batchType int
+// RunTransaction runs the given function in a transaction on the given database.
+// If the connection is a connection to a Spanner database, the transaction will
+// automatically be retried if the transaction is aborted by Spanner. Any other
+// errors will be propagated to the caller and the transaction will be rolled
+// back. The transaction will be committed if the supplied function did not
+// return an error.
+//
+// If the connection is to a non-Spanner database, no retries will be attempted,
+// and any error that occurs during the transaction will be propagated to the
+// caller.
+//
+// The application should *NOT* call tx.Commit() or tx.Rollback(). This is done
+// automatically by this function, depending on whether the transaction function
+// returned an error or not.
+//
+// This function will never return ErrAbortedDueToConcurrentModification.
+func RunTransaction(ctx context.Context, db *sql.DB, opts *sql.TxOptions, f func(ctx context.Context, tx *sql.Tx) error) error {
+	return runTransactionWithOptions(ctx, db, opts, f, spanner.TransactionOptions{})
+}
 
-const (
-	ddl batchType = iota
-	dml
-)
+// RunTransactionWithOptions runs the given function in a transaction on the given database.
+// If the connection is a connection to a Spanner database, the transaction will
+// automatically be retried if the transaction is aborted by Spanner. Any other
+// errors will be propagated to the caller and the transaction will be rolled
+// back. The transaction will be committed if the supplied function did not
+// return an error.
+//
+// If the connection is to a non-Spanner database, no retries will be attempted,
+// and any error that occurs during the transaction will be propagated to the
+// caller.
+//
+// The application should *NOT* call tx.Commit() or tx.Rollback(). This is done
+// automatically by this function, depending on whether the transaction function
+// returned an error or not.
+//
+// The given spanner.TransactionOptions will be used for the transaction.
+//
+// This function will never return ErrAbortedDueToConcurrentModification.
+func RunTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOptions, f func(ctx context.Context, tx *sql.Tx) error, spannerOptions spanner.TransactionOptions) error {
+	return runTransactionWithOptions(ctx, db, opts, f, spannerOptions)
+}
 
-type batch struct {
-	tp         batchType
-	statements []spanner.Statement
+func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOptions, f func(ctx context.Context, tx *sql.Tx) error, spannerOptions spanner.TransactionOptions) error {
+	// Get a connection from the pool that we can use to run a transaction.
+	// Getting a connection here already makes sure that we can reserve this
+	// connection exclusively for the duration of this method. That again
+	// allows us to temporarily change the state of the connection (e.g. set
+	// the retryAborts flag to false).
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = conn.Close()
+	}()
+
+	// We don't need to keep track of a running checksum for retries when using
+	// this method, so we disable internal retries.
+	// Retries will instead be handled by the loop below.
+	transactionOptions := &ReadWriteTransactionOptions{
+		TransactionOptions:     spannerOptions,
+		DisableInternalRetries: true,
+	}
+	isSpannerConn := false
+	if err := conn.Raw(func(driverConn any) error {
+		var spannerConn SpannerConn
+		spannerConn, isSpannerConn = driverConn.(SpannerConn)
+		if !isSpannerConn {
+			// It is not a Spanner connection, so just ignore and continue without any special handling.
+			return nil
+		}
+		spannerConn.withTempTransactionOptions(transactionOptions)
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	tx, err := conn.BeginTx(ctx, opts)
+	if err != nil {
+		return err
+	}
+	for {
+		err = protected(ctx, tx, f)
+		errDuringCommit := false
+		if err == nil {
+			err = tx.Commit()
+			if err == nil {
+				return nil
+			}
+			errDuringCommit = true
+		}
+		// Rollback and return the error if:
+		// 1. The connection is not a Spanner connection.
+		// 2. Or the error code is not Aborted.
+		if !isSpannerConn || spanner.ErrCode(err) != codes.Aborted {
+			// We don't really need to call Rollback here if the error happened
+			// during the Commit. However, the SQL package treats this as a no-op
+			// and just returns an ErrTxDone if we do, so this is simpler than
+			// keeping track of where the error happened.
+			_ = tx.Rollback()
+			return err
+		}
+
+		// The transaction was aborted by Spanner.
+		// Back off and retry the entire transaction.
+		if delay, ok := spanner.ExtractRetryDelay(err); ok {
+			err = gax.Sleep(ctx, delay)
+			if err != nil {
+				// We need to 'roll back' the transaction here to tell the sql
+				// package that there is no active transaction on the connection
+				// anymore. It does not actually roll back the transaction, as it
+				// has already been aborted by Spanner.
+				_ = tx.Rollback()
+				return err
+			}
+		}
+
+		// Reset the transaction after it was aborted.
+		err = resetTransactionForRetry(ctx, conn, errDuringCommit)
+		if err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		// This does not actually start a new transaction, instead it
+		// continues with the previous transaction that was already reset.
+		// We need to do this, because the sql package registers the
+		// transaction as 'done' when Commit has been called, also if the
+		// commit fails.
+		if errDuringCommit {
+			tx, err = conn.BeginTx(ctx, opts)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+}
+func protected(ctx context.Context, tx *sql.Tx, f func(ctx context.Context, tx *sql.Tx) error) (err error) {
+	defer func() {
+		if x := recover(); x != nil {
+			err = spanner.ToSpannerError(status.Errorf(codes.Unknown, "transaction function panic: %v", x))
+		}
+	}()
+	return f(ctx, tx)
+}
+
+func resetTransactionForRetry(ctx context.Context, conn *sql.Conn, errDuringCommit bool) error {
+	return conn.Raw(func(driverConn any) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			return spanner.ToSpannerError(status.Error(codes.InvalidArgument, "not a Spanner connection"))
+		}
+		return spannerConn.resetTransactionForRetry(ctx, errDuringCommit)
+	})
+}
+
+type ReadWriteTransactionOptions struct {
+	// TransactionOptions are passed through to the Spanner client to use for
+	// the read/write transaction.
+	TransactionOptions spanner.TransactionOptions
+	// DisableInternalRetries disables checksum-based retries of Aborted errors
+	// for this transaction. By default, read/write transactions keep track of
+	// a running checksum of all results it receives from Spanner. If Spanner
+	// aborts the transaction, the transaction is retried by the driver and the
+	// checksums of the initial attempt and the retry are compared. If the
+	// checksums differ, the transaction fails with an Aborted error.
+	//
+	// If DisableInternalRetries is set to true, checksum-based retries are
+	// disabled, and any Aborted error from Spanner is propagated to the
+	// application.
+	DisableInternalRetries bool
+
+	close func()
+}
+
+// BeginReadWriteTransaction begins a read/write transaction on a Spanner database.
+// This function allows more options to be passed in that the generic sql.DB.BeginTx
+// function.
+//
+// NOTE: You *MUST* end the transaction by calling either Commit or Rollback on
+// the transaction. Failure to do so will cause the connection that is used for
+// the transaction to be leaked.
+func BeginReadWriteTransaction(ctx context.Context, db *sql.DB, options ReadWriteTransactionOptions) (*sql.Tx, error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	options.close = func() {
+		// Close the connection asynchronously, as the transaction will still
+		// be active when we hit this point.
+		go conn.Close()
+	}
+	if err := withTempReadWriteTransactionOptions(conn, &options); err != nil {
+		return nil, err
+	}
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		clearTempReadWriteTransactionOptions(conn)
+		return nil, err
+	}
+	return tx, nil
+}
+
+func withTempReadWriteTransactionOptions(conn *sql.Conn, options *ReadWriteTransactionOptions) error {
+	return conn.Raw(func(driverConn any) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			// It is not a Spanner connection.
+			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
+		}
+		spannerConn.withTempTransactionOptions(options)
+		return nil
+	})
+}
+
+func clearTempReadWriteTransactionOptions(conn *sql.Conn) {
+	_ = withTempReadWriteTransactionOptions(conn, nil)
+	_ = conn.Close()
+}
+
+// ReadOnlyTransactionOptions can be used to create a read-only transaction
+// on a Spanner connection.
+type ReadOnlyTransactionOptions struct {
+	TimestampBound spanner.TimestampBound
+
+	close func()
+}
+
+// BeginReadOnlyTransaction begins a read-only transaction on a Spanner database.
+//
+// NOTE: You *MUST* end the transaction by calling either Commit or Rollback on
+// the transaction. Failure to do so will cause the connection that is used for
+// the transaction to be leaked.
+func BeginReadOnlyTransaction(ctx context.Context, db *sql.DB, options ReadOnlyTransactionOptions) (*sql.Tx, error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	options.close = func() {
+		// Close the connection asynchronously, as the transaction will still
+		// be active when we hit this point.
+		go conn.Close()
+	}
+	if err := withTempReadOnlyTransactionOptions(conn, &options); err != nil {
+		return nil, err
+	}
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		clearTempReadOnlyTransactionOptions(conn)
+		return nil, err
+	}
+	return tx, nil
+}
+
+func withTempReadOnlyTransactionOptions(conn *sql.Conn, options *ReadOnlyTransactionOptions) error {
+	return conn.Raw(func(driverConn any) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			// It is not a Spanner connection.
+			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
+		}
+		spannerConn.withTempReadOnlyTransactionOptions(options)
+		return nil
+	})
+}
+
+func clearTempReadOnlyTransactionOptions(conn *sql.Conn) {
+	_ = withTempReadOnlyTransactionOptions(conn, nil)
+	_ = conn.Close()
 }
 
 // AutocommitDMLMode indicates whether a single DML statement should be executed
@@ -443,6 +958,8 @@ type AutocommitDMLMode int
 
 func (mode AutocommitDMLMode) String() string {
 	switch mode {
+	case Unspecified:
+		return "Unspecified"
 	case Transactional:
 		return "Transactional"
 	case PartitionedNonAtomic:
@@ -452,299 +969,21 @@ func (mode AutocommitDMLMode) String() string {
 }
 
 const (
-	Transactional AutocommitDMLMode = iota
+	// Unspecified DML mode uses the default of the current connection.
+	Unspecified AutocommitDMLMode = iota
+
+	// Transactional DML mode uses a regular, atomic read/write transaction to
+	// execute the DML statement.
+	Transactional
+
+	// PartitionedNonAtomic mode uses a Partitioned DML transaction to execute
+	// the DML statement. Partitioned DML transactions are not guaranteed to be
+	// atomic, but allow the statement to exceed the transactional mutation limit.
 	PartitionedNonAtomic
 )
 
-func (c *conn) CommitTimestamp() (time.Time, error) {
-	if c.commitTs == nil {
-		return time.Time{}, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "this connection has not executed a read/write transaction that committed successfully"))
-	}
-	return *c.commitTs, nil
-}
-
-func (c *conn) RetryAbortsInternally() bool {
-	return c.retryAborts
-}
-
-func (c *conn) SetRetryAbortsInternally(retry bool) error {
-	_, err := c.setRetryAbortsInternally(retry)
-	return err
-}
-
-func (c *conn) setRetryAbortsInternally(retry bool) (driver.Result, error) {
-	if c.inTransaction() {
-		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot change retry mode while a transaction is active"))
-	}
-	c.retryAborts = retry
-	return driver.ResultNoRows, nil
-}
-
-func (c *conn) AutocommitDMLMode() AutocommitDMLMode {
-	return c.autocommitDMLMode
-}
-
-func (c *conn) SetAutocommitDMLMode(mode AutocommitDMLMode) error {
-	_, err := c.setAutocommitDMLMode(mode)
-	return err
-}
-
-func (c *conn) setAutocommitDMLMode(mode AutocommitDMLMode) (driver.Result, error) {
-	c.autocommitDMLMode = mode
-	return driver.ResultNoRows, nil
-}
-
-func (c *conn) ReadOnlyStaleness() spanner.TimestampBound {
-	return c.readOnlyStaleness
-}
-
-func (c *conn) SetReadOnlyStaleness(staleness spanner.TimestampBound) error {
-	_, err := c.setReadOnlyStaleness(staleness)
-	return err
-}
-
-func (c *conn) setReadOnlyStaleness(staleness spanner.TimestampBound) (driver.Result, error) {
-	c.readOnlyStaleness = staleness
-	return driver.ResultNoRows, nil
-}
-
-func (c *conn) ExcludeTxnFromChangeStreams() bool {
-	return c.excludeTxnFromChangeStreams
-}
-
-func (c *conn) SetExcludeTxnFromChangeStreams(excludeTxnFromChangeStreams bool) error {
-	_, err := c.setExcludeTxnFromChangeStreams(excludeTxnFromChangeStreams)
-	return err
-}
-
-func (c *conn) setExcludeTxnFromChangeStreams(excludeTxnFromChangeStreams bool) (driver.Result, error) {
-	if c.inTransaction() {
-		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot set ExcludeTxnFromChangeStreams while a transaction is active"))
-	}
-	c.excludeTxnFromChangeStreams = excludeTxnFromChangeStreams
-	return driver.ResultNoRows, nil
-}
-
-func (c *conn) StartBatchDDL() error {
-	_, err := c.startBatchDDL()
-	return err
-}
-
-func (c *conn) StartBatchDML() error {
-	_, err := c.startBatchDML()
-	return err
-}
-
-func (c *conn) RunBatch(ctx context.Context) error {
-	_, err := c.runBatch(ctx)
-	return err
-}
-
-func (c *conn) AbortBatch() error {
-	_, err := c.abortBatch()
-	return err
-}
-
-func (c *conn) InDDLBatch() bool {
-	return c.batch != nil && c.batch.tp == ddl
-}
-
-func (c *conn) InDMLBatch() bool {
-	return (c.batch != nil && c.batch.tp == dml) || (c.inReadWriteTransaction() && c.tx.(*readWriteTransaction).batch != nil)
-}
-
-func (c *conn) inBatch() bool {
-	return c.InDDLBatch() || c.InDMLBatch()
-}
-
-func (c *conn) startBatchDDL() (driver.Result, error) {
-	if c.batch != nil {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection already has an active batch."))
-	}
-	if c.inTransaction() {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection has an active transaction. DDL batches in transactions are not supported."))
-	}
-	c.batch = &batch{tp: ddl}
-	return driver.ResultNoRows, nil
-}
-
-func (c *conn) startBatchDML() (driver.Result, error) {
-	if c.inTransaction() {
-		return c.tx.StartBatchDML()
-	}
-
-	if c.batch != nil {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection already has an active batch."))
-	}
-	if c.inReadOnlyTransaction() {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection has an active read-only transaction. Read-only transactions cannot execute DML batches."))
-	}
-	c.batch = &batch{tp: dml}
-	return driver.ResultNoRows, nil
-}
-
-func (c *conn) runBatch(ctx context.Context) (driver.Result, error) {
-	if c.inTransaction() {
-		return c.tx.RunBatch(ctx)
-	}
-
-	if c.batch == nil {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection does not have an active batch"))
-	}
-	switch c.batch.tp {
-	case ddl:
-		return c.runDDLBatch(ctx)
-	case dml:
-		return c.runDMLBatch(ctx)
-	default:
-		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Unknown batch type: %d", c.batch.tp))
-	}
-}
-
-func (c *conn) runDDLBatch(ctx context.Context) (driver.Result, error) {
-	statements := c.batch.statements
-	c.batch = nil
-	return c.execDDL(ctx, statements...)
-}
-
-func (c *conn) runDMLBatch(ctx context.Context) (driver.Result, error) {
-	statements := c.batch.statements
-	c.batch = nil
-	return c.execBatchDML(ctx, statements)
-}
-
-func (c *conn) abortBatch() (driver.Result, error) {
-	if c.inTransaction() {
-		return c.tx.AbortBatch()
-	}
-
-	c.batch = nil
-	return driver.ResultNoRows, nil
-}
-
-func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (driver.Result, error) {
-	if c.batch != nil && c.batch.tp == dml {
-		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This connection has an active DML batch"))
-	}
-	if c.batch != nil && c.batch.tp == ddl {
-		c.batch.statements = append(c.batch.statements, statements...)
-		return driver.ResultNoRows, nil
-	}
-
-	if len(statements) > 0 {
-		ddlStatements := make([]string, len(statements))
-		for i, s := range statements {
-			ddlStatements[i] = s.SQL
-		}
-		op, err := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
-			Database:   c.database,
-			Statements: ddlStatements,
-		})
-		if err != nil {
-			return nil, err
-		}
-		if err := op.Wait(ctx); err != nil {
-			return nil, err
-		}
-	}
-	return driver.ResultNoRows, nil
-}
-
-func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement) (driver.Result, error) {
-	if len(statements) == 0 {
-		return &result{}, nil
-	}
-
-	var affected []int64
-	var err error
-	if c.inTransaction() {
-		tx, ok := c.tx.(*readWriteTransaction)
-		if !ok {
-			return nil, status.Errorf(codes.FailedPrecondition, "connection is in a transaction that is not a read/write transaction")
-		}
-		affected, err = tx.rwTx.BatchUpdate(ctx, statements)
-	} else {
-		_, err = c.client.ReadWriteTransactionWithOptions(ctx, func(ctx context.Context, transaction *spanner.ReadWriteTransaction) error {
-			affected, err = transaction.BatchUpdate(ctx, statements)
-			return err
-		}, c.createTransactionOptions())
-	}
-	return &result{rowsAffected: sum(affected)}, err
-}
-
-func sum(affected []int64) int64 {
-	sum := int64(0)
-	for _, c := range affected {
-		sum += c
-	}
-	return sum
-}
-
-func (c *conn) Apply(ctx context.Context, ms []*spanner.Mutation, opts ...spanner.ApplyOption) (commitTimestamp time.Time, err error) {
-	if c.inTransaction() {
-		return time.Time{}, spanner.ToSpannerError(
-			status.Error(
-				codes.FailedPrecondition,
-				"Apply may not be called while the connection is in a transaction. Use BufferWrite to write mutations in a transaction."))
-	}
-	return c.client.Apply(ctx, ms, opts...)
-}
-
-func (c *conn) BufferWrite(ms []*spanner.Mutation) error {
-	if !c.inTransaction() {
-		return spanner.ToSpannerError(
-			status.Error(
-				codes.FailedPrecondition,
-				"BufferWrite may not be called while the connection is not in a transaction. Use Apply to write mutations outside a transaction."))
-	}
-	return c.tx.BufferWrite(ms)
-}
-
-// Ping implements the driver.Pinger interface.
-// returns ErrBadConn if the connection is no longer valid.
-func (c *conn) Ping(ctx context.Context) error {
-	if c.closed {
-		return driver.ErrBadConn
-	}
-	rows, err := c.QueryContext(ctx, "SELECT 1", []driver.NamedValue{})
-	if err != nil {
-		return driver.ErrBadConn
-	}
-	defer rows.Close()
-	values := make([]driver.Value, 1)
-	if err := rows.Next(values); err != nil {
-		return driver.ErrBadConn
-	}
-	if values[0] != int64(1) {
-		return driver.ErrBadConn
-	}
-	return nil
-}
-
-// ResetSession implements the driver.SessionResetter interface.
-// returns ErrBadConn if the connection is no longer valid.
-func (c *conn) ResetSession(_ context.Context) error {
-	if c.closed {
-		return driver.ErrBadConn
-	}
-	if c.inTransaction() {
-		if err := c.tx.Rollback(); err != nil {
-			return driver.ErrBadConn
-		}
-	}
-	c.commitTs = nil
-	c.batch = nil
-	c.retryAborts = true
-	c.autocommitDMLMode = Transactional
-	c.readOnlyStaleness = spanner.TimestampBound{}
-	return nil
-}
-
-// IsValid implements the driver.Validator interface.
-func (c *conn) IsValid() bool {
-	return !c.closed
-}
-
+// checkIsValidType returns true for types that do not need extra conversion
+// for spanner.
 func checkIsValidType(v driver.Value) bool {
 	switch v.(type) {
 	default:
@@ -827,228 +1066,72 @@ func checkIsValidType(v driver.Value) bool {
 	return true
 }
 
-func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
-	if value == nil {
-		return nil
+func parseIsolationLevel(val string) (sql.IsolationLevel, error) {
+	switch strings.Replace(strings.ToLower(strings.TrimSpace(val)), " ", "_", 1) {
+	case "default":
+		return sql.LevelDefault, nil
+	case "read_uncommitted":
+		return sql.LevelReadUncommitted, nil
+	case "read_committed":
+		return sql.LevelReadCommitted, nil
+	case "write_committed":
+		return sql.LevelWriteCommitted, nil
+	case "repeatable_read":
+		return sql.LevelRepeatableRead, nil
+	case "snapshot":
+		return sql.LevelSnapshot, nil
+	case "serializable":
+		return sql.LevelSerializable, nil
+	case "linearizable":
+		return sql.LevelLinearizable, nil
 	}
-	if checkIsValidType(value.Value) {
-		return nil
-	}
-	if valuer, ok := value.Value.(driver.Valuer); ok {
-		v, err := valuer.Value()
-		if err != nil {
-			return err
-		}
-		if checkIsValidType(v) {
-			value.Value = v
-			return nil
-		}
-	}
-	return spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "unsupported value type: %T", value.Value))
+	return sql.LevelDefault, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid or unsupported isolation level: %v", val))
 }
 
-func (c *conn) Prepare(query string) (driver.Stmt, error) {
-	return c.PrepareContext(context.Background(), query)
+func toProtoIsolationLevel(level sql.IsolationLevel) (spannerpb.TransactionOptions_IsolationLevel, error) {
+	switch level {
+	case sql.LevelSerializable:
+		return spannerpb.TransactionOptions_SERIALIZABLE, nil
+	case sql.LevelRepeatableRead:
+		return spannerpb.TransactionOptions_REPEATABLE_READ, nil
+	case sql.LevelSnapshot:
+		return spannerpb.TransactionOptions_REPEATABLE_READ, nil
+	case sql.LevelDefault:
+		return spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED, nil
+
+	// Unsupported and unknown isolation levels.
+	case sql.LevelReadUncommitted:
+	case sql.LevelReadCommitted:
+	case sql.LevelWriteCommitted:
+	case sql.LevelLinearizable:
+	default:
+	}
+	return spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid or unsupported isolation level: %v", level))
 }
 
-func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
-	parsedSQL, args, err := parseParameters(query)
-	if err != nil {
-		return nil, err
-	}
-	return &stmt{conn: c, query: parsedSQL, numArgs: len(args)}, nil
+type spannerIsolationLevel sql.IsolationLevel
+
+const (
+	levelNone spannerIsolationLevel = iota
+	levelDisableRetryAborts
+	levelBatchReadOnly
+)
+
+// WithDisableRetryAborts returns a specific Spanner isolation level that contains
+// both the given standard isolation level and a custom Spanner isolation level that
+// disables internal retries for aborted transactions for a single transaction.
+func WithDisableRetryAborts(level sql.IsolationLevel) sql.IsolationLevel {
+	return sql.IsolationLevel(levelDisableRetryAborts)<<8 + level
 }
 
-func (c *conn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
-	// Execute client side statement if it is one.
-	clientStmt, err := parseClientSideStatement(c, query)
-	if err != nil {
-		return nil, err
-	}
-	if clientStmt != nil {
-		return clientStmt.QueryContext(ctx, args)
-	}
-	// Clear the commit timestamp of this connection before we execute the query.
-	c.commitTs = nil
-
-	stmt, err := prepareSpannerStmt(query, args)
-	if err != nil {
-		return nil, err
-	}
-	var iter rowIterator
-	if c.tx == nil {
-		iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt, c.readOnlyStaleness)}
-	} else {
-		iter = c.tx.Query(ctx, stmt)
-	}
-	return &rows{it: iter}, nil
+// WithBatchReadOnly returns a specific Spanner isolation level that contains
+// both the given standard isolation level and a custom Spanner isolation level that
+// instructs Spanner to use a spanner.BatchReadOnlyTransaction. This isolation level
+// should only be used for read-only transactions.
+func WithBatchReadOnly(level sql.IsolationLevel) sql.IsolationLevel {
+	return sql.IsolationLevel(levelBatchReadOnly)<<8 + level
 }
 
-func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
-	// Execute client side statement if it is one.
-	stmt, err := parseClientSideStatement(c, query)
-	if err != nil {
-		return nil, err
-	}
-	if stmt != nil {
-		return stmt.ExecContext(ctx, args)
-	}
-	// Clear the commit timestamp of this connection before we execute the statement.
-	c.commitTs = nil
-
-	// Use admin API if DDL statement is provided.
-	isDDL, err := isDDL(query)
-	if err != nil {
-		return nil, err
-	}
-	if isDDL {
-		// Spanner does not support DDL in transactions, and although it is technically possible to execute DDL
-		// statements while a transaction is active, we return an error to avoid any confusion whether the DDL
-		// statement is executed as part of the active transaction or not.
-		if c.inTransaction() {
-			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "cannot execute DDL as part of a transaction"))
-		}
-		return c.execDDL(ctx, spanner.NewStatement(query))
-	}
-
-	ss, err := prepareSpannerStmt(query, args)
-	if err != nil {
-		return nil, err
-	}
-
-	var rowsAffected int64
-	var commitTs time.Time
-	if c.tx == nil {
-		if c.InDMLBatch() {
-			c.batch.statements = append(c.batch.statements, ss)
-		} else {
-			if c.autocommitDMLMode == Transactional {
-				rowsAffected, commitTs, err = c.execSingleDMLTransactional(ctx, c.client, ss, c.createTransactionOptions())
-				if err == nil {
-					c.commitTs = &commitTs
-				}
-			} else if c.autocommitDMLMode == PartitionedNonAtomic {
-				rowsAffected, err = c.execSingleDMLPartitioned(ctx, c.client, ss, c.createPartitionedDmlQueryOptions())
-			} else {
-				return nil, status.Errorf(codes.FailedPrecondition, "connection in invalid state for DML statements: %s", c.autocommitDMLMode.String())
-			}
-		}
-	} else {
-		rowsAffected, err = c.tx.ExecContext(ctx, ss)
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &result{rowsAffected: rowsAffected}, nil
-}
-
-func (c *conn) Close() error {
-	// Check if this is the last open connection of the connector.
-	if count := atomic.AddInt32(&c.connector.connCount, -1); count > 0 {
-		return nil
-	}
-
-	// This was the last connection. Remove the connector and close the Spanner clients.
-	c.connector.driver.mu.Lock()
-	delete(c.connector.driver.connectors, c.connector.dsn)
-	c.connector.driver.mu.Unlock()
-
-	c.client.Close()
-	return c.adminClient.Close()
-}
-
-func (c *conn) Begin() (driver.Tx, error) {
-	return c.BeginTx(context.Background(), driver.TxOptions{})
-}
-
-func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
-	if c.inTransaction() {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "already in a transaction"))
-	}
-	if c.inBatch() {
-		return nil, status.Error(codes.FailedPrecondition, "This connection has an active batch. Run or abort the batch before starting a new transaction.")
-	}
-
-	if opts.ReadOnly {
-		ro := c.client.ReadOnlyTransaction().WithTimestampBound(c.readOnlyStaleness)
-		c.tx = &readOnlyTransaction{
-			roTx: ro,
-			close: func() {
-				c.tx = nil
-			},
-		}
-		return c.tx, nil
-	}
-
-	options := c.createTransactionOptions()
-	tx, err := spanner.NewReadWriteStmtBasedTransactionWithOptions(ctx, c.client, options)
-	if err != nil {
-		return nil, err
-	}
-	c.tx = &readWriteTransaction{
-		ctx:    ctx,
-		client: c.client,
-		rwTx:   tx,
-		close: func(commitTs *time.Time, commitErr error) {
-			c.tx = nil
-			if commitErr == nil {
-				c.commitTs = commitTs
-			}
-		},
-		retryAborts: c.retryAborts,
-	}
-	c.commitTs = nil
-	return c.tx, nil
-}
-
-func (c *conn) inTransaction() bool {
-	return c.tx != nil
-}
-
-func (c *conn) inReadOnlyTransaction() bool {
-	if c.tx != nil {
-		_, ok := c.tx.(*readOnlyTransaction)
-		return ok
-	}
-	return false
-}
-
-func (c *conn) inReadWriteTransaction() bool {
-	if c.tx != nil {
-		_, ok := c.tx.(*readWriteTransaction)
-		return ok
-	}
-	return false
-}
-
-func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound) *spanner.RowIterator {
-	return c.Single().WithTimestampBound(tb).Query(ctx, statement)
-}
-
-func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, options spanner.TransactionOptions) (int64, time.Time, error) {
-	var rowsAffected int64
-	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
-		count, err := tx.Update(ctx, statement)
-		rowsAffected = count
-		return err
-	}
-	resp, err := c.ReadWriteTransactionWithOptions(ctx, fn, options)
-	if err != nil {
-		return 0, time.Time{}, err
-	}
-	return rowsAffected, resp.CommitTs, nil
-}
-
-func execAsPartitionedDML(ctx context.Context, c *spanner.Client, statement spanner.Statement, options spanner.QueryOptions) (int64, error) {
-	return c.PartitionedUpdateWithOptions(ctx, statement, options)
-}
-
-func (c *conn) createTransactionOptions() spanner.TransactionOptions {
-	defer func() { c.excludeTxnFromChangeStreams = false }()
-	return spanner.TransactionOptions{ExcludeTxnFromChangeStreams: c.excludeTxnFromChangeStreams}
-}
-
-func (c *conn) createPartitionedDmlQueryOptions() spanner.QueryOptions {
-	defer func() { c.excludeTxnFromChangeStreams = false }()
-	return spanner.QueryOptions{ExcludeTxnFromChangeStreams: c.excludeTxnFromChangeStreams}
+func withBatchReadOnly(level driver.IsolationLevel) driver.IsolationLevel {
+	return driver.IsolationLevel(levelBatchReadOnly)<<8 + level
 }

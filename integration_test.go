@@ -24,8 +24,10 @@ import (
 	"math"
 	"math/big"
 	"math/rand"
+	"net"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"sync"
 	"testing"
@@ -387,7 +389,7 @@ func TestQueryContext(t *testing.T) {
 	}
 }
 
-func TestTypeRoundtrip(t *testing.T) {
+func TestTypeRoundTrip(t *testing.T) {
 	skipIfShort(t)
 	t.Parallel()
 
@@ -505,6 +507,9 @@ func TestTypeRoundtrip(t *testing.T) {
 		// JSON variants
 		{in: spanner.NullJSON{Valid: true, Value: map[string]any{"a": 13}}, skipeq: true},
 		{in: []spanner.NullJSON{{Valid: true, Value: map[string]any{"a": 13}}}, skipeq: true},
+		// Standard library type alias examples
+		{in: net.IPv6loopback},
+		{in: time.Duration(1)},
 	}
 
 	for _, test := range tests {
@@ -872,9 +877,29 @@ func TestExecContextDml(t *testing.T) {
 		}
 
 		// Clear table for next test.
-		_, err = db.ExecContext(ctx, `DELETE FROM TestExecContextDml WHERE true`)
-		if (err != nil) && (!tc.then.wantError) {
-			t.Errorf("%s: unexpected query error: %v", tc.name, err)
+		it, err := db.QueryContext(ctx, `DELETE FROM TestExecContextDml WHERE true THEN RETURN *`)
+		if err != nil {
+			if !tc.then.wantError {
+				t.Errorf("%s: unexpected query error: %v", tc.name, err)
+			}
+		} else {
+			if cols, err := it.Columns(); err != nil {
+				t.Errorf("%s: unexpected Columns() error: %v", tc.name, err)
+			} else {
+				if g, w := len(cols), 6; g != w {
+					t.Errorf("%s: column number mismatch\n Got: %v\nWant: %v", tc.name, g, w)
+				}
+				if !cmp.Equal(cols, []string{"key", "testString", "testBytes", "testInt", "testFloat", "testBool"}) {
+					t.Errorf("%s: column names mismatch: %v", tc.name, cols)
+				}
+			}
+			for it.Next() {
+				if err := it.Err(); err != nil {
+					t.Errorf("%s: unexpected iterator error: %v", tc.name, err)
+					break
+				}
+			}
+			it.Close()
 		}
 	}
 }
@@ -1684,6 +1709,91 @@ func verifyResult(ctx context.Context, stmt *sql.Stmt, empty bool) error {
 	return nil
 }
 
+func TestAutoPartitionedQuery(t *testing.T) {
+	skipIfShort(t)
+	t.Parallel()
+
+	ctx := context.Background()
+	dsn, cleanup, err := createTestDB(ctx,
+		`CREATE TABLE Singers (
+          SingerId INT64,
+          FirstName STRING(MAX),
+          LastName STRING(MAX),
+        ) PRIMARY KEY (SingerId)`)
+	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	type Singer struct {
+		Id        int64
+		FirstName string
+		LastName  string
+	}
+	want := []Singer{
+		{1, "First1", "Last1"},
+		{2, "First2", "Last2"},
+		{3, "First3", "Last3"},
+	}
+
+	// Insert 3 test rows.
+	res, err := db.ExecContext(ctx, "INSERT INTO Singers (SingerId, FirstName, LastName) "+
+		"VALUES (1, 'First1', 'Last1'), (2, 'First2', 'Last2'), (3, 'First3', 'Last3')")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := res.RowsAffected()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g, w := c, int64(3); g != w {
+		t.Fatalf("rows affected mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	rows, err := db.QueryContext(ctx, "SELECT * FROM Singers", ExecOptions{
+		PartitionedQueryOptions: PartitionedQueryOptions{
+			AutoPartitionQuery: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to execute auto-partitioned query: %v", err)
+	}
+	var got []Singer
+	for rows.Next() {
+		s := Singer{}
+		if err := rows.Scan(&s.Id, &s.FirstName, &s.LastName); err != nil {
+			t.Fatalf("failed to scan row: %v", err)
+		}
+		got = append(got, s)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterating over rows failed: %v", err)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatalf("closing rows failed: %v", err)
+	}
+	if g, w := len(got), len(want); g != w {
+		t.Fatalf("slice length mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	slices.SortFunc(got, func(a, b Singer) int {
+		if a.Id > b.Id {
+			return 1
+		}
+		if a.Id < b.Id {
+			return -1
+		}
+		return 0
+	})
+	if g, w := got, want; !reflect.DeepEqual(g, w) {
+		t.Fatalf("data mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
 func TestAllTypes(t *testing.T) {
 	skipIfShort(t)
 	t.Parallel()
@@ -1858,6 +1968,9 @@ func TestAllTypes(t *testing.T) {
                                                @key, @bool, @string, @bytes, @int64, @float64, @numeric, @date,
                                                @timestamp, @json, @boolArray, @stringArray, @bytesArray, @int64Array,
                                                @float64Array, @numericArray, @dateArray, @timestampArray, @jsonArray)`)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			if test.skipOnEmulator && runsOnEmulator() {
@@ -1942,6 +2055,9 @@ func TestQueryInReadWriteTransaction(t *testing.T) {
                                                @key, @bool, @string, @bytes, @int64, @float64, @numeric, @date,
                                                @timestamp, @json, @boolArray, @stringArray, @bytesArray, @int64Array,
                                                @float64Array, @numericArray, @dateArray, @timestampArray, @jsonArray)`)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for row := int64(0); row < wantRowCount; row++ {
 		res, err := stmt.ExecContext(ctx, row, row%2 == 0, fmt.Sprintf("%v", row), []byte(fmt.Sprintf("%v", row)),
 			row, float64(row)/float64(3), numeric(fmt.Sprintf("%v.%v", row, row)),
@@ -2022,7 +2138,7 @@ func TestPDML(t *testing.T) {
 	}
 	defer db.Close()
 	// Insert a couple of test rows.
-	res, err := db.ExecContext(
+	_, err = db.ExecContext(
 		ctx, `INSERT INTO Singers (SingerId, FirstName, LastName)
 					VALUES (1, 'First1', 'Last1'),
 					       (2, 'First2', 'Last2'),
@@ -2043,7 +2159,7 @@ func TestPDML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to switch to PDML mode: %v", err)
 	}
-	res, err = conn.ExecContext(ctx, "DELETE FROM Singers WHERE TRUE")
+	res, err := conn.ExecContext(ctx, "DELETE FROM Singers WHERE TRUE")
 	if err != nil {
 		t.Fatalf("delete statement failed: %v", err)
 	}

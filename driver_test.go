@@ -16,7 +16,12 @@ package spannerdriver
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
+	"fmt"
+	"net"
+	"reflect"
 	"testing"
 	"time"
 
@@ -24,23 +29,24 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 )
 
 func TestExtractDnsParts(t *testing.T) {
 	tests := []struct {
 		input               string
-		wantConnectorConfig connectorConfig
+		wantConnectorConfig ConnectorConfig
 		wantSpannerConfig   spanner.ClientConfig
 		wantErr             bool
 	}{
 		{
 			input: "projects/p/instances/i/databases/d",
-			wantConnectorConfig: connectorConfig{
-				project:  "p",
-				instance: "i",
-				database: "d",
-				params:   map[string]string{},
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
@@ -49,11 +55,11 @@ func TestExtractDnsParts(t *testing.T) {
 		},
 		{
 			input: "projects/DEFAULT_PROJECT_ID/instances/test-instance/databases/test-database",
-			wantConnectorConfig: connectorConfig{
-				project:  "DEFAULT_PROJECT_ID",
-				instance: "test-instance",
-				database: "test-database",
-				params:   map[string]string{},
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "DEFAULT_PROJECT_ID",
+				Instance: "test-instance",
+				Database: "test-database",
+				Params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
@@ -62,12 +68,12 @@ func TestExtractDnsParts(t *testing.T) {
 		},
 		{
 			input: "localhost:9010/projects/p/instances/i/databases/d",
-			wantConnectorConfig: connectorConfig{
-				host:     "localhost:9010",
-				project:  "p",
-				instance: "i",
-				database: "d",
-				params:   map[string]string{},
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
@@ -76,12 +82,12 @@ func TestExtractDnsParts(t *testing.T) {
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d",
-			wantConnectorConfig: connectorConfig{
-				host:     "spanner.googleapis.com",
-				project:  "p",
-				instance: "i",
-				database: "d",
-				params:   map[string]string{},
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "spanner.googleapis.com",
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
@@ -90,28 +96,29 @@ func TestExtractDnsParts(t *testing.T) {
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?usePlainText=true",
-			wantConnectorConfig: connectorConfig{
-				host:     "spanner.googleapis.com",
-				project:  "p",
-				instance: "i",
-				database: "d",
-				params: map[string]string{
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "spanner.googleapis.com",
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
 					"useplaintext": "true",
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
-				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
-				UserAgent:         userAgent,
+				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
+				UserAgent:            userAgent,
+				DisableNativeMetrics: true,
 			},
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d;credentials=/path/to/credentials.json",
-			wantConnectorConfig: connectorConfig{
-				host:     "spanner.googleapis.com",
-				project:  "p",
-				instance: "i",
-				database: "d",
-				params: map[string]string{
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "spanner.googleapis.com",
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
 					"credentials": "/path/to/credentials.json",
 				},
 			},
@@ -122,12 +129,12 @@ func TestExtractDnsParts(t *testing.T) {
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?credentials=/path/to/credentials.json;readonly=true",
-			wantConnectorConfig: connectorConfig{
-				host:     "spanner.googleapis.com",
-				project:  "p",
-				instance: "i",
-				database: "d",
-				params: map[string]string{
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "spanner.googleapis.com",
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
 					"credentials": "/path/to/credentials.json",
 					"readonly":    "true",
 				},
@@ -139,13 +146,29 @@ func TestExtractDnsParts(t *testing.T) {
 		},
 		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?usePlainText=true;",
-			wantConnectorConfig: connectorConfig{
-				host:     "spanner.googleapis.com",
-				project:  "p",
-				instance: "i",
-				database: "d",
-				params: map[string]string{
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "spanner.googleapis.com",
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
 					"useplaintext": "true",
+				},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
+				UserAgent:            userAgent,
+				DisableNativeMetrics: true,
+			},
+		},
+		{
+			input: "projects/p/instances/i/databases/d?isolationLevel=repeatable_read;",
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
+					"isolationlevel": "repeatable_read",
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
@@ -154,17 +177,19 @@ func TestExtractDnsParts(t *testing.T) {
 			},
 		},
 		{
-			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?minSessions=200;maxSessions=1000;numChannels=10;disableRouteToLeader=true;rpcPriority=Medium;optimizerVersion=1;optimizerStatisticsPackage=latest;databaseRole=child",
-			wantConnectorConfig: connectorConfig{
-				host:     "spanner.googleapis.com",
-				project:  "p",
-				instance: "i",
-				database: "d",
-				params: map[string]string{
+			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?minSessions=200;maxSessions=1000;numChannels=10;disableRouteToLeader=true;enableEndToEndTracing=true;disableNativeMetrics=true;rpcPriority=Medium;optimizerVersion=1;optimizerStatisticsPackage=latest;databaseRole=child",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "spanner.googleapis.com",
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
 					"minsessions":                "200",
 					"maxsessions":                "1000",
 					"numchannels":                "10",
 					"disableroutetoleader":       "true",
+					"enableendtoendtracing":      "true",
+					"disablenativemetrics":       "true",
 					"rpcpriority":                "Medium",
 					"optimizerversion":           "1",
 					"optimizerstatisticspackage": "latest",
@@ -178,29 +203,30 @@ func TestExtractDnsParts(t *testing.T) {
 					WriteSessions:                     0.2,
 					HealthCheckInterval:               spanner.DefaultSessionPoolConfig.HealthCheckInterval,
 					HealthCheckWorkers:                spanner.DefaultSessionPoolConfig.HealthCheckWorkers,
-					MaxBurst:                          spanner.DefaultSessionPoolConfig.MaxBurst,
+					MaxBurst:                          spanner.DefaultSessionPoolConfig.MaxBurst, //lint:ignore SA1019 because it's a spanner default.
 					MaxIdle:                           spanner.DefaultSessionPoolConfig.MaxIdle,
 					TrackSessionHandles:               spanner.DefaultSessionPoolConfig.TrackSessionHandles,
 					InactiveTransactionRemovalOptions: spanner.DefaultSessionPoolConfig.InactiveTransactionRemovalOptions,
 				},
-				NumChannels:          10,
-				UserAgent:            userAgent,
-				DisableRouteToLeader: true,
-				QueryOptions:         spanner.QueryOptions{Priority: spannerpb.RequestOptions_PRIORITY_MEDIUM, Options: &spannerpb.ExecuteSqlRequest_QueryOptions{OptimizerVersion: "1", OptimizerStatisticsPackage: "latest"}},
-				ReadOptions:          spanner.ReadOptions{Priority: spannerpb.RequestOptions_PRIORITY_MEDIUM},
-				TransactionOptions:   spanner.TransactionOptions{CommitPriority: spannerpb.RequestOptions_PRIORITY_MEDIUM},
-				DatabaseRole:         "child",
+				UserAgent:             userAgent,
+				DisableRouteToLeader:  true,
+				EnableEndToEndTracing: true,
+				DisableNativeMetrics:  true,
+				QueryOptions:          spanner.QueryOptions{Priority: spannerpb.RequestOptions_PRIORITY_MEDIUM, Options: &spannerpb.ExecuteSqlRequest_QueryOptions{OptimizerVersion: "1", OptimizerStatisticsPackage: "latest"}},
+				ReadOptions:           spanner.ReadOptions{Priority: spannerpb.RequestOptions_PRIORITY_MEDIUM},
+				TransactionOptions:    spanner.TransactionOptions{CommitPriority: spannerpb.RequestOptions_PRIORITY_MEDIUM},
+				DatabaseRole:          "child",
 			},
 		},
 		{
-			// intential error case
+			// intentional error case
 			input:   "project/p/instances/i/databases/d",
 			wantErr: true,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
-			config, err := extractConnectorConfig(tc.input)
+			config, err := ExtractConnectorConfig(tc.input)
 			if err != nil {
 				if tc.wantErr {
 					return
@@ -210,29 +236,181 @@ func TestExtractDnsParts(t *testing.T) {
 				if tc.wantErr {
 					t.Error("did not encounter expected error")
 				}
-				if !cmp.Equal(config, tc.wantConnectorConfig, cmp.AllowUnexported(connectorConfig{})) {
-					t.Errorf("connector config mismatch for %q\ngot: %v\nwant %v", tc.input, config, tc.wantConnectorConfig)
+				tc.wantConnectorConfig.name = tc.input
+				if diff := cmp.Diff(config, tc.wantConnectorConfig, cmp.AllowUnexported(ConnectorConfig{})); diff != "" {
+					t.Errorf("connector config mismatch for %q\n%v", tc.input, diff)
 				}
-				conn, err := newConnector(&Driver{connectors: make(map[string]*connector)}, tc.input)
+				conn, err := newOrCachedConnector(&Driver{connectors: make(map[string]*connector)}, tc.input)
 				if err != nil {
 					t.Errorf("failed to get connector for %q: %v", tc.input, err)
 				}
-				if !cmp.Equal(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{}, spanner.InactiveTransactionRemovalOptions{}, spannerpb.ExecuteSqlRequest_QueryOptions{})) {
-					t.Errorf("connector Spanner client config mismatch for %q\n Got: %v\nWant: %v", tc.input, conn.spannerClientConfig, tc.wantSpannerConfig)
+				if diff := cmp.Diff(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{}, spanner.InactiveTransactionRemovalOptions{}, spannerpb.ExecuteSqlRequest_QueryOptions{})); diff != "" {
+					t.Errorf("connector Spanner client config mismatch for %q\n%v", tc.input, diff)
 				}
 			}
 		})
 	}
+}
 
+func TestToProtoIsolationLevel(t *testing.T) {
+	tests := []struct {
+		input   sql.IsolationLevel
+		want    spannerpb.TransactionOptions_IsolationLevel
+		wantErr bool
+	}{
+		{
+			input: sql.LevelSerializable,
+			want:  spannerpb.TransactionOptions_SERIALIZABLE,
+		},
+		{
+			input: sql.LevelRepeatableRead,
+			want:  spannerpb.TransactionOptions_REPEATABLE_READ,
+		},
+		{
+			input: sql.LevelSnapshot,
+			want:  spannerpb.TransactionOptions_REPEATABLE_READ,
+		},
+		{
+			input: sql.LevelDefault,
+			want:  spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED,
+		},
+		{
+			input:   sql.LevelReadUncommitted,
+			wantErr: true,
+		},
+		{
+			input:   sql.LevelReadCommitted,
+			wantErr: true,
+		},
+		{
+			input:   sql.LevelWriteCommitted,
+			wantErr: true,
+		},
+		{
+			input:   sql.LevelLinearizable,
+			wantErr: true,
+		},
+		{
+			input:   sql.IsolationLevel(1000),
+			wantErr: true,
+		},
+	}
+	for i, test := range tests {
+		g, err := toProtoIsolationLevel(test.input)
+		if test.wantErr && err == nil {
+			t.Errorf("test %d: expected error for input %v, got none", i, test.input)
+		} else if !test.wantErr && err != nil {
+			t.Errorf("test %d: unexpected error for input %v: %v", i, test.input, err)
+		} else if g != test.want {
+			t.Errorf("test %d:\n Got: %v\nWant: %v", i, g, test.want)
+		}
+	}
+}
+
+func TestParseIsolationLevel(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    sql.IsolationLevel
+		wantErr bool
+	}{
+		{
+			input: "default",
+			want:  sql.LevelDefault,
+		},
+		{
+			input: " DEFAULT   ",
+			want:  sql.LevelDefault,
+		},
+		{
+			input: "read uncommitted",
+			want:  sql.LevelReadUncommitted,
+		},
+		{
+			input: "  read_uncommitted\n",
+			want:  sql.LevelReadUncommitted,
+		},
+		{
+			input: "read committed",
+			want:  sql.LevelReadCommitted,
+		},
+		{
+			input: "write committed",
+			want:  sql.LevelWriteCommitted,
+		},
+		{
+			input: "repeatable read",
+			want:  sql.LevelRepeatableRead,
+		},
+		{
+			input: "snapshot",
+			want:  sql.LevelSnapshot,
+		},
+		{
+			input: "serializable",
+			want:  sql.LevelSerializable,
+		},
+		{
+			input: "linearizable",
+			want:  sql.LevelLinearizable,
+		},
+		{
+			input:   "read serializable",
+			wantErr: true,
+		},
+		{
+			input:   "",
+			wantErr: true,
+		},
+		{
+			input:   "read-committed",
+			wantErr: true,
+		},
+	}
+	for _, tc := range tests {
+		level, err := parseIsolationLevel(tc.input)
+		if tc.wantErr && err == nil {
+			t.Errorf("parseIsolationLevel(%q): expected error", tc.input)
+		} else if !tc.wantErr && err != nil {
+			t.Errorf("parseIsolationLevel(%q): unexpected error: %v", tc.input, err)
+		} else if level != tc.want {
+			t.Errorf("parseIsolationLevel(%q): got %v, want %v", tc.input, level, tc.want)
+		}
+	}
+}
+
+func ExampleCreateConnector() {
+	connectorConfig := ConnectorConfig{
+		Project:  "my-project",
+		Instance: "my-instance",
+		Database: "my-database",
+
+		Configurator: func(config *spanner.ClientConfig, opts *[]option.ClientOption) {
+			config.DisableRouteToLeader = true
+		},
+	}
+	c, err := CreateConnector(connectorConfig)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	db := sql.OpenDB(c)
+	// Use the database ...
+
+	defer db.Close()
 }
 
 func TestConnection_Reset(t *testing.T) {
 	txClosed := false
 	c := conn{
+		logger: noopLogger,
+		connector: &connector{
+			connectorConfig: ConnectorConfig{},
+		},
 		readOnlyStaleness: spanner.ExactStaleness(time.Second),
 		batch:             &batch{tp: dml},
 		commitTs:          &time.Time{},
 		tx: &readOnlyTransaction{
+			logger: noopLogger,
 			close: func() {
 				txClosed = true
 			},
@@ -258,7 +436,8 @@ func TestConnection_Reset(t *testing.T) {
 
 func TestConnection_NoNestedTransactions(t *testing.T) {
 	c := conn{
-		tx: &readOnlyTransaction{},
+		logger: noopLogger,
+		tx:     &readOnlyTransaction{},
 	}
 	_, err := c.BeginTx(context.Background(), driver.TxOptions{})
 	if err == nil {
@@ -267,7 +446,7 @@ func TestConnection_NoNestedTransactions(t *testing.T) {
 }
 
 func TestConn_AbortBatch(t *testing.T) {
-	c := &conn{}
+	c := &conn{logger: noopLogger}
 	if err := c.StartBatchDDL(); err != nil {
 		t.Fatalf("failed to start DDL batch: %v", err)
 	}
@@ -301,12 +480,12 @@ func TestConn_StartBatchDdl(t *testing.T) {
 		c       *conn
 		wantErr bool
 	}{
-		{"Default", &conn{}, false},
-		{"In DDL batch", &conn{batch: &batch{tp: ddl}}, true},
-		{"In DML batch", &conn{batch: &batch{tp: dml}}, true},
-		{"In read/write transaction", &conn{tx: &readWriteTransaction{}}, true},
-		{"In read-only transaction", &conn{tx: &readOnlyTransaction{}}, true},
-		{"In read/write transaction with a DML batch", &conn{tx: &readWriteTransaction{batch: &batch{tp: dml}}}, true},
+		{"Default", &conn{logger: noopLogger}, false},
+		{"In DDL batch", &conn{logger: noopLogger, batch: &batch{tp: ddl}}, true},
+		{"In DML batch", &conn{logger: noopLogger, batch: &batch{tp: dml}}, true},
+		{"In read/write transaction", &conn{logger: noopLogger, tx: &readWriteTransaction{}}, true},
+		{"In read-only transaction", &conn{logger: noopLogger, tx: &readOnlyTransaction{}}, true},
+		{"In read/write transaction with a DML batch", &conn{logger: noopLogger, tx: &readWriteTransaction{batch: &batch{tp: dml}}}, true},
 	} {
 		err := test.c.StartBatchDDL()
 		if test.wantErr {
@@ -330,12 +509,12 @@ func TestConn_StartBatchDml(t *testing.T) {
 		c       *conn
 		wantErr bool
 	}{
-		{"Default", &conn{}, false},
-		{"In DDL batch", &conn{batch: &batch{tp: ddl}}, true},
-		{"In DML batch", &conn{batch: &batch{tp: dml}}, true},
-		{"In read/write transaction", &conn{tx: &readWriteTransaction{}}, false},
-		{"In read-only transaction", &conn{tx: &readOnlyTransaction{}}, true},
-		{"In read/write transaction with a DML batch", &conn{tx: &readWriteTransaction{batch: &batch{tp: dml}}}, true},
+		{"Default", &conn{logger: noopLogger}, false},
+		{"In DDL batch", &conn{logger: noopLogger, batch: &batch{tp: ddl}}, true},
+		{"In DML batch", &conn{logger: noopLogger, batch: &batch{tp: dml}}, true},
+		{"In read/write transaction", &conn{logger: noopLogger, tx: &readWriteTransaction{logger: noopLogger}}, false},
+		{"In read-only transaction", &conn{logger: noopLogger, tx: &readOnlyTransaction{logger: noopLogger}}, true},
+		{"In read/write transaction with a DML batch", &conn{logger: noopLogger, tx: &readWriteTransaction{logger: noopLogger, batch: &batch{tp: dml}}}, true},
 	} {
 		err := test.c.StartBatchDML()
 		if test.wantErr {
@@ -355,14 +534,16 @@ func TestConn_StartBatchDml(t *testing.T) {
 
 func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 	c := &conn{
-		batch: &batch{tp: ddl},
-		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound) *spanner.RowIterator {
+		logger:            noopLogger,
+		autocommitDMLMode: Transactional,
+		batch:             &batch{tp: ddl},
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options spanner.TransactionOptions) (int64, time.Time, error) {
-			return 0, time.Time{}, nil
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
+			return &result{}, time.Time{}, nil
 		},
-		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options spanner.QueryOptions) (int64, error) {
+		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -388,14 +569,15 @@ func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 
 func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
 	c := &conn{
-		batch: &batch{tp: dml},
-		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound) *spanner.RowIterator {
+		logger: noopLogger,
+		batch:  &batch{tp: dml},
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options spanner.TransactionOptions) (int64, time.Time, error) {
-			return 0, time.Time{}, nil
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
+			return &result{}, time.Time{}, nil
 		},
-		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options spanner.QueryOptions) (int64, error) {
+		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -420,16 +602,64 @@ func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
 	}
 }
 
+func TestConn_GetBatchedStatements(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	c := &conn{logger: noopLogger}
+	if !reflect.DeepEqual(c.GetBatchedStatements(), []spanner.Statement{}) {
+		t.Fatal("conn should return an empty slice when no batch is active")
+	}
+	if err := c.StartBatchDDL(); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(c.GetBatchedStatements(), []spanner.Statement{}) {
+		t.Fatal("conn should return an empty slice when a batch contains no statements")
+	}
+	if _, err := c.ExecContext(ctx, "create table table1", []driver.NamedValue{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ExecContext(ctx, "create table table2", []driver.NamedValue{}); err != nil {
+		t.Fatal(err)
+	}
+	batchedStatements := c.GetBatchedStatements()
+	if !reflect.DeepEqual([]spanner.Statement{
+		{SQL: "create table table1", Params: map[string]interface{}{}},
+		{SQL: "create table table2", Params: map[string]interface{}{}},
+	}, batchedStatements) {
+		t.Errorf("unexpected batched statements: %v", batchedStatements)
+	}
+
+	// Changing the returned slice does not change the batched statements.
+	batchedStatements[0] = spanner.Statement{SQL: "drop table table1"}
+	batchedStatements2 := c.GetBatchedStatements()
+	if !reflect.DeepEqual([]spanner.Statement{
+		{SQL: "create table table1", Params: map[string]interface{}{}},
+		{SQL: "create table table2", Params: map[string]interface{}{}},
+	}, batchedStatements2) {
+		t.Errorf("unexpected batched statements: %v", batchedStatements2)
+	}
+
+	if err := c.AbortBatch(); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(c.GetBatchedStatements(), []spanner.Statement{}) {
+		t.Fatal("conn should return an empty slice when no batch is active")
+	}
+}
+
 func TestConn_GetCommitTimestampAfterAutocommitDml(t *testing.T) {
 	want := time.Now()
 	c := &conn{
-		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound) *spanner.RowIterator {
+		logger:            noopLogger,
+		autocommitDMLMode: Transactional,
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options spanner.TransactionOptions) (int64, time.Time, error) {
-			return 0, want, nil
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
+			return &result{}, want, nil
 		},
-		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options spanner.QueryOptions) (int64, error) {
+		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -448,13 +678,14 @@ func TestConn_GetCommitTimestampAfterAutocommitDml(t *testing.T) {
 
 func TestConn_GetCommitTimestampAfterAutocommitQuery(t *testing.T) {
 	c := &conn{
-		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound) *spanner.RowIterator {
+		logger: noopLogger,
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options spanner.TransactionOptions) (int64, time.Time, error) {
-			return 0, time.Time{}, nil
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
+			return &result{}, time.Time{}, nil
 		},
-		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options spanner.QueryOptions) (int64, error) {
+		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -466,4 +697,80 @@ func TestConn_GetCommitTimestampAfterAutocommitQuery(t *testing.T) {
 	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
 		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
 	}
+}
+
+func TestConn_CheckNamedValue(t *testing.T) {
+	c := &conn{logger: noopLogger}
+
+	type Person struct {
+		Name string
+		Age  int64
+	}
+
+	var testNil *ValuerNil
+
+	tests := []struct {
+		in   any
+		want any
+	}{
+		// basic types should stay unchanged
+		{in: int64(256), want: int64(256)},
+		// driver.Valuer types should call .Value func
+		{in: &ValuerPerson{Name: "hello", Age: 123}, want: "hello"},
+		// structs should be sent to spanner
+		{in: &Person{Name: "hello", Age: 123}, want: &Person{Name: "hello", Age: 123}},
+		// nil pointer of type that implements driver.Valuer via value receiver should use nil
+		{in: testNil, want: nil},
+		// net.IP reflects to []byte. Allow model structs to have fields with
+		// types that reflect to types supported by spanner.
+		{in: net.IPv6loopback, want: []byte(net.IPv6loopback)},
+		// Similarly, time.Duration is just an int64.
+		{in: time.Duration(1), want: int64(time.Duration(1))},
+	}
+
+	for _, test := range tests {
+		value := &driver.NamedValue{
+			Ordinal: 1,
+			Value:   test.in,
+		}
+
+		err := c.CheckNamedValue(value)
+		if err != nil {
+			t.Errorf("expected no error, got: %v", err)
+			continue
+		}
+
+		if diff := cmp.Diff(test.want, value.Value); diff != "" {
+			t.Errorf("wrong result, got %#v expected %#v:\n%v", value.Value, test.want, diff)
+		}
+	}
+}
+
+func TestConnectorConfigJson(t *testing.T) {
+	_, err := json.Marshal(ConnectorConfig{})
+	if err != nil {
+		t.Fatalf("failed to marshal ConnectorConfig: %v", err)
+	}
+}
+
+// ValuerPerson implements driver.Valuer
+type ValuerPerson struct {
+	Name string
+	Age  int64
+}
+
+// Value implements conversion func for database.
+func (p *ValuerPerson) Value() (driver.Value, error) {
+	return p.Name, nil
+}
+
+// ValuerNil implements driver.Valuer
+type ValuerNil struct {
+	Name string
+}
+
+// Value implements conversion func for database. It explicitly implements driver.Valuer via a value receiver to
+// test the driver for its ability to handle nil pointers to structs that implement driver.Valuer via value receivers
+func (v ValuerNil) Value() (driver.Value, error) {
+	return v.Name, nil
 }

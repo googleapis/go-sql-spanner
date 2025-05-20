@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner"
-	sppb "google.golang.org/genproto/googleapis/spanner/v1"
+	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -69,6 +69,30 @@ func (s *statementExecutor) ShowRetryAbortsInternally(_ context.Context, c *conn
 	return &rows{it: it}, nil
 }
 
+func (s *statementExecutor) ShowAutoBatchDml(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	it, err := createBooleanIterator("AutoBatchDml", c.AutoBatchDml())
+	if err != nil {
+		return nil, err
+	}
+	return &rows{it: it}, nil
+}
+
+func (s *statementExecutor) ShowAutoBatchDmlUpdateCount(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	it, err := createInt64Iterator("AutoBatchDmlUpdateCount", c.AutoBatchDmlUpdateCount())
+	if err != nil {
+		return nil, err
+	}
+	return &rows{it: it}, nil
+}
+
+func (s *statementExecutor) ShowAutoBatchDmlUpdateCountVerification(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	it, err := createBooleanIterator("AutoBatchDmlUpdateCountVerification", c.AutoBatchDmlUpdateCountVerification())
+	if err != nil {
+		return nil, err
+	}
+	return &rows{it: it}, nil
+}
+
 func (s *statementExecutor) ShowAutocommitDmlMode(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
 	it, err := createStringIterator("AutocommitDMLMode", c.AutocommitDMLMode().String())
 	if err != nil {
@@ -93,12 +117,36 @@ func (s *statementExecutor) ShowExcludeTxnFromChangeStreams(_ context.Context, c
 	return &rows{it: it}, nil
 }
 
+func (s *statementExecutor) ShowMaxCommitDelay(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	it, err := createStringIterator("MaxCommitDelay", c.MaxCommitDelay().String())
+	if err != nil {
+		return nil, err
+	}
+	return &rows{it: it}, nil
+}
+
+func (s *statementExecutor) ShowTransactionTag(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	it, err := createStringIterator("TransactionTag", c.TransactionTag())
+	if err != nil {
+		return nil, err
+	}
+	return &rows{it: it}, nil
+}
+
+func (s *statementExecutor) ShowStatementTag(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	it, err := createStringIterator("StatementTag", c.StatementTag())
+	if err != nil {
+		return nil, err
+	}
+	return &rows{it: it}, nil
+}
+
 func (s *statementExecutor) StartBatchDdl(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Result, error) {
 	return c.startBatchDDL()
 }
 
 func (s *statementExecutor) StartBatchDml(_ context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Result, error) {
-	return c.startBatchDML()
+	return c.startBatchDML( /* automatic = */ false)
 }
 
 func (s *statementExecutor) RunBatch(ctx context.Context, c *conn, _ string, _ []driver.NamedValue) (driver.Result, error) {
@@ -118,6 +166,46 @@ func (s *statementExecutor) SetRetryAbortsInternally(_ context.Context, c *conn,
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid boolean value: %s", params))
 	}
 	return c.setRetryAbortsInternally(retry)
+}
+
+func (s *statementExecutor) SetAutoBatchDml(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
+	return setBoolVariable("AutoBatchDml", func(value bool) (driver.Result, error) {
+		return driver.ResultNoRows, c.SetAutoBatchDml(value)
+	}, params)
+}
+
+func (s *statementExecutor) SetAutoBatchDmlUpdateCount(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
+	return setInt64Variable("AutoBatchDmlUpdateCount", func(value int64) (driver.Result, error) {
+		return driver.ResultNoRows, c.SetAutoBatchDmlUpdateCount(value)
+	}, params)
+}
+
+func (s *statementExecutor) SetAutoBatchDmlUpdateCountVerification(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
+	return setBoolVariable("AutoBatchDmlUpdateCountVerification", func(value bool) (driver.Result, error) {
+		return driver.ResultNoRows, c.SetAutoBatchDmlUpdateCountVerification(value)
+	}, params)
+}
+
+func setBoolVariable(name string, f func(value bool) (driver.Result, error), params string) (driver.Result, error) {
+	if params == "" {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "no value given for %s", name))
+	}
+	value, err := strconv.ParseBool(params)
+	if err != nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid boolean value: %s", params))
+	}
+	return f(value)
+}
+
+func setInt64Variable(name string, f func(value int64) (driver.Result, error), params string) (driver.Result, error) {
+	if params == "" {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "no value given for %s", name))
+	}
+	value, err := strconv.ParseInt(params, 10, 64)
+	if err != nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid int64 value: %s", params))
+	}
+	return f(value)
 }
 
 func (s *statementExecutor) SetAutocommitDmlMode(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
@@ -147,6 +235,45 @@ func (s *statementExecutor) SetExcludeTxnFromChangeStreams(_ context.Context, c 
 	return c.setExcludeTxnFromChangeStreams(exclude)
 }
 
+var maxCommitDelayRegexp = regexp.MustCompile(`(?i)^\s*('(?P<duration>(\d{1,19})(s|ms|us|ns))'|(?P<number>\d{1,19})|(?P<null>NULL))\s*$`)
+
+func (s *statementExecutor) SetMaxCommitDelay(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
+	duration, err := parseDuration(maxCommitDelayRegexp, "max_commit_delay", params)
+	if err != nil {
+		return nil, err
+	}
+	return c.setMaxCommitDelay(duration)
+}
+
+func (s *statementExecutor) SetTransactionTag(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
+	tag, err := parseTag(params)
+	if err != nil {
+		return nil, err
+	}
+	return c.setTransactionTag(tag)
+}
+
+func (s *statementExecutor) SetStatementTag(_ context.Context, c *conn, params string, _ []driver.NamedValue) (driver.Result, error) {
+	tag, err := parseTag(params)
+	if err != nil {
+		return nil, err
+	}
+	return c.setStatementTag(tag)
+}
+
+func parseTag(params string) (string, error) {
+	if params == "" {
+		return "", spanner.ToSpannerError(status.Error(codes.InvalidArgument, "no value given for tag"))
+	}
+	tag := strings.TrimSpace(params)
+	if !(strings.HasPrefix(tag, "'") && strings.HasSuffix(tag, "'")) {
+		return "", spanner.ToSpannerError(status.Error(codes.InvalidArgument, "missing single quotes around tag"))
+	}
+	tag = strings.TrimLeft(tag, "'")
+	tag = strings.TrimRight(tag, "'")
+	return tag, nil
+}
+
 var strongRegexp = regexp.MustCompile("(?i)'STRONG'")
 var exactStalenessRegexp = regexp.MustCompile(`(?i)'(?P<type>EXACT_STALENESS)[\t ]+(?P<duration>(\d{1,19})(s|ms|us|ns))'`)
 var maxStalenessRegexp = regexp.MustCompile(`(?i)'(?P<type>MAX_STALENESS)[\t ]+(?P<duration>(\d{1,19})(s|ms|us|ns))'`)
@@ -164,13 +291,13 @@ func (s *statementExecutor) SetReadOnlyStaleness(_ context.Context, c *conn, par
 	if strongRegexp.MatchString(params) {
 		staleness = spanner.StrongRead()
 	} else if exactStalenessRegexp.MatchString(params) {
-		d, err := parseDuration(exactStalenessRegexp, params)
+		d, err := parseDuration(exactStalenessRegexp, "staleness", params)
 		if err != nil {
 			return nil, err
 		}
 		staleness = spanner.ExactStaleness(d)
 	} else if maxStalenessRegexp.MatchString(params) {
-		d, err := parseDuration(maxStalenessRegexp, params)
+		d, err := parseDuration(maxStalenessRegexp, "staleness", params)
 		if err != nil {
 			return nil, err
 		}
@@ -193,16 +320,27 @@ func (s *statementExecutor) SetReadOnlyStaleness(_ context.Context, c *conn, par
 	return c.setReadOnlyStaleness(staleness)
 }
 
-func parseDuration(re *regexp.Regexp, params string) (time.Duration, error) {
+func parseDuration(re *regexp.Regexp, name, params string) (time.Duration, error) {
 	matches := matchesToMap(re, params)
-	if matches["duration"] == "" {
-		return 0, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "No duration found in staleness string"))
+	if matches["duration"] == "" && matches["number"] == "" && matches["null"] == "" {
+		return 0, spanner.ToSpannerError(status.Error(codes.InvalidArgument, fmt.Sprintf("No duration found in %s string: %v", name, params)))
 	}
-	d, err := time.ParseDuration(matches["duration"])
-	if err != nil {
-		return 0, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Invalid duration: %s", matches["duration"]))
+	if matches["duration"] != "" {
+		d, err := time.ParseDuration(matches["duration"])
+		if err != nil {
+			return 0, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Invalid duration: %s", matches["duration"]))
+		}
+		return d, nil
+	} else if matches["number"] != "" {
+		d, err := strconv.Atoi(matches["number"])
+		if err != nil {
+			return 0, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Invalid duration: %s", matches["number"]))
+		}
+		return time.Millisecond * time.Duration(d), nil
+	} else if matches["null"] != "" {
+		return time.Duration(0), nil
 	}
-	return d, nil
+	return time.Duration(0), spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Unrecognized duration: %s", params))
 }
 
 func parseTimestamp(re *regexp.Regexp, params string) (time.Time, error) {
@@ -218,8 +356,11 @@ func parseTimestamp(re *regexp.Regexp, params string) (time.Time, error) {
 }
 
 func matchesToMap(re *regexp.Regexp, s string) map[string]string {
-	match := re.FindStringSubmatch(s)
 	matches := make(map[string]string)
+	match := re.FindStringSubmatch(s)
+	if match == nil {
+		return matches
+	}
 	for i, name := range re.SubexpNames() {
 		if i != 0 && name != "" {
 			matches[name] = match[i]
@@ -232,33 +373,40 @@ func matchesToMap(re *regexp.Regexp, s string) map[string]string {
 // one row. This is used for client side statements that return a result set
 // containing a BOOL value.
 func createBooleanIterator(column string, value bool) (*clientSideIterator, error) {
-	return createSingleValueIterator(column, value, sppb.TypeCode_BOOL)
+	return createSingleValueIterator(column, value, spannerpb.TypeCode_BOOL)
+}
+
+// createInt64Iterator creates a row iterator with a single INT64 column with
+// one row. This is used for client side statements that return a result set
+// containing an INT64 value.
+func createInt64Iterator(column string, value int64) (*clientSideIterator, error) {
+	return createSingleValueIterator(column, value, spannerpb.TypeCode_INT64)
 }
 
 // createStringIterator creates a row iterator with a single STRING column with
 // one row. This is used for client side statements that return a result set
 // containing a STRING value.
 func createStringIterator(column string, value string) (*clientSideIterator, error) {
-	return createSingleValueIterator(column, value, sppb.TypeCode_STRING)
+	return createSingleValueIterator(column, value, spannerpb.TypeCode_STRING)
 }
 
 // createTimestampIterator creates a row iterator with a single TIMESTAMP column with
 // one row. This is used for client side statements that return a result set
 // containing a TIMESTAMP value.
 func createTimestampIterator(column string, value *time.Time) (*clientSideIterator, error) {
-	return createSingleValueIterator(column, value, sppb.TypeCode_TIMESTAMP)
+	return createSingleValueIterator(column, value, spannerpb.TypeCode_TIMESTAMP)
 }
 
-func createSingleValueIterator(column string, value interface{}, code sppb.TypeCode) (*clientSideIterator, error) {
+func createSingleValueIterator(column string, value interface{}, code spannerpb.TypeCode) (*clientSideIterator, error) {
 	row, err := spanner.NewRow([]string{column}, []interface{}{value})
 	if err != nil {
 		return nil, err
 	}
 	return &clientSideIterator{
-		metadata: &sppb.ResultSetMetadata{
-			RowType: &sppb.StructType{
-				Fields: []*sppb.StructType_Field{
-					{Name: column, Type: &sppb.Type{Code: code}},
+		metadata: &spannerpb.ResultSetMetadata{
+			RowType: &spannerpb.StructType{
+				Fields: []*spannerpb.StructType_Field{
+					{Name: column, Type: &spannerpb.Type{Code: code}},
 				},
 			},
 		},
@@ -270,7 +418,7 @@ func createSingleValueIterator(column string, value interface{}, code sppb.TypeC
 // statements. All values are created and kept in memory, and this struct
 // should only be used for small result sets.
 type clientSideIterator struct {
-	metadata *sppb.ResultSetMetadata
+	metadata *spannerpb.ResultSetMetadata
 	rows     []*spanner.Row
 	index    int
 	stopped  bool
@@ -291,6 +439,6 @@ func (t *clientSideIterator) Stop() {
 	t.metadata = nil
 }
 
-func (t *clientSideIterator) Metadata() *sppb.ResultSetMetadata {
-	return t.metadata
+func (t *clientSideIterator) Metadata() (*spannerpb.ResultSetMetadata, error) {
+	return t.metadata, nil
 }

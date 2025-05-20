@@ -19,7 +19,6 @@ import (
 	"database/sql"
 	"fmt"
 
-	_ "github.com/googleapis/go-sql-spanner"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
 	"github.com/googleapis/go-sql-spanner/examples"
 )
@@ -29,9 +28,9 @@ import (
 // It is therefore recommended that DDL statements are always executed in batches whenever possible.
 //
 // DDL batches can be executed in two ways using the Spanner go sql driver:
-// 1. By executing the SQL statements `START BATCH DDL` and `RUN BATCH`.
-// 2. By unwrapping the Spanner specific driver interface spannerdriver.Driver and calling the
-//    spannerdriver.Driver#StartBatchDDL and spannerdriver.Driver#RunBatch methods.
+//  1. By executing the SQL statements `START BATCH DDL` and `RUN BATCH`.
+//  2. By unwrapping the Spanner specific driver interface spannerdriver.Driver and calling the
+//     spannerdriver.Driver#StartBatchDDL and spannerdriver.Driver#RunBatch methods.
 //
 // This sample shows how to use both possibilities.
 //
@@ -40,7 +39,7 @@ func ddlBatches(projectId, instanceId, databaseId string) error {
 	ctx := context.Background()
 	db, err := sql.Open("spanner", fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId))
 	if err != nil {
-		return fmt.Errorf("failed to open database connection: %v\n", err)
+		return fmt.Errorf("failed to open database connection: %v", err)
 	}
 	defer db.Close()
 
@@ -51,6 +50,7 @@ func ddlBatches(projectId, instanceId, databaseId string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get connection: %v", err)
 	}
+	defer conn.Close()
 	// Start a DDL batch on the connection.
 	if _, err := conn.ExecContext(ctx, "START BATCH DDL"); err != nil {
 		return fmt.Errorf("START BATCH DDL failed: %v", err)

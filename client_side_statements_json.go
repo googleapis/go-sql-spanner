@@ -35,6 +35,33 @@ var jsonFile = `{
       "exampleStatements": ["show variable retry_aborts_internally"],
       "examplePrerequisiteStatements": ["set readonly=false", "set autocommit=false"]
     },
+	{
+	  "name": "SHOW VARIABLE AUTO_BATCH_DML",
+	  "executorName": "ClientSideStatementNoParamExecutor",
+	  "resultType": "RESULT_SET",
+	  "statementType": "SHOW_AUTO_BATCH_DML",
+	  "regex": "(?is)\\A\\s*show\\s+variable\\s+auto_batch_dml\\s*\\z",
+	  "method": "statementShowAutoBatchDml",
+	  "exampleStatements": ["show variable auto_batch_dml"]
+	},
+	{
+	  "name": "SHOW VARIABLE AUTO_BATCH_DML_UPDATE_COUNT",
+	  "executorName": "ClientSideStatementNoParamExecutor",
+	  "resultType": "RESULT_SET",
+	  "statementType": "SHOW_AUTO_BATCH_DML_UPDATE_COUNT",
+	  "regex": "(?is)\\A\\s*show\\s+variable\\s+auto_batch_dml_update_count\\s*\\z",
+	  "method": "statementShowAutoBatchDmlUpdateCount",
+	  "exampleStatements": ["show variable auto_batch_dml_update_count"]
+	},
+	{
+	  "name": "SHOW VARIABLE AUTO_BATCH_DML_UPDATE_COUNT_VERIFICATION",
+	  "executorName": "ClientSideStatementNoParamExecutor",
+	  "resultType": "RESULT_SET",
+	  "statementType": "SHOW_AUTO_BATCH_DML_UPDATE_COUNT_VERIFICATION",
+	  "regex": "(?is)\\A\\s*show\\s+variable\\s+auto_batch_dml_update_count_verification\\s*\\z",
+	  "method": "statementShowAutoBatchDmlUpdateCountVerification",
+	  "exampleStatements": ["show variable auto_batch_dml_update_count_verification"]
+	},
     {
       "name": "SHOW VARIABLE AUTOCOMMIT_DML_MODE",
       "executorName": "ClientSideStatementNoParamExecutor",
@@ -59,6 +86,33 @@ var jsonFile = `{
 		"regex": "(?is)\\A\\s*show\\s+variable\\s+exclude_txn_from_change_streams\\s*\\z",
 		"method": "statementShowExcludeTxnFromChangeStreams",
 		"exampleStatements": ["show variable exclude_txn_from_change_streams"]
+	},
+	{
+		"name": "SHOW VARIABLE MAX_COMMIT_DELAY",
+		"executorName": "ClientSideStatementNoParamExecutor",
+		"resultType": "RESULT_SET",
+		"statementType": "SHOW_MAX_COMMIT_DELAY",
+		"regex": "(?is)\\A\\s*show\\s+variable\\s+max_commit_delay\\s*\\z",
+		"method": "statementShowMaxCommitDelay",
+		"exampleStatements": ["show variable max_commit_delay"]
+	},
+	{
+		"name": "SHOW VARIABLE TRANSACTION_TAG",
+		"executorName": "ClientSideStatementNoParamExecutor",
+		"resultType": "RESULT_SET",
+		"statementType": "SHOW_TRANSACTION_TAG",
+		"regex": "(?is)\\A\\s*show\\s+variable\\s+transaction_tag\\s*\\z",
+		"method": "statementShowTransactionTag",
+		"exampleStatements": ["show variable transaction_tag"]
+	},
+	{
+		"name": "SHOW VARIABLE STATEMENT_TAG",
+		"executorName": "ClientSideStatementNoParamExecutor",
+		"resultType": "RESULT_SET",
+		"statementType": "SHOW_STATEMENT_TAG",
+		"regex": "(?is)\\A\\s*show\\s+variable\\s+statement_tag\\s*\\z",
+		"method": "statementShowStatementTag",
+		"exampleStatements": ["show variable statement_tag"]
 	},
 	{
       "name": "START BATCH DDL",
@@ -109,6 +163,51 @@ var jsonFile = `{
         "converterName": "ClientSideStatementValueConverters$BooleanConverter"
       }
     },
+	{
+	  "name": "SET AUTO_BATCH_DML = TRUE|FALSE",
+	  "executorName": "ClientSideStatementSetExecutor",
+	  "resultType": "NO_RESULT",
+	  "statementType": "SET_AUTO_BATCH_DML",
+	  "regex": "(?is)\\A\\s*set\\s+auto_batch_dml\\s*(?:=)\\s*(.*)\\z",
+	  "method": "statementSetAutoBatchDml",
+	  "exampleStatements": ["set auto_batch_dml = true", "set auto_batch_dml = false"],
+	  "setStatement": {
+	    "propertyName": "AUTO_BATCH_DML",
+	    "separator": "=",
+	    "allowedValues": "(TRUE|FALSE)",
+	    "converterName": "ClientSideStatementValueConverters$BooleanConverter"
+	  }
+	},
+	{
+	  "name": "SET AUTO_BATCH_DML_UPDATE_COUNT = <INT64>",
+	  "executorName": "ClientSideStatementSetExecutor",
+	  "resultType": "NO_RESULT",
+	  "statementType": "SET_AUTO_BATCH_DML_UPDATE_COUNT",
+	  "regex": "(?is)\\A\\s*set\\s+auto_batch_dml_update_count\\s*(?:=)\\s*(.*)\\z",
+	  "method": "statementSetAutoBatchDmlUpdateCount",
+	  "exampleStatements": ["set auto_batch_dml_update_count = 0", "set auto_batch_dml_update_count = 100"],
+	  "setStatement": {
+	    "propertyName": "AUTO_BATCH_DML_UPDATE_COUNT",
+	    "separator": "=",
+	    "allowedValues": "(\\d{1,19})",
+	    "converterName": "ClientSideStatementValueConverters$LongConverter"
+	  }
+	},
+	{
+	  "name": "SET AUTO_BATCH_DML_UPDATE_COUNT_VERIFICATION = TRUE|FALSE",
+	  "executorName": "ClientSideStatementSetExecutor",
+	  "resultType": "NO_RESULT",
+	  "statementType": "SET_AUTO_BATCH_DML_UPDATE_COUNT_VERIFICATION",
+	  "regex": "(?is)\\A\\s*set\\s+auto_batch_dml_update_count_verification\\s*(?:=)\\s*(.*)\\z",
+	  "method": "statementSetAutoBatchDmlUpdateCountVerification",
+	  "exampleStatements": ["set auto_batch_dml_update_count_verification = true", "set auto_batch_dml_update_count_verification = false"],
+	  "setStatement": {
+	    "propertyName": "AUTO_BATCH_DML_UPDATE_COUNT_VERIFICATION",
+	    "separator": "=",
+	    "allowedValues": "(TRUE|FALSE)",
+	    "converterName": "ClientSideStatementValueConverters$BooleanConverter"
+	  }
+	},
     {
       "name": "SET AUTOCOMMIT_DML_MODE = 'PARTITIONED_NON_ATOMIC'|'TRANSACTIONAL'",
       "executorName": "ClientSideStatementSetExecutor",
@@ -164,6 +263,63 @@ var jsonFile = `{
 			"separator": "=",
 			"allowedValues": "(TRUE|FALSE)",
 			"converterName": "ClientSideStatementValueConverters$BooleanConverter"
+		}
+	},
+	{
+		"name": "SET MAX_COMMIT_DELAY = '<duration>'|NULL",
+		"executorName": "ClientSideStatementSetExecutor",
+		"resultType": "NO_RESULT",
+		"statementType": "SET_MAX_COMMIT_DELAY",
+		"regex": "(?is)\\A\\s*set\\s+max_commit_delay\\s*(?:=)\\s*(.*)\\z",
+		"method": "statementSetMaxCommitDelay",
+		"exampleStatements": [
+			"set max_commit_delay=null",
+			"set max_commit_delay = null",
+			"set max_commit_delay = null ",
+			"set max_commit_delay=1000",
+			"set max_commit_delay = 1000",
+			"set max_commit_delay = 1000 ",
+			"set max_commit_delay='1s'",
+			"set max_commit_delay = '1s'",
+			"set max_commit_delay = '1s' ",
+			"set max_commit_delay='100ms'",
+			"set max_commit_delay='10000us'",
+			"set max_commit_delay='9223372036854775807ns'"],
+		"setStatement": {
+			"propertyName": "MAX_COMMIT_DELAY",
+			"separator": "=",
+			"allowedValues": "('(\\d{1,19})(s|ms|us|ns)'|\\d{1,19}|NULL)",
+			"converterName": "ClientSideStatementValueConverters$DurationConverter"
+		}
+	},
+	{
+		"name": "SET TRANSACTION_TAG = '<tag>'",
+		"executorName": "ClientSideStatementSetExecutor",
+		"resultType": "NO_RESULT",
+		"statementType": "SET_TRANSACTION_TAG",
+		"regex": "(?is)\\A\\s*set\\s+transaction_tag\\s*(?:=)\\s*(.*)\\z",
+		"method": "statementSetTransactionTag",
+		"exampleStatements": ["set transaction_tag='tag1'", "set transaction_tag='tag2'", "set transaction_tag=''", "set transaction_tag='test_tag'"],
+        "setStatement": {
+          "propertyName": "TRANSACTION_TAG",
+           "separator": "=",
+           "allowedValues": "'(.*)'",
+           "converterName": "ClientSideStatementValueConverters$StringValueConverter"
+		}
+	},
+	{
+		"name": "SET STATEMENT_TAG = '<tag>'",
+		"executorName": "ClientSideStatementSetExecutor",
+		"resultType": "NO_RESULT",
+		"statementType": "SET_STATEMENT_TAG",
+		"regex": "(?is)\\A\\s*set\\s+statement_tag\\s*(?:=)\\s*(.*)\\z",
+		"method": "statementSetStatementTag",
+		"exampleStatements": ["set statement_tag='tag1'", "set statement_tag='tag2'", "set statement_tag=''", "set statement_tag='test_tag'"],
+        "setStatement": {
+          "propertyName": "STATEMENT_TAG",
+           "separator": "=",
+           "allowedValues": "'(.*)'",
+           "converterName": "ClientSideStatementValueConverters$StringValueConverter"
 		}
 	}
   ]

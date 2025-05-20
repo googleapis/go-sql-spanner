@@ -56,6 +56,29 @@ var (
 	}
 )
 
+var random struct {
+	mu   sync.Mutex
+	rand *rand.Rand
+}
+
+func init() { random.rand = rand.New(rand.NewSource(time.Now().UnixNano())) }
+
+func randBytes(n int) []byte {
+	random.mu.Lock()
+	defer random.mu.Unlock()
+
+	data := make([]byte, n)
+	_, _ = random.rand.Read(data)
+	return data
+}
+
+func randDuration(max time.Duration) time.Duration {
+	random.mu.Lock()
+	defer random.mu.Unlock()
+
+	return time.Duration(random.rand.Int63n(int64(max)))
+}
+
 // StatementResultType indicates the type of result returned by a SQL
 // statement.
 type StatementResultType int
@@ -155,6 +178,11 @@ func (s *StatementResult) ToPartialResultSets(resumeToken []byte) (result []*spa
 			Metadata: s.ResultSet.Metadata,
 		})
 	}
+	if s.UpdateCount > 0 {
+		result[len(result)-1].Stats = &spannerpb.ResultSetStats{
+			RowCount: &spannerpb.ResultSetStats_RowCountExact{RowCountExact: s.UpdateCount},
+		}
+	}
 	return result, nil
 }
 
@@ -165,10 +193,17 @@ func min(x, y uint64) uint64 {
 	return x
 }
 
-func (s *StatementResult) updateCountToPartialResultSet(exact bool) *spannerpb.PartialResultSet {
-	return &spannerpb.PartialResultSet{
+func (s *StatementResult) updateCountToPartialResultSet(exact bool, resultSetWithTx *spannerpb.ResultSet) *spannerpb.PartialResultSet {
+	res := &spannerpb.PartialResultSet{
+		Metadata: &spannerpb.ResultSetMetadata{
+			RowType: &spannerpb.StructType{},
+		},
 		Stats: s.convertUpdateCountToResultSet(exact).Stats,
 	}
+	if resultSetWithTx != nil && resultSetWithTx.Metadata != nil && resultSetWithTx.Metadata.Transaction != nil {
+		res.Metadata.Transaction = resultSetWithTx.Metadata.Transaction
+	}
+	return res
 }
 
 // Converts an update count to a ResultSet, as DML statements also return the
@@ -658,14 +693,14 @@ func (s *inMemSpannerServer) simulateExecutionTime(method string, req interface{
 	executionTime, ok := s.executionTimes[method]
 	s.mu.Unlock()
 	if ok {
-		var randTime int64
+		var randTime time.Duration
 		if executionTime.RandomExecutionTime > 0 {
-			randTime = rand.Int63n(int64(executionTime.RandomExecutionTime))
+			randTime = randDuration(executionTime.RandomExecutionTime)
 		}
-		totalExecutionTime := time.Duration(int64(executionTime.MinimumExecutionTime) + randTime)
+		totalExecutionTime := executionTime.MinimumExecutionTime + randTime
 		<-time.After(totalExecutionTime)
 		s.mu.Lock()
-		if executionTime.Errors != nil && len(executionTime.Errors) > 0 {
+		if len(executionTime.Errors) > 0 {
 			err := executionTime.Errors[0]
 			if !executionTime.KeepError {
 				executionTime.Errors = executionTime.Errors[1:]
@@ -882,7 +917,7 @@ func (s *inMemSpannerServer) executeStreamingSQL(req *spannerpb.ExecuteSqlReques
 		return err
 	}
 	s.mu.Lock()
-	statementResult.getResultSetWithTransactionSet(req.GetTransaction(), id)
+	resWithTx := statementResult.getResultSetWithTransactionSet(req.GetTransaction(), id)
 	isPartitionedDml := s.partitionedDmlTransactions[string(id)]
 	s.mu.Unlock()
 	switch statementResult.Type {
@@ -916,7 +951,7 @@ func (s *inMemSpannerServer) executeStreamingSQL(req *spannerpb.ExecuteSqlReques
 		}
 		return nil
 	case StatementResultUpdateCount:
-		part := statementResult.updateCountToPartialResultSet(!isPartitionedDml)
+		part := statementResult.updateCountToPartialResultSet(!isPartitionedDml, resWithTx.ResultSet)
 		if err := stream.Send(part); err != nil {
 			return err
 		}
@@ -1103,14 +1138,17 @@ func (s *inMemSpannerServer) PartitionQuery(ctx context.Context, req *spannerpb.
 			return nil, err
 		}
 	}
-	var partitions []*spannerpb.Partition
-	for i := int64(0); i < req.PartitionOptions.MaxPartitions; i++ {
-		token := make([]byte, 10)
-		_, err := rand.Read(token)
+	numPartitions := req.PartitionOptions.MaxPartitions
+	if numPartitions == 0 {
+		numPartitions = int64(rand.Intn(10) + 1)
+	}
+	partitions := make([]*spannerpb.Partition, 0, numPartitions)
+	for i := int64(0); i < numPartitions; i++ {
 		if err != nil {
 			return nil, gstatus.Error(codes.Internal, "failed to generate random partition token")
 		}
-		partitions = append(partitions, &spannerpb.Partition{PartitionToken: token})
+		token := fmt.Sprintf("%s: %v", req.Sql, i)
+		partitions = append(partitions, &spannerpb.Partition{PartitionToken: []byte(token)})
 	}
 	return &spannerpb.PartitionResponse{
 		Partitions:  partitions,

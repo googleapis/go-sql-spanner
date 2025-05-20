@@ -1,4 +1,4 @@
-// Copyright 2021 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,12 +20,11 @@ import (
 	"fmt"
 
 	"cloud.google.com/go/spanner"
-	_ "github.com/googleapis/go-sql-spanner"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
 	"github.com/googleapis/go-sql-spanner/examples"
 )
 
-var createTableStatement = "CREATE TABLE Singers (SingerId INT64, Name STRING(MAX)) PRIMARY KEY (SingerId)"
+var createTableStatement = "CREATE TABLE Singers (SingerId INT64, Name STRING(MAX), Active BOOL NOT NULL DEFAULT (TRUE)) PRIMARY KEY (SingerId)"
 
 // Example for executing a Partitioned DML transaction on a Google Cloud Spanner database.
 // See https://cloud.google.com/spanner/docs/dml-partitioned for more information on Partitioned DML.
@@ -39,7 +38,7 @@ func partitionedDml(projectId, instanceId, databaseId string) error {
 	}
 	defer db.Close()
 
-	// First insert a couple of test records that we will delete using Partitioned DML.
+	// First insert a couple of test records that we will update and delete using Partitioned DML.
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get a connection: %v", err)
@@ -56,13 +55,13 @@ func partitionedDml(projectId, instanceId, databaseId string) error {
 		return fmt.Errorf("failed to insert test records: %v", err)
 	}
 
-	// Now delete all records in the Singers table using Partitioned DML.
+	// Now update all records in the Singers table using Partitioned DML.
 	if _, err := conn.ExecContext(ctx, "SET AUTOCOMMIT_DML_MODE='PARTITIONED_NON_ATOMIC'"); err != nil {
 		return fmt.Errorf("failed to change DML mode to Partitioned_Non_Atomic: %v", err)
 	}
-	res, err := conn.ExecContext(ctx, "DELETE FROM Singers WHERE TRUE")
+	res, err := conn.ExecContext(ctx, "UPDATE Singers SET Active = FALSE WHERE TRUE")
 	if err != nil {
-		return fmt.Errorf("failed to execute DELETE statement: %v", err)
+		return fmt.Errorf("failed to execute UPDATE statement: %v", err)
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
@@ -70,12 +69,30 @@ func partitionedDml(projectId, instanceId, databaseId string) error {
 	}
 
 	// Partitioned DML returns the minimum number of records that were affected.
-	fmt.Printf("Deleted %v records using Partitioned DML\n", affected)
+	fmt.Printf("Updated %v records using Partitioned DML\n", affected)
 
 	// Closing the connection will return it to the connection pool. The DML mode will automatically be reset to the
 	// default TRANSACTIONAL mode when the connection is returned to the pool, so we do not need to change it back
 	// manually.
 	_ = conn.Close()
+
+	// The AutoCommitDMLMode can also be specified as an ExecOption for a single statement.
+	conn, err = db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get a connection: %v", err)
+	}
+	res, err = conn.ExecContext(ctx, "DELETE FROM Singers WHERE NOT Active",
+		spannerdriver.ExecOptions{AutocommitDMLMode: spannerdriver.PartitionedNonAtomic})
+	if err != nil {
+		return fmt.Errorf("failed to execute DELETE statement: %v", err)
+	}
+	affected, err = res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get affected rows: %v", err)
+	}
+
+	// Partitioned DML returns the minimum number of records that were affected.
+	fmt.Printf("Deleted %v records using Partitioned DML\n", affected)
 
 	return nil
 }

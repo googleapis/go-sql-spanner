@@ -381,6 +381,14 @@ func TestRemoveStatementHint(t *testing.T) {
 			want:  `SELECT * FROM PersonsTable`,
 		},
 		{
+			input: `@{JOIN_METHOD=HASH_JOIN} FROM Produce |> WHERE item != 'bananas'`,
+			want:  `FROM Produce |> WHERE item != 'bananas'`,
+		},
+		{
+			input: `@{JOIN_METHOD=HASH_JOIN} GRAPH FinGraph MATCH (n) RETURN LABELS(n) AS label, n.id`,
+			want:  `GRAPH FinGraph MATCH (n) RETURN LABELS(n) AS label, n.id`,
+		},
+		{
 			input: `@ {JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable`,
 			want:  `SELECT * FROM PersonsTable`,
 		},
@@ -692,10 +700,10 @@ func FuzzFindParams(f *testing.F) {
 	})
 }
 
-// note: isDDL function does not check validity of statement
-// just that the statement begins with a DDL instruction.
-// Other checking performed by database.
-func TestIsDdl(t *testing.T) {
+// Note: The detectStatementType function does not check validity of a statement,
+// only whether the statement begins with a DDL instruction.
+// Actual validity checks are performed by the database.
+func TestStatementIsDdl(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
@@ -841,13 +849,30 @@ func TestIsDdl(t *testing.T) {
 			input: "    \t\n  ",
 			want:  false,
 		},
+		{
+			name:  "analyze",
+			input: `analyze`,
+			want:  true,
+		},
+		{
+			name:  "grant",
+			input: `GRANT SELECT ON TABLE employees TO ROLE hr_rep;`,
+			want:  true,
+		},
+		{
+			name:  "revoke",
+			input: `REVOKE SELECT ON TABLE employees TO ROLE hr_rep;`,
+			want:  true,
+		},
+		{
+			name:  "rename",
+			input: `rename table foo to bar`,
+			want:  true,
+		},
 	}
 
 	for _, tc := range tests {
-		got, err := isDDL(tc.input)
-		if err != nil {
-			t.Error(err)
-		}
+		got := detectStatementType(tc.input).statementType == statementTypeDdl
 		if got != tc.want {
 			t.Errorf("isDDL test failed, %s: wanted %t got %t.", tc.name, tc.want, got)
 		}
@@ -860,7 +885,7 @@ func FuzzIsDdl(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, input string) {
-		_, _ = isDDL(input)
+		_ = isDDL(input)
 	})
 }
 
@@ -931,7 +956,7 @@ func TestParseClientSideStatement(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		statement, err := parseClientSideStatement(&conn{}, tc.input)
+		statement, err := parseClientSideStatement(&conn{logger: noopLogger}, tc.input)
 		if err != nil {
 			t.Fatalf("failed to parse statement %s: %v", tc.name, err)
 		}
@@ -963,7 +988,7 @@ func FuzzParseClientSideStatement(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, input string) {
-		_, _ = parseClientSideStatement(&conn{}, input)
+		_, _ = parseClientSideStatement(&conn{logger: noopLogger}, input)
 	})
 }
 
@@ -1149,6 +1174,68 @@ func TestSkip(t *testing.T) {
 			if skipped != test.skipped {
 				t.Errorf("skipped mismatch\nGot:  %v\nWant: %v", skipped, test.skipped)
 			}
+		}
+	}
+}
+
+func TestDetectStatementType(t *testing.T) {
+	tests := []struct {
+		input string
+		want  statementType
+	}{
+		{
+			input: "select 1",
+			want:  statementTypeQuery,
+		},
+		{
+			input: "from test",
+			want:  statementTypeQuery,
+		},
+		{
+			input: "with t as (select 1) select * from t",
+			want:  statementTypeQuery,
+		},
+		{
+			input: "GRAPH FinGraph\nMATCH (n)\nRETURN LABELS(n) AS label, n.id",
+			want:  statementTypeQuery,
+		},
+		{
+			input: "/* this is a comment */ -- this is also a comment\n @  { statement_hint_key=value } select 1",
+			want:  statementTypeQuery,
+		},
+		{
+			input: "update foo set bar=1 where true",
+			want:  statementTypeDml,
+		},
+		{
+			input: "insert into foo (id, value) select 1, 'test'",
+			want:  statementTypeDml,
+		},
+		{
+			input: "delete from foo where true",
+			want:  statementTypeDml,
+		},
+		{
+			input: "delete from foo where true then return *",
+			want:  statementTypeDml,
+		},
+		{
+			input: "create table foo (id int64) primary key (id)",
+			want:  statementTypeDdl,
+		},
+		{
+			input: "drop table if exists foo",
+			want:  statementTypeDdl,
+		},
+		{
+			input: "input from borkisland",
+			want:  statementTypeUnknown,
+		},
+	}
+
+	for _, test := range tests {
+		if g, w := detectStatementType(test.input).statementType, test.want; g != w {
+			t.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 		}
 	}
 }

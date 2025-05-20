@@ -8,7 +8,7 @@ jobs:
   test:
     strategy:
       matrix:
-        go-version: [1.20.x, 1.21.x, 1.22.x]
+        go-version: [1.23.x, 1.24.x]
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -20,3 +20,53 @@ jobs:
         uses: actions/checkout@v4
       - name: Run unit tests
         run: go test -race -short
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.24.x
+
+      - name: Install tools
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: vet .
+        run: go vet ./...
+
+      - name: vet ./examples
+        working-directory: ./examples
+        run: go vet ./...
+
+      - name: vet ./snippets
+        working-directory: ./snippets
+        run: go vet ./...
+
+      - name: vet ./benchmarks
+        working-directory: ./benchmarks
+        run: go vet ./...
+
+      - name: gofmt
+        run: |
+          OUT=$(gofmt -s -d .)
+          if [ -n "$OUT" ]; then
+            echo -e "$OUT"
+            echo "Code unformatted, please run 'gofmt -w -s .'"
+            exit 1
+          fi
+
+      - name: staticcheck .
+        run: staticcheck -checks "inherit,-U1000" ./...
+
+      - name: staticcheck ./examples
+        working-directory: ./examples
+        run: staticcheck -checks "inherit,-U1000" ./...
+
+      - name: staticcheck ./benchmarks
+        working-directory: ./benchmarks
+        run: staticcheck -checks "inherit,-U1000" ./...

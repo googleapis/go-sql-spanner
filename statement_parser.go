@@ -30,9 +30,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-var ddlStatements = map[string]bool{"CREATE": true, "DROP": true, "ALTER": true}
-var selectStatements = map[string]bool{"SELECT": true, "WITH": true}
-var dmlStatements = map[string]bool{"INSERT": true, "UPDATE": true, "DELETE": true}
+var ddlStatements = map[string]bool{"CREATE": true, "DROP": true, "ALTER": true, "ANALYZE": true, "GRANT": true, "REVOKE": true, "RENAME": true}
+var selectStatements = map[string]bool{"SELECT": true, "WITH": true, "GRAPH": true, "FROM": true}
+var insertStatements = map[string]bool{"INSERT": true}
+var updateStatements = map[string]bool{"UPDATE": true}
+var deleteStatements = map[string]bool{"DELETE": true}
+var dmlStatements = union(insertStatements, union(updateStatements, deleteStatements))
 var selectAndDmlStatements = union(selectStatements, dmlStatements)
 
 func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
@@ -267,6 +270,11 @@ func removeCommentsAndTrim(sql string) (string, error) {
 // Removes any statement hints at the beginning of the statement.
 // It assumes that any comments have already been removed.
 func removeStatementHint(sql string) string {
+	// Return quickly if the statement does not start with a hint.
+	if len(sql) < 2 || sql[0] != '@' {
+		return sql
+	}
+
 	// Valid statement hints at the beginning of a query statement can only contain a fixed set of
 	// possible values. Although it is possible to add a @{FORCE_INDEX=...} as a statement hint, the
 	// only allowed value is _BASE_TABLE. This means that we can safely assume that the statement
@@ -405,27 +413,40 @@ func findParams(positionalParamChar rune, sql string) (string, []string, error) 
 		return sql, namedParams, nil
 	}
 	sql = strings.TrimSpace(parsedSQL.String())
-	if len(sql) > 0 && sql[len(sql)-1] == ';' {
-		sql = sql
-	}
 	return sql, namedParams, nil
 }
 
 // isDDL returns true if the given sql string is a DDL statement.
-func isDDL(query string) (bool, error) {
-	query, err := removeCommentsAndTrim(query)
-	if err != nil {
-		return false, err
-	}
+// This function assumes that any comments and hints at the start
+// of the sql string have been removed.
+func isDDL(query string) bool {
+	return isStatementType(query, ddlStatements)
+}
+
+// isDml returns true if the given sql string is a Dml statement.
+// This function assumes that any comments and hints at the start
+// of the sql string have been removed.
+func isDml(query string) bool {
+	return isStatementType(query, dmlStatements)
+}
+
+// isQuery returns true if the given sql string is a SELECT statement.
+// This function assumes that any comments and hints at the start
+// of the sql string have been removed.
+func isQuery(query string) bool {
+	return isStatementType(query, selectStatements)
+}
+
+func isStatementType(query string, keywords map[string]bool) bool {
 	// We can safely check if the string starts with a specific string, as we
 	// have already removed all leading spaces, and there are no keywords that
-	// start with the same substring as one of the DDL keywords.
-	for ddl := range ddlStatements {
-		if len(query) >= len(ddl) && strings.EqualFold(query[:len(ddl)], ddl) {
-			return true, nil
+	// start with the same substring as one of the keywords.
+	for keyword := range keywords {
+		if len(query) >= len(keyword) && strings.EqualFold(query[:len(keyword)], keyword) {
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
 
 // clientSideStatements are loaded from the client_side_statements.json file.
@@ -539,4 +560,59 @@ func parseClientSideStatement(c *conn, query string) (*executableClientSideState
 		}
 	}
 	return nil, nil
+}
+
+type statementType int
+
+const (
+	statementTypeUnknown statementType = iota
+	statementTypeQuery
+	statementTypeDml
+	statementTypeDdl
+)
+
+type dmlType int
+
+const (
+	dmlTypeUnknown dmlType = iota
+	dmlTypeInsert
+	dmlTypeUpdate
+	dmlTypeDelete
+)
+
+type statementInfo struct {
+	statementType statementType
+	dmlType       dmlType
+}
+
+// detectStatementType returns the type of SQL statement based on the first
+// keyword that is found in the SQL statement.
+func detectStatementType(sql string) *statementInfo {
+	sql, err := removeCommentsAndTrim(sql)
+	if err != nil {
+		return &statementInfo{statementType: statementTypeUnknown}
+	}
+	sql = removeStatementHint(sql)
+	if isQuery(sql) {
+		return &statementInfo{statementType: statementTypeQuery}
+	} else if isDml(sql) {
+		return &statementInfo{
+			statementType: statementTypeDml,
+			dmlType:       detectDmlType(sql),
+		}
+	} else if isDDL(sql) {
+		return &statementInfo{statementType: statementTypeDdl}
+	}
+	return &statementInfo{statementType: statementTypeUnknown}
+}
+
+func detectDmlType(sql string) dmlType {
+	if isStatementType(sql, insertStatements) {
+		return dmlTypeInsert
+	} else if isStatementType(sql, updateStatements) {
+		return dmlTypeUpdate
+	} else if isStatementType(sql, deleteStatements) {
+		return dmlTypeDelete
+	}
+	return dmlTypeUnknown
 }

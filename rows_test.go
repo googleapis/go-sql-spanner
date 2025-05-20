@@ -22,6 +22,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 type testIterator struct {
@@ -42,8 +43,8 @@ func (t *testIterator) Next() (*spanner.Row, error) {
 func (t *testIterator) Stop() {
 }
 
-func (t *testIterator) Metadata() *sppb.ResultSetMetadata {
-	return t.metadata
+func (t *testIterator) Metadata() (*sppb.ResultSetMetadata, error) {
+	return t.metadata, nil
 }
 
 func newRow(t *testing.T, cols []string, vals []interface{}) *spanner.Row {
@@ -81,6 +82,9 @@ func TestRows_Next(t *testing.T) {
 		if err == io.EOF {
 			break
 		}
+		if err != nil {
+			t.Fatal(err)
+		}
 		row := make([]driver.Value, 3)
 		copy(row, dest)
 		values = append(values, row)
@@ -107,5 +111,39 @@ func TestRows_Next(t *testing.T) {
 				t.Fatalf("COL3 value mismatch for row %d\nGot: %v\nWant: %v", i, g, w)
 			}
 		}
+	}
+}
+
+func TestRows_Next_Unsupported(t *testing.T) {
+	unspecifiedType := &sppb.Type{Code: sppb.TypeCode_TYPE_CODE_UNSPECIFIED}
+
+	it := testIterator{
+		metadata: &sppb.ResultSetMetadata{
+			RowType: &sppb.StructType{
+				Fields: []*sppb.StructType_Field{
+					{Name: "COL1", Type: unspecifiedType},
+				},
+			},
+		},
+		rows: []*spanner.Row{
+			newRow(t, []string{"COL1"}, []any{
+				spanner.GenericColumnValue{
+					Type:  unspecifiedType,
+					Value: &structpb.Value{},
+				},
+			}),
+		},
+	}
+
+	rows := rows{it: &it}
+
+	dest := make([]driver.Value, 1)
+	err := rows.Next(dest)
+	if err == nil {
+		t.Fatal("expected an error, but got nil")
+	}
+	const expectedError = "unsupported type TYPE_CODE_UNSPECIFIED, use spannerdriver.ExecOptions{DecodeOption: spannerdriver.DecodeOptionProto} to return the underlying protobuf value"
+	if err.Error() != expectedError {
+		t.Fatalf("expected error %q, but got %q", expectedError, err.Error())
 	}
 }

@@ -5,7 +5,7 @@
 [Google Cloud Spanner](https://cloud.google.com/spanner) driver for
 Go's [database/sql](https://golang.org/pkg/database/sql/) package.
 
-``` go
+```go
 import _ "github.com/googleapis/go-sql-spanner"
 
 db, err := sql.Open("spanner", "projects/PROJECT/instances/INSTANCE/databases/DATABASE")
@@ -65,6 +65,29 @@ the same named query parameter is used in multiple places in the statement.
 db.ExecContext(ctx, "DELETE FROM tweets WHERE id = @id", 14544498215374)
 ```
 
+### Query Options
+Query options can be passed in as arguments to a query. Pass in a value of
+type `spannerdriver.ExecOptions` to supply additional execution options for
+a statement. The `spanner.QueryOptions` will be passed through to the Spanner
+client as the query options to use for the query or DML statement.
+
+```go
+tx.ExecContext(ctx, "INSERT INTO Singers (SingerId, Name) VALUES (@id, @name)",
+	spannerdriver.ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "insert_singer"}},
+    123, "Bruce Allison")
+tx.QueryContext(ctx, "SELECT SingerId, Name FROM Singers WHERE SingerId = ?",
+    spannerdriver.ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "select_singer"}},
+    123)
+```
+
+Statement tags (request tags) can also be set using the custom SQL statement
+`set statement_tag='my_tag'`:
+
+```go
+tx.ExecContext(ctx, "set statement_tag = 'select_singer'")
+tx.QueryContext(ctx, "SELECT SingerId, Name FROM Singers WHERE SingerId = ?", 123)
+```
+
 ## Transactions
 
 - Read-write transactions always uses the strongest isolation level and ignore the user-specified level.
@@ -72,8 +95,14 @@ db.ExecContext(ctx, "DELETE FROM tweets WHERE id = @id", 14544498215374)
   either Commit or Rollback. Calling either of these methods will end the current read-only
   transaction and return the session that is used to the session pool.
 
-``` go
+```go
 tx, err := db.BeginTx(ctx, &sql.TxOptions{}) // Read-write transaction.
+
+// Read-write transaction with a transaction tag.
+conn, _ := db.Conn(ctx)
+_, _ := conn.ExecContext(ctx, "SET TRANSACTION_TAG='my_transaction_tag'")
+tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+
 
 tx, err := db.BeginTx(ctx, &sql.TxOptions{
     ReadOnly: true, // Read-only transaction using strong reads.
@@ -85,6 +114,38 @@ tx, err := conn.BeginTx(ctx, &sql.TxOptions{
     ReadOnly: true, // Read-only transaction using a 10 second exact staleness.
 })
 ```
+
+## Transaction Runner (Retry Transactions)
+
+Spanner can abort a read/write transaction if concurrent modifications are detected
+that would violate the transaction consistency. When this happens, the driver will
+return the `ErrAbortedDueToConcurrentModification` error. You can use the
+`RunTransaction` and `RunTransactionWithOptions` functions to let the driver
+automatically retry transactions that are aborted by Spanner.
+
+```go
+package sample
+
+import (
+  "context"
+  "database/sql"
+  "fmt"
+
+  _ "github.com/googleapis/go-sql-spanner"
+  spannerdriver "github.com/googleapis/go-sql-spanner"
+)
+
+spannerdriver.RunTransactionWithOptions(ctx, db, &sql.TxOptions{}, func(ctx context.Context, tx *sql.Tx) error {
+    row := tx.QueryRowContext(ctx, "select Name from Singers where SingerId=@id", 123)
+    var name string
+    if err := row.Scan(&name); err != nil {
+        return err
+    }
+    return nil
+}, spanner.TransactionOptions{TransactionTag: "my_transaction_tag"})
+```
+
+See also the [transaction runner sample](./examples/run-transaction/main.go).
 
 ## DDL Statements
 
@@ -143,8 +204,9 @@ See also the [examples](/examples) directory for further code samples.
 
 ## Emulator
 
-See the [Google Cloud Spanner Emulator](https://cloud.google.com/spanner/docs/emulator) support to learn how to start the emulator.
-Once the emulator is started and the host environmental flag is set, the driver should just work.
+See [Google Cloud Spanner Emulator](https://cloud.google.com/spanner/docs/emulator) to learn how to start the emulator.
+Once the emulator is started and the host environmental flag is set, the driver will automatically connect to the
+emulator.
 
 ```
 $ gcloud beta emulators spanner start
@@ -153,7 +215,7 @@ $ export SPANNER_EMULATOR_HOST=localhost:9010
 
 ## Spanner PostgreSQL Interface
 
-This driver works specifically with the Spanner GoogleSQL dialect. For the
+This driver only works with the Spanner GoogleSQL dialect. For the
 Spanner PostgreSQL dialect, any PostgreSQL driver that implements the
 [database/sql](https://golang.org/pkg/database/sql/) interface can be used
 in combination with
@@ -171,14 +233,10 @@ initial attempt and the retry attempt, the Aborted error will be propagated
 to the client application as an `spannerdriver.ErrAbortedDueToConcurrentModification`
 error.
 
-## [Go Versions Supported](#supported-versions)
+## Go Versions Supported
 
-Our libraries are compatible with at least the three most recent, major Go
-releases. They are currently compatible with:
-
-- Go 1.22
-- Go 1.21
-- Go 1.20
+The Spanner database/sql driver follows the [Go release policy](https://go.dev/doc/devel/release)
+and supports the two latest major Go versions.
 
 ## Authorization
 

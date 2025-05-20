@@ -26,8 +26,8 @@ import (
 	databasepb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
 	instancepb "cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 )
@@ -77,7 +77,7 @@ func startEmulator() error {
 		return err
 	}
 	// Pull the Spanner Emulator docker image.
-	reader, err := cli.ImagePull(ctx, "gcr.io/cloud-spanner-emulator/emulator", types.ImagePullOptions{})
+	reader, err := cli.ImagePull(ctx, "gcr.io/cloud-spanner-emulator/emulator", image.PullOptions{})
 	if err != nil {
 		return err
 	}
@@ -93,13 +93,14 @@ func startEmulator() error {
 		Image:        "gcr.io/cloud-spanner-emulator/emulator",
 		ExposedPorts: nat.PortSet{"9010": {}},
 	}, &container.HostConfig{
+		AutoRemove:   true,
 		PortBindings: map[nat.Port][]nat.PortBinding{"9010": {{HostIP: "0.0.0.0", HostPort: "9010"}}},
 	}, nil, nil, "")
 	if err != nil {
 		return err
 	}
 	containerId = resp.ID
-	if err := cli.ContainerStart(ctx, containerId, types.ContainerStartOptions{}); err != nil {
+	if err := cli.ContainerStart(ctx, containerId, container.StartOptions{}); err != nil {
 		return err
 	}
 	// Wait max 10 seconds or until the emulator is running.

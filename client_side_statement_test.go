@@ -27,7 +27,7 @@ import (
 )
 
 func TestStatementExecutor_StartBatchDdl(t *testing.T) {
-	c := &conn{retryAborts: true}
+	c := &conn{retryAborts: true, logger: noopLogger}
 	s := &statementExecutor{}
 	ctx := context.Background()
 
@@ -58,7 +58,7 @@ func TestStatementExecutor_StartBatchDdl(t *testing.T) {
 }
 
 func TestStatementExecutor_StartBatchDml(t *testing.T) {
-	c := &conn{retryAborts: true}
+	c := &conn{retryAborts: true, logger: noopLogger}
 	s := &statementExecutor{}
 	ctx := context.Background()
 
@@ -82,20 +82,20 @@ func TestStatementExecutor_StartBatchDml(t *testing.T) {
 	}
 
 	// Starting a DML batch while the connection is in a read-only transaction is not allowed.
-	c.tx = &readOnlyTransaction{}
+	c.tx = &readOnlyTransaction{logger: noopLogger}
 	if _, err := s.StartBatchDml(ctx, c, "", nil); spanner.ErrCode(err) != codes.FailedPrecondition {
 		t.Fatalf("error mismatch for starting a DML batch while in a read-only transaction\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
 	}
 
 	// Starting a DML batch while the connection is in a read/write transaction is allowed.
-	c.tx = &readWriteTransaction{}
+	c.tx = &readWriteTransaction{logger: noopLogger}
 	if _, err := s.StartBatchDml(ctx, c, "", nil); err != nil {
 		t.Fatalf("could not start a DML batch while in a read/write transaction: %v", err)
 	}
 }
 
 func TestStatementExecutor_RetryAbortsInternally(t *testing.T) {
-	c := &conn{retryAborts: true}
+	c := &conn{retryAborts: true, logger: noopLogger}
 	s := &statementExecutor{}
 	ctx := context.Background()
 	for i, test := range []struct {
@@ -151,7 +151,8 @@ func TestStatementExecutor_RetryAbortsInternally(t *testing.T) {
 }
 
 func TestStatementExecutor_AutocommitDmlMode(t *testing.T) {
-	c := &conn{}
+	c := &conn{logger: noopLogger, connector: &connector{}}
+	_ = c.ResetSession(context.Background())
 	s := &statementExecutor{}
 	ctx := context.Background()
 	for i, test := range []struct {
@@ -207,7 +208,7 @@ func TestStatementExecutor_AutocommitDmlMode(t *testing.T) {
 }
 
 func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
-	c := &conn{}
+	c := &conn{logger: noopLogger}
 	s := &statementExecutor{}
 	ctx := context.Background()
 	for i, test := range []struct {
@@ -278,7 +279,7 @@ func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
 func TestShowCommitTimestamp(t *testing.T) {
 	t.Parallel()
 
-	c := &conn{retryAborts: true}
+	c := &conn{retryAborts: true, logger: noopLogger}
 	s := &statementExecutor{}
 	ctx := context.Background()
 
@@ -320,7 +321,7 @@ func TestShowCommitTimestamp(t *testing.T) {
 }
 
 func TestStatementExecutor_ExcludeTxnFromChangeStreams(t *testing.T) {
-	c := &conn{retryAborts: true}
+	c := &conn{retryAborts: true, logger: noopLogger}
 	s := &statementExecutor{}
 	ctx := context.Background()
 	for i, test := range []struct {
@@ -372,5 +373,137 @@ func TestStatementExecutor_ExcludeTxnFromChangeStreams(t *testing.T) {
 				t.Fatalf("%d: result mismatch\nGot: %v\nWant: %v", i, res, driver.ResultNoRows)
 			}
 		}
+	}
+}
+
+func TestStatementExecutor_MaxCommitDelay(t *testing.T) {
+	c := &conn{logger: noopLogger}
+	s := &statementExecutor{}
+	ctx := context.Background()
+	for i, test := range []struct {
+		wantValue  time.Duration
+		setValue   string
+		wantSetErr bool
+	}{
+		{time.Second, "'1s'", false},
+		{10 * time.Millisecond, "'10ms'", false},
+		{20 * time.Microsecond, "'20us'", false},
+		{30 * time.Nanosecond, "'30ns'", false},
+		{time.Duration(0), "NULL", false},
+		{100 * time.Millisecond, "100", false},
+		{100 * time.Millisecond, "true", true},
+		{100 * time.Millisecond, "ms", true},
+		{100 * time.Millisecond, "'ms'", true},
+		{100 * time.Millisecond, "20ms", true},
+		{100 * time.Millisecond, "'10'", true},
+		{100 * time.Millisecond, "'10ms", true},
+		{100 * time.Millisecond, "10ms'", true},
+	} {
+		res, err := s.SetMaxCommitDelay(ctx, c, test.setValue, nil)
+		if test.wantSetErr {
+			if err == nil {
+				t.Fatalf("%d: missing expected error for value %q", i, test.setValue)
+			}
+		} else {
+			if err != nil {
+				t.Fatalf("%d: could not set new value %q for max_commit_delay: %v", i, test.setValue, err)
+			}
+			if res != driver.ResultNoRows {
+				t.Fatalf("%d: result mismatch\nGot: %v\nWant: %v", i, res, driver.ResultNoRows)
+			}
+		}
+
+		it, err := s.ShowMaxCommitDelay(ctx, c, "", nil)
+		if err != nil {
+			t.Fatalf("%d: could not get current max_commit_delay value from connection: %v", i, err)
+		}
+		cols := it.Columns()
+		wantCols := []string{"MaxCommitDelay"}
+		if !cmp.Equal(cols, wantCols) {
+			t.Fatalf("%d: column names mismatch\nGot: %v\nWant: %v", i, cols, wantCols)
+		}
+		values := make([]driver.Value, len(cols))
+		if err := it.Next(values); err != nil {
+			t.Fatalf("%d: failed to get first row for max_commit_delay: %v", i, err)
+		}
+		wantValues := []driver.Value{test.wantValue.String()}
+		if !cmp.Equal(values, wantValues) {
+			t.Fatalf("%d: max_commit_delay values mismatch\nGot: %v\nWant: %v", i, values, wantValues)
+		}
+		if err := it.Next(values); err != io.EOF {
+			t.Fatalf("%d: error mismatch\nGot: %v\nWant: %v", i, err, io.EOF)
+		}
+	}
+}
+
+func TestStatementExecutor_SetTransactionTag(t *testing.T) {
+	ctx := context.Background()
+	for i, test := range []struct {
+		wantValue  string
+		setValue   string
+		wantSetErr bool
+	}{
+		{"test-tag", "'test-tag'", false},
+		{"other-tag", "  'other-tag'\t\n", false},
+		{" tag with spaces ", "' tag with spaces '", false},
+		{"", "tag-without-quotes", true},
+		{"", "tag-with-missing-opening-quote'", true},
+		{"", "'tag-with-missing-closing-quote", true},
+	} {
+		c := &conn{retryAborts: true, logger: noopLogger}
+		s := &statementExecutor{}
+
+		it, err := s.ShowTransactionTag(ctx, c, "", nil)
+		if err != nil {
+			t.Fatalf("%d: could not get current transaction tag value from connection: %v", i, err)
+		}
+		cols := it.Columns()
+		wantCols := []string{"TransactionTag"}
+		if !cmp.Equal(cols, wantCols) {
+			t.Fatalf("%d: column names mismatch\nGot: %v\nWant: %v", i, cols, wantCols)
+		}
+		values := make([]driver.Value, len(cols))
+		if err := it.Next(values); err != nil {
+			t.Fatalf("%d: failed to get first row: %v", i, err)
+		}
+		wantValues := []driver.Value{""}
+		if !cmp.Equal(values, wantValues) {
+			t.Fatalf("%d: default transaction tag mismatch\nGot: %v\nWant: %v", i, values, wantValues)
+		}
+		if err := it.Next(values); err != io.EOF {
+			t.Fatalf("%d: error mismatch\nGot: %v\nWant: %v", i, err, io.EOF)
+		}
+
+		// Set a transaction tag.
+		res, err := s.SetTransactionTag(ctx, c, test.setValue, nil)
+		if test.wantSetErr {
+			if err == nil {
+				t.Fatalf("%d: missing expected error for value %q", i, test.setValue)
+			}
+		} else {
+			if err != nil {
+				t.Fatalf("%d: could not set new value %q for exclude: %v", i, test.setValue, err)
+			}
+			if res != driver.ResultNoRows {
+				t.Fatalf("%d: result mismatch\nGot: %v\nWant: %v", i, res, driver.ResultNoRows)
+			}
+		}
+
+		// Get the tag that was set
+		it, err = s.ShowTransactionTag(ctx, c, "", nil)
+		if err != nil {
+			t.Fatalf("%d: could not get current transaction tag value from connection: %v", i, err)
+		}
+		if err := it.Next(values); err != nil {
+			t.Fatalf("%d: failed to get first row: %v", i, err)
+		}
+		wantValues = []driver.Value{test.wantValue}
+		if !cmp.Equal(values, wantValues) {
+			t.Fatalf("%d: transaction tag mismatch\nGot: %v\nWant: %v", i, values, wantValues)
+		}
+		if err := it.Next(values); err != io.EOF {
+			t.Fatalf("%d: error mismatch\nGot: %v\nWant: %v", i, err, io.EOF)
+		}
+
 	}
 }
