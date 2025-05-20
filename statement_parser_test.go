@@ -372,57 +372,63 @@ SELECT 1`,
 
 func TestRemoveStatementHint(t *testing.T) {
 	tests := []struct {
-		input              string
-		want               string
-		skipRemoveComments bool
+		input string
+		want  string
 	}{
 		{
 			input: `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable`,
-			want:  `SELECT * FROM PersonsTable`,
+			want:  ` SELECT * FROM PersonsTable`,
 		},
 		{
 			input: `@{JOIN_METHOD=HASH_JOIN} FROM Produce |> WHERE item != 'bananas'`,
-			want:  `FROM Produce |> WHERE item != 'bananas'`,
+			want:  ` FROM Produce |> WHERE item != 'bananas'`,
 		},
 		{
 			input: `@{JOIN_METHOD=HASH_JOIN} GRAPH FinGraph MATCH (n) RETURN LABELS(n) AS label, n.id`,
-			want:  `GRAPH FinGraph MATCH (n) RETURN LABELS(n) AS label, n.id`,
+			want:  ` GRAPH FinGraph MATCH (n) RETURN LABELS(n) AS label, n.id`,
 		},
 		{
 			input: `@ {JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable`,
-			want:  `SELECT * FROM PersonsTable`,
+			want:  ` SELECT * FROM PersonsTable`,
 		},
 		{
 			input: `@{ JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable`,
-			want:  `SELECT * FROM PersonsTable`,
+			want:  ` SELECT * FROM PersonsTable`,
 		},
 		{
 			input: `@{JOIN_METHOD=HASH_JOIN } SELECT * FROM PersonsTable`,
-			want:  `SELECT * FROM PersonsTable`,
+			want:  ` SELECT * FROM PersonsTable`,
 		},
 		{
 			input: `@{JOIN_METHOD=HASH_JOIN}
-SELECT * FROM PersonsTable`,
-			want: `SELECT * FROM PersonsTable`,
+SELECT * FROM PersonsTable1`,
+			want: `
+SELECT * FROM PersonsTable1`,
 		},
 		{
 			input: `@{
 JOIN_METHOD =  HASH_JOIN   	}
-	 SELECT * FROM PersonsTable`,
-			want: `SELECT * FROM PersonsTable`,
+	 SELECT * FROM PersonsTable2`,
+			want: `
+	 SELECT * FROM PersonsTable2`,
 		},
 		{
 			input: `@{JOIN_METHOD=HASH_JOIN}
 -- Single line comment
-SELECT * FROM PersonsTable`,
-			want: `SELECT * FROM PersonsTable`,
+SELECT * FROM PersonsTable3`,
+			want: `
+-- Single line comment
+SELECT * FROM PersonsTable3`,
 		},
 		{
 			input: `@{JOIN_METHOD=HASH_JOIN}
 /* Multi line comment
 with more comments
-*/SELECT * FROM PersonsTable`,
-			want: `SELECT * FROM PersonsTable`,
+*/SELECT * FROM PersonsTable4`,
+			want: `
+/* Multi line comment
+with more comments
+*/SELECT * FROM PersonsTable4`,
 		},
 		{
 			input: `@{JOIN_METHOD=HASH_JOIN} WITH subQ1 AS (SELECT SchoolID FROM Roster),
@@ -430,7 +436,7 @@ with more comments
 SELECT * FROM subQ1
 UNION ALL
 SELECT * FROM subQ2`,
-			want: `WITH subQ1 AS (SELECT SchoolID FROM Roster),
+			want: ` WITH subQ1 AS (SELECT SchoolID FROM Roster),
      subQ2 AS (SELECT OpponentID FROM PlayerStats)
 SELECT * FROM subQ1
 UNION ALL
@@ -438,14 +444,15 @@ SELECT * FROM subQ2`,
 		},
 		// Multiple query hints.
 		{
-			input: `@{FORCE_INDEX=index_name} @{JOIN_METHOD=HASH_JOIN} SELECT * FROM tbl`,
-			want:  `SELECT * FROM tbl`,
+			input: `@{FORCE_INDEX=index_name, JOIN_METHOD=HASH_JOIN} SELECT * FROM tbl`,
+			want:  ` SELECT * FROM tbl`,
 		},
 		{
-			input: `@{FORCE_INDEX=index_name}
-@{JOIN_METHOD=HASH_JOIN}
+			input: `@{FORCE_INDEX=index_name,
+JOIN_METHOD=HASH_JOIN}
 SELECT SchoolID FROM Roster`,
-			want: `SELECT SchoolID FROM Roster`,
+			want: `
+SELECT SchoolID FROM Roster`,
 		},
 		// Invalid query hints.
 		{
@@ -461,23 +468,12 @@ SELECT SchoolID FROM Roster`,
 			want:  `@JOIN_METHOD=HASH_JOIN SELECT * FROM PersonsTable`,
 		},
 		{
-			input:              "@{FORCE_INDEX=index_name}\xb0\xb0\xb0\x80SELECT",
-			want:               "@{FORCE_INDEX=index_name}\xb0\xb0\xb0\x80SELECT",
-			skipRemoveComments: true,
+			input: "@{FORCE_INDEX=index_name}\xb0\xb0\xb0\x80SELECT",
+			want:  "\xb0\xb0\xb0\x80SELECT",
 		},
 	}
 	for _, tc := range tests {
-		var sql string
-		if tc.skipRemoveComments {
-			sql = tc.input
-		} else {
-			var err error
-			sql, err = removeCommentsAndTrim(tc.input)
-			if err != nil {
-				t.Fatal(err)
-			}
-		}
-		got := removeStatementHint(sql)
+		got := removeStatementHint(tc.input)
 		if got != tc.want {
 			t.Errorf("removeStatementHint result mismatch\nGot: %q\nWant: %q", got, tc.want)
 		}
@@ -1162,9 +1158,25 @@ func TestSkip(t *testing.T) {
 			input:   "'''foo\n'''  ",
 			skipped: "'''foo\n'''",
 		},
+		{
+			input:   "'⌘'",
+			skipped: "'⌘'",
+		},
+		{
+			input:   "'€'",
+			skipped: "'€'",
+		},
+		{
+			input:   "'€ 100,-'  ",
+			skipped: "'€ 100,-'",
+		},
+		{
+			input:   "'𒀀'",
+			skipped: "'𒀀'",
+		},
 	}
 	for _, test := range tests {
-		pos, err := skip([]rune(test.input), test.pos)
+		pos, err := skip([]byte(test.input), test.pos)
 		if test.invalid && err == nil {
 			t.Errorf("missing expected error for %s", test.input)
 		} else if !test.invalid && err != nil {
@@ -1174,6 +1186,100 @@ func TestSkip(t *testing.T) {
 			if skipped != test.skipped {
 				t.Errorf("skipped mismatch\nGot:  %v\nWant: %v", skipped, test.skipped)
 			}
+		}
+	}
+}
+
+func TestSkipStatementHint(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{
+			input: "select * from foo",
+			want:  "select * from foo",
+		},
+		{
+			input: "@{key=value}select * from foo",
+			want:  "select * from foo",
+		},
+		{
+			input: "  @   {  key=value  }select * from foo",
+			want:  "select * from foo",
+		},
+		{
+			input: " \t @  \n {  key=value  }\nselect * from foo",
+			want:  "\nselect * from foo",
+		},
+	}
+	for _, test := range tests {
+		p := &simpleParser{sql: []byte(test.input)}
+		p.skipStatementHint()
+		if g, w := test.input[p.pos:], test.want; g != w {
+			t.Errorf("unexpected query string after statement hint %q\n Got: %v\nWant: %v", test.input, g, w)
+		}
+
+	}
+}
+
+func TestReadKeyword(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{
+			input: "select * from my_table",
+			want:  "select",
+		},
+		{
+			input: "select\n* from my_table",
+			want:  "select",
+		},
+		{
+			input: "  \t select\n* from my_table",
+			want:  "select",
+		},
+		{
+			input: "/*comment*/select/*comment*/* from my_table",
+			want:  "select",
+		},
+		{
+			input: "-- comment\nselect--comment\n* from my_table",
+			want:  "select",
+		},
+		{
+			input: "insert into my_table (id, value) values (1, 'one')",
+			want:  "insert",
+		},
+		{
+			input: "update my_table set value='two' where id = 1",
+			want:  "update",
+		},
+		{
+			input: "update",
+			want:  "update",
+		},
+		{
+			input: "select* from my_table",
+			want:  "select",
+		},
+		{
+			input: "select(1) from my_table",
+			want:  "select",
+		},
+		{
+			input: "SELECT * from my_table",
+			want:  "SELECT",
+		},
+		{
+			input: "Select from my_table",
+			want:  "Select",
+		},
+	}
+	for _, test := range tests {
+		p := simpleParser{sql: []byte(test.input)}
+		if g, w := p.readKeyword(), test.want; g != w {
+			t.Errorf("keyword mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 		}
 	}
 }
