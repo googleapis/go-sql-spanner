@@ -1284,11 +1284,13 @@ func TestReadKeyword(t *testing.T) {
 	}
 }
 
-func TestDetectStatementType(t *testing.T) {
-	tests := []struct {
-		input string
-		want  statementType
-	}{
+type detectStatementTypeTest struct {
+	input string
+	want  statementType
+}
+
+func generateDetectStatementTypeTests() []detectStatementTypeTest {
+	return []detectStatementTypeTest{
 		{
 			input: "select 1",
 			want:  statementTypeQuery,
@@ -1338,10 +1340,24 @@ func TestDetectStatementType(t *testing.T) {
 			want:  statementTypeUnknown,
 		},
 	}
+}
 
+func TestDetectStatementType(t *testing.T) {
+	tests := generateDetectStatementTypeTests()
 	for _, test := range tests {
 		if g, w := detectStatementType(test.input).statementType, test.want; g != w {
 			t.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
+		}
+	}
+}
+
+func BenchmarkDetectStatementType(b *testing.B) {
+	tests := generateDetectStatementTypeTests()
+	for b.Loop() {
+		for _, test := range tests {
+			if g, w := detectStatementType(test.input).statementType, test.want; g != w {
+				b.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
+			}
 		}
 	}
 }

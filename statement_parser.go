@@ -15,12 +15,9 @@
 package spannerdriver
 
 import (
-	"cloud.google.com/go/spanner"
 	"context"
 	"database/sql/driver"
 	"encoding/json"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -28,6 +25,10 @@ import (
 	"sync"
 	"unicode"
 	"unicode/utf8"
+
+	"cloud.google.com/go/spanner"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var ddlStatements = map[string]bool{"CREATE": true, "DROP": true, "ALTER": true, "ANALYZE": true, "GRANT": true, "REVOKE": true, "RENAME": true}
@@ -36,7 +37,6 @@ var insertStatements = map[string]bool{"INSERT": true}
 var updateStatements = map[string]bool{"UPDATE": true}
 var deleteStatements = map[string]bool{"DELETE": true}
 var dmlStatements = union(insertStatements, union(updateStatements, deleteStatements))
-var selectAndDmlStatements = union(selectStatements, dmlStatements)
 
 func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 	res := make(map[string]bool, len(m1)+len(m2))
@@ -90,7 +90,7 @@ func (p *simpleParser) readKeyword() string {
 	p.skipWhitespaces()
 	start := p.pos
 	for ; p.pos < len(p.sql) && !isSpace(p.sql[p.pos]); p.pos++ {
-		if isMultiByte(p.sql[p.pos]) {
+		if isMultibyte(p.sql[p.pos]) {
 			break
 		}
 		if isSpace(p.sql[p.pos]) {
@@ -104,10 +104,14 @@ func (p *simpleParser) readKeyword() string {
 	return string(p.sql[start:p.pos])
 }
 
+// skipWhitespaces skips comments and other whitespaces from the current
+// position until it encounters a non-whitespace / non-comment.
+// The position of the parser is updated.
 func (p *simpleParser) skipWhitespaces() {
 	p.pos = skipWhitespaces(p.sql, p.pos)
 }
 
+// skipStatementHint skips any statement hint at the start of the statement.
 func (p *simpleParser) skipStatementHint() bool {
 	if p.eatToken('@') && p.eatToken('{') {
 		for ; p.pos < len(p.sql); p.pos++ {
@@ -123,12 +127,16 @@ func (p *simpleParser) skipStatementHint() bool {
 	return false
 }
 
-func (p *simpleParser) isMultiByte() bool {
-	return isMultiByte(p.sql[p.pos])
+// isMultibyte returns true if the character at the current position
+// is a multibyte utf8 character.
+func (p *simpleParser) isMultibyte() bool {
+	return isMultibyte(p.sql[p.pos])
 }
 
+// nextChar moves the parser to the next character. This takes into
+// account that some characters could be multibyte characters.
 func (p *simpleParser) nextChar() {
-	if !p.isMultiByte() {
+	if !p.isMultibyte() {
 		p.pos++
 		return
 	}
@@ -136,7 +144,11 @@ func (p *simpleParser) nextChar() {
 	p.pos += size
 }
 
-func isMultiByte(b uint8) bool {
+// isMultibyte returns true if the byte value indicates that the character
+// at this position is a multibyte utf8 character.
+func isMultibyte(b uint8) bool {
+	// If the first byte of a utf8 character is larger than 0x7F, then
+	// that indicates that the character is a multibyte character.
 	return b > 0x7F
 }
 
@@ -146,7 +158,7 @@ func isMultiByte(b uint8) bool {
 func skipWhitespaces(sql []byte, pos int) int {
 	for pos < len(sql) {
 		c := sql[pos]
-		if isMultiByte(c) {
+		if isMultibyte(c) {
 			_, size := utf8.DecodeRune(sql[pos:])
 			pos += size
 			continue
@@ -169,6 +181,7 @@ func skipWhitespaces(sql []byte, pos int) int {
 	return pos
 }
 
+// isSpace returns true if the given character is a valid space character.
 func isSpace(c byte) bool {
 	switch c {
 	case '\t', '\n', '\v', '\f', '\r', ' ', 0x85, 0xA0:
@@ -185,7 +198,7 @@ func skip(sql []byte, pos int) (int, error) {
 		return pos, nil
 	}
 	c := sql[pos]
-	if isMultiByte(c) {
+	if isMultibyte(c) {
 		_, size := utf8.DecodeRune(sql[pos:])
 		pos += size
 		return pos, nil
@@ -210,7 +223,7 @@ func skip(sql []byte, pos int) (int, error) {
 func skipSingleLineComment(sql []byte, pos int) int {
 	for pos < len(sql) {
 		c := sql[pos]
-		if isMultiByte(c) {
+		if isMultibyte(c) {
 			_, size := utf8.DecodeRune(sql[pos:])
 			pos += size
 			continue
@@ -230,7 +243,7 @@ func skipMultiLineComment(sql []byte, pos int) int {
 	// nested comments, so any occurrence of '/*' inside the comment does not
 	// have any special meaning.
 	for pos < len(sql) {
-		if isMultiByte(sql[pos]) {
+		if isMultibyte(sql[pos]) {
 			_, size := utf8.DecodeRune(sql[pos:])
 			pos += size
 			continue
@@ -245,7 +258,7 @@ func skipMultiLineComment(sql []byte, pos int) int {
 
 func skipQuoted(sql []byte, pos int, quote byte) (int, error) {
 	isTripleQuoted := len(sql) > pos+2 && sql[pos+1] == quote && sql[pos+2] == quote
-	if isTripleQuoted && (isMultiByte(sql[pos+1]) || isMultiByte(sql[pos+2])) {
+	if isTripleQuoted && (isMultibyte(sql[pos+1]) || isMultibyte(sql[pos+2])) {
 		isTripleQuoted = false
 	}
 	if isTripleQuoted {
@@ -255,7 +268,7 @@ func skipQuoted(sql []byte, pos int, quote byte) (int, error) {
 	}
 	for pos < len(sql) {
 		c := sql[pos]
-		if isMultiByte(c) {
+		if isMultibyte(c) {
 			_, size := utf8.DecodeRune(sql[pos:])
 			pos += size
 			continue
