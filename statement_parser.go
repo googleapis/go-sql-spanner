@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+	"unicode/utf8"
 
 	"cloud.google.com/go/spanner"
 	"google.golang.org/grpc/codes"
@@ -36,7 +37,6 @@ var insertStatements = map[string]bool{"INSERT": true}
 var updateStatements = map[string]bool{"UPDATE": true}
 var deleteStatements = map[string]bool{"DELETE": true}
 var dmlStatements = union(insertStatements, union(updateStatements, deleteStatements))
-var selectAndDmlStatements = union(selectStatements, dmlStatements)
 
 func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 	res := make(map[string]bool, len(m1)+len(m2))
@@ -62,6 +62,239 @@ func parseParameters(sql string) (string, []string, error) {
 		return sql, nil, err
 	}
 	return findParams('?', sql)
+}
+
+type simpleParser struct {
+	sql []byte
+	pos int
+}
+
+// eatToken advances the parser by one position and returns true
+// if the next byte is equal to the given byte. This function only
+// works for characters that can be encoded in one byte.
+func (p *simpleParser) eatToken(t byte) bool {
+	p.skipWhitespaces()
+	if p.pos >= len(p.sql) {
+		return false
+	}
+	if p.sql[p.pos] != t {
+		return false
+	}
+	p.pos++
+	return true
+}
+
+// readKeyword reads the keyword at the current position.
+// A keyword can only contain upper and lower case ASCII letters (A-Z, a-z).
+func (p *simpleParser) readKeyword() string {
+	p.skipWhitespaces()
+	start := p.pos
+	for ; p.pos < len(p.sql) && !isSpace(p.sql[p.pos]); p.pos++ {
+		if isMultibyte(p.sql[p.pos]) {
+			break
+		}
+		if isSpace(p.sql[p.pos]) {
+			break
+		}
+		// Only upper/lower-case letters are allowed in keywords.
+		if !((p.sql[p.pos] >= 'A' && p.sql[p.pos] <= 'Z') || (p.sql[p.pos] >= 'a' && p.sql[p.pos] <= 'z')) {
+			break
+		}
+	}
+	return string(p.sql[start:p.pos])
+}
+
+// skipWhitespaces skips comments and other whitespaces from the current
+// position until it encounters a non-whitespace / non-comment.
+// The position of the parser is updated.
+func (p *simpleParser) skipWhitespaces() {
+	p.pos = skipWhitespaces(p.sql, p.pos)
+}
+
+// skipStatementHint skips any statement hint at the start of the statement.
+func (p *simpleParser) skipStatementHint() bool {
+	if p.eatToken('@') && p.eatToken('{') {
+		for ; p.pos < len(p.sql); p.pos++ {
+			// We don't have to worry about an '}' being inside a statement hint
+			// key or value, as it is not a valid part of an identifier, and
+			// statement hints have a fixed set of possible values.
+			if p.sql[p.pos] == '}' {
+				p.pos++
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isMultibyte returns true if the character at the current position
+// is a multibyte utf8 character.
+func (p *simpleParser) isMultibyte() bool {
+	return isMultibyte(p.sql[p.pos])
+}
+
+// nextChar moves the parser to the next character. This takes into
+// account that some characters could be multibyte characters.
+func (p *simpleParser) nextChar() {
+	if !p.isMultibyte() {
+		p.pos++
+		return
+	}
+	_, size := utf8.DecodeRune(p.sql[p.pos:])
+	p.pos += size
+}
+
+// isMultibyte returns true if the byte value indicates that the character
+// at this position is a multibyte utf8 character.
+func isMultibyte(b uint8) bool {
+	// If the first byte of a utf8 character is larger than 0x7F, then
+	// that indicates that the character is a multibyte character.
+	return b > 0x7F
+}
+
+// Skips all whitespaces from the given position and returns the
+// position of the next non-whitespace character or len(sql) if
+// the string does not contain any whitespaces after pos.
+func skipWhitespaces(sql []byte, pos int) int {
+	for pos < len(sql) {
+		c := sql[pos]
+		if isMultibyte(c) {
+			_, size := utf8.DecodeRune(sql[pos:])
+			pos += size
+			continue
+		}
+		if c == '-' && len(sql) > pos+1 && sql[pos+1] == '-' {
+			// This is a single line comment starting with '--'.
+			pos = skipSingleLineComment(sql, pos+2)
+		} else if c == '#' {
+			// This is a single line comment starting with '#'.
+			pos = skipSingleLineComment(sql, pos+1)
+		} else if c == '/' && len(sql) > pos+1 && sql[pos+1] == '*' {
+			// This is a multi line comment starting with '/*'.
+			pos = skipMultiLineComment(sql, pos)
+		} else if !isSpace(c) {
+			break
+		} else {
+			pos++
+		}
+	}
+	return pos
+}
+
+// isSpace returns true if the given character is a valid space character.
+func isSpace(c byte) bool {
+	switch c {
+	case '\t', '\n', '\v', '\f', '\r', ' ', 0x85, 0xA0:
+		return true
+	}
+	return false
+}
+
+// Skips the next character, quoted literal, quoted identifier or comment in
+// the given sql string from the given position and returns the position of the
+// next character.
+func skip(sql []byte, pos int) (int, error) {
+	if pos >= len(sql) {
+		return pos, nil
+	}
+	c := sql[pos]
+	if isMultibyte(c) {
+		_, size := utf8.DecodeRune(sql[pos:])
+		pos += size
+		return pos, nil
+	}
+
+	if c == '\'' || c == '"' || c == '`' {
+		// This is a quoted string or quoted identifier.
+		return skipQuoted(sql, pos, c)
+	} else if c == '-' && len(sql) > pos+1 && sql[pos+1] == '-' {
+		// This is a single line comment starting with '--'.
+		return skipSingleLineComment(sql, pos+2), nil
+	} else if c == '#' {
+		// This is a single line comment starting with '#'.
+		return skipSingleLineComment(sql, pos+1), nil
+	} else if c == '/' && len(sql) > pos+1 && sql[pos+1] == '*' {
+		// This is a multi line comment starting with '/*'.
+		return skipMultiLineComment(sql, pos), nil
+	}
+	return pos + 1, nil
+}
+
+func skipSingleLineComment(sql []byte, pos int) int {
+	for pos < len(sql) {
+		c := sql[pos]
+		if isMultibyte(c) {
+			_, size := utf8.DecodeRune(sql[pos:])
+			pos += size
+			continue
+		}
+		if c == '\n' {
+			break
+		}
+		pos++
+	}
+	return min(pos+1, len(sql))
+}
+
+func skipMultiLineComment(sql []byte, pos int) int {
+	// Skip '/*'.
+	pos = pos + 2
+	// Search for the first '*/' sequence. Note that GoogleSQL does not support
+	// nested comments, so any occurrence of '/*' inside the comment does not
+	// have any special meaning.
+	for pos < len(sql) {
+		if isMultibyte(sql[pos]) {
+			_, size := utf8.DecodeRune(sql[pos:])
+			pos += size
+			continue
+		}
+		if sql[pos] == '*' && len(sql) > pos+1 && sql[pos+1] == '/' {
+			return pos + 2
+		}
+		pos++
+	}
+	return pos
+}
+
+func skipQuoted(sql []byte, pos int, quote byte) (int, error) {
+	isTripleQuoted := len(sql) > pos+2 && sql[pos+1] == quote && sql[pos+2] == quote
+	if isTripleQuoted && (isMultibyte(sql[pos+1]) || isMultibyte(sql[pos+2])) {
+		isTripleQuoted = false
+	}
+	if isTripleQuoted {
+		pos += 3
+	} else {
+		pos += 1
+	}
+	for pos < len(sql) {
+		c := sql[pos]
+		if isMultibyte(c) {
+			_, size := utf8.DecodeRune(sql[pos:])
+			pos += size
+			continue
+		}
+		if c == quote {
+			if isTripleQuoted {
+				// Check if this is the end of the triple-quoted string.
+				if len(sql) > pos+2 && sql[pos+1] == quote && sql[pos+2] == quote {
+					return pos + 3, nil
+				}
+			} else {
+				// This was the end quote.
+				return pos + 1, nil
+			}
+		} else if len(sql) > pos+1 && c == '\\' && sql[pos+1] == quote {
+			// This is an escaped quote (e.g. 'foo\'bar').
+			// Note that in raw strings, the \ officially does not start an
+			// escape sequence, but the result is still the same, as in a raw
+			// string 'both characters are preserved'.
+			pos += 1
+		} else if !isTripleQuoted && c == '\n' {
+			break
+		}
+		pos++
+	}
+	return 0, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", string(sql)))
 }
 
 // RemoveCommentsAndTrim removes any comments in the query string and trims any
@@ -162,44 +395,11 @@ func removeCommentsAndTrim(sql string) (string, error) {
 }
 
 // Removes any statement hints at the beginning of the statement.
-// It assumes that any comments have already been removed.
 func removeStatementHint(sql string) string {
-	// Return quickly if the statement does not start with a hint.
-	if len(sql) < 2 || sql[0] != '@' {
-		return sql
+	parser := &simpleParser{sql: []byte(sql)}
+	if parser.skipStatementHint() {
+		return sql[parser.pos:]
 	}
-
-	// Valid statement hints at the beginning of a query statement can only contain a fixed set of
-	// possible values. Although it is possible to add a @{FORCE_INDEX=...} as a statement hint, the
-	// only allowed value is _BASE_TABLE. This means that we can safely assume that the statement
-	// hint will not contain any special characters, for example a closing curly brace or one of the
-	// keywords SELECT, UPDATE, DELETE, WITH, and that we can keep the check simple by just
-	// searching for the first occurrence of a keyword that should be preceded by a closing curly
-	// brace at the end of the statement hint.
-	startStatementHintIndex := strings.Index(sql, "{")
-	// Statement hints are allowed for both queries and DML statements.
-	startQueryIndex := -1
-	upperCaseSql := strings.ToUpper(sql)
-	for keyword := range selectAndDmlStatements {
-		if startQueryIndex = strings.Index(upperCaseSql, keyword); startQueryIndex > -1 {
-			break
-		}
-	}
-	// The startQueryIndex can theoretically be larger than the length of the SQL string,
-	// as the length of the uppercase SQL string can be different from the length of the
-	// lower/mixed case SQL string. This is however only the case for specific non-ASCII
-	// characters that are not allowed in a statement hint, so in that case we can safely
-	// assume the statement to be invalid.
-	if startQueryIndex > -1 && startQueryIndex < len(sql) {
-		endStatementHintIndex := strings.LastIndex(sql[:startQueryIndex], "}")
-		if startStatementHintIndex == -1 || startStatementHintIndex > endStatementHintIndex || endStatementHintIndex >= len(sql)-1 {
-			// Looks like an invalid statement hint. Just ignore at this point
-			// and let the caller handle the invalid query.
-			return sql
-		}
-		return strings.TrimSpace(sql[endStatementHintIndex+1:])
-	}
-	// Seems invalid, just return the original statement.
 	return sql
 }
 
@@ -314,33 +514,41 @@ func findParams(positionalParamChar rune, sql string) (string, []string, error) 
 // This function assumes that any comments and hints at the start
 // of the sql string have been removed.
 func isDDL(query string) bool {
-	return isStatementType(query, ddlStatements)
+	info := detectStatementType(query)
+	return info.statementType == statementTypeDdl
+}
+
+func isDDLKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, ddlStatements)
 }
 
 // isDml returns true if the given sql string is a Dml statement.
 // This function assumes that any comments and hints at the start
 // of the sql string have been removed.
 func isDml(query string) bool {
-	return isStatementType(query, dmlStatements)
+	info := detectStatementType(query)
+	return info.statementType == statementTypeDml
+}
+
+func isDmlKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, dmlStatements)
 }
 
 // isQuery returns true if the given sql string is a SELECT statement.
 // This function assumes that any comments and hints at the start
 // of the sql string have been removed.
 func isQuery(query string) bool {
-	return isStatementType(query, selectStatements)
+	info := detectStatementType(query)
+	return info.statementType == statementTypeQuery
 }
 
-func isStatementType(query string, keywords map[string]bool) bool {
-	// We can safely check if the string starts with a specific string, as we
-	// have already removed all leading spaces, and there are no keywords that
-	// start with the same substring as one of the keywords.
-	for keyword := range keywords {
-		if len(query) >= len(keyword) && strings.EqualFold(query[:len(keyword)], keyword) {
-			return true
-		}
-	}
-	return false
+func isQueryKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, selectStatements)
+}
+
+func isStatementKeyword(keyword string, keywords map[string]bool) bool {
+	_, ok := keywords[keyword]
+	return ok
 }
 
 // clientSideStatements are loaded from the client_side_statements.json file.
@@ -482,30 +690,28 @@ type statementInfo struct {
 // detectStatementType returns the type of SQL statement based on the first
 // keyword that is found in the SQL statement.
 func detectStatementType(sql string) *statementInfo {
-	sql, err := removeCommentsAndTrim(sql)
-	if err != nil {
-		return &statementInfo{statementType: statementTypeUnknown}
-	}
-	sql = removeStatementHint(sql)
-	if isQuery(sql) {
+	parser := &simpleParser{sql: []byte(sql)}
+	_ = parser.skipStatementHint()
+	keyword := strings.ToUpper(parser.readKeyword())
+	if isQueryKeyword(keyword) {
 		return &statementInfo{statementType: statementTypeQuery}
-	} else if isDml(sql) {
+	} else if isDmlKeyword(keyword) {
 		return &statementInfo{
 			statementType: statementTypeDml,
-			dmlType:       detectDmlType(sql),
+			dmlType:       detectDmlKeyword(keyword),
 		}
-	} else if isDDL(sql) {
+	} else if isDDLKeyword(keyword) {
 		return &statementInfo{statementType: statementTypeDdl}
 	}
 	return &statementInfo{statementType: statementTypeUnknown}
 }
 
-func detectDmlType(sql string) dmlType {
-	if isStatementType(sql, insertStatements) {
+func detectDmlKeyword(keyword string) dmlType {
+	if isStatementKeyword(keyword, insertStatements) {
 		return dmlTypeInsert
-	} else if isStatementType(sql, updateStatements) {
+	} else if isStatementKeyword(keyword, updateStatements) {
 		return dmlTypeUpdate
-	} else if isStatementType(sql, deleteStatements) {
+	} else if isStatementKeyword(keyword, deleteStatements) {
 		return dmlTypeDelete
 	}
 	return dmlTypeUnknown
