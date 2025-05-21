@@ -1016,11 +1016,11 @@ func TestRemoveCommentsAndTrim_Errors(t *testing.T) {
 }
 
 func TestFindParams_Errors(t *testing.T) {
-	_, _, err := findParams('?', "SELECT 'Hello World FROM SomeTable WHERE id=@id")
+	_, _, err := findParams("SELECT 'Hello World FROM SomeTable WHERE id=@id")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}
-	_, _, err = findParams('?', "SELECT 'Hello World\nFROM SomeTable WHERE id=@id")
+	_, _, err = findParams("SELECT 'Hello World\nFROM SomeTable WHERE id=@id")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}
