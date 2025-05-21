@@ -8,7 +8,7 @@ replace github.com/googleapis/go-sql-spanner => ../
 
 require (
 	cloud.google.com/go v0.121.1
-	cloud.google.com/go/spanner v1.81.1
+	cloud.google.com/go/spanner v1.82.0
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/go-sql-spanner v1.13.2
 	google.golang.org/api v0.233.0
