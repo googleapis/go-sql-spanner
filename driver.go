@@ -33,6 +33,7 @@ import (
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
 	adminapi "cloud.google.com/go/spanner/admin/database/apiv1"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/uuid"
 	"github.com/googleapis/gax-go/v2"
@@ -567,6 +568,11 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		c.connectorConfig.Instance,
 		c.connectorConfig.Database)
 
+	// TODO: Get dialect from the database and make cache size configurable.
+	parser, err := getStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		return nil, err
+	}
 	if err := c.increaseConnCount(ctx, databaseName, opts); err != nil {
 		return nil, err
 	}
@@ -574,6 +580,7 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 	connId := uuid.New().String()
 	logger := c.logger.With("connId", connId)
 	connection := &conn{
+		parser:      parser,
 		connector:   c,
 		client:      c.client,
 		adminClient: c.adminClient,
