@@ -15,6 +15,7 @@
 package spannerdriver
 
 import (
+	"fmt"
 	"testing"
 
 	"cloud.google.com/go/spanner"
@@ -504,59 +505,66 @@ func FuzzRemoveCommentsAndTrim(f *testing.F) {
 }
 
 func TestFindParams(t *testing.T) {
-	tests := []struct {
+	tests := map[string]struct {
 		input   string
 		wantSQL string
 		want    []string
 		wantErr error
 	}{
-		{
+		"id=@id": {
 			input:   `SELECT * FROM PersonsTable WHERE id=@id`,
 			wantSQL: `SELECT * FROM PersonsTable WHERE id=@id`,
 			want:    []string{"id"},
 		},
-		{
+		"simple multi-line comment": {
 			input:   `/* comment */ SELECT * FROM PersonsTable WHERE id=@id`,
 			wantSQL: `/* comment */ SELECT * FROM PersonsTable WHERE id=@id`,
 			want:    []string{"id"},
 		},
-		{
+		"simple single-line comment": {
 			input: `-- comment
 SELECT * FROM PersonsTable WHERE id=@id`,
 			wantSQL: `-- comment
 SELECT * FROM PersonsTable WHERE id=@id`,
 			want: []string{"id"},
 		},
-		{
+		"single-line hash comment with potential query parameter": {
+			input: `# This is not a @param
+SELECT * FROM PersonsTable WHERE id=@id`,
+			wantSQL: `# This is not a @param
+SELECT * FROM PersonsTable WHERE id=@id`,
+			want: []string{"id"},
+		},
+		"commented where clause": {
 			input:   `SELECT * FROM PersonsTable WHERE id=@id /* and value=@value */`,
 			wantSQL: `SELECT * FROM PersonsTable WHERE id=@id /* and value=@value */`,
 			want:    []string{"id"},
 		},
-		{
+		"id=@id and name=@name": {
 			input:   `SELECT * FROM PersonsTable WHERE id=@id AND name=@name`,
 			wantSQL: `SELECT * FROM PersonsTable WHERE id=@id AND name=@name`,
 			want:    []string{"id", "name"},
 		},
-		{
+		"id=@id and email literal": {
 			input:   `SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
 			wantSQL: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
 			want:    []string{"name"},
 		},
-		{
+		"multibyte character in string literal": {
 			//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
 			input: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='@test.com'`,
 			//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
 			wantSQL: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='@test.com'`,
 			want:    []string{"name"},
 		},
-		{
+		"multibyte character in comment": {
 			//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
 			input: `/*  */SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
 			//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
 			wantSQL: `/*  */SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
 			want:    []string{"name"},
 		},
-		{
+		"table name with @": {
 			input: `SELECT * FROM """strange
 		@table
 		""" WHERE Name like @name AND Email='test@test.com'`,
@@ -565,128 +573,128 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 		""" WHERE Name like @name AND Email='test@test.com'`,
 			want: []string{"name"},
 		},
-		{
+		"statement hint": {
 			input:   `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
 			wantSQL: `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
 			want:    []string{"name"},
 		},
-		{
+		"multiple parameters": {
 			input:   "INSERT INTO Foo (Col1, Col2, Col3) VALUES (@param1, @param2, @param3)",
 			wantSQL: "INSERT INTO Foo (Col1, Col2, Col3) VALUES (@param1, @param2, @param3)",
 			want:    []string{"param1", "param2", "param3"},
 		},
-		{
+		"force index hint with quoted index name": {
 			input:   "SELECT * FROM PersonsTable@{FORCE_INDEX=`my_index`} WHERE id=@id AND name=@name",
 			wantSQL: "SELECT * FROM PersonsTable@{FORCE_INDEX=`my_index`} WHERE id=@id AND name=@name",
 			want:    []string{"id", "name"},
 		},
-		{
+		"force index hint": {
 			input:   "SELECT * FROM PersonsTable @{FORCE_INDEX=my_index} WHERE id=@id AND name=@name",
 			wantSQL: "SELECT * FROM PersonsTable @{FORCE_INDEX=my_index} WHERE id=@id AND name=@name",
 			want:    []string{"id", "name"},
 		},
-		{
+		"positional parameter": {
 			input:   `SELECT * FROM PersonsTable WHERE id=?`,
 			wantSQL: `SELECT * FROM PersonsTable WHERE id=@p1`,
 			want:    []string{"p1"},
 		},
-		{
+		"two positional parameters and string literal with question marks": {
 			input:   `?'?test?"?test?"?'?`,
 			wantSQL: `@p1'?test?"?test?"?'@p2`,
 			want:    []string{"p1", "p2"},
 		},
-		{
+		"two positional parameters and string literal with escaped quote": {
 			input:   `?'?it\'?s'?`,
 			wantSQL: `@p1'?it\'?s'@p2`,
 			want:    []string{"p1", "p2"},
 		},
-		{
+		"two positional parameters and string literal with escaped double quote": {
 			input:   `?'?it\"?s'?`,
 			wantSQL: `@p1'?it\"?s'@p2`,
 			want:    []string{"p1", "p2"},
 		},
-		{
+		"two positional parameters and double quoted string literal with escaped quote": {
 			input:   `?"?it\"?s"?`,
 			wantSQL: `@p1"?it\"?s"@p2`,
 			want:    []string{"p1", "p2"},
 		},
-		{
+		"triple-quoted string": {
 			input:   `?'''?it\'?s'''?`,
 			wantSQL: `@p1'''?it\'?s'''@p2`,
 			want:    []string{"p1", "p2"},
 		},
-		{
+		"triple-quoted string using double quotes": {
 			input:   `?"""?it\"?s"""?`,
 			wantSQL: `@p1"""?it\"?s"""@p2`,
 			want:    []string{"p1", "p2"},
 		},
-		{
+		"backtick string with escaped quote": {
 			input:   `?` + "`?it" + `\` + "`?s`" + `?`,
 			wantSQL: `@p1` + "`?it" + `\` + "`?s`" + `@p2`,
 			want:    []string{"p1", "p2"},
 		},
-		{
+		"triple-quoted string with escaped quote and linefeed": {
 			input: `?'''?it\'?s
 		?it\'?s'''?`,
 			wantSQL: `@p1'''?it\'?s
 		?it\'?s'''@p2`,
 			want: []string{"p1", "p2"},
 		},
-		{
+		"triple-quoted string with escaped quote and linefeed (2)": {
 			input: `?'''?it\'?s
 		?it\'?s'''?`,
 			wantSQL: `@p1'''?it\'?s
 		?it\'?s'''@p2`,
 			want: []string{"p1", "p2"},
 		},
-		{
+		"positional parameters in select and where clause": {
 			input:   `select 1, ?, 'test?test', "test?test", foo.* from` + "`foo`" + `where col1=? and col2='test' and col3=? and col4='?' and col5="?" and col6='?''?''?'`,
 			wantSQL: `select 1, @p1, 'test?test', "test?test", foo.* from` + "`foo`" + `where col1=@p2 and col2='test' and col3=@p3 and col4='?' and col5="?" and col6='?''?''?'`,
 			want:    []string{"p1", "p2", "p3"},
 		},
-		{
+		"three positional parameters": {
 			input:   `select * from foo where name=? and col2 like ? and col3 > ?`,
 			wantSQL: `select * from foo where name=@p1 and col2 like @p2 and col3 > @p3`,
 			want:    []string{"p1", "p2", "p3"},
 		},
-		{
+		"two positional parameters": {
 			input:   `select * from foo where id between ? and ?`,
 			wantSQL: `select * from foo where id between @p1 and @p2`,
 			want:    []string{"p1", "p2"},
 		},
-		{
+		"positional parameters in limit/offset": {
 			input:   `select * from foo limit ? offset ?`,
 			wantSQL: `select * from foo limit @p1 offset @p2`,
 			want:    []string{"p1", "p2"},
 		},
-		{
+		"13 positional parameters": {
 			input:   `select * from foo where col1=? and col2 like ? and col3 > ? and col4 < ? and col5 != ? and col6 not in (?, ?, ?) and col7 in (?, ?, ?) and col8 between ? and ?`,
 			wantSQL: `select * from foo where col1=@p1 and col2 like @p2 and col3 > @p3 and col4 < @p4 and col5 != @p5 and col6 not in (@p6, @p7, @p8) and col7 in (@p9, @p10, @p11) and col8 between @p12 and @p13`,
 			want:    []string{"p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11", "p12", "p13"},
 		},
-		{
+		"positional parameter compared to string literal with potential named parameter": {
 			input:   `select * from foo where ?='''strange @table'''`,
 			wantSQL: `select * from foo where @p1='''strange @table'''`,
 			want:    []string{"p1"},
 		},
-		{
+		"incomplete named parameter": {
 			input:   `select foo from bar where id=@ order by value`,
 			wantSQL: `select foo from bar where id=@ order by value`,
 			want:    []string{},
 		},
-		{
+		"unclosed literal 1": {
 			input: `?'?it\'?s
 		?it\'?s'?`,
 			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'?it\'?s
 		?it\'?s'?`)),
 		},
-		{
+		"unclosed literal 2": {
 			input: `?'?it\'?s
 		?it\'?s?`,
 			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'?it\'?s
 		?it\'?s?`)),
 		},
-		{
+		"unclosed literal 3": {
 			input: `?'''?it\'?s
 		?it\'?s'?`,
 			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'''?it\'?s
@@ -697,29 +705,28 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range tests {
-		sql := tc.input
-		gotSQL, got, err := parser.parseParameters(sql)
-		if err != nil && tc.wantErr == nil {
-			t.Error(err)
-			continue
-		}
-		if tc.wantErr != nil {
-			if err == nil {
-				t.Errorf("missing expected error for %q", tc.input)
-				continue
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			sql := tc.input
+			gotSQL, got, err := parser.parseParameters(sql)
+			if err != nil && tc.wantErr == nil {
+				t.Error(err)
 			}
-			if !cmp.Equal(err.Error(), tc.wantErr.Error()) {
-				t.Errorf("parseParameters error mismatch\nGot: %s\nWant: %s", err.Error(), tc.wantErr)
+			if tc.wantErr != nil {
+				if err == nil {
+					t.Errorf("missing expected error for %q", tc.input)
+				}
+				if !cmp.Equal(err.Error(), tc.wantErr.Error()) {
+					t.Errorf("parseParameters error mismatch\nGot: %s\nWant: %s", err.Error(), tc.wantErr)
+				}
 			}
-			continue
-		}
-		if !cmp.Equal(got, tc.want) {
-			t.Errorf("parseParameters result mismatch\n Got: %s\nWant: %s", got, tc.want)
-		}
-		if !cmp.Equal(gotSQL, tc.wantSQL) {
-			t.Errorf("parseParameters sql mismatch\n Got: %s\nWant: %s", gotSQL, tc.wantSQL)
-		}
+			if !cmp.Equal(got, tc.want) {
+				t.Errorf("parseParameters result mismatch\n Got: %s\nWant: %s", got, tc.want)
+			}
+			if !cmp.Equal(gotSQL, tc.wantSQL) {
+				t.Errorf("parseParameters sql mismatch\n Got: %s\nWant: %s", gotSQL, tc.wantSQL)
+			}
+		})
 	}
 }
 
@@ -1068,186 +1075,229 @@ func TestFindParams_Errors(t *testing.T) {
 }
 
 func TestSkip(t *testing.T) {
-	tests := []struct {
+	tests := map[string]struct {
 		input   string
 		pos     int
-		skipped string
-		invalid bool
+		skipped map[databasepb.DatabaseDialect]string
+		invalid map[databasepb.DatabaseDialect]bool
 	}{
-		{
+		"empty string": {
 			input:   "",
-			skipped: "",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: ""},
 		},
-		{
+		"single digit": {
 			input:   "1 ",
-			skipped: "1",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "1"},
 		},
-		{
+		"double digit": {
 			input:   "12 ",
-			skipped: "1",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "1"},
 		},
-		{
+		"double digit, pos 1": {
 			input:   "12 ",
 			pos:     1,
-			skipped: "2",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "2"},
 		},
-		{
+		"end of statement": {
 			input:   "12",
 			pos:     2,
-			skipped: "",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: ""},
 		},
-		{
+		"string": {
 			input:   "'foo'  ",
-			skipped: "'foo'",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'foo'"},
 		},
-		{
+		"two strings directly after each other": {
 			input:   "'foo''bar'  ",
-			skipped: "'foo'",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'foo'"},
 		},
-		{
+		"two strings with space between": {
 			input:   "'foo'  'bar'  ",
-			skipped: "'foo'",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'foo'"},
 		},
-		{
+		"two strings directly after each other, starting at second string": {
 			input:   "'foo''bar'  ",
 			pos:     5,
-			skipped: "'bar'",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'bar'"},
 		},
-		{
+		"string with quoted string inside": {
 			input:   `'foo"bar"'  `,
-			skipped: `'foo"bar"'`,
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `'foo"bar"'`},
 		},
-		{
+		"double-quoted string with string inside": {
 			input:   `"foo'bar'"  `,
-			skipped: `"foo'bar'"`,
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `"foo'bar'"`},
 		},
-		{
+		"backtick string with string inside": {
 			input:   "`foo'bar'`  ",
-			skipped: "`foo'bar'`",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "`foo'bar'`"},
 		},
-		{
+		"triple-quoted string with quote inside": {
 			input:   "'''foo'bar'''  ",
-			skipped: "'''foo'bar'''",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'''foo'bar'''"},
 		},
-		{
+		"triple-quoted string with escaped quote inside": {
 			input:   "'''foo\\'bar'''  ",
-			skipped: "'''foo\\'bar'''",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'''foo\\'bar'''"},
 		},
-		{
+		"triple-quoted string with two escaped quotes inside": {
 			input:   "'''foo\\'\\'bar'''  ",
-			skipped: "'''foo\\'\\'bar'''",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'''foo\\'\\'bar'''"},
 		},
-		{
+		"triple-quoted string with three escaped quotes inside": {
 			input:   "'''foo\\'\\'\\'bar'''  ",
-			skipped: "'''foo\\'\\'\\'bar'''",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'''foo\\'\\'\\'bar'''"},
 		},
-		{
+		"triple-quoted backtick string with backtick inside": {
 			input:   "```foo`bar```  ",
-			skipped: "```foo`bar```",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "```foo`bar```"},
 		},
-		{
+		"triple-double quote string with double quote inside": {
 			input:   `"""foo"bar"""  `,
-			skipped: `"""foo"bar"""`,
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `"""foo"bar"""`},
 		},
-		{
+		"single line comment": {
 			input:   "-- comment",
-			skipped: "-- comment",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "-- comment"},
 		},
-		{
+		"single line comment followed by select": {
 			input:   "-- comment\nselect * from foo",
-			skipped: "-- comment\n",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "-- comment\n"},
 		},
-		{
-			input:   "# comment",
-			skipped: "# comment",
+		"single line comment (#)": {
+			input: "# comment",
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "# comment",
+				// PostgreSQL does not consider '#' to be the start of a single line comment.
+				databasepb.DatabaseDialect_POSTGRESQL: "#",
+			},
 		},
-		{
-			input:   "# comment\nselect * from foo",
-			skipped: "# comment\n",
+		"single line comment (#) followed by select": {
+			input: "# comment\nselect * from foo",
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "# comment\n",
+				// PostgreSQL does not consider '#' to be the start of a single line comment.
+				databasepb.DatabaseDialect_POSTGRESQL: "#",
+			},
 		},
-		{
+		"multi-line comment": {
 			input:   "/* comment */",
-			skipped: "/* comment */",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "/* comment */"},
 		},
-		{
+		"multi-line comment followed by select": {
 			input:   "/* comment */ select * from foo",
-			skipped: "/* comment */",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "/* comment */"},
 		},
-		{
-			input:   "/* comment /* GoogleSQL does not support nested comments */ select * from foo",
-			skipped: "/* comment /* GoogleSQL does not support nested comments */",
+		"nested comment": {
+			input: "/* comment /* GoogleSQL does not support nested comments */ select * from foo",
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "/* comment /* GoogleSQL does not support nested comments */",
+				databasepb.DatabaseDialect_POSTGRESQL:          "/* comment /* GoogleSQL does not support nested comments */ select * from foo",
+			},
 		},
-		{
+		"nested comment 2": {
+			input: "/* comment /* GoogleSQL does not support nested comments */ But PostgreSQL does support them */ select * from foo ",
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "/* comment /* GoogleSQL does not support nested comments */",
+				databasepb.DatabaseDialect_POSTGRESQL:          "/* comment /* GoogleSQL does not support nested comments */ But PostgreSQL does support them */",
+			},
+		},
+		"dollar-quoted string": {
 			// GoogleSQL does not support dollar-quoted strings.
 			input:   "$tag$not a string$tag$ select * from foo",
-			skipped: "$",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "$"},
 		},
-		{
+		"string in comment": {
 			input:   "/* 'test' */ foo",
-			skipped: "/* 'test' */",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "/* 'test' */"},
 		},
-		{
+		"string in single-line comment": {
 			input:   "-- 'test' \n foo",
-			skipped: "-- 'test' \n",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "-- 'test' \n"},
 		},
-		{
+		"string in single-line comment (#)": {
+			input: "# 'test' \n foo",
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "# 'test' \n",
+				databasepb.DatabaseDialect_POSTGRESQL:          "#",
+			},
+		},
+		"comment in string": {
 			input:   "'/* test */' foo",
-			skipped: "'/* test */'",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'/* test */'"},
 		},
-		{
+		"escaped quote": {
 			input:   "'foo\\''  ",
-			skipped: "'foo\\''",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'foo\\''"},
 		},
-		{
+		"escaped quote in raw string": {
 			input:   "r'foo\\''  ",
 			pos:     1,
-			skipped: "'foo\\''",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'foo\\''"},
 		},
-		{
+		"escaped quotes in triple-quoted string": {
 			input:   "'''foo\\'\\'\\'bar'''  ",
-			skipped: "'''foo\\'\\'\\'bar'''",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'''foo\\'\\'\\'bar'''"},
 		},
-		{
-			input:   "'foo\n'  ",
-			invalid: true,
+		"string with linefeed": {
+			input: "'foo\n'  ",
+			// TODO: Mark this as valid for PostgreSQL
+			invalid: map[databasepb.DatabaseDialect]bool{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: true},
 		},
-		{
+		"triple-quoted string with linefeed": {
 			input:   "'''foo\n'''  ",
-			skipped: "'''foo\n'''",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'''foo\n'''"},
 		},
-		{
+		"multibyte character in string": {
 			input:   "'⌘'",
-			skipped: "'⌘'",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'⌘'"},
 		},
-		{
+		"multibyte character in string (2)": {
 			input:   "'€'",
-			skipped: "'€'",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'€'"},
 		},
-		{
+		"multibyte character in string (3)": {
 			input:   "'€ 100,-'  ",
-			skipped: "'€ 100,-'",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'€ 100,-'"},
 		},
-		{
+		"multibyte character in string (4)": {
 			input:   "'𒀀'",
-			skipped: "'𒀀'",
+			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'𒀀'"},
 		},
 	}
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, test := range tests {
-		pos, err := parser.skip([]byte(test.input), test.pos)
-		if test.invalid && err == nil {
-			t.Errorf("missing expected error for %s", test.input)
-		} else if !test.invalid && err != nil {
-			t.Errorf("got unexpected error for %s: %v", test.input, err)
-		} else {
-			skipped := test.input[test.pos:pos]
-			if skipped != test.skipped {
-				t.Errorf("skipped mismatch\nGot:  %v\nWant: %v", skipped, test.skipped)
-			}
+	for _, dialect := range []databasepb.DatabaseDialect{databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, databasepb.DatabaseDialect_POSTGRESQL} {
+		parser, err := newStatementParser(dialect, 1000)
+		if err != nil {
+			t.Fatal(err)
 		}
+		for name, test := range tests {
+			t.Run(fmt.Sprintf("Dialect: %v, test: %v", databasepb.DatabaseDialect_name[int32(dialect)], name), func(t *testing.T) {
+				pos, err := parser.skip([]byte(test.input), test.pos)
+				wantInvalid := expectedTestValue(dialect, test.invalid)
+				if wantInvalid && err == nil {
+					t.Errorf("missing expected error for %s", test.input)
+				} else if !wantInvalid && err != nil {
+					t.Errorf("got unexpected error for %s: %v", test.input, err)
+				} else {
+					skipped := test.input[test.pos:pos]
+					wantSkipped := expectedTestValue(dialect, test.skipped)
+					if skipped != wantSkipped {
+						t.Errorf("skipped mismatch\nGot:  %v\nWant: %v", skipped, wantSkipped)
+					}
+				}
+			})
+		}
+	}
+}
+
+func expectedTestValue[V any](dialect databasepb.DatabaseDialect, values map[databasepb.DatabaseDialect]V) V {
+	if v, ok := values[dialect]; ok {
+		return v
+	} else if v, ok := values[databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED]; ok {
+		return v
+	} else {
+		var zero V
+		return zero
 	}
 }
 
