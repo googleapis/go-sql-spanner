@@ -530,12 +530,16 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 			want:    []string{"name"},
 		},
 		{
-			input:   `SELECT * FROM PersonsTable WHERE Name like @name AND Email='@test.com'`,
+			//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
+			input: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='@test.com'`,
+			//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
 			wantSQL: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='@test.com'`,
 			want:    []string{"name"},
 		},
 		{
-			input:   `/*  */SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+			//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
+			input: `/*  */SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+			//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
 			wantSQL: `/*  */SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
 			want:    []string{"name"},
 		},
