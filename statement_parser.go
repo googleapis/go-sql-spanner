@@ -26,6 +26,7 @@ import (
 	"unicode/utf8"
 
 	"cloud.google.com/go/spanner"
+	lru "github.com/hashicorp/golang-lru"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -56,7 +57,7 @@ func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 // literals containing for example an email address ('test@test.com') will be
 // recognized as a string literal and not returned as a named parameter.
 func parseParameters(sql string) (string, []string, error) {
-	return findParams('?', sql)
+	return findParams(sql)
 }
 
 type simpleParser struct {
@@ -406,9 +407,42 @@ func removeStatementHint(sql string) string {
 	return sql
 }
 
+type statementsCacheEntry struct {
+	sql    string
+	params []string
+	info   *statementInfo
+}
+
+const statementCacheSize = 1000
+
+// statementsCache contains the results for searching for parameters in SQL strings.
+var statementsCache = func() *lru.Cache {
+	cache, err := lru.New(statementCacheSize)
+	if err != nil {
+		panic(err)
+	}
+	return cache
+}()
+
 // findParams finds all query parameters in the given SQL string.
 // The SQL string may contain comments and statement hints.
-func findParams(positionalParamChar byte, sql string) (string, []string, error) {
+func findParams(sql string) (string, []string, error) {
+	if val, ok := statementsCache.Get(sql); ok {
+		res := val.(*statementsCacheEntry)
+		return res.sql, res.params, nil
+	} else {
+		namedParamsSql, params, err := calculateFindParamsResult(sql)
+		if err != nil {
+			return "", nil, err
+		}
+		info := detectStatementType(sql)
+		statementsCache.Add(sql, &statementsCacheEntry{sql: namedParamsSql, params: params, info: info})
+		return namedParamsSql, params, nil
+	}
+}
+
+func calculateFindParamsResult(sql string) (string, []string, error) {
+	const positionalParamChar = '?'
 	const paramPrefix = '@'
 	const singleQuote = '\''
 	const doubleQuote = '"'
@@ -717,6 +751,20 @@ type statementInfo struct {
 // detectStatementType returns the type of SQL statement based on the first
 // keyword that is found in the SQL statement.
 func detectStatementType(sql string) *statementInfo {
+	if val, ok := statementsCache.Get(sql); ok {
+		res := val.(*statementsCacheEntry)
+		return res.info
+	} else {
+		info := calculateDetectStatementType(sql)
+		namedParamsSql, params, err := calculateFindParamsResult(sql)
+		if err == nil {
+			statementsCache.Add(sql, &statementsCacheEntry{sql: namedParamsSql, params: params, info: info})
+		}
+		return info
+	}
+}
+
+func calculateDetectStatementType(sql string) *statementInfo {
 	parser := &simpleParser{sql: []byte(sql)}
 	_ = parser.skipStatementHint()
 	keyword := strings.ToUpper(parser.readKeyword())
