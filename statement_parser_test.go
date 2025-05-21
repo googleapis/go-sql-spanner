@@ -492,15 +492,31 @@ func FuzzRemoveCommentsAndTrim(f *testing.F) {
 
 func TestFindParams(t *testing.T) {
 	tests := []struct {
-		input              string
-		wantSQL            string
-		want               []string
-		wantErr            error
-		skipRemoveComments bool
+		input   string
+		wantSQL string
+		want    []string
+		wantErr error
 	}{
 		{
 			input:   `SELECT * FROM PersonsTable WHERE id=@id`,
 			wantSQL: `SELECT * FROM PersonsTable WHERE id=@id`,
+			want:    []string{"id"},
+		},
+		{
+			input:   `/* comment */ SELECT * FROM PersonsTable WHERE id=@id`,
+			wantSQL: `/* comment */ SELECT * FROM PersonsTable WHERE id=@id`,
+			want:    []string{"id"},
+		},
+		{
+			input: `-- comment
+SELECT * FROM PersonsTable WHERE id=@id`,
+			wantSQL: `-- comment
+SELECT * FROM PersonsTable WHERE id=@id`,
+			want: []string{"id"},
+		},
+		{
+			input:   `SELECT * FROM PersonsTable WHERE id=@id /* and value=@value */`,
+			wantSQL: `SELECT * FROM PersonsTable WHERE id=@id /* and value=@value */`,
 			want:    []string{"id"},
 		},
 		{
@@ -511,6 +527,16 @@ func TestFindParams(t *testing.T) {
 		{
 			input:   `SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
 			wantSQL: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+			want:    []string{"name"},
+		},
+		{
+			input:   `SELECT * FROM PersonsTable WHERE Name like @name AND Email='@test.com'`,
+			wantSQL: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='@test.com'`,
+			want:    []string{"name"},
+		},
+		{
+			input:   `/*  */SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+			wantSQL: `/*  */SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
 			want:    []string{"name"},
 		},
 		{
@@ -636,32 +662,22 @@ func TestFindParams(t *testing.T) {
 		?it\'?s'?`,
 			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", `?'?it\'?s
 		?it\'?s'?`)),
-			skipRemoveComments: true,
 		},
 		{
 			input: `?'?it\'?s
 		?it\'?s?`,
 			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", `?'?it\'?s
 		?it\'?s?`)),
-			skipRemoveComments: true,
 		},
 		{
 			input: `?'''?it\'?s
 		?it\'?s'?`,
 			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", `?'''?it\'?s
 		?it\'?s'?`)),
-			skipRemoveComments: true,
 		},
 	}
 	for _, tc := range tests {
 		sql := tc.input
-		if !tc.skipRemoveComments {
-			var err error
-			sql, err = removeCommentsAndTrim(tc.input)
-			if err != nil && tc.wantErr == nil {
-				t.Fatal(err)
-			}
-		}
 		gotSQL, got, err := parseParameters(sql)
 		if err != nil && tc.wantErr == nil {
 			t.Error(err)
@@ -678,10 +694,10 @@ func TestFindParams(t *testing.T) {
 			continue
 		}
 		if !cmp.Equal(got, tc.want) {
-			t.Errorf("parseParameters result mismatch\nGot: %s\nWant: %s", got, tc.want)
+			t.Errorf("parseParameters result mismatch\n Got: %s\nWant: %s", got, tc.want)
 		}
 		if !cmp.Equal(gotSQL, tc.wantSQL) {
-			t.Errorf("parseParameters sql mismatch\nGot: %s\nWant: %s", gotSQL, tc.wantSQL)
+			t.Errorf("parseParameters sql mismatch\n Got: %s\nWant: %s", gotSQL, tc.wantSQL)
 		}
 	}
 }

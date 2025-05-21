@@ -23,7 +23,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"unicode"
 	"unicode/utf8"
 
 	"cloud.google.com/go/spanner"
@@ -57,10 +56,6 @@ func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 // literals containing for example an email address ('test@test.com') will be
 // recognized as a string literal and not returned as a named parameter.
 func parseParameters(sql string) (string, []string, error) {
-	sql, err := removeCommentsAndTrim(sql)
-	if err != nil {
-		return sql, nil, err
-	}
 	return findParams('?', sql)
 }
 
@@ -150,6 +145,14 @@ func isMultibyte(b uint8) bool {
 	// If the first byte of a utf8 character is larger than 0x7F, then
 	// that indicates that the character is a multibyte character.
 	return b > 0x7F
+}
+
+func isLatinLetter(b byte) bool {
+	return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
+}
+
+func isLatinDigit(b byte) bool {
+	return b >= '0' && b <= '9'
 }
 
 // Skips all whitespaces from the given position and returns the
@@ -403,41 +406,53 @@ func removeStatementHint(sql string) string {
 	return sql
 }
 
-// This function assumes that all comments have already
-// been removed from the statement.
-func findParams(positionalParamChar rune, sql string) (string, []string, error) {
+// findParams finds all query parameters in the given SQL string.
+// The SQL string may contain comments and statement hints.
+func findParams(positionalParamChar byte, sql string) (string, []string, error) {
 	const paramPrefix = '@'
 	const singleQuote = '\''
 	const doubleQuote = '"'
 	const backtick = '`'
 	isInQuoted := false
-	var startQuote rune
+	var startQuote byte
 	lastCharWasEscapeChar := false
 	isTripleQuoted := false
 	hasNamedParameter := false
 	hasPositionalParameter := false
-	namedParams := make([]string, 0)
+	numPotentialParams := strings.Count(sql, string(positionalParamChar)) + strings.Count(sql, string(paramPrefix))
+	// Spanner does not support more than 950 query parameters in a query,
+	// so we limit the number of parameters that we pre-allocate room for
+	// here to that number. This prevents allocation of a large slice if
+	// the SQL string happens to contain a string literal that contains
+	// a lot of question marks.
+	namedParams := make([]string, 0, min(numPotentialParams, 950))
 	parsedSQL := strings.Builder{}
 	parsedSQL.Grow(len(sql))
 	positionalParameterIndex := 1
-	index := 0
-	runes := []rune(sql)
-	for index < len(runes) {
-		c := runes[index]
+	parser := &simpleParser{sql: []byte(sql)}
+	for parser.pos < len(parser.sql) {
 		if isInQuoted {
+			if parser.isMultibyte() {
+				startPos := parser.pos
+				parser.nextChar()
+				parsedSQL.WriteString(string(parser.sql[startPos:parser.pos]))
+				continue
+			}
+
+			c := parser.sql[parser.pos]
 			if (c == '\n' || c == '\r') && !isTripleQuoted {
 				return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", sql))
 			} else if c == startQuote {
 				if lastCharWasEscapeChar {
 					lastCharWasEscapeChar = false
 				} else if isTripleQuoted {
-					if len(runes) > index+2 && runes[index+1] == startQuote && runes[index+2] == startQuote {
+					if len(parser.sql) > parser.pos+2 && parser.sql[parser.pos+1] == startQuote && parser.sql[parser.pos+2] == startQuote {
 						isInQuoted = false
 						startQuote = 0
 						isTripleQuoted = false
-						parsedSQL.WriteRune(c)
-						parsedSQL.WriteRune(c)
-						index += 2
+						parsedSQL.WriteByte(c)
+						parsedSQL.WriteByte(c)
+						parser.pos += 2
 					}
 				} else {
 					isInQuoted = false
@@ -448,32 +463,45 @@ func findParams(positionalParamChar rune, sql string) (string, []string, error) 
 			} else {
 				lastCharWasEscapeChar = false
 			}
-			parsedSQL.WriteRune(c)
+			parsedSQL.WriteByte(c)
 		} else {
+			startPos := parser.pos
+			parser.skipWhitespaces()
+			parsedSQL.WriteString(string(parser.sql[startPos:parser.pos]))
+			if parser.pos >= len(parser.sql) {
+				break
+			}
+			if parser.isMultibyte() {
+				startPos = parser.pos
+				parser.nextChar()
+				parsedSQL.WriteString(string(parser.sql[startPos:parser.pos]))
+				continue
+			}
+			c := parser.sql[parser.pos]
 			// We are not in a quoted string. It's a parameter if it is an '@' followed by a letter or an underscore.
 			// See https://cloud.google.com/spanner/docs/lexical#identifiers for identifier rules.
-			if c == paramPrefix && len(runes) > index+1 && (unicode.IsLetter(runes[index+1]) || runes[index+1] == '_') {
+			if c == paramPrefix && len(parser.sql) > parser.pos+1 && (isLatinLetter(parser.sql[parser.pos+1]) || parser.sql[parser.pos+1] == '_') {
 				if hasPositionalParameter {
 					return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement must not contain both named and positional parameter: %s", sql))
 				}
-				parsedSQL.WriteRune(c)
-				index++
-				startIndex := index
-				for index < len(runes) {
-					if !(unicode.IsLetter(runes[index]) || unicode.IsDigit(runes[index]) || runes[index] == '_') {
+				parsedSQL.WriteByte(c)
+				parser.pos++
+				startIndex := parser.pos
+				for parser.pos < len(parser.sql) {
+					if parser.isMultibyte() || !(isLatinLetter(parser.sql[parser.pos]) || isLatinDigit(parser.sql[parser.pos]) || parser.sql[parser.pos] == '_') {
 						hasNamedParameter = true
-						namedParams = append(namedParams, string(runes[startIndex:index]))
-						parsedSQL.WriteRune(runes[index])
+						namedParams = append(namedParams, string(parser.sql[startIndex:parser.pos]))
+						parsedSQL.WriteByte(parser.sql[parser.pos])
 						break
 					}
-					if index == len(runes)-1 {
+					if parser.pos == len(parser.sql)-1 {
 						hasNamedParameter = true
-						namedParams = append(namedParams, string(runes[startIndex:]))
-						parsedSQL.WriteRune(runes[index])
+						namedParams = append(namedParams, string(parser.sql[startIndex:]))
+						parsedSQL.WriteByte(parser.sql[parser.pos])
 						break
 					}
-					parsedSQL.WriteRune(runes[index])
-					index++
+					parsedSQL.WriteByte(parser.sql[parser.pos])
+					parser.pos++
 				}
 			} else if c == positionalParamChar {
 				if hasNamedParameter {
@@ -488,17 +516,17 @@ func findParams(positionalParamChar rune, sql string) (string, []string, error) 
 					isInQuoted = true
 					startQuote = c
 					// Check whether it is a triple-quote.
-					if len(runes) > index+2 && runes[index+1] == startQuote && runes[index+2] == startQuote {
+					if len(parser.sql) > parser.pos+2 && parser.sql[parser.pos+1] == startQuote && parser.sql[parser.pos+2] == startQuote {
 						isTripleQuoted = true
-						parsedSQL.WriteRune(c)
-						parsedSQL.WriteRune(c)
-						index += 2
+						parsedSQL.WriteByte(c)
+						parsedSQL.WriteByte(c)
+						parser.pos += 2
 					}
 				}
-				parsedSQL.WriteRune(c)
+				parsedSQL.WriteByte(c)
 			}
 		}
-		index++
+		parser.nextChar()
 	}
 	if isInQuoted {
 		return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", sql))
@@ -506,8 +534,7 @@ func findParams(positionalParamChar rune, sql string) (string, []string, error) 
 	if hasNamedParameter {
 		return sql, namedParams, nil
 	}
-	sql = strings.TrimSpace(parsedSQL.String())
-	return sql, namedParams, nil
+	return parsedSQL.String(), namedParams, nil
 }
 
 // isDDL returns true if the given sql string is a DDL statement.
