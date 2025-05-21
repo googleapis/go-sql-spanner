@@ -204,6 +204,7 @@ type SpannerConn interface {
 var _ SpannerConn = &conn{}
 
 type conn struct {
+	parser        *statementParser
 	connector     *connector
 	closed        bool
 	client        *spanner.Client
@@ -724,7 +725,7 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 
 func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, error) {
 	execOptions := c.options()
-	parsedSQL, args, err := parseParameters(query)
+	parsedSQL, args, err := c.parser.parseParameters(query)
 	if err != nil {
 		return nil, err
 	}
@@ -754,13 +755,13 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 		return pq.execute(ctx, execOptions.PartitionedQueryOptions.ExecutePartition.Index)
 	}
 
-	stmt, err := prepareSpannerStmt(query, args)
+	stmt, err := prepareSpannerStmt(c.parser, query, args)
 	if err != nil {
 		return nil, err
 	}
 	var iter rowIterator
 	if c.tx == nil {
-		statementType := detectStatementType(query)
+		statementType := c.parser.detectStatementType(query)
 		if statementType.statementType == statementTypeDml {
 			// Use a read/write transaction to execute the statement.
 			var commitTs time.Time
@@ -808,7 +809,7 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 	// Clear the commit timestamp of this connection before we execute the statement.
 	c.commitTs = nil
 
-	statementInfo := detectStatementType(query)
+	statementInfo := c.parser.detectStatementType(query)
 	// Use admin API if DDL statement is provided.
 	if statementInfo.statementType == statementTypeDdl {
 		// Spanner does not support DDL in transactions, and although it is technically possible to execute DDL
@@ -820,7 +821,7 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 		return c.execDDL(ctx, spanner.NewStatement(query))
 	}
 
-	ss, err := prepareSpannerStmt(query, args)
+	ss, err := prepareSpannerStmt(c.parser, query, args)
 	if err != nil {
 		return nil, err
 	}

@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -354,8 +355,12 @@ SELECT 1`,
 			want: `SELECT 1`,
 		},
 	}
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range tests {
-		got, err := removeCommentsAndTrim(tc.input)
+		got, err := parser.removeCommentsAndTrim(tc.input)
 		if err != nil && !tc.wantErr {
 			t.Error(err)
 			continue
@@ -472,8 +477,12 @@ SELECT SchoolID FROM Roster`,
 			want:  "\xb0\xb0\xb0\x80SELECT",
 		},
 	}
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range tests {
-		got := removeStatementHint(tc.input)
+		got := parser.removeStatementHint(tc.input)
 		if got != tc.want {
 			t.Errorf("removeStatementHint result mismatch\nGot: %q\nWant: %q", got, tc.want)
 		}
@@ -485,8 +494,12 @@ func FuzzRemoveCommentsAndTrim(f *testing.F) {
 		f.Add(sample)
 	}
 
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		f.Fatal(err)
+	}
 	f.Fuzz(func(t *testing.T, input string) {
-		_, _ = removeCommentsAndTrim(input)
+		_, _ = parser.removeCommentsAndTrim(input)
 	})
 }
 
@@ -680,9 +693,13 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 		?it\'?s'?`)),
 		},
 	}
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range tests {
 		sql := tc.input
-		gotSQL, got, err := parseParameters(sql)
+		gotSQL, got, err := parser.parseParameters(sql)
 		if err != nil && tc.wantErr == nil {
 			t.Error(err)
 			continue
@@ -711,8 +728,12 @@ func FuzzFindParams(f *testing.F) {
 		f.Add(sample)
 	}
 
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		f.Fatal(err)
+	}
 	f.Fuzz(func(t *testing.T, input string) {
-		_, _, _ = parseParameters(input)
+		_, _, _ = parser.parseParameters(input)
 	})
 }
 
@@ -887,8 +908,12 @@ func TestStatementIsDdl(t *testing.T) {
 		},
 	}
 
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range tests {
-		got := detectStatementType(tc.input).statementType == statementTypeDdl
+		got := parser.detectStatementType(tc.input).statementType == statementTypeDdl
 		if got != tc.want {
 			t.Errorf("isDDL test failed, %s: wanted %t got %t.", tc.name, tc.want, got)
 		}
@@ -900,8 +925,12 @@ func FuzzIsDdl(f *testing.F) {
 		f.Add(sample)
 	}
 
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		f.Fatal(err)
+	}
 	f.Fuzz(func(t *testing.T, input string) {
-		_ = isDDL(input)
+		_ = parser.isDDL(input)
 	})
 }
 
@@ -1009,22 +1038,30 @@ func FuzzParseClientSideStatement(f *testing.F) {
 }
 
 func TestRemoveCommentsAndTrim_Errors(t *testing.T) {
-	_, err := removeCommentsAndTrim("SELECT 'Hello World FROM SomeTable")
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = parser.removeCommentsAndTrim("SELECT 'Hello World FROM SomeTable")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}
-	_, err = removeCommentsAndTrim("SELECT 'Hello World\nFROM SomeTable")
+	_, err = parser.removeCommentsAndTrim("SELECT 'Hello World\nFROM SomeTable")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}
 }
 
 func TestFindParams_Errors(t *testing.T) {
-	_, _, err := findParams("SELECT 'Hello World FROM SomeTable WHERE id=@id")
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = parser.findParams("SELECT 'Hello World FROM SomeTable WHERE id=@id")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}
-	_, _, err = findParams("SELECT 'Hello World\nFROM SomeTable WHERE id=@id")
+	_, _, err = parser.findParams("SELECT 'Hello World\nFROM SomeTable WHERE id=@id")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}
@@ -1195,8 +1232,12 @@ func TestSkip(t *testing.T) {
 			skipped: "'𒀀'",
 		},
 	}
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, test := range tests {
-		pos, err := skip([]byte(test.input), test.pos)
+		pos, err := parser.skip([]byte(test.input), test.pos)
 		if test.invalid && err == nil {
 			t.Errorf("missing expected error for %s", test.input)
 		} else if !test.invalid && err != nil {
@@ -1232,8 +1273,12 @@ func TestSkipStatementHint(t *testing.T) {
 			want:  "\nselect * from foo",
 		},
 	}
+	statementParser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, test := range tests {
-		p := &simpleParser{sql: []byte(test.input)}
+		p := &simpleParser{sql: []byte(test.input), statementParser: statementParser}
 		p.skipStatementHint()
 		if g, w := test.input[p.pos:], test.want; g != w {
 			t.Errorf("unexpected query string after statement hint %q\n Got: %v\nWant: %v", test.input, g, w)
@@ -1296,8 +1341,12 @@ func TestReadKeyword(t *testing.T) {
 			want:  "Select",
 		},
 	}
+	statementParser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, test := range tests {
-		p := simpleParser{sql: []byte(test.input)}
+		p := simpleParser{sql: []byte(test.input), statementParser: statementParser}
 		if g, w := p.readKeyword(), test.want; g != w {
 			t.Errorf("keyword mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 		}
@@ -1363,19 +1412,27 @@ func generateDetectStatementTypeTests() []detectStatementTypeTest {
 }
 
 func TestDetectStatementType(t *testing.T) {
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := generateDetectStatementTypeTests()
 	for _, test := range tests {
-		if g, w := detectStatementType(test.input).statementType, test.want; g != w {
+		if g, w := parser.detectStatementType(test.input).statementType, test.want; g != w {
 			t.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 		}
 	}
 }
 
 func BenchmarkDetectStatementType(b *testing.B) {
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		b.Fatal(err)
+	}
 	tests := generateDetectStatementTypeTests()
 	for b.Loop() {
 		for _, test := range tests {
-			if g, w := detectStatementType(test.input).statementType, test.want; g != w {
+			if g, w := parser.detectStatementType(test.input).statementType, test.want; g != w {
 				b.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 			}
 		}
