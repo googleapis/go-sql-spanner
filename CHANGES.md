@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.13.3](https://github.com/googleapis/go-sql-spanner/compare/v1.13.2...v1.13.3) (2025-05-21)
+
+
+### Bug Fixes
+
+* Update all dependencies ([#419](https://github.com/googleapis/go-sql-spanner/issues/419)) ([70fcee5](https://github.com/googleapis/go-sql-spanner/commit/70fcee5a50361760aa9634f4ac77499f1bf5036f))
+* Update module cloud.google.com/go/spanner to v1.82.0 ([#423](https://github.com/googleapis/go-sql-spanner/issues/423)) ([57881f7](https://github.com/googleapis/go-sql-spanner/commit/57881f779d6f88f8c549ac3f17cdd4af9edf1a7b))
+
 ## [1.13.2](https://github.com/googleapis/go-sql-spanner/compare/v1.13.1...v1.13.2) (2025-05-14)
 
 
