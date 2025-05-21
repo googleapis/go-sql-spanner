@@ -198,6 +198,14 @@ func newStatementParser(dialect databasepb.DatabaseDialect, cacheSize int) (*sta
 	return &statementParser{dialect: dialect, statementsCache: cache}, nil
 }
 
+func (p *statementParser) supportsHashSingleLineComments() bool {
+	return p.dialect != databasepb.DatabaseDialect_POSTGRESQL
+}
+
+func (p *statementParser) supportsNestedComments() bool {
+	return p.dialect == databasepb.DatabaseDialect_POSTGRESQL
+}
+
 // parseParameters returns the parameters in the given sql string, if the input
 // sql contains positional parameters it returns the converted sql string with
 // all positional parameters replaced with named parameters.
@@ -223,7 +231,7 @@ func (p *statementParser) skipWhitespaces(sql []byte, pos int) int {
 		if c == '-' && len(sql) > pos+1 && sql[pos+1] == '-' {
 			// This is a single line comment starting with '--'.
 			pos = p.skipSingleLineComment(sql, pos+2)
-		} else if c == '#' {
+		} else if p.supportsHashSingleLineComments() && c == '#' {
 			// This is a single line comment starting with '#'.
 			pos = p.skipSingleLineComment(sql, pos+1)
 		} else if c == '/' && len(sql) > pos+1 && sql[pos+1] == '*' {
@@ -258,7 +266,7 @@ func (p *statementParser) skip(sql []byte, pos int) (int, error) {
 	} else if c == '-' && len(sql) > pos+1 && sql[pos+1] == '-' {
 		// This is a single line comment starting with '--'.
 		return p.skipSingleLineComment(sql, pos+2), nil
-	} else if c == '#' {
+	} else if p.supportsHashSingleLineComments() && c == '#' {
 		// This is a single line comment starting with '#'.
 		return p.skipSingleLineComment(sql, pos+1), nil
 	} else if c == '/' && len(sql) > pos+1 && sql[pos+1] == '*' {
@@ -287,9 +295,10 @@ func (p *statementParser) skipSingleLineComment(sql []byte, pos int) int {
 func (p *statementParser) skipMultiLineComment(sql []byte, pos int) int {
 	// Skip '/*'.
 	pos = pos + 2
-	// Search for the first '*/' sequence. Note that GoogleSQL does not support
-	// nested comments, so any occurrence of '/*' inside the comment does not
-	// have any special meaning.
+	level := 1
+	// Search for '*/' sequences. Depending on whether the dialect supports nested comments or not,
+	// the comment is considered terminated at either the first occurrence of '*/', or when we have
+	// seen as many '*/' as there have been occurrences of '/*'.
 	for pos < len(sql) {
 		if isMultibyte(sql[pos]) {
 			_, size := utf8.DecodeRune(sql[pos:])
@@ -297,7 +306,18 @@ func (p *statementParser) skipMultiLineComment(sql []byte, pos int) int {
 			continue
 		}
 		if sql[pos] == '*' && len(sql) > pos+1 && sql[pos+1] == '/' {
-			return pos + 2
+			if p.supportsNestedComments() {
+				level--
+				if level == 0 {
+					return pos + 2
+				}
+			} else {
+				return pos + 2
+			}
+		} else if p.supportsNestedComments() {
+			if sql[pos] == '/' && len(sql) > pos+1 && sql[pos+1] == '*' {
+				level++
+			}
 		}
 		pos++
 	}
