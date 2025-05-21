@@ -677,19 +677,19 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 		{
 			input: `?'?it\'?s
 		?it\'?s'?`,
-			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", `?'?it\'?s
+			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'?it\'?s
 		?it\'?s'?`)),
 		},
 		{
 			input: `?'?it\'?s
 		?it\'?s?`,
-			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", `?'?it\'?s
+			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'?it\'?s
 		?it\'?s?`)),
 		},
 		{
 			input: `?'''?it\'?s
 		?it\'?s'?`,
-			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", `?'''?it\'?s
+			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'''?it\'?s
 		?it\'?s'?`)),
 		},
 	}

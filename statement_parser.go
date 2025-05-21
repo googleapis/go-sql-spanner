@@ -471,13 +471,6 @@ func (p *statementParser) findParams(sql string) (string, []string, error) {
 func (p *statementParser) calculateFindParamsResult(sql string) (string, []string, error) {
 	const positionalParamChar = '?'
 	const paramPrefix = '@'
-	const singleQuote = '\''
-	const doubleQuote = '"'
-	const backtick = '`'
-	isInQuoted := false
-	var startQuote byte
-	lastCharWasEscapeChar := false
-	isTripleQuoted := false
 	hasNamedParameter := false
 	hasPositionalParameter := false
 	numPotentialParams := strings.Count(sql, string(positionalParamChar)) + strings.Count(sql, string(paramPrefix))
@@ -492,105 +485,62 @@ func (p *statementParser) calculateFindParamsResult(sql string) (string, []strin
 	positionalParameterIndex := 1
 	parser := &simpleParser{sql: []byte(sql), statementParser: p}
 	for parser.pos < len(parser.sql) {
-		if isInQuoted {
-			if parser.isMultibyte() {
-				startPos := parser.pos
-				parser.nextChar()
-				parsedSQL.WriteString(string(parser.sql[startPos:parser.pos]))
-				continue
-			}
-
-			c := parser.sql[parser.pos]
-			if (c == '\n' || c == '\r') && !isTripleQuoted {
-				return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", sql))
-			} else if c == startQuote {
-				if lastCharWasEscapeChar {
-					lastCharWasEscapeChar = false
-				} else if isTripleQuoted {
-					if len(parser.sql) > parser.pos+2 && parser.sql[parser.pos+1] == startQuote && parser.sql[parser.pos+2] == startQuote {
-						isInQuoted = false
-						startQuote = 0
-						isTripleQuoted = false
-						parsedSQL.WriteByte(c)
-						parsedSQL.WriteByte(c)
-						parser.pos += 2
-					}
-				} else {
-					isInQuoted = false
-					startQuote = 0
-				}
-			} else if c == '\\' {
-				lastCharWasEscapeChar = true
-			} else {
-				lastCharWasEscapeChar = false
+		startPos := parser.pos
+		parser.skipWhitespaces()
+		parsedSQL.WriteString(string(parser.sql[startPos:parser.pos]))
+		if parser.pos >= len(parser.sql) {
+			break
+		}
+		if parser.isMultibyte() {
+			startPos = parser.pos
+			parser.nextChar()
+			parsedSQL.WriteString(string(parser.sql[startPos:parser.pos]))
+			continue
+		}
+		c := parser.sql[parser.pos]
+		// We are not in a quoted string. It's a parameter if it is an '@' followed by a letter or an underscore.
+		// See https://cloud.google.com/spanner/docs/lexical#identifiers for identifier rules.
+		if c == paramPrefix && len(parser.sql) > parser.pos+1 && (isLatinLetter(parser.sql[parser.pos+1]) || parser.sql[parser.pos+1] == '_') {
+			if hasPositionalParameter {
+				return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement must not contain both named and positional parameter: %s", sql))
 			}
 			parsedSQL.WriteByte(c)
-		} else {
-			startPos := parser.pos
-			parser.skipWhitespaces()
-			parsedSQL.WriteString(string(parser.sql[startPos:parser.pos]))
-			if parser.pos >= len(parser.sql) {
-				break
-			}
-			if parser.isMultibyte() {
-				startPos = parser.pos
-				parser.nextChar()
-				parsedSQL.WriteString(string(parser.sql[startPos:parser.pos]))
-				continue
-			}
-			c := parser.sql[parser.pos]
-			// We are not in a quoted string. It's a parameter if it is an '@' followed by a letter or an underscore.
-			// See https://cloud.google.com/spanner/docs/lexical#identifiers for identifier rules.
-			if c == paramPrefix && len(parser.sql) > parser.pos+1 && (isLatinLetter(parser.sql[parser.pos+1]) || parser.sql[parser.pos+1] == '_') {
-				if hasPositionalParameter {
-					return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement must not contain both named and positional parameter: %s", sql))
-				}
-				parsedSQL.WriteByte(c)
-				parser.pos++
-				startIndex := parser.pos
-				for parser.pos < len(parser.sql) {
-					if parser.isMultibyte() || !(isLatinLetter(parser.sql[parser.pos]) || isLatinDigit(parser.sql[parser.pos]) || parser.sql[parser.pos] == '_') {
-						hasNamedParameter = true
-						namedParams = append(namedParams, string(parser.sql[startIndex:parser.pos]))
-						parsedSQL.WriteByte(parser.sql[parser.pos])
-						break
-					}
-					if parser.pos == len(parser.sql)-1 {
-						hasNamedParameter = true
-						namedParams = append(namedParams, string(parser.sql[startIndex:]))
-						parsedSQL.WriteByte(parser.sql[parser.pos])
-						break
-					}
+			parser.pos++
+			startIndex := parser.pos
+			for parser.pos < len(parser.sql) {
+				if parser.isMultibyte() || !(isLatinLetter(parser.sql[parser.pos]) || isLatinDigit(parser.sql[parser.pos]) || parser.sql[parser.pos] == '_') {
+					hasNamedParameter = true
+					namedParams = append(namedParams, string(parser.sql[startIndex:parser.pos]))
 					parsedSQL.WriteByte(parser.sql[parser.pos])
-					parser.pos++
+					break
 				}
-			} else if c == positionalParamChar {
-				if hasNamedParameter {
-					return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement must not contain both named and positional parameter: %s", sql))
+				if parser.pos == len(parser.sql)-1 {
+					hasNamedParameter = true
+					namedParams = append(namedParams, string(parser.sql[startIndex:]))
+					parsedSQL.WriteByte(parser.sql[parser.pos])
+					break
 				}
-				hasPositionalParameter = true
-				parsedSQL.WriteString("@p" + strconv.Itoa(positionalParameterIndex))
-				namedParams = append(namedParams, "p"+strconv.Itoa(positionalParameterIndex))
-				positionalParameterIndex++
-			} else {
-				if c == singleQuote || c == doubleQuote || c == backtick {
-					isInQuoted = true
-					startQuote = c
-					// Check whether it is a triple-quote.
-					if len(parser.sql) > parser.pos+2 && parser.sql[parser.pos+1] == startQuote && parser.sql[parser.pos+2] == startQuote {
-						isTripleQuoted = true
-						parsedSQL.WriteByte(c)
-						parsedSQL.WriteByte(c)
-						parser.pos += 2
-					}
-				}
-				parsedSQL.WriteByte(c)
+				parsedSQL.WriteByte(parser.sql[parser.pos])
+				parser.pos++
 			}
+		} else if c == positionalParamChar {
+			if hasNamedParameter {
+				return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement must not contain both named and positional parameter: %s", sql))
+			}
+			hasPositionalParameter = true
+			parsedSQL.WriteString("@p" + strconv.Itoa(positionalParameterIndex))
+			namedParams = append(namedParams, "p"+strconv.Itoa(positionalParameterIndex))
+			positionalParameterIndex++
+			parser.pos++
+		} else {
+			startPos = parser.pos
+			newPos, err := p.skip(parser.sql, parser.pos)
+			if err != nil {
+				return sql, nil, err
+			}
+			parsedSQL.WriteString(string(parser.sql[startPos:newPos]))
+			parser.pos = newPos
 		}
-		parser.nextChar()
-	}
-	if isInQuoted {
-		return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", sql))
 	}
 	if hasNamedParameter {
 		return sql, namedParams, nil
