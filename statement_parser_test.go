@@ -507,180 +507,323 @@ func FuzzRemoveCommentsAndTrim(f *testing.F) {
 func TestFindParams(t *testing.T) {
 	tests := map[string]struct {
 		input   string
-		wantSQL string
-		want    []string
+		wantSQL map[databasepb.DatabaseDialect]string
+		want    map[databasepb.DatabaseDialect][]string
 		wantErr error
 	}{
 		"id=@id": {
-			input:   `SELECT * FROM PersonsTable WHERE id=@id`,
-			wantSQL: `SELECT * FROM PersonsTable WHERE id=@id`,
-			want:    []string{"id"},
+			input: `SELECT * FROM PersonsTable WHERE id=@id`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `SELECT * FROM PersonsTable WHERE id=@id`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"id"},
+			},
 		},
 		"simple multi-line comment": {
-			input:   `/* comment */ SELECT * FROM PersonsTable WHERE id=@id`,
-			wantSQL: `/* comment */ SELECT * FROM PersonsTable WHERE id=@id`,
-			want:    []string{"id"},
+			input: `/* comment */ SELECT * FROM PersonsTable WHERE id=@id`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `/* comment */ SELECT * FROM PersonsTable WHERE id=@id`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"id"},
+			},
 		},
 		"simple single-line comment": {
 			input: `-- comment
 SELECT * FROM PersonsTable WHERE id=@id`,
-			wantSQL: `-- comment
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `-- comment
 SELECT * FROM PersonsTable WHERE id=@id`,
-			want: []string{"id"},
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"id"},
+			},
 		},
 		"single-line hash comment with potential query parameter": {
-			input: `# This is not a @param
+			input: `# This is not a @param in GoogleSQL, but it is in PostgreSQL
 SELECT * FROM PersonsTable WHERE id=@id`,
-			wantSQL: `# This is not a @param
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `# This is not a @param in GoogleSQL, but it is in PostgreSQL
 SELECT * FROM PersonsTable WHERE id=@id`,
-			want: []string{"id"},
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"id"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"param", "id"},
+			},
 		},
 		"commented where clause": {
-			input:   `SELECT * FROM PersonsTable WHERE id=@id /* and value=@value */`,
-			wantSQL: `SELECT * FROM PersonsTable WHERE id=@id /* and value=@value */`,
-			want:    []string{"id"},
+			input: `SELECT * FROM PersonsTable WHERE id=@id /* and value=@value */`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `SELECT * FROM PersonsTable WHERE id=@id /* and value=@value */`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"id"},
+			},
 		},
 		"id=@id and name=@name": {
-			input:   `SELECT * FROM PersonsTable WHERE id=@id AND name=@name`,
-			wantSQL: `SELECT * FROM PersonsTable WHERE id=@id AND name=@name`,
-			want:    []string{"id", "name"},
+			input: `SELECT * FROM PersonsTable WHERE id=@id AND name=@name`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `SELECT * FROM PersonsTable WHERE id=@id AND name=@name`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"id", "name"},
+			},
 		},
 		"id=@id and email literal": {
-			input:   `SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
-			wantSQL: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
-			want:    []string{"name"},
+			input: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"name"},
+			},
 		},
 		"multibyte character in string literal": {
 			//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
 			input: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='@test.com'`,
-			//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
-			wantSQL: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='@test.com'`,
-			want:    []string{"name"},
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='@test.com'`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"name"},
+			},
 		},
 		"multibyte character in comment": {
 			//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
 			input: `/*  */SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
-			//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
-			wantSQL: `/*  */SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
-			want:    []string{"name"},
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `/*  */SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"name"},
+			},
 		},
 		"table name with @": {
 			input: `SELECT * FROM """strange
 		@table
 		""" WHERE Name like @name AND Email='test@test.com'`,
-			wantSQL: `SELECT * FROM """strange
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `SELECT * FROM """strange
 		@table
 		""" WHERE Name like @name AND Email='test@test.com'`,
-			want: []string{"name"},
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"name"},
+			},
 		},
 		"statement hint": {
-			input:   `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
-			wantSQL: `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
-			want:    []string{"name"},
+			input: `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"name"},
+			},
 		},
 		"multiple parameters": {
-			input:   "INSERT INTO Foo (Col1, Col2, Col3) VALUES (@param1, @param2, @param3)",
-			wantSQL: "INSERT INTO Foo (Col1, Col2, Col3) VALUES (@param1, @param2, @param3)",
-			want:    []string{"param1", "param2", "param3"},
+			input: "INSERT INTO Foo (Col1, Col2, Col3) VALUES (@param1, @param2, @param3)",
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "INSERT INTO Foo (Col1, Col2, Col3) VALUES (@param1, @param2, @param3)",
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"param1", "param2", "param3"},
+			},
 		},
 		"force index hint with quoted index name": {
-			input:   "SELECT * FROM PersonsTable@{FORCE_INDEX=`my_index`} WHERE id=@id AND name=@name",
-			wantSQL: "SELECT * FROM PersonsTable@{FORCE_INDEX=`my_index`} WHERE id=@id AND name=@name",
-			want:    []string{"id", "name"},
+			input: "SELECT * FROM PersonsTable@{FORCE_INDEX=`my_index`} WHERE id=@id AND name=@name",
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "SELECT * FROM PersonsTable@{FORCE_INDEX=`my_index`} WHERE id=@id AND name=@name",
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"id", "name"},
+			},
 		},
 		"force index hint": {
-			input:   "SELECT * FROM PersonsTable @{FORCE_INDEX=my_index} WHERE id=@id AND name=@name",
-			wantSQL: "SELECT * FROM PersonsTable @{FORCE_INDEX=my_index} WHERE id=@id AND name=@name",
-			want:    []string{"id", "name"},
+			input: "SELECT * FROM PersonsTable @{FORCE_INDEX=my_index} WHERE id=@id AND name=@name",
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "SELECT * FROM PersonsTable @{FORCE_INDEX=my_index} WHERE id=@id AND name=@name",
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"id", "name"},
+			},
 		},
 		"positional parameter": {
-			input:   `SELECT * FROM PersonsTable WHERE id=?`,
-			wantSQL: `SELECT * FROM PersonsTable WHERE id=@p1`,
-			want:    []string{"p1"},
+			input: `SELECT * FROM PersonsTable WHERE id=?`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `SELECT * FROM PersonsTable WHERE id=@p1`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `SELECT * FROM PersonsTable WHERE id=$1`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1"},
+			},
 		},
 		"two positional parameters and string literal with question marks": {
-			input:   `?'?test?"?test?"?'?`,
-			wantSQL: `@p1'?test?"?test?"?'@p2`,
-			want:    []string{"p1", "p2"},
+			input: `?'?test?"?test?"?'?`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@p1'?test?"?test?"?'@p2`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `$1'?test?"?test?"?'$2`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2"},
+			},
 		},
 		"two positional parameters and string literal with escaped quote": {
-			input:   `?'?it\'?s'?`,
-			wantSQL: `@p1'?it\'?s'@p2`,
-			want:    []string{"p1", "p2"},
+			input: `?'?it\'?s'?`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@p1'?it\'?s'@p2`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `$1'?it\'?s'$2`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2"},
+			},
 		},
 		"two positional parameters and string literal with escaped double quote": {
-			input:   `?'?it\"?s'?`,
-			wantSQL: `@p1'?it\"?s'@p2`,
-			want:    []string{"p1", "p2"},
+			input: `?'?it\"?s'?`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@p1'?it\"?s'@p2`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `$1'?it\"?s'$2`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2"},
+			},
 		},
 		"two positional parameters and double quoted string literal with escaped quote": {
-			input:   `?"?it\"?s"?`,
-			wantSQL: `@p1"?it\"?s"@p2`,
-			want:    []string{"p1", "p2"},
+			input: `?"?it\"?s"?`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@p1"?it\"?s"@p2`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `$1"?it\"?s"$2`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2"},
+			},
 		},
 		"triple-quoted string": {
-			input:   `?'''?it\'?s'''?`,
-			wantSQL: `@p1'''?it\'?s'''@p2`,
-			want:    []string{"p1", "p2"},
+			input: `?'''?it\'?s'''?`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@p1'''?it\'?s'''@p2`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `$1'''?it\'?s'''$2`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2"},
+			},
 		},
 		"triple-quoted string using double quotes": {
-			input:   `?"""?it\"?s"""?`,
-			wantSQL: `@p1"""?it\"?s"""@p2`,
-			want:    []string{"p1", "p2"},
+			input: `?"""?it\"?s"""?`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@p1"""?it\"?s"""@p2`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `$1"""?it\"?s"""$2`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2"},
+			},
 		},
 		"backtick string with escaped quote": {
-			input:   `?` + "`?it" + `\` + "`?s`" + `?`,
-			wantSQL: `@p1` + "`?it" + `\` + "`?s`" + `@p2`,
-			want:    []string{"p1", "p2"},
+			input: `?` + "`?it" + `\` + "`?s`" + `?`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@p1` + "`?it" + `\` + "`?s`" + `@p2`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `$1` + "`?it" + `\` + "`?s`" + `$2`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2"},
+			},
 		},
 		"triple-quoted string with escaped quote and linefeed": {
 			input: `?'''?it\'?s
-		?it\'?s'''?`,
-			wantSQL: `@p1'''?it\'?s
-		?it\'?s'''@p2`,
-			want: []string{"p1", "p2"},
+					?it\'?s'''?`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@p1'''?it\'?s
+					?it\'?s'''@p2`,
+				databasepb.DatabaseDialect_POSTGRESQL: `$1'''?it\'?s
+					?it\'?s'''$2`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2"},
+			},
 		},
 		"triple-quoted string with escaped quote and linefeed (2)": {
 			input: `?'''?it\'?s
-		?it\'?s'''?`,
-			wantSQL: `@p1'''?it\'?s
-		?it\'?s'''@p2`,
-			want: []string{"p1", "p2"},
+					?it\'?s'''?`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@p1'''?it\'?s
+					?it\'?s'''@p2`,
+				databasepb.DatabaseDialect_POSTGRESQL: `$1'''?it\'?s
+					?it\'?s'''$2`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2"},
+			},
 		},
 		"positional parameters in select and where clause": {
-			input:   `select 1, ?, 'test?test', "test?test", foo.* from` + "`foo`" + `where col1=? and col2='test' and col3=? and col4='?' and col5="?" and col6='?''?''?'`,
-			wantSQL: `select 1, @p1, 'test?test', "test?test", foo.* from` + "`foo`" + `where col1=@p2 and col2='test' and col3=@p3 and col4='?' and col5="?" and col6='?''?''?'`,
-			want:    []string{"p1", "p2", "p3"},
+			input: `select 1, ?, 'test?test', "test?test", foo.* from` + "`foo`" + `where col1=? and col2='test' and col3=? and col4='?' and col5="?" and col6='?''?''?'`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `select 1, @p1, 'test?test', "test?test", foo.* from` + "`foo`" + `where col1=@p2 and col2='test' and col3=@p3 and col4='?' and col5="?" and col6='?''?''?'`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `select 1, $1, 'test?test', "test?test", foo.* from` + "`foo`" + `where col1=$2 and col2='test' and col3=$3 and col4='?' and col5="?" and col6='?''?''?'`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2", "p3"},
+			},
 		},
 		"three positional parameters": {
-			input:   `select * from foo where name=? and col2 like ? and col3 > ?`,
-			wantSQL: `select * from foo where name=@p1 and col2 like @p2 and col3 > @p3`,
-			want:    []string{"p1", "p2", "p3"},
+			input: `select * from foo where name=? and col2 like ? and col3 > ?`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `select * from foo where name=@p1 and col2 like @p2 and col3 > @p3`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `select * from foo where name=$1 and col2 like $2 and col3 > $3`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2", "p3"},
+			},
 		},
 		"two positional parameters": {
-			input:   `select * from foo where id between ? and ?`,
-			wantSQL: `select * from foo where id between @p1 and @p2`,
-			want:    []string{"p1", "p2"},
+			input: `select * from foo where id between ? and ?`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `select * from foo where id between @p1 and @p2`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `select * from foo where id between $1 and $2`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2"},
+			},
 		},
 		"positional parameters in limit/offset": {
-			input:   `select * from foo limit ? offset ?`,
-			wantSQL: `select * from foo limit @p1 offset @p2`,
-			want:    []string{"p1", "p2"},
+			input: `select * from foo limit ? offset ?`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `select * from foo limit @p1 offset @p2`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `select * from foo limit $1 offset $2`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2"},
+			},
 		},
 		"13 positional parameters": {
-			input:   `select * from foo where col1=? and col2 like ? and col3 > ? and col4 < ? and col5 != ? and col6 not in (?, ?, ?) and col7 in (?, ?, ?) and col8 between ? and ?`,
-			wantSQL: `select * from foo where col1=@p1 and col2 like @p2 and col3 > @p3 and col4 < @p4 and col5 != @p5 and col6 not in (@p6, @p7, @p8) and col7 in (@p9, @p10, @p11) and col8 between @p12 and @p13`,
-			want:    []string{"p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11", "p12", "p13"},
+			input: `select * from foo where col1=? and col2 like ? and col3 > ? and col4 < ? and col5 != ? and col6 not in (?, ?, ?) and col7 in (?, ?, ?) and col8 between ? and ?`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `select * from foo where col1=@p1 and col2 like @p2 and col3 > @p3 and col4 < @p4 and col5 != @p5 and col6 not in (@p6, @p7, @p8) and col7 in (@p9, @p10, @p11) and col8 between @p12 and @p13`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `select * from foo where col1=$1 and col2 like $2 and col3 > $3 and col4 < $4 and col5 != $5 and col6 not in ($6, $7, $8) and col7 in ($9, $10, $11) and col8 between $12 and $13`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11", "p12", "p13"},
+			},
 		},
 		"positional parameter compared to string literal with potential named parameter": {
-			input:   `select * from foo where ?='''strange @table'''`,
-			wantSQL: `select * from foo where @p1='''strange @table'''`,
-			want:    []string{"p1"},
+			input: `select * from foo where ?='''strange @table'''`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `select * from foo where @p1='''strange @table'''`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `select * from foo where $1='''strange @table'''`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1"},
+			},
 		},
 		"incomplete named parameter": {
-			input:   `select foo from bar where id=@ order by value`,
-			wantSQL: `select foo from bar where id=@ order by value`,
-			want:    []string{},
+			input: `select foo from bar where id=@ order by value`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `select foo from bar where id=@ order by value`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {},
+			},
 		},
 		"unclosed literal 1": {
 			input: `?'?it\'?s
@@ -701,7 +844,238 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 		?it\'?s'?`)),
 		},
 	}
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	for _, dialect := range []databasepb.DatabaseDialect{databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, databasepb.DatabaseDialect_POSTGRESQL} {
+		parser, err := newStatementParser(dialect, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, tc := range tests {
+			t.Run(name, func(t *testing.T) {
+				sql := tc.input
+				gotSQL, got, err := parser.parseParameters(sql)
+				if err != nil && tc.wantErr == nil {
+					t.Error(err)
+				}
+				if tc.wantErr != nil {
+					if err == nil {
+						t.Errorf("missing expected error for %q", tc.input)
+					}
+					if !cmp.Equal(err.Error(), tc.wantErr.Error()) {
+						t.Errorf("parseParameters error mismatch\nGot: %s\nWant: %s", err.Error(), tc.wantErr)
+					}
+				}
+				want := expectedTestValue(dialect, tc.want)
+				if !cmp.Equal(got, want) {
+					t.Errorf("%v: parseParameters result mismatch\n Got: %s\nWant: %s", dialect, got, want)
+				}
+				wantSQL := expectedTestValue(dialect, tc.wantSQL)
+				if !cmp.Equal(gotSQL, wantSQL) {
+					t.Errorf("%v: parseParameters sql mismatch\n Got: %s\nWant: %s", dialect, gotSQL, wantSQL)
+				}
+			})
+		}
+	}
+}
+
+func TestFindParamsPostgreSQL(t *testing.T) {
+	tests := map[string]struct {
+		input   string
+		wantSQL string
+		want    []string
+		wantErr error
+	}{
+		"id=$1": {
+			input:   `SELECT * FROM PersonsTable WHERE id=$1`,
+			wantSQL: `SELECT * FROM PersonsTable WHERE id=$1`,
+			want:    []string{"p1"},
+		},
+		"simple multi-line comment": {
+			input:   `/* comment */ SELECT * FROM PersonsTable WHERE id=$1`,
+			wantSQL: `/* comment */ SELECT * FROM PersonsTable WHERE id=$1`,
+			want:    []string{"p1"},
+		},
+		"simple single-line comment": {
+			input: `-- comment
+SELECT * FROM PersonsTable WHERE id=$1`,
+			wantSQL: `-- comment
+SELECT * FROM PersonsTable WHERE id=$1`,
+			want: []string{"p1"},
+		},
+		"single-line hash comment with potential query parameter": {
+			input: `# This is not a comment, so this is a param $1
+		SELECT * FROM PersonsTable WHERE id=$2`,
+			wantSQL: `# This is not a comment, so this is a param $1
+		SELECT * FROM PersonsTable WHERE id=$2`,
+			want: []string{"p1", "p2"},
+		},
+		"commented where clause": {
+			input:   `SELECT * FROM PersonsTable WHERE id=$1 /* and value=$2 */`,
+			wantSQL: `SELECT * FROM PersonsTable WHERE id=$1 /* and value=$2 */`,
+			want:    []string{"p1"},
+		},
+		"id=$1 and name=$2": {
+			input:   `SELECT * FROM PersonsTable WHERE id=$1 AND name=$2`,
+			wantSQL: `SELECT * FROM PersonsTable WHERE id=$1 AND name=$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"id=$1 and email literal": {
+			input:   `SELECT * FROM PersonsTable WHERE Name like $1 AND Email='test@test.com'`,
+			wantSQL: `SELECT * FROM PersonsTable WHERE Name like $1 AND Email='test@test.com'`,
+			want:    []string{"p1"},
+		},
+		"multibyte character in string literal": {
+			//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
+			input: `SELECT * FROM PersonsTable WHERE Name like $1 AND Email='@test.com'`,
+			//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
+			wantSQL: `SELECT * FROM PersonsTable WHERE Name like $1 AND Email='@test.com'`,
+			want:    []string{"p1"},
+		},
+		"multibyte character in comment": {
+			//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
+			input: `/*  */SELECT * FROM PersonsTable WHERE Name like $1 AND Email='test@test.com'`,
+			//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
+			wantSQL: `/*  */SELECT * FROM PersonsTable WHERE Name like $1 AND Email='test@test.com'`,
+			want:    []string{"p1"},
+		},
+		"table name with @": {
+			input: `SELECT * FROM """strange
+				@table
+				""" WHERE Name like $1 AND Email='test@test.com'`,
+			wantSQL: `SELECT * FROM """strange
+				@table
+				""" WHERE Name like $1 AND Email='test@test.com'`,
+			want: []string{"p1"},
+		},
+		"statement hint": {
+			input:   `/*@{JOIN_METHOD=HASH_JOIN}*/ SELECT * FROM PersonsTable WHERE Name like $1 AND Email='test@test.com'`,
+			wantSQL: `/*@{JOIN_METHOD=HASH_JOIN}*/ SELECT * FROM PersonsTable WHERE Name like $1 AND Email='test@test.com'`,
+			want:    []string{"p1"},
+		},
+		"multiple parameters": {
+			input:   "INSERT INTO Foo (Col1, Col2, Col3) VALUES ($1, $2, $3)",
+			wantSQL: "INSERT INTO Foo (Col1, Col2, Col3) VALUES ($1, $2, $3)",
+			want:    []string{"p1", "p2", "p3"},
+		},
+		"force index hint with quoted index name": {
+			input:   "SELECT * FROM PersonsTable/*@{FORCE_INDEX=`my_index`}*/ WHERE id=$1 AND name=$2",
+			wantSQL: "SELECT * FROM PersonsTable/*@{FORCE_INDEX=`my_index`}*/ WHERE id=$1 AND name=$2",
+			want:    []string{"p1", "p2"},
+		},
+		"force index hint": {
+			input:   "SELECT * FROM PersonsTable /*@{FORCE_INDEX=my_index}*/ WHERE id=$1 AND name=$2",
+			wantSQL: "SELECT * FROM PersonsTable /*@{FORCE_INDEX=my_index}*/ WHERE id=$1 AND name=$2",
+			want:    []string{"p1", "p2"},
+		},
+		"positional parameter": {
+			input:   `SELECT * FROM PersonsTable WHERE id=?`,
+			wantSQL: `SELECT * FROM PersonsTable WHERE id=$1`,
+			want:    []string{"p1"},
+		},
+		"two positional parameters and string literal with question marks": {
+			input:   `?'?test?"?test?"?'?`,
+			wantSQL: `$1'?test?"?test?"?'$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"two positional parameters and string literal with escaped quote": {
+			input:   `?'?it\'?s'?`,
+			wantSQL: `$1'?it\'?s'$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"two positional parameters and string literal with escaped double quote": {
+			input:   `?'?it\"?s'?`,
+			wantSQL: `$1'?it\"?s'$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"two positional parameters and double quoted string literal with escaped quote": {
+			input:   `?"?it\"?s"?`,
+			wantSQL: `$1"?it\"?s"$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"triple-quoted string": {
+			input:   `?'''?it\'?s'''?`,
+			wantSQL: `$1'''?it\'?s'''$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"triple-quoted string using double quotes": {
+			input:   `?"""?it\"?s"""?`,
+			wantSQL: `$1"""?it\"?s"""$2`,
+			want:    []string{"p1", "p2"},
+		},
+		// TODO: Update this once PostgreSQL quoting rules are respected
+		"backtick string with escaped quote": {
+			input:   `?` + "`?it" + `\` + "`?s`" + `?`,
+			wantSQL: `$1` + "`?it" + `\` + "`?s`" + `$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"triple-quoted string with escaped quote and linefeed": {
+			input: `?'''?it\'?s
+				?it\'?s'''?`,
+			wantSQL: `$1'''?it\'?s
+				?it\'?s'''$2`,
+			want: []string{"p1", "p2"},
+		},
+		"triple-quoted string with escaped quote and linefeed (2)": {
+			input: `?'''?it\'?s
+				?it\'?s'''?`,
+			wantSQL: `$1'''?it\'?s
+				?it\'?s'''$2`,
+			want: []string{"p1", "p2"},
+		},
+		"positional parameters in select and where clause": {
+			input:   `select 1, ?, 'test?test', "test?test", foo.* from` + "`foo`" + `where col1=? and col2='test' and col3=? and col4='?' and col5="?" and col6='?''?''?'`,
+			wantSQL: `select 1, $1, 'test?test', "test?test", foo.* from` + "`foo`" + `where col1=$2 and col2='test' and col3=$3 and col4='?' and col5="?" and col6='?''?''?'`,
+			want:    []string{"p1", "p2", "p3"},
+		},
+		"three positional parameters": {
+			input:   `select * from foo where name=? and col2 like ? and col3 > ?`,
+			wantSQL: `select * from foo where name=$1 and col2 like $2 and col3 > $3`,
+			want:    []string{"p1", "p2", "p3"},
+		},
+		"two positional parameters": {
+			input:   `select * from foo where id between ? and ?`,
+			wantSQL: `select * from foo where id between $1 and $2`,
+			want:    []string{"p1", "p2"},
+		},
+		"positional parameters in limit/offset": {
+			input:   `select * from foo limit ? offset ?`,
+			wantSQL: `select * from foo limit $1 offset $2`,
+			want:    []string{"p1", "p2"},
+		},
+		"13 positional parameters": {
+			input:   `select * from foo where col1=? and col2 like ? and col3 > ? and col4 < ? and col5 != ? and col6 not in (?, ?, ?) and col7 in (?, ?, ?) and col8 between ? and ?`,
+			wantSQL: `select * from foo where col1=$1 and col2 like $2 and col3 > $3 and col4 < $4 and col5 != $5 and col6 not in ($6, $7, $8) and col7 in ($9, $10, $11) and col8 between $12 and $13`,
+			want:    []string{"p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11", "p12", "p13"},
+		},
+		"positional parameter compared to string literal with potential named parameter": {
+			input:   `select * from foo where ?='''strange $1table'''`,
+			wantSQL: `select * from foo where $1='''strange $1table'''`,
+			want:    []string{"p1"},
+		},
+		"incomplete named parameter": {
+			input:   `select foo from bar where id=$ order by value`,
+			wantSQL: `select foo from bar where id=$ order by value`,
+			want:    []string{},
+		},
+		"unclosed literal 1": {
+			input: `?'?it\'?s
+				?it\'?s'?`,
+			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'?it\'?s
+				?it\'?s'?`)),
+		},
+		"unclosed literal 2": {
+			input: `?'?it\'?s
+				?it\'?s?`,
+			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'?it\'?s
+				?it\'?s?`)),
+		},
+		"unclosed literal 3": {
+			input: `?'''?it\'?s
+				?it\'?s'?`,
+			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'''?it\'?s
+				?it\'?s'?`)),
+		},
+	}
+	parser, err := newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -720,8 +1094,9 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 					t.Errorf("parseParameters error mismatch\nGot: %s\nWant: %s", err.Error(), tc.wantErr)
 				}
 			}
-			if !cmp.Equal(got, tc.want) {
-				t.Errorf("parseParameters result mismatch\n Got: %s\nWant: %s", got, tc.want)
+			want := tc.want
+			if !cmp.Equal(got, want) {
+				t.Errorf("parseParameters result mismatch\n Got: %s\nWant: %s", got, want)
 			}
 			if !cmp.Equal(gotSQL, tc.wantSQL) {
 				t.Errorf("parseParameters sql mismatch\n Got: %s\nWant: %s", gotSQL, tc.wantSQL)

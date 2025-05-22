@@ -206,6 +206,41 @@ func (p *statementParser) supportsNestedComments() bool {
 	return p.dialect == databasepb.DatabaseDialect_POSTGRESQL
 }
 
+var googleSqlParamPrefixes = map[byte]bool{'@': true}
+var postgresqlParamPrefixes = map[byte]bool{'$': true, '@': true}
+
+func (p *statementParser) paramPrefixes() map[byte]bool {
+	if p.dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		return postgresqlParamPrefixes
+	}
+	return googleSqlParamPrefixes
+}
+
+func (p *statementParser) isValidParamsFirstChar(prefix, c byte) bool {
+	if p.dialect == databasepb.DatabaseDialect_POSTGRESQL && prefix == '$' {
+		// PostgreSQL query parameters have the form $1, $2, ..., $10, ...
+		return isLatinDigit(c)
+	}
+	// GoogleSQL query parameters have the form @name or @_name123
+	return isLatinLetter(c) || c == '_'
+}
+
+func (p *statementParser) isValidParamsChar(prefix, c byte) bool {
+	if p.dialect == databasepb.DatabaseDialect_POSTGRESQL && prefix == '$' {
+		// PostgreSQL query parameters have the form $1, $2, ..., $10, ...
+		return isLatinDigit(c)
+	}
+	// GoogleSQL query parameters have the form @name or @_name123
+	return isLatinLetter(c) || isLatinDigit(c) || c == '_'
+}
+
+func (p *statementParser) positionalParameterToNamed(positionalParameterIndex int) string {
+	if p.dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		return "$" + strconv.Itoa(positionalParameterIndex)
+	}
+	return "@p" + strconv.Itoa(positionalParameterIndex)
+}
+
 // parseParameters returns the parameters in the given sql string, if the input
 // sql contains positional parameters it returns the converted sql string with
 // all positional parameters replaced with named parameters.
@@ -490,10 +525,13 @@ func (p *statementParser) findParams(sql string) (string, []string, error) {
 
 func (p *statementParser) calculateFindParamsResult(sql string) (string, []string, error) {
 	const positionalParamChar = '?'
-	const paramPrefix = '@'
+	paramPrefixes := p.paramPrefixes()
 	hasNamedParameter := false
 	hasPositionalParameter := false
-	numPotentialParams := strings.Count(sql, string(positionalParamChar)) + strings.Count(sql, string(paramPrefix))
+	numPotentialParams := strings.Count(sql, string(positionalParamChar))
+	for prefix := range paramPrefixes {
+		numPotentialParams += strings.Count(sql, string(prefix))
+	}
 	// Spanner does not support more than 950 query parameters in a query,
 	// so we limit the number of parameters that we pre-allocate room for
 	// here to that number. This prevents allocation of a large slice if
@@ -518,25 +556,34 @@ func (p *statementParser) calculateFindParamsResult(sql string) (string, []strin
 			continue
 		}
 		c := parser.sql[parser.pos]
-		// We are not in a quoted string. It's a parameter if it is an '@' followed by a letter or an underscore.
+		// We are not in a quoted string.
+		// GoogleSQL: It's a parameter if it is an '@' followed by a letter or an underscore.
+		// PostgreSQL: It's a parameter if it is a '$' followed by a digit.
 		// See https://cloud.google.com/spanner/docs/lexical#identifiers for identifier rules.
-		if c == paramPrefix && len(parser.sql) > parser.pos+1 && (isLatinLetter(parser.sql[parser.pos+1]) || parser.sql[parser.pos+1] == '_') {
+		// Note that for PostgreSQL we support both styles of parameters (both $1 and @name).
+		// The reason for this is that other PostgreSQL drivers for Go also do this.
+		if _, ok := paramPrefixes[c]; ok && len(parser.sql) > parser.pos+1 && p.isValidParamsFirstChar(c, parser.sql[parser.pos+1]) {
 			if hasPositionalParameter {
 				return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement must not contain both named and positional parameter: %s", sql))
 			}
-			parsedSQL.WriteByte(c)
+			paramPrefix := c
+			paramNamePrefix := ""
+			if paramPrefix == '$' {
+				paramNamePrefix = "p"
+			}
+			parsedSQL.WriteByte(paramPrefix)
 			parser.pos++
 			startIndex := parser.pos
 			for parser.pos < len(parser.sql) {
-				if parser.isMultibyte() || !(isLatinLetter(parser.sql[parser.pos]) || isLatinDigit(parser.sql[parser.pos]) || parser.sql[parser.pos] == '_') {
+				if parser.isMultibyte() || !p.isValidParamsChar(paramPrefix, parser.sql[parser.pos]) {
 					hasNamedParameter = true
-					namedParams = append(namedParams, string(parser.sql[startIndex:parser.pos]))
+					namedParams = append(namedParams, paramNamePrefix+string(parser.sql[startIndex:parser.pos]))
 					parsedSQL.WriteByte(parser.sql[parser.pos])
 					break
 				}
 				if parser.pos == len(parser.sql)-1 {
 					hasNamedParameter = true
-					namedParams = append(namedParams, string(parser.sql[startIndex:]))
+					namedParams = append(namedParams, paramNamePrefix+string(parser.sql[startIndex:]))
 					parsedSQL.WriteByte(parser.sql[parser.pos])
 					break
 				}
@@ -548,7 +595,7 @@ func (p *statementParser) calculateFindParamsResult(sql string) (string, []strin
 				return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement must not contain both named and positional parameter: %s", sql))
 			}
 			hasPositionalParameter = true
-			parsedSQL.WriteString("@p" + strconv.Itoa(positionalParameterIndex))
+			parsedSQL.WriteString(p.positionalParameterToNamed(positionalParameterIndex))
 			namedParams = append(namedParams, "p"+strconv.Itoa(positionalParameterIndex))
 			positionalParameterIndex++
 			parser.pos++
