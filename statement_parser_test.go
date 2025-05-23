@@ -509,7 +509,7 @@ func TestFindParams(t *testing.T) {
 		input   string
 		wantSQL map[databasepb.DatabaseDialect]string
 		want    map[databasepb.DatabaseDialect][]string
-		wantErr error
+		wantErr map[databasepb.DatabaseDialect]error
 	}{
 		"id=@id": {
 			input: `SELECT * FROM PersonsTable WHERE id=@id`,
@@ -674,10 +674,12 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 			input: `?'?it\'?s'?`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
 				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@p1'?it\'?s'@p2`,
-				databasepb.DatabaseDialect_POSTGRESQL:          `$1'?it\'?s'$2`,
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"p1", "p2"},
+			},
+			wantErr: map[databasepb.DatabaseDialect]error{
+				databasepb.DatabaseDialect_POSTGRESQL: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'?it\'?s'?`)),
 			},
 		},
 		"two positional parameters and string literal with escaped double quote": {
@@ -694,40 +696,57 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 			input: `?"?it\"?s"?`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
 				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@p1"?it\"?s"@p2`,
-				databasepb.DatabaseDialect_POSTGRESQL:          `$1"?it\"?s"$2`,
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"p1", "p2"},
+			},
+			wantErr: map[databasepb.DatabaseDialect]error{
+				databasepb.DatabaseDialect_POSTGRESQL: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?"?it\"?s"?`)),
 			},
 		},
 		"triple-quoted string": {
 			input: `?'''?it\'?s'''?`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
+				// In GoogleSQL, the triple-quoted string means that single quotes are allowed inside the string.
 				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@p1'''?it\'?s'''@p2`,
-				databasepb.DatabaseDialect_POSTGRESQL:          `$1'''?it\'?s'''$2`,
+				// In PostgreSQL, triple-quoted strings are not a thing. Instead, the ''' sequence starts a new string
+				// literal where the first character is a single quote. This means that the string ?'''?it\'?s'''?
+				// in PostgreSQL is invalid, because it consists of these parts:
+				// ?   '''?it\'   ?s'''?
+				// The first part is a query parameter.
+				// The second part is a string where the first character is a single quote. The last character is a
+				// backslash (which has no special meaning in a normal PostgreSQL string).
+				// The third part is invalid, as it contains an unclosed string literal.
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"p1", "p2"},
+			},
+			wantErr: map[databasepb.DatabaseDialect]error{
+				databasepb.DatabaseDialect_POSTGRESQL: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'''?it\'?s'''?`)),
 			},
 		},
 		"triple-quoted string using double quotes": {
 			input: `?"""?it\"?s"""?`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
 				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@p1"""?it\"?s"""@p2`,
-				databasepb.DatabaseDialect_POSTGRESQL:          `$1"""?it\"?s"""$2`,
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"p1", "p2"},
+			},
+			wantErr: map[databasepb.DatabaseDialect]error{
+				databasepb.DatabaseDialect_POSTGRESQL: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?"""?it\"?s"""?`)),
 			},
 		},
 		"backtick string with escaped quote": {
 			input: `?` + "`?it" + `\` + "`?s`" + `?`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
 				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@p1` + "`?it" + `\` + "`?s`" + `@p2`,
-				databasepb.DatabaseDialect_POSTGRESQL:          `$1` + "`?it" + `\` + "`?s`" + `$2`,
+				// Backticks are not valid quotes in PostgreSQL, so these are just ignored.
+				databasepb.DatabaseDialect_POSTGRESQL: `$1` + "`$2it" + `\` + "`$3s`" + `$4`,
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"p1", "p2"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1", "p2", "p3", "p4"},
 			},
 		},
 		"triple-quoted string with escaped quote and linefeed": {
@@ -736,11 +755,12 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
 				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@p1'''?it\'?s
 					?it\'?s'''@p2`,
-				databasepb.DatabaseDialect_POSTGRESQL: `$1'''?it\'?s
-					?it\'?s'''$2`,
+				databasepb.DatabaseDialect_POSTGRESQL: `$1'''?it\'$2s
+					$3it\'?s'''$4`,
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"p1", "p2"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1", "p2", "p3", "p4"},
 			},
 		},
 		"triple-quoted string with escaped quote and linefeed (2)": {
@@ -749,11 +769,12 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
 				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@p1'''?it\'?s
 					?it\'?s'''@p2`,
-				databasepb.DatabaseDialect_POSTGRESQL: `$1'''?it\'?s
-					?it\'?s'''$2`,
+				databasepb.DatabaseDialect_POSTGRESQL: `$1'''?it\'$2s
+					$3it\'?s'''$4`,
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"p1", "p2"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"p1", "p2"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1", "p2", "p3", "p4"},
 			},
 		},
 		"positional parameters in select and where clause": {
@@ -828,20 +849,40 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 		"unclosed literal 1": {
 			input: `?'?it\'?s
 		?it\'?s'?`,
-			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'?it\'?s
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_POSTGRESQL: `$1'?it\'$2s
+		$3it\'?s'$4`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_POSTGRESQL: {"p1", "p2", "p3", "p4"},
+			},
+			wantErr: map[databasepb.DatabaseDialect]error{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'?it\'?s
 		?it\'?s'?`)),
+			},
 		},
 		"unclosed literal 2": {
 			input: `?'?it\'?s
 		?it\'?s?`,
-			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'?it\'?s
+			wantErr: map[databasepb.DatabaseDialect]error{
+				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'?it\'?s
 		?it\'?s?`)),
+			},
 		},
 		"unclosed literal 3": {
 			input: `?'''?it\'?s
 		?it\'?s'?`,
-			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'''?it\'?s
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_POSTGRESQL: `$1'''?it\'$2s
+		$3it\'?s'$4`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_POSTGRESQL: {"p1", "p2", "p3", "p4"},
+			},
+			wantErr: map[databasepb.DatabaseDialect]error{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'''?it\'?s
 		?it\'?s'?`)),
+			},
 		},
 	}
 	for _, dialect := range []databasepb.DatabaseDialect{databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, databasepb.DatabaseDialect_POSTGRESQL} {
@@ -853,15 +894,15 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 			t.Run(name, func(t *testing.T) {
 				sql := tc.input
 				gotSQL, got, err := parser.parseParameters(sql)
-				if err != nil && tc.wantErr == nil {
+				wantErr := expectedTestValue(dialect, tc.wantErr)
+				if err != nil && wantErr == nil {
 					t.Error(err)
 				}
-				if tc.wantErr != nil {
+				if wantErr != nil {
 					if err == nil {
 						t.Errorf("missing expected error for %q", tc.input)
-					}
-					if !cmp.Equal(err.Error(), tc.wantErr.Error()) {
-						t.Errorf("parseParameters error mismatch\nGot: %s\nWant: %s", err.Error(), tc.wantErr)
+					} else if !cmp.Equal(err.Error(), wantErr.Error()) {
+						t.Errorf("parseParameters error mismatch\nGot: %s\nWant: %s", err.Error(), wantErr)
 					}
 				}
 				want := expectedTestValue(dialect, tc.want)
@@ -978,8 +1019,7 @@ SELECT * FROM PersonsTable WHERE id=$1`,
 		},
 		"two positional parameters and string literal with escaped quote": {
 			input:   `?'?it\'?s'?`,
-			wantSQL: `$1'?it\'?s'$2`,
-			want:    []string{"p1", "p2"},
+			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'?it\'?s'?`)),
 		},
 		"two positional parameters and string literal with escaped double quote": {
 			input:   `?'?it\"?s'?`,
@@ -988,38 +1028,34 @@ SELECT * FROM PersonsTable WHERE id=$1`,
 		},
 		"two positional parameters and double quoted string literal with escaped quote": {
 			input:   `?"?it\"?s"?`,
-			wantSQL: `$1"?it\"?s"$2`,
-			want:    []string{"p1", "p2"},
+			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?"?it\"?s"?`)),
 		},
 		"triple-quoted string": {
 			input:   `?'''?it\'?s'''?`,
-			wantSQL: `$1'''?it\'?s'''$2`,
-			want:    []string{"p1", "p2"},
+			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'''?it\'?s'''?`)),
 		},
 		"triple-quoted string using double quotes": {
 			input:   `?"""?it\"?s"""?`,
-			wantSQL: `$1"""?it\"?s"""$2`,
-			want:    []string{"p1", "p2"},
+			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?"""?it\"?s"""?`)),
 		},
-		// TODO: Update this once PostgreSQL quoting rules are respected
 		"backtick string with escaped quote": {
 			input:   `?` + "`?it" + `\` + "`?s`" + `?`,
-			wantSQL: `$1` + "`?it" + `\` + "`?s`" + `$2`,
-			want:    []string{"p1", "p2"},
+			wantSQL: `$1` + "`$2it" + `\` + "`$3s`" + `$4`,
+			want:    []string{"p1", "p2", "p3", "p4"},
 		},
 		"triple-quoted string with escaped quote and linefeed": {
 			input: `?'''?it\'?s
 				?it\'?s'''?`,
-			wantSQL: `$1'''?it\'?s
-				?it\'?s'''$2`,
-			want: []string{"p1", "p2"},
+			wantSQL: `$1'''?it\'$2s
+				$3it\'?s'''$4`,
+			want: []string{"p1", "p2", "p3", "p4"},
 		},
 		"triple-quoted string with escaped quote and linefeed (2)": {
 			input: `?'''?it\'?s
 				?it\'?s'''?`,
-			wantSQL: `$1'''?it\'?s
-				?it\'?s'''$2`,
-			want: []string{"p1", "p2"},
+			wantSQL: `$1'''?it\'$2s
+				$3it\'?s'''$4`,
+			want: []string{"p1", "p2", "p3", "p4"},
 		},
 		"positional parameters in select and where clause": {
 			input:   `select 1, ?, 'test?test', "test?test", foo.* from` + "`foo`" + `where col1=? and col2='test' and col3=? and col4='?' and col5="?" and col6='?''?''?'`,
@@ -1059,8 +1095,9 @@ SELECT * FROM PersonsTable WHERE id=$1`,
 		"unclosed literal 1": {
 			input: `?'?it\'?s
 				?it\'?s'?`,
-			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'?it\'?s
-				?it\'?s'?`)),
+			wantSQL: `$1'?it\'$2s
+				$3it\'?s'$4`,
+			want: []string{"p1", "p2", "p3", "p4"},
 		},
 		"unclosed literal 2": {
 			input: `?'?it\'?s
@@ -1071,8 +1108,9 @@ SELECT * FROM PersonsTable WHERE id=$1`,
 		"unclosed literal 3": {
 			input: `?'''?it\'?s
 				?it\'?s'?`,
-			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'''?it\'?s
-				?it\'?s'?`)),
+			wantSQL: `$1'''?it\'$2s
+				$3it\'?s'$4`,
+			want: []string{"p1", "p2", "p3", "p4"},
 		},
 	}
 	parser, err := newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
@@ -1089,8 +1127,7 @@ SELECT * FROM PersonsTable WHERE id=$1`,
 			if tc.wantErr != nil {
 				if err == nil {
 					t.Errorf("missing expected error for %q", tc.input)
-				}
-				if !cmp.Equal(err.Error(), tc.wantErr.Error()) {
+				} else if !cmp.Equal(err.Error(), tc.wantErr.Error()) {
 					t.Errorf("parseParameters error mismatch\nGot: %s\nWant: %s", err.Error(), tc.wantErr)
 				}
 			}
@@ -1483,8 +1520,11 @@ func TestSkip(t *testing.T) {
 			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'foo'"},
 		},
 		"two strings directly after each other": {
-			input:   "'foo''bar'  ",
-			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'foo'"},
+			input: "'foo''bar'  ",
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "'foo'",
+				databasepb.DatabaseDialect_POSTGRESQL:          "'foo''bar'",
+			},
 		},
 		"two strings with space between": {
 			input:   "'foo'  'bar'  ",
@@ -1504,32 +1544,54 @@ func TestSkip(t *testing.T) {
 			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `"foo'bar'"`},
 		},
 		"backtick string with string inside": {
-			input:   "`foo'bar'`  ",
-			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "`foo'bar'`"},
+			input: "`foo'bar'`  ",
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "`foo'bar'`",
+				databasepb.DatabaseDialect_POSTGRESQL:          "`",
+			},
 		},
 		"triple-quoted string with quote inside": {
-			input:   "'''foo'bar'''  ",
-			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'''foo'bar'''"},
+			input: "'''foo'bar'''  ",
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "'''foo'bar'''",
+				databasepb.DatabaseDialect_POSTGRESQL:          "'''foo'",
+			},
 		},
 		"triple-quoted string with escaped quote inside": {
-			input:   "'''foo\\'bar'''  ",
-			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'''foo\\'bar'''"},
+			input: "'''foo\\'bar'''  ",
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "'''foo\\'bar'''",
+				databasepb.DatabaseDialect_POSTGRESQL:          "'''foo\\'",
+			},
 		},
 		"triple-quoted string with two escaped quotes inside": {
-			input:   "'''foo\\'\\'bar'''  ",
-			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'''foo\\'\\'bar'''"},
+			input: "'''foo\\'\\'bar'''  ",
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "'''foo\\'\\'bar'''",
+				databasepb.DatabaseDialect_POSTGRESQL:          "'''foo\\'",
+			},
 		},
 		"triple-quoted string with three escaped quotes inside": {
-			input:   "'''foo\\'\\'\\'bar'''  ",
-			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'''foo\\'\\'\\'bar'''"},
+			input: "'''foo\\'\\'\\'bar'''  ",
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "'''foo\\'\\'\\'bar'''",
+				databasepb.DatabaseDialect_POSTGRESQL:          "'''foo\\'",
+			},
 		},
 		"triple-quoted backtick string with backtick inside": {
-			input:   "```foo`bar```  ",
-			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "```foo`bar```"},
+			input: "```foo`bar```  ",
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "```foo`bar```",
+				// Backticks are not valid quote characters in PostgreSQL, so only a single character is skipped.
+				databasepb.DatabaseDialect_POSTGRESQL: "`",
+			},
 		},
 		"triple-double quote string with double quote inside": {
-			input:   `"""foo"bar"""  `,
-			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `"""foo"bar"""`},
+			input: `"""foo"bar"""  `,
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `"""foo"bar"""`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `"""foo"`,
+			},
 		},
 		"single line comment": {
 			input:   "-- comment",
@@ -1602,22 +1664,44 @@ func TestSkip(t *testing.T) {
 			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'/* test */'"},
 		},
 		"escaped quote": {
-			input:   "'foo\\''  ",
-			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'foo\\''"},
+			input: "'foo\\''  ",
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "'foo\\''",
+			},
+			invalid: map[databasepb.DatabaseDialect]bool{
+				// This is invalid for PostgreSQL, because:
+				// 1. The first 'foo\ part of the string is 'just a normal string'. The backslash has no special meaning.
+				// 2. The last part is two single quotes; In PostgreSQL, this is an escaped quote inside the string
+				// literal. This again means that this string literal is unclosed.
+				databasepb.DatabaseDialect_POSTGRESQL: true,
+			},
 		},
 		"escaped quote in raw string": {
-			input:   "r'foo\\''  ",
-			pos:     1,
-			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'foo\\''"},
+			input: "r'foo\\''  ",
+			pos:   1,
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "'foo\\''",
+			},
+			invalid: map[databasepb.DatabaseDialect]bool{
+				// This is an unclosed literal in PostgreSQL
+				databasepb.DatabaseDialect_POSTGRESQL: true,
+			},
 		},
 		"escaped quotes in triple-quoted string": {
-			input:   "'''foo\\'\\'\\'bar'''  ",
-			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "'''foo\\'\\'\\'bar'''"},
+			input: "'''foo\\'\\'\\'bar'''  ",
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "'''foo\\'\\'\\'bar'''",
+				databasepb.DatabaseDialect_POSTGRESQL:          "'''foo\\'",
+			},
 		},
 		"string with linefeed": {
 			input: "'foo\n'  ",
-			// TODO: Mark this as valid for PostgreSQL
-			invalid: map[databasepb.DatabaseDialect]bool{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: true},
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_POSTGRESQL: "'foo\n'",
+			},
+			invalid: map[databasepb.DatabaseDialect]bool{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: true,
+			},
 		},
 		"triple-quoted string with linefeed": {
 			input:   "'''foo\n'''  ",
@@ -1653,7 +1737,7 @@ func TestSkip(t *testing.T) {
 					t.Errorf("missing expected error for %s", test.input)
 				} else if !wantInvalid && err != nil {
 					t.Errorf("got unexpected error for %s: %v", test.input, err)
-				} else {
+				} else if !wantInvalid {
 					skipped := test.input[test.pos:pos]
 					wantSkipped := expectedTestValue(dialect, test.skipped)
 					if skipped != wantSkipped {
@@ -1666,6 +1750,10 @@ func TestSkip(t *testing.T) {
 }
 
 func expectedTestValue[V any](dialect databasepb.DatabaseDialect, values map[databasepb.DatabaseDialect]V) V {
+	if values == nil {
+		var zero V
+		return zero
+	}
 	if v, ok := values[dialect]; ok {
 		return v
 	} else if v, ok := values[databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED]; ok {
