@@ -206,6 +206,36 @@ func (p *statementParser) supportsNestedComments() bool {
 	return p.dialect == databasepb.DatabaseDialect_POSTGRESQL
 }
 
+func (p *statementParser) supportsBacktickQuotes() bool {
+	return p.dialect != databasepb.DatabaseDialect_POSTGRESQL
+}
+
+func (p *statementParser) supportsTripleQuotedLiterals() bool {
+	return p.dialect != databasepb.DatabaseDialect_POSTGRESQL
+}
+
+// supportsBackslashEscape returns true if the dialect supports escaping a quote within a quoted
+// literal by prefixing it with a backslash. Example:
+// PostgreSQL: 'It\'s true' => This is invalid. The first part is the string 'It\', and the rest is invalid syntax.
+// GoogleSQL: 'It\'s true' => This is the string "It's true".
+func (p *statementParser) supportsBackslashEscape() bool {
+	return p.dialect != databasepb.DatabaseDialect_POSTGRESQL
+}
+
+// supportsEscapeQuoteWithQuote returns true if the dialect supports escaping a quote within a quoted
+// literal by repeating the quote twice. Example (note that the way that two single quotes are written in the following
+// examples is something that is enforced by gofmt):
+// PostgreSQL: 'It”s true' => This is the string "It's true"
+// GoogleSQL: 'It”s true' => These are two strings: "It" and "s true".
+func (p *statementParser) supportsEscapeQuoteWithQuote() bool {
+	return p.dialect == databasepb.DatabaseDialect_POSTGRESQL
+}
+
+// supportsLinefeedInString returns true if the dialect allows linefeeds in standard string literals.
+func (p *statementParser) supportsLinefeedInString() bool {
+	return p.dialect == databasepb.DatabaseDialect_POSTGRESQL
+}
+
 var googleSqlParamPrefixes = map[byte]bool{'@': true}
 var postgresqlParamPrefixes = map[byte]bool{'$': true, '@': true}
 
@@ -295,7 +325,7 @@ func (p *statementParser) skip(sql []byte, pos int) (int, error) {
 		return pos, nil
 	}
 
-	if c == '\'' || c == '"' || c == '`' {
+	if c == '\'' || c == '"' || (c == '`' && p.supportsBacktickQuotes()) {
 		// This is a quoted string or quoted identifier.
 		return p.skipQuoted(sql, pos, c)
 	} else if c == '-' && len(sql) > pos+1 && sql[pos+1] == '-' {
@@ -360,7 +390,7 @@ func (p *statementParser) skipMultiLineComment(sql []byte, pos int) int {
 }
 
 func (p *statementParser) skipQuoted(sql []byte, pos int, quote byte) (int, error) {
-	isTripleQuoted := len(sql) > pos+2 && sql[pos+1] == quote && sql[pos+2] == quote
+	isTripleQuoted := p.supportsTripleQuotedLiterals() && len(sql) > pos+2 && sql[pos+1] == quote && sql[pos+2] == quote
 	if isTripleQuoted && (isMultibyte(sql[pos+1]) || isMultibyte(sql[pos+2])) {
 		isTripleQuoted = false
 	}
@@ -383,16 +413,20 @@ func (p *statementParser) skipQuoted(sql []byte, pos int, quote byte) (int, erro
 					return pos + 3, nil
 				}
 			} else {
+				if p.supportsEscapeQuoteWithQuote() && len(sql) > pos+1 && sql[pos+1] == quote {
+					pos += 2
+					continue
+				}
 				// This was the end quote.
 				return pos + 1, nil
 			}
-		} else if len(sql) > pos+1 && c == '\\' && sql[pos+1] == quote {
+		} else if p.supportsBackslashEscape() && len(sql) > pos+1 && c == '\\' && sql[pos+1] == quote {
 			// This is an escaped quote (e.g. 'foo\'bar').
 			// Note that in raw strings, the \ officially does not start an
 			// escape sequence, but the result is still the same, as in a raw
 			// string 'both characters are preserved'.
 			pos += 1
-		} else if !isTripleQuoted && c == '\n' {
+		} else if !p.supportsLinefeedInString() && !isTripleQuoted && c == '\n' {
 			break
 		}
 		pos++
