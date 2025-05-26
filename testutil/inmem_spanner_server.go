@@ -885,8 +885,16 @@ func (s *inMemSpannerServer) ExecuteSql(ctx context.Context, req *spannerpb.Exec
 }
 
 func (s *inMemSpannerServer) ExecuteStreamingSql(req *spannerpb.ExecuteSqlRequest, stream spannerpb.Spanner_ExecuteStreamingSqlServer) error {
-	if err := s.simulateExecutionTime(MethodExecuteStreamingSql, req); err != nil {
-		return err
+	// Do not register the 'select dialect' statement on the server,
+	// and do not apply any standard errors to this query. This makes
+	// it easier to set up tests without having to worry about this query.
+	// Tests that want to verify the behavior when this query fails, should
+	// instead register a specific error result for the query, instead of a
+	// generic error for the method.
+	if req.Sql != selectDialect {
+		if err := s.simulateExecutionTime(MethodExecuteStreamingSql, req); err != nil {
+			return err
+		}
 	}
 	return s.executeStreamingSQL(req, stream)
 }
