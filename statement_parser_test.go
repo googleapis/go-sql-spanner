@@ -495,11 +495,17 @@ func FuzzRemoveCommentsAndTrim(f *testing.F) {
 		f.Add(sample)
 	}
 
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
-	if err != nil {
-		f.Fatal(err)
-	}
 	f.Fuzz(func(t *testing.T, input string) {
+		parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = parser.removeCommentsAndTrim(input)
+
+		parser, err = newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
 		_, _ = parser.removeCommentsAndTrim(input)
 	})
 }
@@ -1164,16 +1170,182 @@ SELECT * FROM PersonsTable WHERE id=$1`,
 	}
 }
 
+func TestFindParamsWithCommentsPostgreSQL(t *testing.T) {
+	tests := map[string]struct {
+		input   string
+		wantSQL string
+		want    []string
+		wantErr error
+	}{
+		"name=?": {
+			input:   `select * %sfrom foo where name=?`,
+			wantSQL: `select * %sfrom foo where name=$1`,
+			want:    []string{"p1"},
+		},
+		"question marks in single-quoted string": {
+			input:   `?%s'?test?"?test?"?'?`,
+			wantSQL: `$1%s'?test?"?test?"?'$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"single quotes in single-quoted string": {
+			input:   `?'?it\''?s'%s?`,
+			wantSQL: `$1'?it\''?s'%s$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"backslash in single-quoted string": {
+			input:   `?'?it\\"?s'%s?`,
+			wantSQL: `$1'?it\\"?s'%s$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"backslash in double-quoted string": {
+			input:   `?\"?it\\"\"?s\"%s?`,
+			wantSQL: `$1\"?it\\"\"?s\"%s$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"triple-quotes": {
+			input:   `?%s'''?it\''?s'''?`,
+			wantSQL: `$1%s'''?it\''?s'''$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"triple-double-quotes": {
+			input:   `?"""?it\""?s"""%s?`,
+			wantSQL: `$1"""?it\""?s"""%s$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"dollar-quoted string": {
+			input:   `?$$?it$?s$$%s?`,
+			wantSQL: `$1$$?it$?s$$%s$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"dollar-quoted string with tag": {
+			input:   `?$tag$?it$?s$tag$%s?`,
+			wantSQL: `$1$tag$?it$?s$tag$%s$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"dollar-quoted string with linefeed": {
+			input: `?%s$$?it\'?s 
+?it\'?s$$?`,
+			wantSQL: `$1%s$$?it\'?s 
+?it\'?s$$$2`,
+			want: []string{"p1", "p2"},
+		},
+		"single-quoted string with linefeed": {
+			input: `?'?it\''?s 
+?it\''?s'%s?`,
+			wantSQL: `$1'?it\''?s 
+?it\''?s'%s$2`,
+			want: []string{"p1", "p2"},
+		},
+		"unclosed single-quoted string": {
+			input: `?'?it\''?s 
+?it\''?%s?`,
+			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'?it\''?s 
+?it\''?%s?`)),
+		},
+		"triple-quoted string with linefeed": {
+			input: `?%s'''?it\''?s 
+?it\''?s'?`,
+			wantSQL: `$1%s'''?it\''?s 
+?it\''?s'$2`,
+			want: []string{"p1", "p2"},
+		},
+		"multiple params": {
+			input:   `select 1, ?, 'test?test', "test?test", %sfoo.* from foo where col1=? and col2='test' and col3=? and col4='?' and col5="?" and col6='?''?''?'`,
+			wantSQL: `select 1, $1, 'test?test', "test?test", %sfoo.* from foo where col1=$2 and col2='test' and col3=$3 and col4='?' and col5="?" and col6='?''?''?'`,
+			want:    []string{"p1", "p2", "p3"},
+		},
+		"multiple params (2)": {
+			input:   `select * %sfrom foo where name=? and col2 like ? and col3 > ?`,
+			wantSQL: `select * %sfrom foo where name=$1 and col2 like $2 and col3 > $3`,
+			want:    []string{"p1", "p2", "p3"},
+		},
+		"comment right after param": {
+			input:   `select * from foo where id between ?%s and ?`,
+			wantSQL: `select * from foo where id between $1%s and $2`,
+			want:    []string{"p1", "p2"},
+		},
+		"comment between limit and offset": {
+			input:   `select * from foo limit ? %s offset ?`,
+			wantSQL: `select * from foo limit $1 %s offset $2`,
+			want:    []string{"p1", "p2"},
+		},
+		"comment in where clause": {
+			input: `select *
+					from foo
+					where col1=?
+					and col2 like ?
+					%s
+					and col3 > ?
+					and col4 < ?
+					and col5 != ?
+					and col6 not in (?, ?, ?)
+					and col7 in (?, ?, ?)
+					and col8 between ? and ?`,
+			wantSQL: `select *
+					from foo
+					where col1=$1
+					and col2 like $2
+					%s
+					and col3 > $3
+					and col4 < $4
+					and col5 != $5
+					and col6 not in ($6, $7, $8)
+					and col7 in ($9, $10, $11)
+					and col8 between $12 and $13`,
+			want: []string{"p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11", "p12", "p13"},
+		},
+	}
+
+	parser, err := newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			for _, comment := range []string{
+				"-- test comment\n",
+				"/* another test comment */",
+				"/* comment\nwith\nmultiple\nlines\n */",
+				"/* comment /* with nested */ comment */",
+			} {
+				input := fmt.Sprintf(test.input, comment)
+				wantSQL := fmt.Sprintf(test.wantSQL, comment)
+				got, params, err := parser.findParams(input)
+				if err != nil && test.wantErr == nil {
+					t.Errorf("got unexpected error: %v", err)
+				} else if err != nil && test.wantErr != nil {
+					if g, w := spanner.ErrCode(err), spanner.ErrCode(test.wantErr); g != w {
+						t.Errorf("error code mismatch\n Got: %s\nWant: %s", g, w)
+					}
+				} else {
+					if !cmp.Equal(params, test.want) {
+						t.Errorf("parameters mismatch\n Got: %s\nWant: %s", params, test.want)
+					}
+					if got != wantSQL {
+						t.Errorf("SQL mismatch\n Got: %s\nWant: %s", got, wantSQL)
+					}
+				}
+			}
+		})
+	}
+}
+
 func FuzzFindParams(f *testing.F) {
 	for _, sample := range fuzzQuerySamples {
 		f.Add(sample)
 	}
 
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
-	if err != nil {
-		f.Fatal(err)
-	}
 	f.Fuzz(func(t *testing.T, input string) {
+		parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, _ = parser.parseParameters(input)
+
+		parser, err = newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
 		_, _, _ = parser.parseParameters(input)
 	})
 }
@@ -2188,13 +2360,16 @@ func BenchmarkDetectStatementType(b *testing.B) {
 var fuzzQuerySamples = []string{"", "SELECT 1;", "RUN BATCH", "ABORT BATCH", "Show variable Retry_Aborts_Internally", "@{JOIN_METHOD=HASH_JOIN SELECT * FROM PersonsTable"}
 
 func init() {
-	for ddl := range ddlStatements {
-		fuzzQuerySamples = append(fuzzQuerySamples, ddl)
+	for statement := range ddlStatements {
+		fuzzQuerySamples = append(fuzzQuerySamples, statement)
+		fuzzQuerySamples = append(fuzzQuerySamples, statement+" foo")
 	}
-	for ddl := range selectStatements {
-		fuzzQuerySamples = append(fuzzQuerySamples, ddl)
+	for statement := range selectStatements {
+		fuzzQuerySamples = append(fuzzQuerySamples, statement)
+		fuzzQuerySamples = append(fuzzQuerySamples, statement+" foo")
 	}
-	for ddl := range dmlStatements {
-		fuzzQuerySamples = append(fuzzQuerySamples, ddl)
+	for statement := range dmlStatements {
+		fuzzQuerySamples = append(fuzzQuerySamples, statement)
+		fuzzQuerySamples = append(fuzzQuerySamples, statement+" foo")
 	}
 }
