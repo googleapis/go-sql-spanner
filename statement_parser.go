@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 	"unicode/utf8"
 
 	"cloud.google.com/go/spanner"
@@ -60,8 +61,26 @@ type simpleParser struct {
 // eatToken advances the parser by one position and returns true
 // if the next byte is equal to the given byte. This function only
 // works for characters that can be encoded in one byte.
+//
+// Any whitespaces and/or comments before the token will be skipped.
 func (p *simpleParser) eatToken(t byte) bool {
-	p.skipWhitespaces()
+	return p.eatTokenWithWhitespaceOption(t, true)
+}
+
+// eatTokenOnly advances the parser by one position and returns true
+// if the next byte is equal to the given byte. This function only
+// works for characters that can be encoded in one byte.
+//
+// This function will only look at the first byte it encounters.
+// Any whitespaces or comments will not be skipped first.
+func (p *simpleParser) eatTokenOnly(t byte) bool {
+	return p.eatTokenWithWhitespaceOption(t, false)
+}
+
+func (p *simpleParser) eatTokenWithWhitespaceOption(t byte, eatWhiteSpaces bool) bool {
+	if eatWhiteSpaces {
+		p.skipWhitespaces()
+	}
 	if p.pos >= len(p.sql) {
 		return false
 	}
@@ -70,6 +89,86 @@ func (p *simpleParser) eatToken(t byte) bool {
 	}
 	p.pos++
 	return true
+}
+
+func (p *simpleParser) eatDollarQuotedString(tag string) (string, bool) {
+	startPos := p.pos
+	for ; p.pos < len(p.sql); p.nextChar() {
+		if p.isMultibyte() {
+			continue
+		}
+		if p.isDollar() {
+			posBeforeTag := p.pos
+			potentialTag, ok := p.eatDollarTag()
+			if !ok {
+				p.pos = posBeforeTag
+				continue
+			}
+			if potentialTag == tag {
+				return string(p.sql[startPos:posBeforeTag]), true
+			}
+			// This is a nested dollar-tag. Nested dollar-quoted strings are allowed.
+			if _, ok = p.eatDollarQuotedString(potentialTag); !ok {
+				return "", false
+			}
+		}
+	}
+	return "", false
+}
+
+func (p *simpleParser) eatDollarTag() (string, bool) {
+	if !p.eatTokenOnly('$') {
+		return "", false
+	}
+	if p.pos >= len(p.sql) {
+		return "", false
+	}
+	// $$ is a valid start of a dollar-quoted string without a tag.
+	if p.eatTokenOnly('$') {
+		return "", true
+	}
+	startPos := p.pos
+	first := true
+	for ; p.pos < len(p.sql); p.nextChar() {
+		if first {
+			first = false
+			if !p.isValidFirstIdentifierChar() {
+				return "", false
+			}
+		} else {
+			if p.eatToken('$') {
+				return string(p.sql[startPos : p.pos-1]), true
+			}
+			if !p.isValidIdentifierChar() {
+				return "", false
+			}
+		}
+	}
+	return "", false
+}
+
+func (p *simpleParser) isValidFirstIdentifierChar() bool {
+	if p.isMultibyte() {
+		r, _ := utf8.DecodeRune(p.sql[p.pos:])
+		return unicode.IsLetter(r)
+	}
+	return p.sql[p.pos] == '_' || isLatinLetter(p.sql[p.pos])
+}
+
+func (p *simpleParser) isValidIdentifierChar() bool {
+	if p.isMultibyte() {
+		r, _ := utf8.DecodeRune(p.sql[p.pos:])
+		return unicode.IsLetter(r) || unicode.IsDigit(r)
+	}
+	return p.sql[p.pos] == '_' || p.sql[p.pos] == '$' || isLatinLetter(p.sql[p.pos]) || isLatinDigit(p.sql[p.pos])
+}
+
+func (p *simpleParser) isValidDollarTagIdentifierChar() bool {
+	return p.isValidIdentifierChar() && !p.isDollar()
+}
+
+func (p *simpleParser) isDollar() bool {
+	return !p.isMultibyte() && p.sql[p.pos] == '$'
 }
 
 // readKeyword reads the keyword at the current position.
@@ -214,6 +313,10 @@ func (p *statementParser) supportsTripleQuotedLiterals() bool {
 	return p.dialect != databasepb.DatabaseDialect_POSTGRESQL
 }
 
+func (p *statementParser) supportsDollarQuotedStrings() bool {
+	return p.dialect == databasepb.DatabaseDialect_POSTGRESQL
+}
+
 // supportsBackslashEscape returns true if the dialect supports escaping a quote within a quoted
 // literal by prefixing it with a backslash. Example:
 // PostgreSQL: 'It\'s true' => This is invalid. The first part is the string 'It\', and the rest is invalid syntax.
@@ -289,9 +392,7 @@ func (p *statementParser) skipWhitespaces(sql []byte, pos int) int {
 	for pos < len(sql) {
 		c := sql[pos]
 		if isMultibyte(c) {
-			_, size := utf8.DecodeRune(sql[pos:])
-			pos += size
-			continue
+			break
 		}
 		if c == '-' && len(sql) > pos+1 && sql[pos+1] == '-' {
 			// This is a single line comment starting with '--'.
@@ -337,8 +438,23 @@ func (p *statementParser) skip(sql []byte, pos int) (int, error) {
 	} else if c == '/' && len(sql) > pos+1 && sql[pos+1] == '*' {
 		// This is a multi line comment starting with '/*'.
 		return p.skipMultiLineComment(sql, pos), nil
+	} else if c == '$' && p.supportsDollarQuotedStrings() {
+		return p.skipDollarQuotedString(sql, pos)
 	}
 	return pos + 1, nil
+}
+
+func (p *statementParser) skipDollarQuotedString(sql []byte, pos int) (int, error) {
+	sp := &simpleParser{sql: sql, pos: pos, statementParser: p}
+	tag, ok := sp.eatDollarTag()
+	if !ok {
+		// Not a valid dollar tag, so only skip the current character.
+		return pos + 1, nil
+	}
+	if _, ok = sp.eatDollarQuotedString(tag); ok {
+		return sp.pos, nil
+	}
+	return 0, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", string(sql)))
 }
 
 func (p *statementParser) skipSingleLineComment(sql []byte, pos int) int {

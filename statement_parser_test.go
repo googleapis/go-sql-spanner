@@ -1112,6 +1112,28 @@ SELECT * FROM PersonsTable WHERE id=$1`,
 				$3it\'?s'$4`,
 			want: []string{"p1", "p2", "p3", "p4"},
 		},
+		"dollar-quoted string": {
+			input:   `select foo from bar where id=$$this is a string$$ order by value`,
+			wantSQL: `select foo from bar where id=$$this is a string$$ order by value`,
+			want:    []string{},
+		},
+		"dollar-quoted string with tag": {
+			input:   `select foo from bar where id=$tag$this is a string$tag$ order by value`,
+			wantSQL: `select foo from bar where id=$tag$this is a string$tag$ order by value`,
+			want:    []string{},
+		},
+		"dollar-quoted string with tag and param": {
+			input:   `select foo from bar where id=$tag$this is a string$tag$ and value=? order by value`,
+			wantSQL: `select foo from bar where id=$tag$this is a string$tag$ and value=$1 order by value`,
+			want:    []string{"p1"},
+		},
+		"invalid dollar-quoted string": {
+			input: "select foo from bar where id=$tag$this is an invalid string and value=? order by value",
+			wantErr: spanner.ToSpannerError(
+				status.Errorf(codes.InvalidArgument,
+					"SQL statement contains an unclosed literal: %s",
+					"select foo from bar where id=$tag$this is an invalid string and value=? order by value")),
+		},
 	}
 	parser, err := newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
 	if err != nil {
@@ -1486,6 +1508,72 @@ func TestFindParams_Errors(t *testing.T) {
 	}
 }
 
+func TestSkipWhitespaces(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "single space",
+			input: " ",
+			want:  " ",
+		},
+		{
+			name:  "single linefeed",
+			input: "\n",
+			want:  "\n",
+		},
+		{
+			name:  "single tab",
+			input: "\t",
+			want:  "\t",
+		},
+		{
+			name:  "multiple different spaces",
+			input: "\t   \n  \t",
+			want:  "\t   \n  \t",
+		},
+		{
+			name:  "multiple different spaces followed by keyword",
+			input: "\t   \n  \tselect",
+			want:  "\t   \n  \t",
+		},
+		{
+			name:  "keyword",
+			input: "select  ",
+			want:  "",
+		},
+		{
+			name:  "multi-byte token",
+			input: "ø",
+			want:  "",
+		},
+		{
+			name:  "multi-byte token after space",
+			input: " ø",
+			want:  " ",
+		},
+	}
+	for _, dialect := range []databasepb.DatabaseDialect{
+		databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+		databasepb.DatabaseDialect_POSTGRESQL,
+	} {
+		p, err := getStatementParser(dialect, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, test := range tests {
+			t.Run(fmt.Sprintf("%s: %s", dialect, test.name), func(t *testing.T) {
+				pos := p.skipWhitespaces([]byte(test.input), 0)
+				if g, w := test.input[:pos], test.want; g != w {
+					t.Errorf("skip whitespace mismatch\n Got: %q\nWant: %q", g, w)
+				}
+			})
+		}
+	}
+}
+
 func TestSkip(t *testing.T) {
 	tests := map[string]struct {
 		input   string
@@ -1641,8 +1729,11 @@ func TestSkip(t *testing.T) {
 		},
 		"dollar-quoted string": {
 			// GoogleSQL does not support dollar-quoted strings.
-			input:   "$tag$not a string$tag$ select * from foo",
-			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "$"},
+			input: "$tag$not a string in GoogleSQL$tag$ select * from foo",
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "$",
+				databasepb.DatabaseDialect_POSTGRESQL:          "$tag$not a string in GoogleSQL$tag$",
+			},
 		},
 		"string in comment": {
 			input:   "/* 'test' */ foo",
@@ -1863,6 +1954,148 @@ func TestReadKeyword(t *testing.T) {
 		if g, w := p.readKeyword(), test.want; g != w {
 			t.Errorf("keyword mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 		}
+	}
+}
+
+func TestEatDollarTag(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{
+			input: "$$",
+			want:  "",
+		},
+		{
+			input: "$tag$",
+			want:  "tag",
+		},
+		{
+			input: "$tag_with_underscore$",
+			want:  "tag_with_underscore",
+		},
+		{
+			input: "$tag1$",
+			want:  "tag1",
+		},
+		{
+			input: "$ø$",
+			want:  "ø",
+		},
+		{
+			input: "$_test$",
+			want:  "_test",
+		},
+		{
+			// A digit is not allowed as the first character of an identifier.
+			input:   "$1test$",
+			want:    "",
+			wantErr: true,
+		},
+		{
+			// The euro sign is not a letter, and therefore not a valid char in an identifier.
+			input:   "$euro€$",
+			want:    "",
+			wantErr: true,
+		},
+	}
+	statementParser, err := newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			p := simpleParser{sql: []byte(test.input), statementParser: statementParser}
+			tag, ok := p.eatDollarTag()
+			if !ok && !test.wantErr {
+				t.Errorf("eatDollarTag returned false")
+			} else if g, w := tag, test.want; g != w {
+				t.Errorf("tag mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
+			}
+		})
+	}
+}
+
+func TestEatDollarQuotedString(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{
+			input: "$$test$$",
+			want:  "test",
+		},
+		{
+			input: "$tag$test$tag$",
+			want:  "test",
+		},
+		{
+			input: "$tag_with_underscore$test$tag_with_underscore$",
+			want:  "test",
+		},
+		{
+			input: "$tag1$test$tag1$",
+			want:  "test",
+		},
+		{
+			input: "$ø$test$ø$",
+			want:  "test",
+		},
+		{
+			input: "$_test$test$_test$",
+			want:  "test",
+		},
+		{
+			// A digit is not allowed as the first character of an identifier.
+			input:   "$1test$test$1test$",
+			want:    "",
+			wantErr: true,
+		},
+		{
+			// The euro sign is not a letter, and therefore not a valid char in an identifier.
+			input:   "$euro€$test$euro€$",
+			want:    "",
+			wantErr: true,
+		},
+		{
+			input: "$outer$ outer string $inner$ inner string $inner$ second part of outer string $outer$",
+			want:  " outer string $inner$ inner string $inner$ second part of outer string ",
+		},
+		{
+			input:   "$tag$ mismatched start and end tag $gat$",
+			want:    "",
+			wantErr: true,
+		},
+		{
+			input:   "$outer$ outer string $inner$ mismatched tag $outer$ second part of outer string $inner$",
+			want:    "",
+			wantErr: true,
+		},
+	}
+	statementParser, err := newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			p := simpleParser{sql: []byte(test.input), statementParser: statementParser}
+			tag, ok := p.eatDollarTag()
+			if !ok {
+				if !test.wantErr {
+					t.Errorf("eatDollarTag returned false")
+				}
+			} else {
+				if value, ok := p.eatDollarQuotedString(tag); ok {
+					if g, w := value, test.want; g != w {
+						t.Errorf("tag mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
+					}
+				} else if !test.wantErr {
+					t.Errorf("eatDollarQuotedString returned false")
+				}
+			}
+		})
 	}
 }
 
