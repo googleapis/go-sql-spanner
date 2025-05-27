@@ -239,3 +239,20 @@ func TestIsolationLevelAutoCommit(t *testing.T) {
 		}
 	}
 }
+
+func TestDDLUsingQueryContext(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	// DDL statements should not use the query context.
+	_, err := db.QueryContext(ctx, "CREATE TABLE Foo (Bar STRING(100))")
+	if err == nil {
+		t.Fatal("expected error for DDL statement using QueryContext, got nil")
+	}
+	if g, w := err.Error(), `spanner: code = "FailedPrecondition", desc = "failed to perform DDL operation. Use ExecContext method to execute DDL statements"`; g != w {
+		t.Fatalf("error mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}

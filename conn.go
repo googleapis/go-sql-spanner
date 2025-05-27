@@ -773,6 +773,8 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "PartitionQuery is only supported in batch read-only transactions"))
 		} else if execOptions.PartitionedQueryOptions.AutoPartitionQuery {
 			return c.executeAutoPartitionedQuery(ctx, query, args)
+		} else if statementType.statementType == statementTypeDdl {
+			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "failed to perform DDL operation. Use ExecContext method to execute DDL statements"))
 		} else {
 			// The statement was either detected as being a query, or potentially not recognized at all.
 			// In that case, just default to using a single-use read-only transaction and let Spanner
