@@ -758,9 +758,13 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 	if err != nil {
 		return nil, err
 	}
+	statementType := detectStatementType(query)
+	// DDL statements are not supported in QueryContext so fail early.
+	if statementType.statementType == statementTypeDdl {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "QueryContext does not support DDL statements, use ExecContext instead"))
+	}
 	var iter rowIterator
 	if c.tx == nil {
-		statementType := detectStatementType(query)
 		if statementType.statementType == statementTypeDml {
 			// Use a read/write transaction to execute the statement.
 			var commitTs time.Time
@@ -773,8 +777,6 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "PartitionQuery is only supported in batch read-only transactions"))
 		} else if execOptions.PartitionedQueryOptions.AutoPartitionQuery {
 			return c.executeAutoPartitionedQuery(ctx, query, args)
-		} else if statementType.statementType == statementTypeDdl {
-			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "failed to perform DDL operation. Use ExecContext method to execute DDL statements"))
 		} else {
 			// The statement was either detected as being a query, or potentially not recognized at all.
 			// In that case, just default to using a single-use read-only transaction and let Spanner
