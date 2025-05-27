@@ -24,6 +24,7 @@ import (
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
+	"github.com/google/uuid"
 	"google.golang.org/api/iterator"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -188,6 +189,16 @@ func (r *rows) Next(dest []driver.Value) error {
 			// for JSON in the Go sql package. That means that instead of returning
 			// nil we should return a NullJSON with valid=false.
 			dest[i] = v
+		case sppb.TypeCode_UUID:
+			var v spanner.NullUUID
+			if err := col.Decode(&v); err != nil {
+				return err
+			}
+			if v.Valid {
+				dest[i] = v.UUID.String()
+			} else {
+				dest[i] = nil
+			}
 		case sppb.TypeCode_BYTES, sppb.TypeCode_PROTO:
 			// The column value is a base64 encoded string.
 			var v []byte
@@ -292,6 +303,20 @@ func (r *rows) Next(dest []driver.Value) error {
 					return err
 				}
 				dest[i] = v
+			case sppb.TypeCode_UUID:
+				if r.decodeToNativeArrays {
+					var v []uuid.UUID
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
+				} else {
+					var v []spanner.NullUUID
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
+				}
 			case sppb.TypeCode_BYTES, sppb.TypeCode_PROTO:
 				var v [][]byte
 				if err := col.Decode(&v); err != nil {
