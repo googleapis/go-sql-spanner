@@ -1613,30 +1613,39 @@ func TestParseClientSideStatement(t *testing.T) {
 		},
 	}
 
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range tests {
-		statement, err := parseClientSideStatement(&conn{logger: noopLogger}, tc.input)
-		if err != nil {
-			t.Fatalf("failed to parse statement %s: %v", tc.name, err)
-		}
-		if tc.exec && statement.execContext == nil {
-			t.Errorf("execContext missing for %q", tc.input)
-		}
-		if tc.query && statement.queryContext == nil {
-			t.Errorf("queryContext missing for %q", tc.input)
-		}
-
-		var got string
-		if statement != nil {
-			got = statement.Name
-		}
-		if got != tc.want {
-			t.Errorf("parseClientSideStatement test failed: %s\nGot: %s\nWant: %s.", tc.name, got, tc.want)
-		}
-		if tc.wantParams != "" {
-			if g, w := statement.params, tc.wantParams; g != w {
-				t.Errorf("params mismatch for %s\nGot: %v\nWant: %v", tc.name, g, w)
+		t.Run(tc.name, func(t *testing.T) {
+			statement, err := parser.parseClientSideStatement(&conn{logger: noopLogger, parser: parser}, tc.input)
+			if err != nil {
+				t.Fatalf("failed to parse statement %s: %v", tc.name, err)
 			}
-		}
+			if statement == nil {
+				t.Fatalf("statement is not a client-side statement: %s", tc.input)
+			}
+			if tc.exec && statement.execContext == nil {
+				t.Errorf("execContext missing for %q", tc.input)
+			}
+			if tc.query && statement.queryContext == nil {
+				t.Errorf("queryContext missing for %q", tc.input)
+			}
+
+			var got string
+			if statement != nil {
+				got = statement.Name
+			}
+			if got != tc.want {
+				t.Errorf("parseClientSideStatement test failed: %s\nGot: %s\nWant: %s.", tc.name, got, tc.want)
+			}
+			if tc.wantParams != "" {
+				if g, w := statement.params, tc.wantParams; g != w {
+					t.Errorf("params mismatch for %s\nGot: %v\nWant: %v", tc.name, g, w)
+				}
+			}
+		})
 	}
 }
 
@@ -1646,7 +1655,11 @@ func FuzzParseClientSideStatement(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, input string) {
-		_, _ = parseClientSideStatement(&conn{logger: noopLogger}, input)
+		parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = parser.parseClientSideStatement(&conn{logger: noopLogger, parser: parser}, input)
 	})
 }
 
@@ -2326,6 +2339,22 @@ func generateDetectStatementTypeTests() []detectStatementTypeTest {
 			input: "input from borkisland",
 			want:  statementTypeUnknown,
 		},
+		{
+			input: "start batch ddl",
+			want:  statementTypeClientSide,
+		},
+		{
+			input: "set autocommit_dml_mode = 'partitioned_non_atomic'",
+			want:  statementTypeClientSide,
+		},
+		{
+			input: "show variable commit_timestamp",
+			want:  statementTypeClientSide,
+		},
+		{
+			input: "run batch",
+			want:  statementTypeClientSide,
+		},
 	}
 }
 
@@ -2334,23 +2363,49 @@ func TestDetectStatementType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	c := &conn{parser: parser}
 	tests := generateDetectStatementTypeTests()
 	for _, test := range tests {
-		if g, w := parser.detectStatementType(test.input).statementType, test.want; g != w {
+		if cs, err := parser.parseClientSideStatement(c, test.input); err != nil {
+			t.Errorf("failed to parse the statement as a client-side statement")
+		} else if cs != nil {
+			if g, w := statementTypeClientSide, test.want; g != w {
+				t.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
+			}
+		} else if g, w := parser.detectStatementType(test.input).statementType, test.want; g != w {
 			t.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 		}
 	}
 }
 
-func BenchmarkDetectStatementType(b *testing.B) {
+func BenchmarkDetectStatementTypeWithoutCache(b *testing.B) {
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 0)
+	if err != nil {
+		b.Fatal(err)
+	}
+	benchmarkDetectStatementType(b, parser)
+}
+
+func BenchmarkDetectStatementTypeWithCache(b *testing.B) {
 	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		b.Fatal(err)
 	}
+	benchmarkDetectStatementType(b, parser)
+}
+
+func benchmarkDetectStatementType(b *testing.B, parser *statementParser) {
+	c := &conn{parser: parser}
 	tests := generateDetectStatementTypeTests()
 	for b.Loop() {
 		for _, test := range tests {
-			if g, w := parser.detectStatementType(test.input).statementType, test.want; g != w {
+			if cs, err := parser.parseClientSideStatement(c, test.input); err != nil {
+				b.Errorf("failed to parse the statement as a client-side statement")
+			} else if cs != nil {
+				if g, w := statementTypeClientSide, test.want; g != w {
+					b.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
+				}
+			} else if g, w := parser.detectStatementType(test.input).statementType, test.want; g != w {
 				b.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 			}
 		}

@@ -40,6 +40,13 @@ var insertStatements = map[string]bool{"INSERT": true}
 var updateStatements = map[string]bool{"UPDATE": true}
 var deleteStatements = map[string]bool{"DELETE": true}
 var dmlStatements = union(insertStatements, union(updateStatements, deleteStatements))
+var clientSideKeywords = map[string]bool{
+	"SHOW":  true,
+	"SET":   true,
+	"START": true,
+	"RUN":   true,
+	"ABORT": true,
+}
 
 func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 	res := make(map[string]bool, len(m1)+len(m2))
@@ -279,22 +286,27 @@ func getStatementParser(dialect databasepb.DatabaseDialect, cacheSize int) (*sta
 }
 
 type statementsCacheEntry struct {
-	sql    string
-	params []string
-	info   *statementInfo
+	sql                 string
+	params              []string
+	info                *statementInfo
+	clientSideStatement *clientSideStatement
 }
 
 type statementParser struct {
 	dialect         databasepb.DatabaseDialect
+	useCache        bool
 	statementsCache *lru.Cache
 }
 
 func newStatementParser(dialect databasepb.DatabaseDialect, cacheSize int) (*statementParser, error) {
-	cache, err := lru.New(cacheSize)
-	if err != nil {
-		return nil, err
+	if cacheSize > 0 {
+		cache, err := lru.New(cacheSize)
+		if err != nil {
+			return nil, err
+		}
+		return &statementParser{dialect: dialect, statementsCache: cache, useCache: true}, nil
 	}
-	return &statementParser{dialect: dialect, statementsCache: cache}, nil
+	return &statementParser{dialect: dialect}, nil
 }
 
 func (p *statementParser) supportsHashSingleLineComments() bool {
@@ -659,6 +671,9 @@ func (p *statementParser) removeStatementHint(sql string) string {
 // findParams finds all query parameters in the given SQL string.
 // The SQL string may contain comments and statement hints.
 func (p *statementParser) findParams(sql string) (string, []string, error) {
+	if !p.useCache {
+		return p.calculateFindParamsResult(sql)
+	}
 	if val, ok := p.statementsCache.Get(sql); ok {
 		res := val.(*statementsCacheEntry)
 		return res.sql, res.params, nil
@@ -895,7 +910,29 @@ func (c *executableClientSideStatement) QueryContext(ctx context.Context, args [
 // parseClientSideStatement returns the executableClientSideStatement that
 // corresponds with the given query string, or nil if it is not a valid client
 // side statement.
-func parseClientSideStatement(c *conn, query string) (*executableClientSideStatement, error) {
+func (p *statementParser) parseClientSideStatement(c *conn, query string) (*executableClientSideStatement, error) {
+	if p.useCache {
+		if val, ok := p.statementsCache.Get(query); ok {
+			res := val.(*statementsCacheEntry)
+			if res.info.statementType == statementTypeClientSide {
+				var params string
+				if len(res.params) > 0 {
+					params = res.params[0]
+				}
+				return &executableClientSideStatement{res.clientSideStatement, c, query, params}, nil
+			}
+			return nil, nil
+		}
+	}
+	// Determine whether it could be a valid client-side statement by looking at the first keyword.
+	// This is a lot more efficient than looping through all regular expressions for client-side
+	// statements to check whether the statement matches that expression.
+	sp := &simpleParser{sql: []byte(query), statementParser: c.parser}
+	keyword := strings.ToUpper(sp.readKeyword())
+	if _, ok := clientSideKeywords[keyword]; !ok {
+		return nil, nil
+	}
+
 	statementsInit.Do(func() {
 		if err := compileStatements(); err != nil {
 			statementsCompileErr = err
@@ -913,6 +950,17 @@ func parseClientSideStatement(c *conn, query string) (*executableClientSideState
 					params = strings.TrimSpace(p[1])
 				}
 			}
+			if p.useCache {
+				cacheEntry := &statementsCacheEntry{
+					sql:                 query,
+					params:              []string{params},
+					clientSideStatement: stmt,
+					info: &statementInfo{
+						statementType: statementTypeClientSide,
+					},
+				}
+				p.statementsCache.Add(query, cacheEntry)
+			}
 			return &executableClientSideStatement{stmt, c, query, params}, nil
 		}
 	}
@@ -926,6 +974,7 @@ const (
 	statementTypeQuery
 	statementTypeDml
 	statementTypeDdl
+	statementTypeClientSide
 )
 
 type dmlType int
@@ -945,6 +994,9 @@ type statementInfo struct {
 // detectStatementType returns the type of SQL statement based on the first
 // keyword that is found in the SQL statement.
 func (p *statementParser) detectStatementType(sql string) *statementInfo {
+	if !p.useCache {
+		return p.calculateDetectStatementType(sql)
+	}
 	if val, ok := p.statementsCache.Get(sql); ok {
 		res := val.(*statementsCacheEntry)
 		return res.info
