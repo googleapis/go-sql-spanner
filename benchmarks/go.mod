@@ -7,12 +7,12 @@ toolchain go1.24.3
 replace github.com/googleapis/go-sql-spanner => ../
 
 require (
-	cloud.google.com/go v0.121.1
+	cloud.google.com/go v0.121.2
 	cloud.google.com/go/spanner v1.82.0
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/go-sql-spanner v1.13.2
-	google.golang.org/api v0.233.0
-	google.golang.org/grpc v1.72.1
+	google.golang.org/api v0.235.0
+	google.golang.org/grpc v1.72.2
 	google.golang.org/protobuf v1.36.6
 )
 
@@ -20,7 +20,7 @@ require (
 	cel.dev/expr v0.23.1 // indirect
 	cloud.google.com/go/auth v0.16.1 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
-	cloud.google.com/go/compute/metadata v0.6.0 // indirect
+	cloud.google.com/go/compute/metadata v0.7.0 // indirect
 	cloud.google.com/go/iam v1.5.2 // indirect
 	cloud.google.com/go/longrunning v0.6.7 // indirect
 	cloud.google.com/go/monitoring v1.24.2 // indirect
