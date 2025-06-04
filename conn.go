@@ -734,7 +734,7 @@ func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, err
 
 func (c *conn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	// Execute client side statement if it is one.
-	clientStmt, err := parseClientSideStatement(c, query)
+	clientStmt, err := c.parser.parseClientSideStatement(c, query)
 	if err != nil {
 		return nil, err
 	}
@@ -794,7 +794,7 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	// Execute client side statement if it is one.
-	stmt, err := parseClientSideStatement(c, query)
+	stmt, err := c.parser.parseClientSideStatement(c, query)
 	if err != nil {
 		return nil, err
 	}
