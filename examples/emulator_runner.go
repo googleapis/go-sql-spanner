@@ -44,6 +44,10 @@ var containerId string
 // 3. Execute the sample function against the emulator.
 // 4. Stop the Docker container with the emulator.
 func RunSampleOnEmulator(sample func(string, string, string) error, ddlStatements ...string) {
+	RunSampleOnEmulatorWithDialect(sample, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, ddlStatements...)
+}
+
+func RunSampleOnEmulatorWithDialect(sample func(string, string, string) error, dialect databasepb.DatabaseDialect, ddlStatements ...string) {
 	var err error
 	if err = startEmulator(); err != nil {
 		log.Fatalf("failed to start emulator: %v", err)
@@ -53,7 +57,7 @@ func RunSampleOnEmulator(sample func(string, string, string) error, ddlStatement
 		stopEmulator()
 		log.Fatalf("failed to create instance on emulator: %v", err)
 	}
-	if err = createSampleDB(projectId, instanceId, databaseId, ddlStatements...); err != nil {
+	if err = createSampleDB(projectId, instanceId, databaseId, dialect, ddlStatements...); err != nil {
 		stopEmulator()
 		log.Fatalf("failed to create database on emulator: %v", err)
 	}
@@ -146,17 +150,24 @@ func createInstance(projectId, instanceId string) error {
 	return nil
 }
 
-func createSampleDB(projectId, instanceId, databaseId string, statements ...string) error {
+func createSampleDB(projectId, instanceId, databaseId string, dialect databasepb.DatabaseDialect, statements ...string) error {
 	ctx := context.Background()
 	databaseAdminClient, err := database.NewDatabaseAdminClient(ctx)
 	if err != nil {
 		return err
 	}
 	defer databaseAdminClient.Close()
+	var createStatement string
+	if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		createStatement = fmt.Sprintf(`CREATE DATABASE "%s"`, databaseId)
+	} else {
+		createStatement = fmt.Sprintf("CREATE DATABASE `%s`", databaseId)
+	}
 	opDB, err := databaseAdminClient.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
 		Parent:          fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId),
-		CreateStatement: fmt.Sprintf("CREATE DATABASE `%s`", databaseId),
+		CreateStatement: createStatement,
 		ExtraStatements: statements,
+		DatabaseDialect: dialect,
 	})
 	if err != nil {
 		return err
