@@ -22,6 +22,7 @@ import (
 	"io"
 	"log/slog"
 	"math/big"
+	"os"
 	"regexp"
 	"runtime"
 	"runtime/debug"
@@ -33,6 +34,7 @@ import (
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
 	adminapi "cloud.google.com/go/spanner/admin/database/apiv1"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/uuid"
 	"github.com/googleapis/gax-go/v2"
@@ -47,6 +49,10 @@ const userAgent = "go-sql-spanner/1.13.2" // x-release-please-version
 
 const gormModule = "github.com/googleapis/go-gorm-spanner"
 const gormUserAgent = "go-gorm-spanner"
+
+const DefaultStatementCacheSize = 1000
+
+var defaultStatementCacheSize int
 
 // LevelNotice is the default logging level that the Spanner database/sql driver
 // uses for informational logs. This level is deliberately chosen to be one level
@@ -91,6 +97,19 @@ var spannerDriver *Driver
 func init() {
 	spannerDriver = &Driver{connectors: make(map[string]*connector)}
 	sql.Register("spanner", spannerDriver)
+	determineDefaultStatementCacheSize()
+}
+
+func determineDefaultStatementCacheSize() {
+	if defaultCacheSizeString, ok := os.LookupEnv("SPANNER_DEFAULT_STATEMENT_CACHE_SIZE"); ok {
+		if defaultCacheSize, err := strconv.Atoi(defaultCacheSizeString); err == nil {
+			defaultStatementCacheSize = defaultCacheSize
+		} else {
+			defaultStatementCacheSize = DefaultStatementCacheSize
+		}
+	} else {
+		defaultStatementCacheSize = DefaultStatementCacheSize
+	}
 }
 
 // ExecOptions can be passed in as an argument to the Query, QueryContext,
@@ -209,6 +228,16 @@ type ConnectorConfig struct {
 	Project  string
 	Instance string
 	Database string
+
+	// StatementCacheSize is the size of the internal cache that is used for
+	// connectors that are created from this ConnectorConfig. This cache stores
+	// the result of parsing SQL statements for query parameters and the type of
+	// statement (Query / DML / DDL).
+	// The default size is 1000. This default can also be overridden by setting
+	// the environment variable SPANNER_DEFAULT_STATEMENT_CACHE_SIZE.
+	StatementCacheSize int
+	// DisableStatementCache disables the use of a statement cache.
+	DisableStatementCache bool
 
 	// AutoConfigEmulator automatically creates a connection for the emulator
 	// and also automatically creates the Instance and Database on the emulator.
@@ -335,6 +364,7 @@ type connector struct {
 	adminClient    *adminapi.DatabaseAdminClient
 	adminClientErr error
 	connCount      int32
+	parser         *statementParser
 }
 
 func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
@@ -480,6 +510,11 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			connectorConfig.IsolationLevel = val
 		}
 	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("StatementCacheSize")]; ok {
+		if val, err := strconv.Atoi(strval); err == nil {
+			connectorConfig.StatementCacheSize = val
+		}
+	}
 
 	// Check if it is Spanner gorm that is creating the connection.
 	// If so, we should set a different user-agent header than the
@@ -574,6 +609,7 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 	connId := uuid.New().String()
 	logger := c.logger.With("connId", connId)
 	connection := &conn{
+		parser:      c.parser,
 		connector:   c,
 		client:      c.client,
 		adminClient: c.adminClient,
@@ -614,12 +650,33 @@ func (c *connector) increaseConnCount(ctx context.Context, databaseName string, 
 		if c.clientErr != nil {
 			return c.clientErr
 		}
+		c.logger.Log(ctx, LevelNotice, "fetching database dialect")
+		closeClient := func() {
+			c.client.Close()
+			c.client = nil
+		}
+		if dialect, err := determineDialect(ctx, c.client); err != nil {
+			closeClient()
+			return err
+		} else {
+			// Create a separate statement parser and cache per connector.
+			cacheSize := c.connectorConfig.StatementCacheSize
+			if c.connectorConfig.DisableStatementCache {
+				cacheSize = 0
+			} else if c.connectorConfig.StatementCacheSize == 0 {
+				cacheSize = defaultStatementCacheSize
+			}
+			c.parser, err = newStatementParser(dialect, cacheSize)
+			if err != nil {
+				closeClient()
+				return err
+			}
+		}
 
 		c.logger.Log(ctx, LevelNotice, "creating Spanner Admin client")
 		c.adminClient, c.adminClientErr = adminapi.NewDatabaseAdminClient(ctx, opts...)
 		if c.adminClientErr != nil {
-			c.client = nil
-			c.client.Close()
+			closeClient()
 			c.adminClient = nil
 			return c.adminClientErr
 		}
@@ -628,6 +685,26 @@ func (c *connector) increaseConnCount(ctx context.Context, databaseName string, 
 	c.connCount++
 	c.logger.DebugContext(ctx, "increased conn count", "connCount", c.connCount)
 	return nil
+}
+
+func determineDialect(ctx context.Context, client *spanner.Client) (databasepb.DatabaseDialect, error) {
+	it := client.Single().Query(ctx, spanner.Statement{SQL: "select option_value from information_schema.database_options where option_name='database_dialect'"})
+	defer it.Stop()
+	for {
+		if row, err := it.Next(); err != nil {
+			return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, err
+		} else {
+			var dialectName string
+			if err := row.Columns(&dialectName); err != nil {
+				return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, err
+			}
+			if dialect, ok := databasepb.DatabaseDialect_value[dialectName]; ok {
+				return databasepb.DatabaseDialect(dialect), nil
+			} else {
+				return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, fmt.Errorf("unknown database dialect: %s", dialectName)
+			}
+		}
+	}
 }
 
 // decreaseConnCount decreases the number of connections that are active and closes the underlying clients if it was the

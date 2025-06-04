@@ -3692,6 +3692,9 @@ func TestTag_RunTransaction_Retry(t *testing.T) {
 
 	conn, err := db.Conn(ctx)
 	defer func() {
+		if conn == nil {
+			return
+		}
 		if err := conn.Close(); err != nil {
 			t.Fatal(err)
 		}
@@ -4565,6 +4568,73 @@ func TestCustomClientConfig(t *testing.T) {
 	}
 }
 
+func TestPostgreSQLDialect(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnectionWithDialect(t, databasepb.DatabaseDialect_POSTGRESQL)
+	defer teardown()
+	_ = server.TestSpanner.PutStatementResult(
+		"SELECT * FROM Test WHERE Id=$1",
+		&testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: testutil.CreateSelect1ResultSet(),
+		},
+	)
+
+	// The positional query parameter should be replaced with a PostgreSQL-style parameter.
+	stmt, err := db.Prepare("SELECT * FROM Test WHERE Id=?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stmt.Close()
+
+	rows, err := stmt.Query(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	for want := int64(1); rows.Next(); want++ {
+		var got int64
+		err = rows.Scan(&got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("value mismatch\n Got: %v\nWant: %v", got, want)
+		}
+	}
+	if rows.Err() != nil {
+		t.Fatal(rows.Err())
+	}
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("sql requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := len(req.ParamTypes), 1; g != w {
+		t.Fatalf("param types length mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if pt, ok := req.ParamTypes["p1"]; ok {
+		if g, w := pt.Code, sppb.TypeCode_INT64; g != w {
+			t.Fatalf("param type mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	} else {
+		t.Fatalf("no param type found for $1")
+	}
+	if g, w := len(req.Params.Fields), 1; g != w {
+		t.Fatalf("params length mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if val, ok := req.Params.Fields["p1"]; ok {
+		if g, w := val.GetStringValue(), "1"; g != w {
+			t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	} else {
+		t.Fatalf("no value found for param $1")
+	}
+}
+
 func numeric(v string) big.Rat {
 	res, _ := big.NewRat(1, 1).SetString(v)
 	return *res
@@ -4609,8 +4679,16 @@ func setupTestDBConnection(t *testing.T) (db *sql.DB, server *testutil.MockedSpa
 	return setupTestDBConnectionWithParams(t, "")
 }
 
+func setupTestDBConnectionWithDialect(t *testing.T, dialect databasepb.DatabaseDialect) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+	return setupTestDBConnectionWithParamsAndDialect(t, "", dialect)
+}
+
 func setupTestDBConnectionWithParams(t *testing.T, params string) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
-	server, _, serverTeardown := setupMockedTestServer(t)
+	return setupTestDBConnectionWithParamsAndDialect(t, params, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+}
+
+func setupTestDBConnectionWithParamsAndDialect(t *testing.T, params string, dialect databasepb.DatabaseDialect) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+	server, _, serverTeardown := setupMockedTestServerWithDialect(t, dialect)
 	db, err := sql.Open(
 		"spanner",
 		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;%s", server.Address, params))
@@ -4668,12 +4746,22 @@ func setupMockedTestServer(t *testing.T) (server *testutil.MockedSpannerInMemTes
 	return setupMockedTestServerWithConfig(t, spanner.ClientConfig{})
 }
 
+func setupMockedTestServerWithDialect(t *testing.T, dialect databasepb.DatabaseDialect) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
+	return setupMockedTestServerWithConfigAndClientOptionsAndDialect(t, spanner.ClientConfig{}, []option.ClientOption{}, dialect)
+}
+
 func setupMockedTestServerWithConfig(t *testing.T, config spanner.ClientConfig) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
 	return setupMockedTestServerWithConfigAndClientOptions(t, config, []option.ClientOption{})
 }
 
 func setupMockedTestServerWithConfigAndClientOptions(t *testing.T, config spanner.ClientConfig, clientOptions []option.ClientOption) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
+	return setupMockedTestServerWithConfigAndClientOptionsAndDialect(t, config, clientOptions, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+}
+
+func setupMockedTestServerWithConfigAndClientOptionsAndDialect(t *testing.T, config spanner.ClientConfig, clientOptions []option.ClientOption, dialect databasepb.DatabaseDialect) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
 	server, opts, serverTeardown := testutil.NewMockedSpannerInMemTestServer(t)
+	server.SetupSelectDialectResult(dialect)
+
 	opts = append(opts, clientOptions...)
 	ctx := context.Background()
 	formattedDatabase := fmt.Sprintf("projects/%s/instances/%s/databases/%s", "[PROJECT]", "[INSTANCE]", "[DATABASE]")

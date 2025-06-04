@@ -204,6 +204,7 @@ type SpannerConn interface {
 var _ SpannerConn = &conn{}
 
 type conn struct {
+	parser        *statementParser
 	connector     *connector
 	closed        bool
 	client        *spanner.Client
@@ -724,7 +725,7 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 
 func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, error) {
 	execOptions := c.options()
-	parsedSQL, args, err := parseParameters(query)
+	parsedSQL, args, err := c.parser.parseParameters(query)
 	if err != nil {
 		return nil, err
 	}
@@ -733,7 +734,7 @@ func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, err
 
 func (c *conn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	// Execute client side statement if it is one.
-	clientStmt, err := parseClientSideStatement(c, query)
+	clientStmt, err := c.parser.parseClientSideStatement(c, query)
 	if err != nil {
 		return nil, err
 	}
@@ -754,11 +755,11 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 		return pq.execute(ctx, execOptions.PartitionedQueryOptions.ExecutePartition.Index)
 	}
 
-	stmt, err := prepareSpannerStmt(query, args)
+	stmt, err := prepareSpannerStmt(c.parser, query, args)
 	if err != nil {
 		return nil, err
 	}
-	statementType := detectStatementType(query)
+	statementType := c.parser.detectStatementType(query)
 	// DDL statements are not supported in QueryContext so fail early.
 	if statementType.statementType == statementTypeDdl {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "QueryContext does not support DDL statements, use ExecContext instead"))
@@ -797,7 +798,7 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	// Execute client side statement if it is one.
-	stmt, err := parseClientSideStatement(c, query)
+	stmt, err := c.parser.parseClientSideStatement(c, query)
 	if err != nil {
 		return nil, err
 	}
@@ -812,7 +813,7 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 	// Clear the commit timestamp of this connection before we execute the statement.
 	c.commitTs = nil
 
-	statementInfo := detectStatementType(query)
+	statementInfo := c.parser.detectStatementType(query)
 	// Use admin API if DDL statement is provided.
 	if statementInfo.statementType == statementTypeDdl {
 		// Spanner does not support DDL in transactions, and although it is technically possible to execute DDL
@@ -824,7 +825,7 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 		return c.execDDL(ctx, spanner.NewStatement(query))
 	}
 
-	ss, err := prepareSpannerStmt(query, args)
+	ss, err := prepareSpannerStmt(c.parser, query, args)
 	if err != nil {
 		return nil, err
 	}
