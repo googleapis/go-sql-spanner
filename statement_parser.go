@@ -18,14 +18,17 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 	"unicode/utf8"
 
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	lru "github.com/hashicorp/golang-lru"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -37,6 +40,13 @@ var insertStatements = map[string]bool{"INSERT": true}
 var updateStatements = map[string]bool{"UPDATE": true}
 var deleteStatements = map[string]bool{"DELETE": true}
 var dmlStatements = union(insertStatements, union(updateStatements, deleteStatements))
+var clientSideKeywords = map[string]bool{
+	"SHOW":  true,
+	"SET":   true,
+	"START": true,
+	"RUN":   true,
+	"ABORT": true,
+}
 
 func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 	res := make(map[string]bool, len(m1)+len(m2))
@@ -49,27 +59,35 @@ func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 	return res
 }
 
-// parseParameters returns the parameters in the given sql string, if the input
-// sql contains positional parameters it returns the converted sql string with
-// all positional parameters replaced with named parameters.
-// The sql string must be a valid Cloud Spanner sql statement. It may contain
-// comments and (string) literals without any restrictions. That is, string
-// literals containing for example an email address ('test@test.com') will be
-// recognized as a string literal and not returned as a named parameter.
-func parseParameters(sql string) (string, []string, error) {
-	return findParams(sql)
-}
-
 type simpleParser struct {
-	sql []byte
-	pos int
+	statementParser *statementParser
+	sql             []byte
+	pos             int
 }
 
 // eatToken advances the parser by one position and returns true
 // if the next byte is equal to the given byte. This function only
 // works for characters that can be encoded in one byte.
+//
+// Any whitespaces and/or comments before the token will be skipped.
 func (p *simpleParser) eatToken(t byte) bool {
-	p.skipWhitespaces()
+	return p.eatTokenWithWhitespaceOption(t, true)
+}
+
+// eatTokenOnly advances the parser by one position and returns true
+// if the next byte is equal to the given byte. This function only
+// works for characters that can be encoded in one byte.
+//
+// This function will only look at the first byte it encounters.
+// Any whitespaces or comments will not be skipped first.
+func (p *simpleParser) eatTokenOnly(t byte) bool {
+	return p.eatTokenWithWhitespaceOption(t, false)
+}
+
+func (p *simpleParser) eatTokenWithWhitespaceOption(t byte, eatWhiteSpaces bool) bool {
+	if eatWhiteSpaces {
+		p.skipWhitespaces()
+	}
 	if p.pos >= len(p.sql) {
 		return false
 	}
@@ -78,6 +96,86 @@ func (p *simpleParser) eatToken(t byte) bool {
 	}
 	p.pos++
 	return true
+}
+
+func (p *simpleParser) eatDollarQuotedString(tag string) (string, bool) {
+	startPos := p.pos
+	for ; p.pos < len(p.sql); p.nextChar() {
+		if p.isMultibyte() {
+			continue
+		}
+		if p.isDollar() {
+			posBeforeTag := p.pos
+			potentialTag, ok := p.eatDollarTag()
+			if !ok {
+				p.pos = posBeforeTag
+				continue
+			}
+			if potentialTag == tag {
+				return string(p.sql[startPos:posBeforeTag]), true
+			}
+			// This is a nested dollar-tag. Nested dollar-quoted strings are allowed.
+			if _, ok = p.eatDollarQuotedString(potentialTag); !ok {
+				return "", false
+			}
+		}
+	}
+	return "", false
+}
+
+func (p *simpleParser) eatDollarTag() (string, bool) {
+	if !p.eatTokenOnly('$') {
+		return "", false
+	}
+	if p.pos >= len(p.sql) {
+		return "", false
+	}
+	// $$ is a valid start of a dollar-quoted string without a tag.
+	if p.eatTokenOnly('$') {
+		return "", true
+	}
+	startPos := p.pos
+	first := true
+	for ; p.pos < len(p.sql); p.nextChar() {
+		if first {
+			first = false
+			if !p.isValidFirstIdentifierChar() {
+				return "", false
+			}
+		} else {
+			if p.eatToken('$') {
+				return string(p.sql[startPos : p.pos-1]), true
+			}
+			if !p.isValidIdentifierChar() {
+				return "", false
+			}
+		}
+	}
+	return "", false
+}
+
+func (p *simpleParser) isValidFirstIdentifierChar() bool {
+	if p.isMultibyte() {
+		r, _ := utf8.DecodeRune(p.sql[p.pos:])
+		return unicode.IsLetter(r)
+	}
+	return p.sql[p.pos] == '_' || isLatinLetter(p.sql[p.pos])
+}
+
+func (p *simpleParser) isValidIdentifierChar() bool {
+	if p.isMultibyte() {
+		r, _ := utf8.DecodeRune(p.sql[p.pos:])
+		return unicode.IsLetter(r) || unicode.IsDigit(r)
+	}
+	return p.sql[p.pos] == '_' || p.sql[p.pos] == '$' || isLatinLetter(p.sql[p.pos]) || isLatinDigit(p.sql[p.pos])
+}
+
+func (p *simpleParser) isValidDollarTagIdentifierChar() bool {
+	return p.isValidIdentifierChar() && !p.isDollar()
+}
+
+func (p *simpleParser) isDollar() bool {
+	return !p.isMultibyte() && p.sql[p.pos] == '$'
 }
 
 // readKeyword reads the keyword at the current position.
@@ -104,7 +202,7 @@ func (p *simpleParser) readKeyword() string {
 // position until it encounters a non-whitespace / non-comment.
 // The position of the parser is updated.
 func (p *simpleParser) skipWhitespaces() {
-	p.pos = skipWhitespaces(p.sql, p.pos)
+	p.pos = p.statementParser.skipWhitespaces(p.sql, p.pos)
 }
 
 // skipStatementHint skips any statement hint at the start of the statement.
@@ -156,35 +254,6 @@ func isLatinDigit(b byte) bool {
 	return b >= '0' && b <= '9'
 }
 
-// Skips all whitespaces from the given position and returns the
-// position of the next non-whitespace character or len(sql) if
-// the string does not contain any whitespaces after pos.
-func skipWhitespaces(sql []byte, pos int) int {
-	for pos < len(sql) {
-		c := sql[pos]
-		if isMultibyte(c) {
-			_, size := utf8.DecodeRune(sql[pos:])
-			pos += size
-			continue
-		}
-		if c == '-' && len(sql) > pos+1 && sql[pos+1] == '-' {
-			// This is a single line comment starting with '--'.
-			pos = skipSingleLineComment(sql, pos+2)
-		} else if c == '#' {
-			// This is a single line comment starting with '#'.
-			pos = skipSingleLineComment(sql, pos+1)
-		} else if c == '/' && len(sql) > pos+1 && sql[pos+1] == '*' {
-			// This is a multi line comment starting with '/*'.
-			pos = skipMultiLineComment(sql, pos)
-		} else if !isSpace(c) {
-			break
-		} else {
-			pos++
-		}
-	}
-	return pos
-}
-
 // isSpace returns true if the given character is a valid space character.
 func isSpace(c byte) bool {
 	switch c {
@@ -194,10 +263,171 @@ func isSpace(c byte) bool {
 	return false
 }
 
+var createParserLock sync.Mutex
+var statementParsers = sync.Map{}
+
+func getStatementParser(dialect databasepb.DatabaseDialect, cacheSize int) (*statementParser, error) {
+	key := fmt.Sprintf("%v-%v", dialect, cacheSize)
+	if val, ok := statementParsers.Load(key); ok {
+		return val.(*statementParser), nil
+	} else {
+		// The statement parser map is thread-safe, so we don't need this lock for that,
+		// but we take this lock to be sure that we only *create* one instance of
+		// statementParser per combination of dialect and cache size.
+		createParserLock.Lock()
+		defer createParserLock.Unlock()
+		parser, err := newStatementParser(dialect, cacheSize)
+		if err != nil {
+			return nil, err
+		}
+		statementParsers.Store(key, parser)
+		return parser, nil
+	}
+}
+
+type statementsCacheEntry struct {
+	sql                 string
+	params              []string
+	info                *statementInfo
+	clientSideStatement *clientSideStatement
+}
+
+type statementParser struct {
+	dialect         databasepb.DatabaseDialect
+	useCache        bool
+	statementsCache *lru.Cache
+}
+
+func newStatementParser(dialect databasepb.DatabaseDialect, cacheSize int) (*statementParser, error) {
+	if cacheSize > 0 {
+		cache, err := lru.New(cacheSize)
+		if err != nil {
+			return nil, err
+		}
+		return &statementParser{dialect: dialect, statementsCache: cache, useCache: true}, nil
+	}
+	return &statementParser{dialect: dialect}, nil
+}
+
+func (p *statementParser) supportsHashSingleLineComments() bool {
+	return p.dialect != databasepb.DatabaseDialect_POSTGRESQL
+}
+
+func (p *statementParser) supportsNestedComments() bool {
+	return p.dialect == databasepb.DatabaseDialect_POSTGRESQL
+}
+
+func (p *statementParser) supportsBacktickQuotes() bool {
+	return p.dialect != databasepb.DatabaseDialect_POSTGRESQL
+}
+
+func (p *statementParser) supportsTripleQuotedLiterals() bool {
+	return p.dialect != databasepb.DatabaseDialect_POSTGRESQL
+}
+
+func (p *statementParser) supportsDollarQuotedStrings() bool {
+	return p.dialect == databasepb.DatabaseDialect_POSTGRESQL
+}
+
+// supportsBackslashEscape returns true if the dialect supports escaping a quote within a quoted
+// literal by prefixing it with a backslash. Example:
+// PostgreSQL: 'It\'s true' => This is invalid. The first part is the string 'It\', and the rest is invalid syntax.
+// GoogleSQL: 'It\'s true' => This is the string "It's true".
+func (p *statementParser) supportsBackslashEscape() bool {
+	return p.dialect != databasepb.DatabaseDialect_POSTGRESQL
+}
+
+// supportsEscapeQuoteWithQuote returns true if the dialect supports escaping a quote within a quoted
+// literal by repeating the quote twice. Example (note that the way that two single quotes are written in the following
+// examples is something that is enforced by gofmt):
+// PostgreSQL: 'It”s true' => This is the string "It's true"
+// GoogleSQL: 'It”s true' => These are two strings: "It" and "s true".
+func (p *statementParser) supportsEscapeQuoteWithQuote() bool {
+	return p.dialect == databasepb.DatabaseDialect_POSTGRESQL
+}
+
+// supportsLinefeedInString returns true if the dialect allows linefeeds in standard string literals.
+func (p *statementParser) supportsLinefeedInString() bool {
+	return p.dialect == databasepb.DatabaseDialect_POSTGRESQL
+}
+
+var googleSqlParamPrefixes = map[byte]bool{'@': true}
+var postgresqlParamPrefixes = map[byte]bool{'$': true, '@': true}
+
+func (p *statementParser) paramPrefixes() map[byte]bool {
+	if p.dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		return postgresqlParamPrefixes
+	}
+	return googleSqlParamPrefixes
+}
+
+func (p *statementParser) isValidParamsFirstChar(prefix, c byte) bool {
+	if p.dialect == databasepb.DatabaseDialect_POSTGRESQL && prefix == '$' {
+		// PostgreSQL query parameters have the form $1, $2, ..., $10, ...
+		return isLatinDigit(c)
+	}
+	// GoogleSQL query parameters have the form @name or @_name123
+	return isLatinLetter(c) || c == '_'
+}
+
+func (p *statementParser) isValidParamsChar(prefix, c byte) bool {
+	if p.dialect == databasepb.DatabaseDialect_POSTGRESQL && prefix == '$' {
+		// PostgreSQL query parameters have the form $1, $2, ..., $10, ...
+		return isLatinDigit(c)
+	}
+	// GoogleSQL query parameters have the form @name or @_name123
+	return isLatinLetter(c) || isLatinDigit(c) || c == '_'
+}
+
+func (p *statementParser) positionalParameterToNamed(positionalParameterIndex int) string {
+	if p.dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		return "$" + strconv.Itoa(positionalParameterIndex)
+	}
+	return "@p" + strconv.Itoa(positionalParameterIndex)
+}
+
+// parseParameters returns the parameters in the given sql string, if the input
+// sql contains positional parameters it returns the converted sql string with
+// all positional parameters replaced with named parameters.
+// The sql string must be a valid Cloud Spanner sql statement. It may contain
+// comments and (string) literals without any restrictions. That is, string
+// literals containing for example an email address ('test@test.com') will be
+// recognized as a string literal and not returned as a named parameter.
+func (p *statementParser) parseParameters(sql string) (string, []string, error) {
+	return p.findParams(sql)
+}
+
+// Skips all whitespaces from the given position and returns the
+// position of the next non-whitespace character or len(sql) if
+// the string does not contain any whitespaces after pos.
+func (p *statementParser) skipWhitespaces(sql []byte, pos int) int {
+	for pos < len(sql) {
+		c := sql[pos]
+		if isMultibyte(c) {
+			break
+		}
+		if c == '-' && len(sql) > pos+1 && sql[pos+1] == '-' {
+			// This is a single line comment starting with '--'.
+			pos = p.skipSingleLineComment(sql, pos+2)
+		} else if p.supportsHashSingleLineComments() && c == '#' {
+			// This is a single line comment starting with '#'.
+			pos = p.skipSingleLineComment(sql, pos+1)
+		} else if c == '/' && len(sql) > pos+1 && sql[pos+1] == '*' {
+			// This is a multi line comment starting with '/*'.
+			pos = p.skipMultiLineComment(sql, pos)
+		} else if !isSpace(c) {
+			break
+		} else {
+			pos++
+		}
+	}
+	return pos
+}
+
 // Skips the next character, quoted literal, quoted identifier or comment in
 // the given sql string from the given position and returns the position of the
 // next character.
-func skip(sql []byte, pos int) (int, error) {
+func (p *statementParser) skip(sql []byte, pos int) (int, error) {
 	if pos >= len(sql) {
 		return pos, nil
 	}
@@ -208,23 +438,38 @@ func skip(sql []byte, pos int) (int, error) {
 		return pos, nil
 	}
 
-	if c == '\'' || c == '"' || c == '`' {
+	if c == '\'' || c == '"' || (c == '`' && p.supportsBacktickQuotes()) {
 		// This is a quoted string or quoted identifier.
-		return skipQuoted(sql, pos, c)
+		return p.skipQuoted(sql, pos, c)
 	} else if c == '-' && len(sql) > pos+1 && sql[pos+1] == '-' {
 		// This is a single line comment starting with '--'.
-		return skipSingleLineComment(sql, pos+2), nil
-	} else if c == '#' {
+		return p.skipSingleLineComment(sql, pos+2), nil
+	} else if p.supportsHashSingleLineComments() && c == '#' {
 		// This is a single line comment starting with '#'.
-		return skipSingleLineComment(sql, pos+1), nil
+		return p.skipSingleLineComment(sql, pos+1), nil
 	} else if c == '/' && len(sql) > pos+1 && sql[pos+1] == '*' {
 		// This is a multi line comment starting with '/*'.
-		return skipMultiLineComment(sql, pos), nil
+		return p.skipMultiLineComment(sql, pos), nil
+	} else if c == '$' && p.supportsDollarQuotedStrings() {
+		return p.skipDollarQuotedString(sql, pos)
 	}
 	return pos + 1, nil
 }
 
-func skipSingleLineComment(sql []byte, pos int) int {
+func (p *statementParser) skipDollarQuotedString(sql []byte, pos int) (int, error) {
+	sp := &simpleParser{sql: sql, pos: pos, statementParser: p}
+	tag, ok := sp.eatDollarTag()
+	if !ok {
+		// Not a valid dollar tag, so only skip the current character.
+		return pos + 1, nil
+	}
+	if _, ok = sp.eatDollarQuotedString(tag); ok {
+		return sp.pos, nil
+	}
+	return 0, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", string(sql)))
+}
+
+func (p *statementParser) skipSingleLineComment(sql []byte, pos int) int {
 	for pos < len(sql) {
 		c := sql[pos]
 		if isMultibyte(c) {
@@ -240,12 +485,13 @@ func skipSingleLineComment(sql []byte, pos int) int {
 	return min(pos+1, len(sql))
 }
 
-func skipMultiLineComment(sql []byte, pos int) int {
+func (p *statementParser) skipMultiLineComment(sql []byte, pos int) int {
 	// Skip '/*'.
 	pos = pos + 2
-	// Search for the first '*/' sequence. Note that GoogleSQL does not support
-	// nested comments, so any occurrence of '/*' inside the comment does not
-	// have any special meaning.
+	level := 1
+	// Search for '*/' sequences. Depending on whether the dialect supports nested comments or not,
+	// the comment is considered terminated at either the first occurrence of '*/', or when we have
+	// seen as many '*/' as there have been occurrences of '/*'.
 	for pos < len(sql) {
 		if isMultibyte(sql[pos]) {
 			_, size := utf8.DecodeRune(sql[pos:])
@@ -253,15 +499,26 @@ func skipMultiLineComment(sql []byte, pos int) int {
 			continue
 		}
 		if sql[pos] == '*' && len(sql) > pos+1 && sql[pos+1] == '/' {
-			return pos + 2
+			if p.supportsNestedComments() {
+				level--
+				if level == 0 {
+					return pos + 2
+				}
+			} else {
+				return pos + 2
+			}
+		} else if p.supportsNestedComments() {
+			if sql[pos] == '/' && len(sql) > pos+1 && sql[pos+1] == '*' {
+				level++
+			}
 		}
 		pos++
 	}
 	return pos
 }
 
-func skipQuoted(sql []byte, pos int, quote byte) (int, error) {
-	isTripleQuoted := len(sql) > pos+2 && sql[pos+1] == quote && sql[pos+2] == quote
+func (p *statementParser) skipQuoted(sql []byte, pos int, quote byte) (int, error) {
+	isTripleQuoted := p.supportsTripleQuotedLiterals() && len(sql) > pos+2 && sql[pos+1] == quote && sql[pos+2] == quote
 	if isTripleQuoted && (isMultibyte(sql[pos+1]) || isMultibyte(sql[pos+2])) {
 		isTripleQuoted = false
 	}
@@ -284,16 +541,20 @@ func skipQuoted(sql []byte, pos int, quote byte) (int, error) {
 					return pos + 3, nil
 				}
 			} else {
+				if p.supportsEscapeQuoteWithQuote() && len(sql) > pos+1 && sql[pos+1] == quote {
+					pos += 2
+					continue
+				}
 				// This was the end quote.
 				return pos + 1, nil
 			}
-		} else if len(sql) > pos+1 && c == '\\' && sql[pos+1] == quote {
+		} else if p.supportsBackslashEscape() && len(sql) > pos+1 && c == '\\' && sql[pos+1] == quote {
 			// This is an escaped quote (e.g. 'foo\'bar').
 			// Note that in raw strings, the \ officially does not start an
 			// escape sequence, but the result is still the same, as in a raw
 			// string 'both characters are preserved'.
 			pos += 1
-		} else if !isTripleQuoted && c == '\n' {
+		} else if !p.supportsLinefeedInString() && !isTripleQuoted && c == '\n' {
 			break
 		}
 		pos++
@@ -305,7 +566,7 @@ func skipQuoted(sql []byte, pos int, quote byte) (int, error) {
 // spaces at the beginning and end of the query. This makes checking what type
 // of query a string is a lot easier, as only the first word(s) need to be
 // checked after this has been removed.
-func removeCommentsAndTrim(sql string) (string, error) {
+func (p *statementParser) removeCommentsAndTrim(sql string) (string, error) {
 	const singleQuote = '\''
 	const doubleQuote = '"'
 	const backtick = '`'
@@ -399,61 +660,43 @@ func removeCommentsAndTrim(sql string) (string, error) {
 }
 
 // Removes any statement hints at the beginning of the statement.
-func removeStatementHint(sql string) string {
-	parser := &simpleParser{sql: []byte(sql)}
+func (p *statementParser) removeStatementHint(sql string) string {
+	parser := &simpleParser{sql: []byte(sql), statementParser: p}
 	if parser.skipStatementHint() {
 		return sql[parser.pos:]
 	}
 	return sql
 }
 
-type statementsCacheEntry struct {
-	sql    string
-	params []string
-	info   *statementInfo
-}
-
-const statementCacheSize = 1000
-
-// statementsCache contains the results for searching for parameters in SQL strings.
-var statementsCache = func() *lru.Cache {
-	cache, err := lru.New(statementCacheSize)
-	if err != nil {
-		panic(err)
-	}
-	return cache
-}()
-
 // findParams finds all query parameters in the given SQL string.
 // The SQL string may contain comments and statement hints.
-func findParams(sql string) (string, []string, error) {
-	if val, ok := statementsCache.Get(sql); ok {
+func (p *statementParser) findParams(sql string) (string, []string, error) {
+	if !p.useCache {
+		return p.calculateFindParamsResult(sql)
+	}
+	if val, ok := p.statementsCache.Get(sql); ok {
 		res := val.(*statementsCacheEntry)
 		return res.sql, res.params, nil
 	} else {
-		namedParamsSql, params, err := calculateFindParamsResult(sql)
+		namedParamsSql, params, err := p.calculateFindParamsResult(sql)
 		if err != nil {
 			return "", nil, err
 		}
-		info := detectStatementType(sql)
-		statementsCache.Add(sql, &statementsCacheEntry{sql: namedParamsSql, params: params, info: info})
+		info := p.detectStatementType(sql)
+		p.statementsCache.Add(sql, &statementsCacheEntry{sql: namedParamsSql, params: params, info: info})
 		return namedParamsSql, params, nil
 	}
 }
 
-func calculateFindParamsResult(sql string) (string, []string, error) {
+func (p *statementParser) calculateFindParamsResult(sql string) (string, []string, error) {
 	const positionalParamChar = '?'
-	const paramPrefix = '@'
-	const singleQuote = '\''
-	const doubleQuote = '"'
-	const backtick = '`'
-	isInQuoted := false
-	var startQuote byte
-	lastCharWasEscapeChar := false
-	isTripleQuoted := false
+	paramPrefixes := p.paramPrefixes()
 	hasNamedParameter := false
 	hasPositionalParameter := false
-	numPotentialParams := strings.Count(sql, string(positionalParamChar)) + strings.Count(sql, string(paramPrefix))
+	numPotentialParams := strings.Count(sql, string(positionalParamChar))
+	for prefix := range paramPrefixes {
+		numPotentialParams += strings.Count(sql, string(prefix))
+	}
 	// Spanner does not support more than 950 query parameters in a query,
 	// so we limit the number of parameters that we pre-allocate room for
 	// here to that number. This prevents allocation of a large slice if
@@ -463,107 +706,73 @@ func calculateFindParamsResult(sql string) (string, []string, error) {
 	parsedSQL := strings.Builder{}
 	parsedSQL.Grow(len(sql))
 	positionalParameterIndex := 1
-	parser := &simpleParser{sql: []byte(sql)}
+	parser := &simpleParser{sql: []byte(sql), statementParser: p}
 	for parser.pos < len(parser.sql) {
-		if isInQuoted {
-			if parser.isMultibyte() {
-				startPos := parser.pos
-				parser.nextChar()
-				parsedSQL.WriteString(string(parser.sql[startPos:parser.pos]))
-				continue
-			}
-
-			c := parser.sql[parser.pos]
-			if (c == '\n' || c == '\r') && !isTripleQuoted {
-				return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", sql))
-			} else if c == startQuote {
-				if lastCharWasEscapeChar {
-					lastCharWasEscapeChar = false
-				} else if isTripleQuoted {
-					if len(parser.sql) > parser.pos+2 && parser.sql[parser.pos+1] == startQuote && parser.sql[parser.pos+2] == startQuote {
-						isInQuoted = false
-						startQuote = 0
-						isTripleQuoted = false
-						parsedSQL.WriteByte(c)
-						parsedSQL.WriteByte(c)
-						parser.pos += 2
-					}
-				} else {
-					isInQuoted = false
-					startQuote = 0
-				}
-			} else if c == '\\' {
-				lastCharWasEscapeChar = true
-			} else {
-				lastCharWasEscapeChar = false
-			}
-			parsedSQL.WriteByte(c)
-		} else {
-			startPos := parser.pos
-			parser.skipWhitespaces()
-			parsedSQL.WriteString(string(parser.sql[startPos:parser.pos]))
-			if parser.pos >= len(parser.sql) {
-				break
-			}
-			if parser.isMultibyte() {
-				startPos = parser.pos
-				parser.nextChar()
-				parsedSQL.WriteString(string(parser.sql[startPos:parser.pos]))
-				continue
-			}
-			c := parser.sql[parser.pos]
-			// We are not in a quoted string. It's a parameter if it is an '@' followed by a letter or an underscore.
-			// See https://cloud.google.com/spanner/docs/lexical#identifiers for identifier rules.
-			if c == paramPrefix && len(parser.sql) > parser.pos+1 && (isLatinLetter(parser.sql[parser.pos+1]) || parser.sql[parser.pos+1] == '_') {
-				if hasPositionalParameter {
-					return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement must not contain both named and positional parameter: %s", sql))
-				}
-				parsedSQL.WriteByte(c)
-				parser.pos++
-				startIndex := parser.pos
-				for parser.pos < len(parser.sql) {
-					if parser.isMultibyte() || !(isLatinLetter(parser.sql[parser.pos]) || isLatinDigit(parser.sql[parser.pos]) || parser.sql[parser.pos] == '_') {
-						hasNamedParameter = true
-						namedParams = append(namedParams, string(parser.sql[startIndex:parser.pos]))
-						parsedSQL.WriteByte(parser.sql[parser.pos])
-						break
-					}
-					if parser.pos == len(parser.sql)-1 {
-						hasNamedParameter = true
-						namedParams = append(namedParams, string(parser.sql[startIndex:]))
-						parsedSQL.WriteByte(parser.sql[parser.pos])
-						break
-					}
-					parsedSQL.WriteByte(parser.sql[parser.pos])
-					parser.pos++
-				}
-			} else if c == positionalParamChar {
-				if hasNamedParameter {
-					return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement must not contain both named and positional parameter: %s", sql))
-				}
-				hasPositionalParameter = true
-				parsedSQL.WriteString("@p" + strconv.Itoa(positionalParameterIndex))
-				namedParams = append(namedParams, "p"+strconv.Itoa(positionalParameterIndex))
-				positionalParameterIndex++
-			} else {
-				if c == singleQuote || c == doubleQuote || c == backtick {
-					isInQuoted = true
-					startQuote = c
-					// Check whether it is a triple-quote.
-					if len(parser.sql) > parser.pos+2 && parser.sql[parser.pos+1] == startQuote && parser.sql[parser.pos+2] == startQuote {
-						isTripleQuoted = true
-						parsedSQL.WriteByte(c)
-						parsedSQL.WriteByte(c)
-						parser.pos += 2
-					}
-				}
-				parsedSQL.WriteByte(c)
-			}
+		startPos := parser.pos
+		parser.skipWhitespaces()
+		parsedSQL.WriteString(string(parser.sql[startPos:parser.pos]))
+		if parser.pos >= len(parser.sql) {
+			break
 		}
-		parser.nextChar()
-	}
-	if isInQuoted {
-		return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", sql))
+		if parser.isMultibyte() {
+			startPos = parser.pos
+			parser.nextChar()
+			parsedSQL.WriteString(string(parser.sql[startPos:parser.pos]))
+			continue
+		}
+		c := parser.sql[parser.pos]
+		// We are not in a quoted string.
+		// GoogleSQL: It's a parameter if it is an '@' followed by a letter or an underscore.
+		// PostgreSQL: It's a parameter if it is a '$' followed by a digit.
+		// See https://cloud.google.com/spanner/docs/lexical#identifiers for identifier rules.
+		// Note that for PostgreSQL we support both styles of parameters (both $1 and @name).
+		// The reason for this is that other PostgreSQL drivers for Go also do this.
+		if _, ok := paramPrefixes[c]; ok && len(parser.sql) > parser.pos+1 && p.isValidParamsFirstChar(c, parser.sql[parser.pos+1]) {
+			if hasPositionalParameter {
+				return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement must not contain both named and positional parameter: %s", sql))
+			}
+			paramPrefix := c
+			paramNamePrefix := ""
+			if paramPrefix == '$' {
+				paramNamePrefix = "p"
+			}
+			parsedSQL.WriteByte(paramPrefix)
+			parser.pos++
+			startIndex := parser.pos
+			for parser.pos < len(parser.sql) {
+				if parser.isMultibyte() || !p.isValidParamsChar(paramPrefix, parser.sql[parser.pos]) {
+					hasNamedParameter = true
+					namedParams = append(namedParams, paramNamePrefix+string(parser.sql[startIndex:parser.pos]))
+					parsedSQL.WriteByte(parser.sql[parser.pos])
+					break
+				}
+				if parser.pos == len(parser.sql)-1 {
+					hasNamedParameter = true
+					namedParams = append(namedParams, paramNamePrefix+string(parser.sql[startIndex:]))
+					parsedSQL.WriteByte(parser.sql[parser.pos])
+					break
+				}
+				parsedSQL.WriteByte(parser.sql[parser.pos])
+				parser.pos++
+			}
+		} else if c == positionalParamChar {
+			if hasNamedParameter {
+				return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement must not contain both named and positional parameter: %s", sql))
+			}
+			hasPositionalParameter = true
+			parsedSQL.WriteString(p.positionalParameterToNamed(positionalParameterIndex))
+			namedParams = append(namedParams, "p"+strconv.Itoa(positionalParameterIndex))
+			positionalParameterIndex++
+			parser.pos++
+		} else {
+			startPos = parser.pos
+			newPos, err := p.skip(parser.sql, parser.pos)
+			if err != nil {
+				return sql, nil, err
+			}
+			parsedSQL.WriteString(string(parser.sql[startPos:newPos]))
+			parser.pos = newPos
+		}
 	}
 	if hasNamedParameter {
 		return sql, namedParams, nil
@@ -574,8 +783,8 @@ func calculateFindParamsResult(sql string) (string, []string, error) {
 // isDDL returns true if the given sql string is a DDL statement.
 // This function assumes that any comments and hints at the start
 // of the sql string have been removed.
-func isDDL(query string) bool {
-	info := detectStatementType(query)
+func (p *statementParser) isDDL(query string) bool {
+	info := p.detectStatementType(query)
 	return info.statementType == statementTypeDdl
 }
 
@@ -586,8 +795,8 @@ func isDDLKeyword(keyword string) bool {
 // isDml returns true if the given sql string is a Dml statement.
 // This function assumes that any comments and hints at the start
 // of the sql string have been removed.
-func isDml(query string) bool {
-	info := detectStatementType(query)
+func (p *statementParser) isDml(query string) bool {
+	info := p.detectStatementType(query)
 	return info.statementType == statementTypeDml
 }
 
@@ -598,8 +807,8 @@ func isDmlKeyword(keyword string) bool {
 // isQuery returns true if the given sql string is a SELECT statement.
 // This function assumes that any comments and hints at the start
 // of the sql string have been removed.
-func isQuery(query string) bool {
-	info := detectStatementType(query)
+func (p *statementParser) isQuery(query string) bool {
+	info := p.detectStatementType(query)
 	return info.statementType == statementTypeQuery
 }
 
@@ -701,7 +910,29 @@ func (c *executableClientSideStatement) QueryContext(ctx context.Context, args [
 // parseClientSideStatement returns the executableClientSideStatement that
 // corresponds with the given query string, or nil if it is not a valid client
 // side statement.
-func parseClientSideStatement(c *conn, query string) (*executableClientSideStatement, error) {
+func (p *statementParser) parseClientSideStatement(c *conn, query string) (*executableClientSideStatement, error) {
+	if p.useCache {
+		if val, ok := p.statementsCache.Get(query); ok {
+			res := val.(*statementsCacheEntry)
+			if res.info.statementType == statementTypeClientSide {
+				var params string
+				if len(res.params) > 0 {
+					params = res.params[0]
+				}
+				return &executableClientSideStatement{res.clientSideStatement, c, query, params}, nil
+			}
+			return nil, nil
+		}
+	}
+	// Determine whether it could be a valid client-side statement by looking at the first keyword.
+	// This is a lot more efficient than looping through all regular expressions for client-side
+	// statements to check whether the statement matches that expression.
+	sp := &simpleParser{sql: []byte(query), statementParser: c.parser}
+	keyword := strings.ToUpper(sp.readKeyword())
+	if _, ok := clientSideKeywords[keyword]; !ok {
+		return nil, nil
+	}
+
 	statementsInit.Do(func() {
 		if err := compileStatements(); err != nil {
 			statementsCompileErr = err
@@ -719,6 +950,17 @@ func parseClientSideStatement(c *conn, query string) (*executableClientSideState
 					params = strings.TrimSpace(p[1])
 				}
 			}
+			if p.useCache {
+				cacheEntry := &statementsCacheEntry{
+					sql:                 query,
+					params:              []string{params},
+					clientSideStatement: stmt,
+					info: &statementInfo{
+						statementType: statementTypeClientSide,
+					},
+				}
+				p.statementsCache.Add(query, cacheEntry)
+			}
 			return &executableClientSideStatement{stmt, c, query, params}, nil
 		}
 	}
@@ -732,6 +974,7 @@ const (
 	statementTypeQuery
 	statementTypeDml
 	statementTypeDdl
+	statementTypeClientSide
 )
 
 type dmlType int
@@ -750,22 +993,25 @@ type statementInfo struct {
 
 // detectStatementType returns the type of SQL statement based on the first
 // keyword that is found in the SQL statement.
-func detectStatementType(sql string) *statementInfo {
-	if val, ok := statementsCache.Get(sql); ok {
+func (p *statementParser) detectStatementType(sql string) *statementInfo {
+	if !p.useCache {
+		return p.calculateDetectStatementType(sql)
+	}
+	if val, ok := p.statementsCache.Get(sql); ok {
 		res := val.(*statementsCacheEntry)
 		return res.info
 	} else {
-		info := calculateDetectStatementType(sql)
-		namedParamsSql, params, err := calculateFindParamsResult(sql)
+		info := p.calculateDetectStatementType(sql)
+		namedParamsSql, params, err := p.calculateFindParamsResult(sql)
 		if err == nil {
-			statementsCache.Add(sql, &statementsCacheEntry{sql: namedParamsSql, params: params, info: info})
+			p.statementsCache.Add(sql, &statementsCacheEntry{sql: namedParamsSql, params: params, info: info})
 		}
 		return info
 	}
 }
 
-func calculateDetectStatementType(sql string) *statementInfo {
-	parser := &simpleParser{sql: []byte(sql)}
+func (p *statementParser) calculateDetectStatementType(sql string) *statementInfo {
+	parser := &simpleParser{sql: []byte(sql), statementParser: p}
 	_ = parser.skipStatementHint()
 	keyword := strings.ToUpper(parser.readKeyword())
 	if isQueryKeyword(keyword) {
