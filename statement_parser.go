@@ -280,7 +280,7 @@ func findParams(positionalParamChar rune, sql string) (string, []string, error) 
 					return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement must not contain both named and positional parameter: %s", sql))
 				}
 				hasPositionalParameter = true
-				parsedSQL.WriteString("@p" + strconv.Itoa(positionalParameterIndex))
+				parsedSQL.WriteString("$" + strconv.Itoa(positionalParameterIndex))
 				namedParams = append(namedParams, "p"+strconv.Itoa(positionalParameterIndex))
 				positionalParameterIndex++
 			} else {

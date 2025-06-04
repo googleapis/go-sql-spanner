@@ -56,8 +56,9 @@ func CreateConnection(poolId int64, project, instance, database string) *Message
 	}
 	id := poolsIdx.Add(1)
 	conn := &Connection{
-		backend: &backend.SpannerConnection{Conn: sqlConn},
-		results: &sync.Map{},
+		backend:      &backend.SpannerConnection{Conn: sqlConn},
+		results:      &sync.Map{},
+		transactions: &sync.Map{},
 	}
 	pool.connections.Store(id, conn)
 
@@ -88,5 +89,18 @@ func findRows(poolId, connId, rowsId int64) (*rows, error) {
 		return nil, fmt.Errorf("rows %v not found", rowsId)
 	}
 	res := r.(*rows)
+	return res, nil
+}
+
+func findTx(poolId, connId, txId int64) (*transaction, error) {
+	conn, err := findConnection(poolId, connId)
+	if err != nil {
+		return nil, err
+	}
+	r, ok := conn.transactions.Load(txId)
+	if !ok {
+		return nil, fmt.Errorf("tx %v not found", txId)
+	}
+	res := r.(*transaction)
 	return res, nil
 }

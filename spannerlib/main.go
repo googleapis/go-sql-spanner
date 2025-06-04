@@ -71,6 +71,18 @@ func Execute(poolId, connectionId int64, statement []byte) (int64, int32, int64,
 	return pin(msg)
 }
 
+//export Metadata
+func Metadata(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := exported.Metadata(poolId, connId, rowsId)
+	return pin(msg)
+}
+
+//export UpdateCount
+func UpdateCount(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := exported.UpdateCount(poolId, connId, rowsId)
+	return pin(msg)
+}
+
 //export Next
 func Next(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
 	msg := exported.Next(poolId, connId, rowsId)
@@ -80,5 +92,11 @@ func Next(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Poin
 //export CloseRows
 func CloseRows(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
 	msg := exported.CloseRows(poolId, connId, rowsId)
+	return pin(msg)
+}
+
+//export BeginTransaction
+func BeginTransaction(poolId, connectionId int64, txOpts []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := exported.BeginTransaction(poolId, connectionId, txOpts)
 	return pin(msg)
 }

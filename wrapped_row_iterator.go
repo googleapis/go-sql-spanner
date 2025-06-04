@@ -20,6 +20,8 @@ import (
 	"google.golang.org/api/iterator"
 )
 
+var _ rowIterator = (*wrappedRowIterator)(nil)
+
 type wrappedRowIterator struct {
 	*spanner.RowIterator
 
@@ -44,4 +46,8 @@ func (ri *wrappedRowIterator) Stop() {
 
 func (ri *wrappedRowIterator) Metadata() (*spannerpb.ResultSetMetadata, error) {
 	return ri.RowIterator.Metadata, nil
+}
+
+func (ri *wrappedRowIterator) RowCount() int64 {
+	return ri.RowIterator.RowCount
 }

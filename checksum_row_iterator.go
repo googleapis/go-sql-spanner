@@ -41,6 +41,8 @@ func init() {
 	gob.Register(structpb.Value_StructValue{})
 }
 
+var _ rowIterator = (*checksumRowIterator)(nil)
+
 // checksumRowIterator implements rowIterator and keeps track of a running
 // checksum for all results that have been seen during the iteration of the
 // results. This checksum can be used to verify whether a retry returned the
@@ -248,4 +250,8 @@ func (it *checksumRowIterator) Stop() {
 
 func (it *checksumRowIterator) Metadata() (*sppb.ResultSetMetadata, error) {
 	return it.metadata, nil
+}
+
+func (it *checksumRowIterator) RowCount() int64 {
+	return it.RowIterator.RowCount
 }

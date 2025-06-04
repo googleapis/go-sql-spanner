@@ -16,6 +16,7 @@ package spannerdriver
 
 import (
 	"database/sql/driver"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"sync"
@@ -26,16 +27,20 @@ import (
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/uuid"
 	"google.golang.org/api/iterator"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
+
+var _ driver.RowsColumnTypeDatabaseTypeName = (*rows)(nil)
 
 type rows struct {
 	it    rowIterator
 	close func() error
 
-	colsOnce sync.Once
-	dirtyErr error
-	cols     []string
+	colsOnce     sync.Once
+	dirtyErr     error
+	cols         []string
+	colTypeNames []string
 
 	decodeOption         DecodeOption
 	decodeToNativeArrays bool
@@ -50,6 +55,11 @@ type rows struct {
 func (r *rows) Columns() []string {
 	r.getColumns()
 	return r.cols
+}
+
+func (r *rows) ColumnTypeDatabaseTypeName(index int) string {
+	r.getColumns()
+	return r.colTypeNames[index]
 }
 
 // Close closes the rows iterator.
@@ -81,8 +91,24 @@ func (r *rows) getColumns() {
 		}
 		rowType := metadata.RowType
 		r.cols = make([]string, len(rowType.Fields))
-		for i, c := range rowType.Fields {
-			r.cols[i] = c.Name
+		r.colTypeNames = make([]string, len(rowType.Fields))
+		if r.decodeOption == DecodeOptionProto {
+			if len(rowType.Fields) == 0 {
+				r.cols = make([]string, 1)
+				r.colTypeNames = make([]string, 1)
+			}
+			metadataBytes, err := proto.Marshal(metadata)
+			if err == nil {
+				r.colTypeNames[0] = base64.StdEncoding.EncodeToString(metadataBytes)
+			}
+			r.cols[0] = fmt.Sprintf("%v", r.it.RowCount())
+		} else {
+			for i, c := range rowType.Fields {
+				r.cols[i] = c.Name
+				if r.decodeOption != DecodeOptionProto {
+					r.colTypeNames[i] = c.Type.Code.String()
+				}
+			}
 		}
 	})
 }
