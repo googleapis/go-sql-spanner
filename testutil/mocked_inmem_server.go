@@ -33,6 +33,8 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+const selectDialect = "select option_value from information_schema.database_options where option_name='database_dialect'"
+
 // SelectFooFromBar is a SELECT statement that is added to the mocked test
 // server and will return a one-col-two-rows result set containing the INT64
 // values 1 and 2.
@@ -105,6 +107,7 @@ func (s *MockedSpannerInMemTestServer) setupMockedServerWithAddr(t *testing.T, a
 	s.TestSpanner = NewInMemSpannerServer()
 	s.TestInstanceAdmin = NewInMemInstanceAdminServer()
 	s.TestDatabaseAdmin = NewInMemDatabaseAdminServer()
+	s.SetupSelectDialectResult(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
 	s.setupSelect1Result()
 	s.setupFooResults()
 	s.setupSingersResults()
@@ -126,6 +129,11 @@ func (s *MockedSpannerInMemTestServer) setupMockedServerWithAddr(t *testing.T, a
 		option.WithoutAuthentication(),
 	}
 	return opts
+}
+
+func (s *MockedSpannerInMemTestServer) SetupSelectDialectResult(dialect databasepb.DatabaseDialect) {
+	result := &StatementResult{Type: StatementResultResultSet, ResultSet: CreateSelectDialectResultSet(dialect)}
+	s.TestSpanner.PutStatementResult(selectDialect, result)
 }
 
 func (s *MockedSpannerInMemTestServer) setupSelect1Result() {
@@ -557,6 +565,11 @@ func protoEnumProto(e protoreflect.Enum) *structpb.Value {
 	return &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: strconv.FormatInt(int64(e.Number()), 10)}}
 }
 
+func CreateSelectDialectResultSet(dialect databasepb.DatabaseDialect) *spannerpb.ResultSet {
+	name := databasepb.DatabaseDialect_name[int32(dialect)]
+	return CreateSingleColumnStringResultSet([]string{name}, "option_value")
+}
+
 func CreateSelect1ResultSet() *spannerpb.ResultSet {
 	return CreateSingleColumnInt64ResultSet([]int64{1}, "")
 }
@@ -567,6 +580,14 @@ func CreateSingleColumnInt64ResultSet(values []int64, name string) *spannerpb.Re
 			Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%v", v)},
 		}
 	}, name, spannerpb.TypeCode_INT64)
+}
+
+func CreateSingleColumnStringResultSet(values []string, name string) *spannerpb.ResultSet {
+	return CreateSingleColumnResultSet(values, func(v string) *structpb.Value {
+		return &structpb.Value{
+			Kind: &structpb.Value_StringValue{StringValue: v},
+		}
+	}, name, spannerpb.TypeCode_STRING)
 }
 
 func CreateSingleColumnProtoResultSet(values [][]byte, name string) *spannerpb.ResultSet {

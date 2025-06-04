@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 	"unicode/utf8"
 
 	"cloud.google.com/go/spanner"
@@ -39,6 +40,13 @@ var insertStatements = map[string]bool{"INSERT": true}
 var updateStatements = map[string]bool{"UPDATE": true}
 var deleteStatements = map[string]bool{"DELETE": true}
 var dmlStatements = union(insertStatements, union(updateStatements, deleteStatements))
+var clientSideKeywords = map[string]bool{
+	"SHOW":  true,
+	"SET":   true,
+	"START": true,
+	"RUN":   true,
+	"ABORT": true,
+}
 
 func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 	res := make(map[string]bool, len(m1)+len(m2))
@@ -60,8 +68,26 @@ type simpleParser struct {
 // eatToken advances the parser by one position and returns true
 // if the next byte is equal to the given byte. This function only
 // works for characters that can be encoded in one byte.
+//
+// Any whitespaces and/or comments before the token will be skipped.
 func (p *simpleParser) eatToken(t byte) bool {
-	p.skipWhitespaces()
+	return p.eatTokenWithWhitespaceOption(t, true)
+}
+
+// eatTokenOnly advances the parser by one position and returns true
+// if the next byte is equal to the given byte. This function only
+// works for characters that can be encoded in one byte.
+//
+// This function will only look at the first byte it encounters.
+// Any whitespaces or comments will not be skipped first.
+func (p *simpleParser) eatTokenOnly(t byte) bool {
+	return p.eatTokenWithWhitespaceOption(t, false)
+}
+
+func (p *simpleParser) eatTokenWithWhitespaceOption(t byte, eatWhiteSpaces bool) bool {
+	if eatWhiteSpaces {
+		p.skipWhitespaces()
+	}
 	if p.pos >= len(p.sql) {
 		return false
 	}
@@ -70,6 +96,86 @@ func (p *simpleParser) eatToken(t byte) bool {
 	}
 	p.pos++
 	return true
+}
+
+func (p *simpleParser) eatDollarQuotedString(tag string) (string, bool) {
+	startPos := p.pos
+	for ; p.pos < len(p.sql); p.nextChar() {
+		if p.isMultibyte() {
+			continue
+		}
+		if p.isDollar() {
+			posBeforeTag := p.pos
+			potentialTag, ok := p.eatDollarTag()
+			if !ok {
+				p.pos = posBeforeTag
+				continue
+			}
+			if potentialTag == tag {
+				return string(p.sql[startPos:posBeforeTag]), true
+			}
+			// This is a nested dollar-tag. Nested dollar-quoted strings are allowed.
+			if _, ok = p.eatDollarQuotedString(potentialTag); !ok {
+				return "", false
+			}
+		}
+	}
+	return "", false
+}
+
+func (p *simpleParser) eatDollarTag() (string, bool) {
+	if !p.eatTokenOnly('$') {
+		return "", false
+	}
+	if p.pos >= len(p.sql) {
+		return "", false
+	}
+	// $$ is a valid start of a dollar-quoted string without a tag.
+	if p.eatTokenOnly('$') {
+		return "", true
+	}
+	startPos := p.pos
+	first := true
+	for ; p.pos < len(p.sql); p.nextChar() {
+		if first {
+			first = false
+			if !p.isValidFirstIdentifierChar() {
+				return "", false
+			}
+		} else {
+			if p.eatToken('$') {
+				return string(p.sql[startPos : p.pos-1]), true
+			}
+			if !p.isValidIdentifierChar() {
+				return "", false
+			}
+		}
+	}
+	return "", false
+}
+
+func (p *simpleParser) isValidFirstIdentifierChar() bool {
+	if p.isMultibyte() {
+		r, _ := utf8.DecodeRune(p.sql[p.pos:])
+		return unicode.IsLetter(r)
+	}
+	return p.sql[p.pos] == '_' || isLatinLetter(p.sql[p.pos])
+}
+
+func (p *simpleParser) isValidIdentifierChar() bool {
+	if p.isMultibyte() {
+		r, _ := utf8.DecodeRune(p.sql[p.pos:])
+		return unicode.IsLetter(r) || unicode.IsDigit(r)
+	}
+	return p.sql[p.pos] == '_' || p.sql[p.pos] == '$' || isLatinLetter(p.sql[p.pos]) || isLatinDigit(p.sql[p.pos])
+}
+
+func (p *simpleParser) isValidDollarTagIdentifierChar() bool {
+	return p.isValidIdentifierChar() && !p.isDollar()
+}
+
+func (p *simpleParser) isDollar() bool {
+	return !p.isMultibyte() && p.sql[p.pos] == '$'
 }
 
 // readKeyword reads the keyword at the current position.
@@ -180,22 +286,27 @@ func getStatementParser(dialect databasepb.DatabaseDialect, cacheSize int) (*sta
 }
 
 type statementsCacheEntry struct {
-	sql    string
-	params []string
-	info   *statementInfo
+	sql                 string
+	params              []string
+	info                *statementInfo
+	clientSideStatement *clientSideStatement
 }
 
 type statementParser struct {
 	dialect         databasepb.DatabaseDialect
+	useCache        bool
 	statementsCache *lru.Cache
 }
 
 func newStatementParser(dialect databasepb.DatabaseDialect, cacheSize int) (*statementParser, error) {
-	cache, err := lru.New(cacheSize)
-	if err != nil {
-		return nil, err
+	if cacheSize > 0 {
+		cache, err := lru.New(cacheSize)
+		if err != nil {
+			return nil, err
+		}
+		return &statementParser{dialect: dialect, statementsCache: cache, useCache: true}, nil
 	}
-	return &statementParser{dialect: dialect, statementsCache: cache}, nil
+	return &statementParser{dialect: dialect}, nil
 }
 
 func (p *statementParser) supportsHashSingleLineComments() bool {
@@ -212,6 +323,10 @@ func (p *statementParser) supportsBacktickQuotes() bool {
 
 func (p *statementParser) supportsTripleQuotedLiterals() bool {
 	return p.dialect != databasepb.DatabaseDialect_POSTGRESQL
+}
+
+func (p *statementParser) supportsDollarQuotedStrings() bool {
+	return p.dialect == databasepb.DatabaseDialect_POSTGRESQL
 }
 
 // supportsBackslashEscape returns true if the dialect supports escaping a quote within a quoted
@@ -289,9 +404,7 @@ func (p *statementParser) skipWhitespaces(sql []byte, pos int) int {
 	for pos < len(sql) {
 		c := sql[pos]
 		if isMultibyte(c) {
-			_, size := utf8.DecodeRune(sql[pos:])
-			pos += size
-			continue
+			break
 		}
 		if c == '-' && len(sql) > pos+1 && sql[pos+1] == '-' {
 			// This is a single line comment starting with '--'.
@@ -337,8 +450,23 @@ func (p *statementParser) skip(sql []byte, pos int) (int, error) {
 	} else if c == '/' && len(sql) > pos+1 && sql[pos+1] == '*' {
 		// This is a multi line comment starting with '/*'.
 		return p.skipMultiLineComment(sql, pos), nil
+	} else if c == '$' && p.supportsDollarQuotedStrings() {
+		return p.skipDollarQuotedString(sql, pos)
 	}
 	return pos + 1, nil
+}
+
+func (p *statementParser) skipDollarQuotedString(sql []byte, pos int) (int, error) {
+	sp := &simpleParser{sql: sql, pos: pos, statementParser: p}
+	tag, ok := sp.eatDollarTag()
+	if !ok {
+		// Not a valid dollar tag, so only skip the current character.
+		return pos + 1, nil
+	}
+	if _, ok = sp.eatDollarQuotedString(tag); ok {
+		return sp.pos, nil
+	}
+	return 0, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", string(sql)))
 }
 
 func (p *statementParser) skipSingleLineComment(sql []byte, pos int) int {
@@ -543,6 +671,9 @@ func (p *statementParser) removeStatementHint(sql string) string {
 // findParams finds all query parameters in the given SQL string.
 // The SQL string may contain comments and statement hints.
 func (p *statementParser) findParams(sql string) (string, []string, error) {
+	if !p.useCache {
+		return p.calculateFindParamsResult(sql)
+	}
 	if val, ok := p.statementsCache.Get(sql); ok {
 		res := val.(*statementsCacheEntry)
 		return res.sql, res.params, nil
@@ -779,7 +910,29 @@ func (c *executableClientSideStatement) QueryContext(ctx context.Context, args [
 // parseClientSideStatement returns the executableClientSideStatement that
 // corresponds with the given query string, or nil if it is not a valid client
 // side statement.
-func parseClientSideStatement(c *conn, query string) (*executableClientSideStatement, error) {
+func (p *statementParser) parseClientSideStatement(c *conn, query string) (*executableClientSideStatement, error) {
+	if p.useCache {
+		if val, ok := p.statementsCache.Get(query); ok {
+			res := val.(*statementsCacheEntry)
+			if res.info.statementType == statementTypeClientSide {
+				var params string
+				if len(res.params) > 0 {
+					params = res.params[0]
+				}
+				return &executableClientSideStatement{res.clientSideStatement, c, query, params}, nil
+			}
+			return nil, nil
+		}
+	}
+	// Determine whether it could be a valid client-side statement by looking at the first keyword.
+	// This is a lot more efficient than looping through all regular expressions for client-side
+	// statements to check whether the statement matches that expression.
+	sp := &simpleParser{sql: []byte(query), statementParser: c.parser}
+	keyword := strings.ToUpper(sp.readKeyword())
+	if _, ok := clientSideKeywords[keyword]; !ok {
+		return nil, nil
+	}
+
 	statementsInit.Do(func() {
 		if err := compileStatements(); err != nil {
 			statementsCompileErr = err
@@ -797,6 +950,17 @@ func parseClientSideStatement(c *conn, query string) (*executableClientSideState
 					params = strings.TrimSpace(p[1])
 				}
 			}
+			if p.useCache {
+				cacheEntry := &statementsCacheEntry{
+					sql:                 query,
+					params:              []string{params},
+					clientSideStatement: stmt,
+					info: &statementInfo{
+						statementType: statementTypeClientSide,
+					},
+				}
+				p.statementsCache.Add(query, cacheEntry)
+			}
 			return &executableClientSideStatement{stmt, c, query, params}, nil
 		}
 	}
@@ -810,6 +974,7 @@ const (
 	statementTypeQuery
 	statementTypeDml
 	statementTypeDdl
+	statementTypeClientSide
 )
 
 type dmlType int
@@ -829,6 +994,9 @@ type statementInfo struct {
 // detectStatementType returns the type of SQL statement based on the first
 // keyword that is found in the SQL statement.
 func (p *statementParser) detectStatementType(sql string) *statementInfo {
+	if !p.useCache {
+		return p.calculateDetectStatementType(sql)
+	}
 	if val, ok := p.statementsCache.Get(sql); ok {
 		res := val.(*statementsCacheEntry)
 		return res.info

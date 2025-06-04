@@ -495,11 +495,17 @@ func FuzzRemoveCommentsAndTrim(f *testing.F) {
 		f.Add(sample)
 	}
 
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
-	if err != nil {
-		f.Fatal(err)
-	}
 	f.Fuzz(func(t *testing.T, input string) {
+		parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = parser.removeCommentsAndTrim(input)
+
+		parser, err = newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
 		_, _ = parser.removeCommentsAndTrim(input)
 	})
 }
@@ -1112,6 +1118,28 @@ SELECT * FROM PersonsTable WHERE id=$1`,
 				$3it\'?s'$4`,
 			want: []string{"p1", "p2", "p3", "p4"},
 		},
+		"dollar-quoted string": {
+			input:   `select foo from bar where id=$$this is a string$$ order by value`,
+			wantSQL: `select foo from bar where id=$$this is a string$$ order by value`,
+			want:    []string{},
+		},
+		"dollar-quoted string with tag": {
+			input:   `select foo from bar where id=$tag$this is a string$tag$ order by value`,
+			wantSQL: `select foo from bar where id=$tag$this is a string$tag$ order by value`,
+			want:    []string{},
+		},
+		"dollar-quoted string with tag and param": {
+			input:   `select foo from bar where id=$tag$this is a string$tag$ and value=? order by value`,
+			wantSQL: `select foo from bar where id=$tag$this is a string$tag$ and value=$1 order by value`,
+			want:    []string{"p1"},
+		},
+		"invalid dollar-quoted string": {
+			input: "select foo from bar where id=$tag$this is an invalid string and value=? order by value",
+			wantErr: spanner.ToSpannerError(
+				status.Errorf(codes.InvalidArgument,
+					"SQL statement contains an unclosed literal: %s",
+					"select foo from bar where id=$tag$this is an invalid string and value=? order by value")),
+		},
 	}
 	parser, err := newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
 	if err != nil {
@@ -1142,16 +1170,182 @@ SELECT * FROM PersonsTable WHERE id=$1`,
 	}
 }
 
+func TestFindParamsWithCommentsPostgreSQL(t *testing.T) {
+	tests := map[string]struct {
+		input   string
+		wantSQL string
+		want    []string
+		wantErr error
+	}{
+		"name=?": {
+			input:   `select * %sfrom foo where name=?`,
+			wantSQL: `select * %sfrom foo where name=$1`,
+			want:    []string{"p1"},
+		},
+		"question marks in single-quoted string": {
+			input:   `?%s'?test?"?test?"?'?`,
+			wantSQL: `$1%s'?test?"?test?"?'$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"single quotes in single-quoted string": {
+			input:   `?'?it\''?s'%s?`,
+			wantSQL: `$1'?it\''?s'%s$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"backslash in single-quoted string": {
+			input:   `?'?it\\"?s'%s?`,
+			wantSQL: `$1'?it\\"?s'%s$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"backslash in double-quoted string": {
+			input:   `?\"?it\\"\"?s\"%s?`,
+			wantSQL: `$1\"?it\\"\"?s\"%s$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"triple-quotes": {
+			input:   `?%s'''?it\''?s'''?`,
+			wantSQL: `$1%s'''?it\''?s'''$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"triple-double-quotes": {
+			input:   `?"""?it\""?s"""%s?`,
+			wantSQL: `$1"""?it\""?s"""%s$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"dollar-quoted string": {
+			input:   `?$$?it$?s$$%s?`,
+			wantSQL: `$1$$?it$?s$$%s$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"dollar-quoted string with tag": {
+			input:   `?$tag$?it$?s$tag$%s?`,
+			wantSQL: `$1$tag$?it$?s$tag$%s$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"dollar-quoted string with linefeed": {
+			input: `?%s$$?it\'?s 
+?it\'?s$$?`,
+			wantSQL: `$1%s$$?it\'?s 
+?it\'?s$$$2`,
+			want: []string{"p1", "p2"},
+		},
+		"single-quoted string with linefeed": {
+			input: `?'?it\''?s 
+?it\''?s'%s?`,
+			wantSQL: `$1'?it\''?s 
+?it\''?s'%s$2`,
+			want: []string{"p1", "p2"},
+		},
+		"unclosed single-quoted string": {
+			input: `?'?it\''?s 
+?it\''?%s?`,
+			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'?it\''?s 
+?it\''?%s?`)),
+		},
+		"triple-quoted string with linefeed": {
+			input: `?%s'''?it\''?s 
+?it\''?s'?`,
+			wantSQL: `$1%s'''?it\''?s 
+?it\''?s'$2`,
+			want: []string{"p1", "p2"},
+		},
+		"multiple params": {
+			input:   `select 1, ?, 'test?test', "test?test", %sfoo.* from foo where col1=? and col2='test' and col3=? and col4='?' and col5="?" and col6='?''?''?'`,
+			wantSQL: `select 1, $1, 'test?test', "test?test", %sfoo.* from foo where col1=$2 and col2='test' and col3=$3 and col4='?' and col5="?" and col6='?''?''?'`,
+			want:    []string{"p1", "p2", "p3"},
+		},
+		"multiple params (2)": {
+			input:   `select * %sfrom foo where name=? and col2 like ? and col3 > ?`,
+			wantSQL: `select * %sfrom foo where name=$1 and col2 like $2 and col3 > $3`,
+			want:    []string{"p1", "p2", "p3"},
+		},
+		"comment right after param": {
+			input:   `select * from foo where id between ?%s and ?`,
+			wantSQL: `select * from foo where id between $1%s and $2`,
+			want:    []string{"p1", "p2"},
+		},
+		"comment between limit and offset": {
+			input:   `select * from foo limit ? %s offset ?`,
+			wantSQL: `select * from foo limit $1 %s offset $2`,
+			want:    []string{"p1", "p2"},
+		},
+		"comment in where clause": {
+			input: `select *
+					from foo
+					where col1=?
+					and col2 like ?
+					%s
+					and col3 > ?
+					and col4 < ?
+					and col5 != ?
+					and col6 not in (?, ?, ?)
+					and col7 in (?, ?, ?)
+					and col8 between ? and ?`,
+			wantSQL: `select *
+					from foo
+					where col1=$1
+					and col2 like $2
+					%s
+					and col3 > $3
+					and col4 < $4
+					and col5 != $5
+					and col6 not in ($6, $7, $8)
+					and col7 in ($9, $10, $11)
+					and col8 between $12 and $13`,
+			want: []string{"p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11", "p12", "p13"},
+		},
+	}
+
+	parser, err := newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			for _, comment := range []string{
+				"-- test comment\n",
+				"/* another test comment */",
+				"/* comment\nwith\nmultiple\nlines\n */",
+				"/* comment /* with nested */ comment */",
+			} {
+				input := fmt.Sprintf(test.input, comment)
+				wantSQL := fmt.Sprintf(test.wantSQL, comment)
+				got, params, err := parser.findParams(input)
+				if err != nil && test.wantErr == nil {
+					t.Errorf("got unexpected error: %v", err)
+				} else if err != nil && test.wantErr != nil {
+					if g, w := spanner.ErrCode(err), spanner.ErrCode(test.wantErr); g != w {
+						t.Errorf("error code mismatch\n Got: %s\nWant: %s", g, w)
+					}
+				} else {
+					if !cmp.Equal(params, test.want) {
+						t.Errorf("parameters mismatch\n Got: %s\nWant: %s", params, test.want)
+					}
+					if got != wantSQL {
+						t.Errorf("SQL mismatch\n Got: %s\nWant: %s", got, wantSQL)
+					}
+				}
+			}
+		})
+	}
+}
+
 func FuzzFindParams(f *testing.F) {
 	for _, sample := range fuzzQuerySamples {
 		f.Add(sample)
 	}
 
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
-	if err != nil {
-		f.Fatal(err)
-	}
 	f.Fuzz(func(t *testing.T, input string) {
+		parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, _ = parser.parseParameters(input)
+
+		parser, err = newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
 		_, _, _ = parser.parseParameters(input)
 	})
 }
@@ -1419,30 +1613,39 @@ func TestParseClientSideStatement(t *testing.T) {
 		},
 	}
 
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range tests {
-		statement, err := parseClientSideStatement(&conn{logger: noopLogger}, tc.input)
-		if err != nil {
-			t.Fatalf("failed to parse statement %s: %v", tc.name, err)
-		}
-		if tc.exec && statement.execContext == nil {
-			t.Errorf("execContext missing for %q", tc.input)
-		}
-		if tc.query && statement.queryContext == nil {
-			t.Errorf("queryContext missing for %q", tc.input)
-		}
-
-		var got string
-		if statement != nil {
-			got = statement.Name
-		}
-		if got != tc.want {
-			t.Errorf("parseClientSideStatement test failed: %s\nGot: %s\nWant: %s.", tc.name, got, tc.want)
-		}
-		if tc.wantParams != "" {
-			if g, w := statement.params, tc.wantParams; g != w {
-				t.Errorf("params mismatch for %s\nGot: %v\nWant: %v", tc.name, g, w)
+		t.Run(tc.name, func(t *testing.T) {
+			statement, err := parser.parseClientSideStatement(&conn{logger: noopLogger, parser: parser}, tc.input)
+			if err != nil {
+				t.Fatalf("failed to parse statement %s: %v", tc.name, err)
 			}
-		}
+			if statement == nil {
+				t.Fatalf("statement is not a client-side statement: %s", tc.input)
+			}
+			if tc.exec && statement.execContext == nil {
+				t.Errorf("execContext missing for %q", tc.input)
+			}
+			if tc.query && statement.queryContext == nil {
+				t.Errorf("queryContext missing for %q", tc.input)
+			}
+
+			var got string
+			if statement != nil {
+				got = statement.Name
+			}
+			if got != tc.want {
+				t.Errorf("parseClientSideStatement test failed: %s\nGot: %s\nWant: %s.", tc.name, got, tc.want)
+			}
+			if tc.wantParams != "" {
+				if g, w := statement.params, tc.wantParams; g != w {
+					t.Errorf("params mismatch for %s\nGot: %v\nWant: %v", tc.name, g, w)
+				}
+			}
+		})
 	}
 }
 
@@ -1452,7 +1655,11 @@ func FuzzParseClientSideStatement(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, input string) {
-		_, _ = parseClientSideStatement(&conn{logger: noopLogger}, input)
+		parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = parser.parseClientSideStatement(&conn{logger: noopLogger, parser: parser}, input)
 	})
 }
 
@@ -1483,6 +1690,72 @@ func TestFindParams_Errors(t *testing.T) {
 	_, _, err = parser.findParams("SELECT 'Hello World\nFROM SomeTable WHERE id=@id")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
+	}
+}
+
+func TestSkipWhitespaces(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "single space",
+			input: " ",
+			want:  " ",
+		},
+		{
+			name:  "single linefeed",
+			input: "\n",
+			want:  "\n",
+		},
+		{
+			name:  "single tab",
+			input: "\t",
+			want:  "\t",
+		},
+		{
+			name:  "multiple different spaces",
+			input: "\t   \n  \t",
+			want:  "\t   \n  \t",
+		},
+		{
+			name:  "multiple different spaces followed by keyword",
+			input: "\t   \n  \tselect",
+			want:  "\t   \n  \t",
+		},
+		{
+			name:  "keyword",
+			input: "select  ",
+			want:  "",
+		},
+		{
+			name:  "multi-byte token",
+			input: "ø",
+			want:  "",
+		},
+		{
+			name:  "multi-byte token after space",
+			input: " ø",
+			want:  " ",
+		},
+	}
+	for _, dialect := range []databasepb.DatabaseDialect{
+		databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+		databasepb.DatabaseDialect_POSTGRESQL,
+	} {
+		p, err := getStatementParser(dialect, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, test := range tests {
+			t.Run(fmt.Sprintf("%s: %s", dialect, test.name), func(t *testing.T) {
+				pos := p.skipWhitespaces([]byte(test.input), 0)
+				if g, w := test.input[:pos], test.want; g != w {
+					t.Errorf("skip whitespace mismatch\n Got: %q\nWant: %q", g, w)
+				}
+			})
+		}
 	}
 }
 
@@ -1641,8 +1914,11 @@ func TestSkip(t *testing.T) {
 		},
 		"dollar-quoted string": {
 			// GoogleSQL does not support dollar-quoted strings.
-			input:   "$tag$not a string$tag$ select * from foo",
-			skipped: map[databasepb.DatabaseDialect]string{databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "$"},
+			input: "$tag$not a string in GoogleSQL$tag$ select * from foo",
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "$",
+				databasepb.DatabaseDialect_POSTGRESQL:          "$tag$not a string in GoogleSQL$tag$",
+			},
 		},
 		"string in comment": {
 			input:   "/* 'test' */ foo",
@@ -1866,6 +2142,148 @@ func TestReadKeyword(t *testing.T) {
 	}
 }
 
+func TestEatDollarTag(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{
+			input: "$$",
+			want:  "",
+		},
+		{
+			input: "$tag$",
+			want:  "tag",
+		},
+		{
+			input: "$tag_with_underscore$",
+			want:  "tag_with_underscore",
+		},
+		{
+			input: "$tag1$",
+			want:  "tag1",
+		},
+		{
+			input: "$ø$",
+			want:  "ø",
+		},
+		{
+			input: "$_test$",
+			want:  "_test",
+		},
+		{
+			// A digit is not allowed as the first character of an identifier.
+			input:   "$1test$",
+			want:    "",
+			wantErr: true,
+		},
+		{
+			// The euro sign is not a letter, and therefore not a valid char in an identifier.
+			input:   "$euro€$",
+			want:    "",
+			wantErr: true,
+		},
+	}
+	statementParser, err := newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			p := simpleParser{sql: []byte(test.input), statementParser: statementParser}
+			tag, ok := p.eatDollarTag()
+			if !ok && !test.wantErr {
+				t.Errorf("eatDollarTag returned false")
+			} else if g, w := tag, test.want; g != w {
+				t.Errorf("tag mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
+			}
+		})
+	}
+}
+
+func TestEatDollarQuotedString(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{
+			input: "$$test$$",
+			want:  "test",
+		},
+		{
+			input: "$tag$test$tag$",
+			want:  "test",
+		},
+		{
+			input: "$tag_with_underscore$test$tag_with_underscore$",
+			want:  "test",
+		},
+		{
+			input: "$tag1$test$tag1$",
+			want:  "test",
+		},
+		{
+			input: "$ø$test$ø$",
+			want:  "test",
+		},
+		{
+			input: "$_test$test$_test$",
+			want:  "test",
+		},
+		{
+			// A digit is not allowed as the first character of an identifier.
+			input:   "$1test$test$1test$",
+			want:    "",
+			wantErr: true,
+		},
+		{
+			// The euro sign is not a letter, and therefore not a valid char in an identifier.
+			input:   "$euro€$test$euro€$",
+			want:    "",
+			wantErr: true,
+		},
+		{
+			input: "$outer$ outer string $inner$ inner string $inner$ second part of outer string $outer$",
+			want:  " outer string $inner$ inner string $inner$ second part of outer string ",
+		},
+		{
+			input:   "$tag$ mismatched start and end tag $gat$",
+			want:    "",
+			wantErr: true,
+		},
+		{
+			input:   "$outer$ outer string $inner$ mismatched tag $outer$ second part of outer string $inner$",
+			want:    "",
+			wantErr: true,
+		},
+	}
+	statementParser, err := newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			p := simpleParser{sql: []byte(test.input), statementParser: statementParser}
+			tag, ok := p.eatDollarTag()
+			if !ok {
+				if !test.wantErr {
+					t.Errorf("eatDollarTag returned false")
+				}
+			} else {
+				if value, ok := p.eatDollarQuotedString(tag); ok {
+					if g, w := value, test.want; g != w {
+						t.Errorf("tag mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
+					}
+				} else if !test.wantErr {
+					t.Errorf("eatDollarQuotedString returned false")
+				}
+			}
+		})
+	}
+}
+
 type detectStatementTypeTest struct {
 	input string
 	want  statementType
@@ -1921,6 +2339,22 @@ func generateDetectStatementTypeTests() []detectStatementTypeTest {
 			input: "input from borkisland",
 			want:  statementTypeUnknown,
 		},
+		{
+			input: "start batch ddl",
+			want:  statementTypeClientSide,
+		},
+		{
+			input: "set autocommit_dml_mode = 'partitioned_non_atomic'",
+			want:  statementTypeClientSide,
+		},
+		{
+			input: "show variable commit_timestamp",
+			want:  statementTypeClientSide,
+		},
+		{
+			input: "run batch",
+			want:  statementTypeClientSide,
+		},
 	}
 }
 
@@ -1929,23 +2363,49 @@ func TestDetectStatementType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	c := &conn{parser: parser}
 	tests := generateDetectStatementTypeTests()
 	for _, test := range tests {
-		if g, w := parser.detectStatementType(test.input).statementType, test.want; g != w {
+		if cs, err := parser.parseClientSideStatement(c, test.input); err != nil {
+			t.Errorf("failed to parse the statement as a client-side statement")
+		} else if cs != nil {
+			if g, w := statementTypeClientSide, test.want; g != w {
+				t.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
+			}
+		} else if g, w := parser.detectStatementType(test.input).statementType, test.want; g != w {
 			t.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 		}
 	}
 }
 
-func BenchmarkDetectStatementType(b *testing.B) {
+func BenchmarkDetectStatementTypeWithoutCache(b *testing.B) {
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 0)
+	if err != nil {
+		b.Fatal(err)
+	}
+	benchmarkDetectStatementType(b, parser)
+}
+
+func BenchmarkDetectStatementTypeWithCache(b *testing.B) {
 	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		b.Fatal(err)
 	}
+	benchmarkDetectStatementType(b, parser)
+}
+
+func benchmarkDetectStatementType(b *testing.B, parser *statementParser) {
+	c := &conn{parser: parser}
 	tests := generateDetectStatementTypeTests()
 	for b.Loop() {
 		for _, test := range tests {
-			if g, w := parser.detectStatementType(test.input).statementType, test.want; g != w {
+			if cs, err := parser.parseClientSideStatement(c, test.input); err != nil {
+				b.Errorf("failed to parse the statement as a client-side statement")
+			} else if cs != nil {
+				if g, w := statementTypeClientSide, test.want; g != w {
+					b.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
+				}
+			} else if g, w := parser.detectStatementType(test.input).statementType, test.want; g != w {
 				b.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 			}
 		}
@@ -1955,13 +2415,16 @@ func BenchmarkDetectStatementType(b *testing.B) {
 var fuzzQuerySamples = []string{"", "SELECT 1;", "RUN BATCH", "ABORT BATCH", "Show variable Retry_Aborts_Internally", "@{JOIN_METHOD=HASH_JOIN SELECT * FROM PersonsTable"}
 
 func init() {
-	for ddl := range ddlStatements {
-		fuzzQuerySamples = append(fuzzQuerySamples, ddl)
+	for statement := range ddlStatements {
+		fuzzQuerySamples = append(fuzzQuerySamples, statement)
+		fuzzQuerySamples = append(fuzzQuerySamples, statement+" foo")
 	}
-	for ddl := range selectStatements {
-		fuzzQuerySamples = append(fuzzQuerySamples, ddl)
+	for statement := range selectStatements {
+		fuzzQuerySamples = append(fuzzQuerySamples, statement)
+		fuzzQuerySamples = append(fuzzQuerySamples, statement+" foo")
 	}
-	for ddl := range dmlStatements {
-		fuzzQuerySamples = append(fuzzQuerySamples, ddl)
+	for statement := range dmlStatements {
+		fuzzQuerySamples = append(fuzzQuerySamples, statement)
+		fuzzQuerySamples = append(fuzzQuerySamples, statement+" foo")
 	}
 }
