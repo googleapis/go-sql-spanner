@@ -2378,6 +2378,27 @@ func TestDetectStatementType(t *testing.T) {
 	}
 }
 
+func TestCachedParamsAreImmutable(t *testing.T) {
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := 0; n < 2; n++ {
+		_, params, err := parser.findParams("select * from test where id=?")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g, w := len(params), 1; g != w {
+			t.Fatalf("params length mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if g, w := params[0], "p1"; g != w {
+			t.Fatalf("param mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		// Modify the params we got from the parser and verify that this does not modify the cached params.
+		params[0] = "test"
+	}
+}
+
 func BenchmarkDetectStatementTypeWithoutCache(b *testing.B) {
 	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 0)
 	if err != nil {
