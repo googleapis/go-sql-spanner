@@ -1139,6 +1139,12 @@ func checkIsValidType(v driver.Value) bool {
 	case spanner.NullJSON:
 	case []spanner.NullJSON:
 	case spanner.GenericColumnValue:
+	case uuid.UUID:
+	case *uuid.UUID:
+	case []uuid.UUID:
+	case []*uuid.UUID:
+	case spanner.NullUUID:
+	case []spanner.NullUUID:
 	}
 	return true
 }

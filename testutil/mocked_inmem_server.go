@@ -234,7 +234,7 @@ func createSingersRow(idx int64) *structpb.ListValue {
 
 func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb.ResultSet {
 	index := 0
-	fields := make([]*spannerpb.StructType_Field, 24)
+	fields := make([]*spannerpb.StructType_Field, 26)
 	fields[index] = &spannerpb.StructType_Field{
 		Name: "ColBool",
 		Type: &spannerpb.Type{Code: spannerpb.TypeCode_BOOL},
@@ -283,6 +283,11 @@ func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb
 	fields[index] = &spannerpb.StructType_Field{
 		Name: "ColJson",
 		Type: &spannerpb.Type{Code: spannerpb.TypeCode_JSON},
+	}
+	index++
+	fields[index] = &spannerpb.StructType_Field{
+		Name: "ColUuid",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_UUID},
 	}
 	index++
 	fields[index] = &spannerpb.StructType_Field{
@@ -376,6 +381,14 @@ func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb
 	}
 	index++
 	fields[index] = &spannerpb.StructType_Field{
+		Name: "ColUuidArray",
+		Type: &spannerpb.Type{
+			Code:             spannerpb.TypeCode_ARRAY,
+			ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_UUID},
+		},
+	}
+	index++
+	fields[index] = &spannerpb.StructType_Field{
 		Name: "ColProtoArray",
 		Type: &spannerpb.Type{
 			Code:             spannerpb.TypeCode_ARRAY,
@@ -439,6 +452,8 @@ func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "2021-07-21T21:07:59.339911800Z"}}
 		index++
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: `{"key": "value", "other-key": ["value1", "value2"]}`}}
+		index++
+		rowValue[index] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: `a4e71944-fe14-4047-9d0a-e68c281602e1`}}
 		index++
 		rowValue[index] = protoMessageProto(&singerProtoMsg)
 		index++
@@ -521,6 +536,14 @@ func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb
 				{Kind: &structpb.Value_StringValue{StringValue: `{"key1": "value1", "other-key1": ["value1", "value2"]}`}},
 				nullValueOrAlt(nullValuesInArrays, &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "{}"}}),
 				{Kind: &structpb.Value_StringValue{StringValue: `{"key2": "value2", "other-key2": ["value1", "value2"]}`}},
+			}},
+		}}
+		index++
+		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
+			ListValue: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: `d0546638-6d51-4d7c-a4a9-9062204ee5bb`}},
+				nullValueOrAlt(nullValuesInArrays, &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "00000000-0000-0000-0000-000000000000"}}),
+				{Kind: &structpb.Value_StringValue{StringValue: `0dd0f9b7-05af-48e0-a5b1-35432a01c6bf`}},
 			}},
 		}}
 		index++

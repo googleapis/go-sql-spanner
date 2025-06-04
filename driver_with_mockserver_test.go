@@ -36,6 +36,7 @@ import (
 	pb "cloud.google.com/go/spanner/testdata/protos"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/google/uuid"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
@@ -564,6 +565,7 @@ func TestQueryWithAllTypes(t *testing.T) {
              AND   ColDate=@date
              AND   ColTimestamp=@timestamp
              AND   ColJson=@json
+             AND   ColUuid=@uuid
              AND   ColBoolArray=@boolArray
              AND   ColStringArray=@stringArray
              AND   ColBytesArray=@bytesArray
@@ -573,7 +575,8 @@ func TestQueryWithAllTypes(t *testing.T) {
              AND   ColNumericArray=@numericArray
              AND   ColDateArray=@dateArray
              AND   ColTimestampArray=@timestampArray
-             AND   ColJsonArray=@jsonArray`
+             AND   ColJsonArray=@jsonArray
+             AND   ColUuidArray=@uuidArray`
 	_ = server.TestSpanner.PutStatementResult(
 		query,
 		&testutil.StatementResult{
@@ -602,6 +605,7 @@ func TestQueryWithAllTypes(t *testing.T) {
 		civil.Date{Year: 2021, Month: 7, Day: 21},
 		ts,
 		nullJson(true, `{"key":"value","other-key":["value1","value2"]}`),
+		uuid.MustParse("a4e71944-fe14-4047-9d0a-e68c281602e1"),
 		[]spanner.NullBool{{Valid: true, Bool: true}, {}, {Valid: true, Bool: false}},
 		[]spanner.NullString{{Valid: true, StringVal: "test1"}, {}, {Valid: true, StringVal: "test2"}},
 		[][]byte{[]byte("testbytes1"), nil, []byte("testbytes2")},
@@ -615,6 +619,11 @@ func TestQueryWithAllTypes(t *testing.T) {
 			nullJson(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`),
 			nullJson(false, ""),
 			nullJson(true, `{"key2": "value2", "other-key2": ["value1", "value2"]}`),
+		},
+		[]spanner.NullUUID{
+			nullUuid(true, `d0546638-6d51-4d7c-a4a9-9062204ee5bb`),
+			nullUuid(false, ""),
+			nullUuid(true, `0dd0f9b7-05af-48e0-a5b1-35432a01c6bf`),
 		},
 	)
 	if err != nil {
@@ -633,6 +642,7 @@ func TestQueryWithAllTypes(t *testing.T) {
 		var d civil.Date
 		var ts time.Time
 		var j spanner.NullJSON
+		var u uuid.UUID
 		var p []byte
 		var e int64
 		var bArray []spanner.NullBool
@@ -645,9 +655,10 @@ func TestQueryWithAllTypes(t *testing.T) {
 		var dArray []spanner.NullDate
 		var tsArray []spanner.NullTime
 		var jArray []spanner.NullJSON
+		var uArray []spanner.NullUUID
 		var pArray [][]byte
 		var eArray []spanner.NullInt64
-		err = rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &pArray, &eArray)
+		err = rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &u, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &uArray, &pArray, &eArray)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -680,6 +691,9 @@ func TestQueryWithAllTypes(t *testing.T) {
 		}
 		if g, w := j, nullJson(true, `{"key":"value","other-key":["value1","value2"]}`); !cmp.Equal(g, w) {
 			t.Errorf("row value mismatch for json\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := u, uuid.MustParse(`a4e71944-fe14-4047-9d0a-e68c281602e1`); !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for uuid\nGot: %v\nWant: %v", g, w)
 		}
 		wantSingerEnumValue := pb.Genre_ROCK
 		wantSingerProtoMsg := pb.SingerInfo{
@@ -732,6 +746,13 @@ func TestQueryWithAllTypes(t *testing.T) {
 		}; !cmp.Equal(g, w) {
 			t.Errorf("row value mismatch for json array\nGot: %v\nWant: %v", g, w)
 		}
+		if g, w := uArray, []spanner.NullUUID{
+			nullUuid(true, `d0546638-6d51-4d7c-a4a9-9062204ee5bb`),
+			nullUuid(false, ""),
+			nullUuid(true, `0dd0f9b7-05af-48e0-a5b1-35432a01c6bf`),
+		}; !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for json array\nGot: %v\nWant: %v", g, w)
+		}
 		if g, w := len(pArray), 3; g != w {
 			t.Errorf("row value length mismatch for proto array\nGot: %v\nWant: %v", g, w)
 		}
@@ -769,10 +790,10 @@ func TestQueryWithAllTypes(t *testing.T) {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
-	if g, w := len(req.ParamTypes), 20; g != w {
+	if g, w := len(req.ParamTypes), 22; g != w {
 		t.Fatalf("param types length mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	if g, w := len(req.Params.Fields), 20; g != w {
+	if g, w := len(req.Params.Fields), 22; g != w {
 		t.Fatalf("params length mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	wantParams := []struct {
@@ -830,6 +851,11 @@ func TestQueryWithAllTypes(t *testing.T) {
 			name:  "json",
 			code:  sppb.TypeCode_JSON,
 			value: `{"key":"value","other-key":["value1","value2"]}`,
+		},
+		{
+			name:  "uuid",
+			code:  sppb.TypeCode_UUID,
+			value: `a4e71944-fe14-4047-9d0a-e68c281602e1`,
 		},
 		{
 			name:  "boolArray",
@@ -929,6 +955,16 @@ func TestQueryWithAllTypes(t *testing.T) {
 				{Kind: &structpb.Value_StringValue{StringValue: `{"key1":"value1","other-key1":["value1","value2"]}`}},
 				{Kind: &structpb.Value_NullValue{}},
 				{Kind: &structpb.Value_StringValue{StringValue: `{"key2":"value2","other-key2":["value1","value2"]}`}},
+			}},
+		},
+		{
+			name:  "uuidArray",
+			code:  sppb.TypeCode_UUID,
+			array: true,
+			value: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: `d0546638-6d51-4d7c-a4a9-9062204ee5bb`}},
+				{Kind: &structpb.Value_NullValue{}},
+				{Kind: &structpb.Value_StringValue{StringValue: `0dd0f9b7-05af-48e0-a5b1-35432a01c6bf`}},
 			}},
 		},
 	}
@@ -997,6 +1033,7 @@ func TestQueryWithNullParameters(t *testing.T) {
              AND   ColDate=@date
              AND   ColTimestamp=@timestamp
              AND   ColJson=@json
+             AND   ColUuid=@uuid
              AND   ColBoolArray=@boolArray
              AND   ColStringArray=@stringArray
              AND   ColBytesArray=@bytesArray
@@ -1006,7 +1043,8 @@ func TestQueryWithNullParameters(t *testing.T) {
              AND   ColNumericArray=@numericArray
              AND   ColDateArray=@dateArray
              AND   ColTimestampArray=@timestampArray
-             AND   ColJsonArray=@jsonArray`
+             AND   ColJsonArray=@jsonArray
+             AND   ColUuidArray=@uuidArray`
 	_ = server.TestSpanner.PutStatementResult(
 		query,
 		&testutil.StatementResult{
@@ -1037,6 +1075,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 				nil, // date
 				nil, // timestamp
 				nil, // json
+				nil, // uuid
 				nil, // bool array
 				nil, // string array
 				nil, // bytes array
@@ -1047,9 +1086,10 @@ func TestQueryWithNullParameters(t *testing.T) {
 				nil, // date array
 				nil, // timestamp array
 				nil, // json array
+				nil, // uuid array
 			}},
 		{
-			typed: 9,
+			typed: 10,
 			values: []interface{}{
 				spanner.NullBool{},
 				spanner.NullString{},
@@ -1061,6 +1101,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 				spanner.NullDate{},
 				spanner.NullTime{},
 				spanner.NullJSON{},
+				spanner.NullUUID{},
 				nil, // bool array
 				nil, // string array
 				nil, // bytes array
@@ -1071,6 +1112,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 				nil, // date array
 				nil, // timestamp array
 				nil, // json array
+				nil, // uuid array
 			}},
 	} {
 		rows, err := stmt.QueryContext(context.Background(), p.values...)
@@ -1090,6 +1132,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 			var d spanner.NullDate    // There's no equivalent sql type.
 			var ts sql.NullTime
 			var j spanner.NullJSON // There's no equivalent sql type.
+			var u spanner.NullUUID // There's no equivalent sql type.
 			var p []byte           // Proto columns are returned as bytes.
 			var e sql.NullInt64    // Enum columns are returned as int64.
 			var bArray []spanner.NullBool
@@ -1102,9 +1145,10 @@ func TestQueryWithNullParameters(t *testing.T) {
 			var dArray []spanner.NullDate
 			var tsArray []spanner.NullTime
 			var jArray []spanner.NullJSON
+			var uArray []spanner.NullUUID
 			var pArray [][]byte
 			var eArray []spanner.NullInt64
-			err = rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &pArray, &eArray)
+			err = rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &u, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &uArray, &pArray, &eArray)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1137,6 +1181,9 @@ func TestQueryWithNullParameters(t *testing.T) {
 			}
 			if j.Valid {
 				t.Errorf("row value mismatch for json\nGot: %v\nWant: %v", j, spanner.NullJSON{})
+			}
+			if u.Valid {
+				t.Errorf("row value mismatch for uuid\n Got: %v\nWant: %v", u, spanner.NullUUID{})
 			}
 			if p != nil {
 				t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", p, nil)
@@ -1174,6 +1221,9 @@ func TestQueryWithNullParameters(t *testing.T) {
 			if jArray != nil {
 				t.Errorf("row value mismatch for json array\nGot: %v\nWant: %v", jArray, nil)
 			}
+			if uArray != nil {
+				t.Errorf("row value mismatch for uuid array\n Got: %v\nWant: %v", uArray, nil)
+			}
 			if pArray != nil {
 				t.Errorf("row value mismatch for proto array\nGot: %v\nWant: %v", pArray, nil)
 			}
@@ -1194,7 +1244,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 		if g, w := len(req.ParamTypes), p.typed; g != w {
 			t.Fatalf("param types length mismatch\nGot: %v\nWant: %v", g, w)
 		}
-		if g, w := len(req.Params.Fields), 20; g != w {
+		if g, w := len(req.Params.Fields), 22; g != w {
 			t.Fatalf("params length mismatch\nGot: %v\nWant: %v", g, w)
 		}
 		for _, param := range req.Params.Fields {
@@ -1250,6 +1300,7 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 			var d spanner.GenericColumnValue
 			var ts spanner.GenericColumnValue
 			var j spanner.GenericColumnValue
+			var u spanner.GenericColumnValue
 			var p spanner.GenericColumnValue
 			var e spanner.GenericColumnValue
 			var bArray spanner.GenericColumnValue
@@ -1262,9 +1313,10 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 			var dArray spanner.GenericColumnValue
 			var tsArray spanner.GenericColumnValue
 			var jArray spanner.GenericColumnValue
+			var uArray spanner.GenericColumnValue
 			var pArray spanner.GenericColumnValue
 			var eArray spanner.GenericColumnValue
-			err := rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &pArray, &eArray)
+			err := rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &u, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &uArray, &pArray, &eArray)
 			if err != nil {
 				t.Fatalf("prepare: %v: failed to scan values: %v", prepare, err)
 			}
@@ -1298,6 +1350,9 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 			if g, w := j.Value.GetStringValue(), `{"key": "value", "other-key": ["value1", "value2"]}`; g != w {
 				t.Errorf("row value mismatch for json\n Got: %v\nWant: %v", g, w)
 			}
+			if g, w := u.Value.GetStringValue(), `a4e71944-fe14-4047-9d0a-e68c281602e1`; g != w {
+				t.Errorf("row value mismatch for uuid\n Got: %v\nWant: %v", g, w)
+			}
 			if p.Value.GetStringValue() == "" {
 				t.Errorf("row value mismatch for proto\n Got: %v\nWant: A non-empty string", p.Value.GetStringValue())
 			}
@@ -1329,6 +1384,7 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
              AND   ColDate=@date
              AND   ColTimestamp=@timestamp
              AND   ColJson=@json
+             AND   ColUuid=@uuid
              AND   ColBoolArray=@boolArray
              AND   ColStringArray=@stringArray
              AND   ColBytesArray=@bytesArray
@@ -1338,7 +1394,8 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
              AND   ColNumericArray=@numericArray
              AND   ColDateArray=@dateArray
              AND   ColTimestampArray=@timestampArray
-             AND   ColJsonArray=@jsonArray`
+             AND   ColJsonArray=@jsonArray
+             AND   ColUuidArray=@uuidArray`
 	_ = server.TestSpanner.PutStatementResult(
 		query,
 		&testutil.StatementResult{
@@ -1368,6 +1425,7 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
 		civil.Date{Year: 2021, Month: 7, Day: 21},
 		ts,
 		nullJson(true, `{"key":"value","other-key":["value1","value2"]}`),
+		uuid.MustParse("a4e71944-fe14-4047-9d0a-e68c281602e1"),
 		[]bool{true, false},
 		[]string{"test1", "test2"},
 		[][]byte{[]byte("testbytes1"), []byte("testbytes2")},
@@ -1380,6 +1438,10 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
 		[]spanner.NullJSON{
 			nullJson(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`),
 			nullJson(true, `{"key2": "value2", "other-key2": ["value1", "value2"]}`),
+		},
+		[]uuid.UUID{
+			uuid.MustParse("d0546638-6d51-4d7c-a4a9-9062204ee5bb"),
+			uuid.MustParse("0dd0f9b7-05af-48e0-a5b1-35432a01c6bf"),
 		},
 	)
 	if err != nil {
@@ -1398,6 +1460,7 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
 		var d civil.Date
 		var ts time.Time
 		var j spanner.NullJSON
+		var u uuid.UUID
 		var p []byte
 		var e int64
 		var bArray []bool
@@ -1410,9 +1473,10 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
 		var dArray []civil.Date
 		var tsArray []time.Time
 		var jArray []spanner.NullJSON
+		var uArray []uuid.UUID
 		var pArray [][]byte
 		var eArray []int64
-		err = rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &pArray, &eArray)
+		err = rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &u, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &uArray, &pArray, &eArray)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1445,6 +1509,9 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
 		}
 		if g, w := j, nullJson(true, `{"key":"value","other-key":["value1","value2"]}`); !cmp.Equal(g, w) {
 			t.Errorf("row value mismatch for json\nGot: %v\nWant: %v", g, w)
+		}
+		if g, w := u, uuid.MustParse("a4e71944-fe14-4047-9d0a-e68c281602e1"); !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for uuid\n Got: %v\nWant: %v", g, w)
 		}
 		wantSingerEnumValue := pb.Genre_ROCK
 		wantSingerProtoMsg := pb.SingerInfo{
@@ -1497,6 +1564,13 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
 		}; !cmp.Equal(g, w) {
 			t.Errorf("row value mismatch for json array\n Got: %v\nWant: %v", g, w)
 		}
+		if g, w := uArray, []uuid.UUID{
+			uuid.MustParse("d0546638-6d51-4d7c-a4a9-9062204ee5bb"),
+			uuid.MustParse("00000000-0000-0000-0000-000000000000"),
+			uuid.MustParse("0dd0f9b7-05af-48e0-a5b1-35432a01c6bf"),
+		}; !cmp.Equal(g, w) {
+			t.Errorf("row value mismatch for json array\n Got: %v\nWant: %v", g, w)
+		}
 		if g, w := len(pArray), 3; g != w {
 			t.Errorf("row value length mismatch for proto array\nGot: %v\nWant: %v", g, w)
 		}
@@ -1538,10 +1612,10 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
-	if g, w := len(req.ParamTypes), 20; g != w {
+	if g, w := len(req.ParamTypes), 22; g != w {
 		t.Fatalf("param types length mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	if g, w := len(req.Params.Fields), 20; g != w {
+	if g, w := len(req.Params.Fields), 22; g != w {
 		t.Fatalf("params length mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	wantParams := []struct {
@@ -1599,6 +1673,11 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
 			name:  "json",
 			code:  sppb.TypeCode_JSON,
 			value: `{"key":"value","other-key":["value1","value2"]}`,
+		},
+		{
+			name:  "uuid",
+			code:  sppb.TypeCode_UUID,
+			value: `a4e71944-fe14-4047-9d0a-e68c281602e1`,
 		},
 		{
 			name:  "boolArray",
@@ -1688,6 +1767,15 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
 			value: &structpb.ListValue{Values: []*structpb.Value{
 				{Kind: &structpb.Value_StringValue{StringValue: `{"key1":"value1","other-key1":["value1","value2"]}`}},
 				{Kind: &structpb.Value_StringValue{StringValue: `{"key2":"value2","other-key2":["value1","value2"]}`}},
+			}},
+		},
+		{
+			name:  "uuidArray",
+			code:  sppb.TypeCode_UUID,
+			array: true,
+			value: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: `d0546638-6d51-4d7c-a4a9-9062204ee5bb`}},
+				{Kind: &structpb.Value_StringValue{StringValue: `0dd0f9b7-05af-48e0-a5b1-35432a01c6bf`}},
 			}},
 		},
 	}
@@ -4578,6 +4666,13 @@ func nullJson(valid bool, v string) spanner.NullJSON {
 	var m map[string]interface{}
 	_ = json.Unmarshal([]byte(v), &m)
 	return spanner.NullJSON{Valid: true, Value: m}
+}
+
+func nullUuid(valid bool, v string) spanner.NullUUID {
+	if !valid {
+		return spanner.NullUUID{}
+	}
+	return spanner.NullUUID{Valid: true, UUID: uuid.MustParse(v)}
 }
 
 func setupTestDBConnection(t *testing.T) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {

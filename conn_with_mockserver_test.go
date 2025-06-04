@@ -239,3 +239,65 @@ func TestIsolationLevelAutoCommit(t *testing.T) {
 		}
 	}
 }
+
+func TestDDLUsingQueryContext(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	// DDL statements should not use the query context.
+	_, err := db.QueryContext(ctx, "CREATE TABLE Foo (Bar STRING(100))")
+	if err == nil {
+		t.Fatal("expected error for DDL statement using QueryContext, got nil")
+	}
+	if g, w := err.Error(), `spanner: code = "FailedPrecondition", desc = "QueryContext does not support DDL statements, use ExecContext instead"`; g != w {
+		t.Fatalf("error mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestDDLUsingQueryContextInReadOnlyTx(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+
+	// DDL statements should not use the query context in a read-only transaction.
+	_, err = tx.QueryContext(ctx, "CREATE TABLE Foo (Bar STRING(100))")
+	if err == nil {
+		t.Fatal("expected error for DDL statement using QueryContext in read-only transaction, got nil")
+	}
+	if g, w := err.Error(), `spanner: code = "FailedPrecondition", desc = "QueryContext does not support DDL statements, use ExecContext instead"`; g != w {
+		t.Fatalf("error mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestDDLUsingQueryContextInReadWriteTransaction(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+
+	// DDL statements should not use the query context in a read-write transaction.
+	_, err = tx.QueryContext(ctx, "CREATE TABLE Foo (Bar STRING(100))")
+	if err == nil {
+		t.Fatal("expected error for DDL statement using QueryContext in read-write transaction, got nil")
+	}
+	if g, w := err.Error(), `spanner: code = "FailedPrecondition", desc = "QueryContext does not support DDL statements, use ExecContext instead"`; g != w {
+		t.Fatalf("error mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}

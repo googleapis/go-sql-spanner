@@ -759,9 +759,13 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 	if err != nil {
 		return nil, err
 	}
+	statementType := c.parser.detectStatementType(query)
+	// DDL statements are not supported in QueryContext so fail early.
+	if statementType.statementType == statementTypeDdl {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "QueryContext does not support DDL statements, use ExecContext instead"))
+	}
 	var iter rowIterator
 	if c.tx == nil {
-		statementType := c.parser.detectStatementType(query)
 		if statementType.statementType == statementTypeDml {
 			// Use a read/write transaction to execute the statement.
 			var commitTs time.Time
