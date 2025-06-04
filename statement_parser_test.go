@@ -1750,7 +1750,7 @@ func TestSkipWhitespaces(t *testing.T) {
 		}
 		for _, test := range tests {
 			t.Run(fmt.Sprintf("%s: %s", dialect, test.name), func(t *testing.T) {
-				pos := p.skipWhitespaces([]byte(test.input), 0)
+				pos := p.skipWhitespacesAndComments([]byte(test.input), 0)
 				if g, w := test.input[:pos], test.want; g != w {
 					t.Errorf("skip whitespace mismatch\n Got: %q\nWant: %q", g, w)
 				}

@@ -86,7 +86,7 @@ func (p *simpleParser) eatTokenOnly(t byte) bool {
 
 func (p *simpleParser) eatTokenWithWhitespaceOption(t byte, eatWhiteSpaces bool) bool {
 	if eatWhiteSpaces {
-		p.skipWhitespaces()
+		p.skipWhitespacesAndComments()
 	}
 	if p.pos >= len(p.sql) {
 		return false
@@ -181,7 +181,7 @@ func (p *simpleParser) isDollar() bool {
 // readKeyword reads the keyword at the current position.
 // A keyword can only contain upper and lower case ASCII letters (A-Z, a-z).
 func (p *simpleParser) readKeyword() string {
-	p.skipWhitespaces()
+	p.skipWhitespacesAndComments()
 	start := p.pos
 	for ; p.pos < len(p.sql) && !isSpace(p.sql[p.pos]); p.pos++ {
 		if isMultibyte(p.sql[p.pos]) {
@@ -198,11 +198,11 @@ func (p *simpleParser) readKeyword() string {
 	return string(p.sql[start:p.pos])
 }
 
-// skipWhitespaces skips comments and other whitespaces from the current
+// skipWhitespacesAndComments skips comments and other whitespaces from the current
 // position until it encounters a non-whitespace / non-comment.
 // The position of the parser is updated.
-func (p *simpleParser) skipWhitespaces() {
-	p.pos = p.statementParser.skipWhitespaces(p.sql, p.pos)
+func (p *simpleParser) skipWhitespacesAndComments() {
+	p.pos = p.statementParser.skipWhitespacesAndComments(p.sql, p.pos)
 }
 
 // skipStatementHint skips any statement hint at the start of the statement.
@@ -400,7 +400,7 @@ func (p *statementParser) parseParameters(sql string) (string, []string, error) 
 // Skips all whitespaces from the given position and returns the
 // position of the next non-whitespace character or len(sql) if
 // the string does not contain any whitespaces after pos.
-func (p *statementParser) skipWhitespaces(sql []byte, pos int) int {
+func (p *statementParser) skipWhitespacesAndComments(sql []byte, pos int) int {
 	for pos < len(sql) {
 		c := sql[pos]
 		if isMultibyte(c) {
@@ -709,7 +709,7 @@ func (p *statementParser) calculateFindParamsResult(sql string) (string, []strin
 	parser := &simpleParser{sql: []byte(sql), statementParser: p}
 	for parser.pos < len(parser.sql) {
 		startPos := parser.pos
-		parser.skipWhitespaces()
+		parser.skipWhitespacesAndComments()
 		parsedSQL.WriteString(string(parser.sql[startPos:parser.pos]))
 		if parser.pos >= len(parser.sql) {
 			break
