@@ -683,7 +683,9 @@ func (p *statementParser) findParams(sql string) (string, []string, error) {
 			return "", nil, err
 		}
 		info := p.detectStatementType(sql)
-		p.statementsCache.Add(sql, &statementsCacheEntry{sql: namedParamsSql, params: params, info: info})
+		cachedParams := make([]string, len(params))
+		copy(cachedParams, params)
+		p.statementsCache.Add(sql, &statementsCacheEntry{sql: namedParamsSql, params: cachedParams, info: info})
 		return namedParamsSql, params, nil
 	}
 }
