@@ -178,6 +178,21 @@ func TestExtractDnsParts(t *testing.T) {
 			},
 		},
 		{
+			input: "projects/p/instances/i/databases/d?StatementCacheSize=100;",
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
+					"statementcachesize": "100",
+				},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
+			},
+		},
+		{
 			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?minSessions=200;maxSessions=1000;numChannels=10;disableRouteToLeader=true;enableEndToEndTracing=true;disableNativeMetrics=true;rpcPriority=Medium;optimizerVersion=1;optimizerStatisticsPackage=latest;databaseRole=child",
 			wantConnectorConfig: ConnectorConfig{
 				Host:     "spanner.googleapis.com",

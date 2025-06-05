@@ -515,6 +515,11 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			connectorConfig.StatementCacheSize = val
 		}
 	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("DisableStatementCache")]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			connectorConfig.DisableStatementCache = val
+		}
+	}
 
 	// Check if it is Spanner gorm that is creating the connection.
 	// If so, we should set a different user-agent header than the

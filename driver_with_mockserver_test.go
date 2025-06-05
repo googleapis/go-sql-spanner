@@ -38,6 +38,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/google/uuid"
 	"github.com/googleapis/go-sql-spanner/testutil"
+	lru "github.com/hashicorp/golang-lru"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -69,6 +70,117 @@ func TestPingContext_Fails(t *testing.T) {
 	_ = server.TestSpanner.PutStatementResult("SELECT 1", &testutil.StatementResult{Err: s.Err()})
 	if g, w := db.PingContext(context.Background()), driver.ErrBadConn; g != w {
 		t.Fatalf("ping error mismatch\nGot: %v\nWant: %v", g, w)
+	}
+}
+
+func TestStatementCacheSize(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnectionWithParams(t, "StatementCacheSize=2")
+	defer teardown()
+
+	c, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error for connection: %v", err)
+	}
+	var cache *lru.Cache
+	if err := c.Raw(func(driverConn any) error {
+		sc, ok := driverConn.(*conn)
+		if !ok {
+			return fmt.Errorf("driverConn is not a Spanner conn")
+		}
+		cache = sc.parser.statementsCache
+		return nil
+	}); err != nil {
+		t.Fatalf("unexpected error for raw: %v", err)
+	}
+
+	// The cache should initially be empty.
+	if g, w := cache.Len(), 0; g != w {
+		t.Fatalf("cache size mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	for n := 0; n < 3; n++ {
+		rows, err := db.QueryContext(context.Background(), testutil.SelectFooFromBar)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Executing the same query multiple times should add the statement once to the cache.
+	if g, w := cache.Len(), 1; g != w {
+		t.Fatalf("cache size mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Executing another statement should add yet another statement to the cache.
+	if _, err := db.ExecContext(context.Background(), testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	if g, w := cache.Len(), 2; g != w {
+		t.Fatalf("cache size mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Executing yet another statement should evict the oldest result from the cache and add this.
+	query := "insert into test (id) values (1)"
+	server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	if _, err := db.ExecContext(context.Background(), query); err != nil {
+		t.Fatal(err)
+	}
+	// The cache size should still be 2.
+	if g, w := cache.Len(), 2; g != w {
+		t.Fatalf("cache size mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestDisableStatementCache(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnectionWithParams(t, "DisableStatementCache=true")
+	defer teardown()
+
+	c, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error for connection: %v", err)
+	}
+	var cache *lru.Cache
+	if err := c.Raw(func(driverConn any) error {
+		sc, ok := driverConn.(*conn)
+		if !ok {
+			return fmt.Errorf("driverConn is not a Spanner conn")
+		}
+		cache = sc.parser.statementsCache
+		return nil
+	}); err != nil {
+		t.Fatalf("unexpected error for raw: %v", err)
+	}
+
+	// There should be no cache.
+	if cache != nil {
+		t.Fatalf("statement cache should be disabled")
+	}
+
+	// Executing queries and other statements should work without a cache.
+	for n := 0; n < 3; n++ {
+		rows, err := db.QueryContext(context.Background(), testutil.SelectFooFromBar)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.ExecContext(context.Background(), testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
 	}
 }
 
