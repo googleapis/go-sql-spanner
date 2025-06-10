@@ -25,6 +25,8 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+var _ rowIterator = &testIterator{}
+
 type testIterator struct {
 	metadata *sppb.ResultSetMetadata
 	rows     []*spanner.Row
@@ -45,6 +47,10 @@ func (t *testIterator) Stop() {
 
 func (t *testIterator) Metadata() (*sppb.ResultSetMetadata, error) {
 	return t.metadata, nil
+}
+
+func (t *testIterator) RowCount() int64 {
+	return 0
 }
 
 func newRow(t *testing.T, cols []string, vals []interface{}) *spanner.Row {

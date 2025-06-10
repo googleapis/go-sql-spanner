@@ -5,6 +5,8 @@
 [Google Cloud Spanner](https://cloud.google.com/spanner) driver for
 Go's [database/sql](https://golang.org/pkg/database/sql/) package.
 
+This driver can be used with both Spanner GoogleSQL and Spanner PostgreSQL databases.
+
 ```go
 import _ "github.com/googleapis/go-sql-spanner"
 
@@ -13,8 +15,8 @@ if err != nil {
     log.Fatal(err)
 }
 
-// Print tweets with more than 500 likes.
-rows, err := db.QueryContext(ctx, "SELECT id, text FROM tweets WHERE likes > @likes", sql.Named("likes", 500))
+// Print singers with more than 500 likes.
+rows, err := db.QueryContext(ctx, "SELECT id, name FROM singers WHERE likes > ?", 500)
 if err != nil {
     log.Fatal(err)
 }
@@ -53,6 +55,17 @@ db.ExecContext(ctx, "DELETE FROM tweets WHERE id = @id", sql.Named("id", 1454449
 
 db.ExecContext(ctx, "INSERT INTO tweets (id, text, rts) VALUES (@id, @text, @rts)",
 	sql.Named("id", id), sql.Named("text", text), sql.Named("rts", 10000))
+```
+
+### Using PostgreSQL-style positional arguments
+
+When connected to a PostgreSQL-dialect Spanner database, you can also use PostgreSQL-style
+query parameters `$1, $2, ..., $n`. These query parameters are handled as positional parameters.
+
+```go
+db.QueryContext(ctx, "SELECT id, text FROM tweets WHERE likes > $1", 500)
+
+db.ExecContext(ctx, "INSERT INTO tweets (id, text, rts) VALUES ($1, $2, $3)", id, text, 10000)
 ```
 
 ### Using named parameters with positional arguments (not recommended)
@@ -215,10 +228,19 @@ $ export SPANNER_EMULATOR_HOST=localhost:9010
 
 ## Spanner PostgreSQL Interface
 
-This driver only works with the Spanner GoogleSQL dialect. For the
-Spanner PostgreSQL dialect, any PostgreSQL driver that implements the
-[database/sql](https://golang.org/pkg/database/sql/) interface can be used
-in combination with
+This driver works with both Spanner GoogleSQL and PostgreSQL dialects.
+The driver automatically detects the dialect of the database that it is connected to.
+
+Note that the types of query parameters that are supported depends on the dialect of the
+database that the driver is connected to:
+1. Positional parameters (`?`): Supported for both dialects.
+2. Named parameters (`@id`, `@name`, ...): Supported for both dialects.
+3. PostgreSQL-style positional parameters (`$1`, `$2`, ...): Only supported for PostgreSQL databases.
+
+### Alternatives
+
+You can also use Spanner PostgreSQL dialect databases with any off-the-shelf PostgreSQL driver that
+implements the [database/sql](https://golang.org/pkg/database/sql/) interface in combination with
 [PGAdapter](https://cloud.google.com/spanner/docs/pgadapter).
 
 For example, the [pgx](https://github.com/jackc/pgx) driver can be used in combination with

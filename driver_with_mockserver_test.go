@@ -38,6 +38,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/google/uuid"
 	"github.com/googleapis/go-sql-spanner/testutil"
+	lru "github.com/hashicorp/golang-lru"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -69,6 +70,117 @@ func TestPingContext_Fails(t *testing.T) {
 	_ = server.TestSpanner.PutStatementResult("SELECT 1", &testutil.StatementResult{Err: s.Err()})
 	if g, w := db.PingContext(context.Background()), driver.ErrBadConn; g != w {
 		t.Fatalf("ping error mismatch\nGot: %v\nWant: %v", g, w)
+	}
+}
+
+func TestStatementCacheSize(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnectionWithParams(t, "StatementCacheSize=2")
+	defer teardown()
+
+	c, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error for connection: %v", err)
+	}
+	var cache *lru.Cache
+	if err := c.Raw(func(driverConn any) error {
+		sc, ok := driverConn.(*conn)
+		if !ok {
+			return fmt.Errorf("driverConn is not a Spanner conn")
+		}
+		cache = sc.parser.statementsCache
+		return nil
+	}); err != nil {
+		t.Fatalf("unexpected error for raw: %v", err)
+	}
+
+	// The cache should initially be empty.
+	if g, w := cache.Len(), 0; g != w {
+		t.Fatalf("cache size mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	for n := 0; n < 3; n++ {
+		rows, err := db.QueryContext(context.Background(), testutil.SelectFooFromBar)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Executing the same query multiple times should add the statement once to the cache.
+	if g, w := cache.Len(), 1; g != w {
+		t.Fatalf("cache size mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Executing another statement should add yet another statement to the cache.
+	if _, err := db.ExecContext(context.Background(), testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	if g, w := cache.Len(), 2; g != w {
+		t.Fatalf("cache size mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Executing yet another statement should evict the oldest result from the cache and add this.
+	query := "insert into test (id) values (1)"
+	server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	if _, err := db.ExecContext(context.Background(), query); err != nil {
+		t.Fatal(err)
+	}
+	// The cache size should still be 2.
+	if g, w := cache.Len(), 2; g != w {
+		t.Fatalf("cache size mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestDisableStatementCache(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnectionWithParams(t, "DisableStatementCache=true")
+	defer teardown()
+
+	c, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error for connection: %v", err)
+	}
+	var cache *lru.Cache
+	if err := c.Raw(func(driverConn any) error {
+		sc, ok := driverConn.(*conn)
+		if !ok {
+			return fmt.Errorf("driverConn is not a Spanner conn")
+		}
+		cache = sc.parser.statementsCache
+		return nil
+	}); err != nil {
+		t.Fatalf("unexpected error for raw: %v", err)
+	}
+
+	// There should be no cache.
+	if cache != nil {
+		t.Fatalf("statement cache should be disabled")
+	}
+
+	// Executing queries and other statements should work without a cache.
+	for n := 0; n < 3; n++ {
+		rows, err := db.QueryContext(context.Background(), testutil.SelectFooFromBar)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.ExecContext(context.Background(), testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -3692,6 +3804,9 @@ func TestTag_RunTransaction_Retry(t *testing.T) {
 
 	conn, err := db.Conn(ctx)
 	defer func() {
+		if conn == nil {
+			return
+		}
 		if err := conn.Close(); err != nil {
 			t.Fatal(err)
 		}
@@ -4565,6 +4680,73 @@ func TestCustomClientConfig(t *testing.T) {
 	}
 }
 
+func TestPostgreSQLDialect(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnectionWithDialect(t, databasepb.DatabaseDialect_POSTGRESQL)
+	defer teardown()
+	_ = server.TestSpanner.PutStatementResult(
+		"SELECT * FROM Test WHERE Id=$1",
+		&testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: testutil.CreateSelect1ResultSet(),
+		},
+	)
+
+	// The positional query parameter should be replaced with a PostgreSQL-style parameter.
+	stmt, err := db.Prepare("SELECT * FROM Test WHERE Id=?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stmt.Close()
+
+	rows, err := stmt.Query(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	for want := int64(1); rows.Next(); want++ {
+		var got int64
+		err = rows.Scan(&got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("value mismatch\n Got: %v\nWant: %v", got, want)
+		}
+	}
+	if rows.Err() != nil {
+		t.Fatal(rows.Err())
+	}
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("sql requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := len(req.ParamTypes), 1; g != w {
+		t.Fatalf("param types length mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if pt, ok := req.ParamTypes["p1"]; ok {
+		if g, w := pt.Code, sppb.TypeCode_INT64; g != w {
+			t.Fatalf("param type mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	} else {
+		t.Fatalf("no param type found for $1")
+	}
+	if g, w := len(req.Params.Fields), 1; g != w {
+		t.Fatalf("params length mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if val, ok := req.Params.Fields["p1"]; ok {
+		if g, w := val.GetStringValue(), "1"; g != w {
+			t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	} else {
+		t.Fatalf("no value found for param $1")
+	}
+}
+
 func numeric(v string) big.Rat {
 	res, _ := big.NewRat(1, 1).SetString(v)
 	return *res
@@ -4609,8 +4791,16 @@ func setupTestDBConnection(t *testing.T) (db *sql.DB, server *testutil.MockedSpa
 	return setupTestDBConnectionWithParams(t, "")
 }
 
+func setupTestDBConnectionWithDialect(t *testing.T, dialect databasepb.DatabaseDialect) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+	return setupTestDBConnectionWithParamsAndDialect(t, "", dialect)
+}
+
 func setupTestDBConnectionWithParams(t *testing.T, params string) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
-	server, _, serverTeardown := setupMockedTestServer(t)
+	return setupTestDBConnectionWithParamsAndDialect(t, params, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+}
+
+func setupTestDBConnectionWithParamsAndDialect(t *testing.T, params string, dialect databasepb.DatabaseDialect) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+	server, _, serverTeardown := setupMockedTestServerWithDialect(t, dialect)
 	db, err := sql.Open(
 		"spanner",
 		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;%s", server.Address, params))
@@ -4668,12 +4858,22 @@ func setupMockedTestServer(t *testing.T) (server *testutil.MockedSpannerInMemTes
 	return setupMockedTestServerWithConfig(t, spanner.ClientConfig{})
 }
 
+func setupMockedTestServerWithDialect(t *testing.T, dialect databasepb.DatabaseDialect) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
+	return setupMockedTestServerWithConfigAndClientOptionsAndDialect(t, spanner.ClientConfig{}, []option.ClientOption{}, dialect)
+}
+
 func setupMockedTestServerWithConfig(t *testing.T, config spanner.ClientConfig) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
 	return setupMockedTestServerWithConfigAndClientOptions(t, config, []option.ClientOption{})
 }
 
 func setupMockedTestServerWithConfigAndClientOptions(t *testing.T, config spanner.ClientConfig, clientOptions []option.ClientOption) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
+	return setupMockedTestServerWithConfigAndClientOptionsAndDialect(t, config, clientOptions, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+}
+
+func setupMockedTestServerWithConfigAndClientOptionsAndDialect(t *testing.T, config spanner.ClientConfig, clientOptions []option.ClientOption, dialect databasepb.DatabaseDialect) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
 	server, opts, serverTeardown := testutil.NewMockedSpannerInMemTestServer(t)
+	server.SetupSelectDialectResult(dialect)
+
 	opts = append(opts, clientOptions...)
 	ctx := context.Background()
 	formattedDatabase := fmt.Sprintf("projects/%s/instances/%s/databases/%s", "[PROJECT]", "[INSTANCE]", "[DATABASE]")

@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.14.0](https://github.com/googleapis/go-sql-spanner/compare/v1.13.2...v1.14.0) (2025-06-05)
+
+
+### Features
+
+* Support PostgreSQL-dialect databases ([#443](https://github.com/googleapis/go-sql-spanner/issues/443)) ([30df107](https://github.com/googleapis/go-sql-spanner/commit/30df1074644ef881d1c7993376167eb7162e53da))
+* Support UUID data type ([#440](https://github.com/googleapis/go-sql-spanner/issues/440)) ([c68065d](https://github.com/googleapis/go-sql-spanner/commit/c68065d5eb44e80ef93d02bddad759e0cc1993ac))
+
+
+### Bug Fixes
+
+* Return explicit error message when using DDL statements with QueryContext ([#438](https://github.com/googleapis/go-sql-spanner/issues/438)) ([a214d86](https://github.com/googleapis/go-sql-spanner/commit/a214d86e1096eaac828434d02c1de1f93d8095c8))
+* Update all dependencies ([#419](https://github.com/googleapis/go-sql-spanner/issues/419)) ([70fcee5](https://github.com/googleapis/go-sql-spanner/commit/70fcee5a50361760aa9634f4ac77499f1bf5036f))
+* Update all dependencies ([#430](https://github.com/googleapis/go-sql-spanner/issues/430)) ([420902e](https://github.com/googleapis/go-sql-spanner/commit/420902e9136dbad3bbc7ac7b860e785f40944d28))
+* Update module cloud.google.com/go/spanner to v1.82.0 ([#423](https://github.com/googleapis/go-sql-spanner/issues/423)) ([57881f7](https://github.com/googleapis/go-sql-spanner/commit/57881f779d6f88f8c549ac3f17cdd4af9edf1a7b))
+* Update module github.com/hashicorp/golang-lru to v2 ([#444](https://github.com/googleapis/go-sql-spanner/issues/444)) ([98e3097](https://github.com/googleapis/go-sql-spanner/commit/98e30977f2287b80ba4d3cb35e13089f738e7e57))
+
+
+### Performance Improvements
+
+* Use statement cache to avoid repeated SQL string parsing ([#445](https://github.com/googleapis/go-sql-spanner/issues/445)) ([f2fbcab](https://github.com/googleapis/go-sql-spanner/commit/f2fbcabff7b94eea7e56ebf401cebe1907de0f48))
+
 ## [1.13.2](https://github.com/googleapis/go-sql-spanner/compare/v1.13.1...v1.13.2) (2025-05-14)
 
 

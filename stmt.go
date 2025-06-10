@@ -72,8 +72,8 @@ func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
 	return s.conn.CheckNamedValue(value)
 }
 
-func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, error) {
-	q, names, err := parseParameters(q)
+func prepareSpannerStmt(parser *statementParser, q string, args []driver.NamedValue) (spanner.Statement, error) {
+	q, names, err := parser.parseParameters(q)
 	if err != nil {
 		return spanner.Statement{}, err
 	}
