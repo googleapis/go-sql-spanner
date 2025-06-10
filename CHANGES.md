@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.1](https://github.com/googleapis/go-sql-spanner/compare/v1.14.0...v1.14.1) (2025-06-10)
+
+
+### Bug Fixes
+
+* Update module github.com/hashicorp/golang-lru to v2 ([#447](https://github.com/googleapis/go-sql-spanner/issues/447)) ([d30d6d1](https://github.com/googleapis/go-sql-spanner/commit/d30d6d1f622b172a6c58580325f663da92df2f6d))
+
 ## [1.14.0](https://github.com/googleapis/go-sql-spanner/compare/v1.13.2...v1.14.0) (2025-06-05)
 
 
