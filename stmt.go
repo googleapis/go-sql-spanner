@@ -29,11 +29,10 @@ var _ driver.StmtQueryContext = &stmt{}
 var _ driver.NamedValueChecker = &stmt{}
 
 type stmt struct {
-	conn          *conn
-	numArgs       int
-	query         string
-	statementType statementType
-	execOptions   ExecOptions
+	conn        *conn
+	numArgs     int
+	query       string
+	execOptions ExecOptions
 }
 
 func (s *stmt) Close() error {

@@ -39,8 +39,6 @@ const selectDialect = "select option_value from information_schema.database_opti
 // server and will return a one-col-two-rows result set containing the INT64
 // values 1 and 2.
 const SelectFooFromBar = "SELECT FOO FROM BAR"
-const selectFooFromBarRowCount int64 = 2
-const selectFooFromBarColCount int = 1
 
 var selectFooFromBarResults = []int64{1, 2}
 
