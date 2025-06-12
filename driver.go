@@ -954,6 +954,10 @@ func BeginReadWriteTransaction(ctx context.Context, db *sql.DB, options ReadWrit
 		// be active when we hit this point.
 		go conn.Close()
 	}
+	return BeginReadWriteTransactionOnConn(ctx, conn, options)
+}
+
+func BeginReadWriteTransactionOnConn(ctx context.Context, conn *sql.Conn, options ReadWriteTransactionOptions) (*sql.Tx, error) {
 	if err := withTempReadWriteTransactionOptions(conn, &options); err != nil {
 		return nil, err
 	}
@@ -1005,6 +1009,10 @@ func BeginReadOnlyTransaction(ctx context.Context, db *sql.DB, options ReadOnlyT
 		// be active when we hit this point.
 		go conn.Close()
 	}
+	return BeginReadOnlyTransactionOnConn(ctx, conn, options)
+}
+
+func BeginReadOnlyTransactionOnConn(ctx context.Context, conn *sql.Conn, options ReadOnlyTransactionOptions) (*sql.Tx, error) {
 	if err := withTempReadOnlyTransactionOptions(conn, &options); err != nil {
 		return nil, err
 	}

@@ -4801,9 +4801,8 @@ func setupTestDBConnectionWithParams(t *testing.T, params string) (db *sql.DB, s
 
 func setupTestDBConnectionWithParamsAndDialect(t *testing.T, params string, dialect databasepb.DatabaseDialect) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
 	server, _, serverTeardown := setupMockedTestServerWithDialect(t, dialect)
-	db, err := sql.Open(
-		"spanner",
-		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;%s", server.Address, params))
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;%s", server.Address, params)
+	db, err := sql.Open("spanner", dsn)
 	if err != nil {
 		serverTeardown()
 		t.Fatal(err)

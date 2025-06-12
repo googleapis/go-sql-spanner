@@ -13,14 +13,21 @@ import (
 var pools = sync.Map{}
 var poolsIdx = atomic.Int64{}
 
+// Pool is the equivalent of a sql.DB. It contains a pool of connections to the same database.
 type Pool struct {
 	backend        *backend.Pool
 	connections    *sync.Map
 	connectionsIdx atomic.Int64
 }
 
-func CreatePool() *Message {
-	backendPool := &backend.Pool{}
+func CreatePool(dsn string) *Message {
+	// Copy the DSN into Go managed memory, as the DSN is stored in the connector config that is created.
+	dsn = fmt.Sprintf("%s", dsn)
+
+	backendPool, err := backend.CreatePool(dsn)
+	if err != nil {
+		return errMessage(err)
+	}
 	id := poolsIdx.Add(1)
 	pool := &Pool{
 		backend:     backendPool,
@@ -41,16 +48,19 @@ func ClosePool(id int64) *Message {
 		conn.close()
 		return true
 	})
+	if err := pool.backend.Close(); err != nil {
+		return errMessage(err)
+	}
 	return &Message{}
 }
 
-func CreateConnection(poolId int64, project, instance, database string) *Message {
+func CreateConnection(poolId int64) *Message {
 	p, ok := pools.Load(poolId)
 	if !ok {
 		return errMessage(fmt.Errorf("pool %v not found", poolId))
 	}
 	pool := p.(*Pool)
-	sqlConn, err := pool.backend.Conn(context.Background(), project, instance, database)
+	sqlConn, err := pool.backend.Conn(context.Background())
 	if err != nil {
 		return errMessage(err)
 	}

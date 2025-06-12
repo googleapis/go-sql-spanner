@@ -48,7 +48,7 @@ type contextTransaction interface {
 	ExecContext(ctx context.Context, stmt spanner.Statement, statementInfo *statementInfo, options spanner.QueryOptions) (*result, error)
 
 	StartBatchDML(options spanner.QueryOptions, automatic bool) (driver.Result, error)
-	RunBatch(ctx context.Context) (driver.Result, error)
+	RunBatch(ctx context.Context) (SpannerResult, error)
 	AbortBatch() (driver.Result, error)
 
 	BufferWrite(ms []*spanner.Mutation) error
@@ -171,7 +171,7 @@ func (tx *readOnlyTransaction) StartBatchDML(_ spanner.QueryOptions, _ bool) (dr
 	return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
-func (tx *readOnlyTransaction) RunBatch(_ context.Context) (driver.Result, error) {
+func (tx *readOnlyTransaction) RunBatch(_ context.Context) (SpannerResult, error) {
 	return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
@@ -497,7 +497,7 @@ func (tx *readWriteTransaction) StartBatchDML(options spanner.QueryOptions, auto
 	return driver.ResultNoRows, nil
 }
 
-func (tx *readWriteTransaction) RunBatch(ctx context.Context) (driver.Result, error) {
+func (tx *readWriteTransaction) RunBatch(ctx context.Context) (SpannerResult, error) {
 	if tx.batch == nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This transaction does not have an active batch"))
 	}

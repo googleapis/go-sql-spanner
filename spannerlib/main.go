@@ -42,8 +42,8 @@ func pin(msg *exported.Message) (int64, int32, int64, int32, unsafe.Pointer) {
 }
 
 //export CreatePool
-func CreatePool() (int64, int32, int64, int32, unsafe.Pointer) {
-	msg := exported.CreatePool()
+func CreatePool(dsn string) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := exported.CreatePool(dsn)
 	return pin(msg)
 }
 
@@ -54,8 +54,8 @@ func ClosePool(id int64) (int64, int32, int64, int32, unsafe.Pointer) {
 }
 
 //export CreateConnection
-func CreateConnection(poolId int64, project, instance, database string) (int64, int32, int64, int32, unsafe.Pointer) {
-	msg := exported.CreateConnection(poolId, project, instance, database)
+func CreateConnection(poolId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := exported.CreateConnection(poolId)
 	return pin(msg)
 }
 
@@ -68,6 +68,18 @@ func CloseConnection(poolId, connId int64) (int64, int32, int64, int32, unsafe.P
 //export Execute
 func Execute(poolId, connectionId int64, statement []byte) (int64, int32, int64, int32, unsafe.Pointer) {
 	msg := exported.Execute(poolId, connectionId, statement)
+	return pin(msg)
+}
+
+//export ExecuteTransaction
+func ExecuteTransaction(poolId, connectionId, txId int64, statement []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := exported.ExecuteTransaction(poolId, connectionId, txId, statement)
+	return pin(msg)
+}
+
+//export ExecuteBatchDml
+func ExecuteBatchDml(poolId, connectionId int64, statements []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := exported.ExecuteBatchDml(poolId, connectionId, statements)
 	return pin(msg)
 }
 
@@ -98,5 +110,17 @@ func CloseRows(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe
 //export BeginTransaction
 func BeginTransaction(poolId, connectionId int64, txOpts []byte) (int64, int32, int64, int32, unsafe.Pointer) {
 	msg := exported.BeginTransaction(poolId, connectionId, txOpts)
+	return pin(msg)
+}
+
+//export Commit
+func Commit(poolId, connectionId, txId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := exported.Commit(poolId, connectionId, txId)
+	return pin(msg)
+}
+
+//export Rollback
+func Rollback(poolId, connectionId, txId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := exported.Rollback(poolId, connectionId, txId)
 	return pin(msg)
 }

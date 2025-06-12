@@ -59,6 +59,9 @@ type SpannerConn interface {
 	// RunBatch sends all batched DDL or DML statements to Spanner. This is a
 	// no-op if no statements have been batched or if there is no active batch.
 	RunBatch(ctx context.Context) error
+	// RunDmlBatch sends all batched DML statements to Spanner. This is a
+	// no-op if no statements have been batched or if there is no active DML batch.
+	RunDmlBatch(ctx context.Context) (SpannerResult, error)
 	// AbortBatch aborts the current DDL or DML batch and discards all batched
 	// statements.
 	AbortBatch() error
@@ -202,6 +205,11 @@ type SpannerConn interface {
 	withTempBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransactionOptions)
 }
 
+type SpannerResult interface {
+	driver.Result
+	BatchRowsAffected() ([]int64, error)
+}
+
 var _ SpannerConn = &conn{}
 
 type conn struct {
@@ -261,6 +269,7 @@ type conn struct {
 	// tempBatchReadOnlyTransactionOptions are temporarily set right before a
 	// batch read-only transaction is started on a Spanner connection.
 	tempBatchReadOnlyTransactionOptions *BatchReadOnlyTransactionOptions
+	tempProtoTransactionOptions         *spannerpb.TransactionOptions
 }
 
 func (c *conn) UnderlyingClient() (*spanner.Client, error) {
@@ -444,6 +453,18 @@ func (c *conn) RunBatch(ctx context.Context) error {
 	return err
 }
 
+func (c *conn) RunDmlBatch(ctx context.Context) (SpannerResult, error) {
+	res, err := c.runBatch(ctx)
+	if err != nil {
+		return nil, err
+	}
+	spannerRes, ok := res.(SpannerResult)
+	if !ok {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "not a DML batch"))
+	}
+	return spannerRes, nil
+}
+
 func (c *conn) AbortBatch() error {
 	_, err := c.abortBatch()
 	return err
@@ -522,7 +543,7 @@ func (c *conn) runDDLBatch(ctx context.Context) (driver.Result, error) {
 	return c.execDDL(ctx, statements...)
 }
 
-func (c *conn) runDMLBatch(ctx context.Context) (driver.Result, error) {
+func (c *conn) runDMLBatch(ctx context.Context) (SpannerResult, error) {
 	statements := c.batch.statements
 	options := c.batch.options
 	options.QueryOptions.LastStatement = true
@@ -541,7 +562,7 @@ func (c *conn) abortBatch() (driver.Result, error) {
 
 func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (driver.Result, error) {
 	if c.batch != nil && c.batch.tp == dml {
-		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This connection has an active DML batch"))
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This connection has an active DDL batch"))
 	}
 	if c.batch != nil && c.batch.tp == ddl {
 		c.batch.statements = append(c.batch.statements, statements...)
@@ -567,7 +588,7 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 	return driver.ResultNoRows, nil
 }
 
-func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement, options ExecOptions) (driver.Result, error) {
+func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement, options ExecOptions) (SpannerResult, error) {
 	if len(statements) == 0 {
 		return &result{}, nil
 	}
@@ -586,7 +607,7 @@ func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement,
 			return err
 		}, options.TransactionOptions)
 	}
-	return &result{rowsAffected: sum(affected)}, err
+	return &result{rowsAffected: sum(affected), batchUpdateCounts: affected}, err
 }
 
 func sum(affected []int64) int64 {
