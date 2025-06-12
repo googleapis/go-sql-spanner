@@ -71,6 +71,12 @@ func Execute(poolId, connectionId int64, statement []byte) (int64, int32, int64,
 	return pin(msg)
 }
 
+//export ExecuteTransaction
+func ExecuteTransaction(poolId, connectionId, txId int64, statement []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := exported.ExecuteTransaction(poolId, connectionId, txId, statement)
+	return pin(msg)
+}
+
 //export Metadata
 func Metadata(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
 	msg := exported.Metadata(poolId, connId, rowsId)
@@ -98,5 +104,17 @@ func CloseRows(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe
 //export BeginTransaction
 func BeginTransaction(poolId, connectionId int64, txOpts []byte) (int64, int32, int64, int32, unsafe.Pointer) {
 	msg := exported.BeginTransaction(poolId, connectionId, txOpts)
+	return pin(msg)
+}
+
+//export Commit
+func Commit(poolId, connectionId, txId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := exported.Commit(poolId, connectionId, txId)
+	return pin(msg)
+}
+
+//export Rollback
+func Rollback(poolId, connectionId, txId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := exported.Rollback(poolId, connectionId, txId)
 	return pin(msg)
 }

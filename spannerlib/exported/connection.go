@@ -56,6 +56,10 @@ type Connection struct {
 	backend *backend.SpannerConnection
 }
 
+type queryExecutor interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
 func (conn *Connection) close() *Message {
 	conn.results.Range(func(key, value interface{}) bool {
 		res := value.(*rows)
@@ -80,6 +84,7 @@ func (conn *Connection) BeginTransaction(txOpts *spannerpb.TransactionOptions) *
 	id := conn.transactionsIdx.Add(1)
 	res := &transaction{
 		backend: tx,
+		conn:    conn,
 	}
 	conn.transactions.Store(id, res)
 	return idMessage(id)
@@ -96,6 +101,24 @@ func convertIsolationLevel(level spannerpb.TransactionOptions_IsolationLevel) sq
 }
 
 func (conn *Connection) Execute(statement *spannerpb.ExecuteBatchDmlRequest_Statement) *Message {
+	return execute(conn, conn.backend.Conn, statement)
+}
+
+func execute(conn *Connection, executor queryExecutor, statement *spannerpb.ExecuteBatchDmlRequest_Statement) *Message {
+	params := extractParams(statement)
+	it, err := executor.QueryContext(context.Background(), statement.Sql, params...)
+	if err != nil {
+		return errMessage(err)
+	}
+	id := conn.resultsIdx.Add(1)
+	res := &rows{
+		backend: it,
+	}
+	conn.results.Store(id, res)
+	return idMessage(id)
+}
+
+func extractParams(statement *spannerpb.ExecuteBatchDmlRequest_Statement) []any {
 	paramsLen := 1
 	if statement.Params != nil {
 		paramsLen = 1 + len(statement.Params.Fields)
@@ -114,14 +137,5 @@ func (conn *Connection) Execute(statement *spannerpb.ExecuteBatchDmlRequest_Stat
 			params = append(params, sql.Named(param, genericValue))
 		}
 	}
-	it, err := conn.backend.Conn.QueryContext(context.Background(), statement.Sql, params...)
-	if err != nil {
-		return errMessage(err)
-	}
-	id := conn.resultsIdx.Add(1)
-	res := &rows{
-		backend: it,
-	}
-	conn.results.Store(id, res)
-	return idMessage(id)
+	return params
 }
