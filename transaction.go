@@ -58,7 +58,10 @@ type rowIterator interface {
 	Next() (*spanner.Row, error)
 	Stop()
 	Metadata() (*sppb.ResultSetMetadata, error)
+	RowCount() int64
 }
+
+var _ rowIterator = (*readOnlyRowIterator)(nil)
 
 type readOnlyRowIterator struct {
 	*spanner.RowIterator
@@ -74,6 +77,10 @@ func (ri *readOnlyRowIterator) Stop() {
 
 func (ri *readOnlyRowIterator) Metadata() (*sppb.ResultSetMetadata, error) {
 	return ri.RowIterator.Metadata, nil
+}
+
+func (ri *readOnlyRowIterator) RowCount() int64 {
+	return ri.RowIterator.RowCount
 }
 
 type readOnlyTransaction struct {
