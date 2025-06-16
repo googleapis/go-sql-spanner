@@ -270,6 +270,34 @@ func skipIfEmulator(t *testing.T, msg string) {
 	}
 }
 
+func TestAutoConfigEmulator(t *testing.T) {
+	skipIfShort(t)
+	if !runsOnEmulator() {
+		t.Skip("autoConfigEmulator=true only works when connected to the emulator")
+	}
+	t.Parallel()
+
+	ctx := context.Background()
+	for range 2 {
+		db, err := sql.Open("spanner", "projects/emulator-project/instances/test-instance/databases/test-database;autoConfigEmulator=true")
+		if err != nil {
+			t.Fatalf("could not connect to emulator: %v", err)
+		}
+		row := db.QueryRowContext(ctx, "select 1")
+		if row.Err() != nil {
+			t.Fatalf("could not execute select 1: %v", row.Err())
+		}
+		var v int64
+		if err := row.Scan(&v); err != nil {
+			t.Fatalf("could not scan value from select 1: %v", err)
+		}
+		if g, w := v, int64(1); g != w {
+			t.Fatalf("value mismatch:\n Got %d\nWant %d", g, w)
+		}
+		_ = db.Close()
+	}
+}
+
 func TestQueryContext(t *testing.T) {
 	skipIfShort(t)
 	t.Parallel()

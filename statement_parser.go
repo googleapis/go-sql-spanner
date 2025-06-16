@@ -712,14 +712,14 @@ func (p *statementParser) calculateFindParamsResult(sql string) (string, []strin
 	for parser.pos < len(parser.sql) {
 		startPos := parser.pos
 		parser.skipWhitespacesAndComments()
-		parsedSQL.WriteString(string(parser.sql[startPos:parser.pos]))
+		parsedSQL.Write(parser.sql[startPos:parser.pos])
 		if parser.pos >= len(parser.sql) {
 			break
 		}
 		if parser.isMultibyte() {
 			startPos = parser.pos
 			parser.nextChar()
-			parsedSQL.WriteString(string(parser.sql[startPos:parser.pos]))
+			parsedSQL.Write(parser.sql[startPos:parser.pos])
 			continue
 		}
 		c := parser.sql[parser.pos]
@@ -772,7 +772,7 @@ func (p *statementParser) calculateFindParamsResult(sql string) (string, []strin
 			if err != nil {
 				return sql, nil, err
 			}
-			parsedSQL.WriteString(string(parser.sql[startPos:newPos]))
+			parsedSQL.Write(parser.sql[startPos:newPos])
 			parser.pos = newPos
 		}
 	}
