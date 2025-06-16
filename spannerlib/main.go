@@ -118,12 +118,13 @@ func Metadata(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.
 	return pin(msg)
 }
 
-// UpdateCount returns the number of rows that was affected by a DML statement that was
-// executed.
+// ResultSetStats returns the statistics for a statement that has been executed. This includes
+// the number of rows affected in case of a DML statement.
+// Statistics are only available once all rows have been consumed.
 //
-//export UpdateCount
-func UpdateCount(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
-	msg := exported.UpdateCount(poolId, connId, rowsId)
+//export ResultSetStats
+func ResultSetStats(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := exported.ResultSetStats(poolId, connId, rowsId)
 	return pin(msg)
 }
 

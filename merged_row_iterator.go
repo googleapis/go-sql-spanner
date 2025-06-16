@@ -264,6 +264,6 @@ func (m *mergedRowIterator) Metadata() (*sppb.ResultSetMetadata, error) {
 	return m.metadata, nil
 }
 
-func (m *mergedRowIterator) RowCount() int64 {
-	return 0
+func (m *mergedRowIterator) ResultSetStats() *sppb.ResultSetStats {
+	return &sppb.ResultSetStats{}
 }

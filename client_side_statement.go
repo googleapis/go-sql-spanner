@@ -445,6 +445,6 @@ func (t *clientSideIterator) Metadata() (*spannerpb.ResultSetMetadata, error) {
 	return t.metadata, nil
 }
 
-func (t *clientSideIterator) RowCount() int64 {
-	return 0
+func (t *clientSideIterator) ResultSetStats() *spannerpb.ResultSetStats {
+	return &spannerpb.ResultSetStats{}
 }

@@ -4,6 +4,7 @@ import "C"
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -99,11 +100,11 @@ func (conn *Connection) BeginTransaction(txOpts *spannerpb.TransactionOptions) *
 	if txOpts.GetReadOnly() != nil {
 		tx, err = spannerdriver.BeginReadOnlyTransactionOnConn(
 			context.Background(), conn.backend.Conn, convertToReadOnlyOpts(txOpts))
-	} else if txOpts.GetReadWrite() != nil {
+	} else if txOpts.GetPartitionedDml() != nil {
+		err = spanner.ToSpannerError(status.Error(codes.InvalidArgument, "transaction type not supported"))
+	} else {
 		tx, err = spannerdriver.BeginReadWriteTransactionOnConn(
 			context.Background(), conn.backend.Conn, convertToReadWriteTransactionOptions(txOpts))
-	} else {
-		err = spanner.ToSpannerError(status.Error(codes.InvalidArgument, "transaction type not supported"))
 	}
 	if err != nil {
 		return errMessage(err)
@@ -140,10 +141,14 @@ func convertTimestampBound(txOpts *spannerpb.TransactionOptions) spanner.Timesta
 }
 
 func convertToReadWriteTransactionOptions(txOpts *spannerpb.TransactionOptions) spannerdriver.ReadWriteTransactionOptions {
+	readLockMode := spannerpb.TransactionOptions_ReadWrite_READ_LOCK_MODE_UNSPECIFIED
+	if txOpts.GetReadWrite() != nil {
+		readLockMode = txOpts.GetReadWrite().GetReadLockMode()
+	}
 	return spannerdriver.ReadWriteTransactionOptions{
 		TransactionOptions: spanner.TransactionOptions{
 			IsolationLevel: txOpts.GetIsolationLevel(),
-			ReadLockMode:   txOpts.GetReadWrite().GetReadLockMode(),
+			ReadLockMode:   readLockMode,
 		},
 	}
 }
@@ -172,9 +177,26 @@ func execute(conn *Connection, executor queryExecutor, statement *spannerpb.Exec
 	if err != nil {
 		return errMessage(err)
 	}
+	// The first result set should contain the metadata.
+	if !it.Next() {
+		return errMessage(fmt.Errorf("query returned no metadata"))
+	}
+	metadata := &spannerpb.ResultSetMetadata{}
+	if err := it.Scan(&metadata); err != nil {
+		return errMessage(err)
+	}
+	// Move to the next result set, which contains the normal data.
+	if !it.NextResultSet() {
+		return errMessage(fmt.Errorf("no results found after metadata"))
+	}
 	id := conn.resultsIdx.Add(1)
 	res := &rows{
-		backend: it,
+		backend:  it,
+		metadata: metadata,
+	}
+	if len(metadata.RowType.Fields) == 0 {
+		// No rows returned. Read the stats now.
+		res.readStats()
 	}
 	conn.results.Store(id, res)
 	return idMessage(id)
@@ -224,7 +246,12 @@ func extractParams(statement *spannerpb.ExecuteBatchDmlRequest_Statement) []any 
 		paramsLen = 1 + len(statement.Params.Fields)
 	}
 	params := make([]any, paramsLen)
-	params = append(params, spannerdriver.ExecOptions{DecodeOption: spannerdriver.DecodeOptionProto})
+	params = append(params, spannerdriver.ExecOptions{
+		DecodeOption:            spannerdriver.DecodeOptionProto,
+		ReturnResultSetMetadata: true,
+		ReturnResultSetStats:    true,
+		DirectExecute:           true,
+	})
 	if statement.Params != nil {
 		if statement.ParamTypes == nil {
 			statement.ParamTypes = make(map[string]*spannerpb.Type)

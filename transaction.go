@@ -58,7 +58,7 @@ type rowIterator interface {
 	Next() (*spanner.Row, error)
 	Stop()
 	Metadata() (*sppb.ResultSetMetadata, error)
-	RowCount() int64
+	ResultSetStats() *sppb.ResultSetStats
 }
 
 var _ rowIterator = (*readOnlyRowIterator)(nil)
@@ -79,8 +79,11 @@ func (ri *readOnlyRowIterator) Metadata() (*sppb.ResultSetMetadata, error) {
 	return ri.RowIterator.Metadata, nil
 }
 
-func (ri *readOnlyRowIterator) RowCount() int64 {
-	return ri.RowIterator.RowCount
+func (ri *readOnlyRowIterator) ResultSetStats() *sppb.ResultSetStats {
+	return &sppb.ResultSetStats{
+		RowCount:  &sppb.ResultSetStats_RowCountExact{RowCountExact: ri.RowIterator.RowCount},
+		QueryPlan: ri.RowIterator.QueryPlan,
+	}
 }
 
 type readOnlyTransaction struct {

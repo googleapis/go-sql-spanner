@@ -49,8 +49,8 @@ func (t *testIterator) Metadata() (*sppb.ResultSetMetadata, error) {
 	return t.metadata, nil
 }
 
-func (t *testIterator) RowCount() int64 {
-	return 0
+func (t *testIterator) ResultSetStats() *sppb.ResultSetStats {
+	return &sppb.ResultSetStats{}
 }
 
 func newRow(t *testing.T, cols []string, vals []interface{}) *spanner.Row {

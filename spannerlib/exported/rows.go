@@ -6,6 +6,8 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -18,12 +20,12 @@ func Metadata(poolId, connId, rowsId int64) *Message {
 	return res.Metadata()
 }
 
-func UpdateCount(poolId, connId, rowsId int64) *Message {
+func ResultSetStats(poolId, connId, rowsId int64) *Message {
 	res, err := findRows(poolId, connId, rowsId)
 	if err != nil {
 		return errMessage(err)
 	}
-	return res.UpdateCount()
+	return res.ResultSetStats()
 }
 
 func Next(poolId, connId, rowsId int64) *Message {
@@ -48,7 +50,9 @@ func CloseRows(poolId, connId, rowsId int64) *Message {
 }
 
 type rows struct {
-	backend *sql.Rows
+	backend  *sql.Rows
+	metadata *spannerpb.ResultSetMetadata
+	stats    *spannerpb.ResultSetStats
 }
 
 func (rows *rows) Close() *Message {
@@ -57,19 +61,6 @@ func (rows *rows) Close() *Message {
 		return errMessage(err)
 	}
 	return &Message{}
-}
-
-func (rows *rows) metadata() (*spannerpb.ResultSetMetadata, error) {
-	b, err := rows.metadataBytes()
-	if err != nil {
-		return nil, err
-	}
-	var res spannerpb.ResultSetMetadata
-	err = proto.Unmarshal(b, &res)
-	if err != nil {
-		return nil, err
-	}
-	return &res, nil
 }
 
 func (rows *rows) metadataBytes() ([]byte, error) {
@@ -81,32 +72,37 @@ func (rows *rows) metadataBytes() ([]byte, error) {
 }
 
 func (rows *rows) Metadata() *Message {
-	metadataBytes, err := rows.metadataBytes()
+	metadataBytes, err := proto.Marshal(rows.metadata)
 	if err != nil {
 		return errMessage(err)
 	}
 	return &Message{Res: metadataBytes}
 }
 
-func (rows *rows) UpdateCount() *Message {
-	colTypes, err := rows.backend.Columns()
+func (rows *rows) ResultSetStats() *Message {
+	if rows.stats == nil {
+		return errMessage(spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "stats are only available after reading all rows")))
+	}
+	statsBytes, err := proto.Marshal(rows.stats)
 	if err != nil {
 		return errMessage(err)
 	}
-	return &Message{Res: []byte(colTypes[0])}
+	return &Message{Res: statsBytes}
 }
 
 func (rows *rows) Next() *Message {
+	if rows.stats != nil {
+		// We have already read stats, so this is the end of all data.
+		return &Message{}
+	}
 	ok := rows.backend.Next()
 	if !ok {
+		// No more rows. Read stats and return an empty message.
+		rows.readStats()
 		// An empty message indicates no more rows.
 		return &Message{}
 	}
-	metadata, err := rows.metadata()
-	if err != nil {
-		return errMessage(err)
-	}
-	buffer := make([]any, len(metadata.RowType.Fields))
+	buffer := make([]any, len(rows.metadata.RowType.Fields))
 	for i := range buffer {
 		buffer[i] = &spanner.GenericColumnValue{}
 	}
@@ -124,4 +120,14 @@ func (rows *rows) Next() *Message {
 		return errMessage(err)
 	}
 	return &Message{Res: res}
+}
+
+func (rows *rows) readStats() {
+	rows.stats = &spannerpb.ResultSetStats{}
+	if !rows.backend.NextResultSet() {
+		return
+	}
+	if rows.backend.Next() {
+		_ = rows.backend.Scan(&rows.stats)
+	}
 }

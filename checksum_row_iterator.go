@@ -252,6 +252,9 @@ func (it *checksumRowIterator) Metadata() (*sppb.ResultSetMetadata, error) {
 	return it.metadata, nil
 }
 
-func (it *checksumRowIterator) RowCount() int64 {
-	return it.RowIterator.RowCount
+func (it *checksumRowIterator) ResultSetStats() *sppb.ResultSetStats {
+	return &sppb.ResultSetStats{
+		RowCount:  &sppb.ResultSetStats_RowCountExact{RowCountExact: it.RowIterator.RowCount},
+		QueryPlan: it.RowIterator.QueryPlan,
+	}
 }

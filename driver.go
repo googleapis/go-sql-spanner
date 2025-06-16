@@ -163,6 +163,10 @@ type ExecOptions struct {
 	// AutoCommitDMLMode determines the type of transaction that DML statements
 	// that are executed outside explicit transactions use.
 	AutocommitDMLMode AutocommitDMLMode
+
+	ReturnResultSetMetadata bool
+	DirectExecute           bool
+	ReturnResultSetStats    bool
 }
 
 type DecodeOption int

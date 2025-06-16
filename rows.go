@@ -16,7 +16,7 @@ package spannerdriver
 
 import (
 	"database/sql/driver"
-	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -27,11 +27,20 @@ import (
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/uuid"
 	"google.golang.org/api/iterator"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
 var _ driver.RowsColumnTypeDatabaseTypeName = (*rows)(nil)
+var _ driver.RowsNextResultSet = (*rows)(nil)
+
+type resultSetType int
+
+const (
+	resultSetTypeMetadata resultSetType = iota
+	resultSetTypeResults
+	resultSetTypeStats
+	resultSetTypeNoMoreResults
+)
 
 type rows struct {
 	it    rowIterator
@@ -46,6 +55,31 @@ type rows struct {
 	decodeToNativeArrays bool
 
 	dirtyRow *spanner.Row
+
+	currentResultSetType    resultSetType
+	returnResultSetMetadata bool
+	returnResultSetStats    bool
+
+	hasReturnedResultSetMetadata bool
+	hasReturnedResultSetStats    bool
+}
+
+func (r *rows) HasNextResultSet() bool {
+	if r.currentResultSetType == resultSetTypeMetadata && r.returnResultSetMetadata {
+		return true
+	}
+	if r.currentResultSetType == resultSetTypeResults && r.returnResultSetStats {
+		return true
+	}
+	return false
+}
+
+func (r *rows) NextResultSet() error {
+	if !r.HasNextResultSet() {
+		return io.EOF
+	}
+	r.currentResultSetType++
+	return nil
 }
 
 // Columns returns the names of the columns. The number of
@@ -54,12 +88,32 @@ type rows struct {
 // string should be returned for that entry.
 func (r *rows) Columns() []string {
 	r.getColumns()
-	return r.cols
+	switch r.currentResultSetType {
+	case resultSetTypeMetadata:
+		return []string{"metadata"}
+	case resultSetTypeResults:
+		return r.cols
+	case resultSetTypeStats:
+		return []string{"stats"}
+	case resultSetTypeNoMoreResults:
+		return nil
+	}
+	return nil
 }
 
 func (r *rows) ColumnTypeDatabaseTypeName(index int) string {
 	r.getColumns()
-	return r.colTypeNames[index]
+	switch r.currentResultSetType {
+	case resultSetTypeMetadata:
+		return "ResultSetMetadata"
+	case resultSetTypeResults:
+		return r.colTypeNames[index]
+	case resultSetTypeStats:
+		return "ResultSetStats"
+	case resultSetTypeNoMoreResults:
+		return ""
+	}
+	return ""
 }
 
 // Close closes the rows iterator.
@@ -75,6 +129,9 @@ func (r *rows) Close() error {
 
 func (r *rows) getColumns() {
 	r.colsOnce.Do(func() {
+		if r.currentResultSetType == resultSetTypeMetadata && !r.returnResultSetMetadata {
+			r.currentResultSetType = resultSetTypeResults
+		}
 		row, err := r.it.Next()
 		if err == nil {
 			r.dirtyRow = row
@@ -92,22 +149,10 @@ func (r *rows) getColumns() {
 		rowType := metadata.RowType
 		r.cols = make([]string, len(rowType.Fields))
 		r.colTypeNames = make([]string, len(rowType.Fields))
-		if r.decodeOption == DecodeOptionProto {
-			if len(rowType.Fields) == 0 {
-				r.cols = make([]string, 1)
-				r.colTypeNames = make([]string, 1)
-			}
-			metadataBytes, err := proto.Marshal(metadata)
-			if err == nil {
-				r.colTypeNames[0] = base64.StdEncoding.EncodeToString(metadataBytes)
-			}
-			r.cols[0] = fmt.Sprintf("%v", r.it.RowCount())
-		} else {
-			for i, c := range rowType.Fields {
-				r.cols[i] = c.Name
-				if r.decodeOption != DecodeOptionProto {
-					r.colTypeNames[i] = c.Type.Code.String()
-				}
+		for i, c := range rowType.Fields {
+			r.cols[i] = c.Name
+			if r.decodeOption != DecodeOptionProto {
+				r.colTypeNames[i] = c.Type.Code.String()
 			}
 		}
 	})
@@ -124,6 +169,30 @@ func (r *rows) getColumns() {
 // a buffer held in dest.
 func (r *rows) Next(dest []driver.Value) error {
 	r.getColumns()
+	if r.currentResultSetType == resultSetTypeMetadata {
+		if r.dirtyErr != nil && !errors.Is(r.dirtyErr, iterator.Done) {
+			return r.dirtyErr
+		}
+		if r.hasReturnedResultSetMetadata {
+			return io.EOF
+		}
+		r.hasReturnedResultSetMetadata = true
+		metadata, err := r.it.Metadata()
+		if err != nil {
+			return err
+		}
+		dest[0] = metadata
+		return nil
+	}
+	if r.currentResultSetType == resultSetTypeStats {
+		if r.hasReturnedResultSetStats {
+			return io.EOF
+		}
+		r.hasReturnedResultSetStats = true
+		dest[0] = r.it.ResultSetStats()
+		return nil
+	}
+
 	var row *spanner.Row
 	if r.dirtyErr != nil {
 		err := r.dirtyErr
@@ -132,7 +201,8 @@ func (r *rows) Next(dest []driver.Value) error {
 			return io.EOF
 		}
 		return err
-	} else if r.dirtyRow != nil {
+	}
+	if r.dirtyRow != nil {
 		row = r.dirtyRow
 		r.dirtyRow = nil
 	} else {

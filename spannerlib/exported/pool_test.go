@@ -68,7 +68,7 @@ func TestExecuteDml(t *testing.T) {
 	if len(metadataValue.RowType.Fields) > 0 {
 		fmt.Printf("Row type: %v\n", metadataValue.RowType)
 	} else {
-		rowCount := UpdateCount(pool.ObjectId, conn.ObjectId, rows.ObjectId)
+		rowCount := ResultSetStats(pool.ObjectId, conn.ObjectId, rows.ObjectId)
 		fmt.Printf("Update count: %v\n", string(rowCount.Res))
 	}
 	for {

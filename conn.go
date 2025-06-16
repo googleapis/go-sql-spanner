@@ -815,8 +815,15 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 			return nil, err
 		}
 	}
-	res := &rows{it: iter, decodeOption: execOptions.DecodeOption, decodeToNativeArrays: execOptions.DecodeToNativeArrays}
-	if execOptions.DecodeOption == DecodeOptionProto {
+	res := &rows{
+		it:                      iter,
+		decodeOption:            execOptions.DecodeOption,
+		decodeToNativeArrays:    execOptions.DecodeToNativeArrays,
+		returnResultSetMetadata: execOptions.ReturnResultSetMetadata,
+		returnResultSetStats:    execOptions.ReturnResultSetStats,
+	}
+	if execOptions.DirectExecute {
+		// This forces the execution of the statement.
 		res.getColumns()
 		if res.dirtyErr != nil && !errors.Is(res.dirtyErr, iterator.Done) {
 			_ = res.Close()
