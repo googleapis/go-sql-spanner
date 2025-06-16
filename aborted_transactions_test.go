@@ -919,7 +919,7 @@ func TestBatchUpdateAbortedWithError(t *testing.T) {
 		t.Fatalf("error code mismatch\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.NotFound)
 	}
 
-	// Abort the transaction. The internal retry should succeed as teh same error
+	// Abort the transaction. The internal retry should succeed as the same error
 	// and the same row count is returned during the retry.
 	server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
 		Errors: []error{status.Error(codes.Aborted, "Aborted")},
