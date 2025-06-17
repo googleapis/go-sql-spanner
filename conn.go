@@ -521,7 +521,11 @@ func (c *conn) runDDLBatch(ctx context.Context) (driver.Result, error) {
 	return c.execDDL(ctx, statements...)
 }
 
-func (c *conn) runDMLBatch(ctx context.Context) (driver.Result, error) {
+func (c *conn) runDMLBatch(ctx context.Context) (SpannerResult, error) {
+	if c.inTransaction() {
+		return c.tx.RunDmlBatch(ctx)
+	}
+
 	statements := c.batch.statements
 	options := c.batch.options
 	options.QueryOptions.LastStatement = true
@@ -566,7 +570,7 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 	return driver.ResultNoRows, nil
 }
 
-func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement, options ExecOptions) (driver.Result, error) {
+func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement, options ExecOptions) (SpannerResult, error) {
 	if len(statements) == 0 {
 		return &result{}, nil
 	}
@@ -585,7 +589,7 @@ func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement,
 			return err
 		}, options.TransactionOptions)
 	}
-	return &result{rowsAffected: sum(affected)}, err
+	return &result{rowsAffected: sum(affected), batchUpdateCounts: affected}, err
 }
 
 func sum(affected []int64) int64 {
