@@ -45,7 +45,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const userAgent = "go-sql-spanner/1.14.0" // x-release-please-version
+const userAgent = "go-sql-spanner/1.15.0" // x-release-please-version
 
 const gormModule = "github.com/googleapis/go-gorm-spanner"
 const gormUserAgent = "go-gorm-spanner"
