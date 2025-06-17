@@ -163,6 +163,28 @@ type ExecOptions struct {
 	// AutoCommitDMLMode determines the type of transaction that DML statements
 	// that are executed outside explicit transactions use.
 	AutocommitDMLMode AutocommitDMLMode
+
+	// ReturnResultSetMetadata instructs the driver to return an additional result
+	// set with the full spannerpb.ResultSetMetadata of the query. This result set
+	// contains one row and one column, and the value in that cell is the
+	// spannerpb.ResultSetMetadata that was returned by Spanner when executing the
+	// query. This result set will be the first result set in the sql.Rows object
+	// that is returned.
+	//
+	// You have to call [sql.Rows.NextResultSet] to move to the result set that
+	// contains the actual query data.
+	ReturnResultSetMetadata bool
+
+	// ReturnResultSetStats instructs the driver to return an additional result
+	// set with the full spannerpb.ResultSetStats of the query. This result set
+	// contains one row and one column, and the value in that cell is the
+	// spannerpb.ResultSetStats that was returned by Spanner when executing the
+	// query. This result set will be the last result set in the sql.Rows object
+	// that is returned.
+	//
+	// You have to call [sql.Rows.NextResultSet] after fetching all query data in
+	// order to move to the result set that contains the spannerpb.ResultSetStats.
+	ReturnResultSetStats bool
 }
 
 type DecodeOption int

@@ -58,7 +58,10 @@ type rowIterator interface {
 	Next() (*spanner.Row, error)
 	Stop()
 	Metadata() (*sppb.ResultSetMetadata, error)
+	ResultSetStats() *sppb.ResultSetStats
 }
+
+var _ rowIterator = &readOnlyRowIterator{}
 
 type readOnlyRowIterator struct {
 	*spanner.RowIterator
@@ -74,6 +77,15 @@ func (ri *readOnlyRowIterator) Stop() {
 
 func (ri *readOnlyRowIterator) Metadata() (*sppb.ResultSetMetadata, error) {
 	return ri.RowIterator.Metadata, nil
+}
+
+func (ri *readOnlyRowIterator) ResultSetStats() *sppb.ResultSetStats {
+	// TODO: The Spanner client library should offer an option to get the full
+	//       ResultSetStats, instead of only the RowCount and QueryPlan.
+	return &sppb.ResultSetStats{
+		RowCount:  &sppb.ResultSetStats_RowCountExact{RowCountExact: ri.RowIterator.RowCount},
+		QueryPlan: ri.RowIterator.QueryPlan,
+	}
 }
 
 type readOnlyTransaction struct {
