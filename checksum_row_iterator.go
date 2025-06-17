@@ -41,6 +41,8 @@ func init() {
 	gob.Register(structpb.Value_StructValue{})
 }
 
+var _ rowIterator = &checksumRowIterator{}
+
 // checksumRowIterator implements rowIterator and keeps track of a running
 // checksum for all results that have been seen during the iteration of the
 // results. This checksum can be used to verify whether a retry returned the
@@ -248,4 +250,13 @@ func (it *checksumRowIterator) Stop() {
 
 func (it *checksumRowIterator) Metadata() (*sppb.ResultSetMetadata, error) {
 	return it.metadata, nil
+}
+
+func (it *checksumRowIterator) ResultSetStats() *sppb.ResultSetStats {
+	// TODO: The Spanner client library should offer an option to get the full
+	//       ResultSetStats, instead of only the RowCount and QueryPlan.
+	return &sppb.ResultSetStats{
+		RowCount:  &sppb.ResultSetStats_RowCountExact{RowCountExact: it.RowIterator.RowCount},
+		QueryPlan: it.RowIterator.QueryPlan,
+	}
 }

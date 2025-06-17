@@ -4995,6 +4995,258 @@ func TestPostgreSQLDialect(t *testing.T) {
 	}
 }
 
+func TestReturnResultSetMetadata(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	rows, err := db.QueryContext(context.Background(), testutil.SelectFooFromBar, ExecOptions{ReturnResultSetMetadata: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	// Verify that the first result set contains the ResultSetMetadata.
+	if !rows.Next() {
+		t.Fatal("no rows")
+	}
+	var meta *sppb.ResultSetMetadata
+	if err := rows.Scan(&meta); err != nil {
+		t.Fatalf("failed to scan metadata: %v", err)
+	}
+	if g, w := len(meta.RowType.Fields), 1; g != w {
+		t.Fatalf("cols count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if rows.Next() {
+		t.Fatal("more rows than expected")
+	}
+
+	// Move to the next result set, which should contain the data.
+	if !rows.NextResultSet() {
+		t.Fatal("no more result sets found")
+	}
+
+	for want := int64(1); rows.Next(); want++ {
+		cols, err := rows.Columns()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !cmp.Equal(cols, []string{"FOO"}) {
+			t.Fatalf("cols mismatch\nGot: %v\nWant: %v", cols, []string{"FOO"})
+		}
+		var got int64
+		err = rows.Scan(&got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("value mismatch\nGot: %v\nWant: %v", got, want)
+		}
+	}
+	if rows.Err() != nil {
+		t.Fatal(rows.Err())
+	}
+
+	// There should be no more result sets.
+	if rows.NextResultSet() {
+		t.Fatal("more result sets than expected")
+	}
+}
+
+func TestReturnResultSetMetadataError(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	query := "select * from non_existing_table"
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type: testutil.StatementResultError,
+		Err:  gstatus.Error(codes.NotFound, "Table not found"),
+	})
+	rows, err := db.QueryContext(context.Background(), query, ExecOptions{ReturnResultSetMetadata: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	if rows.Next() {
+		t.Fatal("Next should fail")
+	}
+	var meta *sppb.ResultSetMetadata
+	if err := rows.Scan(&meta); err == nil {
+		t.Fatal("missing error when scanning metadata")
+	} else {
+		if g, w := spanner.ErrCode(err), codes.NotFound; g != w {
+			t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+
+	// Moving to the next result set fails because the query failed.
+	if rows.NextResultSet() {
+		t.Fatal("got unexpected next result set")
+	}
+}
+
+func TestReturnResultSetStats(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	query := "insert into singers (name) values ('test') then return id"
+	resultSet := testutil.CreateSingleColumnInt64ResultSet([]int64{42598}, "id")
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type:        testutil.StatementResultResultSet,
+		ResultSet:   resultSet,
+		UpdateCount: 1,
+	})
+
+	rows, err := db.QueryContext(context.Background(), query, ExecOptions{ReturnResultSetStats: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	// The first result set should contain the data.
+	for want := int64(42598); rows.Next(); want++ {
+		cols, err := rows.Columns()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !cmp.Equal(cols, []string{"id"}) {
+			t.Fatalf("cols mismatch\nGot: %v\nWant: %v", cols, []string{"id"})
+		}
+		var got int64
+		err = rows.Scan(&got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("value mismatch\nGot: %v\nWant: %v", got, want)
+		}
+	}
+	if rows.Err() != nil {
+		t.Fatal(rows.Err())
+	}
+
+	// The next result set should contain the stats.
+	if !rows.NextResultSet() {
+		t.Fatal("missing stats result set")
+	}
+
+	// Get the stats.
+	if !rows.Next() {
+		t.Fatal("no stats rows")
+	}
+	var stats *sppb.ResultSetStats
+	if err := rows.Scan(&stats); err != nil {
+		t.Fatalf("failed to scan stats: %v", err)
+	}
+	if g, w := stats.GetRowCountExact(), int64(1); g != w {
+		t.Fatalf("row count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if rows.Next() {
+		t.Fatal("more rows than expected")
+	}
+
+	// There should be no more result sets.
+	if rows.NextResultSet() {
+		t.Fatal("more result sets than expected")
+	}
+}
+
+func TestReturnResultSetMetadataAndStats(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	query := "insert into singers (name) values ('test') then return id"
+	resultSet := testutil.CreateSingleColumnInt64ResultSet([]int64{42598}, "id")
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type:        testutil.StatementResultResultSet,
+		ResultSet:   resultSet,
+		UpdateCount: 1,
+	})
+
+	rows, err := db.QueryContext(context.Background(), query, ExecOptions{
+		ReturnResultSetMetadata: true,
+		ReturnResultSetStats:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	// Verify that the first result set contains the ResultSetMetadata.
+	if !rows.Next() {
+		t.Fatal("no rows")
+	}
+	var meta *sppb.ResultSetMetadata
+	if err := rows.Scan(&meta); err != nil {
+		t.Fatalf("failed to scan metadata: %v", err)
+	}
+	if g, w := len(meta.RowType.Fields), 1; g != w {
+		t.Fatalf("cols count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := meta.RowType.Fields[0].Name, "id"; g != w {
+		t.Fatalf("column name mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if rows.Next() {
+		t.Fatal("more rows than expected")
+	}
+
+	// Move to the next result set, which should contain the data.
+	if !rows.NextResultSet() {
+		t.Fatal("no more result sets found")
+	}
+
+	for want := int64(42598); rows.Next(); want++ {
+		cols, err := rows.Columns()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !cmp.Equal(cols, []string{"id"}) {
+			t.Fatalf("cols mismatch\nGot: %v\nWant: %v", cols, []string{"id"})
+		}
+		var got int64
+		err = rows.Scan(&got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("value mismatch\n Got: %v\nWant: %v", got, want)
+		}
+	}
+	if rows.Err() != nil {
+		t.Fatal(rows.Err())
+	}
+
+	// The next result set should contain the stats.
+	if !rows.NextResultSet() {
+		t.Fatal("missing stats result set")
+	}
+
+	// Get the stats.
+	if !rows.Next() {
+		t.Fatal("no stats rows")
+	}
+	var stats *sppb.ResultSetStats
+	if err := rows.Scan(&stats); err != nil {
+		t.Fatalf("failed to scan stats: %v", err)
+	}
+	if g, w := stats.GetRowCountExact(), int64(1); g != w {
+		t.Fatalf("row count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if rows.Next() {
+		t.Fatal("more rows than expected")
+	}
+
+	// There should be no more result sets.
+	if rows.NextResultSet() {
+		t.Fatal("more result sets than expected")
+	}
+}
+
 func numeric(v string) big.Rat {
 	res, _ := big.NewRat(1, 1).SetString(v)
 	return *res
