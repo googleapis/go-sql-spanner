@@ -18,6 +18,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"log/slog"
 	"slices"
 	"time"
@@ -521,7 +522,11 @@ func (c *conn) runDDLBatch(ctx context.Context) (driver.Result, error) {
 	return c.execDDL(ctx, statements...)
 }
 
-func (c *conn) runDMLBatch(ctx context.Context) (driver.Result, error) {
+func (c *conn) runDMLBatch(ctx context.Context) (SpannerResult, error) {
+	if c.inTransaction() {
+		return c.tx.RunDmlBatch(ctx)
+	}
+
 	statements := c.batch.statements
 	options := c.batch.options
 	options.QueryOptions.LastStatement = true
@@ -566,7 +571,7 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 	return driver.ResultNoRows, nil
 }
 
-func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement, options ExecOptions) (driver.Result, error) {
+func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement, options ExecOptions) (SpannerResult, error) {
 	if len(statements) == 0 {
 		return &result{}, nil
 	}
@@ -585,7 +590,7 @@ func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement,
 			return err
 		}, options.TransactionOptions)
 	}
-	return &result{rowsAffected: sum(affected)}, err
+	return &result{rowsAffected: sum(affected), batchUpdateCounts: affected}, err
 }
 
 func sum(affected []int64) int64 {
@@ -793,13 +798,22 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 			return nil, err
 		}
 	}
-	return &rows{
+	res := &rows{
 		it:                      iter,
 		decodeOption:            execOptions.DecodeOption,
 		decodeToNativeArrays:    execOptions.DecodeToNativeArrays,
 		returnResultSetMetadata: execOptions.ReturnResultSetMetadata,
 		returnResultSetStats:    execOptions.ReturnResultSetStats,
-	}, nil
+	}
+	if execOptions.DirectExecuteQuery {
+		// This call to res.getColumns() triggers the execution of the statement, as it needs to fetch the metadata.
+		res.getColumns()
+		if res.dirtyErr != nil && !errors.Is(res.dirtyErr, iterator.Done) {
+			_ = res.Close()
+			return nil, res.dirtyErr
+		}
+	}
+	return res, nil
 }
 
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
