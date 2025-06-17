@@ -235,6 +235,53 @@ func TestSimpleQuery(t *testing.T) {
 	}
 }
 
+func TestDirectExecuteQuery(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	// This does not use DirectExecuteQuery. The query is only sent to Spanner when
+	// rows.Next is called.
+	rows, err := db.QueryContext(context.Background(), testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// There should be no request on the server.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 0; g != w {
+		t.Fatalf("sql requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if !rows.Next() {
+		t.Fatal("no rows")
+	}
+	// The request should now be present on the server.
+	requests = drainRequestsFromServer(server.TestSpanner)
+	sqlRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("sql requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	_ = rows.Close()
+
+	// Now repeat the same with the DirectExecuteQuery option.
+	rows, err = db.QueryContext(context.Background(), testutil.SelectFooFromBar, ExecOptions{DirectExecuteQuery: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The request should be present on the server.
+	requests = drainRequestsFromServer(server.TestSpanner)
+	sqlRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("sql requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	// Verify that we can get the row that we selected.
+	if !rows.Next() {
+		t.Fatal("no rows")
+	}
+	_ = rows.Close()
+}
+
 func TestConcurrentScanAndClose(t *testing.T) {
 	t.Parallel()
 
