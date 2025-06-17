@@ -163,6 +163,13 @@ type ExecOptions struct {
 	// AutoCommitDMLMode determines the type of transaction that DML statements
 	// that are executed outside explicit transactions use.
 	AutocommitDMLMode AutocommitDMLMode
+
+	// DirectExecute determines whether a query is executed directly when the
+	// [sql.DB.QueryContext] method is called, or whether the actual query execution
+	// is delayed until the first call to [sql.Rows.Next]. The default is to delay
+	// the execution. Set this flag to true to execute the query directly when
+	// [sql.DB.QueryContext] is called.
+	DirectExecuteQuery bool
 }
 
 type DecodeOption int
