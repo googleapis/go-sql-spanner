@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.15.0](https://github.com/googleapis/go-sql-spanner/compare/v1.14.0...v1.15.0) (2025-06-17)
+
+
+### Features
+
+* Add DirectExecuteQuery option ([#455](https://github.com/googleapis/go-sql-spanner/issues/455)) ([e2620e6](https://github.com/googleapis/go-sql-spanner/commit/e2620e6cdc537991f3301d0b8f71af9e69e2b479))
+* Add ExecuteBatchDml func with batch result ([#454](https://github.com/googleapis/go-sql-spanner/issues/454)) ([73c3fb0](https://github.com/googleapis/go-sql-spanner/commit/73c3fb05208463822834a7b671ded42645955b6e)), refs [#377](https://github.com/googleapis/go-sql-spanner/issues/377)
+
+
+### Bug Fixes
+
+* Update all dependencies ([#446](https://github.com/googleapis/go-sql-spanner/issues/446)) ([3083c93](https://github.com/googleapis/go-sql-spanner/commit/3083c9372caf668e38a0a8a141c761710cbdad2c))
+* Update module github.com/hashicorp/golang-lru to v2 ([#447](https://github.com/googleapis/go-sql-spanner/issues/447)) ([d30d6d1](https://github.com/googleapis/go-sql-spanner/commit/d30d6d1f622b172a6c58580325f663da92df2f6d))
+* Update module github.com/hashicorp/golang-lru to v2 ([#452](https://github.com/googleapis/go-sql-spanner/issues/452)) ([546cdaa](https://github.com/googleapis/go-sql-spanner/commit/546cdaa6f93e35941d88d9bba024a313197d52af))
+* Wrap AlreadyExists error for instance creation when autoConfigEmulator=true ([#450](https://github.com/googleapis/go-sql-spanner/issues/450)) ([3aa5ca2](https://github.com/googleapis/go-sql-spanner/commit/3aa5ca2cada7267f0f81fc27d3ec161ee6baf664))
+
+
+### Performance Improvements
+
+* Avoid to string conversion in statement parser ([#453](https://github.com/googleapis/go-sql-spanner/issues/453)) ([e6f889a](https://github.com/googleapis/go-sql-spanner/commit/e6f889a6bd9cf3cb8d150fa529f97ac1560fa1d2))
+
 ## [1.14.0](https://github.com/googleapis/go-sql-spanner/compare/v1.13.2...v1.14.0) (2025-06-05)
 
 
