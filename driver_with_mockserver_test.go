@@ -2755,6 +2755,133 @@ func TestAutocommitBatchDml(t *testing.T) {
 	}
 }
 
+func TestExecuteBatchDml(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	_ = server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (1, 'One')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	_ = server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (2, 'Two')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+
+	res, err := ExecuteBatchDml(ctx, db, func(ctx context.Context, batch DmlBatch) error {
+		if err := batch.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (1, 'One')"); err != nil {
+			return err
+		}
+		if err := batch.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (2, 'Two')"); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("failed to execute dml batch: %v", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		t.Fatalf("could not get rows affected from batch: %v", err)
+	}
+	if g, w := affected, int64(2); g != w {
+		t.Fatalf("affected rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	batchAffected, err := res.BatchRowsAffected()
+	if err != nil {
+		t.Fatalf("could not get batch rows affected from batch: %v", err)
+	}
+	if g, w := batchAffected, []int64{1, 1}; !cmp.Equal(g, w) {
+		t.Fatalf("affected batch rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	// There should be no ExecuteSqlRequests on the server.
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 0; g != w {
+		t.Fatalf("sql requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if g, w := len(batchRequests), 1; g != w {
+		t.Fatalf("BatchDML requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if !batchRequests[0].(*sppb.ExecuteBatchDmlRequest).LastStatements {
+		t.Fatal("last statements flag not set")
+	}
+	// The transaction should have been committed.
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("Commit requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestExecuteBatchDmlError(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	_ = server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (1, 'One')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	c, err := db.Conn(ctx)
+	defer func() { _ = c.Close() }()
+	if err != nil {
+		t.Fatalf("failed to obtain connection: %v", err)
+	}
+
+	_, err = ExecuteBatchDmlOnConn(ctx, c, func(ctx context.Context, batch DmlBatch) error {
+		if err := batch.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (1, 'One')"); err != nil {
+			return err
+		}
+		return fmt.Errorf("test error")
+	})
+	if err == nil {
+		t.Fatalf("failed to execute dml batch: %v", err)
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	// There should be no requests on the server.
+	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if g, w := len(batchRequests), 0; g != w {
+		t.Fatalf("BatchDML requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 0; g != w {
+		t.Fatalf("Commit requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Verify that the connection is not in a batch, and that it can be used for other statements.
+	if err := c.Raw(func(driverConn any) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			return fmt.Errorf("driver connection is not a SpannerConn")
+		}
+		if spannerConn.InDMLBatch() {
+			return fmt.Errorf("connection is still in a batch")
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("check if connection is in a batch failed: %v", err)
+	}
+	res, err := c.ExecContext(ctx, `INSERT INTO Foo (Id, Val) VALUES (1, 'One')`)
+	if err != nil {
+		t.Fatalf("failed to execute dml statement: %v", err)
+	}
+	if affected, err := res.RowsAffected(); err != nil {
+		t.Fatalf("failed to obtain rows affected: %v", err)
+	} else {
+		if g, w := affected, int64(1); g != w {
+			t.Fatalf("affected rows mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+}
+
 func TestTransactionBatchDml(t *testing.T) {
 	t.Parallel()
 
@@ -2869,6 +2996,80 @@ func TestTransactionBatchDml(t *testing.T) {
 	commitRequests = requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if len(commitRequests) != 1 {
 		t.Fatalf("Commit requests count mismatch\nGot: %v\nWant: %v", len(commitRequests), 1)
+	}
+}
+
+func TestExecuteBatchDmlTransaction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	_ = server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (1, 'One')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	_ = server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (2, 'Two')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to obtain connection: %v", err)
+	}
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("failed to begin transaction: %v", err)
+	}
+	res, err := ExecuteBatchDmlOnConn(ctx, conn, func(ctx context.Context, batch DmlBatch) error {
+		if err := batch.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (1, 'One')"); err != nil {
+			return err
+		}
+		if err := batch.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (2, 'Two')"); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("failed to execute dml batch: %v", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		t.Fatalf("could not get rows affected from batch: %v", err)
+	}
+	if g, w := affected, int64(2); g != w {
+		t.Fatalf("affected rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	batchAffected, err := res.BatchRowsAffected()
+	if err != nil {
+		t.Fatalf("could not get batch rows affected from batch: %v", err)
+	}
+	if g, w := batchAffected, []int64{1, 1}; !cmp.Equal(g, w) {
+		t.Fatalf("affected batch rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("failed to commit transaction after batch: %v", err)
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	// There should be no ExecuteSqlRequests on the server.
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 0; g != w {
+		t.Fatalf("sql requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if g, w := len(batchRequests), 1; g != w {
+		t.Fatalf("BatchDML requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if batchRequests[0].(*sppb.ExecuteBatchDmlRequest).LastStatements {
+		t.Fatal("last statements flag was set, this should not happen for batches in a transaction")
+	}
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("Commit requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
