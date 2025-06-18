@@ -223,6 +223,8 @@ func convertParam(v driver.Value) driver.Value {
 	}
 }
 
+var _ SpannerResult = &result{}
+
 type result struct {
 	rowsAffected      int64
 	lastInsertId      int64

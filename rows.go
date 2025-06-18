@@ -30,9 +30,6 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-var _ driver.RowsColumnTypeDatabaseTypeName = (*rows)(nil)
-var _ driver.RowsNextResultSet = (*rows)(nil)
-
 type resultSetType int
 
 const (
@@ -41,6 +38,8 @@ const (
 	resultSetTypeStats
 	resultSetTypeNoMoreResults
 )
+
+var _ driver.RowsNextResultSet = &rows{}
 
 type rows struct {
 	it    rowIterator
@@ -64,6 +63,7 @@ type rows struct {
 	hasReturnedResultSetStats    bool
 }
 
+// HasNextResultSet implements [driver.RowsNextResultSet.HasNextResultSet].
 func (r *rows) HasNextResultSet() bool {
 	if r.currentResultSetType == resultSetTypeMetadata && r.returnResultSetMetadata {
 		return true
@@ -74,6 +74,7 @@ func (r *rows) HasNextResultSet() bool {
 	return false
 }
 
+// NextResultSet implements [driver.RowsNextResultSet.NextResultSet].
 func (r *rows) NextResultSet() error {
 	if !r.HasNextResultSet() {
 		return io.EOF
@@ -96,24 +97,9 @@ func (r *rows) Columns() []string {
 	case resultSetTypeStats:
 		return []string{"stats"}
 	case resultSetTypeNoMoreResults:
-		return nil
+		return []string{}
 	}
-	return nil
-}
-
-func (r *rows) ColumnTypeDatabaseTypeName(index int) string {
-	r.getColumns()
-	switch r.currentResultSetType {
-	case resultSetTypeMetadata:
-		return "ResultSetMetadata"
-	case resultSetTypeResults:
-		return r.colTypeNames[index]
-	case resultSetTypeStats:
-		return "ResultSetStats"
-	case resultSetTypeNoMoreResults:
-		return ""
-	}
-	return ""
+	return []string{}
 }
 
 // Close closes the rows iterator.
@@ -129,6 +115,8 @@ func (r *rows) Close() error {
 
 func (r *rows) getColumns() {
 	r.colsOnce.Do(func() {
+		// Automatically advance the Rows object to the actual query data if we should
+		// not return the ResultSetMetadata as a separate result set.
 		if r.currentResultSetType == resultSetTypeMetadata && !r.returnResultSetMetadata {
 			r.currentResultSetType = resultSetTypeResults
 		}
@@ -169,28 +157,12 @@ func (r *rows) getColumns() {
 // a buffer held in dest.
 func (r *rows) Next(dest []driver.Value) error {
 	r.getColumns()
+
 	if r.currentResultSetType == resultSetTypeMetadata {
-		if r.dirtyErr != nil && !errors.Is(r.dirtyErr, iterator.Done) {
-			return r.dirtyErr
-		}
-		if r.hasReturnedResultSetMetadata {
-			return io.EOF
-		}
-		r.hasReturnedResultSetMetadata = true
-		metadata, err := r.it.Metadata()
-		if err != nil {
-			return err
-		}
-		dest[0] = metadata
-		return nil
+		return r.nextMetadata(dest)
 	}
 	if r.currentResultSetType == resultSetTypeStats {
-		if r.hasReturnedResultSetStats {
-			return io.EOF
-		}
-		r.hasReturnedResultSetStats = true
-		dest[0] = r.it.ResultSetStats()
-		return nil
+		return r.nextStats(dest)
 	}
 
 	var row *spanner.Row
@@ -472,5 +444,30 @@ func (r *rows) Next(dest []driver.Value) error {
 				"to return the underlying protobuf value", col.Type.Code)
 		}
 	}
+	return nil
+}
+
+func (r *rows) nextMetadata(dest []driver.Value) error {
+	if r.dirtyErr != nil && !errors.Is(r.dirtyErr, iterator.Done) {
+		return r.dirtyErr
+	}
+	if r.hasReturnedResultSetMetadata {
+		return io.EOF
+	}
+	r.hasReturnedResultSetMetadata = true
+	metadata, err := r.it.Metadata()
+	if err != nil {
+		return err
+	}
+	dest[0] = metadata
+	return nil
+}
+
+func (r *rows) nextStats(dest []driver.Value) error {
+	if r.hasReturnedResultSetStats {
+		return io.EOF
+	}
+	r.hasReturnedResultSetStats = true
+	dest[0] = r.it.ResultSetStats()
 	return nil
 }

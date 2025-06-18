@@ -48,7 +48,8 @@ type contextTransaction interface {
 	ExecContext(ctx context.Context, stmt spanner.Statement, statementInfo *statementInfo, options spanner.QueryOptions) (*result, error)
 
 	StartBatchDML(options spanner.QueryOptions, automatic bool) (driver.Result, error)
-	RunBatch(ctx context.Context) (SpannerResult, error)
+	RunBatch(ctx context.Context) (driver.Result, error)
+	RunDmlBatch(ctx context.Context) (SpannerResult, error)
 	AbortBatch() (driver.Result, error)
 
 	BufferWrite(ms []*spanner.Mutation) error
@@ -61,7 +62,7 @@ type rowIterator interface {
 	ResultSetStats() *sppb.ResultSetStats
 }
 
-var _ rowIterator = (*readOnlyRowIterator)(nil)
+var _ rowIterator = &readOnlyRowIterator{}
 
 type readOnlyRowIterator struct {
 	*spanner.RowIterator
@@ -80,11 +81,15 @@ func (ri *readOnlyRowIterator) Metadata() (*sppb.ResultSetMetadata, error) {
 }
 
 func (ri *readOnlyRowIterator) ResultSetStats() *sppb.ResultSetStats {
+	// TODO: The Spanner client library should offer an option to get the full
+	//       ResultSetStats, instead of only the RowCount and QueryPlan.
 	return &sppb.ResultSetStats{
 		RowCount:  &sppb.ResultSetStats_RowCountExact{RowCountExact: ri.RowIterator.RowCount},
 		QueryPlan: ri.RowIterator.QueryPlan,
 	}
 }
+
+var _ contextTransaction = &readOnlyTransaction{}
 
 type readOnlyTransaction struct {
 	roTx   *spanner.ReadOnlyTransaction
@@ -174,7 +179,11 @@ func (tx *readOnlyTransaction) StartBatchDML(_ spanner.QueryOptions, _ bool) (dr
 	return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
-func (tx *readOnlyTransaction) RunBatch(_ context.Context) (SpannerResult, error) {
+func (tx *readOnlyTransaction) RunBatch(_ context.Context) (driver.Result, error) {
+	return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "read-only transactions cannot write"))
+}
+
+func (tx *readOnlyTransaction) RunDmlBatch(_ context.Context) (SpannerResult, error) {
 	return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
@@ -194,6 +203,8 @@ func (tx *readOnlyTransaction) BufferWrite([]*spanner.Mutation) error {
 // Use the RunTransaction function to execute a read/write transaction in a
 // retry loop. This function will never return ErrAbortedDueToConcurrentModification.
 var ErrAbortedDueToConcurrentModification = status.Error(codes.Aborted, "Transaction was aborted due to a concurrent modification")
+
+var _ contextTransaction = &readWriteTransaction{}
 
 // readWriteTransaction is the internal structure for go/sql read/write
 // transactions. These transactions can automatically be retried if the
@@ -500,7 +511,7 @@ func (tx *readWriteTransaction) StartBatchDML(options spanner.QueryOptions, auto
 	return driver.ResultNoRows, nil
 }
 
-func (tx *readWriteTransaction) RunBatch(ctx context.Context) (SpannerResult, error) {
+func (tx *readWriteTransaction) RunBatch(ctx context.Context) (driver.Result, error) {
 	if tx.batch == nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This transaction does not have an active batch"))
 	}
@@ -512,6 +523,16 @@ func (tx *readWriteTransaction) RunBatch(ctx context.Context) (SpannerResult, er
 	default:
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Unknown or unsupported batch type: %d", tx.batch.tp))
 	}
+}
+
+func (tx *readWriteTransaction) RunDmlBatch(ctx context.Context) (SpannerResult, error) {
+	if tx.batch == nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "this transaction does not have an active batch"))
+	}
+	if tx.batch.tp != dml {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "batch is not a DML batch"))
+	}
+	return tx.runDmlBatch(ctx)
 }
 
 func (tx *readWriteTransaction) AbortBatch() (driver.Result, error) {

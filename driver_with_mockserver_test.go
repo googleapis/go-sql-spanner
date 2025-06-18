@@ -235,6 +235,53 @@ func TestSimpleQuery(t *testing.T) {
 	}
 }
 
+func TestDirectExecuteQuery(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	// This does not use DirectExecuteQuery. The query is only sent to Spanner when
+	// rows.Next is called.
+	rows, err := db.QueryContext(context.Background(), testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// There should be no request on the server.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 0; g != w {
+		t.Fatalf("sql requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if !rows.Next() {
+		t.Fatal("no rows")
+	}
+	// The request should now be present on the server.
+	requests = drainRequestsFromServer(server.TestSpanner)
+	sqlRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("sql requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	_ = rows.Close()
+
+	// Now repeat the same with the DirectExecuteQuery option.
+	rows, err = db.QueryContext(context.Background(), testutil.SelectFooFromBar, ExecOptions{DirectExecuteQuery: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The request should be present on the server.
+	requests = drainRequestsFromServer(server.TestSpanner)
+	sqlRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("sql requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	// Verify that we can get the row that we selected.
+	if !rows.Next() {
+		t.Fatal("no rows")
+	}
+	_ = rows.Close()
+}
+
 func TestConcurrentScanAndClose(t *testing.T) {
 	t.Parallel()
 
@@ -2755,6 +2802,133 @@ func TestAutocommitBatchDml(t *testing.T) {
 	}
 }
 
+func TestExecuteBatchDml(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	_ = server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (1, 'One')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	_ = server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (2, 'Two')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+
+	res, err := ExecuteBatchDml(ctx, db, func(ctx context.Context, batch DmlBatch) error {
+		if err := batch.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (1, 'One')"); err != nil {
+			return err
+		}
+		if err := batch.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (2, 'Two')"); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("failed to execute dml batch: %v", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		t.Fatalf("could not get rows affected from batch: %v", err)
+	}
+	if g, w := affected, int64(2); g != w {
+		t.Fatalf("affected rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	batchAffected, err := res.BatchRowsAffected()
+	if err != nil {
+		t.Fatalf("could not get batch rows affected from batch: %v", err)
+	}
+	if g, w := batchAffected, []int64{1, 1}; !cmp.Equal(g, w) {
+		t.Fatalf("affected batch rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	// There should be no ExecuteSqlRequests on the server.
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 0; g != w {
+		t.Fatalf("sql requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if g, w := len(batchRequests), 1; g != w {
+		t.Fatalf("BatchDML requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if !batchRequests[0].(*sppb.ExecuteBatchDmlRequest).LastStatements {
+		t.Fatal("last statements flag not set")
+	}
+	// The transaction should have been committed.
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("Commit requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestExecuteBatchDmlError(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	_ = server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (1, 'One')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	c, err := db.Conn(ctx)
+	defer func() { _ = c.Close() }()
+	if err != nil {
+		t.Fatalf("failed to obtain connection: %v", err)
+	}
+
+	_, err = ExecuteBatchDmlOnConn(ctx, c, func(ctx context.Context, batch DmlBatch) error {
+		if err := batch.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (1, 'One')"); err != nil {
+			return err
+		}
+		return fmt.Errorf("test error")
+	})
+	if err == nil {
+		t.Fatalf("failed to execute dml batch: %v", err)
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	// There should be no requests on the server.
+	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if g, w := len(batchRequests), 0; g != w {
+		t.Fatalf("BatchDML requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 0; g != w {
+		t.Fatalf("Commit requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Verify that the connection is not in a batch, and that it can be used for other statements.
+	if err := c.Raw(func(driverConn any) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			return fmt.Errorf("driver connection is not a SpannerConn")
+		}
+		if spannerConn.InDMLBatch() {
+			return fmt.Errorf("connection is still in a batch")
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("check if connection is in a batch failed: %v", err)
+	}
+	res, err := c.ExecContext(ctx, `INSERT INTO Foo (Id, Val) VALUES (1, 'One')`)
+	if err != nil {
+		t.Fatalf("failed to execute dml statement: %v", err)
+	}
+	if affected, err := res.RowsAffected(); err != nil {
+		t.Fatalf("failed to obtain rows affected: %v", err)
+	} else {
+		if g, w := affected, int64(1); g != w {
+			t.Fatalf("affected rows mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+}
+
 func TestTransactionBatchDml(t *testing.T) {
 	t.Parallel()
 
@@ -2869,6 +3043,80 @@ func TestTransactionBatchDml(t *testing.T) {
 	commitRequests = requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if len(commitRequests) != 1 {
 		t.Fatalf("Commit requests count mismatch\nGot: %v\nWant: %v", len(commitRequests), 1)
+	}
+}
+
+func TestExecuteBatchDmlTransaction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	_ = server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (1, 'One')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	_ = server.TestSpanner.PutStatementResult("INSERT INTO Foo (Id, Val) VALUES (2, 'Two')", &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to obtain connection: %v", err)
+	}
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("failed to begin transaction: %v", err)
+	}
+	res, err := ExecuteBatchDmlOnConn(ctx, conn, func(ctx context.Context, batch DmlBatch) error {
+		if err := batch.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (1, 'One')"); err != nil {
+			return err
+		}
+		if err := batch.ExecContext(ctx, "INSERT INTO Foo (Id, Val) VALUES (2, 'Two')"); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("failed to execute dml batch: %v", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		t.Fatalf("could not get rows affected from batch: %v", err)
+	}
+	if g, w := affected, int64(2); g != w {
+		t.Fatalf("affected rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	batchAffected, err := res.BatchRowsAffected()
+	if err != nil {
+		t.Fatalf("could not get batch rows affected from batch: %v", err)
+	}
+	if g, w := batchAffected, []int64{1, 1}; !cmp.Equal(g, w) {
+		t.Fatalf("affected batch rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("failed to commit transaction after batch: %v", err)
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	// There should be no ExecuteSqlRequests on the server.
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 0; g != w {
+		t.Fatalf("sql requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	if g, w := len(batchRequests), 1; g != w {
+		t.Fatalf("BatchDML requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if batchRequests[0].(*sppb.ExecuteBatchDmlRequest).LastStatements {
+		t.Fatal("last statements flag was set, this should not happen for batches in a transaction")
+	}
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("Commit requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
@@ -4744,6 +4992,258 @@ func TestPostgreSQLDialect(t *testing.T) {
 		}
 	} else {
 		t.Fatalf("no value found for param $1")
+	}
+}
+
+func TestReturnResultSetMetadata(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	rows, err := db.QueryContext(context.Background(), testutil.SelectFooFromBar, ExecOptions{ReturnResultSetMetadata: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	// Verify that the first result set contains the ResultSetMetadata.
+	if !rows.Next() {
+		t.Fatal("no rows")
+	}
+	var meta *sppb.ResultSetMetadata
+	if err := rows.Scan(&meta); err != nil {
+		t.Fatalf("failed to scan metadata: %v", err)
+	}
+	if g, w := len(meta.RowType.Fields), 1; g != w {
+		t.Fatalf("cols count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if rows.Next() {
+		t.Fatal("more rows than expected")
+	}
+
+	// Move to the next result set, which should contain the data.
+	if !rows.NextResultSet() {
+		t.Fatal("no more result sets found")
+	}
+
+	for want := int64(1); rows.Next(); want++ {
+		cols, err := rows.Columns()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !cmp.Equal(cols, []string{"FOO"}) {
+			t.Fatalf("cols mismatch\nGot: %v\nWant: %v", cols, []string{"FOO"})
+		}
+		var got int64
+		err = rows.Scan(&got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("value mismatch\nGot: %v\nWant: %v", got, want)
+		}
+	}
+	if rows.Err() != nil {
+		t.Fatal(rows.Err())
+	}
+
+	// There should be no more result sets.
+	if rows.NextResultSet() {
+		t.Fatal("more result sets than expected")
+	}
+}
+
+func TestReturnResultSetMetadataError(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	query := "select * from non_existing_table"
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type: testutil.StatementResultError,
+		Err:  gstatus.Error(codes.NotFound, "Table not found"),
+	})
+	rows, err := db.QueryContext(context.Background(), query, ExecOptions{ReturnResultSetMetadata: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	if rows.Next() {
+		t.Fatal("Next should fail")
+	}
+	var meta *sppb.ResultSetMetadata
+	if err := rows.Scan(&meta); err == nil {
+		t.Fatal("missing error when scanning metadata")
+	} else {
+		if g, w := spanner.ErrCode(err), codes.NotFound; g != w {
+			t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+
+	// Moving to the next result set fails because the query failed.
+	if rows.NextResultSet() {
+		t.Fatal("got unexpected next result set")
+	}
+}
+
+func TestReturnResultSetStats(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	query := "insert into singers (name) values ('test') then return id"
+	resultSet := testutil.CreateSingleColumnInt64ResultSet([]int64{42598}, "id")
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type:        testutil.StatementResultResultSet,
+		ResultSet:   resultSet,
+		UpdateCount: 1,
+	})
+
+	rows, err := db.QueryContext(context.Background(), query, ExecOptions{ReturnResultSetStats: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	// The first result set should contain the data.
+	for want := int64(42598); rows.Next(); want++ {
+		cols, err := rows.Columns()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !cmp.Equal(cols, []string{"id"}) {
+			t.Fatalf("cols mismatch\nGot: %v\nWant: %v", cols, []string{"id"})
+		}
+		var got int64
+		err = rows.Scan(&got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("value mismatch\nGot: %v\nWant: %v", got, want)
+		}
+	}
+	if rows.Err() != nil {
+		t.Fatal(rows.Err())
+	}
+
+	// The next result set should contain the stats.
+	if !rows.NextResultSet() {
+		t.Fatal("missing stats result set")
+	}
+
+	// Get the stats.
+	if !rows.Next() {
+		t.Fatal("no stats rows")
+	}
+	var stats *sppb.ResultSetStats
+	if err := rows.Scan(&stats); err != nil {
+		t.Fatalf("failed to scan stats: %v", err)
+	}
+	if g, w := stats.GetRowCountExact(), int64(1); g != w {
+		t.Fatalf("row count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if rows.Next() {
+		t.Fatal("more rows than expected")
+	}
+
+	// There should be no more result sets.
+	if rows.NextResultSet() {
+		t.Fatal("more result sets than expected")
+	}
+}
+
+func TestReturnResultSetMetadataAndStats(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	query := "insert into singers (name) values ('test') then return id"
+	resultSet := testutil.CreateSingleColumnInt64ResultSet([]int64{42598}, "id")
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type:        testutil.StatementResultResultSet,
+		ResultSet:   resultSet,
+		UpdateCount: 1,
+	})
+
+	rows, err := db.QueryContext(context.Background(), query, ExecOptions{
+		ReturnResultSetMetadata: true,
+		ReturnResultSetStats:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	// Verify that the first result set contains the ResultSetMetadata.
+	if !rows.Next() {
+		t.Fatal("no rows")
+	}
+	var meta *sppb.ResultSetMetadata
+	if err := rows.Scan(&meta); err != nil {
+		t.Fatalf("failed to scan metadata: %v", err)
+	}
+	if g, w := len(meta.RowType.Fields), 1; g != w {
+		t.Fatalf("cols count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := meta.RowType.Fields[0].Name, "id"; g != w {
+		t.Fatalf("column name mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if rows.Next() {
+		t.Fatal("more rows than expected")
+	}
+
+	// Move to the next result set, which should contain the data.
+	if !rows.NextResultSet() {
+		t.Fatal("no more result sets found")
+	}
+
+	for want := int64(42598); rows.Next(); want++ {
+		cols, err := rows.Columns()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !cmp.Equal(cols, []string{"id"}) {
+			t.Fatalf("cols mismatch\nGot: %v\nWant: %v", cols, []string{"id"})
+		}
+		var got int64
+		err = rows.Scan(&got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("value mismatch\n Got: %v\nWant: %v", got, want)
+		}
+	}
+	if rows.Err() != nil {
+		t.Fatal(rows.Err())
+	}
+
+	// The next result set should contain the stats.
+	if !rows.NextResultSet() {
+		t.Fatal("missing stats result set")
+	}
+
+	// Get the stats.
+	if !rows.Next() {
+		t.Fatal("no stats rows")
+	}
+	var stats *sppb.ResultSetStats
+	if err := rows.Scan(&stats); err != nil {
+		t.Fatalf("failed to scan stats: %v", err)
+	}
+	if g, w := stats.GetRowCountExact(), int64(1); g != w {
+		t.Fatalf("row count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if rows.Next() {
+		t.Fatal("more rows than expected")
+	}
+
+	// There should be no more result sets.
+	if rows.NextResultSet() {
+		t.Fatal("more result sets than expected")
 	}
 }
 

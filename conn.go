@@ -205,11 +205,6 @@ type SpannerConn interface {
 	withTempBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransactionOptions)
 }
 
-type SpannerResult interface {
-	driver.Result
-	BatchRowsAffected() ([]int64, error)
-}
-
 var _ SpannerConn = &conn{}
 
 type conn struct {
@@ -544,6 +539,10 @@ func (c *conn) runDDLBatch(ctx context.Context) (driver.Result, error) {
 }
 
 func (c *conn) runDMLBatch(ctx context.Context) (SpannerResult, error) {
+	if c.inTransaction() {
+		return c.tx.RunDmlBatch(ctx)
+	}
+
 	statements := c.batch.statements
 	options := c.batch.options
 	options.QueryOptions.LastStatement = true
@@ -822,8 +821,8 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 		returnResultSetMetadata: execOptions.ReturnResultSetMetadata,
 		returnResultSetStats:    execOptions.ReturnResultSetStats,
 	}
-	if execOptions.DirectExecute {
-		// This forces the execution of the statement.
+	if execOptions.DirectExecuteQuery {
+		// This call to res.getColumns() triggers the execution of the statement, as it needs to fetch the metadata.
 		res.getColumns()
 		if res.dirtyErr != nil && !errors.Is(res.dirtyErr, iterator.Done) {
 			_ = res.Close()

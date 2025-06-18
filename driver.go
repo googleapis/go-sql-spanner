@@ -112,6 +112,18 @@ func determineDefaultStatementCacheSize() {
 	}
 }
 
+// SpannerResult is the result type returned by Spanner connections for
+// DML batches. This interface extends the standard sql.Result interface
+// and adds a BatchRowsAffected function that returns the affected rows
+// per statement.
+type SpannerResult interface {
+	driver.Result
+
+	// BatchRowsAffected returns the affected rows per statement in a DML batch.
+	// It returns an error if the statement was not a DML batch.
+	BatchRowsAffected() ([]int64, error)
+}
+
 // ExecOptions can be passed in as an argument to the Query, QueryContext,
 // Exec, and ExecContext functions to specify additional execution options
 // for a statement.
@@ -164,9 +176,34 @@ type ExecOptions struct {
 	// that are executed outside explicit transactions use.
 	AutocommitDMLMode AutocommitDMLMode
 
+	// ReturnResultSetMetadata instructs the driver to return an additional result
+	// set with the full spannerpb.ResultSetMetadata of the query. This result set
+	// contains one row and one column, and the value in that cell is the
+	// spannerpb.ResultSetMetadata that was returned by Spanner when executing the
+	// query. This result set will be the first result set in the sql.Rows object
+	// that is returned.
+	//
+	// You have to call [sql.Rows.NextResultSet] to move to the result set that
+	// contains the actual query data.
 	ReturnResultSetMetadata bool
-	DirectExecute           bool
-	ReturnResultSetStats    bool
+
+	// ReturnResultSetStats instructs the driver to return an additional result
+	// set with the full spannerpb.ResultSetStats of the query. This result set
+	// contains one row and one column, and the value in that cell is the
+	// spannerpb.ResultSetStats that was returned by Spanner when executing the
+	// query. This result set will be the last result set in the sql.Rows object
+	// that is returned.
+	//
+	// You have to call [sql.Rows.NextResultSet] after fetching all query data in
+	// order to move to the result set that contains the spannerpb.ResultSetStats.
+	ReturnResultSetStats bool
+
+	// DirectExecute determines whether a query is executed directly when the
+	// [sql.DB.QueryContext] method is called, or whether the actual query execution
+	// is delayed until the first call to [sql.Rows.Next]. The default is to delay
+	// the execution. Set this flag to true to execute the query directly when
+	// [sql.DB.QueryContext] is called.
+	DirectExecuteQuery bool
 }
 
 type DecodeOption int
@@ -1043,6 +1080,94 @@ func withTempReadOnlyTransactionOptions(conn *sql.Conn, options *ReadOnlyTransac
 func clearTempReadOnlyTransactionOptions(conn *sql.Conn) {
 	_ = withTempReadOnlyTransactionOptions(conn, nil)
 	_ = conn.Close()
+}
+
+// DmlBatch is used to execute a batch of DML statements on Spanner in a single round-trip.
+type DmlBatch interface {
+	// ExecContext buffers the given statement for execution on Spanner.
+	// All buffered statements are sent to Spanner as a single request when the DmlBatch
+	// function returns successfully.
+	ExecContext(ctx context.Context, dml string, args ...any) error
+}
+
+var _ DmlBatch = &dmlBatch{}
+
+type dmlBatch struct {
+	conn *sql.Conn
+}
+
+// ExecuteBatchDml executes a batch of DML statements in a single round-trip to Spanner.
+func ExecuteBatchDml(ctx context.Context, db *sql.DB, f func(ctx context.Context, batch DmlBatch) error) (SpannerResult, error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return ExecuteBatchDmlOnConn(ctx, conn, f)
+}
+
+// ExecuteBatchDmlOnConn executes a batch of DML statements on a specific connection in a single round-trip to Spanner.
+func ExecuteBatchDmlOnConn(ctx context.Context, connection *sql.Conn, f func(ctx context.Context, batch DmlBatch) error) (SpannerResult, error) {
+	// Start the DML batch.
+	if err := connection.Raw(func(driverConn any) error {
+		c, ok := driverConn.(*conn)
+		if !ok {
+			return spanner.ToSpannerError(status.Error(codes.InvalidArgument, "connection is not a Spanner connection"))
+		}
+		if _, err := c.startBatchDML(false); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	// Let the callback execute the statements on the batch.
+	b := &dmlBatch{conn: connection}
+	if err := f(ctx, b); err != nil {
+		// The callback returned an error, abort the batch.
+		_ = connection.Raw(func(driverConn any) error {
+			c, _ := driverConn.(*conn)
+			_ = c.AbortBatch()
+			return nil
+		})
+		return nil, err
+	}
+
+	// Send the batch to Spanner.
+	var res SpannerResult
+	if err := connection.Raw(func(driverConn any) error {
+		// We know that the connection is a Spanner connection, so we don't bother to check that again here.
+		c, _ := driverConn.(*conn)
+		var err error
+		res, err = c.runDMLBatch(ctx)
+		if err != nil {
+			// Make sure the batch is removed from the connection/transaction.
+			_ = c.AbortBatch()
+			return err
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return res, nil
+}
+
+func (b *dmlBatch) ExecContext(ctx context.Context, dml string, args ...any) error {
+	if err := b.conn.Raw(func(driverConn any) error {
+		c, ok := driverConn.(*conn)
+		if !ok {
+			return spanner.ToSpannerError(status.Error(codes.InvalidArgument, "connection is not a Spanner connection"))
+		}
+		if !c.InDMLBatch() {
+			return spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "this batch is no longer active"))
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	_, err := b.conn.ExecContext(ctx, dml, args...)
+	return err
 }
 
 // AutocommitDMLMode indicates whether a single DML statement should be executed

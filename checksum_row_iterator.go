@@ -41,7 +41,7 @@ func init() {
 	gob.Register(structpb.Value_StructValue{})
 }
 
-var _ rowIterator = (*checksumRowIterator)(nil)
+var _ rowIterator = &checksumRowIterator{}
 
 // checksumRowIterator implements rowIterator and keeps track of a running
 // checksum for all results that have been seen during the iteration of the
@@ -253,6 +253,8 @@ func (it *checksumRowIterator) Metadata() (*sppb.ResultSetMetadata, error) {
 }
 
 func (it *checksumRowIterator) ResultSetStats() *sppb.ResultSetStats {
+	// TODO: The Spanner client library should offer an option to get the full
+	//       ResultSetStats, instead of only the RowCount and QueryPlan.
 	return &sppb.ResultSetStats{
 		RowCount:  &sppb.ResultSetStats_RowCountExact{RowCountExact: it.RowIterator.RowCount},
 		QueryPlan: it.RowIterator.QueryPlan,
