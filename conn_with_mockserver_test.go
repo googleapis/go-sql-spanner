@@ -24,6 +24,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/testutil"
+	"google.golang.org/grpc/codes"
 )
 
 func TestBeginTx(t *testing.T) {
@@ -45,6 +46,25 @@ func TestBeginTx(t *testing.T) {
 	request := beginRequests[0].(*spannerpb.BeginTransactionRequest)
 	if g, w := request.Options.GetIsolationLevel(), spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED; g != w {
 		t.Fatalf("begin isolation level mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestTwoTransactionsOnOneConn(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	c, _ := db.Conn(ctx)
+	tx1, err := c.BeginTx(ctx, &sql.TxOptions{})
+	defer tx1.Rollback()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.BeginTx(ctx, &sql.TxOptions{})
+	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Fatalf("BeginTx error code mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 

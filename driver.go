@@ -167,6 +167,10 @@ type ExecOptions struct {
 	TransactionOptions spanner.TransactionOptions
 	// QueryOptions are the query options that will be used for the statement.
 	QueryOptions spanner.QueryOptions
+	// TimestampBound is the timestamp bound that will be used for the statement
+	// if it is a query outside a transaction. Setting this option will override
+	// the default TimestampBound that is set on the connection.
+	TimestampBound *spanner.TimestampBound
 
 	// PartitionedQueryOptions are used for partitioned queries, and ignored
 	// for all other statements.
@@ -175,6 +179,28 @@ type ExecOptions struct {
 	// AutoCommitDMLMode determines the type of transaction that DML statements
 	// that are executed outside explicit transactions use.
 	AutocommitDMLMode AutocommitDMLMode
+
+	// ReturnResultSetMetadata instructs the driver to return an additional result
+	// set with the full spannerpb.ResultSetMetadata of the query. This result set
+	// contains one row and one column, and the value in that cell is the
+	// spannerpb.ResultSetMetadata that was returned by Spanner when executing the
+	// query. This result set will be the first result set in the sql.Rows object
+	// that is returned.
+	//
+	// You have to call [sql.Rows.NextResultSet] to move to the result set that
+	// contains the actual query data.
+	ReturnResultSetMetadata bool
+
+	// ReturnResultSetStats instructs the driver to return an additional result
+	// set with the full spannerpb.ResultSetStats of the query. This result set
+	// contains one row and one column, and the value in that cell is the
+	// spannerpb.ResultSetStats that was returned by Spanner when executing the
+	// query. This result set will be the last result set in the sql.Rows object
+	// that is returned.
+	//
+	// You have to call [sql.Rows.NextResultSet] after fetching all query data in
+	// order to move to the result set that contains the spannerpb.ResultSetStats.
+	ReturnResultSetStats bool
 
 	// DirectExecute determines whether a query is executed directly when the
 	// [sql.DB.QueryContext] method is called, or whether the actual query execution
@@ -973,6 +999,10 @@ func BeginReadWriteTransaction(ctx context.Context, db *sql.DB, options ReadWrit
 		// be active when we hit this point.
 		go conn.Close()
 	}
+	return BeginReadWriteTransactionOnConn(ctx, conn, options)
+}
+
+func BeginReadWriteTransactionOnConn(ctx context.Context, conn *sql.Conn, options ReadWriteTransactionOptions) (*sql.Tx, error) {
 	if err := withTempReadWriteTransactionOptions(conn, &options); err != nil {
 		return nil, err
 	}
@@ -1024,6 +1054,10 @@ func BeginReadOnlyTransaction(ctx context.Context, db *sql.DB, options ReadOnlyT
 		// be active when we hit this point.
 		go conn.Close()
 	}
+	return BeginReadOnlyTransactionOnConn(ctx, conn, options)
+}
+
+func BeginReadOnlyTransactionOnConn(ctx context.Context, conn *sql.Conn, options ReadOnlyTransactionOptions) (*sql.Tx, error) {
 	if err := withTempReadOnlyTransactionOptions(conn, &options); err != nil {
 		return nil, err
 	}
