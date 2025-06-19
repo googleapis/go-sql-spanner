@@ -8,7 +8,7 @@ import (
 )
 
 func ExecuteTransaction(poolId, connId, txId int64, statementBytes []byte) *Message {
-	statement := spannerpb.ExecuteBatchDmlRequest_Statement{}
+	statement := spannerpb.ExecuteSqlRequest{}
 	if err := proto.Unmarshal(statementBytes, &statement); err != nil {
 		return errMessage(err)
 	}
@@ -62,7 +62,7 @@ func (tx *transaction) Close() *Message {
 	return &Message{}
 }
 
-func (tx *transaction) Execute(statement *spannerpb.ExecuteBatchDmlRequest_Statement) *Message {
+func (tx *transaction) Execute(statement *spannerpb.ExecuteSqlRequest) *Message {
 	return execute(tx.conn, tx.backend, statement)
 }
 

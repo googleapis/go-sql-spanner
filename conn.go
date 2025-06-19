@@ -1117,6 +1117,9 @@ func (c *conn) inReadWriteTransaction() bool {
 }
 
 func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
+	if options.TimestampBound != nil {
+		tb = *options.TimestampBound
+	}
 	return c.Single().WithTimestampBound(tb).QueryWithOptions(ctx, statement, options.QueryOptions)
 }
 

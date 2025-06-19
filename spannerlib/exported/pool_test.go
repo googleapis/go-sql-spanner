@@ -10,8 +10,8 @@ import (
 )
 
 func TestExecute(t *testing.T) {
-	pool := CreatePool()
-	conn := CreateConnection(pool.ObjectId, "appdev-soda-spanner-staging", "knut-test-ycsb", "knut-test-db")
+	pool := CreatePool("projects/appdev-soda-spanner-staging/instances/knut-test-ycsb/databases/knut-test-db")
+	conn := CreateConnection(pool.ObjectId)
 	stmt := spannerpb.ExecuteBatchDmlRequest_Statement{
 		Sql: "select * from all_types where col_varchar=$1 /*and col_bigint=@id*/ limit 10",
 		Params: &structpb.Struct{
@@ -39,8 +39,8 @@ func TestExecute(t *testing.T) {
 }
 
 func TestExecuteDml(t *testing.T) {
-	pool := CreatePool()
-	conn := CreateConnection(pool.ObjectId, "appdev-soda-spanner-staging", "knut-test-ycsb", "knut-test-db")
+	pool := CreatePool("projects/appdev-soda-spanner-staging/instances/knut-test-ycsb/databases/knut-test-db")
+	conn := CreateConnection(pool.ObjectId)
 	txOpts := &spannerpb.TransactionOptions{
 		Mode: &spannerpb.TransactionOptions_ReadOnly_{
 			ReadOnly: &spannerpb.TransactionOptions_ReadOnly{},

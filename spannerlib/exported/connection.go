@@ -37,9 +37,9 @@ func BeginTransaction(poolId, connId int64, txOptsBytes []byte) *Message {
 	return conn.BeginTransaction(&txOpts)
 }
 
-func Execute(poolId, connId int64, statementBytes []byte) *Message {
-	statement := spannerpb.ExecuteBatchDmlRequest_Statement{}
-	if err := proto.Unmarshal(statementBytes, &statement); err != nil {
+func Execute(poolId, connId int64, executeSqlRequestBytes []byte) *Message {
+	statement := spannerpb.ExecuteSqlRequest{}
+	if err := proto.Unmarshal(executeSqlRequestBytes, &statement); err != nil {
 		return errMessage(err)
 	}
 	conn, err := findConnection(poolId, connId)
@@ -163,7 +163,7 @@ func convertIsolationLevel(level spannerpb.TransactionOptions_IsolationLevel) sq
 	return sql.LevelDefault
 }
 
-func (conn *Connection) Execute(statement *spannerpb.ExecuteBatchDmlRequest_Statement) *Message {
+func (conn *Connection) Execute(statement *spannerpb.ExecuteSqlRequest) *Message {
 	return execute(conn, conn.backend.Conn, statement)
 }
 
@@ -171,7 +171,7 @@ func (conn *Connection) ExecuteBatchDml(statements []*spannerpb.ExecuteBatchDmlR
 	return executeBatchDml(conn, conn.backend.Conn, statements)
 }
 
-func execute(conn *Connection, executor queryExecutor, statement *spannerpb.ExecuteBatchDmlRequest_Statement) *Message {
+func execute(conn *Connection, executor queryExecutor, statement *spannerpb.ExecuteSqlRequest) *Message {
 	params := extractParams(statement)
 	it, err := executor.QueryContext(context.Background(), statement.Sql, params...)
 	if err != nil {
@@ -210,7 +210,12 @@ func executeBatchDml(conn *Connection, executor queryExecutor, statements []*spa
 		return errMessage(err)
 	}
 	for _, statement := range statements {
-		params := extractParams(statement)
+		request := &spannerpb.ExecuteSqlRequest{
+			Sql:        statement.Sql,
+			Params:     statement.Params,
+			ParamTypes: statement.ParamTypes,
+		}
+		params := extractParams(request)
 		_, err := executor.ExecContext(context.Background(), statement.Sql, params...)
 		if err != nil {
 			return errMessage(err)
@@ -240,7 +245,7 @@ func executeBatchDml(conn *Connection, executor queryExecutor, statements []*spa
 	return &Message{Res: res}
 }
 
-func extractParams(statement *spannerpb.ExecuteBatchDmlRequest_Statement) []any {
+func extractParams(statement *spannerpb.ExecuteSqlRequest) []any {
 	paramsLen := 1
 	if statement.Params != nil {
 		paramsLen = 1 + len(statement.Params.Fields)
@@ -248,9 +253,10 @@ func extractParams(statement *spannerpb.ExecuteBatchDmlRequest_Statement) []any 
 	params := make([]any, paramsLen)
 	params = append(params, spannerdriver.ExecOptions{
 		DecodeOption:            spannerdriver.DecodeOptionProto,
+		TimestampBound:          extractTimestampBound(statement),
 		ReturnResultSetMetadata: true,
 		ReturnResultSetStats:    true,
-		DirectExecute:           true,
+		DirectExecuteQuery:      true,
 	})
 	if statement.Params != nil {
 		if statement.ParamTypes == nil {
@@ -265,4 +271,24 @@ func extractParams(statement *spannerpb.ExecuteBatchDmlRequest_Statement) []any 
 		}
 	}
 	return params
+}
+
+func extractTimestampBound(statement *spannerpb.ExecuteSqlRequest) *spanner.TimestampBound {
+	if statement.Transaction != nil && statement.Transaction.GetSingleUse() != nil && statement.Transaction.GetSingleUse().GetReadOnly() != nil {
+		ro := statement.Transaction.GetSingleUse().GetReadOnly()
+		var t spanner.TimestampBound
+		if ro.GetStrong() {
+			t = spanner.StrongRead()
+		} else if ro.GetMaxStaleness() != nil {
+			t = spanner.MaxStaleness(ro.GetMaxStaleness().AsDuration())
+		} else if ro.GetExactStaleness() != nil {
+			t = spanner.ExactStaleness(ro.GetExactStaleness().AsDuration())
+		} else if ro.GetMinReadTimestamp() != nil {
+			t = spanner.MinReadTimestamp(ro.GetMinReadTimestamp().AsTime())
+		} else if ro.GetReadTimestamp() != nil {
+			t = spanner.ReadTimestamp(ro.GetReadTimestamp().AsTime())
+		}
+		return &t
+	}
+	return nil
 }
