@@ -11,7 +11,7 @@ require (
 	cloud.google.com/go/spanner v1.82.0
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/go-sql-spanner v1.14.0
-	google.golang.org/api v0.237.0
+	google.golang.org/api v0.238.0
 	google.golang.org/grpc v1.73.0
 	google.golang.org/protobuf v1.36.6
 )
