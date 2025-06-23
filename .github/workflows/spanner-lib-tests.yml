@@ -1,0 +1,39 @@
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+name: Spanner Lib Tests
+jobs:
+  test:
+    strategy:
+      matrix:
+        go-version: [1.23.x, 1.24.x]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Run unit tests
+        working-directory: spannerlib/exported
+        run: go test -race -short
+
+  build-lib:
+    strategy:
+      matrix:
+        go-version: [1.23.x, 1.24.x]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Build shared lib
+        working-directory: spannerlib
+        run: go build -o spannerlib.so -buildmode=c-shared

@@ -26,6 +26,9 @@ var (
 //
 //export Release
 func Release(pinnerId int64) int32 {
+	if pinnerId <= 0 {
+		return 0
+	}
 	val, ok := pinners.LoadAndDelete(pinnerId)
 	if !ok {
 		return 1
@@ -40,10 +43,11 @@ func Release(pinnerId int64) int32 {
 // The returned pinner ID must be used to call Release when the caller is done
 // with the message.
 func pin(msg *exported.Message) (int64, int32, int64, int32, unsafe.Pointer) {
-	pinner := &runtime.Pinner{}
-	if msg.Res != nil {
-		pinner.Pin(&(msg.Res[0]))
+	if msg.Length() == 0 {
+		return 0, msg.Code, msg.ObjectId, 0, nil
 	}
+	pinner := &runtime.Pinner{}
+	pinner.Pin(&(msg.Res[0]))
 	idx := pinnerIdx.Add(1)
 	pinners.Store(idx, pinner)
 	return idx, msg.Code, msg.ObjectId, msg.Length(), msg.ResPointer()

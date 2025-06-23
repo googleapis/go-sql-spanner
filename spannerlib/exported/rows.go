@@ -81,7 +81,7 @@ func (rows *rows) Metadata() *Message {
 
 func (rows *rows) ResultSetStats() *Message {
 	if rows.stats == nil {
-		return errMessage(spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "stats are only available after reading all rows")))
+		rows.readStats()
 	}
 	statsBytes, err := proto.Marshal(rows.stats)
 	if err != nil {
@@ -91,9 +91,12 @@ func (rows *rows) ResultSetStats() *Message {
 }
 
 func (rows *rows) Next() *Message {
-	if rows.stats != nil {
-		// We have already read stats, so this is the end of all data.
+	// No columns means no rows, so just return an empty message to indicate that there are no (more) rows.
+	if len(rows.metadata.RowType.Fields) == 0 {
 		return &Message{}
+	}
+	if rows.stats != nil {
+		return errMessage(spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot read more data after returning stats")))
 	}
 	ok := rows.backend.Next()
 	if !ok {

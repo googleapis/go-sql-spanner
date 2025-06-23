@@ -12,6 +12,8 @@ import (
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -128,6 +130,51 @@ func TestQueryWithTimestampBound(t *testing.T) {
 	if g, w := req.Transaction.GetSingleUse().GetReadOnly().GetMaxStaleness().GetSeconds(), int64(10); g != w {
 		t.Fatalf("max staleness seconds mismatch\n Got: %v\nWant: %v", g, w)
 	}
+}
+
+func TestDisableInternalRetries(t *testing.T) {
+	t.Parallel()
+
+	dsn, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	pool := CreatePool(dsn)
+	defer ClosePool(pool.ObjectId)
+	conn := CreateConnection(pool.ObjectId)
+	defer CloseConnection(pool.ObjectId, conn.ObjectId)
+
+	txOpts := &sppb.TransactionOptions{}
+	txOptsBytes, _ := proto.Marshal(txOpts)
+	tx := BeginTransaction(pool.ObjectId, conn.ObjectId, txOptsBytes)
+
+	statement := sppb.ExecuteSqlRequest{
+		Sql: "set retry_aborts_internally = false",
+	}
+	statementBytes, _ := proto.Marshal(&statement)
+	results := Execute(pool.ObjectId, conn.ObjectId, statementBytes)
+	if results.Code != 0 {
+		t.Fatalf("failed to set retry_aborts_internally: %v", results.Code)
+	}
+	CloseRows(pool.ObjectId, conn.ObjectId, results.ObjectId)
+
+	statement = sppb.ExecuteSqlRequest{
+		Sql: testutil.UpdateBarSetFoo,
+	}
+	statementBytes, _ = proto.Marshal(&statement)
+	results = Execute(pool.ObjectId, conn.ObjectId, statementBytes)
+	if results.Code != 0 {
+		t.Fatalf("failed to execute update: %v", results.Code)
+	}
+	CloseRows(pool.ObjectId, conn.ObjectId, results.ObjectId)
+
+	server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+		Errors: []error{status.Error(codes.Aborted, "Aborted")},
+	})
+	results = Commit(pool.ObjectId, conn.ObjectId, tx.ObjectId)
+	if g, w := codes.Code(results.Code), codes.Aborted; g != w {
+		t.Fatalf("commit status mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	CloseRows(pool.ObjectId, conn.ObjectId, results.ObjectId)
 }
 
 func setupTestDBConnection(t *testing.T) (dsn string, server *testutil.MockedSpannerInMemTestServer, teardown func()) {

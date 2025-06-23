@@ -41,6 +41,16 @@ const (
 
 var _ driver.RowsNextResultSet = &rows{}
 
+func createRows(it rowIterator, opts ExecOptions) *rows {
+	return &rows{
+		it:                      it,
+		decodeOption:            opts.DecodeOption,
+		decodeToNativeArrays:    opts.DecodeToNativeArrays,
+		returnResultSetMetadata: opts.ReturnResultSetMetadata,
+		returnResultSetStats:    opts.ReturnResultSetStats,
+	}
+}
+
 type rows struct {
 	it    rowIterator
 	close func() error

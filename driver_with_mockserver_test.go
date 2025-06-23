@@ -2603,7 +2603,7 @@ func TestShowAndSetVariableRetryAbortsInternally(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to obtain a connection: %v", err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	for _, tc := range []struct {
 		expected bool
@@ -2618,7 +2618,7 @@ func TestShowAndSetVariableRetryAbortsInternally(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to execute get variable retry_aborts_internally: %v", err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var retry bool
 			if err := rows.Scan(&retry); err != nil {
@@ -2650,9 +2650,16 @@ func TestShowAndSetVariableRetryAbortsInternally(t *testing.T) {
 		}
 	}
 
-	// Verify that the value cannot be set during a transaction.
 	tx, _ := c.BeginTx(ctx, nil)
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
+	// Verify that the value can be set before the transaction has been activated.
+	if _, err = c.ExecContext(ctx, "SET RETRY_ABORTS_INTERNALLY = TRUE"); err != nil {
+		t.Fatalf("failed to set value for retry_aborts_internally for an inactive transaction: %v", err)
+	}
+	// Verify that the value cannot be set during an active transaction.
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("failed to execute test update statement: %v", err)
+	}
 	_, err = c.ExecContext(ctx, "SET RETRY_ABORTS_INTERNALLY = TRUE")
 	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
 		t.Fatalf("error code mismatch for setting retry_aborts_internally during a transaction\nGot: %v\nWant: %v", g, w)
