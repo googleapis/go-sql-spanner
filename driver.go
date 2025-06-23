@@ -261,10 +261,8 @@ type ConnectorConfig struct {
 	// AutoConfigEmulator automatically creates a connection for the emulator
 	// and also automatically creates the Instance and Database on the emulator.
 	// Setting this option to true will:
-	// 1. Set the SPANNER_EMULATOR_HOST environment variable to either Host or
-	//    'localhost:9010' if no other host has been set.
-	// 2. Use plain text communication and NoCredentials.
-	// 3. Automatically create the Instance and the Database on the emulator if
+	// 1. Use plain text communication and NoCredentials.
+	// 2. Automatically create the Instance and the Database on the emulator if
 	//    any of those do not yet exist.
 	AutoConfigEmulator bool
 

@@ -17,7 +17,6 @@ package spannerdriver
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"cloud.google.com/go/spanner"
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
@@ -28,12 +27,6 @@ import (
 )
 
 func autoConfigEmulator(ctx context.Context, host, project, instance, database string) error {
-	if host == "" {
-		host = "localhost:9010"
-	}
-	if err := os.Setenv("SPANNER_EMULATOR_HOST", host); err != nil {
-		return err
-	}
 	if err := createInstance(project, instance); err != nil {
 		if spanner.ErrCode(err) != codes.AlreadyExists {
 			return err
