@@ -29,7 +29,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
-	lru "github.com/hashicorp/golang-lru"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
