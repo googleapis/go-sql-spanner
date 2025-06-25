@@ -60,6 +60,10 @@ jobs:
           cp spannerlib.so dotnet-spannerlib/Google.Cloud.SpannerLib/runtimes/linux-x64/native/spannerlib.so
       - name: Install dotnet
         uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: dotnet version
+        run: dotnet version
       - name: Restore dependencies
         run: dotnet restore
         working-directory: spannerlib/dotnet-spannerlib
