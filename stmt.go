@@ -72,8 +72,8 @@ func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
 	return s.conn.CheckNamedValue(value)
 }
 
-func prepareSpannerStmt(q string, args []driver.NamedValue) (spanner.Statement, error) {
-	q, names, err := parseParameters(q)
+func prepareSpannerStmt(parser *statementParser, q string, args []driver.NamedValue) (spanner.Statement, error) {
+	q, names, err := parser.parseParameters(q)
 	if err != nil {
 		return spanner.Statement{}, err
 	}
@@ -223,6 +223,8 @@ func convertParam(v driver.Value) driver.Value {
 	}
 }
 
+var _ SpannerResult = &result{}
+
 type result struct {
 	rowsAffected      int64
 	lastInsertId      int64
@@ -245,4 +247,13 @@ func (r *result) LastInsertId() (int64, error) {
 
 func (r *result) RowsAffected() (int64, error) {
 	return r.rowsAffected, nil
+}
+
+var errNoBatchRowsAffected = spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "BatchRowsAffected is only supported for batch DML results"))
+
+func (r *result) BatchRowsAffected() ([]int64, error) {
+	if r.batchUpdateCounts == nil {
+		return nil, errNoBatchRowsAffected
+	}
+	return r.batchUpdateCounts, nil
 }

@@ -414,6 +414,8 @@ func createSingleValueIterator(column string, value interface{}, code spannerpb.
 	}, nil
 }
 
+var _ rowIterator = &clientSideIterator{}
+
 // clientSideIterator implements the rowIterator interface for client side
 // statements. All values are created and kept in memory, and this struct
 // should only be used for small result sets.
@@ -441,4 +443,8 @@ func (t *clientSideIterator) Stop() {
 
 func (t *clientSideIterator) Metadata() (*spannerpb.ResultSetMetadata, error) {
 	return t.metadata, nil
+}
+
+func (t *clientSideIterator) ResultSetStats() *spannerpb.ResultSetStats {
+	return &spannerpb.ResultSetStats{}
 }

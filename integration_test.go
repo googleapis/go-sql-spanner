@@ -18,6 +18,7 @@ import (
 	"context"
 	cryptorand "crypto/rand"
 	"database/sql"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -153,6 +154,10 @@ func initTestInstance(config string) (cleanup func(), err error) {
 }
 
 func createTestDB(ctx context.Context, statements ...string) (dsn string, cleanup func(), err error) {
+	return createTestDBWithDialect(ctx, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, statements...)
+}
+
+func createTestDBWithDialect(ctx context.Context, dialect databasepb.DatabaseDialect, statements ...string) (dsn string, cleanup func(), err error) {
 	databaseAdminClient, err := database.NewDatabaseAdminClient(ctx)
 	if err != nil {
 		return "", nil, err
@@ -169,11 +174,24 @@ func createTestDB(ctx context.Context, statements ...string) (dsn string, cleanu
 	}
 
 	databaseId := fmt.Sprintf("%s-%x", prefix, uniqueid)
-	opDB, err := databaseAdminClient.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
-		Parent:          fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId),
-		CreateStatement: fmt.Sprintf("CREATE DATABASE `%s`", databaseId),
-		ExtraStatements: statements,
-	})
+	var opDB *database.CreateDatabaseOperation
+	if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		if len(statements) > 0 {
+			return "", nil, errors.New("PostgreSQL does not allow extra statements in the CREATE DATABASE call")
+		}
+		opDB, err = databaseAdminClient.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
+			Parent:          fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId),
+			CreateStatement: fmt.Sprintf(`CREATE DATABASE "%s"`, databaseId),
+			DatabaseDialect: dialect,
+		})
+	} else {
+		opDB, err = databaseAdminClient.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
+			Parent:          fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId),
+			CreateStatement: fmt.Sprintf("CREATE DATABASE `%s`", databaseId),
+			ExtraStatements: statements,
+			DatabaseDialect: dialect,
+		})
+	}
 	if err != nil {
 		return "", nil, err
 	} else {
@@ -249,6 +267,34 @@ func skipIfShort(t *testing.T) {
 func skipIfEmulator(t *testing.T, msg string) {
 	if runsOnEmulator() {
 		t.Skip(msg)
+	}
+}
+
+func TestAutoConfigEmulator(t *testing.T) {
+	skipIfShort(t)
+	if !runsOnEmulator() {
+		t.Skip("autoConfigEmulator=true only works when connected to the emulator")
+	}
+	t.Parallel()
+
+	ctx := context.Background()
+	for range 2 {
+		db, err := sql.Open("spanner", "projects/emulator-project/instances/test-instance/databases/test-database;autoConfigEmulator=true")
+		if err != nil {
+			t.Fatalf("could not connect to emulator: %v", err)
+		}
+		row := db.QueryRowContext(ctx, "select 1")
+		if row.Err() != nil {
+			t.Fatalf("could not execute select 1: %v", row.Err())
+		}
+		var v int64
+		if err := row.Scan(&v); err != nil {
+			t.Fatalf("could not scan value from select 1: %v", err)
+		}
+		if g, w := v, int64(1); g != w {
+			t.Fatalf("value mismatch:\n Got %d\nWant %d", g, w)
+		}
+		_ = db.Close()
 	}
 }
 
@@ -2339,6 +2385,38 @@ func TestCanRetryTransaction(t *testing.T) {
 		if !withInternalRetries && !aborted {
 			t.Fatalf("missing aborted error with internal retries disabled")
 		}
+	}
+}
+
+func TestPostgreSQL(t *testing.T) {
+	skipIfShort(t)
+	t.Parallel()
+
+	// Create test database.
+	ctx := context.Background()
+	dsn, cleanup, err := createTestDBWithDialect(ctx, databasepb.DatabaseDialect_POSTGRESQL)
+	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	defer cleanup()
+	// Open db.
+	db, err := sql.Open("spanner", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if _, err := db.ExecContext(ctx, "create table test (id bigint primary key, value varchar)"); err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+	if _, err = db.ExecContext(ctx, `INSERT INTO test (id, value) values ($1, $2)`, 1, "One"); err != nil {
+		t.Fatalf("failed to insert row: %v", err)
+	}
+
+	row := db.QueryRowContext(ctx, "select value from test where id=?", 1)
+	var val string
+	if err := row.Scan(&val); err != nil {
+		t.Fatalf("failed to scan row: %v", err)
 	}
 }
 

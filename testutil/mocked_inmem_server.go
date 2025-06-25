@@ -33,6 +33,8 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+const selectDialect = "select option_value from information_schema.database_options where option_name='database_dialect'"
+
 // SelectFooFromBar is a SELECT statement that is added to the mocked test
 // server and will return a one-col-two-rows result set containing the INT64
 // values 1 and 2.
@@ -105,6 +107,7 @@ func (s *MockedSpannerInMemTestServer) setupMockedServerWithAddr(t *testing.T, a
 	s.TestSpanner = NewInMemSpannerServer()
 	s.TestInstanceAdmin = NewInMemInstanceAdminServer()
 	s.TestDatabaseAdmin = NewInMemDatabaseAdminServer()
+	s.SetupSelectDialectResult(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
 	s.setupSelect1Result()
 	s.setupFooResults()
 	s.setupSingersResults()
@@ -126,6 +129,11 @@ func (s *MockedSpannerInMemTestServer) setupMockedServerWithAddr(t *testing.T, a
 		option.WithoutAuthentication(),
 	}
 	return opts
+}
+
+func (s *MockedSpannerInMemTestServer) SetupSelectDialectResult(dialect databasepb.DatabaseDialect) {
+	result := &StatementResult{Type: StatementResultResultSet, ResultSet: CreateSelectDialectResultSet(dialect)}
+	s.TestSpanner.PutStatementResult(selectDialect, result)
 }
 
 func (s *MockedSpannerInMemTestServer) setupSelect1Result() {
@@ -226,7 +234,7 @@ func createSingersRow(idx int64) *structpb.ListValue {
 
 func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb.ResultSet {
 	index := 0
-	fields := make([]*spannerpb.StructType_Field, 24)
+	fields := make([]*spannerpb.StructType_Field, 26)
 	fields[index] = &spannerpb.StructType_Field{
 		Name: "ColBool",
 		Type: &spannerpb.Type{Code: spannerpb.TypeCode_BOOL},
@@ -275,6 +283,11 @@ func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb
 	fields[index] = &spannerpb.StructType_Field{
 		Name: "ColJson",
 		Type: &spannerpb.Type{Code: spannerpb.TypeCode_JSON},
+	}
+	index++
+	fields[index] = &spannerpb.StructType_Field{
+		Name: "ColUuid",
+		Type: &spannerpb.Type{Code: spannerpb.TypeCode_UUID},
 	}
 	index++
 	fields[index] = &spannerpb.StructType_Field{
@@ -368,6 +381,14 @@ func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb
 	}
 	index++
 	fields[index] = &spannerpb.StructType_Field{
+		Name: "ColUuidArray",
+		Type: &spannerpb.Type{
+			Code:             spannerpb.TypeCode_ARRAY,
+			ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_UUID},
+		},
+	}
+	index++
+	fields[index] = &spannerpb.StructType_Field{
 		Name: "ColProtoArray",
 		Type: &spannerpb.Type{
 			Code:             spannerpb.TypeCode_ARRAY,
@@ -431,6 +452,8 @@ func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "2021-07-21T21:07:59.339911800Z"}}
 		index++
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: `{"key": "value", "other-key": ["value1", "value2"]}`}}
+		index++
+		rowValue[index] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: `a4e71944-fe14-4047-9d0a-e68c281602e1`}}
 		index++
 		rowValue[index] = protoMessageProto(&singerProtoMsg)
 		index++
@@ -518,6 +541,14 @@ func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb
 		index++
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
 			ListValue: &structpb.ListValue{Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: `d0546638-6d51-4d7c-a4a9-9062204ee5bb`}},
+				nullValueOrAlt(nullValuesInArrays, &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "00000000-0000-0000-0000-000000000000"}}),
+				{Kind: &structpb.Value_StringValue{StringValue: `0dd0f9b7-05af-48e0-a5b1-35432a01c6bf`}},
+			}},
+		}}
+		index++
+		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
+			ListValue: &structpb.ListValue{Values: []*structpb.Value{
 				protoMessageProto(&singerProtoMsg),
 				nullValueOrAlt(nullValuesInArrays, protoMessageProto(&singerProtoMsg)),
 				protoMessageProto(&singer2ProtoMsg),
@@ -557,6 +588,11 @@ func protoEnumProto(e protoreflect.Enum) *structpb.Value {
 	return &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: strconv.FormatInt(int64(e.Number()), 10)}}
 }
 
+func CreateSelectDialectResultSet(dialect databasepb.DatabaseDialect) *spannerpb.ResultSet {
+	name := databasepb.DatabaseDialect_name[int32(dialect)]
+	return CreateSingleColumnStringResultSet([]string{name}, "option_value")
+}
+
 func CreateSelect1ResultSet() *spannerpb.ResultSet {
 	return CreateSingleColumnInt64ResultSet([]int64{1}, "")
 }
@@ -567,6 +603,14 @@ func CreateSingleColumnInt64ResultSet(values []int64, name string) *spannerpb.Re
 			Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%v", v)},
 		}
 	}, name, spannerpb.TypeCode_INT64)
+}
+
+func CreateSingleColumnStringResultSet(values []string, name string) *spannerpb.ResultSet {
+	return CreateSingleColumnResultSet(values, func(v string) *structpb.Value {
+		return &structpb.Value{
+			Kind: &structpb.Value_StringValue{StringValue: v},
+		}
+	}, name, spannerpb.TypeCode_STRING)
 }
 
 func CreateSingleColumnProtoResultSet(values [][]byte, name string) *spannerpb.ResultSet {

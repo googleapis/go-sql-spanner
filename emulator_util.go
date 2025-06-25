@@ -64,7 +64,7 @@ func createInstance(projectId, instanceId string) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("could not create instance %s: %v", fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId), err)
+		return fmt.Errorf("could not create instance %s: %w", fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId), err)
 	}
 	// Wait for the instance creation to finish.
 	if _, err := op.Wait(ctx); err != nil {

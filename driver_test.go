@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -169,6 +170,21 @@ func TestExtractDnsParts(t *testing.T) {
 				Database: "d",
 				Params: map[string]string{
 					"isolationlevel": "repeatable_read",
+				},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
+			},
+		},
+		{
+			input: "projects/p/instances/i/databases/d?StatementCacheSize=100;",
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
+					"statementcachesize": "100",
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
@@ -533,7 +549,12 @@ func TestConn_StartBatchDml(t *testing.T) {
 }
 
 func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
 	c := &conn{
+		parser:            parser,
 		logger:            noopLogger,
 		autocommitDMLMode: Transactional,
 		batch:             &batch{tp: ddl},
@@ -568,7 +589,12 @@ func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 }
 
 func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
 	c := &conn{
+		parser: parser,
 		logger: noopLogger,
 		batch:  &batch{tp: dml},
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
@@ -605,8 +631,12 @@ func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
 func TestConn_GetBatchedStatements(t *testing.T) {
 	t.Parallel()
 
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
-	c := &conn{logger: noopLogger}
+	c := &conn{logger: noopLogger, parser: parser}
 	if !reflect.DeepEqual(c.GetBatchedStatements(), []spanner.Statement{}) {
 		t.Fatal("conn should return an empty slice when no batch is active")
 	}
@@ -649,8 +679,13 @@ func TestConn_GetBatchedStatements(t *testing.T) {
 }
 
 func TestConn_GetCommitTimestampAfterAutocommitDml(t *testing.T) {
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := time.Now()
 	c := &conn{
+		parser:            parser,
 		logger:            noopLogger,
 		autocommitDMLMode: Transactional,
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
@@ -677,7 +712,12 @@ func TestConn_GetCommitTimestampAfterAutocommitDml(t *testing.T) {
 }
 
 func TestConn_GetCommitTimestampAfterAutocommitQuery(t *testing.T) {
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
 	c := &conn{
+		parser: parser,
 		logger: noopLogger,
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
@@ -693,7 +733,7 @@ func TestConn_GetCommitTimestampAfterAutocommitQuery(t *testing.T) {
 	if _, err := c.QueryContext(ctx, "SELECT * FROM Foo", []driver.NamedValue{}); err != nil {
 		t.Fatalf("failed to execute query: %v", err)
 	}
-	_, err := c.CommitTimestamp()
+	_, err = c.CommitTimestamp()
 	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
 		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
 	}

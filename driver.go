@@ -22,6 +22,7 @@ import (
 	"io"
 	"log/slog"
 	"math/big"
+	"os"
 	"regexp"
 	"runtime"
 	"runtime/debug"
@@ -33,6 +34,7 @@ import (
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
 	adminapi "cloud.google.com/go/spanner/admin/database/apiv1"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/uuid"
 	"github.com/googleapis/gax-go/v2"
@@ -43,10 +45,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const userAgent = "go-sql-spanner/1.13.2" // x-release-please-version
+const userAgent = "go-sql-spanner/1.14.0" // x-release-please-version
 
 const gormModule = "github.com/googleapis/go-gorm-spanner"
 const gormUserAgent = "go-gorm-spanner"
+
+const DefaultStatementCacheSize = 1000
+
+var defaultStatementCacheSize int
 
 // LevelNotice is the default logging level that the Spanner database/sql driver
 // uses for informational logs. This level is deliberately chosen to be one level
@@ -91,6 +97,31 @@ var spannerDriver *Driver
 func init() {
 	spannerDriver = &Driver{connectors: make(map[string]*connector)}
 	sql.Register("spanner", spannerDriver)
+	determineDefaultStatementCacheSize()
+}
+
+func determineDefaultStatementCacheSize() {
+	if defaultCacheSizeString, ok := os.LookupEnv("SPANNER_DEFAULT_STATEMENT_CACHE_SIZE"); ok {
+		if defaultCacheSize, err := strconv.Atoi(defaultCacheSizeString); err == nil {
+			defaultStatementCacheSize = defaultCacheSize
+		} else {
+			defaultStatementCacheSize = DefaultStatementCacheSize
+		}
+	} else {
+		defaultStatementCacheSize = DefaultStatementCacheSize
+	}
+}
+
+// SpannerResult is the result type returned by Spanner connections for
+// DML batches. This interface extends the standard sql.Result interface
+// and adds a BatchRowsAffected function that returns the affected rows
+// per statement.
+type SpannerResult interface {
+	driver.Result
+
+	// BatchRowsAffected returns the affected rows per statement in a DML batch.
+	// It returns an error if the statement was not a DML batch.
+	BatchRowsAffected() ([]int64, error)
 }
 
 // ExecOptions can be passed in as an argument to the Query, QueryContext,
@@ -144,6 +175,35 @@ type ExecOptions struct {
 	// AutoCommitDMLMode determines the type of transaction that DML statements
 	// that are executed outside explicit transactions use.
 	AutocommitDMLMode AutocommitDMLMode
+
+	// ReturnResultSetMetadata instructs the driver to return an additional result
+	// set with the full spannerpb.ResultSetMetadata of the query. This result set
+	// contains one row and one column, and the value in that cell is the
+	// spannerpb.ResultSetMetadata that was returned by Spanner when executing the
+	// query. This result set will be the first result set in the sql.Rows object
+	// that is returned.
+	//
+	// You have to call [sql.Rows.NextResultSet] to move to the result set that
+	// contains the actual query data.
+	ReturnResultSetMetadata bool
+
+	// ReturnResultSetStats instructs the driver to return an additional result
+	// set with the full spannerpb.ResultSetStats of the query. This result set
+	// contains one row and one column, and the value in that cell is the
+	// spannerpb.ResultSetStats that was returned by Spanner when executing the
+	// query. This result set will be the last result set in the sql.Rows object
+	// that is returned.
+	//
+	// You have to call [sql.Rows.NextResultSet] after fetching all query data in
+	// order to move to the result set that contains the spannerpb.ResultSetStats.
+	ReturnResultSetStats bool
+
+	// DirectExecute determines whether a query is executed directly when the
+	// [sql.DB.QueryContext] method is called, or whether the actual query execution
+	// is delayed until the first call to [sql.Rows.Next]. The default is to delay
+	// the execution. Set this flag to true to execute the query directly when
+	// [sql.DB.QueryContext] is called.
+	DirectExecuteQuery bool
 }
 
 type DecodeOption int
@@ -209,6 +269,16 @@ type ConnectorConfig struct {
 	Project  string
 	Instance string
 	Database string
+
+	// StatementCacheSize is the size of the internal cache that is used for
+	// connectors that are created from this ConnectorConfig. This cache stores
+	// the result of parsing SQL statements for query parameters and the type of
+	// statement (Query / DML / DDL).
+	// The default size is 1000. This default can also be overridden by setting
+	// the environment variable SPANNER_DEFAULT_STATEMENT_CACHE_SIZE.
+	StatementCacheSize int
+	// DisableStatementCache disables the use of a statement cache.
+	DisableStatementCache bool
 
 	// AutoConfigEmulator automatically creates a connection for the emulator
 	// and also automatically creates the Instance and Database on the emulator.
@@ -335,6 +405,7 @@ type connector struct {
 	adminClient    *adminapi.DatabaseAdminClient
 	adminClientErr error
 	connCount      int32
+	parser         *statementParser
 }
 
 func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
@@ -480,6 +551,16 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			connectorConfig.IsolationLevel = val
 		}
 	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("StatementCacheSize")]; ok {
+		if val, err := strconv.Atoi(strval); err == nil {
+			connectorConfig.StatementCacheSize = val
+		}
+	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("DisableStatementCache")]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			connectorConfig.DisableStatementCache = val
+		}
+	}
 
 	// Check if it is Spanner gorm that is creating the connection.
 	// If so, we should set a different user-agent header than the
@@ -574,6 +655,7 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 	connId := uuid.New().String()
 	logger := c.logger.With("connId", connId)
 	connection := &conn{
+		parser:      c.parser,
 		connector:   c,
 		client:      c.client,
 		adminClient: c.adminClient,
@@ -614,12 +696,33 @@ func (c *connector) increaseConnCount(ctx context.Context, databaseName string, 
 		if c.clientErr != nil {
 			return c.clientErr
 		}
+		c.logger.Log(ctx, LevelNotice, "fetching database dialect")
+		closeClient := func() {
+			c.client.Close()
+			c.client = nil
+		}
+		if dialect, err := determineDialect(ctx, c.client); err != nil {
+			closeClient()
+			return err
+		} else {
+			// Create a separate statement parser and cache per connector.
+			cacheSize := c.connectorConfig.StatementCacheSize
+			if c.connectorConfig.DisableStatementCache {
+				cacheSize = 0
+			} else if c.connectorConfig.StatementCacheSize == 0 {
+				cacheSize = defaultStatementCacheSize
+			}
+			c.parser, err = newStatementParser(dialect, cacheSize)
+			if err != nil {
+				closeClient()
+				return err
+			}
+		}
 
 		c.logger.Log(ctx, LevelNotice, "creating Spanner Admin client")
 		c.adminClient, c.adminClientErr = adminapi.NewDatabaseAdminClient(ctx, opts...)
 		if c.adminClientErr != nil {
-			c.client = nil
-			c.client.Close()
+			closeClient()
 			c.adminClient = nil
 			return c.adminClientErr
 		}
@@ -628,6 +731,26 @@ func (c *connector) increaseConnCount(ctx context.Context, databaseName string, 
 	c.connCount++
 	c.logger.DebugContext(ctx, "increased conn count", "connCount", c.connCount)
 	return nil
+}
+
+func determineDialect(ctx context.Context, client *spanner.Client) (databasepb.DatabaseDialect, error) {
+	it := client.Single().Query(ctx, spanner.Statement{SQL: "select option_value from information_schema.database_options where option_name='database_dialect'"})
+	defer it.Stop()
+	for {
+		if row, err := it.Next(); err != nil {
+			return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, err
+		} else {
+			var dialectName string
+			if err := row.Columns(&dialectName); err != nil {
+				return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, err
+			}
+			if dialect, ok := databasepb.DatabaseDialect_value[dialectName]; ok {
+				return databasepb.DatabaseDialect(dialect), nil
+			} else {
+				return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, fmt.Errorf("unknown database dialect: %s", dialectName)
+			}
+		}
+	}
 }
 
 // decreaseConnCount decreases the number of connections that are active and closes the underlying clients if it was the
@@ -951,6 +1074,94 @@ func clearTempReadOnlyTransactionOptions(conn *sql.Conn) {
 	_ = conn.Close()
 }
 
+// DmlBatch is used to execute a batch of DML statements on Spanner in a single round-trip.
+type DmlBatch interface {
+	// ExecContext buffers the given statement for execution on Spanner.
+	// All buffered statements are sent to Spanner as a single request when the DmlBatch
+	// function returns successfully.
+	ExecContext(ctx context.Context, dml string, args ...any) error
+}
+
+var _ DmlBatch = &dmlBatch{}
+
+type dmlBatch struct {
+	conn *sql.Conn
+}
+
+// ExecuteBatchDml executes a batch of DML statements in a single round-trip to Spanner.
+func ExecuteBatchDml(ctx context.Context, db *sql.DB, f func(ctx context.Context, batch DmlBatch) error) (SpannerResult, error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return ExecuteBatchDmlOnConn(ctx, conn, f)
+}
+
+// ExecuteBatchDmlOnConn executes a batch of DML statements on a specific connection in a single round-trip to Spanner.
+func ExecuteBatchDmlOnConn(ctx context.Context, connection *sql.Conn, f func(ctx context.Context, batch DmlBatch) error) (SpannerResult, error) {
+	// Start the DML batch.
+	if err := connection.Raw(func(driverConn any) error {
+		c, ok := driverConn.(*conn)
+		if !ok {
+			return spanner.ToSpannerError(status.Error(codes.InvalidArgument, "connection is not a Spanner connection"))
+		}
+		if _, err := c.startBatchDML(false); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	// Let the callback execute the statements on the batch.
+	b := &dmlBatch{conn: connection}
+	if err := f(ctx, b); err != nil {
+		// The callback returned an error, abort the batch.
+		_ = connection.Raw(func(driverConn any) error {
+			c, _ := driverConn.(*conn)
+			_ = c.AbortBatch()
+			return nil
+		})
+		return nil, err
+	}
+
+	// Send the batch to Spanner.
+	var res SpannerResult
+	if err := connection.Raw(func(driverConn any) error {
+		// We know that the connection is a Spanner connection, so we don't bother to check that again here.
+		c, _ := driverConn.(*conn)
+		var err error
+		res, err = c.runDMLBatch(ctx)
+		if err != nil {
+			// Make sure the batch is removed from the connection/transaction.
+			_ = c.AbortBatch()
+			return err
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return res, nil
+}
+
+func (b *dmlBatch) ExecContext(ctx context.Context, dml string, args ...any) error {
+	if err := b.conn.Raw(func(driverConn any) error {
+		c, ok := driverConn.(*conn)
+		if !ok {
+			return spanner.ToSpannerError(status.Error(codes.InvalidArgument, "connection is not a Spanner connection"))
+		}
+		if !c.InDMLBatch() {
+			return spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "this batch is no longer active"))
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	_, err := b.conn.ExecContext(ctx, dml, args...)
+	return err
+}
+
 // AutocommitDMLMode indicates whether a single DML statement should be executed
 // in a normal atomic transaction or as a Partitioned DML statement.
 // See https://cloud.google.com/spanner/docs/dml-partitioned for more information.
@@ -1062,6 +1273,12 @@ func checkIsValidType(v driver.Value) bool {
 	case spanner.NullJSON:
 	case []spanner.NullJSON:
 	case spanner.GenericColumnValue:
+	case uuid.UUID:
+	case *uuid.UUID:
+	case []uuid.UUID:
+	case []*uuid.UUID:
+	case spanner.NullUUID:
+	case []spanner.NullUUID:
 	}
 	return true
 }

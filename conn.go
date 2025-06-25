@@ -18,6 +18,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"log/slog"
 	"slices"
 	"time"
@@ -204,6 +205,7 @@ type SpannerConn interface {
 var _ SpannerConn = &conn{}
 
 type conn struct {
+	parser        *statementParser
 	connector     *connector
 	closed        bool
 	client        *spanner.Client
@@ -520,7 +522,11 @@ func (c *conn) runDDLBatch(ctx context.Context) (driver.Result, error) {
 	return c.execDDL(ctx, statements...)
 }
 
-func (c *conn) runDMLBatch(ctx context.Context) (driver.Result, error) {
+func (c *conn) runDMLBatch(ctx context.Context) (SpannerResult, error) {
+	if c.inTransaction() {
+		return c.tx.RunDmlBatch(ctx)
+	}
+
 	statements := c.batch.statements
 	options := c.batch.options
 	options.QueryOptions.LastStatement = true
@@ -565,7 +571,7 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 	return driver.ResultNoRows, nil
 }
 
-func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement, options ExecOptions) (driver.Result, error) {
+func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement, options ExecOptions) (SpannerResult, error) {
 	if len(statements) == 0 {
 		return &result{}, nil
 	}
@@ -584,7 +590,7 @@ func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement,
 			return err
 		}, options.TransactionOptions)
 	}
-	return &result{rowsAffected: sum(affected)}, err
+	return &result{rowsAffected: sum(affected), batchUpdateCounts: affected}, err
 }
 
 func sum(affected []int64) int64 {
@@ -724,7 +730,7 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 
 func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, error) {
 	execOptions := c.options()
-	parsedSQL, args, err := parseParameters(query)
+	parsedSQL, args, err := c.parser.parseParameters(query)
 	if err != nil {
 		return nil, err
 	}
@@ -733,7 +739,7 @@ func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, err
 
 func (c *conn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	// Execute client side statement if it is one.
-	clientStmt, err := parseClientSideStatement(c, query)
+	clientStmt, err := c.parser.parseClientSideStatement(c, query)
 	if err != nil {
 		return nil, err
 	}
@@ -754,13 +760,17 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 		return pq.execute(ctx, execOptions.PartitionedQueryOptions.ExecutePartition.Index)
 	}
 
-	stmt, err := prepareSpannerStmt(query, args)
+	stmt, err := prepareSpannerStmt(c.parser, query, args)
 	if err != nil {
 		return nil, err
 	}
+	statementType := c.parser.detectStatementType(query)
+	// DDL statements are not supported in QueryContext so fail early.
+	if statementType.statementType == statementTypeDdl {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "QueryContext does not support DDL statements, use ExecContext instead"))
+	}
 	var iter rowIterator
 	if c.tx == nil {
-		statementType := detectStatementType(query)
 		if statementType.statementType == statementTypeDml {
 			// Use a read/write transaction to execute the statement.
 			var commitTs time.Time
@@ -788,12 +798,27 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 			return nil, err
 		}
 	}
-	return &rows{it: iter, decodeOption: execOptions.DecodeOption, decodeToNativeArrays: execOptions.DecodeToNativeArrays}, nil
+	res := &rows{
+		it:                      iter,
+		decodeOption:            execOptions.DecodeOption,
+		decodeToNativeArrays:    execOptions.DecodeToNativeArrays,
+		returnResultSetMetadata: execOptions.ReturnResultSetMetadata,
+		returnResultSetStats:    execOptions.ReturnResultSetStats,
+	}
+	if execOptions.DirectExecuteQuery {
+		// This call to res.getColumns() triggers the execution of the statement, as it needs to fetch the metadata.
+		res.getColumns()
+		if res.dirtyErr != nil && !errors.Is(res.dirtyErr, iterator.Done) {
+			_ = res.Close()
+			return nil, res.dirtyErr
+		}
+	}
+	return res, nil
 }
 
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	// Execute client side statement if it is one.
-	stmt, err := parseClientSideStatement(c, query)
+	stmt, err := c.parser.parseClientSideStatement(c, query)
 	if err != nil {
 		return nil, err
 	}
@@ -808,7 +833,7 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 	// Clear the commit timestamp of this connection before we execute the statement.
 	c.commitTs = nil
 
-	statementInfo := detectStatementType(query)
+	statementInfo := c.parser.detectStatementType(query)
 	// Use admin API if DDL statement is provided.
 	if statementInfo.statementType == statementTypeDdl {
 		// Spanner does not support DDL in transactions, and although it is technically possible to execute DDL
@@ -820,7 +845,7 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 		return c.execDDL(ctx, spanner.NewStatement(query))
 	}
 
-	ss, err := prepareSpannerStmt(query, args)
+	ss, err := prepareSpannerStmt(c.parser, query, args)
 	if err != nil {
 		return nil, err
 	}
