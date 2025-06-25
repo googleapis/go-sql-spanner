@@ -87,6 +87,24 @@ func CloseConnection(poolId, connId int64) (int64, int32, int64, int32, unsafe.P
 	return pin(msg)
 }
 
+// Apply applies an array of mutations in a single read/write transaction.
+// The mutationsBytes must be an encoded BatchWriteRequest_MutationGroup protobuf object.
+//
+//export Apply
+func Apply(poolId, connectionId int64, mutationsBytes []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := exported.Apply(poolId, connectionId, mutationsBytes)
+	return pin(msg)
+}
+
+// BufferWrite buffers an array of mutations in the given read/write transaction.
+// The mutationsBytes must be an encoded BatchWriteRequest_MutationGroup protobuf object.
+//
+//export BufferWrite
+func BufferWrite(poolId, connectionId, txId int64, mutationsBytes []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := exported.BufferWrite(poolId, connectionId, txId, mutationsBytes)
+	return pin(msg)
+}
+
 // Execute executes a SQL statement on the given connection.
 // The return type is an identifier for a Rows object. This identifier can be used to
 // call the functions Metadata and Next to get respectively the metadata of the result

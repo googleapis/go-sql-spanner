@@ -177,6 +177,243 @@ func TestDisableInternalRetries(t *testing.T) {
 	CloseRows(pool.ObjectId, conn.ObjectId, results.ObjectId)
 }
 
+func TestApply(t *testing.T) {
+	t.Parallel()
+
+	dsn, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	pool := CreatePool(dsn)
+	defer ClosePool(pool.ObjectId)
+	conn := CreateConnection(pool.ObjectId)
+	defer CloseConnection(pool.ObjectId, conn.ObjectId)
+
+	mutations := sppb.BatchWriteRequest_MutationGroup{
+		Mutations: []*sppb.Mutation{
+			{Operation: &sppb.Mutation_Insert{Insert: &sppb.Mutation_Write{
+				Table:   "foo",
+				Columns: []string{"id", "value"},
+				Values: []*structpb.ListValue{
+					{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: "1"}},
+						{Kind: &structpb.Value_StringValue{StringValue: "One"}},
+					}},
+					{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: "2"}},
+						{Kind: &structpb.Value_StringValue{StringValue: "Two"}},
+					}},
+				},
+			}}},
+		},
+	}
+	mutationsBytes, _ := proto.Marshal(&mutations)
+	response := Apply(pool.ObjectId, conn.ObjectId, mutationsBytes)
+	if response.Code != 0 {
+		t.Fatalf("failed to apply mutations: %v", response.Code)
+	}
+	commitResponse := sppb.CommitResponse{}
+	_ = proto.Unmarshal(response.Res, &commitResponse)
+	if commitResponse.CommitTimestamp == nil {
+		t.Fatal("commit timestamp missing")
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	if g, w := len(beginRequests), 1; g != w {
+		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := beginRequests[0].(*sppb.BeginTransactionRequest)
+	if req.Options == nil {
+		t.Fatalf("missing tx opts")
+	}
+	if req.Options.GetReadWrite() == nil {
+		t.Fatalf("missing tx read write")
+	}
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	commitReq := commitRequests[0].(*sppb.CommitRequest)
+	if g, w := len(commitReq.Mutations), 1; g != w {
+		t.Fatalf("mutation count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := len(commitReq.Mutations[0].GetInsert().Values), 2; g != w {
+		t.Fatalf("mutation values count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestBufferWrite(t *testing.T) {
+	t.Parallel()
+
+	dsn, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	pool := CreatePool(dsn)
+	defer ClosePool(pool.ObjectId)
+	conn := CreateConnection(pool.ObjectId)
+	defer CloseConnection(pool.ObjectId, conn.ObjectId)
+
+	txOpts := &sppb.TransactionOptions{}
+	txOptsBytes, _ := proto.Marshal(txOpts)
+	tx := BeginTransaction(pool.ObjectId, conn.ObjectId, txOptsBytes)
+
+	mutations := sppb.BatchWriteRequest_MutationGroup{
+		Mutations: []*sppb.Mutation{
+			{Operation: &sppb.Mutation_Insert{Insert: &sppb.Mutation_Write{
+				Table:   "foo",
+				Columns: []string{"id", "value"},
+				Values: []*structpb.ListValue{
+					{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: "1"}},
+						{Kind: &structpb.Value_StringValue{StringValue: "One"}},
+					}},
+					{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: "2"}},
+						{Kind: &structpb.Value_StringValue{StringValue: "Two"}},
+					}},
+				},
+			}}},
+		},
+	}
+	mutationsBytes, _ := proto.Marshal(&mutations)
+	response := BufferWrite(pool.ObjectId, conn.ObjectId, tx.ObjectId, mutationsBytes)
+	if response.Code != 0 {
+		t.Fatalf("failed to apply mutations: %v", response.Code)
+	}
+	if response.Length() > 0 {
+		t.Fatal("response length mismatch")
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	if g, w := len(beginRequests), 1; g != w {
+		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := beginRequests[0].(*sppb.BeginTransactionRequest)
+	if req.Options == nil {
+		t.Fatalf("missing tx opts")
+	}
+	if req.Options.GetReadWrite() == nil {
+		t.Fatalf("missing tx read write")
+	}
+
+	// There should not be any commit requests yet.
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 0; g != w {
+		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+
+	// Commit the transaction with the mutation.
+	res := Commit(pool.ObjectId, conn.ObjectId, tx.ObjectId)
+	if res.Code != 0 {
+		t.Fatalf("failed to commit: %v", res.Code)
+	}
+
+	// Verify that we have a commit request on the server.
+	requests = drainRequestsFromServer(server.TestSpanner)
+	commitRequests = requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	commitReq := commitRequests[0].(*sppb.CommitRequest)
+	if g, w := len(commitReq.Mutations), 1; g != w {
+		t.Fatalf("mutation count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := len(commitReq.Mutations[0].GetInsert().Values), 2; g != w {
+		t.Fatalf("mutation values count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+}
+
+func TestBufferWrite_RetryAborted(t *testing.T) {
+	t.Parallel()
+
+	dsn, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	pool := CreatePool(dsn)
+	defer ClosePool(pool.ObjectId)
+	conn := CreateConnection(pool.ObjectId)
+	defer CloseConnection(pool.ObjectId, conn.ObjectId)
+
+	txOpts := &sppb.TransactionOptions{}
+	txOptsBytes, _ := proto.Marshal(txOpts)
+	tx := BeginTransaction(pool.ObjectId, conn.ObjectId, txOptsBytes)
+
+	mutations := sppb.BatchWriteRequest_MutationGroup{
+		Mutations: []*sppb.Mutation{
+			{Operation: &sppb.Mutation_Insert{Insert: &sppb.Mutation_Write{
+				Table:   "foo",
+				Columns: []string{"id", "value"},
+				Values: []*structpb.ListValue{
+					{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: "1"}},
+						{Kind: &structpb.Value_StringValue{StringValue: "One"}},
+					}},
+					{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: "2"}},
+						{Kind: &structpb.Value_StringValue{StringValue: "Two"}},
+					}},
+				},
+			}}},
+		},
+	}
+	mutationsBytes, _ := proto.Marshal(&mutations)
+	response := BufferWrite(pool.ObjectId, conn.ObjectId, tx.ObjectId, mutationsBytes)
+	if response.Code != 0 {
+		t.Fatalf("failed to apply mutations: %v", response.Code)
+	}
+	if response.Length() > 0 {
+		t.Fatal("response length mismatch")
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	if g, w := len(beginRequests), 1; g != w {
+		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := beginRequests[0].(*sppb.BeginTransactionRequest)
+	if req.Options == nil {
+		t.Fatalf("missing tx opts")
+	}
+	if req.Options.GetReadWrite() == nil {
+		t.Fatalf("missing tx read write")
+	}
+
+	// There should not be any commit requests yet.
+	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 0; g != w {
+		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+
+	// Instruct the mock server to abort the transaction.
+	server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+		Errors: []error{status.Error(codes.Aborted, "Aborted")},
+	})
+
+	// Commit the transaction with the mutation.
+	res := Commit(pool.ObjectId, conn.ObjectId, tx.ObjectId)
+	if res.Code != 0 {
+		t.Fatalf("failed to commit: %v", res.Code)
+	}
+
+	// Verify that we have a commit request on the server.
+	requests = drainRequestsFromServer(server.TestSpanner)
+	commitRequests = requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 2; g != w {
+		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	for _, req := range commitRequests {
+		commitReq := req.(*sppb.CommitRequest)
+		if g, w := len(commitReq.Mutations), 1; g != w {
+			t.Fatalf("mutation count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if g, w := len(commitReq.Mutations[0].GetInsert().Values), 2; g != w {
+			t.Fatalf("mutation values count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+}
+
 func setupTestDBConnection(t *testing.T) (dsn string, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
 	return setupTestDBConnectionWithParams(t, "")
 }

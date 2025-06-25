@@ -242,6 +242,10 @@ type readWriteTransaction struct {
 	// transaction so far. These statements will be replayed on a new read write
 	// transaction if the initial attempt is aborted.
 	statements []retriableStatement
+
+	// mutations contains the buffered mutations of this transaction. These are
+	// added to the next transaction if the transaction executes an internal retry.
+	mutations []*spanner.Mutation
 }
 
 // retriableStatement is the interface that is used to keep track of statements
@@ -373,6 +377,11 @@ func (tx *readWriteTransaction) retry(ctx context.Context) (err error) {
 		tx.logger.Log(ctx, LevelNotice, "failed to reset transaction")
 		return err
 	}
+	// Re-apply the mutations from the previous transaction.
+	if err := tx.rwTx.BufferWrite(tx.mutations); err != nil {
+		return err
+	}
+
 	for _, stmt := range tx.statements {
 		tx.logger.Log(ctx, slog.LevelDebug, "retrying statement", "stmt", stmt)
 		err = stmt.retry(ctx, tx.rwTx)
@@ -613,6 +622,7 @@ func (tx *readWriteTransaction) runDmlBatch(ctx context.Context) (*result, error
 }
 
 func (tx *readWriteTransaction) BufferWrite(ms []*spanner.Mutation) error {
+	tx.mutations = append(tx.mutations, ms...)
 	return tx.rwTx.BufferWrite(ms)
 }
 

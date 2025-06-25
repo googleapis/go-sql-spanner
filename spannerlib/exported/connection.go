@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
@@ -14,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"spannerlib/backend"
 )
 
@@ -23,6 +25,18 @@ func CloseConnection(poolId, connId int64) *Message {
 		return errMessage(err)
 	}
 	return conn.close()
+}
+
+func Apply(poolId, connId int64, mutationBytes []byte) *Message {
+	mutations := spannerpb.BatchWriteRequest_MutationGroup{}
+	if err := proto.Unmarshal(mutationBytes, &mutations); err != nil {
+		return errMessage(err)
+	}
+	conn, err := findConnection(poolId, connId)
+	if err != nil {
+		return errMessage(err)
+	}
+	return conn.apply(&mutations)
 }
 
 func BeginTransaction(poolId, connId int64, txOptsBytes []byte) *Message {
@@ -92,6 +106,34 @@ func (conn *Connection) close() *Message {
 		return errMessage(err)
 	}
 	return &Message{}
+}
+
+func (conn *Connection) apply(mutation *spannerpb.BatchWriteRequest_MutationGroup) *Message {
+	ctx := context.Background()
+	mutations := make([]*spanner.Mutation, 0, len(mutation.Mutations))
+	for _, m := range mutation.Mutations {
+		spannerMutation, err := spanner.WrapMutation(m)
+		if err != nil {
+			return errMessage(err)
+		}
+		mutations = append(mutations, spannerMutation)
+	}
+	var commitTimestamp time.Time
+	if err := conn.backend.Conn.Raw(func(driverConn any) (err error) {
+		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
+		commitTimestamp, err = spannerConn.Apply(ctx, mutations)
+		return err
+	}); err != nil {
+		return errMessage(err)
+	}
+	response := spannerpb.CommitResponse{
+		CommitTimestamp: timestamppb.New(commitTimestamp),
+	}
+	res, err := proto.Marshal(&response)
+	if err != nil {
+		return errMessage(err)
+	}
+	return &Message{Res: res}
 }
 
 func (conn *Connection) BeginTransaction(txOpts *spannerpb.TransactionOptions) *Message {
