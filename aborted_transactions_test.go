@@ -60,6 +60,51 @@ func TestCommitAborted(t *testing.T) {
 	}
 }
 
+func TestCommitWithMutationsAborted(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1;maxSessions=1")
+	defer teardown()
+	ctx := context.Background()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to open connection: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin failed: %v", err)
+	}
+	if err := conn.Raw(func(driverConn interface{}) error {
+		spannerConn, _ := driverConn.(SpannerConn)
+		mutation := spanner.Insert("foo", []string{}, []interface{}{})
+		return spannerConn.BufferWrite([]*spanner.Mutation{mutation})
+	}); err != nil {
+		t.Fatalf("failed to buffer mutations: %v", err)
+	}
+	// Abort the transaction on the first commit attempt.
+	server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+		Errors: []error{status.Error(codes.Aborted, "Aborted")},
+	})
+	err = tx.Commit()
+	if err != nil {
+		t.Fatalf("commit failed: %v", err)
+	}
+	reqs := drainRequestsFromServer(server.TestSpanner)
+	commitReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitReqs), 2; g != w {
+		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	for _, req := range commitReqs {
+		commitReq := req.(*sppb.CommitRequest)
+		if g, w := len(commitReq.Mutations), 1; g != w {
+			t.Fatalf("mutation count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+}
+
 func TestCommitAbortedWithInternalRetriesDisabled(t *testing.T) {
 	t.Parallel()
 
