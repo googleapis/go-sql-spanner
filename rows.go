@@ -16,6 +16,7 @@ package spannerdriver
 
 import (
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -29,6 +30,17 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+type resultSetType int
+
+const (
+	resultSetTypeMetadata resultSetType = iota
+	resultSetTypeResults
+	resultSetTypeStats
+	resultSetTypeNoMoreResults
+)
+
+var _ driver.RowsNextResultSet = &rows{}
+
 type rows struct {
 	it    rowIterator
 	close func() error
@@ -41,6 +53,33 @@ type rows struct {
 	decodeToNativeArrays bool
 
 	dirtyRow *spanner.Row
+
+	currentResultSetType    resultSetType
+	returnResultSetMetadata bool
+	returnResultSetStats    bool
+
+	hasReturnedResultSetMetadata bool
+	hasReturnedResultSetStats    bool
+}
+
+// HasNextResultSet implements [driver.RowsNextResultSet.HasNextResultSet].
+func (r *rows) HasNextResultSet() bool {
+	if r.currentResultSetType == resultSetTypeMetadata && r.returnResultSetMetadata {
+		return true
+	}
+	if r.currentResultSetType == resultSetTypeResults && r.returnResultSetStats {
+		return true
+	}
+	return false
+}
+
+// NextResultSet implements [driver.RowsNextResultSet.NextResultSet].
+func (r *rows) NextResultSet() error {
+	if !r.HasNextResultSet() {
+		return io.EOF
+	}
+	r.currentResultSetType++
+	return nil
 }
 
 // Columns returns the names of the columns. The number of
@@ -49,7 +88,17 @@ type rows struct {
 // string should be returned for that entry.
 func (r *rows) Columns() []string {
 	r.getColumns()
-	return r.cols
+	switch r.currentResultSetType {
+	case resultSetTypeMetadata:
+		return []string{"metadata"}
+	case resultSetTypeResults:
+		return r.cols
+	case resultSetTypeStats:
+		return []string{"stats"}
+	case resultSetTypeNoMoreResults:
+		return []string{}
+	}
+	return []string{}
 }
 
 // Close closes the rows iterator.
@@ -65,6 +114,11 @@ func (r *rows) Close() error {
 
 func (r *rows) getColumns() {
 	r.colsOnce.Do(func() {
+		// Automatically advance the Rows object to the actual query data if we should
+		// not return the ResultSetMetadata as a separate result set.
+		if r.currentResultSetType == resultSetTypeMetadata && !r.returnResultSetMetadata {
+			r.currentResultSetType = resultSetTypeResults
+		}
 		row, err := r.it.Next()
 		if err == nil {
 			r.dirtyRow = row
@@ -98,6 +152,14 @@ func (r *rows) getColumns() {
 // a buffer held in dest.
 func (r *rows) Next(dest []driver.Value) error {
 	r.getColumns()
+
+	if r.currentResultSetType == resultSetTypeMetadata {
+		return r.nextMetadata(dest)
+	}
+	if r.currentResultSetType == resultSetTypeStats {
+		return r.nextStats(dest)
+	}
+
 	var row *spanner.Row
 	if r.dirtyErr != nil {
 		err := r.dirtyErr
@@ -106,7 +168,8 @@ func (r *rows) Next(dest []driver.Value) error {
 			return io.EOF
 		}
 		return err
-	} else if r.dirtyRow != nil {
+	}
+	if r.dirtyRow != nil {
 		row = r.dirtyRow
 		r.dirtyRow = nil
 	} else {
@@ -376,5 +439,30 @@ func (r *rows) Next(dest []driver.Value) error {
 				"to return the underlying protobuf value", col.Type.Code)
 		}
 	}
+	return nil
+}
+
+func (r *rows) nextMetadata(dest []driver.Value) error {
+	if r.dirtyErr != nil && !errors.Is(r.dirtyErr, iterator.Done) {
+		return r.dirtyErr
+	}
+	if r.hasReturnedResultSetMetadata {
+		return io.EOF
+	}
+	r.hasReturnedResultSetMetadata = true
+	metadata, err := r.it.Metadata()
+	if err != nil {
+		return err
+	}
+	dest[0] = metadata
+	return nil
+}
+
+func (r *rows) nextStats(dest []driver.Value) error {
+	if r.hasReturnedResultSetStats {
+		return io.EOF
+	}
+	r.hasReturnedResultSetStats = true
+	dest[0] = r.it.ResultSetStats()
 	return nil
 }

@@ -798,7 +798,13 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 			return nil, err
 		}
 	}
-	res := &rows{it: iter, decodeOption: execOptions.DecodeOption, decodeToNativeArrays: execOptions.DecodeToNativeArrays}
+	res := &rows{
+		it:                      iter,
+		decodeOption:            execOptions.DecodeOption,
+		decodeToNativeArrays:    execOptions.DecodeToNativeArrays,
+		returnResultSetMetadata: execOptions.ReturnResultSetMetadata,
+		returnResultSetStats:    execOptions.ReturnResultSetStats,
+	}
 	if execOptions.DirectExecuteQuery {
 		// This call to res.getColumns() triggers the execution of the statement, as it needs to fetch the metadata.
 		res.getColumns()
