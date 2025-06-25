@@ -2,6 +2,9 @@ on:
   push:
     branches: [ main ]
   pull_request:
+permissions:
+  contents: read
+  pull-requests: write
 name: Spanner Lib Tests
 jobs:
   test:
@@ -37,3 +40,32 @@ jobs:
       - name: Build shared lib
         working-directory: spannerlib
         run: go build -o spannerlib.so -buildmode=c-shared
+
+  test-dotnet:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.24
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Build shared lib
+        working-directory: spannerlib
+        run: go build -o spannerlib.so -buildmode=c-shared
+      - name: Copy lib to dotnet folder
+        working-directory: spannerlib
+        run: |
+          mkdir -p dotnet-spannerlib/Google.Cloud.SpannerLib/runtimes/linux-x64/native
+          cp spannerlib.so dotnet-spannerlib/Google.Cloud.SpannerLib/runtimes/linux-x64/native/spannerlib.so
+      - name: Install dotnet
+        uses: actions/setup-dotnet@v4
+      - name: Restore dependencies
+        run: dotnet restore
+        working-directory: spannerlib/dotnet-spannerlib
+      - name: Build
+        run: dotnet build --no-restore
+        working-directory: spannerlib/dotnet-spannerlib
+      - name: Unit Tests
+        working-directory: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Tests
+        run: dotnet test --no-build --verbosity normal

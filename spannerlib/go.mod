@@ -4,10 +4,8 @@ go 1.24
 
 replace github.com/googleapis/go-sql-spanner => ..
 
-replace cloud.google.com/go/spanner => /Users/loite/GolandProjects/google-cloud-go/spanner
-
 require (
-	cloud.google.com/go/spanner v1.82.0
+	cloud.google.com/go/spanner v1.82.1-0.20250625132714-fe377af799f0
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/go-sql-spanner v1.13.2
 	google.golang.org/api v0.237.0

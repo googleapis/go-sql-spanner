@@ -4,12 +4,10 @@ go 1.24
 
 toolchain go1.24.4
 
-replace cloud.google.com/go/spanner => /Users/loite/GolandProjects/google-cloud-go/spanner
-
 require (
 	cloud.google.com/go v0.121.2
 	cloud.google.com/go/longrunning v0.6.7
-	cloud.google.com/go/spanner v1.82.0
+	cloud.google.com/go/spanner v1.82.1-0.20250625132714-fe377af799f0
 	github.com/golang/protobuf v1.5.4
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0

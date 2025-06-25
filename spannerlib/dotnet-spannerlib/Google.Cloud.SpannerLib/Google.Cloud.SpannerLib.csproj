@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>9</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Cloud.Spanner.V1" Version="5.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content CopyToOutputDirectory="PreserveNewest" Include="runtimes/osx-arm/native/spannerlib.dylib" Link="spannerlib" Pack="true" PackagePath="runtimes/osx-arm/native/spannerlib.dylib" />
+    <Content CopyToOutputDirectory="PreserveNewest" Include="runtimes/linux-x64/native/spannerlib.so" Link="spannerlib" Pack="true" PackagePath="runtimes/linux-x64/native/spannerlib.so" />
+    <Content CopyToOutputDirectory="PreserveNewest" Include="runtimes/linux-arm/native/spannerlib.so" Link="spannerlib" Pack="true" PackagePath="runtimes/linux-arm/native/spannerlib.so" />
+  </ItemGroup>
+
+</Project>
