@@ -10,10 +10,11 @@ namespace Google.Cloud.SpannerLib
 
     public static class Spanner
     {
-        private static MessageHandler ExecuteLibraryFunction(
-            Func<Google.Cloud.SpannerLib.Internal.SpannerLib.Message> func)
+        private static readonly Internal.SpannerLib SpannerLib = Internal.SpannerLib.Create();
+
+        private static MessageHandler ExecuteLibraryFunction(Func<Message> func)
         {
-            var handler = new MessageHandler(func());
+            var handler = new MessageHandler(SpannerLib, func());
             if (handler.HasError())
             {
                 try
@@ -25,14 +26,12 @@ namespace Google.Cloud.SpannerLib
                     handler.Dispose();
                 }
             }
-
             return handler;
         }
 
-        private static void ExecuteAndReleaseLibraryFunction(
-            Func<Google.Cloud.SpannerLib.Internal.SpannerLib.Message> func)
+        private static void ExecuteAndReleaseLibraryFunction(Func<Message> func)
         {
-            using var handler = new MessageHandler(func());
+            using var handler = new MessageHandler(SpannerLib, func());
             if (handler.HasError())
             {
                 throw new SpannerException(handler.Code(), handler.Error()!);
@@ -44,28 +43,25 @@ namespace Google.Cloud.SpannerLib
             using var handler = ExecuteLibraryFunction(() =>
             {
                 using var goDsn = new GoString(dsn);
-                return Google.Cloud.SpannerLib.Internal.SpannerLib.CreatePool(goDsn);
+                return SpannerLib.CreatePool(goDsn);
             });
             return new LibPool(handler.ObjectId());
         }
 
         internal static void ClosePool(LibPool libPool)
         {
-            ExecuteAndReleaseLibraryFunction(() => Google.Cloud.SpannerLib.Internal.SpannerLib.ClosePool(libPool.Id));
+            ExecuteAndReleaseLibraryFunction(() => SpannerLib.ClosePool(libPool.Id));
         }
 
         internal static LibConnection CreateConnection(LibPool libPool)
         {
-            using var handler = ExecuteLibraryFunction(() =>
-                Google.Cloud.SpannerLib.Internal.SpannerLib.CreateConnection(libPool.Id));
+            using var handler = ExecuteLibraryFunction(() => SpannerLib.CreateConnection(libPool.Id));
             return new LibConnection(libPool, handler.ObjectId());
         }
 
         internal static void CloseConnection(LibConnection libConnection)
         {
-            ExecuteAndReleaseLibraryFunction(() =>
-                Google.Cloud.SpannerLib.Internal.SpannerLib.CloseConnection(libConnection.LibPool.Id,
-                    libConnection.Id));
+            ExecuteAndReleaseLibraryFunction(() => SpannerLib.CloseConnection(libConnection.LibPool.Id, libConnection.Id));
         }
 
         internal static CommitResponse Apply(LibConnection libConnection,
@@ -75,8 +71,7 @@ namespace Google.Cloud.SpannerLib
             {
                 var mutationsBytes = mutations.ToByteArray();
                 using var goMutations = DisposableGoSlice.Create(mutationsBytes);
-                return Google.Cloud.SpannerLib.Internal.SpannerLib.Apply(libConnection.LibPool.Id, libConnection.Id,
-                    goMutations.GoSlice);
+                return SpannerLib.Apply(libConnection.LibPool.Id, libConnection.Id, goMutations.GoSlice);
             });
             return CommitResponse.Parser.ParseFrom(handler.Value());
         }
@@ -87,7 +82,7 @@ namespace Google.Cloud.SpannerLib
             {
                 var mutationsBytes = mutations.ToByteArray();
                 using var goMutations = DisposableGoSlice.Create(mutationsBytes);
-                return Google.Cloud.SpannerLib.Internal.SpannerLib.BufferWrite(libTransaction.LibConnection.LibPool.Id,
+                return SpannerLib.BufferWrite(libTransaction.LibConnection.LibPool.Id,
                     libTransaction.LibConnection.Id, libTransaction.Id, goMutations.GoSlice);
             });
         }
@@ -98,8 +93,7 @@ namespace Google.Cloud.SpannerLib
             {
                 var statementBytes = statement.ToByteArray();
                 using var goStatement = DisposableGoSlice.Create(statementBytes);
-                return Google.Cloud.SpannerLib.Internal.SpannerLib.Execute(libConnection.LibPool.Id, libConnection.Id,
-                    goStatement.GoSlice);
+                return SpannerLib.Execute(libConnection.LibPool.Id, libConnection.Id, goStatement.GoSlice);
             });
             return new LibRows(libConnection, handler.ObjectId());
         }
@@ -110,9 +104,9 @@ namespace Google.Cloud.SpannerLib
             {
                 var statementBytes = statement.ToByteArray();
                 using var goStatement = DisposableGoSlice.Create(statementBytes);
-                return Google.Cloud.SpannerLib.Internal.SpannerLib.ExecuteTransaction(
-                    libTransaction.LibConnection.LibPool.Id, libTransaction.LibConnection.Id, libTransaction.Id,
-                    goStatement.GoSlice);
+                return SpannerLib.ExecuteTransaction(
+                    libTransaction.LibConnection.LibPool.Id, libTransaction.LibConnection.Id,
+                    libTransaction.Id, goStatement.GoSlice);
             });
             return new LibRows(libTransaction.LibConnection, handler.ObjectId());
         }
@@ -123,8 +117,7 @@ namespace Google.Cloud.SpannerLib
             {
                 var statementsBytes = statements.ToByteArray();
                 using var goStatements = DisposableGoSlice.Create(statementsBytes);
-                return Google.Cloud.SpannerLib.Internal.SpannerLib.ExecuteBatchDml(libConnection.LibPool.Id,
-                    libConnection.Id, goStatements.GoSlice);
+                return SpannerLib.ExecuteBatchDml(libConnection.LibPool.Id, libConnection.Id, goStatements.GoSlice);
             });
             if (handler.Length == 0)
             {
@@ -143,60 +136,46 @@ namespace Google.Cloud.SpannerLib
 
         internal static ResultSetMetadata? Metadata(LibRows libRows)
         {
-            using var handler = ExecuteLibraryFunction(() =>
-                Google.Cloud.SpannerLib.Internal.SpannerLib.Metadata(libRows.LibConnection.LibPool.Id,
-                    libRows.LibConnection.Id, libRows.Id));
+            using var handler = ExecuteLibraryFunction(() => SpannerLib.Metadata(libRows.LibConnection.LibPool.Id, libRows.LibConnection.Id, libRows.Id));
             return handler.Length == 0 ? null : ResultSetMetadata.Parser.ParseFrom(handler.Value());
         }
 
         internal static ResultSetStats? Stats(LibRows libRows)
         {
-            using var handler = ExecuteLibraryFunction(() =>
-                Google.Cloud.SpannerLib.Internal.SpannerLib.ResultSetStats(libRows.LibConnection.LibPool.Id,
-                    libRows.LibConnection.Id, libRows.Id));
+            using var handler = ExecuteLibraryFunction(() => SpannerLib.ResultSetStats(libRows.LibConnection.LibPool.Id, libRows.LibConnection.Id, libRows.Id));
             return handler.Length == 0 ? null : ResultSetStats.Parser.ParseFrom(handler.Value());
         }
 
         internal static ListValue? Next(LibRows libRows)
         {
-            using var handler = ExecuteLibraryFunction(() =>
-                Google.Cloud.SpannerLib.Internal.SpannerLib.Next(libRows.LibConnection.LibPool.Id,
-                    libRows.LibConnection.Id, libRows.Id));
+            using var handler = ExecuteLibraryFunction(() => SpannerLib.Next(libRows.LibConnection.LibPool.Id, libRows.LibConnection.Id, libRows.Id));
             return handler.Length == 0 ? null : ListValue.Parser.ParseFrom(handler.Value());
         }
 
         internal static void CloseRows(LibRows libRows)
         {
-            ExecuteAndReleaseLibraryFunction(() =>
-                Google.Cloud.SpannerLib.Internal.SpannerLib.CloseRows(libRows.LibConnection.LibPool.Id,
-                    libRows.LibConnection.Id, libRows.Id));
+            ExecuteAndReleaseLibraryFunction(() => SpannerLib.CloseRows(libRows.LibConnection.LibPool.Id, libRows.LibConnection.Id, libRows.Id));
         }
 
-        internal static LibTransaction BeginTransaction(LibConnection libConnection,
-            TransactionOptions transactionOptions)
+        internal static LibTransaction BeginTransaction(LibConnection libConnection, TransactionOptions transactionOptions)
         {
             using var handler = ExecuteLibraryFunction(() =>
             {
                 var optionsBytes = transactionOptions.ToByteArray();
                 using var goOptions = DisposableGoSlice.Create(optionsBytes);
-                return Google.Cloud.SpannerLib.Internal.SpannerLib.BeginTransaction(libConnection.LibPool.Id,
-                    libConnection.Id, goOptions.GoSlice);
+                return SpannerLib.BeginTransaction(libConnection.LibPool.Id, libConnection.Id, goOptions.GoSlice);
             });
             return new LibTransaction(libConnection, handler.ObjectId());
         }
 
         internal static void Commit(LibTransaction libTransaction)
         {
-            ExecuteAndReleaseLibraryFunction(() =>
-                Google.Cloud.SpannerLib.Internal.SpannerLib.Commit(libTransaction.LibConnection.LibPool.Id,
-                    libTransaction.LibConnection.Id, libTransaction.Id));
+            ExecuteAndReleaseLibraryFunction(() => SpannerLib.Commit(libTransaction.LibConnection.LibPool.Id, libTransaction.LibConnection.Id, libTransaction.Id));
         }
 
         internal static void Rollback(LibTransaction libTransaction)
         {
-            ExecuteAndReleaseLibraryFunction(() =>
-                Google.Cloud.SpannerLib.Internal.SpannerLib.Rollback(libTransaction.LibConnection.LibPool.Id,
-                    libTransaction.LibConnection.Id, libTransaction.Id));
+            ExecuteAndReleaseLibraryFunction(() => SpannerLib.Rollback(libTransaction.LibConnection.LibPool.Id, libTransaction.LibConnection.Id, libTransaction.Id));
         }
     }
 }

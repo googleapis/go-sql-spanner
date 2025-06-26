@@ -7,12 +7,15 @@ namespace Google.Cloud.SpannerLib.Internal
 
     internal class MessageHandler : IDisposable
     {
-        private SpannerLib.Message Message { get; }
+        private SpannerLib SpannerLib { get; }
+        
+        private Message Message { get; }
 
         internal long Length => Message.Length;
 
-        internal MessageHandler(SpannerLib.Message message)
+        internal MessageHandler(SpannerLib spannerLib, Message message)
         {
+            SpannerLib = spannerLib;
             Message = message;
         }
 

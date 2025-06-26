@@ -12,9 +12,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content CopyToOutputDirectory="PreserveNewest" Include="runtimes/osx-arm/native/spannerlib.dylib" Link="spannerlib" Pack="true" PackagePath="runtimes/osx-arm/native/spannerlib.dylib" />
-    <Content CopyToOutputDirectory="PreserveNewest" Include="runtimes/linux-x64/native/spannerlib.so" Link="spannerlib" Pack="true" PackagePath="runtimes/linux-x64/native/spannerlib.so" />
-    <Content CopyToOutputDirectory="PreserveNewest" Include="runtimes/linux-arm/native/spannerlib.so" Link="spannerlib" Pack="true" PackagePath="runtimes/linux-arm/native/spannerlib.so" />
+    <EmbeddedResource Include="native/linux-x64/spannerlib.so">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <EmbeddedResource Include="native/osx-arm64/spannerlib.dylib">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>

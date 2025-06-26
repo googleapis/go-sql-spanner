@@ -12,7 +12,7 @@ namespace Google.Cloud.SpannerLib
 
         public void Close()
         {
-            Internal.SpannerLib.ClosePool(Id);
+            Spanner.ClosePool(this);
         }
     }
 }

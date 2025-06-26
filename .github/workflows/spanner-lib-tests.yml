@@ -55,10 +55,7 @@ jobs:
         run: go build -o spannerlib.so -buildmode=c-shared
       - name: Copy lib to dotnet folder
         working-directory: spannerlib
-        run: |
-          mkdir -p dotnet-spannerlib/Google.Cloud.SpannerLib/runtimes/linux-x64/native
-          cp spannerlib.so dotnet-spannerlib/Google.Cloud.SpannerLib/runtimes/linux-x64/native/spannerlib.so
-          ls -lha dotnet-spannerlib/Google.Cloud.SpannerLib/runtimes/linux-x64/native
+        run: cp spannerlib.so dotnet-spannerlib/Google.Cloud.SpannerLib/native/linux-x64/spannerlib.so
       - name: Install dotnet
         uses: actions/setup-dotnet@v4
         with:
