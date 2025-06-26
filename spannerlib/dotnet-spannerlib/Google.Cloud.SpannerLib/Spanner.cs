@@ -38,7 +38,7 @@ namespace Google.Cloud.SpannerLib
             }
         }
 
-        internal static LibPool CreatePool(string dsn)
+        public static LibPool CreatePool(string dsn)
         {
             using var handler = ExecuteLibraryFunction(() =>
             {
@@ -48,23 +48,23 @@ namespace Google.Cloud.SpannerLib
             return new LibPool(handler.ObjectId());
         }
 
-        internal static void ClosePool(LibPool libPool)
+        public static void ClosePool(LibPool libPool)
         {
             ExecuteAndReleaseLibraryFunction(() => SpannerLib.ClosePool(libPool.Id));
         }
 
-        internal static LibConnection CreateConnection(LibPool libPool)
+        public static LibConnection CreateConnection(LibPool libPool)
         {
             using var handler = ExecuteLibraryFunction(() => SpannerLib.CreateConnection(libPool.Id));
             return new LibConnection(libPool, handler.ObjectId());
         }
 
-        internal static void CloseConnection(LibConnection libConnection)
+        public static void CloseConnection(LibConnection libConnection)
         {
             ExecuteAndReleaseLibraryFunction(() => SpannerLib.CloseConnection(libConnection.LibPool.Id, libConnection.Id));
         }
 
-        internal static CommitResponse Apply(LibConnection libConnection,
+        public static CommitResponse Apply(LibConnection libConnection,
             BatchWriteRequest.Types.MutationGroup mutations)
         {
             using var handler = ExecuteLibraryFunction(() =>
@@ -76,7 +76,7 @@ namespace Google.Cloud.SpannerLib
             return CommitResponse.Parser.ParseFrom(handler.Value());
         }
 
-        internal static void BufferWrite(LibTransaction libTransaction, BatchWriteRequest.Types.MutationGroup mutations)
+        public static void BufferWrite(LibTransaction libTransaction, BatchWriteRequest.Types.MutationGroup mutations)
         {
             ExecuteAndReleaseLibraryFunction(() =>
             {
@@ -146,18 +146,18 @@ namespace Google.Cloud.SpannerLib
             return handler.Length == 0 ? null : ResultSetStats.Parser.ParseFrom(handler.Value());
         }
 
-        internal static ListValue? Next(LibRows libRows)
+        public static ListValue? Next(LibRows libRows)
         {
             using var handler = ExecuteLibraryFunction(() => SpannerLib.Next(libRows.LibConnection.LibPool.Id, libRows.LibConnection.Id, libRows.Id));
             return handler.Length == 0 ? null : ListValue.Parser.ParseFrom(handler.Value());
         }
 
-        internal static void CloseRows(LibRows libRows)
+        public static void CloseRows(LibRows libRows)
         {
             ExecuteAndReleaseLibraryFunction(() => SpannerLib.CloseRows(libRows.LibConnection.LibPool.Id, libRows.LibConnection.Id, libRows.Id));
         }
 
-        internal static LibTransaction BeginTransaction(LibConnection libConnection, TransactionOptions transactionOptions)
+        public static LibTransaction BeginTransaction(LibConnection libConnection, TransactionOptions transactionOptions)
         {
             using var handler = ExecuteLibraryFunction(() =>
             {

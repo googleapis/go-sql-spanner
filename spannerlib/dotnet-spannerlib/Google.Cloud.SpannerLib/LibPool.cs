@@ -1,7 +1,7 @@
 namespace Google.Cloud.SpannerLib
 {
 
-    internal class LibPool
+    public class LibPool
     {
         internal long Id { get; }
 

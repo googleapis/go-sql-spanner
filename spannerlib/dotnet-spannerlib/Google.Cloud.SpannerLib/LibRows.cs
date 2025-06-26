@@ -5,18 +5,18 @@ using Google.Protobuf.WellKnownTypes;
 namespace Google.Cloud.SpannerLib
 {
 
-    internal class LibRows
+    public class LibRows
     {
         private Lazy<ResultSetStats?> _stats;
 
         internal LibConnection LibConnection { get; private set; }
         internal long Id { get; }
 
-        internal ResultSetMetadata? Metadata { get; }
+        public ResultSetMetadata? Metadata { get; }
 
         private ResultSetStats? Stats => _stats.Value;
 
-        internal long UpdateCount
+        public long UpdateCount
         {
             get
             {
@@ -48,7 +48,7 @@ namespace Google.Cloud.SpannerLib
             _stats = new(() => Spanner.Stats(this));
         }
 
-        internal ListValue? Next()
+        public ListValue? Next()
         {
             var res = Spanner.Next(this);
             if (res == null && !_stats.IsValueCreated)
@@ -60,7 +60,7 @@ namespace Google.Cloud.SpannerLib
             return res;
         }
 
-        internal void Close()
+        public void Close()
         {
             Spanner.CloseRows(this);
         }

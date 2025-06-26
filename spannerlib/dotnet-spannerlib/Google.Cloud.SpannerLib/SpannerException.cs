@@ -1,5 +1,4 @@
 using System.Data;
-using SpannerDriver;
 
 namespace Google.Cloud.SpannerLib
 {

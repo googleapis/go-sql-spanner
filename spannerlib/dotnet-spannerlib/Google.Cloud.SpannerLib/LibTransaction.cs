@@ -14,27 +14,27 @@ namespace Google.Cloud.SpannerLib
             Id = id;
         }
 
-        internal void BufferWrite(BatchWriteRequest.Types.MutationGroup mutations)
+        public void BufferWrite(BatchWriteRequest.Types.MutationGroup mutations)
         {
             Spanner.BufferWrite(this, mutations);
         }
 
-        internal LibRows Execute(ExecuteSqlRequest statement)
+        public LibRows Execute(ExecuteSqlRequest statement)
         {
             return Spanner.ExecuteTransaction(this, statement);
         }
 
-        internal void Commit()
+        public void Commit()
         {
             Spanner.Commit(this);
         }
 
-        internal void Rollback()
+        public void Rollback()
         {
             Spanner.Rollback(this);
         }
 
-        internal void Close()
+        public void Close()
         {
             Spanner.Rollback(this);
         }

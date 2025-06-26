@@ -1,4 +1,4 @@
-namespace SpannerDriver
+namespace Google.Cloud.SpannerLib
 {
 
   public enum ErrorCode
