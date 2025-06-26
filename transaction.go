@@ -381,7 +381,6 @@ func (tx *readWriteTransaction) retry(ctx context.Context) (err error) {
 	if err := tx.rwTx.BufferWrite(tx.mutations); err != nil {
 		return err
 	}
-
 	for _, stmt := range tx.statements {
 		tx.logger.Log(ctx, slog.LevelDebug, "retrying statement", "stmt", stmt)
 		err = stmt.retry(ctx, tx.rwTx)
