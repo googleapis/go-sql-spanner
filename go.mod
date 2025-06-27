@@ -5,7 +5,7 @@ go 1.24
 toolchain go1.24.4
 
 require (
-	cloud.google.com/go v0.121.2
+	cloud.google.com/go v0.121.3
 	cloud.google.com/go/longrunning v0.6.7
 	cloud.google.com/go/spanner v1.82.0
 	github.com/golang/protobuf v1.5.4
@@ -13,7 +13,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/gax-go/v2 v2.14.2
 	github.com/hashicorp/golang-lru/v2 v2.0.7
-	google.golang.org/api v0.237.0
+	google.golang.org/api v0.239.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250603155806-513f23925822
 	google.golang.org/grpc v1.73.0
 	google.golang.org/protobuf v1.36.6
@@ -44,7 +44,7 @@ require (
 	github.com/zeebo/errs v1.4.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
-	go.opentelemetry.io/contrib/detectors/gcp v1.35.0 // indirect
+	go.opentelemetry.io/contrib/detectors/gcp v1.36.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.61.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.61.0 // indirect
 	go.opentelemetry.io/otel v1.36.0 // indirect
@@ -60,5 +60,5 @@ require (
 	golang.org/x/text v0.26.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	google.golang.org/genproto v0.0.0-20250505200425-f936aa4a68b2 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20250505200425-f936aa4a68b2 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20250512202823-5a2f75b736a9 // indirect
 )
