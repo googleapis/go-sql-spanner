@@ -8,19 +8,24 @@
     <Authors></Authors>
     <Description>Experimental .NET library for Spanner</Description>
     <PackageId>Experimental.SpannerLib</PackageId>
+    <Version>1.0.1</Version>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Google.Cloud.Spanner.V1" Version="5.0.0" />
   </ItemGroup>
-
+  
   <ItemGroup>
-    <EmbeddedResource Include="native/linux-x64/spannerlib.so">
+    <Content Include="native/linux-x64/spannerlib.so">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </EmbeddedResource>
-    <EmbeddedResource Include="native/osx-arm64/spannerlib.dylib">
+      <PackageCopyToOutput>true</PackageCopyToOutput>
+      <pack>true</pack>
+    </Content>
+    <Content Include="native/osx-arm64/spannerlib.dylib">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </EmbeddedResource>
+      <PackageCopyToOutput>true</PackageCopyToOutput>
+      <pack>true</pack>
+    </Content>
   </ItemGroup>
 
 </Project>
