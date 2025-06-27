@@ -5,6 +5,9 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>9</LangVersion>
+    <Authors></Authors>
+    <Description>Experimental .NET library for Spanner</Description>
+    <PackageId>Experimental.SpannerLib</PackageId>
   </PropertyGroup>
 
   <ItemGroup>
