@@ -38,7 +38,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/google/uuid"
 	"github.com/googleapis/go-sql-spanner/testutil"
-	lru "github.com/hashicorp/golang-lru"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -83,7 +83,7 @@ func TestStatementCacheSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error for connection: %v", err)
 	}
-	var cache *lru.Cache
+	var cache *lru.Cache[string, *statementsCacheEntry]
 	if err := c.Raw(func(driverConn any) error {
 		sc, ok := driverConn.(*conn)
 		if !ok {
@@ -150,7 +150,7 @@ func TestDisableStatementCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error for connection: %v", err)
 	}
-	var cache *lru.Cache
+	var cache *lru.Cache[string, *statementsCacheEntry]
 	if err := c.Raw(func(driverConn any) error {
 		sc, ok := driverConn.(*conn)
 		if !ok {
