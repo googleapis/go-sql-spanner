@@ -1,9 +1,10 @@
+using System;
 using Google.Cloud.Spanner.V1;
 
 namespace Google.Cloud.SpannerLib
 {
 
-    public class LibTransaction
+    public class LibTransaction : AbstractLibObject
     {
         internal LibConnection LibConnection { get; private set; }
         internal long Id { get; }
@@ -24,17 +25,19 @@ namespace Google.Cloud.SpannerLib
             return Spanner.ExecuteTransaction(this, statement);
         }
 
-        public void Commit()
+        public CommitResponse Commit()
         {
-            Spanner.Commit(this);
+            MarkDisposed();
+            return Spanner.Commit(this);
         }
 
         public void Rollback()
         {
+            MarkDisposed();
             Spanner.Rollback(this);
         }
 
-        public void Close()
+        protected override void CloseLibObject()
         {
             Spanner.Rollback(this);
         }

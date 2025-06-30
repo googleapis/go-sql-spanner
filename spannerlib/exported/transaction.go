@@ -103,6 +103,7 @@ func (tx *transaction) Commit() *Message {
 	if err := tx.backend.Commit(); err != nil {
 		return errMessage(err)
 	}
+	// TODO: Return a CommitResponse
 	return &Message{}
 }
 

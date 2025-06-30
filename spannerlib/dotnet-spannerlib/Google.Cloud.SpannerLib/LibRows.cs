@@ -5,7 +5,7 @@ using Google.Protobuf.WellKnownTypes;
 namespace Google.Cloud.SpannerLib
 {
 
-    public class LibRows
+    public class LibRows : AbstractLibObject
     {
         private Lazy<ResultSetStats?> _stats;
 
@@ -25,17 +25,14 @@ namespace Google.Cloud.SpannerLib
                 {
                     return -1;
                 }
-
                 if (stats.HasRowCountExact)
                 {
                     return (int)stats.RowCountExact;
                 }
-
                 if (stats.HasRowCountLowerBound)
                 {
                     return (int)stats.RowCountLowerBound;
                 }
-
                 return -1;
             }
         }
@@ -60,7 +57,7 @@ namespace Google.Cloud.SpannerLib
             return res;
         }
 
-        public void Close()
+        protected override void CloseLibObject()
         {
             Spanner.CloseRows(this);
         }

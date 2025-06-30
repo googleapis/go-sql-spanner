@@ -8,7 +8,7 @@ using Google.Protobuf.WellKnownTypes;
 namespace Google.Cloud.SpannerLib
 {
 
-    public static class Spanner
+    internal static class Spanner
     {
         private static readonly Internal.SpannerLib SpannerLib = Internal.SpannerLib.Create();
 
@@ -38,7 +38,7 @@ namespace Google.Cloud.SpannerLib
             }
         }
 
-        public static LibPool CreatePool(string dsn)
+        internal static LibPool CreatePool(string dsn)
         {
             using var handler = ExecuteLibraryFunction(() =>
             {
@@ -48,23 +48,23 @@ namespace Google.Cloud.SpannerLib
             return new LibPool(handler.ObjectId());
         }
 
-        public static void ClosePool(LibPool libPool)
+        internal static void ClosePool(LibPool libPool)
         {
             ExecuteAndReleaseLibraryFunction(() => SpannerLib.ClosePool(libPool.Id));
         }
 
-        public static LibConnection CreateConnection(LibPool libPool)
+        internal static LibConnection CreateConnection(LibPool libPool)
         {
             using var handler = ExecuteLibraryFunction(() => SpannerLib.CreateConnection(libPool.Id));
             return new LibConnection(libPool, handler.ObjectId());
         }
 
-        public static void CloseConnection(LibConnection libConnection)
+        internal static void CloseConnection(LibConnection libConnection)
         {
             ExecuteAndReleaseLibraryFunction(() => SpannerLib.CloseConnection(libConnection.LibPool.Id, libConnection.Id));
         }
 
-        public static CommitResponse Apply(LibConnection libConnection,
+        internal static CommitResponse Apply(LibConnection libConnection,
             BatchWriteRequest.Types.MutationGroup mutations)
         {
             using var handler = ExecuteLibraryFunction(() =>
@@ -76,7 +76,7 @@ namespace Google.Cloud.SpannerLib
             return CommitResponse.Parser.ParseFrom(handler.Value());
         }
 
-        public static void BufferWrite(LibTransaction libTransaction, BatchWriteRequest.Types.MutationGroup mutations)
+        internal static void BufferWrite(LibTransaction libTransaction, BatchWriteRequest.Types.MutationGroup mutations)
         {
             ExecuteAndReleaseLibraryFunction(() =>
             {
@@ -146,18 +146,18 @@ namespace Google.Cloud.SpannerLib
             return handler.Length == 0 ? null : ResultSetStats.Parser.ParseFrom(handler.Value());
         }
 
-        public static ListValue? Next(LibRows libRows)
+        internal static ListValue? Next(LibRows libRows)
         {
             using var handler = ExecuteLibraryFunction(() => SpannerLib.Next(libRows.LibConnection.LibPool.Id, libRows.LibConnection.Id, libRows.Id));
             return handler.Length == 0 ? null : ListValue.Parser.ParseFrom(handler.Value());
         }
 
-        public static void CloseRows(LibRows libRows)
+        internal static void CloseRows(LibRows libRows)
         {
             ExecuteAndReleaseLibraryFunction(() => SpannerLib.CloseRows(libRows.LibConnection.LibPool.Id, libRows.LibConnection.Id, libRows.Id));
         }
 
-        public static LibTransaction BeginTransaction(LibConnection libConnection, TransactionOptions transactionOptions)
+        internal static LibTransaction BeginTransaction(LibConnection libConnection, TransactionOptions transactionOptions)
         {
             using var handler = ExecuteLibraryFunction(() =>
             {
@@ -168,9 +168,11 @@ namespace Google.Cloud.SpannerLib
             return new LibTransaction(libConnection, handler.ObjectId());
         }
 
-        internal static void Commit(LibTransaction libTransaction)
+        internal static CommitResponse? Commit(LibTransaction libTransaction)
         {
-            ExecuteAndReleaseLibraryFunction(() => SpannerLib.Commit(libTransaction.LibConnection.LibPool.Id, libTransaction.LibConnection.Id, libTransaction.Id));
+            // TODO: Require a CommitResponse
+            using var handler = ExecuteLibraryFunction(() => SpannerLib.Commit(libTransaction.LibConnection.LibPool.Id, libTransaction.LibConnection.Id, libTransaction.Id));
+            return handler.Length == 0 ? null : CommitResponse.Parser.ParseFrom(handler.Value());
         }
 
         internal static void Rollback(LibTransaction libTransaction)

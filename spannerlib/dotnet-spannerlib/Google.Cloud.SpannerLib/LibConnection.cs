@@ -1,18 +1,24 @@
+using System;
 using System.Collections.Generic;
 using Google.Cloud.Spanner.V1;
 
 namespace Google.Cloud.SpannerLib
 {
 
-    public class LibConnection
+    public class LibConnection : AbstractLibObject
     {
-        internal LibPool LibPool { get; private set; }
-        internal long Id { get; private set; }
+        internal LibPool LibPool { get; }
+        internal long Id { get; }
 
         internal LibConnection(LibPool libPool, long id)
         {
             Id = id;
             LibPool = libPool;
+        }
+
+        public LibTransaction BeginTransaction(TransactionOptions transactionOptions)
+        {
+            return Spanner.BeginTransaction(this, transactionOptions);
         }
 
         public CommitResponse Apply(BatchWriteRequest.Types.MutationGroup mutations)
@@ -34,7 +40,7 @@ namespace Google.Cloud.SpannerLib
             return Spanner.ExecuteBatchDml(this, request);
         }
 
-        public void Close()
+        protected override void CloseLibObject()
         {
             Spanner.CloseConnection(this);
         }
