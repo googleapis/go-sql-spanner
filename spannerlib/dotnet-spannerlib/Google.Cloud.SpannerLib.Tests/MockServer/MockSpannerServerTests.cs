@@ -63,7 +63,7 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
         public void SingleUseSelect()
         {
             // Create connection to Cloud Spanner.
-            using var pool = LibPool.Create(ConnectionString);
+            using var pool = Pool.Create(ConnectionString);
             using var connection = pool.CreateConnection();
             var statement = new ExecuteSqlRequest
             {
@@ -81,7 +81,7 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
         [Test]
         public void ReadOnlyTxSelect()
         {
-            using var pool = LibPool.Create(ConnectionString);
+            using var pool = Pool.Create(ConnectionString);
             using var connection = pool.CreateConnection();
             var options = new TransactionOptions
             {
@@ -104,7 +104,7 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
         [Test]
         public void WriteMutations()
         {
-            using var pool = LibPool.Create(ConnectionString);
+            using var pool = Pool.Create(ConnectionString);
             using (var connection = pool.CreateConnection())
             {
                 var commitResponse = connection.Apply(new BatchWriteRequest.Types.MutationGroup
@@ -147,7 +147,7 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
         decimal secondBudget = 0;
         decimal firstBudget = 0;
     
-        using var pool = LibPool.Create(ConnectionString);
+        using var pool = Pool.Create(ConnectionString);
         using var connection = pool.CreateConnection();
         using (var transaction = connection.BeginTransaction(new TransactionOptions{ReadWrite = new TransactionOptions.Types.ReadWrite()}))
         {

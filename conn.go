@@ -30,6 +30,7 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // SpannerConn is the public interface for the raw Spanner connection for the
@@ -173,6 +174,10 @@ type SpannerConn interface {
 	// was executed on the connection, or an error if the connection has not executed a read/write transaction
 	// that committed successfully. The timestamp is in the local timezone.
 	CommitTimestamp() (commitTimestamp time.Time, err error)
+	// CommitResponse returns the commit response of the last implicit or explicit read/write transaction that
+	// was executed on the connection, or an error if the connection has not executed a read/write transaction
+	// that committed successfully.
+	CommitResponse() (*spannerpb.CommitResponse, error)
 
 	// UnderlyingClient returns the underlying Spanner client for the database.
 	// The client cannot be used to access the current transaction or batch on
@@ -276,6 +281,15 @@ func (c *conn) CommitTimestamp() (time.Time, error) {
 		return time.Time{}, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "this connection has not executed a read/write transaction that committed successfully"))
 	}
 	return *c.commitTs, nil
+}
+
+func (c *conn) CommitResponse() (*spannerpb.CommitResponse, error) {
+	if c.commitTs == nil {
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "this connection has not executed a read/write transaction that committed successfully"))
+	}
+	// TODO: Return the complete commit response
+	ts := timestamppb.New(*c.commitTs)
+	return &spannerpb.CommitResponse{CommitTimestamp: ts}, nil
 }
 
 func (c *conn) RetryAbortsInternally() bool {

@@ -224,9 +224,9 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
     {
         private class PartialResultSetsEnumerable : IEnumerable<PartialResultSet>
         {
-            private readonly Transaction _transaction;
+            private readonly V1.Transaction _transaction;
             private readonly ResultSet _resultSet;
-            public PartialResultSetsEnumerable(Transaction transaction, ResultSet resultSet)
+            public PartialResultSetsEnumerable(V1.Transaction transaction, ResultSet resultSet)
             {
                 _transaction = transaction;
                 _resultSet = resultSet;
@@ -247,13 +247,13 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
         {
             private static readonly int s_maxRowsInChunk = 1;
 
-            private readonly Transaction _transaction;
+            private readonly V1.Transaction _transaction;
             private readonly ResultSet _resultSet;
             private bool _first = true;
             private int _currentRow;
             private PartialResultSet _current;
 
-            public PartialResultSetsEnumerator(Transaction transaction, ResultSet resultSet)
+            public PartialResultSetsEnumerator(V1.Transaction transaction, ResultSet resultSet)
             {
                 _transaction = transaction;
                 _resultSet = resultSet;
@@ -315,7 +315,7 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
         private int _sessionCounter;
         private int _transactionCounter;
         private readonly ConcurrentDictionary<SessionName, Session> _sessions = new();
-        private readonly ConcurrentDictionary<ByteString, Transaction> _transactions = new();
+        private readonly ConcurrentDictionary<ByteString, V1.Transaction> _transactions = new();
         private readonly ConcurrentDictionary<ByteString, TransactionOptions> _transactionOptions = new();
         private readonly ConcurrentDictionary<ByteString, bool> _abortedTransactions = new();
         private bool _abortNextStatement;
@@ -387,13 +387,13 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
             AddDialectResult();
         }
 
-        public override Task<Transaction> BeginTransaction(BeginTransactionRequest request, ServerCallContext context)
+        public override Task<V1.Transaction> BeginTransaction(BeginTransactionRequest request, ServerCallContext context)
         {
             _requests.Enqueue(request);
             _contexts.Enqueue(context);
             _headers.Enqueue(context.RequestHeaders);
             TryFindSession(request.SessionAsSessionName);
-            Transaction tx = new Transaction();
+            V1.Transaction tx = new V1.Transaction();
             var id = Interlocked.Increment(ref _transactionCounter);
             tx.Id = ByteString.CopyFromUtf8($"{request.SessionAsSessionName}/transactions/{id}");
             _transactions.TryAdd(tx.Id, tx);
@@ -463,7 +463,7 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
             return rpc;
         }
 
-        private Transaction TryFindTransaction(ByteString id, Boolean remove = false)
+        private V1.Transaction TryFindTransaction(ByteString id, Boolean remove = false)
         {
             if (_abortedTransactions.TryGetValue(id, out bool aborted) && aborted)
             {
@@ -477,14 +477,14 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
                     throw CreateAbortedException("Next statement was aborted");
                 }
             }
-            if (remove ? _transactions.TryRemove(id, out Transaction tx) : _transactions.TryGetValue(id, out tx))
+            if (remove ? _transactions.TryRemove(id, out V1.Transaction tx) : _transactions.TryGetValue(id, out tx))
             {
                 return tx;
             }
             throw new RpcException(new Grpc.Core.Status(StatusCode.NotFound, $"Transaction not found: {id.ToBase64()}"));
         }
 
-        private Transaction FindOrBeginTransaction(SessionName session, TransactionSelector selector)
+        private V1.Transaction FindOrBeginTransaction(SessionName session, TransactionSelector selector)
         {
             if (selector == null)
             {
@@ -500,9 +500,9 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
             };
         }
 
-        private Transaction BeginTransaction(SessionName session, TransactionOptions options, bool singleUse)
+        private V1.Transaction BeginTransaction(SessionName session, TransactionOptions options, bool singleUse)
         {
-            Transaction tx = new Transaction();
+            V1.Transaction tx = new V1.Transaction();
             var id = Interlocked.Increment(ref _transactionCounter);
             tx.Id = ByteString.CopyFromUtf8($"{session}/transactions/{id}");
             if (options.ModeCase == TransactionOptions.ModeOneofCase.ReadOnly && options.ReadOnly.ReturnReadTimestamp)
@@ -662,7 +662,7 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
             }
             executionTime?.SimulateExecutionTime();
             TryFindSession(request.SessionAsSessionName);
-            Transaction returnTransaction = null;
+            V1.Transaction returnTransaction = null;
             var transaction = FindOrBeginTransaction(request.SessionAsSessionName, request.Transaction);
             if (request.Transaction != null && (request.Transaction.SelectorCase == TransactionSelector.SelectorOneofCase.Begin || request.Transaction.SelectorCase == TransactionSelector.SelectorOneofCase.SingleUse))
             {
@@ -690,7 +690,7 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
             }
         }
 
-        private async Task WriteResultSet(Transaction transaction, ResultSet resultSet, IServerStreamWriter<PartialResultSet> responseStream, ExecutionTime executionTime)
+        private async Task WriteResultSet(V1.Transaction transaction, ResultSet resultSet, IServerStreamWriter<PartialResultSet> responseStream, ExecutionTime executionTime)
         {
             int index = 0;
             PartialResultSetsEnumerable enumerator = new PartialResultSetsEnumerable(transaction, resultSet);
@@ -712,7 +712,7 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
             }
         }
 
-        private async Task WriteUpdateCount(Transaction transaction, long updateCount, IServerStreamWriter<PartialResultSet> responseStream)
+        private async Task WriteUpdateCount(V1.Transaction transaction, long updateCount, IServerStreamWriter<PartialResultSet> responseStream)
         {
             PartialResultSet prs = new PartialResultSet
             {

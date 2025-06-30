@@ -35,86 +35,86 @@ namespace Google.Cloud.SpannerLib
             }
         }
 
-        internal static LibPool CreatePool(string dsn)
+        internal static Pool CreatePool(string dsn)
         {
             using var handler = ExecuteLibraryFunction(() =>
             {
                 using var goDsn = new GoString(dsn);
                 return Native.SpannerLib.CreatePool(goDsn);
             });
-            return new LibPool(handler.ObjectId());
+            return new Pool(handler.ObjectId());
         }
 
-        internal static void ClosePool(LibPool libPool)
+        internal static void ClosePool(Pool pool)
         {
-            ExecuteAndReleaseLibraryFunction(() => Native.SpannerLib.ClosePool(libPool.Id));
+            ExecuteAndReleaseLibraryFunction(() => Native.SpannerLib.ClosePool(pool.Id));
         }
 
-        internal static LibConnection CreateConnection(LibPool libPool)
+        internal static Connection CreateConnection(Pool pool)
         {
-            using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.CreateConnection(libPool.Id));
-            return new LibConnection(libPool, handler.ObjectId());
+            using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.CreateConnection(pool.Id));
+            return new Connection(pool, handler.ObjectId());
         }
 
-        internal static void CloseConnection(LibConnection libConnection)
+        internal static void CloseConnection(Connection connection)
         {
-            ExecuteAndReleaseLibraryFunction(() => Native.SpannerLib.CloseConnection(libConnection.LibPool.Id, libConnection.Id));
+            ExecuteAndReleaseLibraryFunction(() => Native.SpannerLib.CloseConnection(connection.Pool.Id, connection.Id));
         }
 
-        internal static CommitResponse Apply(LibConnection libConnection,
+        internal static CommitResponse Apply(Connection connection,
             BatchWriteRequest.Types.MutationGroup mutations)
         {
             using var handler = ExecuteLibraryFunction(() =>
             {
                 var mutationsBytes = mutations.ToByteArray();
                 using var goMutations = DisposableGoSlice.Create(mutationsBytes);
-                return Native.SpannerLib.Apply(libConnection.LibPool.Id, libConnection.Id, goMutations.GoSlice);
+                return Native.SpannerLib.Apply(connection.Pool.Id, connection.Id, goMutations.GoSlice);
             });
             return CommitResponse.Parser.ParseFrom(handler.Value());
         }
 
-        internal static void BufferWrite(LibTransaction libTransaction, BatchWriteRequest.Types.MutationGroup mutations)
+        internal static void BufferWrite(Transaction transaction, BatchWriteRequest.Types.MutationGroup mutations)
         {
             ExecuteAndReleaseLibraryFunction(() =>
             {
                 var mutationsBytes = mutations.ToByteArray();
                 using var goMutations = DisposableGoSlice.Create(mutationsBytes);
-                return Native.SpannerLib.BufferWrite(libTransaction.LibConnection.LibPool.Id,
-                    libTransaction.LibConnection.Id, libTransaction.Id, goMutations.GoSlice);
+                return Native.SpannerLib.BufferWrite(transaction.Connection.Pool.Id,
+                    transaction.Connection.Id, transaction.Id, goMutations.GoSlice);
             });
         }
 
-        internal static LibRows Execute(LibConnection libConnection, ExecuteSqlRequest statement)
+        internal static Rows Execute(Connection connection, ExecuteSqlRequest statement)
         {
             using var handler = ExecuteLibraryFunction(() =>
             {
                 var statementBytes = statement.ToByteArray();
                 using var goStatement = DisposableGoSlice.Create(statementBytes);
-                return Native.SpannerLib.Execute(libConnection.LibPool.Id, libConnection.Id, goStatement.GoSlice);
+                return Native.SpannerLib.Execute(connection.Pool.Id, connection.Id, goStatement.GoSlice);
             });
-            return new LibRows(libConnection, handler.ObjectId());
+            return new Rows(connection, handler.ObjectId());
         }
 
-        internal static LibRows ExecuteTransaction(LibTransaction libTransaction, ExecuteSqlRequest statement)
+        internal static Rows ExecuteTransaction(Transaction transaction, ExecuteSqlRequest statement)
         {
             using var handler = ExecuteLibraryFunction(() =>
             {
                 var statementBytes = statement.ToByteArray();
                 using var goStatement = DisposableGoSlice.Create(statementBytes);
                 return Native.SpannerLib.ExecuteTransaction(
-                    libTransaction.LibConnection.LibPool.Id, libTransaction.LibConnection.Id,
-                    libTransaction.Id, goStatement.GoSlice);
+                    transaction.Connection.Pool.Id, transaction.Connection.Id,
+                    transaction.Id, goStatement.GoSlice);
             });
-            return new LibRows(libTransaction.LibConnection, handler.ObjectId());
+            return new Rows(transaction.Connection, handler.ObjectId());
         }
 
-        internal static long[] ExecuteBatchDml(LibConnection libConnection, ExecuteBatchDmlRequest statements)
+        internal static long[] ExecuteBatchDml(Connection connection, ExecuteBatchDmlRequest statements)
         {
             using var handler = ExecuteLibraryFunction(() =>
             {
                 var statementsBytes = statements.ToByteArray();
                 using var goStatements = DisposableGoSlice.Create(statementsBytes);
-                return Native.SpannerLib.ExecuteBatchDml(libConnection.LibPool.Id, libConnection.Id, goStatements.GoSlice);
+                return Native.SpannerLib.ExecuteBatchDml(connection.Pool.Id, connection.Id, goStatements.GoSlice);
             });
             if (handler.Length == 0)
             {
@@ -131,50 +131,49 @@ namespace Google.Cloud.SpannerLib
             return result;
         }
 
-        internal static ResultSetMetadata? Metadata(LibRows libRows)
+        internal static ResultSetMetadata? Metadata(Rows rows)
         {
-            using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.Metadata(libRows.LibConnection.LibPool.Id, libRows.LibConnection.Id, libRows.Id));
+            using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.Metadata(rows.Connection.Pool.Id, rows.Connection.Id, rows.Id));
             return handler.Length == 0 ? null : ResultSetMetadata.Parser.ParseFrom(handler.Value());
         }
 
-        internal static ResultSetStats? Stats(LibRows libRows)
+        internal static ResultSetStats? Stats(Rows rows)
         {
-            using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.ResultSetStats(libRows.LibConnection.LibPool.Id, libRows.LibConnection.Id, libRows.Id));
+            using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.ResultSetStats(rows.Connection.Pool.Id, rows.Connection.Id, rows.Id));
             return handler.Length == 0 ? null : ResultSetStats.Parser.ParseFrom(handler.Value());
         }
 
-        internal static ListValue? Next(LibRows libRows)
+        internal static ListValue? Next(Rows rows)
         {
-            using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.Next(libRows.LibConnection.LibPool.Id, libRows.LibConnection.Id, libRows.Id));
+            using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.Next(rows.Connection.Pool.Id, rows.Connection.Id, rows.Id));
             return handler.Length == 0 ? null : ListValue.Parser.ParseFrom(handler.Value());
         }
 
-        internal static void CloseRows(LibRows libRows)
+        internal static void CloseRows(Rows rows)
         {
-            ExecuteAndReleaseLibraryFunction(() => Native.SpannerLib.CloseRows(libRows.LibConnection.LibPool.Id, libRows.LibConnection.Id, libRows.Id));
+            ExecuteAndReleaseLibraryFunction(() => Native.SpannerLib.CloseRows(rows.Connection.Pool.Id, rows.Connection.Id, rows.Id));
         }
 
-        internal static LibTransaction BeginTransaction(LibConnection libConnection, TransactionOptions transactionOptions)
+        internal static Transaction BeginTransaction(Connection connection, TransactionOptions transactionOptions)
         {
             using var handler = ExecuteLibraryFunction(() =>
             {
                 var optionsBytes = transactionOptions.ToByteArray();
                 using var goOptions = DisposableGoSlice.Create(optionsBytes);
-                return Native.SpannerLib.BeginTransaction(libConnection.LibPool.Id, libConnection.Id, goOptions.GoSlice);
+                return Native.SpannerLib.BeginTransaction(connection.Pool.Id, connection.Id, goOptions.GoSlice);
             });
-            return new LibTransaction(libConnection, handler.ObjectId());
+            return new Transaction(connection, handler.ObjectId());
         }
 
-        internal static CommitResponse? Commit(LibTransaction libTransaction)
+        internal static CommitResponse Commit(Transaction transaction)
         {
-            // TODO: Require a CommitResponse
-            using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.Commit(libTransaction.LibConnection.LibPool.Id, libTransaction.LibConnection.Id, libTransaction.Id));
-            return handler.Length == 0 ? null : CommitResponse.Parser.ParseFrom(handler.Value());
+            using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.Commit(transaction.Connection.Pool.Id, transaction.Connection.Id, transaction.Id));
+            return CommitResponse.Parser.ParseFrom(handler.Value());
         }
 
-        internal static void Rollback(LibTransaction libTransaction)
+        internal static void Rollback(Transaction transaction)
         {
-            ExecuteAndReleaseLibraryFunction(() => Native.SpannerLib.Rollback(libTransaction.LibConnection.LibPool.Id, libTransaction.LibConnection.Id, libTransaction.Id));
+            ExecuteAndReleaseLibraryFunction(() => Native.SpannerLib.Rollback(transaction.Connection.Pool.Id, transaction.Connection.Id, transaction.Id));
         }
     }
 }

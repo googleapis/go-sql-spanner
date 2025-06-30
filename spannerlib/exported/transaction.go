@@ -62,6 +62,7 @@ func Rollback(poolId, connId, txId int64) *Message {
 type transaction struct {
 	backend *sql.Tx
 	conn    *Connection
+	txOpts  *spannerpb.TransactionOptions
 	closed  bool
 }
 
@@ -103,8 +104,26 @@ func (tx *transaction) Commit() *Message {
 	if err := tx.backend.Commit(); err != nil {
 		return errMessage(err)
 	}
-	// TODO: Return a CommitResponse
-	return &Message{}
+	var response *spannerpb.CommitResponse
+	if tx.txOpts.GetReadWrite() == nil {
+		response = &spannerpb.CommitResponse{}
+	} else {
+		if err := tx.conn.backend.Conn.Raw(func(driverConn any) (err error) {
+			spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
+			response, err = spannerConn.CommitResponse()
+			if err != nil {
+				return err
+			}
+			return nil
+		}); err != nil {
+			return errMessage(err)
+		}
+	}
+	res, err := proto.Marshal(response)
+	if err != nil {
+		return errMessage(err)
+	}
+	return &Message{Res: res}
 }
 
 func (tx *transaction) Rollback() *Message {

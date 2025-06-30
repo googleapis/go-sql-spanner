@@ -155,6 +155,7 @@ func (conn *Connection) BeginTransaction(txOpts *spannerpb.TransactionOptions) *
 	res := &transaction{
 		backend: tx,
 		conn:    conn,
+		txOpts:  txOpts,
 	}
 	conn.transactions.Store(id, res)
 	return idMessage(id)
