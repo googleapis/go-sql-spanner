@@ -7,13 +7,13 @@ toolchain go1.24.2
 replace github.com/googleapis/go-sql-spanner => ../
 
 require (
-	cloud.google.com/go v0.121.2
+	cloud.google.com/go v0.121.3
 	cloud.google.com/go/spanner v1.82.1-0.20250625132714-fe377af799f0
 	github.com/docker/docker v28.1.1+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/googleapis/go-sql-spanner v1.0.1
 	github.com/testcontainers/testcontainers-go v0.35.0
-	google.golang.org/api v0.237.0
+	google.golang.org/api v0.239.0
 )
 
 require (
@@ -51,7 +51,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.6 // indirect
 	github.com/googleapis/gax-go/v2 v2.14.2 // indirect
-	github.com/hashicorp/golang-lru v0.6.0 // indirect
+	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect

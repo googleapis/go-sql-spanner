@@ -29,7 +29,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
-	lru "github.com/hashicorp/golang-lru"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -295,12 +295,12 @@ type statementsCacheEntry struct {
 type statementParser struct {
 	dialect         databasepb.DatabaseDialect
 	useCache        bool
-	statementsCache *lru.Cache
+	statementsCache *lru.Cache[string, *statementsCacheEntry]
 }
 
 func newStatementParser(dialect databasepb.DatabaseDialect, cacheSize int) (*statementParser, error) {
 	if cacheSize > 0 {
-		cache, err := lru.New(cacheSize)
+		cache, err := lru.New[string, *statementsCacheEntry](cacheSize)
 		if err != nil {
 			return nil, err
 		}
@@ -675,8 +675,7 @@ func (p *statementParser) findParams(sql string) (string, []string, error) {
 		return p.calculateFindParamsResult(sql)
 	}
 	if val, ok := p.statementsCache.Get(sql); ok {
-		res := val.(*statementsCacheEntry)
-		return res.sql, res.params, nil
+		return val.sql, val.params, nil
 	} else {
 		namedParamsSql, params, err := p.calculateFindParamsResult(sql)
 		if err != nil {
@@ -931,13 +930,12 @@ func (c *executableClientSideStatement) QueryContext(ctx context.Context, opts E
 func (p *statementParser) parseClientSideStatement(c *conn, query string) (*executableClientSideStatement, error) {
 	if p.useCache {
 		if val, ok := p.statementsCache.Get(query); ok {
-			res := val.(*statementsCacheEntry)
-			if res.info.statementType == statementTypeClientSide {
+			if val.info.statementType == statementTypeClientSide {
 				var params string
-				if len(res.params) > 0 {
-					params = res.params[0]
+				if len(val.params) > 0 {
+					params = val.params[0]
 				}
-				return &executableClientSideStatement{res.clientSideStatement, c, query, params}, nil
+				return &executableClientSideStatement{val.clientSideStatement, c, query, params}, nil
 			}
 			return nil, nil
 		}
@@ -1016,8 +1014,7 @@ func (p *statementParser) detectStatementType(sql string) *statementInfo {
 		return p.calculateDetectStatementType(sql)
 	}
 	if val, ok := p.statementsCache.Get(sql); ok {
-		res := val.(*statementsCacheEntry)
-		return res.info
+		return val.info
 	} else {
 		info := p.calculateDetectStatementType(sql)
 		namedParamsSql, params, err := p.calculateFindParamsResult(sql)
