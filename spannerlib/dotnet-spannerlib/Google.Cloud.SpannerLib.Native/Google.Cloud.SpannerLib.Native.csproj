@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>9</LangVersion>
+    <PackageId>Experimental.SpannerLib.Native</PackageId>
+    <Title>Experimental native library for Spanner</Title>
+    <Authors />
+  </PropertyGroup>
+  
+  <ItemGroup>
+    <None Include="libraries/linux-x64/spannerlib.so" Pack="true" PackagePath="runtimes/linux-x64/native/" />
+    <None Include="libraries/osx-arm64/spannerlib.dylib" Pack="true" PackagePath="runtimes/osx-arm64/native/" />
+  </ItemGroup>
+
+</Project>
