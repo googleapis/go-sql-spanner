@@ -39,6 +39,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/googleapis/gax-go/v2"
 	"google.golang.org/api/option"
+	"google.golang.org/api/option/internaloption"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -586,7 +587,18 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		connectorConfig.Configurator(&config, &opts)
 	}
 	if connectorConfig.AutoConfigEmulator {
-		if err := autoConfigEmulator(context.Background(), connectorConfig.Host, connectorConfig.Project, connectorConfig.Instance, connectorConfig.Database); err != nil {
+		if connectorConfig.Host == "" {
+			connectorConfig.Host = "localhost:9010"
+		}
+		schemeRemoved := regexp.MustCompile("^(http://|https://|passthrough:///)").ReplaceAllString(connectorConfig.Host, "")
+		emulatorOpts := []option.ClientOption{
+			option.WithEndpoint("passthrough:///" + schemeRemoved),
+			option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+			option.WithoutAuthentication(),
+			internaloption.SkipDialSettingsValidation(),
+		}
+		opts = append(emulatorOpts, opts...)
+		if err := autoConfigEmulator(context.Background(), connectorConfig.Host, connectorConfig.Project, connectorConfig.Instance, connectorConfig.Database, opts); err != nil {
 			return nil, err
 		}
 	}
