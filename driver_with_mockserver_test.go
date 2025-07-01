@@ -4418,16 +4418,12 @@ func TestRunTransaction(t *testing.T) {
 	if req.Transaction == nil {
 		t.Fatalf("missing transaction for ExecuteSqlRequest")
 	}
-	if req.Transaction.GetId() == nil {
-		t.Fatalf("missing id selector for ExecuteSqlRequest")
+	if req.Transaction.GetBegin() == nil {
+		t.Fatalf("missing begin selector for ExecuteSqlRequest")
 	}
 	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
-	}
-	commitReq := commitRequests[0].(*sppb.CommitRequest)
-	if c, e := commitReq.GetTransactionId(), req.Transaction.GetId(); !cmp.Equal(c, e) {
-		t.Fatalf("transaction id mismatch\nCommit: %c\nExecute: %v", c, e)
 	}
 }
 
@@ -4494,12 +4490,19 @@ func TestRunTransactionCommitAborted(t *testing.T) {
 		if req.Transaction == nil {
 			t.Fatalf("missing transaction for ExecuteSqlRequest")
 		}
-		if req.Transaction.GetId() == nil {
-			t.Fatalf("missing id selector for ExecuteSqlRequest")
-		}
-		commitReq := commitRequests[i].(*sppb.CommitRequest)
-		if c, e := commitReq.GetTransactionId(), req.Transaction.GetId(); !cmp.Equal(c, e) {
-			t.Fatalf("transaction id mismatch\nCommit: %c\nExecute: %v", c, e)
+		if i == 0 {
+			if req.Transaction.GetBegin() == nil {
+				t.Fatalf("missing begin selector for ExecuteSqlRequest")
+			}
+		} else {
+			// The retried transaction uses an explicit BeginTransaction RPC.
+			if req.Transaction.GetId() == nil {
+				t.Fatalf("missing id selector for ExecuteSqlRequest")
+			}
+			commitReq := commitRequests[i].(*sppb.CommitRequest)
+			if c, e := commitReq.GetTransactionId(), req.Transaction.GetId(); !cmp.Equal(c, e) {
+				t.Fatalf("transaction id mismatch\nCommit: %c\nExecute: %v", c, e)
+			}
 		}
 	}
 }
@@ -4633,9 +4636,11 @@ func TestRunTransactionQueryError(t *testing.T) {
 	if g, w := len(commitRequests), 0; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	// There should be a RollbackRequest, as the transaction failed.
+	// There is no RollbackRequest, as the transaction was never started.
+	// The ExecuteSqlRequest included a BeginTransaction option, but because that
+	// request failed, the transaction was not started.
 	rollbackRequests := requestsOfType(requests, reflect.TypeOf(&sppb.RollbackRequest{}))
-	if g, w := len(rollbackRequests), 1; g != w {
+	if g, w := len(rollbackRequests), 0; g != w {
 		t.Fatalf("rollback requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
 }
@@ -4806,8 +4811,9 @@ func TestBeginReadWriteTransaction(t *testing.T) {
 		tx, err := BeginReadWriteTransaction(ctx, db, ReadWriteTransactionOptions{
 			DisableInternalRetries: true,
 			TransactionOptions: spanner.TransactionOptions{
-				TransactionTag: tag,
-				CommitPriority: sppb.RequestOptions_PRIORITY_LOW,
+				TransactionTag:         tag,
+				CommitPriority:         sppb.RequestOptions_PRIORITY_LOW,
+				BeginTransactionOption: spanner.ExplicitBeginTransaction,
 			},
 		})
 		if err != nil {
@@ -4873,7 +4879,7 @@ func TestBeginReadWriteTransaction(t *testing.T) {
 			t.Fatalf("missing transaction for ExecuteSqlRequest")
 		}
 		if req.Transaction.GetId() == nil {
-			t.Fatalf("missing id selector for ExecuteSqlRequest")
+			t.Fatalf("missing begin selector for ExecuteSqlRequest")
 		}
 		if g, w := req.RequestOptions.TransactionTag, tag; g != w {
 			t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)

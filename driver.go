@@ -304,6 +304,11 @@ type ConnectorConfig struct {
 	// IsolationLevel is the default isolation level for read/write transactions.
 	IsolationLevel sql.IsolationLevel
 
+	// BeginTransactionOption determines the default for how to begin transactions.
+	// The Spanner database/sql driver uses spanner.InlinedBeginTransaction by default
+	// for both read-only and read/write transactions.
+	BeginTransactionOption spanner.BeginTransactionOption
+
 	// DecodeToNativeArrays determines whether arrays that have a Go native
 	// type should be decoded to those types rather than the corresponding
 	// spanner.NullTypeName type.
@@ -549,6 +554,11 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	if strval, ok := connectorConfig.Params[strings.ToLower("IsolationLevel")]; ok {
 		if val, err := parseIsolationLevel(strval); err == nil {
 			connectorConfig.IsolationLevel = val
+		}
+	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("BeginTransactionOption")]; ok {
+		if val, err := parseBeginTransactionOption(strval); err == nil {
+			connectorConfig.BeginTransactionOption = val
 		}
 	}
 	if strval, ok := connectorConfig.Params[strings.ToLower("StatementCacheSize")]; ok {
@@ -1282,6 +1292,18 @@ func checkIsValidType(v driver.Value) bool {
 	case []spanner.NullUUID:
 	}
 	return true
+}
+
+func parseBeginTransactionOption(val string) (spanner.BeginTransactionOption, error) {
+	switch strings.ToLower(val) {
+	case strings.ToLower("DefaultBeginTransaction"):
+		return spanner.DefaultBeginTransaction, nil
+	case strings.ToLower("InlinedBeginTransaction"):
+		return spanner.InlinedBeginTransaction, nil
+	case strings.ToLower("ExplicitBeginTransaction"):
+		return spanner.ExplicitBeginTransaction, nil
+	}
+	return spanner.DefaultBeginTransaction, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid or unsupported BeginTransactionOption: %v", val))
 }
 
 func parseIsolationLevel(val string) (sql.IsolationLevel, error) {
