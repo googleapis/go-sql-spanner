@@ -947,6 +947,9 @@ func (c *conn) getTransactionOptions() ReadWriteTransactionOptions {
 			txOpts.TransactionOptions.IsolationLevel = level
 		}
 	}
+	if txOpts.TransactionOptions.BeginTransactionOption == spanner.DefaultBeginTransaction {
+		txOpts.TransactionOptions.BeginTransactionOption = spanner.InlinedBeginTransaction
+	}
 	return txOpts
 }
 
@@ -959,7 +962,7 @@ func (c *conn) getReadOnlyTransactionOptions() ReadOnlyTransactionOptions {
 		defer func() { c.tempReadOnlyTransactionOptions = nil }()
 		return *c.tempReadOnlyTransactionOptions
 	}
-	return ReadOnlyTransactionOptions{TimestampBound: c.readOnlyStaleness}
+	return ReadOnlyTransactionOptions{TimestampBound: c.readOnlyStaleness, BeginTransactionOption: spanner.InlinedBeginTransaction}
 }
 
 func (c *conn) withTempBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransactionOptions) {
@@ -1034,7 +1037,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 			ro = &bo.ReadOnlyTransaction
 		} else {
 			logger = c.logger.With("tx", "ro")
-			ro = c.client.ReadOnlyTransaction().WithTimestampBound(readOnlyTxOpts.TimestampBound)
+			ro = c.client.ReadOnlyTransaction().WithBeginTransactionOption(readOnlyTxOpts.BeginTransactionOption).WithTimestampBound(readOnlyTxOpts.TimestampBound)
 		}
 		c.tx = &readOnlyTransaction{
 			roTx:   ro,

@@ -325,7 +325,7 @@ func TestQueryWithError_CommitAborted(t *testing.T) {
 		server.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
 			Errors: []error{status.Error(codes.Aborted, "Aborted")},
 		})
-	}, codes.NotFound, 0, 2, 2)
+	}, codes.NotFound, 0, 3, 2)
 }
 
 func TestQueryWithErrorHalfway_CommitAborted(t *testing.T) {
@@ -1080,7 +1080,7 @@ func TestBatchUpdateAbortedWithError_DifferentErrorDuringRetry(t *testing.T) {
 		t.Fatalf("dml statement failed: %v", err)
 	}
 	if _, err := tx.ExecContext(ctx, "RUN BATCH"); spanner.ErrCode(err) != codes.NotFound {
-		t.Fatalf("error code mismatch\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.NotFound)
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", spanner.ErrCode(err), codes.NotFound)
 	}
 
 	// Remove the error for the DML statement and cause a retry. The missing
@@ -1094,19 +1094,37 @@ func TestBatchUpdateAbortedWithError_DifferentErrorDuringRetry(t *testing.T) {
 	})
 	err = tx.Commit()
 	if err != ErrAbortedDueToConcurrentModification {
-		t.Fatalf("commit error mismatch\nGot: %v\nWant: %v", err, ErrAbortedDueToConcurrentModification)
+		t.Fatalf("commit error mismatch\n Got: %v\nWant: %v", err, ErrAbortedDueToConcurrentModification)
 	}
 	reqs := drainRequestsFromServer(server.TestSpanner)
 	execReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
-	if g, w := len(execReqs), 2; g != w {
-		t.Fatalf("batch request count mismatch\nGot: %v\nWant: %v", g, w)
+	// There are 3 ExecuteBatchDmlRequests sent to Spanner:
+	// 1. An initial attempt with a BeginTransaction RPC, but this returns a NotFound error.
+	//    This causes the transaction to be retried with an explicit BeginTransaction request.
+	// 2. Another attempt with a transaction ID.
+	// 3. A third attempt after the initial transaction is aborted.
+	if g, w := len(execReqs), 3; g != w {
+		t.Fatalf("batch request count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	commitReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	// The commit should be attempted only once.
 	if g, w := len(commitReqs), 1; g != w {
-		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
+		t.Fatalf("commit request count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-
+	// The first ExecuteBatchDml request should try to use an inline-begin.
+	// After that, we should have two BeginTransaction requests.
+	req1 := execReqs[0].(*sppb.ExecuteBatchDmlRequest)
+	if req1.GetTransaction() == nil || req1.GetTransaction().GetBegin() == nil {
+		t.Fatal("the first ExecuteBatchDmlRequest should have a BeginTransaction")
+	}
+	req2 := execReqs[1].(*sppb.ExecuteBatchDmlRequest)
+	if req2.GetTransaction() == nil || req2.GetTransaction().GetId() == nil {
+		t.Fatal("the second ExecuteBatchDmlRequest should have a transaction id")
+	}
+	beginRequests := requestsOfType(reqs, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	if g, w := len(beginRequests), 2; g != w {
+		t.Fatalf("begin request count mismatch\n Got: %v\nWant: %v", g, w)
+	}
 	// Verify that the db is still usable.
 	if _, err := db.ExecContext(ctx, testutil.UpdateSingersSetLastName); err != nil {
 		t.Fatalf("failed to execute statement after transaction: %v", err)

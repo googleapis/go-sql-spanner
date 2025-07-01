@@ -39,11 +39,18 @@ func TestBeginTx(t *testing.T) {
 
 	requests := drainRequestsFromServer(server.TestSpanner)
 	beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
-	if g, w := len(beginRequests), 1; g != w {
+	if g, w := len(beginRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	request := beginRequests[0].(*spannerpb.BeginTransactionRequest)
-	if g, w := request.Options.GetIsolationLevel(), spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED; g != w {
+	executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	request := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+	if request.GetTransaction() == nil || request.GetTransaction().GetBegin() == nil {
+		t.Fatal("missing begin transaction on ExecuteSqlRequest")
+	}
+	if g, w := request.GetTransaction().GetBegin().GetIsolationLevel(), spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED; g != w {
 		t.Fatalf("begin isolation level mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
@@ -76,12 +83,19 @@ func TestBeginTxWithIsolationLevel(t *testing.T) {
 
 			requests := drainRequestsFromServer(server.TestSpanner)
 			beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
-			if g, w := len(beginRequests), 1; g != w {
+			if g, w := len(beginRequests), 0; g != w {
 				t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 			}
-			request := beginRequests[0].(*spannerpb.BeginTransactionRequest)
+			executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+			if g, w := len(executeRequests), 1; g != w {
+				t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			request := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+			if request.GetTransaction() == nil || request.GetTransaction().GetBegin() == nil {
+				t.Fatalf("execute request does not have a begin transaction")
+			}
 			wantIsolationLevel, _ := toProtoIsolationLevel(originalLevel)
-			if g, w := request.Options.GetIsolationLevel(), wantIsolationLevel; g != w {
+			if g, w := request.GetTransaction().GetBegin().GetIsolationLevel(), wantIsolationLevel; g != w {
 				t.Fatalf("begin isolation level mismatch\n Got: %v\nWant: %v", g, w)
 			}
 		}
@@ -162,12 +176,19 @@ func TestDefaultIsolationLevel(t *testing.T) {
 
 			requests := drainRequestsFromServer(server.TestSpanner)
 			beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
-			if g, w := len(beginRequests), 1; g != w {
+			if g, w := len(beginRequests), 0; g != w {
 				t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 			}
-			request := beginRequests[0].(*spannerpb.BeginTransactionRequest)
+			executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+			if g, w := len(executeRequests), 1; g != w {
+				t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			request := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+			if request.GetTransaction() == nil || request.GetTransaction().GetBegin() == nil {
+				t.Fatalf("ExecuteSqlRequest should have a Begin transaction")
+			}
 			wantIsolationLevel, _ := toProtoIsolationLevel(originalLevel)
-			if g, w := request.Options.GetIsolationLevel(), wantIsolationLevel; g != w {
+			if g, w := request.GetTransaction().GetBegin().GetIsolationLevel(), wantIsolationLevel; g != w {
 				t.Fatalf("begin isolation level mismatch\n Got: %v\nWant: %v", g, w)
 			}
 		}

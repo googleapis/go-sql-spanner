@@ -441,8 +441,8 @@ func TestSimpleReadOnlyTransaction(t *testing.T) {
 	if req.Transaction == nil {
 		t.Fatalf("missing transaction for ExecuteSqlRequest")
 	}
-	if req.Transaction.GetId() == nil {
-		t.Fatalf("missing id selector for ExecuteSqlRequest")
+	if req.Transaction.GetBegin() == nil {
+		t.Fatalf("missing begin selector for ExecuteSqlRequest")
 	}
 	// Read-only transactions are not really committed on Cloud Spanner, so
 	// there should be no commit request on the server.
@@ -451,7 +451,7 @@ func TestSimpleReadOnlyTransaction(t *testing.T) {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	beginReadOnlyRequests := filterBeginReadOnlyRequests(requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
-	if g, w := len(beginReadOnlyRequests), 1; g != w {
+	if g, w := len(beginReadOnlyRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
 }
@@ -491,12 +491,19 @@ func TestReadOnlyTransactionWithStaleness(t *testing.T) {
 
 	requests := drainRequestsFromServer(server.TestSpanner)
 	beginReadOnlyRequests := filterBeginReadOnlyRequests(requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
-	if g, w := len(beginReadOnlyRequests), 1; g != w {
-		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
+	if g, w := len(beginReadOnlyRequests), 0; g != w {
+		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	beginReq := beginReadOnlyRequests[0]
-	if beginReq.GetOptions().GetReadOnly().GetExactStaleness() == nil {
-		t.Fatalf("missing exact_staleness option on BeginTransaction request")
+	executeRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	executeReq := executeRequests[0].(*sppb.ExecuteSqlRequest)
+	if executeReq.GetTransaction() == nil || executeReq.GetTransaction().GetBegin() == nil {
+		t.Fatalf("missing begin selector for ExecuteSqlRequest")
+	}
+	if executeReq.GetTransaction().GetBegin().GetReadOnly().GetExactStaleness() == nil {
+		t.Fatalf("missing exact_staleness option on BeginTransaction option")
 	}
 }
 
@@ -510,8 +517,10 @@ func TestReadOnlyTransactionWithOptions(t *testing.T) {
 	// Set max open connections to 1 to force a failure if there is a connection leak.
 	db.SetMaxOpenConns(1)
 
-	tx, err := BeginReadOnlyTransaction(ctx, db,
-		ReadOnlyTransactionOptions{TimestampBound: spanner.ExactStaleness(10 * time.Second)})
+	tx, err := BeginReadOnlyTransaction(ctx, db, ReadOnlyTransactionOptions{
+		TimestampBound:         spanner.ExactStaleness(10 * time.Second),
+		BeginTransactionOption: spanner.InlinedBeginTransaction,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -535,12 +544,19 @@ func TestReadOnlyTransactionWithOptions(t *testing.T) {
 
 	requests := drainRequestsFromServer(server.TestSpanner)
 	beginReadOnlyRequests := filterBeginReadOnlyRequests(requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
-	if g, w := len(beginReadOnlyRequests), 1; g != w {
+	if g, w := len(beginReadOnlyRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	beginReq := beginReadOnlyRequests[0]
-	if beginReq.GetOptions().GetReadOnly().GetExactStaleness() == nil {
-		t.Fatalf("missing exact_staleness option on BeginTransaction request")
+	executeRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	executeReq := executeRequests[0].(*sppb.ExecuteSqlRequest)
+	if executeReq.GetTransaction() == nil || executeReq.GetTransaction().GetBegin() == nil {
+		t.Fatalf("missing begin selector for ExecuteSqlRequest")
+	}
+	if executeReq.GetTransaction().GetBegin().GetReadOnly().GetExactStaleness() == nil {
+		t.Fatalf("missing exact_staleness option on BeginTransaction option")
 	}
 
 	// Verify that the staleness option is not 'sticky' on the database.
@@ -554,11 +570,18 @@ func TestReadOnlyTransactionWithOptions(t *testing.T) {
 
 	requests = drainRequestsFromServer(server.TestSpanner)
 	beginReadOnlyRequests = filterBeginReadOnlyRequests(requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
-	if g, w := len(beginReadOnlyRequests), 1; g != w {
+	if g, w := len(beginReadOnlyRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	beginReq = beginReadOnlyRequests[0]
-	if beginReq.GetOptions().GetReadOnly().GetExactStaleness() != nil {
+	executeRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	executeReq = executeRequests[0].(*sppb.ExecuteSqlRequest)
+	if executeReq.GetTransaction() == nil || executeReq.GetTransaction().GetBegin() == nil {
+		t.Fatalf("missing begin selector for ExecuteSqlRequest")
+	}
+	if executeReq.GetTransaction().GetBegin().GetReadOnly().GetExactStaleness() != nil {
 		t.Fatalf("got unexpected exact_staleness option on BeginTransaction request")
 	}
 }
@@ -615,28 +638,29 @@ func TestSimpleReadWriteTransaction(t *testing.T) {
 	}
 
 	requests := drainRequestsFromServer(server.TestSpanner)
+	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	if g, w := len(beginRequests), 0; g != w {
+		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
 	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
-		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
+		t.Fatalf("ExecuteSqlRequests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
 	if req.Transaction == nil {
 		t.Fatalf("missing transaction for ExecuteSqlRequest")
 	}
-	if req.Transaction.GetId() == nil {
-		t.Fatalf("missing id selector for ExecuteSqlRequest")
+	if req.Transaction.GetBegin() == nil {
+		t.Fatalf("missing begin selector for ExecuteSqlRequest")
 	}
 	if req.LastStatement {
 		t.Fatalf("last statement set for ExecuteSqlRequest")
 	}
 	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
-		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+		t.Fatalf("commit requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	commitReq := commitRequests[0].(*sppb.CommitRequest)
-	if c, e := commitReq.GetTransactionId(), req.Transaction.GetId(); !cmp.Equal(c, e) {
-		t.Fatalf("transaction id mismatch\nCommit: %c\nExecute: %v", c, e)
-	}
 	if g, w := commitReq.MaxCommitDelay.Nanos, int32(time.Millisecond*10); g != w {
 		t.Fatalf("max_commit_delay mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -3659,11 +3683,18 @@ func TestExcludeTxnFromChangeStreams_Transaction(t *testing.T) {
 
 	requests := drainRequestsFromServer(server.TestSpanner)
 	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
-	if g, w := len(beginRequests), 1; g != w {
-		t.Fatalf("BeginTransactionRequest count mismatch\nGot: %v\nWant: %v", g, w)
+	if g, w := len(beginRequests), 0; g != w {
+		t.Fatalf("BeginTransactionRequest count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	req := beginRequests[0].(*sppb.BeginTransactionRequest)
-	if !req.Options.ExcludeTxnFromChangeStreams {
+	executeRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("ExecuteSqlRequest count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	req := executeRequests[0].(*sppb.ExecuteSqlRequest)
+	if req.GetTransaction() == nil || req.GetTransaction().GetBegin() == nil {
+		t.Fatal("missing BeginTransaction option on ExecuteSqlRequest")
+	}
+	if !req.GetTransaction().GetBegin().ExcludeTxnFromChangeStreams {
 		t.Fatalf("missing ExcludeTxnFromChangeStreams option on BeginTransaction option")
 	}
 
@@ -4752,16 +4783,12 @@ func TestTransactionWithLevelDisableRetryAborts(t *testing.T) {
 	if req.Transaction == nil {
 		t.Fatalf("missing transaction for ExecuteSqlRequest")
 	}
-	if req.Transaction.GetId() == nil {
-		t.Fatalf("missing id selector for ExecuteSqlRequest")
+	if req.Transaction.GetBegin() == nil {
+		t.Fatalf("missing begin selector for ExecuteSqlRequest")
 	}
 	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
-	}
-	commitReq := commitRequests[0].(*sppb.CommitRequest)
-	if c, e := commitReq.GetTransactionId(), req.Transaction.GetId(); !cmp.Equal(c, e) {
-		t.Fatalf("transaction id mismatch\nCommit: %c\nExecute: %v", c, e)
 	}
 }
 

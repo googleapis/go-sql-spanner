@@ -1026,7 +1026,8 @@ func clearTempReadWriteTransactionOptions(conn *sql.Conn) {
 // ReadOnlyTransactionOptions can be used to create a read-only transaction
 // on a Spanner connection.
 type ReadOnlyTransactionOptions struct {
-	TimestampBound spanner.TimestampBound
+	TimestampBound         spanner.TimestampBound
+	BeginTransactionOption spanner.BeginTransactionOption
 
 	close func()
 }
