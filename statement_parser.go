@@ -834,8 +834,8 @@ type clientSideStatements struct {
 type clientSideStatement struct {
 	Name                          string `json:"name"`
 	ExecutorName                  string `json:"executorName"`
-	execContext                   func(ctx context.Context, c *conn, params string, args []driver.NamedValue) (driver.Result, error)
-	queryContext                  func(ctx context.Context, c *conn, params string, args []driver.NamedValue) (driver.Rows, error)
+	execContext                   func(ctx context.Context, c *conn, params string, opts ExecOptions, args []driver.NamedValue) (driver.Result, error)
+	queryContext                  func(ctx context.Context, c *conn, params string, opts ExecOptions, args []driver.NamedValue) (driver.Rows, error)
 	ResultType                    string `json:"resultType"`
 	Regex                         string `json:"regex"`
 	regexp                        *regexp.Regexp
@@ -874,11 +874,27 @@ func compileStatements() error {
 			return err
 		}
 		i := reflect.ValueOf(statements.executor).MethodByName(strings.TrimPrefix(stmt.MethodName, "statement")).Interface()
-		if execContext, ok := i.(func(ctx context.Context, c *conn, query string, args []driver.NamedValue) (driver.Result, error)); ok {
+		if execContext, ok := i.(func(ctx context.Context, c *conn, query string, opts ExecOptions, args []driver.NamedValue) (driver.Result, error)); ok {
 			stmt.execContext = execContext
 		}
-		if queryContext, ok := i.(func(ctx context.Context, c *conn, query string, args []driver.NamedValue) (driver.Rows, error)); ok {
+		if queryContext, ok := i.(func(ctx context.Context, c *conn, query string, opts ExecOptions, args []driver.NamedValue) (driver.Rows, error)); ok {
 			stmt.queryContext = queryContext
+		}
+		if stmt.queryContext == nil && stmt.execContext != nil {
+			stmt.queryContext = func(ctx context.Context, c *conn, params string, opts ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+				_, err := stmt.execContext(ctx, c, params, opts, args)
+				if err != nil {
+					return nil, err
+				}
+				it := createEmptyIterator()
+				return &rows{
+					it:                      it,
+					decodeOption:            opts.DecodeOption,
+					decodeToNativeArrays:    opts.DecodeToNativeArrays,
+					returnResultSetMetadata: opts.ReturnResultSetMetadata,
+					returnResultSetStats:    opts.ReturnResultSetStats,
+				}, nil
+			}
 		}
 	}
 	return nil
@@ -894,18 +910,18 @@ type executableClientSideStatement struct {
 	params string
 }
 
-func (c *executableClientSideStatement) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
+func (c *executableClientSideStatement) ExecContext(ctx context.Context, opts ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	if c.clientSideStatement.execContext == nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with execContext", c.query))
 	}
-	return c.clientSideStatement.execContext(ctx, c.conn, c.params, args)
+	return c.clientSideStatement.execContext(ctx, c.conn, c.params, opts, args)
 }
 
-func (c *executableClientSideStatement) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
+func (c *executableClientSideStatement) QueryContext(ctx context.Context, opts ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
 	if c.clientSideStatement.queryContext == nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with queryContext", c.query))
 	}
-	return c.clientSideStatement.queryContext(ctx, c.conn, c.params, args)
+	return c.clientSideStatement.queryContext(ctx, c.conn, c.params, opts, args)
 }
 
 // parseClientSideStatement returns the executableClientSideStatement that
