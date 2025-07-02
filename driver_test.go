@@ -20,6 +20,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"reflect"
 	"testing"
@@ -34,7 +35,12 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
+func silentClose(c io.Closer) {
+	_ = c.Close()
+}
+
 func TestExtractDnsParts(t *testing.T) {
+	//goland:noinspection GoDeprecation
 	tests := []struct {
 		input               string
 		wantConnectorConfig ConnectorConfig
@@ -470,7 +476,7 @@ func ExampleCreateConnector() {
 	db := sql.OpenDB(c)
 	// Use the database ...
 
-	defer db.Close()
+	defer silentClose(db)
 }
 
 func TestConnection_Reset(t *testing.T) {

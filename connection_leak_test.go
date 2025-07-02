@@ -75,7 +75,7 @@ func simpleQuery(ctx context.Context, t *testing.T, db *sql.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 
 	for want := int64(1); rows.Next(); want++ {
 		_, err := rows.Columns()
@@ -202,7 +202,7 @@ func readOnlyTxWithStaleness(ctx context.Context, t *testing.T, db *sql.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer silentClose(conn)
 	if _, err := conn.ExecContext(ctx, "SET READ_ONLY_STALENESS = 'EXACT_STALENESS 10s'"); err != nil {
 		t.Fatalf("Set read-only staleness: %v", err)
 	}
@@ -233,7 +233,7 @@ func simpleReadWriteTx(ctx context.Context, t *testing.T, db *sql.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer silentClose(conn)
 	if _, err := conn.ExecContext(ctx, "set max_commit_delay='10ms'"); err != nil {
 		t.Fatal(err)
 	}

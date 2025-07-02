@@ -273,7 +273,7 @@ func TestSetIsolationLevel(t *testing.T) {
 		if g, w := level, sql.LevelSnapshot; g != w {
 			t.Fatalf("isolation level mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		conn.Close()
+		_ = conn.Close()
 	}
 }
 
@@ -335,7 +335,7 @@ func TestDDLUsingQueryContextInReadOnlyTx(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// DDL statements should not use the query context in a read-only transaction.
 	_, err = tx.QueryContext(ctx, "CREATE TABLE Foo (Bar STRING(100))")
@@ -358,7 +358,7 @@ func TestDDLUsingQueryContextInReadWriteTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// DDL statements should not use the query context in a read-write transaction.
 	_, err = tx.QueryContext(ctx, "CREATE TABLE Foo (Bar STRING(100))")
