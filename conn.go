@@ -256,6 +256,8 @@ type conn struct {
 	// transactions on this connection. This default is ignored if the BeginTx function is
 	// called with an isolation level other than sql.LevelDefault.
 	isolationLevel sql.IsolationLevel
+	// beginTransactionOption determines the default transactions start mode.
+	beginTransactionOption spanner.BeginTransactionOption
 
 	// execOptions are applied to the next statement or transaction that is executed
 	// on this connection. It can also be set by passing it in as an argument to
@@ -690,6 +692,7 @@ func (c *conn) ResetSession(_ context.Context) error {
 	c.autoBatchDmlUpdateCountVerification = !c.connector.connectorConfig.DisableAutoBatchDmlUpdateCountVerification
 	c.retryAborts = c.connector.retryAbortsInternally
 	c.isolationLevel = c.connector.connectorConfig.IsolationLevel
+	c.beginTransactionOption = c.connector.connectorConfig.BeginTransactionOption
 	// TODO: Reset the following fields to the connector default
 	c.autocommitDMLMode = Transactional
 	c.readOnlyStaleness = spanner.TimestampBound{}
@@ -953,7 +956,9 @@ func (c *conn) withTempTransactionOptions(options *ReadWriteTransactionOptions) 
 func (c *conn) getTransactionOptions() ReadWriteTransactionOptions {
 	if c.tempTransactionOptions != nil {
 		defer func() { c.tempTransactionOptions = nil }()
-		return *c.tempTransactionOptions
+		opts := *c.tempTransactionOptions
+		opts.TransactionOptions.BeginTransactionOption = c.convertDefaultBeginTransactionOption(opts.TransactionOptions.BeginTransactionOption)
+		return opts
 	}
 	// Clear the transaction tag that has been set on the connection after returning
 	// from this function.
@@ -973,6 +978,9 @@ func (c *conn) getTransactionOptions() ReadWriteTransactionOptions {
 			txOpts.TransactionOptions.IsolationLevel = level
 		}
 	}
+	if txOpts.TransactionOptions.BeginTransactionOption == spanner.DefaultBeginTransaction {
+		txOpts.TransactionOptions.BeginTransactionOption = c.convertDefaultBeginTransactionOption(c.beginTransactionOption)
+	}
 	return txOpts
 }
 
@@ -983,9 +991,11 @@ func (c *conn) withTempReadOnlyTransactionOptions(options *ReadOnlyTransactionOp
 func (c *conn) getReadOnlyTransactionOptions() ReadOnlyTransactionOptions {
 	if c.tempReadOnlyTransactionOptions != nil {
 		defer func() { c.tempReadOnlyTransactionOptions = nil }()
-		return *c.tempReadOnlyTransactionOptions
+		opts := *c.tempReadOnlyTransactionOptions
+		opts.BeginTransactionOption = c.convertDefaultBeginTransactionOption(opts.BeginTransactionOption)
+		return opts
 	}
-	return ReadOnlyTransactionOptions{TimestampBound: c.readOnlyStaleness}
+	return ReadOnlyTransactionOptions{TimestampBound: c.readOnlyStaleness, BeginTransactionOption: c.convertDefaultBeginTransactionOption(c.beginTransactionOption)}
 }
 
 func (c *conn) withTempBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransactionOptions) {
@@ -1060,7 +1070,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 			ro = &bo.ReadOnlyTransaction
 		} else {
 			logger = c.logger.With("tx", "ro")
-			ro = c.client.ReadOnlyTransaction().WithTimestampBound(readOnlyTxOpts.TimestampBound)
+			ro = c.client.ReadOnlyTransaction().WithBeginTransactionOption(readOnlyTxOpts.BeginTransactionOption).WithTimestampBound(readOnlyTxOpts.TimestampBound)
 		}
 		c.tx = &readOnlyTransaction{
 			roTx:   ro,
@@ -1104,6 +1114,16 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 	}
 	c.commitTs = nil
 	return c.tx, nil
+}
+
+func (c *conn) convertDefaultBeginTransactionOption(opt spanner.BeginTransactionOption) spanner.BeginTransactionOption {
+	if opt == spanner.DefaultBeginTransaction {
+		if c.beginTransactionOption == spanner.DefaultBeginTransaction {
+			return spanner.InlinedBeginTransaction
+		}
+		return c.beginTransactionOption
+	}
+	return opt
 }
 
 func (c *conn) inTransaction() bool {

@@ -57,7 +57,7 @@ func TestPrepareQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to execute query: %v", err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 
 	var values []int64
 	var value int64
@@ -140,7 +140,7 @@ func TestPrepareWithValuerScanner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to execute query: %v", err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 
 	var value concertspb.TicketOrder
 	if rows.Next() {

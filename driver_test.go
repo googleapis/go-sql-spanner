@@ -20,6 +20,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"reflect"
 	"testing"
@@ -34,7 +35,12 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
+func silentClose(c io.Closer) {
+	_ = c.Close()
+}
+
 func TestExtractDnsParts(t *testing.T) {
+	//goland:noinspection GoDeprecation
 	tests := []struct {
 		input               string
 		wantConnectorConfig ConnectorConfig
@@ -171,6 +177,23 @@ func TestExtractDnsParts(t *testing.T) {
 				Params: map[string]string{
 					"isolationlevel": "repeatable_read",
 				},
+				IsolationLevel: sql.LevelRepeatableRead,
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
+			},
+		},
+		{
+			input: "projects/p/instances/i/databases/d?beginTransactionOption=ExplicitBeginTransaction",
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
+					"begintransactionoption": "ExplicitBeginTransaction",
+				},
+				BeginTransactionOption: spanner.ExplicitBeginTransaction,
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
@@ -186,6 +209,7 @@ func TestExtractDnsParts(t *testing.T) {
 				Params: map[string]string{
 					"statementcachesize": "100",
 				},
+				StatementCacheSize: 100,
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
@@ -252,8 +276,7 @@ func TestExtractDnsParts(t *testing.T) {
 				if tc.wantErr {
 					t.Error("did not encounter expected error")
 				}
-				tc.wantConnectorConfig.name = tc.input
-				if diff := cmp.Diff(config, tc.wantConnectorConfig, cmp.AllowUnexported(ConnectorConfig{})); diff != "" {
+				if diff := cmp.Diff(config.Params, tc.wantConnectorConfig.Params); diff != "" {
 					t.Errorf("connector config mismatch for %q\n%v", tc.input, diff)
 				}
 				conn, err := newOrCachedConnector(&Driver{connectors: make(map[string]*connector)}, tc.input)
@@ -263,6 +286,47 @@ func TestExtractDnsParts(t *testing.T) {
 				if diff := cmp.Diff(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{}, spanner.InactiveTransactionRemovalOptions{}, spannerpb.ExecuteSqlRequest_QueryOptions{})); diff != "" {
 					t.Errorf("connector Spanner client config mismatch for %q\n%v", tc.input, diff)
 				}
+				actualConfig := conn.connectorConfig
+				actualConfig.name = ""
+				if diff := cmp.Diff(actualConfig, tc.wantConnectorConfig, cmp.AllowUnexported(ConnectorConfig{})); diff != "" {
+					t.Errorf("actual connector config mismatch for %q\n%v", tc.input, diff)
+				}
+			}
+		})
+	}
+}
+
+func TestParseBeginTransactionOption(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    spanner.BeginTransactionOption
+		wantErr bool
+	}{
+		{
+			input: "DefaultBeginTransaction",
+			want:  spanner.DefaultBeginTransaction,
+		},
+		{
+			input: "InlinedBeginTransaction",
+			want:  spanner.InlinedBeginTransaction,
+		},
+		{
+			input: "ExplicitBeginTransaction",
+			want:  spanner.ExplicitBeginTransaction,
+		},
+		{
+			input:   "invalid",
+			wantErr: true,
+		},
+	}
+	for i, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			val, err := parseBeginTransactionOption(test.input)
+			if (err != nil) != test.wantErr {
+				t.Errorf("%d: parseBeginTransactionOption(%q) error = %v, wantErr %v", i, err, test.wantErr, err)
+			}
+			if g, w := val, test.want; g != w {
+				t.Errorf("%d: parseBeginTransactionOption(%q) = %v, want %v", i, g, w, g)
 			}
 		})
 	}
@@ -412,7 +476,7 @@ func ExampleCreateConnector() {
 	db := sql.OpenDB(c)
 	// Use the database ...
 
-	defer db.Close()
+	defer silentClose(db)
 }
 
 func TestConnection_Reset(t *testing.T) {

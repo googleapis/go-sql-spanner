@@ -39,6 +39,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/googleapis/gax-go/v2"
 	"google.golang.org/api/option"
+	"google.golang.org/api/option/internaloption"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -308,6 +309,11 @@ type ConnectorConfig struct {
 	// IsolationLevel is the default isolation level for read/write transactions.
 	IsolationLevel sql.IsolationLevel
 
+	// BeginTransactionOption determines the default for how to begin transactions.
+	// The Spanner database/sql driver uses spanner.InlinedBeginTransaction by default
+	// for both read-only and read/write transactions.
+	BeginTransactionOption spanner.BeginTransactionOption
+
 	// DecodeToNativeArrays determines whether arrays that have a Go native
 	// type should be decoded to those types rather than the corresponding
 	// spanner.NullTypeName type.
@@ -555,6 +561,11 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			connectorConfig.IsolationLevel = val
 		}
 	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("BeginTransactionOption")]; ok {
+		if val, err := parseBeginTransactionOption(strval); err == nil {
+			connectorConfig.BeginTransactionOption = val
+		}
+	}
 	if strval, ok := connectorConfig.Params[strings.ToLower("StatementCacheSize")]; ok {
 		if val, err := strconv.Atoi(strval); err == nil {
 			connectorConfig.StatementCacheSize = val
@@ -590,7 +601,18 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		connectorConfig.Configurator(&config, &opts)
 	}
 	if connectorConfig.AutoConfigEmulator {
-		if err := autoConfigEmulator(context.Background(), connectorConfig.Host, connectorConfig.Project, connectorConfig.Instance, connectorConfig.Database); err != nil {
+		if connectorConfig.Host == "" {
+			connectorConfig.Host = "localhost:9010"
+		}
+		schemeRemoved := regexp.MustCompile("^(http://|https://|passthrough:///)").ReplaceAllString(connectorConfig.Host, "")
+		emulatorOpts := []option.ClientOption{
+			option.WithEndpoint("passthrough:///" + schemeRemoved),
+			option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+			option.WithoutAuthentication(),
+			internaloption.SkipDialSettingsValidation(),
+		}
+		opts = append(emulatorOpts, opts...)
+		if err := autoConfigEmulator(context.Background(), connectorConfig.Host, connectorConfig.Project, connectorConfig.Instance, connectorConfig.Database, opts); err != nil {
 			return nil, err
 		}
 	}
@@ -1034,7 +1056,8 @@ func clearTempReadWriteTransactionOptions(conn *sql.Conn) {
 // ReadOnlyTransactionOptions can be used to create a read-only transaction
 // on a Spanner connection.
 type ReadOnlyTransactionOptions struct {
-	TimestampBound spanner.TimestampBound
+	TimestampBound         spanner.TimestampBound
+	BeginTransactionOption spanner.BeginTransactionOption
 
 	close func()
 }
@@ -1293,6 +1316,18 @@ func checkIsValidType(v driver.Value) bool {
 	case []spanner.NullUUID:
 	}
 	return true
+}
+
+func parseBeginTransactionOption(val string) (spanner.BeginTransactionOption, error) {
+	switch strings.ToLower(val) {
+	case strings.ToLower("DefaultBeginTransaction"):
+		return spanner.DefaultBeginTransaction, nil
+	case strings.ToLower("InlinedBeginTransaction"):
+		return spanner.InlinedBeginTransaction, nil
+	case strings.ToLower("ExplicitBeginTransaction"):
+		return spanner.ExplicitBeginTransaction, nil
+	}
+	return spanner.DefaultBeginTransaction, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid or unsupported BeginTransactionOption: %v", val))
 }
 
 func parseIsolationLevel(val string) (sql.IsolationLevel, error) {

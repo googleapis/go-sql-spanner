@@ -41,13 +41,12 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	gstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
-
-	"google.golang.org/grpc/codes"
-	gstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -127,7 +126,7 @@ func TestStatementCacheSize(t *testing.T) {
 
 	// Executing yet another statement should evict the oldest result from the cache and add this.
 	query := "insert into test (id) values (1)"
-	server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
 		Type:        testutil.StatementResultUpdateCount,
 		UpdateCount: 1,
 	})
@@ -193,7 +192,7 @@ func TestSimpleQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 
 	for want := int64(1); rows.Next(); want++ {
 		cols, err := rows.Columns()
@@ -405,7 +404,7 @@ func TestSimpleReadOnlyTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 
 	for want := int64(1); rows.Next(); want++ {
 		cols, err := rows.Columns()
@@ -441,8 +440,8 @@ func TestSimpleReadOnlyTransaction(t *testing.T) {
 	if req.Transaction == nil {
 		t.Fatalf("missing transaction for ExecuteSqlRequest")
 	}
-	if req.Transaction.GetId() == nil {
-		t.Fatalf("missing id selector for ExecuteSqlRequest")
+	if req.Transaction.GetBegin() == nil {
+		t.Fatalf("missing begin selector for ExecuteSqlRequest")
 	}
 	// Read-only transactions are not really committed on Cloud Spanner, so
 	// there should be no commit request on the server.
@@ -451,7 +450,7 @@ func TestSimpleReadOnlyTransaction(t *testing.T) {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	beginReadOnlyRequests := filterBeginReadOnlyRequests(requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
-	if g, w := len(beginReadOnlyRequests), 1; g != w {
+	if g, w := len(beginReadOnlyRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
 }
@@ -491,12 +490,19 @@ func TestReadOnlyTransactionWithStaleness(t *testing.T) {
 
 	requests := drainRequestsFromServer(server.TestSpanner)
 	beginReadOnlyRequests := filterBeginReadOnlyRequests(requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
-	if g, w := len(beginReadOnlyRequests), 1; g != w {
-		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
+	if g, w := len(beginReadOnlyRequests), 0; g != w {
+		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	beginReq := beginReadOnlyRequests[0]
-	if beginReq.GetOptions().GetReadOnly().GetExactStaleness() == nil {
-		t.Fatalf("missing exact_staleness option on BeginTransaction request")
+	executeRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	executeReq := executeRequests[0].(*sppb.ExecuteSqlRequest)
+	if executeReq.GetTransaction() == nil || executeReq.GetTransaction().GetBegin() == nil {
+		t.Fatalf("missing begin selector for ExecuteSqlRequest")
+	}
+	if executeReq.GetTransaction().GetBegin().GetReadOnly().GetExactStaleness() == nil {
+		t.Fatalf("missing exact_staleness option on BeginTransaction option")
 	}
 }
 
@@ -510,8 +516,10 @@ func TestReadOnlyTransactionWithOptions(t *testing.T) {
 	// Set max open connections to 1 to force a failure if there is a connection leak.
 	db.SetMaxOpenConns(1)
 
-	tx, err := BeginReadOnlyTransaction(ctx, db,
-		ReadOnlyTransactionOptions{TimestampBound: spanner.ExactStaleness(10 * time.Second)})
+	tx, err := BeginReadOnlyTransaction(ctx, db, ReadOnlyTransactionOptions{
+		TimestampBound:         spanner.ExactStaleness(10 * time.Second),
+		BeginTransactionOption: spanner.InlinedBeginTransaction,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -535,12 +543,19 @@ func TestReadOnlyTransactionWithOptions(t *testing.T) {
 
 	requests := drainRequestsFromServer(server.TestSpanner)
 	beginReadOnlyRequests := filterBeginReadOnlyRequests(requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
-	if g, w := len(beginReadOnlyRequests), 1; g != w {
+	if g, w := len(beginReadOnlyRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	beginReq := beginReadOnlyRequests[0]
-	if beginReq.GetOptions().GetReadOnly().GetExactStaleness() == nil {
-		t.Fatalf("missing exact_staleness option on BeginTransaction request")
+	executeRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	executeReq := executeRequests[0].(*sppb.ExecuteSqlRequest)
+	if executeReq.GetTransaction() == nil || executeReq.GetTransaction().GetBegin() == nil {
+		t.Fatalf("missing begin selector for ExecuteSqlRequest")
+	}
+	if executeReq.GetTransaction().GetBegin().GetReadOnly().GetExactStaleness() == nil {
+		t.Fatalf("missing exact_staleness option on BeginTransaction option")
 	}
 
 	// Verify that the staleness option is not 'sticky' on the database.
@@ -554,11 +569,18 @@ func TestReadOnlyTransactionWithOptions(t *testing.T) {
 
 	requests = drainRequestsFromServer(server.TestSpanner)
 	beginReadOnlyRequests = filterBeginReadOnlyRequests(requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
-	if g, w := len(beginReadOnlyRequests), 1; g != w {
+	if g, w := len(beginReadOnlyRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	beginReq = beginReadOnlyRequests[0]
-	if beginReq.GetOptions().GetReadOnly().GetExactStaleness() != nil {
+	executeRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	executeReq = executeRequests[0].(*sppb.ExecuteSqlRequest)
+	if executeReq.GetTransaction() == nil || executeReq.GetTransaction().GetBegin() == nil {
+		t.Fatalf("missing begin selector for ExecuteSqlRequest")
+	}
+	if executeReq.GetTransaction().GetBegin().GetReadOnly().GetExactStaleness() != nil {
 		t.Fatalf("got unexpected exact_staleness option on BeginTransaction request")
 	}
 }
@@ -574,7 +596,7 @@ func TestSimpleReadWriteTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer silentClose(conn)
 	if _, err := conn.ExecContext(ctx, "set max_commit_delay='10ms'"); err != nil {
 		t.Fatal(err)
 	}
@@ -587,7 +609,7 @@ func TestSimpleReadWriteTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 
 	for want := int64(1); rows.Next(); want++ {
 		cols, err := rows.Columns()
@@ -615,28 +637,29 @@ func TestSimpleReadWriteTransaction(t *testing.T) {
 	}
 
 	requests := drainRequestsFromServer(server.TestSpanner)
+	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	if g, w := len(beginRequests), 0; g != w {
+		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
 	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
-		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
+		t.Fatalf("ExecuteSqlRequests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
 	if req.Transaction == nil {
 		t.Fatalf("missing transaction for ExecuteSqlRequest")
 	}
-	if req.Transaction.GetId() == nil {
-		t.Fatalf("missing id selector for ExecuteSqlRequest")
+	if req.Transaction.GetBegin() == nil {
+		t.Fatalf("missing begin selector for ExecuteSqlRequest")
 	}
 	if req.LastStatement {
 		t.Fatalf("last statement set for ExecuteSqlRequest")
 	}
 	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
-		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+		t.Fatalf("commit requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	commitReq := commitRequests[0].(*sppb.CommitRequest)
-	if c, e := commitReq.GetTransactionId(), req.Transaction.GetId(); !cmp.Equal(c, e) {
-		t.Fatalf("transaction id mismatch\nCommit: %c\nExecute: %v", c, e)
-	}
 	if g, w := commitReq.MaxCommitDelay.Nanos, int32(time.Millisecond*10); g != w {
 		t.Fatalf("max_commit_delay mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -659,12 +682,12 @@ func TestPreparedQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stmt.Close()
+	defer silentClose(stmt)
 	rows, err := stmt.Query(1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 
 	for want := int64(1); rows.Next(); want++ {
 		var got int64
@@ -748,7 +771,7 @@ func TestQueryWithAllTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stmt.Close()
+	defer silentClose(stmt)
 	ts, _ := time.Parse(time.RFC3339Nano, "2021-07-22T10:26:17.123Z")
 	ts1, _ := time.Parse(time.RFC3339Nano, "2021-07-21T21:07:59.339911800Z")
 	ts2, _ := time.Parse(time.RFC3339Nano, "2021-07-27T21:07:59.339911800Z")
@@ -788,7 +811,7 @@ func TestQueryWithAllTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 
 	for rows.Next() {
 		var b bool
@@ -1216,7 +1239,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stmt.Close()
+	defer silentClose(stmt)
 	for _, p := range []struct {
 		typed  int
 		values []interface{}
@@ -1278,7 +1301,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer rows.Close()
+		defer silentClose(rows)
 
 		for rows.Next() {
 			var b sql.NullBool
@@ -1439,7 +1462,7 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			stmt.Close()
+			_ = stmt.Close()
 		} else {
 			var err error
 			rows, err = db.QueryContext(context.Background(), query, ExecOptions{DecodeOption: DecodeOptionProto})
@@ -1522,7 +1545,7 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 		if rows.Err() != nil {
 			t.Fatal(rows.Err())
 		}
-		rows.Close()
+		_ = rows.Close()
 	}
 }
 
@@ -1567,7 +1590,7 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stmt.Close()
+	defer silentClose(stmt)
 	ts, _ := time.Parse(time.RFC3339Nano, "2021-07-22T10:26:17.123Z")
 	ts1, _ := time.Parse(time.RFC3339Nano, "2021-07-21T21:07:59.339911800Z")
 	ts2, _ := time.Parse(time.RFC3339Nano, "2021-07-27T21:07:59.339911800Z")
@@ -1606,7 +1629,7 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 
 	for rows.Next() {
 		var b bool
@@ -1996,7 +2019,7 @@ func TestDmlInAutocommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer silentClose(conn)
 	_, err = conn.ExecContext(ctx, "set max_commit_delay=100")
 	if err != nil {
 		t.Fatal(err)
@@ -2305,7 +2328,7 @@ func TestQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 }
 
 func TestExec(t *testing.T) {
@@ -2508,7 +2531,7 @@ func TestDdlBatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer silentClose(conn)
 
 	if _, err = conn.ExecContext(ctx, "START BATCH DDL"); err != nil {
 		t.Fatalf("failed to start DDL batch: %v", err)
@@ -2552,7 +2575,7 @@ func TestAbortDdlBatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer silentClose(c)
 
 	if _, err = c.ExecContext(ctx, "START BATCH DDL"); err != nil {
 		t.Fatalf("failed to start DDL batch: %v", err)
@@ -2603,7 +2626,7 @@ func TestShowAndSetVariableRetryAbortsInternally(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to obtain a connection: %v", err)
 	}
-	defer func() { _ = c.Close() }()
+	defer silentClose(c)
 
 	for _, tc := range []struct {
 		expected bool
@@ -2618,7 +2641,7 @@ func TestShowAndSetVariableRetryAbortsInternally(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to execute get variable retry_aborts_internally: %v", err)
 		}
-		defer func() { _ = rows.Close() }()
+		defer silentClose(rows)
 		for rows.Next() {
 			var retry bool
 			if err := rows.Scan(&retry); err != nil {
@@ -2677,7 +2700,7 @@ func TestPartitionedDml(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to obtain a connection: %v", err)
 	}
-	defer c.Close()
+	defer silentClose(c)
 
 	if _, err := c.ExecContext(ctx, "set autocommit_dml_mode = 'Partitioned_Non_Atomic'"); err != nil {
 		t.Fatalf("could not set autocommit dml mode: %v", err)
@@ -2732,7 +2755,7 @@ func TestAutocommitBatchDml(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to obtain a connection: %v", err)
 	}
-	defer c.Close()
+	defer silentClose(c)
 
 	if _, err := c.ExecContext(ctx, "START BATCH DML"); err != nil {
 		t.Fatalf("could not start a DML batch: %v", err)
@@ -3666,11 +3689,18 @@ func TestExcludeTxnFromChangeStreams_Transaction(t *testing.T) {
 
 	requests := drainRequestsFromServer(server.TestSpanner)
 	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
-	if g, w := len(beginRequests), 1; g != w {
-		t.Fatalf("BeginTransactionRequest count mismatch\nGot: %v\nWant: %v", g, w)
+	if g, w := len(beginRequests), 0; g != w {
+		t.Fatalf("BeginTransactionRequest count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	req := beginRequests[0].(*sppb.BeginTransactionRequest)
-	if !req.Options.ExcludeTxnFromChangeStreams {
+	executeRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("ExecuteSqlRequest count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	req := executeRequests[0].(*sppb.ExecuteSqlRequest)
+	if req.GetTransaction() == nil || req.GetTransaction().GetBegin() == nil {
+		t.Fatal("missing BeginTransaction option on ExecuteSqlRequest")
+	}
+	if !req.GetTransaction().GetBegin().ExcludeTxnFromChangeStreams {
 		t.Fatalf("missing ExcludeTxnFromChangeStreams option on BeginTransaction option")
 	}
 
@@ -3711,7 +3741,7 @@ func TestTag_Query_AutoCommit(t *testing.T) {
 			t.Fatal(iter.Err())
 		}
 	}
-	iter.Close()
+	_ = iter.Close()
 
 	requests := drainRequestsFromServer(server.TestSpanner)
 	// The ExecuteSqlRequest and CommitRequest should have a transaction tag.
@@ -3879,7 +3909,7 @@ func TestTag_ReadWriteTransaction(t *testing.T) {
 	rows, _ := tx.QueryContext(ctx, testutil.SelectFooFromBar)
 	for rows.Next() {
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	_, _ = tx.ExecContext(ctx, "set statement_tag = 'tag_2'")
 	_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
@@ -3976,7 +4006,7 @@ func TestTag_ReadWriteTransaction_Retry(t *testing.T) {
 		}
 		for rows.Next() {
 		}
-		rows.Close()
+		_ = rows.Close()
 
 		if useArgs {
 			_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_2"}})
@@ -4083,7 +4113,7 @@ func TestTag_RunTransaction_Retry(t *testing.T) {
 			}
 			for rows.Next() {
 			}
-			rows.Close()
+			_ = rows.Close()
 
 			if useArgs {
 				_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_2"}})
@@ -4303,6 +4333,9 @@ func TestCannotReuseClosedConnector(t *testing.T) {
 	for _, v := range connectors {
 		connector = v
 	}
+	if connector == nil {
+		t.Fatal("no connector found")
+	}
 	if connector.closed {
 		t.Fatal("connector is closed")
 	}
@@ -4338,7 +4371,7 @@ func TestRunTransaction(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer silentClose(rows)
 		// Verify that internal retries are disabled during RunTransaction
 		txi := reflect.ValueOf(tx).Elem().FieldByName("txi")
 		rwTx := (*readWriteTransaction)(txi.Elem().UnsafePointer())
@@ -4394,16 +4427,12 @@ func TestRunTransaction(t *testing.T) {
 	if req.Transaction == nil {
 		t.Fatalf("missing transaction for ExecuteSqlRequest")
 	}
-	if req.Transaction.GetId() == nil {
-		t.Fatalf("missing id selector for ExecuteSqlRequest")
+	if req.Transaction.GetBegin() == nil {
+		t.Fatalf("missing begin selector for ExecuteSqlRequest")
 	}
 	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
-	}
-	commitReq := commitRequests[0].(*sppb.CommitRequest)
-	if c, e := commitReq.GetTransactionId(), req.Transaction.GetId(); !cmp.Equal(c, e) {
-		t.Fatalf("transaction id mismatch\nCommit: %c\nExecute: %v", c, e)
 	}
 }
 
@@ -4421,7 +4450,7 @@ func TestRunTransactionCommitAborted(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer silentClose(rows)
 
 		for want := int64(1); rows.Next(); want++ {
 			cols, err := rows.Columns()
@@ -4470,12 +4499,19 @@ func TestRunTransactionCommitAborted(t *testing.T) {
 		if req.Transaction == nil {
 			t.Fatalf("missing transaction for ExecuteSqlRequest")
 		}
-		if req.Transaction.GetId() == nil {
-			t.Fatalf("missing id selector for ExecuteSqlRequest")
-		}
-		commitReq := commitRequests[i].(*sppb.CommitRequest)
-		if c, e := commitReq.GetTransactionId(), req.Transaction.GetId(); !cmp.Equal(c, e) {
-			t.Fatalf("transaction id mismatch\nCommit: %c\nExecute: %v", c, e)
+		if i == 0 {
+			if req.Transaction.GetBegin() == nil {
+				t.Fatalf("missing begin selector for ExecuteSqlRequest")
+			}
+		} else {
+			// The retried transaction uses an explicit BeginTransaction RPC.
+			if req.Transaction.GetId() == nil {
+				t.Fatalf("missing id selector for ExecuteSqlRequest")
+			}
+			commitReq := commitRequests[i].(*sppb.CommitRequest)
+			if c, e := commitReq.GetTransactionId(), req.Transaction.GetId(); !cmp.Equal(c, e) {
+				t.Fatalf("transaction id mismatch\nCommit: %c\nExecute: %v", c, e)
+			}
 		}
 	}
 }
@@ -4500,7 +4536,7 @@ func TestRunTransactionQueryAborted(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer silentClose(rows)
 
 		for want := int64(1); rows.Next(); want++ {
 			cols, err := rows.Columns()
@@ -4568,7 +4604,7 @@ func TestRunTransactionQueryError(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer silentClose(rows)
 
 		for want := int64(1); rows.Next(); want++ {
 			cols, err := rows.Columns()
@@ -4609,9 +4645,11 @@ func TestRunTransactionQueryError(t *testing.T) {
 	if g, w := len(commitRequests), 0; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	// There should be a RollbackRequest, as the transaction failed.
+	// There is no RollbackRequest, as the transaction was never started.
+	// The ExecuteSqlRequest included a BeginTransaction option, but because that
+	// request failed, the transaction was not started.
 	rollbackRequests := requestsOfType(requests, reflect.TypeOf(&sppb.RollbackRequest{}))
-	if g, w := len(rollbackRequests), 1; g != w {
+	if g, w := len(rollbackRequests), 0; g != w {
 		t.Fatalf("rollback requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
 }
@@ -4628,7 +4666,7 @@ func TestRunTransactionCommitError(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer silentClose(rows)
 
 		for want := int64(1); rows.Next(); want++ {
 			cols, err := rows.Columns()
@@ -4715,7 +4753,7 @@ func TestTransactionWithLevelDisableRetryAborts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 	for want := int64(1); rows.Next(); want++ {
 		cols, err := rows.Columns()
 		if err != nil {
@@ -4759,16 +4797,12 @@ func TestTransactionWithLevelDisableRetryAborts(t *testing.T) {
 	if req.Transaction == nil {
 		t.Fatalf("missing transaction for ExecuteSqlRequest")
 	}
-	if req.Transaction.GetId() == nil {
-		t.Fatalf("missing id selector for ExecuteSqlRequest")
+	if req.Transaction.GetBegin() == nil {
+		t.Fatalf("missing begin selector for ExecuteSqlRequest")
 	}
 	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
-	}
-	commitReq := commitRequests[0].(*sppb.CommitRequest)
-	if c, e := commitReq.GetTransactionId(), req.Transaction.GetId(); !cmp.Equal(c, e) {
-		t.Fatalf("transaction id mismatch\nCommit: %c\nExecute: %v", c, e)
 	}
 }
 
@@ -4786,8 +4820,9 @@ func TestBeginReadWriteTransaction(t *testing.T) {
 		tx, err := BeginReadWriteTransaction(ctx, db, ReadWriteTransactionOptions{
 			DisableInternalRetries: true,
 			TransactionOptions: spanner.TransactionOptions{
-				TransactionTag: tag,
-				CommitPriority: sppb.RequestOptions_PRIORITY_LOW,
+				TransactionTag:         tag,
+				CommitPriority:         sppb.RequestOptions_PRIORITY_LOW,
+				BeginTransactionOption: spanner.ExplicitBeginTransaction,
 			},
 		})
 		if err != nil {
@@ -4853,7 +4888,7 @@ func TestBeginReadWriteTransaction(t *testing.T) {
 			t.Fatalf("missing transaction for ExecuteSqlRequest")
 		}
 		if req.Transaction.GetId() == nil {
-			t.Fatalf("missing id selector for ExecuteSqlRequest")
+			t.Fatalf("missing begin selector for ExecuteSqlRequest")
 		}
 		if g, w := req.RequestOptions.TransactionTag, tag; g != w {
 			t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
@@ -4909,7 +4944,7 @@ func TestCustomClientConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 	rows.Next()
 	if rows.Err() != nil {
 		t.Fatal(rows.Err())
@@ -4953,7 +4988,7 @@ func TestPostgreSQLDialect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stmt.Close()
+	defer silentClose(stmt)
 
 	rows, err := stmt.Query(1)
 	if err != nil {
