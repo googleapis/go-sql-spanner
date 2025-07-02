@@ -41,13 +41,12 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	gstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
-
-	"google.golang.org/grpc/codes"
-	gstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -127,7 +126,7 @@ func TestStatementCacheSize(t *testing.T) {
 
 	// Executing yet another statement should evict the oldest result from the cache and add this.
 	query := "insert into test (id) values (1)"
-	server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
 		Type:        testutil.StatementResultUpdateCount,
 		UpdateCount: 1,
 	})
@@ -193,7 +192,7 @@ func TestSimpleQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 
 	for want := int64(1); rows.Next(); want++ {
 		cols, err := rows.Columns()
@@ -405,7 +404,7 @@ func TestSimpleReadOnlyTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 
 	for want := int64(1); rows.Next(); want++ {
 		cols, err := rows.Columns()
@@ -597,7 +596,7 @@ func TestSimpleReadWriteTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer silentClose(conn)
 	if _, err := conn.ExecContext(ctx, "set max_commit_delay='10ms'"); err != nil {
 		t.Fatal(err)
 	}
@@ -610,7 +609,7 @@ func TestSimpleReadWriteTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 
 	for want := int64(1); rows.Next(); want++ {
 		cols, err := rows.Columns()
@@ -683,12 +682,12 @@ func TestPreparedQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stmt.Close()
+	defer silentClose(stmt)
 	rows, err := stmt.Query(1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 
 	for want := int64(1); rows.Next(); want++ {
 		var got int64
@@ -772,7 +771,7 @@ func TestQueryWithAllTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stmt.Close()
+	defer silentClose(stmt)
 	ts, _ := time.Parse(time.RFC3339Nano, "2021-07-22T10:26:17.123Z")
 	ts1, _ := time.Parse(time.RFC3339Nano, "2021-07-21T21:07:59.339911800Z")
 	ts2, _ := time.Parse(time.RFC3339Nano, "2021-07-27T21:07:59.339911800Z")
@@ -812,7 +811,7 @@ func TestQueryWithAllTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 
 	for rows.Next() {
 		var b bool
@@ -1240,7 +1239,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stmt.Close()
+	defer silentClose(stmt)
 	for _, p := range []struct {
 		typed  int
 		values []interface{}
@@ -1302,7 +1301,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer rows.Close()
+		defer silentClose(rows)
 
 		for rows.Next() {
 			var b sql.NullBool
@@ -1463,7 +1462,7 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			stmt.Close()
+			_ = stmt.Close()
 		} else {
 			var err error
 			rows, err = db.QueryContext(context.Background(), query, ExecOptions{DecodeOption: DecodeOptionProto})
@@ -1546,7 +1545,7 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 		if rows.Err() != nil {
 			t.Fatal(rows.Err())
 		}
-		rows.Close()
+		_ = rows.Close()
 	}
 }
 
@@ -1591,7 +1590,7 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stmt.Close()
+	defer silentClose(stmt)
 	ts, _ := time.Parse(time.RFC3339Nano, "2021-07-22T10:26:17.123Z")
 	ts1, _ := time.Parse(time.RFC3339Nano, "2021-07-21T21:07:59.339911800Z")
 	ts2, _ := time.Parse(time.RFC3339Nano, "2021-07-27T21:07:59.339911800Z")
@@ -1630,7 +1629,7 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 
 	for rows.Next() {
 		var b bool
@@ -2020,7 +2019,7 @@ func TestDmlInAutocommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer silentClose(conn)
 	_, err = conn.ExecContext(ctx, "set max_commit_delay=100")
 	if err != nil {
 		t.Fatal(err)
@@ -2329,7 +2328,7 @@ func TestQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 }
 
 func TestExec(t *testing.T) {
@@ -2532,7 +2531,7 @@ func TestDdlBatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer silentClose(conn)
 
 	if _, err = conn.ExecContext(ctx, "START BATCH DDL"); err != nil {
 		t.Fatalf("failed to start DDL batch: %v", err)
@@ -2576,7 +2575,7 @@ func TestAbortDdlBatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer silentClose(c)
 
 	if _, err = c.ExecContext(ctx, "START BATCH DDL"); err != nil {
 		t.Fatalf("failed to start DDL batch: %v", err)
@@ -2627,7 +2626,7 @@ func TestShowAndSetVariableRetryAbortsInternally(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to obtain a connection: %v", err)
 	}
-	defer c.Close()
+	defer silentClose(c)
 
 	for _, tc := range []struct {
 		expected bool
@@ -2642,7 +2641,7 @@ func TestShowAndSetVariableRetryAbortsInternally(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to execute get variable retry_aborts_internally: %v", err)
 		}
-		defer rows.Close()
+		defer silentClose(rows)
 		for rows.Next() {
 			var retry bool
 			if err := rows.Scan(&retry); err != nil {
@@ -2676,7 +2675,7 @@ func TestShowAndSetVariableRetryAbortsInternally(t *testing.T) {
 
 	// Verify that the value cannot be set during a transaction.
 	tx, _ := c.BeginTx(ctx, nil)
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	_, err = c.ExecContext(ctx, "SET RETRY_ABORTS_INTERNALLY = TRUE")
 	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
 		t.Fatalf("error code mismatch for setting retry_aborts_internally during a transaction\nGot: %v\nWant: %v", g, w)
@@ -2694,7 +2693,7 @@ func TestPartitionedDml(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to obtain a connection: %v", err)
 	}
-	defer c.Close()
+	defer silentClose(c)
 
 	if _, err := c.ExecContext(ctx, "set autocommit_dml_mode = 'Partitioned_Non_Atomic'"); err != nil {
 		t.Fatalf("could not set autocommit dml mode: %v", err)
@@ -2749,7 +2748,7 @@ func TestAutocommitBatchDml(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to obtain a connection: %v", err)
 	}
-	defer c.Close()
+	defer silentClose(c)
 
 	if _, err := c.ExecContext(ctx, "START BATCH DML"); err != nil {
 		t.Fatalf("could not start a DML batch: %v", err)
@@ -3735,7 +3734,7 @@ func TestTag_Query_AutoCommit(t *testing.T) {
 			t.Fatal(iter.Err())
 		}
 	}
-	iter.Close()
+	_ = iter.Close()
 
 	requests := drainRequestsFromServer(server.TestSpanner)
 	// The ExecuteSqlRequest and CommitRequest should have a transaction tag.
@@ -3903,7 +3902,7 @@ func TestTag_ReadWriteTransaction(t *testing.T) {
 	rows, _ := tx.QueryContext(ctx, testutil.SelectFooFromBar)
 	for rows.Next() {
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	_, _ = tx.ExecContext(ctx, "set statement_tag = 'tag_2'")
 	_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
@@ -4000,7 +3999,7 @@ func TestTag_ReadWriteTransaction_Retry(t *testing.T) {
 		}
 		for rows.Next() {
 		}
-		rows.Close()
+		_ = rows.Close()
 
 		if useArgs {
 			_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_2"}})
@@ -4107,7 +4106,7 @@ func TestTag_RunTransaction_Retry(t *testing.T) {
 			}
 			for rows.Next() {
 			}
-			rows.Close()
+			_ = rows.Close()
 
 			if useArgs {
 				_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_2"}})
@@ -4327,6 +4326,9 @@ func TestCannotReuseClosedConnector(t *testing.T) {
 	for _, v := range connectors {
 		connector = v
 	}
+	if connector == nil {
+		t.Fatal("no connector found")
+	}
 	if connector.closed {
 		t.Fatal("connector is closed")
 	}
@@ -4362,7 +4364,7 @@ func TestRunTransaction(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer silentClose(rows)
 		// Verify that internal retries are disabled during RunTransaction
 		txi := reflect.ValueOf(tx).Elem().FieldByName("txi")
 		rwTx := (*readWriteTransaction)(txi.Elem().UnsafePointer())
@@ -4441,7 +4443,7 @@ func TestRunTransactionCommitAborted(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer silentClose(rows)
 
 		for want := int64(1); rows.Next(); want++ {
 			cols, err := rows.Columns()
@@ -4527,7 +4529,7 @@ func TestRunTransactionQueryAborted(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer silentClose(rows)
 
 		for want := int64(1); rows.Next(); want++ {
 			cols, err := rows.Columns()
@@ -4595,7 +4597,7 @@ func TestRunTransactionQueryError(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer silentClose(rows)
 
 		for want := int64(1); rows.Next(); want++ {
 			cols, err := rows.Columns()
@@ -4657,7 +4659,7 @@ func TestRunTransactionCommitError(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer silentClose(rows)
 
 		for want := int64(1); rows.Next(); want++ {
 			cols, err := rows.Columns()
@@ -4744,7 +4746,7 @@ func TestTransactionWithLevelDisableRetryAborts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 	for want := int64(1); rows.Next(); want++ {
 		cols, err := rows.Columns()
 		if err != nil {
@@ -4935,7 +4937,7 @@ func TestCustomClientConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer silentClose(rows)
 	rows.Next()
 	if rows.Err() != nil {
 		t.Fatal(rows.Err())
@@ -4979,7 +4981,7 @@ func TestPostgreSQLDialect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stmt.Close()
+	defer silentClose(stmt)
 
 	rows, err := stmt.Query(1)
 	if err != nil {
