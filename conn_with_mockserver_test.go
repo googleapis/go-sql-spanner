@@ -369,3 +369,41 @@ func TestDDLUsingQueryContextInReadWriteTransaction(t *testing.T) {
 		t.Fatalf("error mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
+
+func TestSetRetryAbortsInternallyInInactiveTransaction(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, "set retry_aborts_internally = false"); err != nil {
+		t.Fatal(err)
+	}
+	_ = tx.Rollback()
+}
+
+func TestSetRetryAbortsInternallyInActiveTransaction(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	_, err = tx.ExecContext(ctx, "set retry_aborts_internally = false")
+	if g, w := err.Error(), "spanner: code = \"FailedPrecondition\", desc = \"cannot change retry mode while a transaction is active\""; g != w {
+		t.Fatalf("error mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	_ = tx.Rollback()
+}

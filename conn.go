@@ -287,7 +287,7 @@ func (c *conn) SetRetryAbortsInternally(retry bool) error {
 
 func (c *conn) setRetryAbortsInternally(retry bool) (driver.Result, error) {
 	if c.inTransaction() {
-		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot change retry mode while a transaction is active"))
+		return c.tx.setRetryAbortsInternally(retry)
 	}
 	c.retryAborts = retry
 	return driver.ResultNoRows, nil
