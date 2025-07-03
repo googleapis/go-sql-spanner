@@ -59,6 +59,9 @@ type SpannerConn interface {
 	// RunBatch sends all batched DDL or DML statements to Spanner. This is a
 	// no-op if no statements have been batched or if there is no active batch.
 	RunBatch(ctx context.Context) error
+	// RunDmlBatch sends all batched DML statements to Spanner. This is a
+	// no-op if no statements have been batched or if there is no active DML batch.
+	RunDmlBatch(ctx context.Context) (SpannerResult, error)
 	// AbortBatch aborts the current DDL or DML batch and discards all batched
 	// statements.
 	AbortBatch() error
@@ -446,6 +449,18 @@ func (c *conn) RunBatch(ctx context.Context) error {
 	return err
 }
 
+func (c *conn) RunDmlBatch(ctx context.Context) (SpannerResult, error) {
+	res, err := c.runBatch(ctx)
+	if err != nil {
+		return nil, err
+	}
+	spannerRes, ok := res.(SpannerResult)
+	if !ok {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "not a DML batch"))
+	}
+	return spannerRes, nil
+}
+
 func (c *conn) AbortBatch() error {
 	_, err := c.abortBatch()
 	return err
@@ -483,7 +498,7 @@ func (c *conn) startBatchDDL() (driver.Result, error) {
 }
 
 func (c *conn) startBatchDML(automatic bool) (driver.Result, error) {
-	execOptions := c.options()
+	execOptions := c.options( /*reset = */ true)
 
 	if c.inTransaction() {
 		return c.tx.StartBatchDML(execOptions.QueryOptions, automatic)
@@ -732,7 +747,7 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 }
 
 func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, error) {
-	execOptions := c.options()
+	execOptions := c.options( /* reset = */ true)
 	parsedSQL, args, err := c.parser.parseParameters(query)
 	if err != nil {
 		return nil, err
@@ -746,11 +761,11 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 	if err != nil {
 		return nil, err
 	}
+	execOptions := c.options( /* reset = */ clientStmt == nil)
 	if clientStmt != nil {
-		return clientStmt.QueryContext(ctx, args)
+		return clientStmt.QueryContext(ctx, execOptions, args)
 	}
 
-	execOptions := c.options()
 	return c.queryContext(ctx, query, execOptions, args)
 }
 
@@ -801,13 +816,7 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 			return nil, err
 		}
 	}
-	res := &rows{
-		it:                      iter,
-		decodeOption:            execOptions.DecodeOption,
-		decodeToNativeArrays:    execOptions.DecodeToNativeArrays,
-		returnResultSetMetadata: execOptions.ReturnResultSetMetadata,
-		returnResultSetStats:    execOptions.ReturnResultSetStats,
-	}
+	res := createRows(iter, execOptions)
 	if execOptions.DirectExecuteQuery {
 		// This call to res.getColumns() triggers the execution of the statement, as it needs to fetch the metadata.
 		res.getColumns()
@@ -825,10 +834,10 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 	if err != nil {
 		return nil, err
 	}
+	execOptions := c.options( /*reset = */ stmt == nil)
 	if stmt != nil {
-		return stmt.ExecContext(ctx, args)
+		return stmt.ExecContext(ctx, execOptions, args)
 	}
-	execOptions := c.options()
 	return c.execContext(ctx, query, execOptions, args)
 }
 
@@ -893,12 +902,14 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 	return res, nil
 }
 
-// options returns and resets the ExecOptions for the next statement.
-func (c *conn) options() ExecOptions {
-	defer func() {
-		c.execOptions.TransactionOptions.TransactionTag = ""
-		c.execOptions.QueryOptions.RequestTag = ""
-	}()
+// options returns and optionally resets the ExecOptions for the next statement.
+func (c *conn) options(reset bool) ExecOptions {
+	if reset {
+		defer func() {
+			c.execOptions.TransactionOptions.TransactionTag = ""
+			c.execOptions.QueryOptions.RequestTag = ""
+		}()
+	}
 	return c.execOptions
 }
 
