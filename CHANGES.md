@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.16.0](https://github.com/googleapis/go-sql-spanner/compare/v1.15.0...v1.16.0) (2025-07-03)
+
+
+### Features
+
+* Add BeginTransactionOption to configure how to begin a transaction ([21ed1e3](https://github.com/googleapis/go-sql-spanner/commit/21ed1e3a744d7052781e6f28aa7f25dc4ed891df))
+* Add RunDmlBatch function with typed return value ([#471](https://github.com/googleapis/go-sql-spanner/issues/471)) ([12ead7c](https://github.com/googleapis/go-sql-spanner/commit/12ead7c5df87813b167ab9dec025cf78fee520a2))
+* Return metadata and stats for client-side statements ([#470](https://github.com/googleapis/go-sql-spanner/issues/470)) ([19238ce](https://github.com/googleapis/go-sql-spanner/commit/19238cec2f77998c0e8052794be2c25167057b04))
+
+
+### Bug Fixes
+
+* Update all dependencies ([#464](https://github.com/googleapis/go-sql-spanner/issues/464)) ([574d6fe](https://github.com/googleapis/go-sql-spanner/commit/574d6fe6fa42a138b0123ac0bcf756413c87ea25))
+* Use client opts to auto configure emulator instead of environment variable ([#468](https://github.com/googleapis/go-sql-spanner/issues/468)) ([a518727](https://github.com/googleapis/go-sql-spanner/commit/a5187277ae02be0e3935d746751aadd76beb0c8e))
+
+
+### Performance Improvements
+
+* Inline BeginTransaction with first statement ([21ed1e3](https://github.com/googleapis/go-sql-spanner/commit/21ed1e3a744d7052781e6f28aa7f25dc4ed891df))
+
 ## [1.15.0](https://github.com/googleapis/go-sql-spanner/compare/v1.14.0...v1.15.0) (2025-06-27)
 
 
