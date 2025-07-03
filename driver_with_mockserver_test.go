@@ -2673,13 +2673,25 @@ func TestShowAndSetVariableRetryAbortsInternally(t *testing.T) {
 		}
 	}
 
-	// Verify that the value cannot be set during a transaction.
+	// Verify that the value cannot be set during an active transaction.
 	tx, _ := c.BeginTx(ctx, nil)
-	defer func() { _ = tx.Rollback() }()
+	// Execute a statement to activate the transaction.
+	if _, err := c.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
 	_, err = c.ExecContext(ctx, "SET RETRY_ABORTS_INTERNALLY = TRUE")
 	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
 		t.Fatalf("error code mismatch for setting retry_aborts_internally during a transaction\nGot: %v\nWant: %v", g, w)
 	}
+	_ = tx.Rollback()
+
+	// Verify that the value can be set at the start of a transaction
+	// before any statements have been executed.
+	tx, _ = c.BeginTx(ctx, nil)
+	if _, err = c.ExecContext(ctx, "SET RETRY_ABORTS_INTERNALLY = TRUE"); err != nil {
+		t.Fatal(err)
+	}
+	_ = tx.Rollback()
 }
 
 func TestPartitionedDml(t *testing.T) {
