@@ -5,9 +5,9 @@ go 1.24
 replace github.com/googleapis/go-sql-spanner => ..
 
 require (
-	cloud.google.com/go/spanner v1.82.1-0.20250625132714-fe377af799f0
+	cloud.google.com/go/spanner v1.83.0
 	github.com/google/uuid v1.6.0
-	github.com/googleapis/go-sql-spanner v1.13.2
+	github.com/googleapis/go-sql-spanner v1.16.0
 	google.golang.org/api v0.239.0
 	google.golang.org/grpc v1.73.0
 	google.golang.org/protobuf v1.36.6

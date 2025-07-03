@@ -3,6 +3,7 @@ package exported
 import (
 	"database/sql"
 	"encoding/base64"
+	"errors"
 
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
@@ -53,6 +54,10 @@ type rows struct {
 	backend  *sql.Rows
 	metadata *spannerpb.ResultSetMetadata
 	stats    *spannerpb.ResultSetStats
+
+	buffer        []any
+	values        *structpb.ListValue
+	marshalBuffer []byte
 }
 
 func (rows *rows) Close() *Message {
@@ -90,6 +95,18 @@ func (rows *rows) ResultSetStats() *Message {
 	return &Message{Res: statsBytes}
 }
 
+type genericValue struct {
+	v *structpb.Value
+}
+
+func (gv *genericValue) Scan(src any) error {
+	if v, ok := src.(spanner.GenericColumnValue); ok {
+		gv.v = v.Value
+		return nil
+	}
+	return errors.New("cannot convert value to generic column value")
+}
+
 func (rows *rows) Next() *Message {
 	// No columns means no rows, so just return an empty message to indicate that there are no (more) rows.
 	if len(rows.metadata.RowType.Fields) == 0 {
@@ -105,24 +122,29 @@ func (rows *rows) Next() *Message {
 		// An empty message indicates no more rows.
 		return &Message{}
 	}
-	buffer := make([]any, len(rows.metadata.RowType.Fields))
-	for i := range buffer {
-		buffer[i] = &spanner.GenericColumnValue{}
+
+	if rows.buffer == nil {
+		rows.buffer = make([]any, len(rows.metadata.RowType.Fields))
+		for i := range rows.buffer {
+			rows.buffer[i] = &genericValue{}
+		}
+		rows.values = &structpb.ListValue{
+			Values: make([]*structpb.Value, len(rows.buffer)),
+		}
+		rows.marshalBuffer = make([]byte, 0)
 	}
-	if err := rows.backend.Scan(buffer...); err != nil {
+	if err := rows.backend.Scan(rows.buffer...); err != nil {
 		return errMessage(err)
 	}
-	row := &structpb.ListValue{
-		Values: make([]*structpb.Value, len(buffer)),
+	for i := range rows.buffer {
+		rows.values.Values[i] = rows.buffer[i].(*genericValue).v
 	}
-	for i := range buffer {
-		row.Values[i] = buffer[i].(*spanner.GenericColumnValue).Value
-	}
-	res, err := proto.Marshal(row)
+	var err error
+	rows.marshalBuffer, err = proto.MarshalOptions{}.MarshalAppend(rows.marshalBuffer[:0], rows.values)
 	if err != nil {
 		return errMessage(err)
 	}
-	return &Message{Res: res}
+	return &Message{Res: rows.marshalBuffer}
 }
 
 func (rows *rows) readStats() {

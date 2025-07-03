@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
+	"github.com/google/uuid"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
@@ -54,6 +56,87 @@ func TestSimpleQuery(t *testing.T) {
 		t.Fatalf("stats.Code: %v", stats.Code)
 	}
 	CloseRows(pool.ObjectId, conn.ObjectId, results.ObjectId)
+	CloseConnection(pool.ObjectId, conn.ObjectId)
+	ClosePool(pool.ObjectId)
+}
+
+func generateLargeResultSet(numRows int) *sppb.ResultSet {
+	res := &sppb.ResultSet{
+		Metadata: &sppb.ResultSetMetadata{
+			RowType: &sppb.StructType{
+				Fields: []*sppb.StructType_Field{
+					{Type: &sppb.Type{Code: sppb.TypeCode_STRING}, Name: "col1"},
+					{Type: &sppb.Type{Code: sppb.TypeCode_STRING}, Name: "col2"},
+					{Type: &sppb.Type{Code: sppb.TypeCode_STRING}, Name: "col3"},
+					{Type: &sppb.Type{Code: sppb.TypeCode_STRING}, Name: "col4"},
+					{Type: &sppb.Type{Code: sppb.TypeCode_STRING}, Name: "col5"},
+				},
+			},
+		},
+	}
+	rows := make([]*structpb.ListValue, 0, numRows)
+	for i := 0; i < numRows; i++ {
+		values := make([]*structpb.Value, 0, 5)
+		for j := 0; j < 5; j++ {
+			values = append(values, &structpb.Value{
+				Kind: &structpb.Value_StringValue{StringValue: uuid.New().String()},
+			})
+		}
+		rows = append(rows, &structpb.ListValue{
+			Values: values,
+		})
+	}
+	res.Rows = rows
+	return res
+}
+
+func TestLargeQuery(t *testing.T) {
+	t.Skip("only for manual testing")
+	t.Parallel()
+
+	dsn, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	_ = server.TestSpanner.PutStatementResult("select * from all_types", &testutil.StatementResult{
+		Type:      testutil.StatementResultResultSet,
+		ResultSet: generateLargeResultSet(1000000),
+	})
+
+	pool := CreatePool(dsn)
+	conn := CreateConnection(pool.ObjectId)
+	statement := sppb.ExecuteSqlRequest{
+		Sql: "select * from all_types",
+	}
+	statementBytes, err := proto.Marshal(&statement)
+	if err != nil {
+		t.Fatalf("failed to marshal statement: %v", err)
+	}
+
+	startTime := time.Now()
+	results := Execute(pool.ObjectId, conn.ObjectId, statementBytes)
+	metadata := Metadata(pool.ObjectId, conn.ObjectId, results.ObjectId)
+	if metadata.Code != 0 {
+		t.Fatalf("metadata.Code: %v", metadata.Code)
+	}
+	for {
+		row := Next(pool.ObjectId, conn.ObjectId, results.ObjectId)
+		if row.Length() == 0 {
+			break
+		}
+		values := structpb.ListValue{}
+		if err := proto.Unmarshal(row.Res, &values); err != nil {
+			t.Fatalf("failed to unmarshal row: %v", err)
+		}
+	}
+	stats := ResultSetStats(pool.ObjectId, conn.ObjectId, results.ObjectId)
+	if stats.Code != 0 {
+		t.Fatalf("stats.Code: %v", stats.Code)
+	}
+	CloseRows(pool.ObjectId, conn.ObjectId, results.ObjectId)
+	endTime := time.Now()
+
+	fmt.Printf("Query took %v\n", endTime.Sub(startTime))
+
 	CloseConnection(pool.ObjectId, conn.ObjectId)
 	ClosePool(pool.ObjectId)
 }
@@ -285,18 +368,11 @@ func TestBufferWrite(t *testing.T) {
 	}
 
 	requests := drainRequestsFromServer(server.TestSpanner)
+	// There should not be any BeginTransaction requests yet, as we use inlined-begin.
 	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
-	if g, w := len(beginRequests), 1; g != w {
+	if g, w := len(beginRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	req := beginRequests[0].(*sppb.BeginTransactionRequest)
-	if req.Options == nil {
-		t.Fatalf("missing tx opts")
-	}
-	if req.Options.GetReadWrite() == nil {
-		t.Fatalf("missing tx read write")
-	}
-
 	// There should not be any commit requests yet.
 	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 0; g != w {
@@ -311,6 +387,17 @@ func TestBufferWrite(t *testing.T) {
 
 	// Verify that we have a commit request on the server.
 	requests = drainRequestsFromServer(server.TestSpanner)
+	beginRequests = requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	if g, w := len(beginRequests), 1; g != w {
+		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := beginRequests[0].(*sppb.BeginTransactionRequest)
+	if req.Options == nil {
+		t.Fatalf("missing tx opts")
+	}
+	if req.Options.GetReadWrite() == nil {
+		t.Fatalf("missing tx read write")
+	}
 	commitRequests = requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
@@ -368,18 +455,6 @@ func TestBufferWrite_RetryAborted(t *testing.T) {
 	}
 
 	requests := drainRequestsFromServer(server.TestSpanner)
-	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
-	if g, w := len(beginRequests), 1; g != w {
-		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
-	}
-	req := beginRequests[0].(*sppb.BeginTransactionRequest)
-	if req.Options == nil {
-		t.Fatalf("missing tx opts")
-	}
-	if req.Options.GetReadWrite() == nil {
-		t.Fatalf("missing tx read write")
-	}
-
 	// There should not be any commit requests yet.
 	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 0; g != w {
@@ -397,8 +472,21 @@ func TestBufferWrite_RetryAborted(t *testing.T) {
 		t.Fatalf("failed to commit: %v", res.Code)
 	}
 
-	// Verify that we have a commit request on the server.
+	// Verify that we have both begin and commit requests on the server.
 	requests = drainRequestsFromServer(server.TestSpanner)
+	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	if g, w := len(beginRequests), 2; g != w {
+		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	for _, beginReq := range beginRequests {
+		req := beginReq.(*sppb.BeginTransactionRequest)
+		if req.Options == nil {
+			t.Fatalf("missing tx opts")
+		}
+		if req.Options.GetReadWrite() == nil {
+			t.Fatalf("missing tx read write")
+		}
+	}
 	commitRequests = requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 2; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
