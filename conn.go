@@ -59,6 +59,9 @@ type SpannerConn interface {
 	// RunBatch sends all batched DDL or DML statements to Spanner. This is a
 	// no-op if no statements have been batched or if there is no active batch.
 	RunBatch(ctx context.Context) error
+	// RunDmlBatch sends all batched DML statements to Spanner. This is a
+	// no-op if no statements have been batched or if there is no active DML batch.
+	RunDmlBatch(ctx context.Context) (SpannerResult, error)
 	// AbortBatch aborts the current DDL or DML batch and discards all batched
 	// statements.
 	AbortBatch() error
@@ -444,6 +447,18 @@ func (c *conn) StartBatchDML() error {
 func (c *conn) RunBatch(ctx context.Context) error {
 	_, err := c.runBatch(ctx)
 	return err
+}
+
+func (c *conn) RunDmlBatch(ctx context.Context) (SpannerResult, error) {
+	res, err := c.runBatch(ctx)
+	if err != nil {
+		return nil, err
+	}
+	spannerRes, ok := res.(SpannerResult)
+	if !ok {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "not a DML batch"))
+	}
+	return spannerRes, nil
 }
 
 func (c *conn) AbortBatch() error {
