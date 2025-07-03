@@ -389,3 +389,82 @@ func TestDDLUsingQueryContextInReadWriteTransaction(t *testing.T) {
 		t.Fatalf("error mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
+
+func TestRunDmlBatch(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(conn)
+	if err := conn.Raw(func(driverConn interface{}) error {
+		spannerConn, _ := driverConn.(SpannerConn)
+		return spannerConn.StartBatchDML()
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Buffer two DML statements.
+	for range 2 {
+		if _, err := conn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var res SpannerResult
+	if err := conn.Raw(func(driverConn interface{}) (err error) {
+		spannerConn, _ := driverConn.(SpannerConn)
+		res, err = spannerConn.RunDmlBatch(ctx)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	affected, err := res.BatchRowsAffected()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g, w := affected, []int64{testutil.UpdateBarSetFooRowCount, testutil.UpdateBarSetFooRowCount}; !reflect.DeepEqual(g, w) {
+		t.Fatalf("affected mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestSetRetryAbortsInternallyInInactiveTransaction(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, "set retry_aborts_internally = false"); err != nil {
+		t.Fatal(err)
+	}
+	_ = tx.Rollback()
+}
+
+func TestSetRetryAbortsInternallyInActiveTransaction(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	_, err = tx.ExecContext(ctx, "set retry_aborts_internally = false")
+	if g, w := err.Error(), "spanner: code = \"FailedPrecondition\", desc = \"cannot change retry mode while a transaction is active\""; g != w {
+		t.Fatalf("error mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	_ = tx.Rollback()
+}

@@ -22,8 +22,11 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestStatementExecutor_StartBatchDdl(t *testing.T) {
@@ -506,4 +509,101 @@ func TestStatementExecutor_SetTransactionTag(t *testing.T) {
 		}
 
 	}
+}
+
+func TestStatementExecutor_UsesExecOptions(t *testing.T) {
+	ctx := context.Background()
+	c := &conn{retryAborts: true, logger: noopLogger}
+	s := &statementExecutor{}
+
+	it, err := s.ShowTransactionTag(ctx, c, "", ExecOptions{DecodeOption: DecodeOptionProto, ReturnResultSetMetadata: true, ReturnResultSetStats: true}, nil)
+	if err != nil {
+		t.Fatalf("could not get current transaction tag value from connection: %v", err)
+	}
+	rows, ok := it.(driver.RowsNextResultSet)
+	if !ok {
+		t.Fatal("did not get RowsNextResultSet")
+	}
+	// The first result set contains the metadata.
+	cols := rows.Columns()
+	wantCols := []string{"metadata"}
+	if !cmp.Equal(cols, wantCols) {
+		t.Fatalf("column names mismatch\nGot: %v\nWant: %v", cols, wantCols)
+	}
+	wantValues := []driver.Value{&spannerpb.ResultSetMetadata{
+		RowType: &spannerpb.StructType{
+			Fields: []*spannerpb.StructType_Field{
+				{Name: "TransactionTag", Type: &spannerpb.Type{Code: spannerpb.TypeCode_STRING}},
+			},
+		},
+	}}
+	values := make([]driver.Value, len(cols))
+	if err := rows.Next(values); err != nil {
+		t.Fatalf("failed to get first row: %v", err)
+	}
+	if !cmp.Equal(values, wantValues, cmpopts.IgnoreUnexported(spannerpb.ResultSetMetadata{}, spannerpb.StructType{}, spannerpb.StructType_Field{}, spannerpb.Type{})) {
+		t.Fatalf("default transaction tag mismatch\nGot: %v\nWant: %v", values, wantValues)
+	}
+	if err := rows.Next(values); err != io.EOF {
+		t.Fatalf("error mismatch\nGot: %v\nWant: %v", err, io.EOF)
+	}
+
+	// Move to the next result set, which should contain the data.
+	if !rows.HasNextResultSet() {
+		t.Fatal("missing next result set")
+	}
+	if err := rows.NextResultSet(); err != nil {
+		t.Fatalf("error mismatch\n Got: %v\nWant: %v", err, nil)
+	}
+
+	cols = rows.Columns()
+	wantCols = []string{"TransactionTag"}
+	if !cmp.Equal(cols, wantCols) {
+		t.Fatalf("column names mismatch\nGot: %v\nWant: %v", cols, wantCols)
+	}
+	values = make([]driver.Value, len(cols))
+	if err := rows.Next(values); err != nil {
+		t.Fatalf("failed to get first row: %v", err)
+	}
+	// The value that we get should be the raw protobuf value.
+	wantValues = []driver.Value{spanner.GenericColumnValue{
+		Type:  &spannerpb.Type{Code: spannerpb.TypeCode_STRING},
+		Value: &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: ""}},
+	}}
+	if !cmp.Equal(values, wantValues, cmpopts.IgnoreUnexported(spannerpb.Type{}, structpb.Value{})) {
+		t.Fatalf("default transaction tag mismatch\nGot: %v\nWant: %v", values, wantValues)
+	}
+	if err := rows.Next(values); err != io.EOF {
+		t.Fatalf("error mismatch\nGot: %v\nWant: %v", err, io.EOF)
+	}
+
+	// Move to the next result set, which should contain the ResultSetStats.
+	if !rows.HasNextResultSet() {
+		t.Fatal("missing next result set")
+	}
+	if err := rows.NextResultSet(); err != nil {
+		t.Fatalf("error mismatch\n Got: %v\nWant: %v", err, nil)
+	}
+	cols = rows.Columns()
+	wantCols = []string{"stats"}
+	if !cmp.Equal(cols, wantCols) {
+		t.Fatalf("column names mismatch\nGot: %v\nWant: %v", cols, wantCols)
+	}
+	wantValues = []driver.Value{&spannerpb.ResultSetStats{}}
+	values = make([]driver.Value, len(cols))
+	if err := rows.Next(values); err != nil {
+		t.Fatalf("failed to get first row: %v", err)
+	}
+	if !cmp.Equal(values, wantValues, cmpopts.IgnoreUnexported(spannerpb.ResultSetStats{})) {
+		t.Fatalf("ResultSetStats mismatch\nGot: %v\nWant: %v", values, wantValues)
+	}
+	if err := rows.Next(values); err != io.EOF {
+		t.Fatalf("error mismatch\nGot: %v\nWant: %v", err, io.EOF)
+	}
+
+	// There should be no more result sets.
+	if rows.HasNextResultSet() {
+		t.Fatal("got unexpected next result set")
+	}
+
 }

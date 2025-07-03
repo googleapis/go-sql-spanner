@@ -513,7 +513,7 @@ func (c *conn) startBatchDDL() (driver.Result, error) {
 }
 
 func (c *conn) startBatchDML(automatic bool) (driver.Result, error) {
-	execOptions := c.options( /* reset = */ true)
+	execOptions := c.options( /*reset = */ true)
 
 	if c.inTransaction() {
 		return c.tx.StartBatchDML(execOptions.QueryOptions, automatic)
