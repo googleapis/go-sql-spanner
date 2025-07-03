@@ -8,7 +8,7 @@
     <Authors></Authors>
     <Description>Experimental .NET library for Spanner</Description>
     <PackageId>Experimental.SpannerLib</PackageId>
-    <Version>1.0.3</Version>
+    <Version>1.0.5</Version>
   </PropertyGroup>
 
   <ItemGroup>
