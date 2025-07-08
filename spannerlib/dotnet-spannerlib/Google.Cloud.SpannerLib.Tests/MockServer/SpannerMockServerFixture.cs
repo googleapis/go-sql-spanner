@@ -17,6 +17,7 @@ using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.Configuration;
 
 namespace Google.Cloud.SpannerLib.Tests.MockServer;
 
@@ -50,6 +51,7 @@ public class SpannerMockServerFixture : IDisposable
             
         var endpoint = IPEndPoint.Parse("127.0.0.1:0");
         var builder = WebHost.CreateDefaultBuilder();
+        builder.ConfigureAppConfiguration(configurationBuilder => configurationBuilder.AddJsonFile("appsettings.json"));
         builder.UseStartup(_ => new MockServerStartup(SpannerMock, DatabaseAdminMock));
         builder.ConfigureKestrel(options =>
         {

@@ -138,10 +138,10 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
         decimal initialBudget2 = 2250198.28m;
         _fixture.SpannerMock.AddOrUpdateStatementResult(
             "SELECT MarketingBudget FROM Albums WHERE SingerId = 1 AND AlbumId = 1",
-            StatementResult.CreateSingleColumnResultSet(new V1.Type { Code = V1.TypeCode.Numeric }, "MarketingBudget", initialBudget1));
+            StatementResult.CreateSingleColumnResultSet(new Spanner.V1.Type { Code = Spanner.V1.TypeCode.Numeric }, "MarketingBudget", initialBudget1));
         _fixture.SpannerMock.AddOrUpdateStatementResult(
             "SELECT MarketingBudget FROM Albums WHERE SingerId = 2 AND AlbumId = 2",
-            StatementResult.CreateSingleColumnResultSet(new V1.Type { Code = V1.TypeCode.Numeric }, "MarketingBudget", initialBudget2));
+            StatementResult.CreateSingleColumnResultSet(new Spanner.V1.Type { Code = Spanner.V1.TypeCode.Numeric }, "MarketingBudget", initialBudget2));
     
         decimal transferAmount = 200000;
         decimal secondBudget = 0;

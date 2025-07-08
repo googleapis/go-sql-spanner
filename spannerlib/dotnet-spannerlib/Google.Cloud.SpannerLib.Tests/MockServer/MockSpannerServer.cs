@@ -22,8 +22,8 @@ using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Google.Rpc;
 using Grpc.Core;
-using V1 = Google.Cloud.Spanner.V1;
 using Status = Google.Rpc.Status;
+using GrpcCore = Grpc.Core;
 
 namespace Google.Cloud.SpannerLib.Tests.MockServer
 {
@@ -58,13 +58,13 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
 
         public static StatementResult CreateSelect1ResultSet()
         {
-            return CreateSingleColumnResultSet(new V1.Type { Code = V1.TypeCode.Int64 }, "COL1", 1);
+            return CreateSingleColumnResultSet(new Spanner.V1.Type { Code = Spanner.V1.TypeCode.Int64 }, "COL1", 1);
         }
 
-        public static StatementResult CreateSingleColumnResultSet(V1.Type type, string col, params object[] values)
+        public static StatementResult CreateSingleColumnResultSet(Spanner.V1.Type type, string col, params object[] values)
             => CreateSingleColumnResultSet(null, type, col, values);
 
-        public static StatementResult CreateSingleColumnResultSet(long? updateCount, V1.Type type, string col, params object[] values)
+        public static StatementResult CreateSingleColumnResultSet(long? updateCount, Spanner.V1.Type type, string col, params object[] values)
         {
             ResultSet rs = new ResultSet
             {
@@ -91,10 +91,10 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
             return CreateQuery(rs);
         }
 
-        public static StatementResult CreateResultSet(IEnumerable<Tuple<V1.TypeCode, string>> columns, IEnumerable<object[]> rows) =>
-            CreateResultSet(columns.Select(x => Tuple.Create(new V1.Type { Code = x.Item1, ArrayElementType = x.Item1 == V1.TypeCode.Array ? new V1.Type {Code=V1.TypeCode.String} : null}, x.Item2)).ToList(), rows);
+        public static StatementResult CreateResultSet(IEnumerable<Tuple<Spanner.V1.TypeCode, string>> columns, IEnumerable<object[]> rows) =>
+            CreateResultSet(columns.Select(x => Tuple.Create(new Spanner.V1.Type { Code = x.Item1, ArrayElementType = x.Item1 == Spanner.V1.TypeCode.Array ? new Spanner.V1.Type {Code=Spanner.V1.TypeCode.String} : null}, x.Item2)).ToList(), rows);
 
-        public static StatementResult CreateResultSet(IEnumerable<Tuple<V1.Type, string>> columns, IEnumerable<object[]> rows)
+        public static StatementResult CreateResultSet(IEnumerable<Tuple<Spanner.V1.Type, string>> columns, IEnumerable<object[]> rows)
         {
             var rs = new ResultSet
             {
@@ -220,13 +220,13 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
         }
     }
 
-    public class MockSpannerService : V1.Spanner.SpannerBase
+    public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
     {
         private class PartialResultSetsEnumerable : IEnumerable<PartialResultSet>
         {
-            private readonly V1.Transaction _transaction;
+            private readonly Spanner.V1.Transaction _transaction;
             private readonly ResultSet _resultSet;
-            public PartialResultSetsEnumerable(V1.Transaction transaction, ResultSet resultSet)
+            public PartialResultSetsEnumerable(Spanner.V1.Transaction transaction, ResultSet resultSet)
             {
                 _transaction = transaction;
                 _resultSet = resultSet;
@@ -247,13 +247,13 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
         {
             private static readonly int s_maxRowsInChunk = 1;
 
-            private readonly V1.Transaction _transaction;
+            private readonly Spanner.V1.Transaction _transaction;
             private readonly ResultSet _resultSet;
             private bool _first = true;
             private int _currentRow;
             private PartialResultSet _current;
 
-            public PartialResultSetsEnumerator(V1.Transaction transaction, ResultSet resultSet)
+            public PartialResultSetsEnumerator(Spanner.V1.Transaction transaction, ResultSet resultSet)
             {
                 _transaction = transaction;
                 _resultSet = resultSet;
@@ -311,11 +311,11 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
         private readonly ConcurrentDictionary<string, StatementResult> _results = new();
         private ConcurrentQueue<IMessage> _requests = new();
         private ConcurrentQueue<ServerCallContext> _contexts = new();
-        private ConcurrentQueue<Grpc.Core.Metadata> _headers = new ();
+        private ConcurrentQueue<Metadata> _headers = new ();
         private int _sessionCounter;
         private int _transactionCounter;
         private readonly ConcurrentDictionary<SessionName, Session> _sessions = new();
-        private readonly ConcurrentDictionary<ByteString, V1.Transaction> _transactions = new();
+        private readonly ConcurrentDictionary<ByteString, Spanner.V1.Transaction> _transactions = new();
         private readonly ConcurrentDictionary<ByteString, TransactionOptions> _transactionOptions = new();
         private readonly ConcurrentDictionary<ByteString, bool> _abortedTransactions = new();
         private bool _abortNextStatement;
@@ -346,9 +346,9 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
         {
             AddOrUpdateStatementResult(s_dialect_query, 
                 StatementResult.CreateResultSet(
-                    new List<Tuple<V1.TypeCode, string>>
+                    new List<Tuple<Spanner.V1.TypeCode, string>>
                     {
-                        Tuple.Create(V1.TypeCode.String, "option_value"),
+                        Tuple.Create(Spanner.V1.TypeCode.String, "option_value"),
                     },
                     new List<object[]>
                     {
@@ -373,13 +373,13 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
 
         public IEnumerable<ServerCallContext> Contexts => new List<ServerCallContext>(_contexts).AsReadOnly();
 
-        public IEnumerable<Grpc.Core.Metadata> Headers => new List<Grpc.Core.Metadata>(_headers).AsReadOnly();
+        public IEnumerable<Metadata> Headers => new List<Metadata>(_headers).AsReadOnly();
 
         public void Reset()
         {
             _requests = new ConcurrentQueue<IMessage>();
             _contexts = new ConcurrentQueue<ServerCallContext>();
-            _headers = new ConcurrentQueue<Grpc.Core.Metadata>();
+            _headers = new ConcurrentQueue<Metadata>();
             _executionTimes.Clear();
             _results.Clear();
             _abortedTransactions.Clear();
@@ -387,13 +387,13 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
             AddDialectResult();
         }
 
-        public override Task<V1.Transaction> BeginTransaction(BeginTransactionRequest request, ServerCallContext context)
+        public override Task<Spanner.V1.Transaction> BeginTransaction(BeginTransactionRequest request, ServerCallContext context)
         {
             _requests.Enqueue(request);
             _contexts.Enqueue(context);
             _headers.Enqueue(context.RequestHeaders);
             TryFindSession(request.SessionAsSessionName);
-            V1.Transaction tx = new V1.Transaction();
+            Spanner.V1.Transaction tx = new Spanner.V1.Transaction();
             var id = Interlocked.Increment(ref _transactionCounter);
             tx.Id = ByteString.CopyFromUtf8($"{request.SessionAsSessionName}/transactions/{id}");
             _transactions.TryAdd(tx.Id, tx);
@@ -432,7 +432,7 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
             Session session = new Session { SessionName = new SessionName(database.ProjectId, database.InstanceId, database.DatabaseId, $"session-{id}") };
             if (!_sessions.TryAdd(session.SessionName, session))
             {
-                throw new RpcException(new Grpc.Core.Status(StatusCode.AlreadyExists, $"Session with id session-{id} already exists"));
+                throw new RpcException(new GrpcCore.Status(StatusCode.AlreadyExists, $"Session with id session-{id} already exists"));
             }
             return session;
         }
@@ -442,10 +442,10 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
             // Add a 100 nanosecond retry delay to the error to ensure that the delay is used, but does not slow
             // down the tests unnecessary (100ns == 1 Tick is the smallest possible measurable timespan in .NET).
             var key = RetryInfo.Descriptor.FullName + "-bin";
-            var entry = new Grpc.Core.Metadata.Entry(key, new RetryInfo { RetryDelay = new Duration { Nanos = 100 } }.ToByteArray());
-            var trailers = new Grpc.Core.Metadata { entry };
+            var entry = new Metadata.Entry(key, new RetryInfo { RetryDelay = new Duration { Nanos = 100 } }.ToByteArray());
+            var trailers = new Metadata { entry };
 
-            var status = new Grpc.Core.Status(StatusCode.Aborted, $"Transaction aborted: {message}");
+            var status = new GrpcCore.Status(StatusCode.Aborted, $"Transaction aborted: {message}");
             var rpc = new RpcException(status, trailers);
 
             return rpc;
@@ -454,16 +454,16 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
         internal static RpcException CreateDatabaseNotFoundException(string name)
         {
             var key = ResourceInfo.Descriptor.FullName + "-bin";
-            var entry = new Grpc.Core.Metadata.Entry(key, new ResourceInfo { ResourceName = name, ResourceType = "type.googleapis.com/google.spanner.admin.database.v1.Database"}.ToByteArray());
-            var trailers = new Grpc.Core.Metadata { entry };
+            var entry = new Metadata.Entry(key, new ResourceInfo { ResourceName = name, ResourceType = "type.googleapis.com/google.spanner.admin.database.v1.Database"}.ToByteArray());
+            var trailers = new Metadata { entry };
 
-            var status = new Grpc.Core.Status(StatusCode.NotFound, $"Database not found: Database with id {name} not found");
+            var status = new GrpcCore.Status(StatusCode.NotFound, $"Database not found: Database with id {name} not found");
             var rpc = new RpcException(status, trailers);
 
             return rpc;
         }
 
-        private V1.Transaction TryFindTransaction(ByteString id, Boolean remove = false)
+        private Spanner.V1.Transaction TryFindTransaction(ByteString id, Boolean remove = false)
         {
             if (_abortedTransactions.TryGetValue(id, out bool aborted) && aborted)
             {
@@ -477,14 +477,14 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
                     throw CreateAbortedException("Next statement was aborted");
                 }
             }
-            if (remove ? _transactions.TryRemove(id, out V1.Transaction tx) : _transactions.TryGetValue(id, out tx))
+            if (remove ? _transactions.TryRemove(id, out Spanner.V1.Transaction tx) : _transactions.TryGetValue(id, out tx))
             {
                 return tx;
             }
-            throw new RpcException(new Grpc.Core.Status(StatusCode.NotFound, $"Transaction not found: {id.ToBase64()}"));
+            throw new RpcException(new GrpcCore.Status(StatusCode.NotFound, $"Transaction not found: {id.ToBase64()}"));
         }
 
-        private V1.Transaction FindOrBeginTransaction(SessionName session, TransactionSelector selector)
+        private Spanner.V1.Transaction FindOrBeginTransaction(SessionName session, TransactionSelector selector)
         {
             if (selector == null)
             {
@@ -500,9 +500,9 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
             };
         }
 
-        private V1.Transaction BeginTransaction(SessionName session, TransactionOptions options, bool singleUse)
+        private Spanner.V1.Transaction BeginTransaction(SessionName session, TransactionOptions options, bool singleUse)
         {
-            V1.Transaction tx = new V1.Transaction();
+            Spanner.V1.Transaction tx = new Spanner.V1.Transaction();
             var id = Interlocked.Increment(ref _transactionCounter);
             tx.Id = ByteString.CopyFromUtf8($"{session}/transactions/{id}");
             if (options.ModeCase == TransactionOptions.ModeOneofCase.ReadOnly && options.ReadOnly.ReturnReadTimestamp)
@@ -578,7 +578,7 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
             {
                 return session;
             }
-            throw new RpcException(new Grpc.Core.Status(StatusCode.NotFound, $"Session not found: {name}"));
+            throw new RpcException(new GrpcCore.Status(StatusCode.NotFound, $"Session not found: {name}"));
         }
 
         public override Task<ExecuteBatchDmlResponse> ExecuteBatchDml(ExecuteBatchDmlRequest request, ServerCallContext context)
@@ -610,7 +610,7 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
                     switch (result.Type)
                     {
                         case StatementResult.StatementResultType.ResultSet:
-                            throw new RpcException(new Grpc.Core.Status(StatusCode.InvalidArgument, $"ResultSet is not a valid result type for BatchDml"));
+                            throw new RpcException(new GrpcCore.Status(StatusCode.InvalidArgument, $"ResultSet is not a valid result type for BatchDml"));
                         case StatementResult.StatementResultType.UpdateCount:
                             if (_executionTimes.TryGetValue(nameof(ExecuteBatchDml) + statement.Sql, out executionTime))
                             {
@@ -626,12 +626,12 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
                             response.Status = StatusFromException(result.Exception);
                             break;
                         default:
-                            throw new RpcException(new Grpc.Core.Status(StatusCode.InvalidArgument, $"Invalid result type {result.Type} for {statement.Sql}"));
+                            throw new RpcException(new GrpcCore.Status(StatusCode.InvalidArgument, $"Invalid result type {result.Type} for {statement.Sql}"));
                     }
                 }
                 else
                 {
-                    throw new RpcException(new Grpc.Core.Status(StatusCode.InvalidArgument, $"No result found for {statement.Sql}"));
+                    throw new RpcException(new GrpcCore.Status(StatusCode.InvalidArgument, $"No result found for {statement.Sql}"));
                 }
                 index++;
             }
@@ -662,7 +662,7 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
             }
             executionTime?.SimulateExecutionTime();
             TryFindSession(request.SessionAsSessionName);
-            V1.Transaction returnTransaction = null;
+            Spanner.V1.Transaction returnTransaction = null;
             var transaction = FindOrBeginTransaction(request.SessionAsSessionName, request.Transaction);
             if (request.Transaction != null && (request.Transaction.SelectorCase == TransactionSelector.SelectorOneofCase.Begin || request.Transaction.SelectorCase == TransactionSelector.SelectorOneofCase.SingleUse))
             {
@@ -681,16 +681,16 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
                     case StatementResult.StatementResultType.Exception:
                         throw result.Exception;
                     default:
-                        throw new RpcException(new Grpc.Core.Status(StatusCode.InvalidArgument, $"Invalid result type {result.Type} for {request.Sql}"));
+                        throw new RpcException(new GrpcCore.Status(StatusCode.InvalidArgument, $"Invalid result type {result.Type} for {request.Sql}"));
                 }
             }
             else
             {
-                throw new RpcException(new Grpc.Core.Status(StatusCode.InvalidArgument, $"No result found for {request.Sql}"));
+                throw new RpcException(new GrpcCore.Status(StatusCode.InvalidArgument, $"No result found for {request.Sql}"));
             }
         }
 
-        private async Task WriteResultSet(V1.Transaction transaction, ResultSet resultSet, IServerStreamWriter<PartialResultSet> responseStream, ExecutionTime executionTime)
+        private async Task WriteResultSet(Spanner.V1.Transaction transaction, ResultSet resultSet, IServerStreamWriter<PartialResultSet> responseStream, ExecutionTime executionTime)
         {
             int index = 0;
             PartialResultSetsEnumerable enumerator = new PartialResultSetsEnumerable(transaction, resultSet);
@@ -712,7 +712,7 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
             }
         }
 
-        private async Task WriteUpdateCount(V1.Transaction transaction, long updateCount, IServerStreamWriter<PartialResultSet> responseStream)
+        private async Task WriteUpdateCount(Spanner.V1.Transaction transaction, long updateCount, IServerStreamWriter<PartialResultSet> responseStream)
         {
             PartialResultSet prs = new PartialResultSet
             {

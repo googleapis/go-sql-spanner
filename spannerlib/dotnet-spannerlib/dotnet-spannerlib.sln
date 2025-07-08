@@ -6,6 +6,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Google.Cloud.SpannerLib.Tes
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Google.Cloud.SpannerLib.Native", "Google.Cloud.SpannerLib.Native\Google.Cloud.SpannerLib.Native.csproj", "{76643D31-564F-48C0-8D94-5128657E83D8}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Google.Cloud.SpannerLib.Grpc", "Google.Cloud.SpannerLib.Grpc\Google.Cloud.SpannerLib.Grpc.csproj", "{9B923838-25CB-461C-9C4F-DAE8F9B942C4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Google.Cloud.SpannerLib.GrpcTests", "Google.Cloud.SpannerLib.GrpcTests\Google.Cloud.SpannerLib.GrpcTests.csproj", "{66009437-7B8F-4D10-AC0B-B431AA75CFC5}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -24,5 +28,13 @@ Global
 		{76643D31-564F-48C0-8D94-5128657E83D8}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{76643D31-564F-48C0-8D94-5128657E83D8}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{76643D31-564F-48C0-8D94-5128657E83D8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9B923838-25CB-461C-9C4F-DAE8F9B942C4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9B923838-25CB-461C-9C4F-DAE8F9B942C4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9B923838-25CB-461C-9C4F-DAE8F9B942C4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9B923838-25CB-461C-9C4F-DAE8F9B942C4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{66009437-7B8F-4D10-AC0B-B431AA75CFC5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{66009437-7B8F-4D10-AC0B-B431AA75CFC5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{66009437-7B8F-4D10-AC0B-B431AA75CFC5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{66009437-7B8F-4D10-AC0B-B431AA75CFC5}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

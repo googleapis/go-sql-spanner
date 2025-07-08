@@ -1,31 +1,49 @@
 using System;
 
-namespace Google.Cloud.SpannerLib
+namespace Google.Cloud.SpannerLib;
+
+public class Pool : AbstractLibObject
 {
+    private static readonly bool UseNativeLib = Environment.GetEnvironmentVariable("USE_NATIVE_LIB") == "true";
 
-    public class Pool : AbstractLibObject
+    private static Lazy<ISpanner> _spanner = new(CreateSpanner);
+
+    private static ISpanner CreateSpanner()
     {
-        internal long Id { get; }
-
-        public static Pool Create(string dsn)
+        ISpanner spanner;
+        if (UseNativeLib)
         {
-            return Spanner.CreatePool(dsn);
+            spanner = new SharedLibSpanner();
         }
-
-        internal Pool(long id)
+        else
         {
-            Id = id;
+            spanner = new GrpcLibSpanner();
         }
+        return spanner;
+    }
 
-        public Connection CreateConnection()
-        {
-            CheckDisposed();
-            return Spanner.CreateConnection(this);
-        }
+    public static Pool Create(string dsn)
+    {
+        return Create(_spanner.Value, dsn);
+    }
 
-        protected override void CloseLibObject()
-        {
-            Spanner.ClosePool(this);
-        }
+    public static Pool Create(ISpanner spanner, string dsn)
+    {
+        return spanner.CreatePool(dsn);
+    }
+
+    internal Pool(ISpanner spanner, long id) : base(spanner, id)
+    {
+    }
+
+    public Connection CreateConnection()
+    {
+        CheckDisposed();
+        return Spanner.CreateConnection(this);
+    }
+
+    protected override void CloseLibObject()
+    {
+        Spanner.ClosePool(this);
     }
 }

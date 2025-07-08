@@ -55,6 +55,23 @@ public class BasicTests
     }
 
     [Test]
+    [Ignore("execute async disabled for now")]
+    public async Task TestExecuteQueryAsync()
+    {
+        using var pool = Pool.Create(ConnectionString);
+        using var connection = pool.CreateConnection();
+        using var rows = await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = "SELECT 1" });
+        var metadata = rows.Metadata;
+        Assert.That(metadata!.RowType.Fields.Count, Is.EqualTo(1));
+        for (var row = await rows.NextAsync(); row != null; row = await rows.NextAsync())
+        {
+            Assert.That(row.Values.Count, Is.EqualTo(1));
+            Assert.That(row.Values[0].HasStringValue);
+            Assert.That(row.Values[0].StringValue, Is.EqualTo("1"));
+        }
+    }
+
+    [Test]
     public void TestReadOnlyTransaction()
     {
         using var pool = Pool.Create(ConnectionString);
@@ -88,7 +105,8 @@ public class BasicTests
     }
 
     [Test]
-    public void TestBenchmark()
+    [Ignore("for local testing")]
+    public void TestBenchmarkNativeSpannerLib()
     {
         var totalRowCount = 1000000;
         _fixture.SpannerMock.AddOrUpdateStatementResult(
@@ -103,8 +121,9 @@ public class BasicTests
                     Tuple.Create(TypeCode.String, "col5"),
                 },
                 GenerateRandomValues(totalRowCount)));
-        
-        using var pool = Pool.Create(ConnectionString);
+
+        var spanner = new SharedLibSpanner();
+        using var pool = Pool.Create(spanner, ConnectionString);
         using var connection = pool.CreateConnection();
         
         var stopwatch = Stopwatch.StartNew();
@@ -120,7 +139,8 @@ public class BasicTests
     }
     
     [Test]
-    public void TestBenchmarkGrpcClient()
+    [Ignore("for local testing")]
+    public void TestBenchmarkDotnetGrpcClient()
     {
         var totalRowCount = 1000000;
         _fixture.SpannerMock.AddOrUpdateStatementResult(
@@ -171,8 +191,75 @@ public class BasicTests
         stopwatch.Stop();
         Console.WriteLine(stopwatch.Elapsed);
     }
+    
+    [Test]
+    [Ignore("for local testing")]
+    public async Task TestBenchmarkGrpcSpannerLib()
+    {
+        var totalRowCount = 1000000;
+        _fixture.SpannerMock.AddOrUpdateStatementResult(
+            "select * from all_types",
+            StatementResult.CreateResultSet(
+                new List<Tuple<TypeCode, string>>
+                {
+                    Tuple.Create(TypeCode.String, "col1"),
+                    Tuple.Create(TypeCode.String, "col2"),
+                    Tuple.Create(TypeCode.String, "col3"),
+                    Tuple.Create(TypeCode.String, "col4"),
+                    Tuple.Create(TypeCode.String, "col5"),
+                },
+                GenerateRandomValues(totalRowCount)));
 
+        var spanner = new GrpcLibSpanner();
+        using var pool = Pool.Create(spanner, ConnectionString);
+        using var connection = pool.CreateConnection();
+        
+        var stopwatch = Stopwatch.StartNew();
+        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = "select * from all_types" });
+        var rowCount = 0;
+        for (var row = await rows.NextAsync(); row != null; row = await rows.NextAsync())
+        {
+            rowCount++;
+        }
+        Assert.That(rowCount, Is.EqualTo(totalRowCount));
+        stopwatch.Stop();
+        Console.WriteLine(stopwatch.Elapsed);
+    }
+    
+    [Test]
+    [Ignore("for local testing")]
+    public async Task TestBenchmarkGrpcSpannerLibAsync()
+    {
+        var totalRowCount = 1000000;
+        _fixture.SpannerMock.AddOrUpdateStatementResult(
+            "select * from all_types",
+            StatementResult.CreateResultSet(
+                new List<Tuple<TypeCode, string>>
+                {
+                    Tuple.Create(TypeCode.String, "col1"),
+                    Tuple.Create(TypeCode.String, "col2"),
+                    Tuple.Create(TypeCode.String, "col3"),
+                    Tuple.Create(TypeCode.String, "col4"),
+                    Tuple.Create(TypeCode.String, "col5"),
+                },
+                GenerateRandomValues(totalRowCount)));
 
+        var spanner = new GrpcLibSpanner();
+        using var pool = Pool.Create(spanner, ConnectionString);
+        using var connection = pool.CreateConnection();
+        
+        var stopwatch = Stopwatch.StartNew();
+        using var rows = await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = "select * from all_types" });
+        var rowCount = 0;
+        for (var row = await rows.NextAsync(); row != null; row = await rows.NextAsync())
+        {
+            rowCount++;
+        }
+        Assert.That(rowCount, Is.EqualTo(totalRowCount));
+        stopwatch.Stop();
+        Console.WriteLine(stopwatch.Elapsed);
+    }
+    
     private List<object[]> GenerateRandomValues(int count)
     {
         var result = new List<object[]>(count);

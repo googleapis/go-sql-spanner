@@ -1,1 +1,1 @@
-go build -o spannerlib.so -buildmode=c-shared
+go build -o spannerlib.so -buildmode=c-shared shared_lib.go

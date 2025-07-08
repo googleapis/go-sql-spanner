@@ -4,6 +4,9 @@ namespace Google.Cloud.SpannerLib
 {
     public abstract class AbstractLibObject : IDisposable
     {
+        internal ISpanner Spanner { get; }
+        internal long Id { get; }
+        
         private bool _disposed;
 
         protected void CheckDisposed()
@@ -13,6 +16,12 @@ namespace Google.Cloud.SpannerLib
                 throw new ObjectDisposedException(GetType().Name);
             }
         }
+
+        internal AbstractLibObject(ISpanner spanner, long id)
+        {
+            Spanner = spanner;
+            Id = id;
+        } 
 
         ~AbstractLibObject()
         {
@@ -44,7 +53,10 @@ namespace Google.Cloud.SpannerLib
             }
             try
             {
-                CloseLibObject();
+                if (Id > 0)
+                {
+                    CloseLibObject();
+                }
             }
             finally
             {

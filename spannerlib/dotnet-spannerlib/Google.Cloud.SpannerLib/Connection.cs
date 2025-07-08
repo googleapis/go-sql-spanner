@@ -1,48 +1,49 @@
-using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Google.Cloud.Spanner.V1;
 
-namespace Google.Cloud.SpannerLib
+namespace Google.Cloud.SpannerLib;
+
+public class Connection : AbstractLibObject
 {
+    internal Pool Pool { get; }
 
-    public class Connection : AbstractLibObject
+    internal Connection(Pool pool, long id) : base(pool.Spanner, id)
     {
-        internal Pool Pool { get; }
-        internal long Id { get; }
+        Pool = pool;
+    }
 
-        internal Connection(Pool pool, long id)
-        {
-            Id = id;
-            Pool = pool;
-        }
+    public Transaction BeginTransaction(TransactionOptions transactionOptions)
+    {
+        return Spanner.BeginTransaction(this, transactionOptions);
+    }
 
-        public Transaction BeginTransaction(TransactionOptions transactionOptions)
-        {
-            return Spanner.BeginTransaction(this, transactionOptions);
-        }
+    public CommitResponse Apply(BatchWriteRequest.Types.MutationGroup mutations)
+    {
+        return Spanner.Apply(this, mutations);
+    }
 
-        public CommitResponse Apply(BatchWriteRequest.Types.MutationGroup mutations)
-        {
-            return Spanner.Apply(this, mutations);
-        }
+    public Rows Execute(ExecuteSqlRequest statement)
+    {
+        return Spanner.Execute(this, statement);
+    }
 
-        public Rows Execute(ExecuteSqlRequest statement)
-        {
-            return Spanner.Execute(this, statement);
-        }
+    public Task<Rows> ExecuteAsync(ExecuteSqlRequest statement)
+    {
+        return Spanner.ExecuteAsync(this, statement);
+    }
 
-        public long[] ExecuteBatchDml(List<ExecuteBatchDmlRequest.Types.Statement> statements)
+    public long[] ExecuteBatchDml(List<ExecuteBatchDmlRequest.Types.Statement> statements)
+    {
+        var request = new ExecuteBatchDmlRequest
         {
-            var request = new ExecuteBatchDmlRequest
-            {
-                Statements = { statements }
-            };
-            return Spanner.ExecuteBatchDml(this, request);
-        }
+            Statements = { statements }
+        };
+        return Spanner.ExecuteBatchDml(this, request);
+    }
 
-        protected override void CloseLibObject()
-        {
-            Spanner.CloseConnection(this);
-        }
+    protected override void CloseLibObject()
+    {
+        Spanner.CloseConnection(this);
     }
 }

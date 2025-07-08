@@ -16,7 +16,6 @@ using System.Collections;
 using System.Xml;
 using Google.Cloud.Spanner.V1;
 using Google.Protobuf.WellKnownTypes;
-using V1 = Google.Cloud.Spanner.V1;
 using static System.Globalization.CultureInfo;
 using TypeCode = Google.Cloud.Spanner.V1.TypeCode;
 
@@ -24,7 +23,7 @@ namespace Google.Cloud.SpannerLib.Tests.MockServer
 {
     internal static class SpannerConverter
     {
-        internal static Value ToProtobufValue(V1.Type type, object? value)
+        internal static Value ToProtobufValue(Spanner.V1.Type type, object? value)
         {
             if (value == null || value is DBNull)
             {

@@ -1,20 +1,20 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.1</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <LangVersion>9</LangVersion>
+    <LangVersion>default</LangVersion>
     <Authors></Authors>
     <Description>Experimental .NET library for Spanner</Description>
     <PackageId>Experimental.SpannerLib</PackageId>
-    <Version>1.0.5</Version>
+    <Version>1.0.11</Version>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Experimental.SpannerLib.Native" Version="1.0.3" />
-    <PackageReference Include="Google.Cloud.Spanner.Admin.Database.V1" Version="5.0.0" />
-    <PackageReference Include="Google.Cloud.Spanner.V1" Version="5.0.0" />
+    <PackageReference Include="Experimental.SpannerLib.Grpc" Version="1.0.2" />
+    <PackageReference Include="Experimental.SpannerLib.Native" Version="1.0.7" />
+    <PackageReference Include="Google.Cloud.Spanner.Admin.Database.V1" Version="5.1.0" />
   </ItemGroup>
 
 </Project>
