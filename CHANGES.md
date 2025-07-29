@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.16.1](https://github.com/googleapis/go-sql-spanner/compare/v1.16.0...v1.16.1) (2025-07-29)
+
+
+### Bug Fixes
+
+* Update all dependencies ([#473](https://github.com/googleapis/go-sql-spanner/issues/473)) ([bf518fb](https://github.com/googleapis/go-sql-spanner/commit/bf518fb2a142c37129abfaada0649a6ec03a2842))
+* Update module github.com/testcontainers/testcontainers-go to v0.38.0 ([#474](https://github.com/googleapis/go-sql-spanner/issues/474)) ([b895055](https://github.com/googleapis/go-sql-spanner/commit/b8950554da21899909f750fed1f8fbdf1b98e2fd))
+
 ## [1.16.0](https://github.com/googleapis/go-sql-spanner/compare/v1.15.0...v1.16.0) (2025-07-03)
 
 
