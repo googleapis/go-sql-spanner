@@ -1,0 +1,114 @@
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  pull-requests: write
+name: Build and Release Google.Cloud.SpannerLib.Native
+jobs:
+  build-linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.24
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Build shared library
+        working-directory: spannerlib
+        run: go build -o spannerlib.so -buildmode=c-shared shared_lib.go
+      - name: Build gRPC server
+        working-directory: spannerlib
+        run: go build grpc_server.go
+      - name: Upload linux-x64 shared lib
+        uses: actions/upload-artifact@v4
+        with:
+          name: spannerlib-linux-x64
+          path: spannerlib/spannerlib.so
+      - name: Upload linux-x64 gRPC server
+        uses: actions/upload-artifact@v4
+        with:
+          name: spannerlib-server-linux-x64
+          path: spannerlib/grpc_server
+  build-osx-arm64:
+    runs-on: macos-latest
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.24
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Build shared library
+        working-directory: spannerlib
+        run: go build -o spannerlib.dylib -buildmode=c-shared shared_lib.go
+      - name: Build gRPC server
+        working-directory: spannerlib
+        run: go build grpc_server.go
+      - name: Upload osx-arm64 shared lib
+        uses: actions/upload-artifact@v4
+        with:
+          name: spannerlib-osx-arm64
+          path: spannerlib/spannerlib.dylib
+      - name: Upload osx-arm64 gRPC server
+        uses: actions/upload-artifact@v4
+        with:
+          name: spannerlib-server-osx-arm64
+          path: spannerlib/grpc_server
+  build-and-package:
+    needs: [build-linux-x64, build-osx-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Download and copy linux-x64 shared lib
+        uses: actions/download-artifact@v4
+        with:
+          name: spannerlib-linux-x64
+          path: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Native/libraries/linux-x64/
+      - name: Download and copy linux-x64 gRPC server
+        uses: actions/download-artifact@v4
+        with:
+          name: spannerlib-server-linux-x64
+          path: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/linux-x64/
+      - name: Add execute permission to linux-x64 gRPC server
+        run: chmod +x spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/linux-x64/grpc_server
+      - name: Download and copy osx-arm64
+        uses: actions/download-artifact@v4
+        with:
+          name: spannerlib-osx-arm64
+          path: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Native/libraries/osx-arm64/
+      - name: Download and copy osx-arm64 gRPC server
+        uses: actions/download-artifact@v4
+        with:
+          name: spannerlib-server-osx-arm64
+          path: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/osx-arm64/
+      - name: Add execute permission to osx-arm64 gRPC server
+        run: chmod +x spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/osx-arm64/grpc_server
+      - name: Install dotnet
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: dotnet version
+        run: dotnet --version
+      - name: Build native library package
+        run: dotnet pack
+        working-directory: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Native
+      - name: Build gRPC server package
+        run: dotnet pack
+        working-directory: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc
+      - name: Add package source for native library
+        run: dotnet nuget add source "$PWD"/bin/Release --name local
+        working-directory: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Native
+      - name: Restore dependencies
+        run: dotnet restore
+        working-directory: spannerlib/dotnet-spannerlib
+      - name: Build
+        run: dotnet build --no-restore
+        working-directory: spannerlib/dotnet-spannerlib
+      - name: Publish SpannerLib.Native to nuget
+        run: dotnet nuget push bin/Release/Experimental.SpannerLib.Native.*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+        working-directory: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Native
+      - name: Publish SpannerLib.Grpc to nuget
+        run: dotnet nuget push bin/Release/Experimental.SpannerLib.Grpc.*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+        working-directory: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc
