@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib.Tests.MockServer;
+using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using TypeCode = Google.Cloud.Spanner.V1.TypeCode;
 
@@ -10,7 +11,8 @@ public class BasicTests
 {
     private SpannerMockServerFixture _fixture;
         
-    private string ConnectionString =>  $"{_fixture.Host}:{_fixture.Port}/projects/p1/instances/i1/databases/d1;UsePlainText=true";
+    // private string ConnectionString =>  $"{_fixture.Host}:{_fixture.Port}/projects/p1/instances/i1/databases/d1;UsePlainText=true";
+    private string ConnectionString =>  $"projects/appdev-soda-spanner-staging/instances/knut-test-ycsb/databases/knut-test-db";
         
     [SetUp]
     public void Setup()
@@ -46,6 +48,31 @@ public class BasicTests
         using var pool = Pool.Create(ConnectionString);
         using var connection = pool.CreateConnection();
         using var rows = connection.Execute(new ExecuteSqlRequest { Sql = "SELECT 1" });
+        for (var row = rows.Next(); row != null; row = rows.Next())
+        {
+            Assert.That(row.Values.Count, Is.EqualTo(1));
+            Assert.That(row.Values[0].HasStringValue);
+            Assert.That(row.Values[0].StringValue, Is.EqualTo("1"));
+        }
+    }
+
+    [Test]
+    public void TestExecuteParameterizedQuery()
+    {
+        using var pool = Pool.Create(ConnectionString);
+        using var connection = pool.CreateConnection();
+        var parameters = new Struct
+        {
+            Fields =
+            {
+                ["p1"] = Value.ForString("1")
+            }
+        };
+        using var rows = connection.Execute(new ExecuteSqlRequest
+        {
+            Sql = "select col_varchar from all_types where col_bigint=$1::bigint",
+            Params = parameters,
+        });
         for (var row = rows.Next(); row != null; row = rows.Next())
         {
             Assert.That(row.Values.Count, Is.EqualTo(1));

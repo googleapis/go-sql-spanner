@@ -8,6 +8,7 @@ namespace Google.Cloud.SpannerLib.Native
     public static class SpannerLib
     {
         private const string SpannerLibName = "spannerlib";
+        //private const string SpannerLibName = "/Users/loite/CLionProjects/spannerlib/cmake-build-release/libspannerlib.dylib";
         
         [DllImport(SpannerLibName, EntryPoint = "Release")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
