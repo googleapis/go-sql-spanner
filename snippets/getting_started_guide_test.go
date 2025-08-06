@@ -38,7 +38,7 @@ func TestSamples(t *testing.T) {
 	databaseID := "test-database"
 	databaseName := fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectID, instanceID, databaseID)
 
-	emulator, err := startEmulator(projectID, instanceID, databaseID)
+	emulator, err := startEmulator(projectID, instanceID, databaseID, adminpb.DatabaseDialect_GOOGLE_STANDARD_SQL)
 	if err != nil {
 		if emulator != nil {
 			emulator.Terminate(context.Background())
@@ -69,6 +69,43 @@ func TestSamples(t *testing.T) {
 	testSample(t, ctx, &b, databaseName, samples.PartitionedDml, "PDML", "Updated at least 3 albums\n")
 }
 
+func TestPostgreSQLSamples(t *testing.T) {
+	projectID := "emulator-project"
+	instanceID := "test-instance"
+	databaseID := "test-database"
+	databaseName := fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectID, instanceID, databaseID)
+
+	emulator, err := startEmulator(projectID, instanceID, databaseID, adminpb.DatabaseDialect_POSTGRESQL)
+	if err != nil {
+		if emulator != nil {
+			emulator.Terminate(context.Background())
+		}
+		t.Fatalf("failed to start emulator: %v", err)
+	}
+	defer emulator.Terminate(context.Background())
+
+	ctx := context.Background()
+	var b bytes.Buffer
+
+	testSample(t, ctx, &b, databaseName, samples.CreateTablesPostgreSQL, "CreateTablesPostgreSQL", fmt.Sprintf("Created singers & albums tables in database: [%s]\n", databaseName))
+	testSample(t, ctx, &b, databaseName, samples.CreateConnectionPostgreSQL, "CreateConnectionPostgreSQL", "Greeting from Spanner PostgreSQL: Hello world!\n")
+	testSample(t, ctx, &b, databaseName, samples.WriteDataWithDmlPostgreSQL, "WriteDataWithDmlPostgreSQL", "4 records inserted\n")
+	testSample(t, ctx, &b, databaseName, samples.WriteDataWithDmlBatchPostgreSQL, "WriteDataWithDmlBatchPostgreSQL", "3 records inserted\n")
+	testSample(t, ctx, &b, databaseName, samples.WriteDataWithMutationsPostgreSQL, "WriteDataWithMutationsPostgreSQL", "Inserted 10 rows\n")
+	testSample(t, ctx, &b, databaseName, samples.QueryDataPostgreSQL, "QueryDataPostgreSQL", "1 1 Total Junk\n1 2 Go, Go, Go\n2 1 Green\n2 2 Forever Hold Your Peace\n2 3 Terrified\n")
+	testSample(t, ctx, &b, databaseName, samples.QueryDataWithParameterPostgreSQL, "QueryDataWithParameterPostgreSQL", "12 Melissa Garcia\n")
+	testSample(t, ctx, &b, databaseName, samples.QueryDataWithTimeoutPostgreSQL, "QueryDataWithTimeoutPostgreSQL", "")
+	testSample(t, ctx, &b, databaseName, samples.AddColumnPostgreSQL, "AddColumnPostgreSQL", "Added marketing_budget column\n")
+	testSample(t, ctx, &b, databaseName, samples.DdlBatchPostgreSQL, "DdlBatchPostgreSQL", "Added venues and concerts tables\n")
+	testSample(t, ctx, &b, databaseName, samples.UpdateDataWithMutationsPostgreSQL, "UpdateDataWithMutationsPostgreSQL", "Updated 2 albums\n")
+	testSample(t, ctx, &b, databaseName, samples.QueryNewColumnPostgreSQL, "QueryNewColumnPostgreSQL", "1 1 100000\n1 2 null\n2 1 null\n2 2 500000\n2 3 null\n")
+	testSample(t, ctx, &b, databaseName, samples.WriteWithTransactionUsingDmlPostgreSQL, "WriteWithTransactionUsingDmlPostgreSQL", "Transferred marketing budget from Album 2 to Album 1\n")
+	testSample(t, ctx, &b, databaseName, samples.TagsPostgreSQL, "TagsPostgreSQL", "Reduced marketing budget\n")
+	testSample(t, ctx, &b, databaseName, samples.ReadOnlyTransactionPostgreSQL, "ReadOnlyTransactionPostgreSQL", "1 1 Total Junk\n1 2 Go, Go, Go\n2 1 Green\n2 2 Forever Hold Your Peace\n2 3 Terrified\n2 2 Forever Hold Your Peace\n1 2 Go, Go, Go\n2 1 Green\n2 3 Terrified\n1 1 Total Junk\n")
+	testSample(t, ctx, &b, databaseName, samples.DataBoostPostgreSQL, "DataBoostPostgreSQL", "1 Marc Richards\n2 Catalina Smith\n3 Alice Trentor\n4 Lea Martin\n5 David Lomond\n12 Melissa Garcia\n13 Russel Morales\n14 Jacqueline Long\n15 Dylan Shaw\n16 Sarah Wilson\n17 Ethan Miller\n18 Maya Patel\n")
+	testSample(t, ctx, &b, databaseName, samples.PartitionedDmlPostgreSQL, "PDMLPostgreSQL", "Updated at least 3 albums\n")
+}
+
 func testSample(t *testing.T, ctx context.Context, b *bytes.Buffer, databaseName string, sample func(ctx context.Context, w io.Writer, databaseName string) error, sampleName, want string) {
 	if err := sample(ctx, b, databaseName); err != nil {
 		t.Fatalf("failed to run %s: %v", sampleName, err)
@@ -79,7 +116,7 @@ func testSample(t *testing.T, ctx context.Context, b *bytes.Buffer, databaseName
 	b.Reset()
 }
 
-func startEmulator(projectID, instanceID, databaseID string) (testcontainers.Container, error) {
+func startEmulator(projectID, instanceID, databaseID string, dialect adminpb.DatabaseDialect) (testcontainers.Container, error) {
 	ctx := context.Background()
 	req := testcontainers.ContainerRequest{
 		AlwaysPullImage: true,
@@ -95,7 +132,7 @@ func startEmulator(projectID, instanceID, databaseID string) (testcontainers.Con
 		Started:          true,
 	})
 	if err != nil {
-		return emulator, fmt.Errorf("failed to start PGAdapter: %v", err)
+		return emulator, fmt.Errorf("failed to start emulator: %v", err)
 	}
 	host, err := emulator.Host(ctx)
 	if err != nil {
@@ -113,7 +150,7 @@ func startEmulator(projectID, instanceID, databaseID string) (testcontainers.Con
 	if err := createInstance(projectID, instanceID); err != nil {
 		return emulator, fmt.Errorf("failed to create instance: %v", err)
 	}
-	if err := createDatabase(projectID, instanceID, databaseID); err != nil {
+	if err := createDatabase(projectID, instanceID, databaseID, dialect); err != nil {
 		return emulator, fmt.Errorf("failed to create database: %v", err)
 	}
 	return emulator, nil
@@ -148,17 +185,24 @@ func createInstance(projectID, instanceID string) error {
 	return nil
 }
 
-func createDatabase(projectID, instanceID, databaseID string) error {
+func createDatabase(projectID, instanceID, databaseID string, dialect adminpb.DatabaseDialect) error {
 	ctx := context.Background()
 	adminClient, err := database.NewDatabaseAdminClient(ctx)
 	if err != nil {
 		return err
 	}
-	defer adminClient.Close()
+	defer func() { _ = adminClient.Close() }()
 
+	var createStatement string
+	if dialect == adminpb.DatabaseDialect_POSTGRESQL {
+		createStatement = fmt.Sprintf(`CREATE DATABASE "%s"`, databaseID)
+	} else {
+		createStatement = fmt.Sprintf("CREATE DATABASE `%s`", databaseID)
+	}
 	op, err := adminClient.CreateDatabase(ctx, &adminpb.CreateDatabaseRequest{
 		Parent:          fmt.Sprintf("projects/%s/instances/%s", projectID, instanceID),
-		CreateStatement: fmt.Sprintf("CREATE DATABASE `%s`", databaseID),
+		CreateStatement: createStatement,
+		DatabaseDialect: dialect,
 	})
 	if err != nil {
 		return err
