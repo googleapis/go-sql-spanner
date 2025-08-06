@@ -8,12 +8,12 @@ replace github.com/googleapis/go-sql-spanner => ../
 
 require (
 	cloud.google.com/go v0.121.4
-	cloud.google.com/go/spanner v1.84.0
+	cloud.google.com/go/spanner v1.84.1
 	github.com/docker/docker v28.3.3+incompatible
 	github.com/docker/go-connections v0.5.0
-	github.com/googleapis/go-sql-spanner v1.16.1
+	github.com/googleapis/go-sql-spanner v1.16.2
 	github.com/testcontainers/testcontainers-go v0.38.0
-	google.golang.org/api v0.244.0
+	google.golang.org/api v0.246.0
 )
 
 require (
