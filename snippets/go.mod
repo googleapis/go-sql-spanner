@@ -2,14 +2,14 @@ module github.com/googleapis/go-sql-spanner/examples
 
 go 1.24
 
-toolchain go1.24.5
+toolchain go1.24.6
 
 replace github.com/googleapis/go-sql-spanner => ../
 
 require (
 	cloud.google.com/go/spanner v1.84.1
 	github.com/docker/docker v28.3.2+incompatible
-	github.com/googleapis/go-sql-spanner v1.16.2
+	github.com/googleapis/go-sql-spanner v1.16.3
 	github.com/testcontainers/testcontainers-go v0.38.0
 )
 
@@ -103,6 +103,6 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20250804133106-a7a43d27e69b // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250804133106-a7a43d27e69b // indirect
 	google.golang.org/grpc v1.74.2 // indirect
-	google.golang.org/protobuf v1.36.6 // indirect
+	google.golang.org/protobuf v1.36.7 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
