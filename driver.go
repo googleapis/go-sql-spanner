@@ -18,6 +18,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -38,6 +39,7 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/uuid"
 	"github.com/googleapis/gax-go/v2"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	"google.golang.org/grpc"
@@ -765,6 +767,13 @@ func determineDialect(ctx context.Context, client *spanner.Client) (databasepb.D
 			var dialectName string
 			if err := row.Columns(&dialectName); err != nil {
 				return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, err
+			}
+			if _, err := it.Next(); !errors.Is(err, iterator.Done) {
+				if err == nil {
+					return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, fmt.Errorf("more than one dialect result returned")
+				} else {
+					return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, err
+				}
 			}
 			if dialect, ok := databasepb.DatabaseDialect_value[dialectName]; ok {
 				return databasepb.DatabaseDialect(dialect), nil
