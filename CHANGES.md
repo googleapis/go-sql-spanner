@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.4](https://github.com/googleapis/go-sql-spanner/compare/v1.16.3...v1.16.4) (2025-08-11)
+
+
+### Documentation
+
+* Add snippets for PostgreSQL ([#482](https://github.com/googleapis/go-sql-spanner/issues/482)) ([c38a8e6](https://github.com/googleapis/go-sql-spanner/commit/c38a8e6b0d0ab1902774a1b3c927a1820ef91d39))
+
 ## [1.16.3](https://github.com/googleapis/go-sql-spanner/compare/v1.16.2...v1.16.3) (2025-08-06)
 
 
