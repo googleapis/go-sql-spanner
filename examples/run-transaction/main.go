@@ -39,7 +39,7 @@ func runTransaction(projectId, instanceId, databaseId string) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Insert a new record that will be updated by multiple different transactions at the same time.
 	_, err = db.ExecContext(ctx, "INSERT INTO Singers (SingerId, Name) VALUES (@id, @name)", 123, "Bruce Allison")
@@ -48,6 +48,7 @@ func runTransaction(projectId, instanceId, databaseId string) error {
 	}
 
 	numTransactions := 10
+	responses := make([]*spanner.CommitResponse, numTransactions)
 	errors := make([]error, numTransactions)
 	wg := sync.WaitGroup{}
 	for i := 0; i < numTransactions; i++ {
@@ -60,7 +61,7 @@ func runTransaction(projectId, instanceId, databaseId string) error {
 			// will be aborted and retried by Spanner multiple times. The end result
 			// will still be that all transactions succeed and the name contains all
 			// indexes in an undefined order.
-			errors[index] = spannerdriver.RunTransactionWithOptions(ctx, db, &sql.TxOptions{}, func(ctx context.Context, tx *sql.Tx) error {
+			responses[index], errors[index] = spannerdriver.RunTransactionWithCommitResponse(ctx, db, &sql.TxOptions{}, func(ctx context.Context, tx *sql.Tx) error {
 				// Query the singer in the transaction. This will take a lock on the row and guarantee that
 				// the value that we read is still the same when the transaction is committed. If not, Spanner
 				// will abort the transaction, and the transaction will be retried.

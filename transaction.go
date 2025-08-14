@@ -233,7 +233,7 @@ type readWriteTransaction struct {
 	active bool
 	// batch is any DML batch that is active for this transaction.
 	batch *batch
-	close func(commitTs *time.Time, commitErr error)
+	close func(commitResponse *spanner.CommitResponse, commitErr error)
 	// retryAborts indicates whether this transaction will automatically retry
 	// the transaction if it is aborted by Spanner. The default is true.
 	retryAborts bool
@@ -405,23 +405,23 @@ func (tx *readWriteTransaction) Commit() (err error) {
 		_ = tx.rollback(tx.ctx)
 		return err
 	}
-	var commitTs time.Time
+	var commitResponse spanner.CommitResponse
 	if tx.rwTx != nil {
 		if !tx.retryAborts {
-			ts, err := tx.rwTx.Commit(tx.ctx)
+			ts, err := tx.rwTx.CommitWithReturnResp(tx.ctx)
 			tx.close(&ts, err)
 			return err
 		}
 
 		err = tx.runWithRetry(tx.ctx, func(ctx context.Context) (err error) {
-			commitTs, err = tx.rwTx.Commit(ctx)
+			commitResponse, err = tx.rwTx.CommitWithReturnResp(ctx)
 			return err
 		})
 		if err == ErrAbortedDueToConcurrentModification {
 			tx.rwTx.Rollback(context.Background())
 		}
 	}
-	tx.close(&commitTs, err)
+	tx.close(&commitResponse, err)
 	return err
 }
 

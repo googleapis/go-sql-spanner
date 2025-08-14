@@ -293,7 +293,11 @@ func TestShowCommitTimestamp(t *testing.T) {
 		{&ts},
 		{nil},
 	} {
-		c.commitTs = test.wantValue
+		if test.wantValue == nil {
+			c.commitResponse = nil
+		} else {
+			c.commitResponse = &spanner.CommitResponse{CommitTs: *test.wantValue}
+		}
 
 		it, err := s.ShowCommitTimestamp(ctx, c, "", ExecOptions{}, nil)
 		if err != nil {
