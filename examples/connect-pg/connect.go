@@ -34,7 +34,10 @@ func connect(projectId, instanceId, databaseId string) error {
 	defer func() { _ = db.Close() }()
 
 	fmt.Printf("Connected to %s\n", dsn)
-	row := db.QueryRowContext(ctx, "select @greeting", "Hello from Spanner")
+	// The Spanner database/sql driver supports both PostgreSQL-style query
+	// parameters ($1, $2, ...) and positional query parameters (?, ?, ...).
+	// This example uses PostgreSQL-style parameters.
+	row := db.QueryRowContext(ctx, "select $1", "Hello from Spanner PostgreSQL")
 	var greeting string
 	if err := row.Scan(&greeting); err != nil {
 		return fmt.Errorf("failed to get greeting: %v", err)

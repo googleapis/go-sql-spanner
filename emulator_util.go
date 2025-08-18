@@ -17,29 +17,23 @@ package spannerdriver
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"cloud.google.com/go/spanner"
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	databasepb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
 	instancepb "cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
+	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 )
 
-func autoConfigEmulator(ctx context.Context, host, project, instance, database string) error {
-	if host == "" {
-		host = "localhost:9010"
-	}
-	if err := os.Setenv("SPANNER_EMULATOR_HOST", host); err != nil {
-		return err
-	}
-	if err := createInstance(project, instance); err != nil {
+func autoConfigEmulator(ctx context.Context, host, project, instance, database string, opts []option.ClientOption) error {
+	if err := createInstance(project, instance, opts); err != nil {
 		if spanner.ErrCode(err) != codes.AlreadyExists {
 			return err
 		}
 	}
-	if err := createDatabase(project, instance, database); err != nil {
+	if err := createDatabase(project, instance, database, opts); err != nil {
 		if spanner.ErrCode(err) != codes.AlreadyExists {
 			return err
 		}
@@ -47,9 +41,9 @@ func autoConfigEmulator(ctx context.Context, host, project, instance, database s
 	return nil
 }
 
-func createInstance(projectId, instanceId string) error {
+func createInstance(projectId, instanceId string, opts []option.ClientOption) error {
 	ctx := context.Background()
-	instanceAdmin, err := instance.NewInstanceAdminClient(ctx)
+	instanceAdmin, err := instance.NewInstanceAdminClient(ctx, opts...)
 	if err != nil {
 		return err
 	}
@@ -73,9 +67,9 @@ func createInstance(projectId, instanceId string) error {
 	return nil
 }
 
-func createDatabase(projectId, instanceId, databaseId string) error {
+func createDatabase(projectId, instanceId, databaseId string, opts []option.ClientOption) error {
 	ctx := context.Background()
-	databaseAdminClient, err := database.NewDatabaseAdminClient(ctx)
+	databaseAdminClient, err := database.NewDatabaseAdminClient(ctx, opts...)
 	if err != nil {
 		return err
 	}

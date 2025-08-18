@@ -162,19 +162,22 @@ func (s *StatementResult) ToPartialResultSets(resumeToken []byte) (result []*spa
 			} else {
 				rt = s.ResumeTokens[startIndex]
 			}
-			result = append(result, &spannerpb.PartialResultSet{
+			partial := &spannerpb.PartialResultSet{
 				Metadata:    s.ResultSet.Metadata,
 				Values:      values,
 				ResumeToken: rt,
-			})
+			}
+			result = append(result, partial)
 
 			startIndex += rowCount
 			if startIndex == totalRows {
+				partial.Last = true
 				break
 			}
 		}
 	} else {
 		result = append(result, &spannerpb.PartialResultSet{
+			Last:     true,
 			Metadata: s.ResultSet.Metadata,
 		})
 	}
@@ -198,6 +201,7 @@ func (s *StatementResult) updateCountToPartialResultSet(exact bool, resultSetWit
 		Metadata: &spannerpb.ResultSetMetadata{
 			RowType: &spannerpb.StructType{},
 		},
+		Last:  true,
 		Stats: s.convertUpdateCountToResultSet(exact).Stats,
 	}
 	if resultSetWithTx != nil && resultSetWithTx.Metadata != nil && resultSetWithTx.Metadata.Transaction != nil {

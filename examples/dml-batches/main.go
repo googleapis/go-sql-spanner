@@ -106,11 +106,17 @@ func dmlBatch(projectId, instanceId, databaseId string) error {
 		return fmt.Errorf("failed to insert: %v", err)
 	}
 	// Run the batch. This will apply all the batched DML statements to the database in one atomic operation.
-	if err := conn.Raw(func(driverConn interface{}) error {
-		return driverConn.(spannerdriver.SpannerConn).RunBatch(ctx)
+	var res spannerdriver.SpannerResult
+	if err := conn.Raw(func(driverConn interface{}) (err error) {
+		res, err = driverConn.(spannerdriver.SpannerConn).RunDmlBatch(ctx)
+		return err
 	}); err != nil {
 		return fmt.Errorf("failed to run DML batch: %v", err)
 	}
+	// BatchRowsAffected returns a slice with the affected rows per DML statement in the batch.
+	affected, _ := res.BatchRowsAffected()
+	fmt.Printf("Affected rows: %v\n", affected)
+
 	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM Singers").Scan(&c); err != nil {
 		return fmt.Errorf("failed to get singers count: %v", err)
 	}

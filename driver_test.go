@@ -20,6 +20,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"reflect"
 	"testing"
@@ -34,7 +35,12 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
+func silentClose(c io.Closer) {
+	_ = c.Close()
+}
+
 func TestExtractDnsParts(t *testing.T) {
+	//goland:noinspection GoDeprecation
 	tests := []struct {
 		input               string
 		wantConnectorConfig ConnectorConfig
@@ -171,6 +177,23 @@ func TestExtractDnsParts(t *testing.T) {
 				Params: map[string]string{
 					"isolationlevel": "repeatable_read",
 				},
+				IsolationLevel: sql.LevelRepeatableRead,
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
+			},
+		},
+		{
+			input: "projects/p/instances/i/databases/d?beginTransactionOption=ExplicitBeginTransaction",
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
+					"begintransactionoption": "ExplicitBeginTransaction",
+				},
+				BeginTransactionOption: spanner.ExplicitBeginTransaction,
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
@@ -186,6 +209,7 @@ func TestExtractDnsParts(t *testing.T) {
 				Params: map[string]string{
 					"statementcachesize": "100",
 				},
+				StatementCacheSize: 100,
 			},
 			wantSpannerConfig: spanner.ClientConfig{
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
@@ -252,8 +276,7 @@ func TestExtractDnsParts(t *testing.T) {
 				if tc.wantErr {
 					t.Error("did not encounter expected error")
 				}
-				tc.wantConnectorConfig.name = tc.input
-				if diff := cmp.Diff(config, tc.wantConnectorConfig, cmp.AllowUnexported(ConnectorConfig{})); diff != "" {
+				if diff := cmp.Diff(config.Params, tc.wantConnectorConfig.Params); diff != "" {
 					t.Errorf("connector config mismatch for %q\n%v", tc.input, diff)
 				}
 				conn, err := newOrCachedConnector(&Driver{connectors: make(map[string]*connector)}, tc.input)
@@ -263,6 +286,47 @@ func TestExtractDnsParts(t *testing.T) {
 				if diff := cmp.Diff(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{}, spanner.InactiveTransactionRemovalOptions{}, spannerpb.ExecuteSqlRequest_QueryOptions{})); diff != "" {
 					t.Errorf("connector Spanner client config mismatch for %q\n%v", tc.input, diff)
 				}
+				actualConfig := conn.connectorConfig
+				actualConfig.name = ""
+				if diff := cmp.Diff(actualConfig, tc.wantConnectorConfig, cmp.AllowUnexported(ConnectorConfig{})); diff != "" {
+					t.Errorf("actual connector config mismatch for %q\n%v", tc.input, diff)
+				}
+			}
+		})
+	}
+}
+
+func TestParseBeginTransactionOption(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    spanner.BeginTransactionOption
+		wantErr bool
+	}{
+		{
+			input: "DefaultBeginTransaction",
+			want:  spanner.DefaultBeginTransaction,
+		},
+		{
+			input: "InlinedBeginTransaction",
+			want:  spanner.InlinedBeginTransaction,
+		},
+		{
+			input: "ExplicitBeginTransaction",
+			want:  spanner.ExplicitBeginTransaction,
+		},
+		{
+			input:   "invalid",
+			wantErr: true,
+		},
+	}
+	for i, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			val, err := parseBeginTransactionOption(test.input)
+			if (err != nil) != test.wantErr {
+				t.Errorf("%d: parseBeginTransactionOption(%q) error = %v, wantErr %v", i, err, test.wantErr, err)
+			}
+			if g, w := val, test.want; g != w {
+				t.Errorf("%d: parseBeginTransactionOption(%q) = %v, want %v", i, g, w, g)
 			}
 		})
 	}
@@ -412,7 +476,7 @@ func ExampleCreateConnector() {
 	db := sql.OpenDB(c)
 	// Use the database ...
 
-	defer db.Close()
+	defer silentClose(db)
 }
 
 func TestConnection_Reset(t *testing.T) {
@@ -424,7 +488,7 @@ func TestConnection_Reset(t *testing.T) {
 		},
 		readOnlyStaleness: spanner.ExactStaleness(time.Second),
 		batch:             &batch{tp: dml},
-		commitTs:          &time.Time{},
+		commitResponse:    &spanner.CommitResponse{},
 		tx: &readOnlyTransaction{
 			logger: noopLogger,
 			close: func() {
@@ -442,8 +506,8 @@ func TestConnection_Reset(t *testing.T) {
 	if c.inBatch() {
 		t.Error("failed to clear batch")
 	}
-	if c.commitTs != nil {
-		t.Errorf("failed to clear commit timestamp")
+	if c.commitResponse != nil {
+		t.Errorf("failed to clear commit response")
 	}
 	if !txClosed {
 		t.Error("failed to close transaction")
@@ -561,8 +625,8 @@ func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
-			return &result{}, time.Time{}, nil
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, *spanner.CommitResponse, error) {
+			return &result{}, &spanner.CommitResponse{}, nil
 		},
 		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
 			return 0, nil
@@ -600,8 +664,8 @@ func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
-			return &result{}, time.Time{}, nil
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, *spanner.CommitResponse, error) {
+			return &result{}, &spanner.CommitResponse{}, nil
 		},
 		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
 			return 0, nil
@@ -678,12 +742,12 @@ func TestConn_GetBatchedStatements(t *testing.T) {
 	}
 }
 
-func TestConn_GetCommitTimestampAfterAutocommitDml(t *testing.T) {
+func TestConn_GetCommitResponseAfterAutocommitDml(t *testing.T) {
 	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := time.Now()
+	want := &spanner.CommitResponse{CommitTs: time.Now()}
 	c := &conn{
 		parser:            parser,
 		logger:            noopLogger,
@@ -691,7 +755,7 @@ func TestConn_GetCommitTimestampAfterAutocommitDml(t *testing.T) {
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, *spanner.CommitResponse, error) {
 			return &result{}, want, nil
 		},
 		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
@@ -706,12 +770,19 @@ func TestConn_GetCommitTimestampAfterAutocommitDml(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get commit timestamp: %v", err)
 	}
-	if !cmp.Equal(want, got) {
+	if !cmp.Equal(want.CommitTs, got) {
 		t.Fatalf("commit timestamp mismatch\n Got: %v\nWant: %v", got, want)
+	}
+	gotResp, err := c.CommitResponse()
+	if err != nil {
+		t.Fatalf("failed to get commit response: %v", err)
+	}
+	if !cmp.Equal(want, gotResp) {
+		t.Fatalf("commit response mismatch\n Got: %v\nWant: %v", gotResp, want)
 	}
 }
 
-func TestConn_GetCommitTimestampAfterAutocommitQuery(t *testing.T) {
+func TestConn_GetCommitResponseAfterAutocommitQuery(t *testing.T) {
 	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
@@ -722,8 +793,8 @@ func TestConn_GetCommitTimestampAfterAutocommitQuery(t *testing.T) {
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, time.Time, error) {
-			return &result{}, time.Time{}, nil
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, *spanner.CommitResponse, error) {
+			return &result{}, &spanner.CommitResponse{}, nil
 		},
 		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
 			return 0, nil
@@ -734,6 +805,10 @@ func TestConn_GetCommitTimestampAfterAutocommitQuery(t *testing.T) {
 		t.Fatalf("failed to execute query: %v", err)
 	}
 	_, err = c.CommitTimestamp()
+	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	_, err = c.CommitResponse()
 	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
 		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
 	}

@@ -52,7 +52,7 @@ func TestBeginBatchReadOnlyTransaction(t *testing.T) {
 		for rows.Next() {
 			// Just verify that we can iterate through the results...
 		}
-		rows.Close()
+		_ = rows.Close()
 		if err := tx.Commit(); err != nil {
 			t.Fatal(err)
 		}
@@ -111,7 +111,7 @@ func TestPartitionQuery(t *testing.T) {
 			t.Fatal("missing partitions")
 		}
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	// Setup results for each partition.
 	for index, partition := range pq.Partitions {
@@ -219,7 +219,7 @@ func TestPartitionQueryInTx(t *testing.T) {
 				PartitionQuery: true,
 			},
 		})
-		tx.Rollback()
+		_ = tx.Rollback()
 		if err == nil {
 			t.Fatal("missing error for PartitionQuery in transaction")
 		}

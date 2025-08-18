@@ -18,6 +18,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -38,14 +39,16 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/uuid"
 	"github.com/googleapis/gax-go/v2"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+	"google.golang.org/api/option/internaloption"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
-const userAgent = "go-sql-spanner/1.14.0" // x-release-please-version
+const userAgent = "go-sql-spanner/1.16.3" // x-release-please-version
 
 const gormModule = "github.com/googleapis/go-gorm-spanner"
 const gormUserAgent = "go-gorm-spanner"
@@ -304,6 +307,11 @@ type ConnectorConfig struct {
 	// IsolationLevel is the default isolation level for read/write transactions.
 	IsolationLevel sql.IsolationLevel
 
+	// BeginTransactionOption determines the default for how to begin transactions.
+	// The Spanner database/sql driver uses spanner.InlinedBeginTransaction by default
+	// for both read-only and read/write transactions.
+	BeginTransactionOption spanner.BeginTransactionOption
+
 	// DecodeToNativeArrays determines whether arrays that have a Go native
 	// type should be decoded to those types rather than the corresponding
 	// spanner.NullTypeName type.
@@ -551,6 +559,11 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			connectorConfig.IsolationLevel = val
 		}
 	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("BeginTransactionOption")]; ok {
+		if val, err := parseBeginTransactionOption(strval); err == nil {
+			connectorConfig.BeginTransactionOption = val
+		}
+	}
 	if strval, ok := connectorConfig.Params[strings.ToLower("StatementCacheSize")]; ok {
 		if val, err := strconv.Atoi(strval); err == nil {
 			connectorConfig.StatementCacheSize = val
@@ -586,7 +599,18 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		connectorConfig.Configurator(&config, &opts)
 	}
 	if connectorConfig.AutoConfigEmulator {
-		if err := autoConfigEmulator(context.Background(), connectorConfig.Host, connectorConfig.Project, connectorConfig.Instance, connectorConfig.Database); err != nil {
+		if connectorConfig.Host == "" {
+			connectorConfig.Host = "localhost:9010"
+		}
+		schemeRemoved := regexp.MustCompile("^(http://|https://|passthrough:///)").ReplaceAllString(connectorConfig.Host, "")
+		emulatorOpts := []option.ClientOption{
+			option.WithEndpoint("passthrough:///" + schemeRemoved),
+			option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+			option.WithoutAuthentication(),
+			internaloption.SkipDialSettingsValidation(),
+		}
+		opts = append(emulatorOpts, opts...)
+		if err := autoConfigEmulator(context.Background(), connectorConfig.Host, connectorConfig.Project, connectorConfig.Instance, connectorConfig.Database, opts); err != nil {
 			return nil, err
 		}
 	}
@@ -744,6 +768,13 @@ func determineDialect(ctx context.Context, client *spanner.Client) (databasepb.D
 			if err := row.Columns(&dialectName); err != nil {
 				return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, err
 			}
+			if _, err := it.Next(); !errors.Is(err, iterator.Done) {
+				if err == nil {
+					return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, fmt.Errorf("more than one dialect result returned")
+				} else {
+					return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, err
+				}
+			}
 			if dialect, ok := databasepb.DatabaseDialect_value[dialectName]; ok {
 				return databasepb.DatabaseDialect(dialect), nil
 			} else {
@@ -820,7 +851,8 @@ func (c *connector) closeClients() (err error) {
 //
 // This function will never return ErrAbortedDueToConcurrentModification.
 func RunTransaction(ctx context.Context, db *sql.DB, opts *sql.TxOptions, f func(ctx context.Context, tx *sql.Tx) error) error {
-	return runTransactionWithOptions(ctx, db, opts, f, spanner.TransactionOptions{})
+	_, err := runTransactionWithOptions(ctx, db, opts, f, spanner.TransactionOptions{})
+	return err
 }
 
 // RunTransactionWithOptions runs the given function in a transaction on the given database.
@@ -842,10 +874,36 @@ func RunTransaction(ctx context.Context, db *sql.DB, opts *sql.TxOptions, f func
 //
 // This function will never return ErrAbortedDueToConcurrentModification.
 func RunTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOptions, f func(ctx context.Context, tx *sql.Tx) error, spannerOptions spanner.TransactionOptions) error {
+	_, err := runTransactionWithOptions(ctx, db, opts, f, spannerOptions)
+	return err
+}
+
+// RunTransactionWithCommitResponse runs the given function in a transaction on
+// the given database. If the connection is a connection to a Spanner database,
+// the transaction will automatically be retried if the transaction is aborted
+// by Spanner. Any other errors will be propagated to the caller and the
+// transaction will be rolled back. The transaction will be committed if the
+// supplied function did not return an error.
+//
+// If the connection is to a non-Spanner database, no retries will be attempted,
+// and any error that occurs during the transaction will be propagated to the
+// caller.
+//
+// The application should *NOT* call tx.Commit() or tx.Rollback(). This is done
+// automatically by this function, depending on whether the transaction function
+// returned an error or not.
+//
+// The given spanner.TransactionOptions will be used for the transaction.
+//
+// This function returns a spanner.CommitResponse if the transaction committed
+// successfully.
+//
+// This function will never return ErrAbortedDueToConcurrentModification.
+func RunTransactionWithCommitResponse(ctx context.Context, db *sql.DB, opts *sql.TxOptions, f func(ctx context.Context, tx *sql.Tx) error, spannerOptions spanner.TransactionOptions) (*spanner.CommitResponse, error) {
 	return runTransactionWithOptions(ctx, db, opts, f, spannerOptions)
 }
 
-func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOptions, f func(ctx context.Context, tx *sql.Tx) error, spannerOptions spanner.TransactionOptions) error {
+func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOptions, f func(ctx context.Context, tx *sql.Tx) error, spannerOptions spanner.TransactionOptions) (*spanner.CommitResponse, error) {
 	// Get a connection from the pool that we can use to run a transaction.
 	// Getting a connection here already makes sure that we can reserve this
 	// connection exclusively for the duration of this method. That again
@@ -853,7 +911,7 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 	// the retryAborts flag to false).
 	conn, err := db.Conn(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() {
 		_ = conn.Close()
@@ -877,12 +935,12 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		spannerConn.withTempTransactionOptions(transactionOptions)
 		return nil
 	}); err != nil {
-		return err
+		return nil, err
 	}
 
 	tx, err := conn.BeginTx(ctx, opts)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for {
 		err = protected(ctx, tx, f)
@@ -890,7 +948,11 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		if err == nil {
 			err = tx.Commit()
 			if err == nil {
-				return nil
+				resp, err := getCommitResponse(conn)
+				if err != nil {
+					return nil, err
+				}
+				return resp, nil
 			}
 			errDuringCommit = true
 		}
@@ -903,7 +965,7 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 			// and just returns an ErrTxDone if we do, so this is simpler than
 			// keeping track of where the error happened.
 			_ = tx.Rollback()
-			return err
+			return nil, err
 		}
 
 		// The transaction was aborted by Spanner.
@@ -916,7 +978,7 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 				// anymore. It does not actually roll back the transaction, as it
 				// has already been aborted by Spanner.
 				_ = tx.Rollback()
-				return err
+				return nil, err
 			}
 		}
 
@@ -924,7 +986,7 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		err = resetTransactionForRetry(ctx, conn, errDuringCommit)
 		if err != nil {
 			_ = tx.Rollback()
-			return err
+			return nil, err
 		}
 		// This does not actually start a new transaction, instead it
 		// continues with the previous transaction that was already reset.
@@ -934,12 +996,13 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		if errDuringCommit {
 			tx, err = conn.BeginTx(ctx, opts)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
 
 }
+
 func protected(ctx context.Context, tx *sql.Tx, f func(ctx context.Context, tx *sql.Tx) error) (err error) {
 	defer func() {
 		if x := recover(); x != nil {
@@ -957,6 +1020,20 @@ func resetTransactionForRetry(ctx context.Context, conn *sql.Conn, errDuringComm
 		}
 		return spannerConn.resetTransactionForRetry(ctx, errDuringCommit)
 	})
+}
+
+func getCommitResponse(conn *sql.Conn) (resp *spanner.CommitResponse, err error) {
+	if err := conn.Raw(func(driverConn any) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			return spanner.ToSpannerError(status.Error(codes.InvalidArgument, "not a Spanner connection"))
+		}
+		resp, err = spannerConn.CommitResponse()
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 type ReadWriteTransactionOptions struct {
@@ -1026,7 +1103,8 @@ func clearTempReadWriteTransactionOptions(conn *sql.Conn) {
 // ReadOnlyTransactionOptions can be used to create a read-only transaction
 // on a Spanner connection.
 type ReadOnlyTransactionOptions struct {
-	TimestampBound spanner.TimestampBound
+	TimestampBound         spanner.TimestampBound
+	BeginTransactionOption spanner.BeginTransactionOption
 
 	close func()
 }
@@ -1281,6 +1359,18 @@ func checkIsValidType(v driver.Value) bool {
 	case []spanner.NullUUID:
 	}
 	return true
+}
+
+func parseBeginTransactionOption(val string) (spanner.BeginTransactionOption, error) {
+	switch strings.ToLower(val) {
+	case strings.ToLower("DefaultBeginTransaction"):
+		return spanner.DefaultBeginTransaction, nil
+	case strings.ToLower("InlinedBeginTransaction"):
+		return spanner.InlinedBeginTransaction, nil
+	case strings.ToLower("ExplicitBeginTransaction"):
+		return spanner.ExplicitBeginTransaction, nil
+	}
+	return spanner.DefaultBeginTransaction, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid or unsupported BeginTransactionOption: %v", val))
 }
 
 func parseIsolationLevel(val string) (sql.IsolationLevel, error) {

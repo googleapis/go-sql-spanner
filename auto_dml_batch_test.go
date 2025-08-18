@@ -303,8 +303,13 @@ func TestAutoBatchDml_FollowedByRollback(t *testing.T) {
 		if g, w := len(commitRequests), 0; g != w {
 			t.Fatalf("num commit requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
+		beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+		if g, w := len(beginRequests), 0; g != w {
+			t.Fatalf("num BeginTransaction requests mismatch\n Got: %v\nWant: %v", g, w)
+		}
 		rollbackRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.RollbackRequest{}))
-		if g, w := len(rollbackRequests), 1; g != w {
+		// There are no rollback requests sent to Spanner, as the transaction is never started.
+		if g, w := len(rollbackRequests), 0; g != w {
 			t.Fatalf("num rollback requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
 	}

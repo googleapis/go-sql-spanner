@@ -39,12 +39,66 @@ func TestBeginTx(t *testing.T) {
 
 	requests := drainRequestsFromServer(server.TestSpanner)
 	beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
-	if g, w := len(beginRequests), 1; g != w {
+	if g, w := len(beginRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	request := beginRequests[0].(*spannerpb.BeginTransactionRequest)
-	if g, w := request.Options.GetIsolationLevel(), spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED; g != w {
+	executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	request := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+	if request.GetTransaction() == nil || request.GetTransaction().GetBegin() == nil {
+		t.Fatal("missing begin transaction on ExecuteSqlRequest")
+	}
+	if g, w := request.GetTransaction().GetBegin().GetIsolationLevel(), spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED; g != w {
 		t.Fatalf("begin isolation level mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestExplicitBeginTx(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnectionWithConnectorConfig(t, ConnectorConfig{
+		Project:  "p",
+		Instance: "i",
+		Database: "d",
+
+		BeginTransactionOption: spanner.ExplicitBeginTransaction,
+	})
+	defer teardown()
+	ctx := context.Background()
+
+	for _, readOnly := range []bool{true, false} {
+		tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: readOnly})
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := tx.QueryContext(ctx, testutil.SelectFooFromBar)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for res.Next() {
+		}
+		if err := res.Err(); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Rollback(); err != nil {
+			t.Fatal(err)
+		}
+
+		requests := drainRequestsFromServer(server.TestSpanner)
+		beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+		if g, w := len(beginRequests), 1; g != w {
+			t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		if g, w := len(executeRequests), 1; g != w {
+			t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		request := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+		if request.GetTransaction() == nil || request.GetTransaction().GetId() == nil {
+			t.Fatal("missing transaction id on ExecuteSqlRequest")
+		}
 	}
 }
 
@@ -76,12 +130,19 @@ func TestBeginTxWithIsolationLevel(t *testing.T) {
 
 			requests := drainRequestsFromServer(server.TestSpanner)
 			beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
-			if g, w := len(beginRequests), 1; g != w {
+			if g, w := len(beginRequests), 0; g != w {
 				t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 			}
-			request := beginRequests[0].(*spannerpb.BeginTransactionRequest)
+			executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+			if g, w := len(executeRequests), 1; g != w {
+				t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			request := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+			if request.GetTransaction() == nil || request.GetTransaction().GetBegin() == nil {
+				t.Fatalf("execute request does not have a begin transaction")
+			}
 			wantIsolationLevel, _ := toProtoIsolationLevel(originalLevel)
-			if g, w := request.Options.GetIsolationLevel(), wantIsolationLevel; g != w {
+			if g, w := request.GetTransaction().GetBegin().GetIsolationLevel(), wantIsolationLevel; g != w {
 				t.Fatalf("begin isolation level mismatch\n Got: %v\nWant: %v", g, w)
 			}
 		}
@@ -162,12 +223,19 @@ func TestDefaultIsolationLevel(t *testing.T) {
 
 			requests := drainRequestsFromServer(server.TestSpanner)
 			beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
-			if g, w := len(beginRequests), 1; g != w {
+			if g, w := len(beginRequests), 0; g != w {
 				t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 			}
-			request := beginRequests[0].(*spannerpb.BeginTransactionRequest)
+			executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+			if g, w := len(executeRequests), 1; g != w {
+				t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			request := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+			if request.GetTransaction() == nil || request.GetTransaction().GetBegin() == nil {
+				t.Fatalf("ExecuteSqlRequest should have a Begin transaction")
+			}
 			wantIsolationLevel, _ := toProtoIsolationLevel(originalLevel)
-			if g, w := request.Options.GetIsolationLevel(), wantIsolationLevel; g != w {
+			if g, w := request.GetTransaction().GetBegin().GetIsolationLevel(), wantIsolationLevel; g != w {
 				t.Fatalf("begin isolation level mismatch\n Got: %v\nWant: %v", g, w)
 			}
 		}
@@ -205,7 +273,7 @@ func TestSetIsolationLevel(t *testing.T) {
 		if g, w := level, sql.LevelSnapshot; g != w {
 			t.Fatalf("isolation level mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		conn.Close()
+		_ = conn.Close()
 	}
 }
 
@@ -267,7 +335,7 @@ func TestDDLUsingQueryContextInReadOnlyTx(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// DDL statements should not use the query context in a read-only transaction.
 	_, err = tx.QueryContext(ctx, "CREATE TABLE Foo (Bar STRING(100))")
@@ -290,7 +358,7 @@ func TestDDLUsingQueryContextInReadWriteTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// DDL statements should not use the query context in a read-write transaction.
 	_, err = tx.QueryContext(ctx, "CREATE TABLE Foo (Bar STRING(100))")
@@ -300,4 +368,83 @@ func TestDDLUsingQueryContextInReadWriteTransaction(t *testing.T) {
 	if g, w := err.Error(), `spanner: code = "FailedPrecondition", desc = "QueryContext does not support DDL statements, use ExecContext instead"`; g != w {
 		t.Fatalf("error mismatch\n Got: %v\nWant: %v", g, w)
 	}
+}
+
+func TestRunDmlBatch(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(conn)
+	if err := conn.Raw(func(driverConn interface{}) error {
+		spannerConn, _ := driverConn.(SpannerConn)
+		return spannerConn.StartBatchDML()
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Buffer two DML statements.
+	for range 2 {
+		if _, err := conn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var res SpannerResult
+	if err := conn.Raw(func(driverConn interface{}) (err error) {
+		spannerConn, _ := driverConn.(SpannerConn)
+		res, err = spannerConn.RunDmlBatch(ctx)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	affected, err := res.BatchRowsAffected()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g, w := affected, []int64{testutil.UpdateBarSetFooRowCount, testutil.UpdateBarSetFooRowCount}; !reflect.DeepEqual(g, w) {
+		t.Fatalf("affected mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestSetRetryAbortsInternallyInInactiveTransaction(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, "set retry_aborts_internally = false"); err != nil {
+		t.Fatal(err)
+	}
+	_ = tx.Rollback()
+}
+
+func TestSetRetryAbortsInternallyInActiveTransaction(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	_, err = tx.ExecContext(ctx, "set retry_aborts_internally = false")
+	if g, w := err.Error(), "spanner: code = \"FailedPrecondition\", desc = \"cannot change retry mode while a transaction is active\""; g != w {
+		t.Fatalf("error mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	_ = tx.Rollback()
 }
