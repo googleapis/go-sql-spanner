@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.17.0](https://github.com/googleapis/go-sql-spanner/compare/v1.16.3...v1.17.0) (2025-08-18)
+
+
+### Features
+
+* Return commit response for r/w transactions ([#491](https://github.com/googleapis/go-sql-spanner/issues/491)) ([463bb09](https://github.com/googleapis/go-sql-spanner/commit/463bb09d06c8ff332f819316b5debed025a3e8e2)), refs [#488](https://github.com/googleapis/go-sql-spanner/issues/488)
+
+
+### Documentation
+
+* Add snippets for PostgreSQL ([#482](https://github.com/googleapis/go-sql-spanner/issues/482)) ([c38a8e6](https://github.com/googleapis/go-sql-spanner/commit/c38a8e6b0d0ab1902774a1b3c927a1820ef91d39))
+
 ## [1.16.3](https://github.com/googleapis/go-sql-spanner/compare/v1.16.2...v1.16.3) (2025-08-06)
 
 
