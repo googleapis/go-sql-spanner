@@ -270,6 +270,7 @@ type conn struct {
 	// tempBatchReadOnlyTransactionOptions are temporarily set right before a
 	// batch read-only transaction is started on a Spanner connection.
 	tempBatchReadOnlyTransactionOptions *BatchReadOnlyTransactionOptions
+	tempProtoTransactionOptions         *spannerpb.TransactionOptions
 }
 
 func (c *conn) UnderlyingClient() (*spanner.Client, error) {
@@ -573,7 +574,7 @@ func (c *conn) abortBatch() (driver.Result, error) {
 
 func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (driver.Result, error) {
 	if c.batch != nil && c.batch.tp == dml {
-		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This connection has an active DML batch"))
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This connection has an active DDL batch"))
 	}
 	if c.batch != nil && c.batch.tp == ddl {
 		c.batch.statements = append(c.batch.statements, statements...)
@@ -1143,6 +1144,9 @@ func (c *conn) inReadWriteTransaction() bool {
 }
 
 func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
+	if options.TimestampBound != nil {
+		tb = *options.TimestampBound
+	}
 	return c.Single().WithTimestampBound(tb).QueryWithOptions(ctx, statement, options.QueryOptions)
 }
 
