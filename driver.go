@@ -18,6 +18,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -38,6 +39,7 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/uuid"
 	"github.com/googleapis/gax-go/v2"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	"google.golang.org/grpc"
@@ -46,7 +48,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const userAgent = "go-sql-spanner/1.16.0" // x-release-please-version
+const userAgent = "go-sql-spanner/1.17.0" // x-release-please-version
 
 const gormModule = "github.com/googleapis/go-gorm-spanner"
 const gormUserAgent = "go-gorm-spanner"
@@ -770,6 +772,13 @@ func determineDialect(ctx context.Context, client *spanner.Client) (databasepb.D
 			if err := row.Columns(&dialectName); err != nil {
 				return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, err
 			}
+			if _, err := it.Next(); !errors.Is(err, iterator.Done) {
+				if err == nil {
+					return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, fmt.Errorf("more than one dialect result returned")
+				} else {
+					return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, err
+				}
+			}
 			if dialect, ok := databasepb.DatabaseDialect_value[dialectName]; ok {
 				return databasepb.DatabaseDialect(dialect), nil
 			} else {
@@ -846,7 +855,8 @@ func (c *connector) closeClients() (err error) {
 //
 // This function will never return ErrAbortedDueToConcurrentModification.
 func RunTransaction(ctx context.Context, db *sql.DB, opts *sql.TxOptions, f func(ctx context.Context, tx *sql.Tx) error) error {
-	return runTransactionWithOptions(ctx, db, opts, f, spanner.TransactionOptions{})
+	_, err := runTransactionWithOptions(ctx, db, opts, f, spanner.TransactionOptions{})
+	return err
 }
 
 // RunTransactionWithOptions runs the given function in a transaction on the given database.
@@ -868,10 +878,36 @@ func RunTransaction(ctx context.Context, db *sql.DB, opts *sql.TxOptions, f func
 //
 // This function will never return ErrAbortedDueToConcurrentModification.
 func RunTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOptions, f func(ctx context.Context, tx *sql.Tx) error, spannerOptions spanner.TransactionOptions) error {
+	_, err := runTransactionWithOptions(ctx, db, opts, f, spannerOptions)
+	return err
+}
+
+// RunTransactionWithCommitResponse runs the given function in a transaction on
+// the given database. If the connection is a connection to a Spanner database,
+// the transaction will automatically be retried if the transaction is aborted
+// by Spanner. Any other errors will be propagated to the caller and the
+// transaction will be rolled back. The transaction will be committed if the
+// supplied function did not return an error.
+//
+// If the connection is to a non-Spanner database, no retries will be attempted,
+// and any error that occurs during the transaction will be propagated to the
+// caller.
+//
+// The application should *NOT* call tx.Commit() or tx.Rollback(). This is done
+// automatically by this function, depending on whether the transaction function
+// returned an error or not.
+//
+// The given spanner.TransactionOptions will be used for the transaction.
+//
+// This function returns a spanner.CommitResponse if the transaction committed
+// successfully.
+//
+// This function will never return ErrAbortedDueToConcurrentModification.
+func RunTransactionWithCommitResponse(ctx context.Context, db *sql.DB, opts *sql.TxOptions, f func(ctx context.Context, tx *sql.Tx) error, spannerOptions spanner.TransactionOptions) (*spanner.CommitResponse, error) {
 	return runTransactionWithOptions(ctx, db, opts, f, spannerOptions)
 }
 
-func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOptions, f func(ctx context.Context, tx *sql.Tx) error, spannerOptions spanner.TransactionOptions) error {
+func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOptions, f func(ctx context.Context, tx *sql.Tx) error, spannerOptions spanner.TransactionOptions) (*spanner.CommitResponse, error) {
 	// Get a connection from the pool that we can use to run a transaction.
 	// Getting a connection here already makes sure that we can reserve this
 	// connection exclusively for the duration of this method. That again
@@ -879,7 +915,7 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 	// the retryAborts flag to false).
 	conn, err := db.Conn(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() {
 		_ = conn.Close()
@@ -903,12 +939,12 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		spannerConn.withTempTransactionOptions(transactionOptions)
 		return nil
 	}); err != nil {
-		return err
+		return nil, err
 	}
 
 	tx, err := conn.BeginTx(ctx, opts)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for {
 		err = protected(ctx, tx, f)
@@ -916,7 +952,11 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		if err == nil {
 			err = tx.Commit()
 			if err == nil {
-				return nil
+				resp, err := getCommitResponse(conn)
+				if err != nil {
+					return nil, err
+				}
+				return resp, nil
 			}
 			errDuringCommit = true
 		}
@@ -929,7 +969,7 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 			// and just returns an ErrTxDone if we do, so this is simpler than
 			// keeping track of where the error happened.
 			_ = tx.Rollback()
-			return err
+			return nil, err
 		}
 
 		// The transaction was aborted by Spanner.
@@ -942,7 +982,7 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 				// anymore. It does not actually roll back the transaction, as it
 				// has already been aborted by Spanner.
 				_ = tx.Rollback()
-				return err
+				return nil, err
 			}
 		}
 
@@ -950,7 +990,7 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		err = resetTransactionForRetry(ctx, conn, errDuringCommit)
 		if err != nil {
 			_ = tx.Rollback()
-			return err
+			return nil, err
 		}
 		// This does not actually start a new transaction, instead it
 		// continues with the previous transaction that was already reset.
@@ -960,12 +1000,13 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		if errDuringCommit {
 			tx, err = conn.BeginTx(ctx, opts)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
 
 }
+
 func protected(ctx context.Context, tx *sql.Tx, f func(ctx context.Context, tx *sql.Tx) error) (err error) {
 	defer func() {
 		if x := recover(); x != nil {
@@ -983,6 +1024,20 @@ func resetTransactionForRetry(ctx context.Context, conn *sql.Conn, errDuringComm
 		}
 		return spannerConn.resetTransactionForRetry(ctx, errDuringCommit)
 	})
+}
+
+func getCommitResponse(conn *sql.Conn) (resp *spanner.CommitResponse, err error) {
+	if err := conn.Raw(func(driverConn any) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			return spanner.ToSpannerError(status.Error(codes.InvalidArgument, "not a Spanner connection"))
+		}
+		resp, err = spannerConn.CommitResponse()
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 type ReadWriteTransactionOptions struct {

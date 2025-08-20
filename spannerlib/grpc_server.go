@@ -142,41 +142,41 @@ func (s *spannerLibServer) sendData(data chan *spannerpb.PartialResultSet, strea
 	}
 }
 
-func (s *spannerLibServer) produceData(data chan *spannerpb.PartialResultSet, request *pb.ExecuteRequest) {
-	id, err := api.Execute(request.Connection.Pool.Id, request.Connection.Id, request.ExecuteSqlRequest)
-	defer func() { _ = api.CloseRows(request.Connection.Pool.Id, request.Connection.Id, id) }()
-	if err != nil {
-		return err
-	}
-	metadata, err := api.Metadata(request.Connection.Pool.Id, request.Connection.Id, id)
-	first := true
-	for {
-		if row, err := api.Next(request.Connection.Pool.Id, request.Connection.Id, id); err != nil {
-			return err
-		} else {
-			if row == nil {
-				stats, err := api.ResultSetStats(request.Connection.Pool.Id, request.Connection.Id, id)
-				if err != nil {
-					return err
-				}
-				res := &spannerpb.PartialResultSet{Stats: stats, Last: true}
-				if err := stream.Send(res); err != nil {
-					return err
-				}
-				break
-			}
-			res := &spannerpb.PartialResultSet{Values: row.Values}
-			if first {
-				res.Metadata = metadata
-				first = false
-			}
-			if err := stream.Send(res); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
+//func (s *spannerLibServer) produceData(data chan *spannerpb.PartialResultSet, request *pb.ExecuteRequest) {
+//	id, err := api.Execute(request.Connection.Pool.Id, request.Connection.Id, request.ExecuteSqlRequest)
+//	defer func() { _ = api.CloseRows(request.Connection.Pool.Id, request.Connection.Id, id) }()
+//	if err != nil {
+//		return err
+//	}
+//	metadata, err := api.Metadata(request.Connection.Pool.Id, request.Connection.Id, id)
+//	first := true
+//	for {
+//		if row, err := api.Next(request.Connection.Pool.Id, request.Connection.Id, id); err != nil {
+//			return err
+//		} else {
+//			if row == nil {
+//				stats, err := api.ResultSetStats(request.Connection.Pool.Id, request.Connection.Id, id)
+//				if err != nil {
+//					return err
+//				}
+//				res := &spannerpb.PartialResultSet{Stats: stats, Last: true}
+//				if err := stream.Send(res); err != nil {
+//					return err
+//				}
+//				break
+//			}
+//			res := &spannerpb.PartialResultSet{Values: row.Values}
+//			if first {
+//				res.Metadata = metadata
+//				first = false
+//			}
+//			if err := stream.Send(res); err != nil {
+//				return err
+//			}
+//		}
+//	}
+//	return nil
+//}
 
 func (s *spannerLibServer) ExecuteTransaction(ctx context.Context, request *pb.ExecuteTransactionRequest) (*pb.Rows, error) {
 	id, err := api.ExecuteTransaction(request.Transaction.Connection.Pool.Id, request.Transaction.Connection.Id, request.Transaction.Id, request.ExecuteSqlRequest)

@@ -6,6 +6,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func BufferWrite(poolId, connId, txId int64, mutations *spannerpb.BatchWriteRequest_MutationGroup) error {
@@ -95,22 +96,22 @@ func (tx *transaction) Commit() (*spannerpb.CommitResponse, error) {
 	if err := tx.backend.Commit(); err != nil {
 		return nil, err
 	}
-	var response *spannerpb.CommitResponse
+	var response *spanner.CommitResponse
 	if tx.txOpts.GetReadWrite() == nil {
-		response = &spannerpb.CommitResponse{}
-	} else {
-		if err := tx.conn.backend.Conn.Raw(func(driverConn any) (err error) {
-			spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
-			response, err = spannerConn.CommitResponse()
-			if err != nil {
-				return err
-			}
-			return nil
-		}); err != nil {
-			return nil, err
-		}
+		return &spannerpb.CommitResponse{}, nil
 	}
-	return response, nil
+	if err := tx.conn.backend.Conn.Raw(func(driverConn any) (err error) {
+		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
+		response, err = spannerConn.CommitResponse()
+		if err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	// TODO: Include commit stats
+	return &spannerpb.CommitResponse{CommitTimestamp: timestamppb.New(response.CommitTs)}, nil
 }
 
 func (tx *transaction) Rollback() error {

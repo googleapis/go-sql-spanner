@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.17.0](https://github.com/googleapis/go-sql-spanner/compare/v1.16.3...v1.17.0) (2025-08-18)
+
+
+### Features
+
+* Return commit response for r/w transactions ([#491](https://github.com/googleapis/go-sql-spanner/issues/491)) ([463bb09](https://github.com/googleapis/go-sql-spanner/commit/463bb09d06c8ff332f819316b5debed025a3e8e2)), refs [#488](https://github.com/googleapis/go-sql-spanner/issues/488)
+
+
+### Documentation
+
+* Add snippets for PostgreSQL ([#482](https://github.com/googleapis/go-sql-spanner/issues/482)) ([c38a8e6](https://github.com/googleapis/go-sql-spanner/commit/c38a8e6b0d0ab1902774a1b3c927a1820ef91d39))
+
+## [1.16.3](https://github.com/googleapis/go-sql-spanner/compare/v1.16.2...v1.16.3) (2025-08-06)
+
+
+### Bug Fixes
+
+* Update all dependencies ([#483](https://github.com/googleapis/go-sql-spanner/issues/483)) ([2766dfa](https://github.com/googleapis/go-sql-spanner/commit/2766dfa9613748761e9a887ed143772306040c4e))
+
+## [1.16.2](https://github.com/googleapis/go-sql-spanner/compare/v1.16.1...v1.16.2) (2025-08-05)
+
+
+### Bug Fixes
+
+* Update all dependencies ([#479](https://github.com/googleapis/go-sql-spanner/issues/479)) ([72f39e8](https://github.com/googleapis/go-sql-spanner/commit/72f39e8e240725d3092102942fe7bb66390771c5))
+
+## [1.16.1](https://github.com/googleapis/go-sql-spanner/compare/v1.16.0...v1.16.1) (2025-07-29)
+
+
+### Bug Fixes
+
+* Update all dependencies ([#473](https://github.com/googleapis/go-sql-spanner/issues/473)) ([bf518fb](https://github.com/googleapis/go-sql-spanner/commit/bf518fb2a142c37129abfaada0649a6ec03a2842))
+* Update module github.com/testcontainers/testcontainers-go to v0.38.0 ([#474](https://github.com/googleapis/go-sql-spanner/issues/474)) ([b895055](https://github.com/googleapis/go-sql-spanner/commit/b8950554da21899909f750fed1f8fbdf1b98e2fd))
+
 ## [1.16.0](https://github.com/googleapis/go-sql-spanner/compare/v1.15.0...v1.16.0) (2025-07-03)
 
 

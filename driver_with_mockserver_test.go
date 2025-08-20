@@ -3155,7 +3155,7 @@ func TestExecuteBatchDmlTransaction(t *testing.T) {
 	}
 }
 
-func TestCommitTimestamp(t *testing.T) {
+func TestCommitResponse(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -3182,19 +3182,27 @@ func TestCommitTimestamp(t *testing.T) {
 	// We do this in a simple loop to verify that we can get it multiple times.
 	for i := 0; i < 2; i++ {
 		var ts time.Time
+		var cr *spanner.CommitResponse
 		if err := conn.Raw(func(driverConn interface{}) error {
 			ts, err = driverConn.(SpannerConn).CommitTimestamp()
+			if err != nil {
+				return err
+			}
+			cr, err = driverConn.(SpannerConn).CommitResponse()
 			return err
 		}); err != nil {
-			t.Fatalf("failed to get commit timestamp: %v", err)
+			t.Fatalf("failed to get commit response: %v", err)
 		}
 		if cmp.Equal(time.Time{}, ts) {
 			t.Fatalf("got zero commit timestamp: %v", ts)
 		}
+		if cr == nil {
+			t.Fatal("got nil commit response")
+		}
 	}
 }
 
-func TestCommitTimestampAutocommit(t *testing.T) {
+func TestCommitResponseAutocommit(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -3217,8 +3225,13 @@ func TestCommitTimestampAutocommit(t *testing.T) {
 	// We do this in a simple loop to verify that we can get it multiple times.
 	for i := 0; i < 2; i++ {
 		var ts time.Time
+		var cr *spanner.CommitResponse
 		if err := conn.Raw(func(driverConn interface{}) error {
 			ts, err = driverConn.(SpannerConn).CommitTimestamp()
+			if err != nil {
+				return err
+			}
+			cr, err = driverConn.(SpannerConn).CommitResponse()
 			return err
 		}); err != nil {
 			t.Fatalf("failed to get commit timestamp: %v", err)
@@ -3226,10 +3239,13 @@ func TestCommitTimestampAutocommit(t *testing.T) {
 		if cmp.Equal(time.Time{}, ts) {
 			t.Fatalf("got zero commit timestamp: %v", ts)
 		}
+		if cr == nil {
+			t.Fatal("got nil commit response")
+		}
 	}
 }
 
-func TestCommitTimestampFailsAfterRollback(t *testing.T) {
+func TestCommitResponseFailsAfterRollback(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -3260,9 +3276,17 @@ func TestCommitTimestampFailsAfterRollback(t *testing.T) {
 	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
 		t.Fatalf("get commit timestamp error code mismatch\n Got: %v\nWant: %v", g, w)
 	}
+	// Try to get the commit response from the connection.
+	err = conn.Raw(func(driverConn interface{}) error {
+		_, err = driverConn.(SpannerConn).CommitResponse()
+		return err
+	})
+	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Fatalf("get commit response error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
 }
 
-func TestCommitTimestampFailsAfterAutocommitQuery(t *testing.T) {
+func TestCommitResponseFailsAfterAutocommitQuery(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -3290,6 +3314,15 @@ func TestCommitTimestampFailsAfterAutocommitQuery(t *testing.T) {
 	})
 	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
 		t.Fatalf("get commit timestamp error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	// Try to get the commit response from the connection. This should not be possible as a query in autocommit mode
+	// will not return a commit response.
+	err = conn.Raw(func(driverConn interface{}) error {
+		_, err = driverConn.(SpannerConn).CommitResponse()
+		return err
+	})
+	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Fatalf("get commit response error code mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
