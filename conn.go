@@ -27,6 +27,7 @@ import (
 	adminapi "cloud.google.com/go/spanner/admin/database/apiv1"
 	adminpb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -231,6 +232,8 @@ type conn struct {
 	execSingleDMLTransactional   func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, *spanner.CommitResponse, error)
 	execSingleDMLPartitioned     func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error)
 
+	// state contains the current ConnectionState for this connection.
+	state *connectionstate.ConnectionState
 	// batch is the currently active DDL or DML batch on this connection.
 	batch *batch
 	// autoBatchDml determines whether DML statements should automatically
@@ -244,11 +247,6 @@ type conn struct {
 	// statements was correct.
 	autoBatchDmlUpdateCountVerification bool
 
-	// autocommitDMLMode determines the type of DML to use when a single DML
-	// statement is executed on a connection. The default is Transactional, but
-	// it can also be set to PartitionedNonAtomic to execute the statement as
-	// Partitioned DML.
-	autocommitDMLMode AutocommitDMLMode
 	// readOnlyStaleness is used for queries in autocommit mode and for read-only transactions.
 	readOnlyStaleness spanner.TimestampBound
 	// isolationLevel determines the default isolation level that is used for read/write
@@ -308,7 +306,7 @@ func (c *conn) setRetryAbortsInternally(retry bool) (driver.Result, error) {
 }
 
 func (c *conn) AutocommitDMLMode() AutocommitDMLMode {
-	return c.autocommitDMLMode
+	return propertyAutocommitDmlMode.GetValueOrDefault(c.state)
 }
 
 func (c *conn) SetAutocommitDMLMode(mode AutocommitDMLMode) error {
@@ -320,7 +318,9 @@ func (c *conn) SetAutocommitDMLMode(mode AutocommitDMLMode) error {
 }
 
 func (c *conn) setAutocommitDMLMode(mode AutocommitDMLMode) (driver.Result, error) {
-	c.autocommitDMLMode = mode
+	if err := propertyAutocommitDmlMode.SetValue(c.state, mode, connectionstate.ContextUser); err != nil {
+		return nil, err
+	}
 	return driver.ResultNoRows, nil
 }
 
@@ -689,8 +689,9 @@ func (c *conn) ResetSession(_ context.Context) error {
 	c.retryAborts = c.connector.retryAbortsInternally
 	c.isolationLevel = c.connector.connectorConfig.IsolationLevel
 	c.beginTransactionOption = c.connector.connectorConfig.BeginTransactionOption
+
+	_ = c.state.Reset(connectionstate.ContextUser)
 	// TODO: Reset the following fields to the connector default
-	c.autocommitDMLMode = Transactional
 	c.readOnlyStaleness = spanner.TimestampBound{}
 	c.execOptions = ExecOptions{
 		DecodeToNativeArrays: c.connector.connectorConfig.DecodeToNativeArrays,
@@ -887,7 +888,7 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 			c.batch.statements = append(c.batch.statements, ss)
 			res = &result{}
 		} else {
-			dmlMode := c.autocommitDMLMode
+			dmlMode := c.AutocommitDMLMode()
 			if execOptions.AutocommitDMLMode != Unspecified {
 				dmlMode = execOptions.AutocommitDMLMode
 			}
@@ -1015,6 +1016,13 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		c.resetForRetry = false
 		return c.tx, nil
 	}
+	// Also start a transaction on the ConnectionState if the BeginTx call was successful.
+	defer func() {
+		if c.tx != nil {
+			_ = c.state.Begin()
+		}
+	}()
+
 	readOnlyTxOpts := c.getReadOnlyTransactionOptions()
 	batchReadOnlyTxOpts := c.getBatchReadOnlyTransactionOptions()
 	readWriteTransactionOptions := c.getTransactionOptions()
@@ -1072,12 +1080,17 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 			roTx:   ro,
 			boTx:   bo,
 			logger: logger,
-			close: func() {
+			close: func(result txResult) {
 				if batchReadOnlyTxOpts.close != nil {
 					batchReadOnlyTxOpts.close()
 				}
 				if readOnlyTxOpts.close != nil {
 					readOnlyTxOpts.close()
+				}
+				if result == txResultCommit {
+					_ = c.state.Commit()
+				} else {
+					_ = c.state.Rollback()
 				}
 				c.tx = nil
 			},
@@ -1095,7 +1108,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		conn:   c,
 		logger: logger,
 		rwTx:   tx,
-		close: func(commitResponse *spanner.CommitResponse, commitErr error) {
+		close: func(result txResult, commitResponse *spanner.CommitResponse, commitErr error) {
 			if readWriteTransactionOptions.close != nil {
 				readWriteTransactionOptions.close()
 			}
@@ -1103,6 +1116,13 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 			c.tx = nil
 			if commitErr == nil {
 				c.commitResponse = commitResponse
+				if result == txResultCommit {
+					_ = c.state.Commit()
+				} else {
+					_ = c.state.Rollback()
+				}
+			} else {
+				_ = c.state.Rollback()
 			}
 		},
 		// Disable internal retries if any of these options have been set.

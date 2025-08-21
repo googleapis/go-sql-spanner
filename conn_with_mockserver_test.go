@@ -23,6 +23,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/testutil"
 )
 
@@ -447,4 +448,106 @@ func TestSetRetryAbortsInternallyInActiveTransaction(t *testing.T) {
 		t.Fatalf("error mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	_ = tx.Rollback()
+}
+
+func TestSetAutocommitDMLMode(t *testing.T) {
+	t.Parallel()
+
+	for _, tp := range []connectionstate.Type{connectionstate.TypeTransactional, connectionstate.TypeNonTransactional} {
+		db, _, teardown := setupTestDBConnectionWithConnectorConfig(t, ConnectorConfig{
+			Project:             "p",
+			Instance:            "i",
+			Database:            "d",
+			ConnectionStateType: tp,
+		})
+		defer teardown()
+
+		conn, err := db.Conn(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = conn.Close() }()
+
+		_ = conn.Raw(func(driverConn interface{}) error {
+			c, _ := driverConn.(SpannerConn)
+			if g, w := c.AutocommitDMLMode(), Transactional; g != w {
+				t.Fatalf("initial value mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			if err := c.SetAutocommitDMLMode(PartitionedNonAtomic); err != nil {
+				t.Fatal(err)
+			}
+			if g, w := c.AutocommitDMLMode(), PartitionedNonAtomic; g != w {
+				t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			return nil
+		})
+
+		// Set the value in a transaction and commit.
+		tx, err := conn.BeginTx(context.Background(), &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = conn.Raw(func(driverConn interface{}) error {
+			c, _ := driverConn.(SpannerConn)
+			// The value should be the same as before the transaction started.
+			if g, w := c.AutocommitDMLMode(), PartitionedNonAtomic; g != w {
+				t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			// Changes in a transaction should be visible in the transaction.
+			if err := c.SetAutocommitDMLMode(Transactional); err != nil {
+				t.Fatal(err)
+			}
+			if g, w := c.AutocommitDMLMode(), Transactional; g != w {
+				t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			return nil
+		})
+		// Committing the transaction should make the change durable (and is a no-op if the connection state type is
+		// non-transactional).
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+		_ = conn.Raw(func(driverConn interface{}) error {
+			c, _ := driverConn.(SpannerConn)
+			if g, w := c.AutocommitDMLMode(), Transactional; g != w {
+				t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			return nil
+		})
+
+		// Set the value in a transaction and rollback.
+		tx, err = conn.BeginTx(context.Background(), &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = conn.Raw(func(driverConn interface{}) error {
+			c, _ := driverConn.(SpannerConn)
+			if err := c.SetAutocommitDMLMode(PartitionedNonAtomic); err != nil {
+				t.Fatal(err)
+			}
+			if g, w := c.AutocommitDMLMode(), PartitionedNonAtomic; g != w {
+				t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			return nil
+		})
+		// Rolling back the transaction will undo the change if the connection state is transactional.
+		// In case of non-transactional state, the rollback does not have an effect, as the state change was persisted
+		// directly when SetAutocommitDMLMode was called.
+		if err := tx.Rollback(); err != nil {
+			t.Fatal(err)
+		}
+		_ = conn.Raw(func(driverConn interface{}) error {
+			c, _ := driverConn.(SpannerConn)
+			var expected AutocommitDMLMode
+			if tp == connectionstate.TypeTransactional {
+				expected = Transactional
+			} else {
+				expected = PartitionedNonAtomic
+			}
+			if g, w := c.AutocommitDMLMode(), expected; g != w {
+				t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			return nil
+		})
+	}
 }
