@@ -694,6 +694,7 @@ func (c *conn) ResetSession(_ context.Context) error {
 	c.readOnlyStaleness = spanner.TimestampBound{}
 	c.execOptions = ExecOptions{
 		DecodeToNativeArrays: c.connector.connectorConfig.DecodeToNativeArrays,
+		PreloadRowsInMemory:  c.connector.connectorConfig.PreloadRowsInMemory,
 	}
 	return nil
 }
@@ -826,6 +827,9 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 		if err != nil {
 			return nil, err
 		}
+	}
+	if execOptions.PreloadRowsInMemory {
+		iter = newPrefetchRowIterator(ctx, iter)
 	}
 	res := createRows(iter, execOptions)
 	if execOptions.DirectExecuteQuery {

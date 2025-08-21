@@ -207,6 +207,13 @@ type ExecOptions struct {
 	// the execution. Set this flag to true to execute the query directly when
 	// [sql.DB.QueryContext] is called.
 	DirectExecuteQuery bool
+
+	// PreloadRowsInMemory determines whether result rows should be prefetched
+	// into memory asynchronously upon query start, instead of waiting for calls
+	// to [sql.Rows.Next]. This can reduce latency when iterating rows later at the
+	// cost of increased memory usage. Enable via connection params or set on the
+	// connection before executing a query.
+	PreloadRowsInMemory bool
 }
 
 type DecodeOption int
@@ -320,6 +327,10 @@ type ConnectorConfig struct {
 	//
 	// See ExecOptions.DecodeToNativeArrays for more information.
 	DecodeToNativeArrays bool
+
+	// PreloadRowsInMemory determines whether connections should, by default,
+	// preload query rows in memory. Can be overridden per statement via ExecOptions.
+	PreloadRowsInMemory bool
 
 	logger *slog.Logger
 	name   string
@@ -547,6 +558,11 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	if strval, ok := connectorConfig.Params[strings.ToLower("DecodeToNativeArrays")]; ok {
 		if val, err := strconv.ParseBool(strval); err == nil {
 			connectorConfig.DecodeToNativeArrays = val
+		}
+	}
+	if strval, ok := connectorConfig.Params[strings.ToLower("PreloadRowsInMemory")]; ok {
+		if val, err := strconv.ParseBool(strval); err == nil {
+			connectorConfig.PreloadRowsInMemory = val
 		}
 	}
 	if strval, ok := connectorConfig.Params[strings.ToLower("AutoConfigEmulator")]; ok {
