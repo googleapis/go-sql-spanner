@@ -502,7 +502,7 @@ func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.St
 		tx.batch.statements = append(tx.batch.statements, stmt)
 		updateCount := int64(0)
 		if tx.batch.automatic {
-			updateCount = tx.conn.autoBatchDmlUpdateCount
+			updateCount = tx.conn.AutoBatchDmlUpdateCount()
 		}
 		tx.batch.returnValues = append(tx.batch.returnValues, updateCount)
 		return &result{rowsAffected: updateCount}, nil
@@ -579,7 +579,7 @@ func (tx *readWriteTransaction) maybeRunAutoDmlBatch(ctx context.Context) error 
 	if err != nil {
 		return fmt.Errorf("running auto-dml-batch failed: %w", err)
 	}
-	if !tx.conn.autoBatchDmlUpdateCountVerification {
+	if !tx.conn.AutoBatchDmlUpdateCountVerification() {
 		// Skip verification.
 		return nil
 	}

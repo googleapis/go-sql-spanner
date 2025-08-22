@@ -31,7 +31,7 @@ import (
 )
 
 func TestStatementExecutor_StartBatchDdl(t *testing.T) {
-	c := &conn{retryAborts: true, logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
+	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 	s := &statementExecutor{}
 	ctx := context.Background()
 
@@ -62,7 +62,7 @@ func TestStatementExecutor_StartBatchDdl(t *testing.T) {
 }
 
 func TestStatementExecutor_StartBatchDml(t *testing.T) {
-	c := &conn{retryAborts: true, logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
+	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 	s := &statementExecutor{}
 	ctx := context.Background()
 
@@ -99,7 +99,7 @@ func TestStatementExecutor_StartBatchDml(t *testing.T) {
 }
 
 func TestStatementExecutor_RetryAbortsInternally(t *testing.T) {
-	c := &conn{retryAborts: true, logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
+	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 	s := &statementExecutor{}
 	ctx := context.Background()
 	for i, test := range []struct {
@@ -283,7 +283,7 @@ func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
 func TestShowCommitTimestamp(t *testing.T) {
 	t.Parallel()
 
-	c := &conn{retryAborts: true, logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
+	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 	s := &statementExecutor{}
 	ctx := context.Background()
 
@@ -329,7 +329,7 @@ func TestShowCommitTimestamp(t *testing.T) {
 }
 
 func TestStatementExecutor_ExcludeTxnFromChangeStreams(t *testing.T) {
-	c := &conn{retryAborts: true, logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
+	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 	s := &statementExecutor{}
 	ctx := context.Background()
 	for i, test := range []struct {
@@ -458,7 +458,7 @@ func TestStatementExecutor_SetTransactionTag(t *testing.T) {
 		{"", "tag-with-missing-opening-quote'", true},
 		{"", "'tag-with-missing-closing-quote", true},
 	} {
-		c := &conn{retryAborts: true, logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
+		c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 		s := &statementExecutor{}
 
 		it, err := s.ShowTransactionTag(ctx, c, "", ExecOptions{}, nil)
@@ -518,7 +518,7 @@ func TestStatementExecutor_SetTransactionTag(t *testing.T) {
 
 func TestStatementExecutor_UsesExecOptions(t *testing.T) {
 	ctx := context.Background()
-	c := &conn{retryAborts: true, logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
+	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 	s := &statementExecutor{}
 
 	it, err := s.ShowTransactionTag(ctx, c, "", ExecOptions{DecodeOption: DecodeOptionProto, ReturnResultSetMetadata: true, ReturnResultSetStats: true}, nil)

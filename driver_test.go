@@ -282,7 +282,7 @@ func TestExtractDnsParts(t *testing.T) {
 				}
 				conn, err := newOrCachedConnector(&Driver{connectors: make(map[string]*connector)}, tc.input)
 				if err != nil {
-					t.Errorf("failed to get connector for %q: %v", tc.input, err)
+					t.Fatalf("failed to get connector for %q: %v", tc.input, err)
 				}
 				if diff := cmp.Diff(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{}, spanner.InactiveTransactionRemovalOptions{}, spannerpb.ExecuteSqlRequest_QueryOptions{})); diff != "" {
 					t.Errorf("connector Spanner client config mismatch for %q\n%v", tc.input, diff)
@@ -487,10 +487,9 @@ func TestConnection_Reset(t *testing.T) {
 		connector: &connector{
 			connectorConfig: ConnectorConfig{},
 		},
-		state:             createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
-		readOnlyStaleness: spanner.ExactStaleness(time.Second),
-		batch:             &batch{tp: dml},
-		commitResponse:    &spanner.CommitResponse{},
+		state:          createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		batch:          &batch{tp: dml},
+		commitResponse: &spanner.CommitResponse{},
 		tx: &readOnlyTransaction{
 			logger: noopLogger,
 			close: func(_ txResult) {
@@ -499,10 +498,13 @@ func TestConnection_Reset(t *testing.T) {
 		},
 	}
 
+	if err := c.SetReadOnlyStaleness(spanner.ExactStaleness(time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	if err := c.ResetSession(context.Background()); err != nil {
 		t.Fatalf("failed to reset session: %v", err)
 	}
-	if !cmp.Equal(c.readOnlyStaleness, spanner.TimestampBound{}, cmp.AllowUnexported(spanner.TimestampBound{})) {
+	if !cmp.Equal(c.ReadOnlyStaleness(), spanner.TimestampBound{}, cmp.AllowUnexported(spanner.TimestampBound{})) {
 		t.Error("failed to reset read-only staleness")
 	}
 	if c.inBatch() {
@@ -663,6 +665,7 @@ func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
 	c := &conn{
 		parser: parser,
 		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
 		batch:  &batch{tp: dml},
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
@@ -793,6 +796,7 @@ func TestConn_GetCommitResponseAfterAutocommitQuery(t *testing.T) {
 	c := &conn{
 		parser: parser,
 		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
