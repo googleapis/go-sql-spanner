@@ -91,13 +91,20 @@ func (ri *readOnlyRowIterator) ResultSetStats() *sppb.ResultSetStats {
 	}
 }
 
+type txResult int
+
+const (
+	txResultCommit txResult = iota
+	txResultRollback
+)
+
 var _ contextTransaction = &readOnlyTransaction{}
 
 type readOnlyTransaction struct {
 	roTx   *spanner.ReadOnlyTransaction
 	boTx   *spanner.BatchReadOnlyTransaction
 	logger *slog.Logger
-	close  func()
+	close  func(result txResult)
 }
 
 func (tx *readOnlyTransaction) Commit() error {
@@ -109,7 +116,7 @@ func (tx *readOnlyTransaction) Commit() error {
 	} else if tx.roTx != nil {
 		tx.roTx.Close()
 	}
-	tx.close()
+	tx.close(txResultCommit)
 	return nil
 }
 
@@ -120,7 +127,7 @@ func (tx *readOnlyTransaction) Rollback() error {
 	if tx.roTx != nil {
 		tx.roTx.Close()
 	}
-	tx.close()
+	tx.close(txResultRollback)
 	return nil
 }
 
@@ -233,7 +240,7 @@ type readWriteTransaction struct {
 	active bool
 	// batch is any DML batch that is active for this transaction.
 	batch *batch
-	close func(commitResponse *spanner.CommitResponse, commitErr error)
+	close func(result txResult, commitResponse *spanner.CommitResponse, commitErr error)
 	// retryAborts indicates whether this transaction will automatically retry
 	// the transaction if it is aborted by Spanner. The default is true.
 	retryAborts bool
@@ -409,7 +416,7 @@ func (tx *readWriteTransaction) Commit() (err error) {
 	if tx.rwTx != nil {
 		if !tx.retryAborts {
 			ts, err := tx.rwTx.CommitWithReturnResp(tx.ctx)
-			tx.close(&ts, err)
+			tx.close(txResultCommit, &ts, err)
 			return err
 		}
 
@@ -421,7 +428,7 @@ func (tx *readWriteTransaction) Commit() (err error) {
 			tx.rwTx.Rollback(context.Background())
 		}
 	}
-	tx.close(&commitResponse, err)
+	tx.close(txResultCommit, &commitResponse, err)
 	return err
 }
 
@@ -439,7 +446,7 @@ func (tx *readWriteTransaction) rollback(ctx context.Context) error {
 	if tx.rwTx != nil {
 		tx.rwTx.Rollback(ctx)
 	}
-	tx.close(nil, nil)
+	tx.close(txResultRollback, nil, nil)
 	return nil
 }
 
