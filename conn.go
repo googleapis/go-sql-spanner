@@ -225,7 +225,6 @@ type conn struct {
 	resetForRetry  bool
 	commitResponse *spanner.CommitResponse
 	database       string
-	retryAborts    bool
 
 	execSingleQuery              func(ctx context.Context, c *spanner.Client, statement spanner.Statement, bound spanner.TimestampBound, options ExecOptions) *spanner.RowIterator
 	execSingleQueryTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (rowIterator, *spanner.CommitResponse, error)
@@ -236,25 +235,6 @@ type conn struct {
 	state *connectionstate.ConnectionState
 	// batch is the currently active DDL or DML batch on this connection.
 	batch *batch
-	// autoBatchDml determines whether DML statements should automatically
-	// be batched and sent to Spanner when a non-DML statement is encountered.
-	autoBatchDml bool
-	// autoBatchDmlUpdateCount determines the update count that is returned for
-	// DML statements that are executed when autoBatchDml is true.
-	autoBatchDmlUpdateCount int64
-	// autoBatchDmlUpdateCountVerification enables/disables the verification
-	// that the update count that was returned for automatically batched DML
-	// statements was correct.
-	autoBatchDmlUpdateCountVerification bool
-
-	// readOnlyStaleness is used for queries in autocommit mode and for read-only transactions.
-	readOnlyStaleness spanner.TimestampBound
-	// isolationLevel determines the default isolation level that is used for read/write
-	// transactions on this connection. This default is ignored if the BeginTx function is
-	// called with an isolation level other than sql.LevelDefault.
-	isolationLevel sql.IsolationLevel
-	// beginTransactionOption determines the default transactions start mode.
-	beginTransactionOption spanner.BeginTransactionOption
 
 	// execOptions are applied to the next statement or transaction that is executed
 	// on this connection. It can also be set by passing it in as an argument to
@@ -289,7 +269,7 @@ func (c *conn) CommitResponse() (commitResponse *spanner.CommitResponse, err err
 }
 
 func (c *conn) RetryAbortsInternally() bool {
-	return c.retryAborts
+	return propertyRetryAbortsInternally.GetValueOrDefault(c.state)
 }
 
 func (c *conn) SetRetryAbortsInternally(retry bool) error {
@@ -299,9 +279,13 @@ func (c *conn) SetRetryAbortsInternally(retry bool) error {
 
 func (c *conn) setRetryAbortsInternally(retry bool) (driver.Result, error) {
 	if c.inTransaction() {
-		return c.tx.setRetryAbortsInternally(retry)
+		if _, err := c.tx.setRetryAbortsInternally(retry); err != nil {
+			return nil, err
+		}
 	}
-	c.retryAborts = retry
+	if err := propertyRetryAbortsInternally.SetValue(c.state, retry, connectionstate.ContextUser); err != nil {
+		return nil, err
+	}
 	return driver.ResultNoRows, nil
 }
 
@@ -325,7 +309,7 @@ func (c *conn) setAutocommitDMLMode(mode AutocommitDMLMode) (driver.Result, erro
 }
 
 func (c *conn) ReadOnlyStaleness() spanner.TimestampBound {
-	return c.readOnlyStaleness
+	return propertyReadOnlyStaleness.GetValueOrDefault(c.state)
 }
 
 func (c *conn) SetReadOnlyStaleness(staleness spanner.TimestampBound) error {
@@ -334,17 +318,18 @@ func (c *conn) SetReadOnlyStaleness(staleness spanner.TimestampBound) error {
 }
 
 func (c *conn) setReadOnlyStaleness(staleness spanner.TimestampBound) (driver.Result, error) {
-	c.readOnlyStaleness = staleness
+	if err := propertyReadOnlyStaleness.SetValue(c.state, staleness, connectionstate.ContextUser); err != nil {
+		return nil, err
+	}
 	return driver.ResultNoRows, nil
 }
 
 func (c *conn) IsolationLevel() sql.IsolationLevel {
-	return c.isolationLevel
+	return propertyIsolationLevel.GetValueOrDefault(c.state)
 }
 
 func (c *conn) SetIsolationLevel(level sql.IsolationLevel) error {
-	c.isolationLevel = level
-	return nil
+	return propertyIsolationLevel.SetValue(c.state, level, connectionstate.ContextUser)
 }
 
 func (c *conn) MaxCommitDelay() time.Duration {
@@ -419,30 +404,27 @@ func (c *conn) setStatementTag(statementTag string) (driver.Result, error) {
 }
 
 func (c *conn) AutoBatchDml() bool {
-	return c.autoBatchDml
+	return propertyAutoBatchDml.GetValueOrDefault(c.state)
 }
 
 func (c *conn) SetAutoBatchDml(autoBatch bool) error {
-	c.autoBatchDml = autoBatch
-	return nil
+	return propertyAutoBatchDml.SetValue(c.state, autoBatch, connectionstate.ContextUser)
 }
 
 func (c *conn) AutoBatchDmlUpdateCount() int64 {
-	return c.autoBatchDmlUpdateCount
+	return propertyAutoBatchDmlUpdateCount.GetValueOrDefault(c.state)
 }
 
 func (c *conn) SetAutoBatchDmlUpdateCount(updateCount int64) error {
-	c.autoBatchDmlUpdateCount = updateCount
-	return nil
+	return propertyAutoBatchDmlUpdateCount.SetValue(c.state, updateCount, connectionstate.ContextUser)
 }
 
 func (c *conn) AutoBatchDmlUpdateCountVerification() bool {
-	return c.autoBatchDmlUpdateCountVerification
+	return propertyAutoBatchDmlUpdateCountVerification.GetValueOrDefault(c.state)
 }
 
 func (c *conn) SetAutoBatchDmlUpdateCountVerification(verify bool) error {
-	c.autoBatchDmlUpdateCountVerification = verify
-	return nil
+	return propertyAutoBatchDmlUpdateCountVerification.SetValue(c.state, verify, connectionstate.ContextUser)
 }
 
 func (c *conn) StartBatchDDL() error {
@@ -683,16 +665,8 @@ func (c *conn) ResetSession(_ context.Context) error {
 	}
 	c.commitResponse = nil
 	c.batch = nil
-	c.autoBatchDml = c.connector.connectorConfig.AutoBatchDml
-	c.autoBatchDmlUpdateCount = c.connector.connectorConfig.AutoBatchDmlUpdateCount
-	c.autoBatchDmlUpdateCountVerification = !c.connector.connectorConfig.DisableAutoBatchDmlUpdateCountVerification
-	c.retryAborts = c.connector.retryAbortsInternally
-	c.isolationLevel = c.connector.connectorConfig.IsolationLevel
-	c.beginTransactionOption = c.connector.connectorConfig.BeginTransactionOption
 
 	_ = c.state.Reset(connectionstate.ContextUser)
-	// TODO: Reset the following fields to the connector default
-	c.readOnlyStaleness = spanner.TimestampBound{}
 	c.execOptions = ExecOptions{
 		DecodeToNativeArrays: c.connector.connectorConfig.DecodeToNativeArrays,
 	}
@@ -817,7 +791,7 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecO
 			// The statement was either detected as being a query, or potentially not recognized at all.
 			// In that case, just default to using a single-use read-only transaction and let Spanner
 			// return an error if the statement is not suited for that type of transaction.
-			iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt, c.readOnlyStaleness, execOptions)}
+			iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt, c.ReadOnlyStaleness(), execOptions)}
 		}
 	} else {
 		if execOptions.PartitionedQueryOptions.PartitionQuery {
@@ -875,7 +849,7 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 	}
 
 	// Start an automatic DML batch.
-	if c.autoBatchDml && !c.inBatch() && c.inReadWriteTransaction() {
+	if c.AutoBatchDml() && !c.inBatch() && c.inReadWriteTransaction() {
 		if _, err := c.startBatchDML( /* automatic = */ true); err != nil {
 			return nil, err
 		}
@@ -964,19 +938,19 @@ func (c *conn) getTransactionOptions() ReadWriteTransactionOptions {
 	}()
 	txOpts := ReadWriteTransactionOptions{
 		TransactionOptions:     c.execOptions.TransactionOptions,
-		DisableInternalRetries: !c.retryAborts,
+		DisableInternalRetries: !c.RetryAbortsInternally(),
 	}
 	// Only use the default isolation level from the connection if the ExecOptions
 	// did not contain a more specific isolation level.
 	if txOpts.TransactionOptions.IsolationLevel == spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED {
 		// This should never really return an error, but we check just to be absolutely sure.
-		level, err := toProtoIsolationLevel(c.isolationLevel)
+		level, err := toProtoIsolationLevel(c.IsolationLevel())
 		if err == nil {
 			txOpts.TransactionOptions.IsolationLevel = level
 		}
 	}
 	if txOpts.TransactionOptions.BeginTransactionOption == spanner.DefaultBeginTransaction {
-		txOpts.TransactionOptions.BeginTransactionOption = c.convertDefaultBeginTransactionOption(c.beginTransactionOption)
+		txOpts.TransactionOptions.BeginTransactionOption = c.convertDefaultBeginTransactionOption(propertyBeginTransactionOption.GetValueOrDefault(c.state))
 	}
 	return txOpts
 }
@@ -992,7 +966,7 @@ func (c *conn) getReadOnlyTransactionOptions() ReadOnlyTransactionOptions {
 		opts.BeginTransactionOption = c.convertDefaultBeginTransactionOption(opts.BeginTransactionOption)
 		return opts
 	}
-	return ReadOnlyTransactionOptions{TimestampBound: c.readOnlyStaleness, BeginTransactionOption: c.convertDefaultBeginTransactionOption(c.beginTransactionOption)}
+	return ReadOnlyTransactionOptions{TimestampBound: c.ReadOnlyStaleness(), BeginTransactionOption: c.convertDefaultBeginTransactionOption(propertyBeginTransactionOption.GetValueOrDefault(c.state))}
 }
 
 func (c *conn) withTempBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransactionOptions) {
@@ -1004,7 +978,7 @@ func (c *conn) getBatchReadOnlyTransactionOptions() BatchReadOnlyTransactionOpti
 		defer func() { c.tempBatchReadOnlyTransactionOptions = nil }()
 		return *c.tempBatchReadOnlyTransactionOptions
 	}
-	return BatchReadOnlyTransactionOptions{TimestampBound: c.readOnlyStaleness}
+	return BatchReadOnlyTransactionOptions{TimestampBound: c.ReadOnlyStaleness()}
 }
 
 func (c *conn) Begin() (driver.Tx, error) {
@@ -1134,10 +1108,10 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 
 func (c *conn) convertDefaultBeginTransactionOption(opt spanner.BeginTransactionOption) spanner.BeginTransactionOption {
 	if opt == spanner.DefaultBeginTransaction {
-		if c.beginTransactionOption == spanner.DefaultBeginTransaction {
+		if propertyBeginTransactionOption.GetValueOrDefault(c.state) == spanner.DefaultBeginTransaction {
 			return spanner.InlinedBeginTransaction
 		}
-		return c.beginTransactionOption
+		return propertyBeginTransactionOption.GetValueOrDefault(c.state)
 	}
 	return opt
 }
