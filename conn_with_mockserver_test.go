@@ -634,3 +634,150 @@ func TestConfigureConnectionProperty(t *testing.T) {
 		}
 	}
 }
+
+func TestSetAndShowWithExtension(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	// Getting an unknown variable fails, even if it is a variable with an extension.
+	if _, err := conn.QueryContext(ctx, "show my_extension.my_property"); err == nil {
+		t.Fatal("missing expected error")
+	}
+
+	// Setting an unknown variable with an extension is allowed.
+	if _, err := conn.ExecContext(context.Background(), "set my_extension.my_property='my-value'"); err != nil {
+		t.Fatal(err)
+	}
+	it, err := conn.QueryContext(ctx, "show my_extension.my_property")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !it.Next() {
+		t.Fatal("expected it.Next to return true")
+	}
+	var val string
+	if err := it.Scan(&val); err != nil {
+		t.Fatal(err)
+	}
+	if g, w := val, "my-value"; g != w {
+		t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if it.Next() {
+		t.Fatal("expected it.Next to return false")
+	}
+	if err := it.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSetAndShowIsolationLevel(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	// Isolation level should start with 'Default'.
+	row := conn.QueryRowContext(ctx, "show isolation_level")
+	var val string
+	if err := row.Scan(&val); err != nil {
+		t.Fatal(err)
+	}
+	if g, w := val, sql.LevelDefault.String(); g != w {
+		t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// We can set the isolation level using a SET statement.
+	if _, err := conn.ExecContext(context.Background(), "set isolation_level = 'repeatable_read'"); err != nil {
+		t.Fatal(err)
+	}
+	// The isolation level should now be 'RepeatableRead'.
+	row = conn.QueryRowContext(ctx, "show isolation_level")
+	if err := row.Scan(&val); err != nil {
+		t.Fatal(err)
+	}
+	if g, w := val, sql.LevelRepeatableRead.String(); g != w {
+		t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	// Verify that this is also the value that the connection uses.
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	requests := drainRequestsFromServer(server.TestSpanner)
+	executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	request := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+	wantIsolationLevel, _ := toProtoIsolationLevel(sql.LevelRepeatableRead)
+	if g, w := request.Transaction.GetBegin().GetIsolationLevel(), wantIsolationLevel; g != w {
+		t.Fatalf("begin isolation level mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestSetLocalIsolationLevel(t *testing.T) {
+	t.Skip("temporarily skipped, as transactions get their settings from the connection when the BeginTx call is done, instead of reading them when the transaction is actually started")
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	// Start a transaction without specifying the isolation level.
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// We can set the isolation level only for this transaction using a SET LOCAL statement.
+	if _, err := tx.ExecContext(context.Background(), "set local isolation_level = 'repeatable_read'"); err != nil {
+		t.Fatal(err)
+	}
+	// The isolation level should now be 'RepeatableRead'.
+	var val string
+	row := tx.QueryRowContext(ctx, "show isolation_level")
+	if err := row.Scan(&val); err != nil {
+		t.Fatal(err)
+	}
+	if g, w := val, sql.LevelRepeatableRead.String(); g != w {
+		t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	// Verify that the transaction actually uses the isolation level.
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	requests := drainRequestsFromServer(server.TestSpanner)
+	executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	request := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+	wantIsolationLevel, _ := toProtoIsolationLevel(sql.LevelRepeatableRead)
+	if g, w := request.Transaction.GetBegin().GetIsolationLevel(), wantIsolationLevel; g != w {
+		t.Fatalf("begin isolation level mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}

@@ -55,6 +55,14 @@ type ConnectionProperty interface {
 	CreateDefaultValue() ConnectionPropertyValue
 	// CreateInitialValue creates an initial value of the property with the given value as the default and reset value.
 	CreateInitialValue(value any) (ConnectionPropertyValue, error)
+	// GetValue returns the current value of the property.
+	GetValue(state *ConnectionState) (any, error)
+	// SetUntypedValue sets a new value for the property without knowing the type in advance.
+	// This is a synonym for SetValue.
+	SetUntypedValue(state *ConnectionState, value any, context Context) error
+	// SetLocalUntypedValue sets a new local value for the property without knowing the type in advance.
+	// This is a synonym for SetLocalValue.
+	SetLocalUntypedValue(state *ConnectionState, value any) error
 	// Convert converts a string to the corresponding value type of the connection property.
 	Convert(value string) (any, error)
 }
@@ -155,6 +163,11 @@ func (p *TypedConnectionProperty[T]) Convert(value string) (any, error) {
 	return p.converter(value)
 }
 
+// GetValue implements ConnectionPropertyValue.GetValue
+func (p *TypedConnectionProperty[T]) GetValue(state *ConnectionState) (any, error) {
+	return p.GetValueOrError(state)
+}
+
 // GetValueOrDefault returns the current value of the property in the given ConnectionState.
 // It returns the default of the property if no value is found.
 func (p *TypedConnectionProperty[T]) GetValueOrDefault(state *ConnectionState) T {
@@ -202,6 +215,15 @@ func (p *TypedConnectionProperty[T]) ResetValue(state *ConnectionState, context 
 	return p.setConnectionStateValue(state, typedResetValue /*isReset=*/, true, context)
 }
 
+// SetUntypedValue implements ConnectionProperty.SetUntypedValue.
+func (p *TypedConnectionProperty[T]) SetUntypedValue(state *ConnectionState, value any, context Context) error {
+	valueT, ok := value.(T)
+	if !ok {
+		return status.Errorf(codes.InvalidArgument, "invalid type for value: %T", value)
+	}
+	return p.SetValue(state, valueT, context)
+}
+
 // SetValue sets the value of the property in the given ConnectionState.
 //
 // The given Context should indicate the current context where the application tries to reset the value, e.g. it should
@@ -240,6 +262,15 @@ func (p *TypedConnectionProperty[T]) setConnectionStateValue(state *ConnectionSt
 		delete(state.localProperties, p.key)
 	}
 	return nil
+}
+
+// SetLocalUntypedValue implements ConnectionProperty.SetLocalUntypedValue.
+func (p *TypedConnectionProperty[T]) SetLocalUntypedValue(state *ConnectionState, value any) error {
+	valueT, ok := value.(T)
+	if !ok {
+		return status.Errorf(codes.InvalidArgument, "invalid type for value: %T", value)
+	}
+	return p.SetLocalValue(state, valueT)
 }
 
 // SetLocalValue sets the local value of the property in the given ConnectionState. A local value is only visible
@@ -311,6 +342,8 @@ type ConnectionPropertyValue interface {
 	ConnectionProperty() ConnectionProperty
 	// Copy creates a shallow copy of the ConnectionPropertyValue.
 	Copy() ConnectionPropertyValue
+	// GetValue gets the current value of the property.
+	GetValue() (any, error)
 	// ClearValue removes the value of the property.
 	ClearValue(context Context) error
 	// SetValue sets the value of the property. The given value must be a valid value for the property.
@@ -348,6 +381,10 @@ func (v *connectionPropertyValue[T]) Copy() ConnectionPropertyValue {
 		hasValue:           v.hasValue,
 		removeAtReset:      v.removeAtReset,
 	}
+}
+
+func (v *connectionPropertyValue[T]) GetValue() (any, error) {
+	return v.value, nil
 }
 
 func (v *connectionPropertyValue[T]) ClearValue(context Context) error {
