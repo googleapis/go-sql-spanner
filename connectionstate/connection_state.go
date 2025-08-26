@@ -110,6 +110,67 @@ func NewConnectionState(connectionStateType Type, properties map[string]Connecti
 	return state, nil
 }
 
+func toKey(extension, name string) (key string) {
+	if extension == "" {
+		key = name
+	} else {
+		key = name + "." + extension
+	}
+	return
+}
+
+func (cs *ConnectionState) GetValue(extension, name string) (any, error) {
+	prop, err := cs.findProperty(extension, name)
+	if err != nil {
+		return nil, err
+	}
+	return prop.GetValue(cs)
+}
+
+func (cs *ConnectionState) SetValue(extension, name, value string, context Context) error {
+	return cs.setValue(extension, name, value, context, false)
+}
+
+func (cs *ConnectionState) SetLocalValue(extension, name, value string) error {
+	return cs.setValue(extension, name, value, ContextUser, true)
+}
+
+func (cs *ConnectionState) setValue(extension, name, value string, context Context, local bool) error {
+	prop, err := cs.findProperty(extension, name)
+	if err != nil {
+		return err
+	}
+	convertedValue, err := prop.Convert(value)
+	if err != nil {
+		return err
+	}
+	if local {
+		return prop.SetLocalUntypedValue(cs, convertedValue)
+	}
+	return prop.SetUntypedValue(cs, convertedValue, context)
+}
+
+func (cs *ConnectionState) findProperty(extension, name string) (ConnectionProperty, error) {
+	key := toKey(extension, name)
+	var prop ConnectionProperty
+	existingValue, ok := cs.properties[key]
+	if !ok {
+		prop = &TypedConnectionProperty[string]{
+			key:       key,
+			extension: extension,
+			name:      name,
+			context:   ContextUser,
+			converter: ConvertString,
+		}
+		if extension == "" {
+			return nil, unknownPropertyErr(prop)
+		}
+	} else {
+		prop = existingValue.ConnectionProperty()
+	}
+	return prop, nil
+}
+
 // Begin starts a new transaction for this ConnectionState.
 func (cs *ConnectionState) Begin() error {
 	if cs.inTransaction {

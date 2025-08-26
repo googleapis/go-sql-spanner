@@ -268,6 +268,40 @@ func (c *conn) CommitResponse() (commitResponse *spanner.CommitResponse, err err
 	return c.commitResponse, nil
 }
 
+func (c *conn) showConnectionVariable(identifier identifier) (any, error) {
+	extension, name, err := toExtensionAndName(identifier)
+	if err != nil {
+		return nil, err
+	}
+	return c.state.GetValue(extension, name)
+}
+
+func (c *conn) setConnectionVariable(identifier identifier, value string, local bool) error {
+	extension, name, err := toExtensionAndName(identifier)
+	if err != nil {
+		return err
+	}
+	if local {
+		return c.state.SetLocalValue(extension, name, value)
+	}
+	return c.state.SetValue(extension, name, value, connectionstate.ContextUser)
+}
+
+func toExtensionAndName(identifier identifier) (string, string, error) {
+	var extension string
+	var name string
+	if len(identifier.parts) == 1 {
+		extension = ""
+		name = identifier.parts[0]
+	} else if len(identifier.parts) == 2 {
+		extension = identifier.parts[0]
+		name = identifier.parts[1]
+	} else {
+		return "", "", status.Errorf(codes.InvalidArgument, "invalid variable name: %s", identifier)
+	}
+	return extension, name, nil
+}
+
 func (c *conn) RetryAbortsInternally() bool {
 	return propertyRetryAbortsInternally.GetValueOrDefault(c.state)
 }
