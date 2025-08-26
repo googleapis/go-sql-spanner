@@ -660,6 +660,9 @@ func TestSimpleReadWriteTransaction(t *testing.T) {
 		t.Fatalf("commit requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	commitReq := commitRequests[0].(*sppb.CommitRequest)
+	if commitReq.MaxCommitDelay == nil {
+		t.Fatal("missing max commit delay for CommitRequest")
+	}
 	if g, w := commitReq.MaxCommitDelay.Nanos, int32(time.Millisecond*10); g != w {
 		t.Fatalf("max_commit_delay mismatch\n Got: %v\nWant: %v", g, w)
 	}
