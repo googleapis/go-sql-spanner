@@ -48,7 +48,7 @@ import (
 type statementExecutor struct {
 }
 
-func (s *statementExecutor) ShowCommitTimestamp(_ context.Context, c *conn, _ string, opts ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
+func (s *statementExecutor) ShowCommitTimestamp(_ context.Context, c *conn, _ string, opts *ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
 	ts, err := c.CommitTimestamp()
 	var commitTs *time.Time
 	if err == nil {
@@ -61,7 +61,7 @@ func (s *statementExecutor) ShowCommitTimestamp(_ context.Context, c *conn, _ st
 	return createRows(it, opts), nil
 }
 
-func (s *statementExecutor) ShowRetryAbortsInternally(_ context.Context, c *conn, _ string, opts ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
+func (s *statementExecutor) ShowRetryAbortsInternally(_ context.Context, c *conn, _ string, opts *ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
 	it, err := createBooleanIterator("RetryAbortsInternally", c.RetryAbortsInternally())
 	if err != nil {
 		return nil, err
@@ -69,7 +69,7 @@ func (s *statementExecutor) ShowRetryAbortsInternally(_ context.Context, c *conn
 	return createRows(it, opts), nil
 }
 
-func (s *statementExecutor) ShowAutoBatchDml(_ context.Context, c *conn, _ string, opts ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
+func (s *statementExecutor) ShowAutoBatchDml(_ context.Context, c *conn, _ string, opts *ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
 	it, err := createBooleanIterator("AutoBatchDml", c.AutoBatchDml())
 	if err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func (s *statementExecutor) ShowAutoBatchDml(_ context.Context, c *conn, _ strin
 	return createRows(it, opts), nil
 }
 
-func (s *statementExecutor) ShowAutoBatchDmlUpdateCount(_ context.Context, c *conn, _ string, opts ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
+func (s *statementExecutor) ShowAutoBatchDmlUpdateCount(_ context.Context, c *conn, _ string, opts *ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
 	it, err := createInt64Iterator("AutoBatchDmlUpdateCount", c.AutoBatchDmlUpdateCount())
 	if err != nil {
 		return nil, err
@@ -85,7 +85,7 @@ func (s *statementExecutor) ShowAutoBatchDmlUpdateCount(_ context.Context, c *co
 	return createRows(it, opts), nil
 }
 
-func (s *statementExecutor) ShowAutoBatchDmlUpdateCountVerification(_ context.Context, c *conn, opts ExecOptions, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+func (s *statementExecutor) ShowAutoBatchDmlUpdateCountVerification(_ context.Context, c *conn, opts *ExecOptions, _ string, _ []driver.NamedValue) (driver.Rows, error) {
 	it, err := createBooleanIterator("AutoBatchDmlUpdateCountVerification", c.AutoBatchDmlUpdateCountVerification())
 	if err != nil {
 		return nil, err
@@ -93,7 +93,7 @@ func (s *statementExecutor) ShowAutoBatchDmlUpdateCountVerification(_ context.Co
 	return createRows(it, opts), nil
 }
 
-func (s *statementExecutor) ShowAutocommitDmlMode(_ context.Context, c *conn, _ string, opts ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
+func (s *statementExecutor) ShowAutocommitDmlMode(_ context.Context, c *conn, _ string, opts *ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
 	it, err := createStringIterator("AutocommitDMLMode", c.AutocommitDMLMode().String())
 	if err != nil {
 		return nil, err
@@ -101,7 +101,7 @@ func (s *statementExecutor) ShowAutocommitDmlMode(_ context.Context, c *conn, _ 
 	return createRows(it, opts), nil
 }
 
-func (s *statementExecutor) ShowReadOnlyStaleness(_ context.Context, c *conn, _ string, opts ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
+func (s *statementExecutor) ShowReadOnlyStaleness(_ context.Context, c *conn, _ string, opts *ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
 	it, err := createStringIterator("ReadOnlyStaleness", c.ReadOnlyStaleness().String())
 	if err != nil {
 		return nil, err
@@ -109,55 +109,23 @@ func (s *statementExecutor) ShowReadOnlyStaleness(_ context.Context, c *conn, _ 
 	return createRows(it, opts), nil
 }
 
-func (s *statementExecutor) ShowExcludeTxnFromChangeStreams(_ context.Context, c *conn, _ string, opts ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
-	it, err := createBooleanIterator("ExcludeTxnFromChangeStreams", c.ExcludeTxnFromChangeStreams())
-	if err != nil {
-		return nil, err
-	}
-	return createRows(it, opts), nil
-}
-
-func (s *statementExecutor) ShowMaxCommitDelay(_ context.Context, c *conn, _ string, opts ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
-	it, err := createStringIterator("MaxCommitDelay", c.MaxCommitDelay().String())
-	if err != nil {
-		return nil, err
-	}
-	return createRows(it, opts), nil
-}
-
-func (s *statementExecutor) ShowTransactionTag(_ context.Context, c *conn, _ string, opts ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
-	it, err := createStringIterator("TransactionTag", c.TransactionTag())
-	if err != nil {
-		return nil, err
-	}
-	return createRows(it, opts), nil
-}
-
-func (s *statementExecutor) ShowStatementTag(_ context.Context, c *conn, _ string, opts ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
-	it, err := createStringIterator("StatementTag", c.StatementTag())
-	if err != nil {
-		return nil, err
-	}
-	return createRows(it, opts), nil
-}
-
-func (s *statementExecutor) StartBatchDdl(_ context.Context, c *conn, _ string, _ ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
+func (s *statementExecutor) StartBatchDdl(_ context.Context, c *conn, _ string, _ *ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
 	return c.startBatchDDL()
 }
 
-func (s *statementExecutor) StartBatchDml(_ context.Context, c *conn, _ string, _ ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
+func (s *statementExecutor) StartBatchDml(_ context.Context, c *conn, _ string, _ *ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
 	return c.startBatchDML( /* automatic = */ false)
 }
 
-func (s *statementExecutor) RunBatch(ctx context.Context, c *conn, _ string, _ ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
+func (s *statementExecutor) RunBatch(ctx context.Context, c *conn, _ string, _ *ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
 	return c.runBatch(ctx)
 }
 
-func (s *statementExecutor) AbortBatch(_ context.Context, c *conn, _ string, _ ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
+func (s *statementExecutor) AbortBatch(_ context.Context, c *conn, _ string, _ *ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
 	return c.abortBatch()
 }
 
-func (s *statementExecutor) SetRetryAbortsInternally(_ context.Context, c *conn, params string, _ ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
+func (s *statementExecutor) SetRetryAbortsInternally(_ context.Context, c *conn, params string, _ *ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
 	if params == "" {
 		return nil, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "no value given for RetryAbortsInternally"))
 	}
@@ -168,19 +136,19 @@ func (s *statementExecutor) SetRetryAbortsInternally(_ context.Context, c *conn,
 	return c.setRetryAbortsInternally(retry)
 }
 
-func (s *statementExecutor) SetAutoBatchDml(_ context.Context, c *conn, params string, _ ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
+func (s *statementExecutor) SetAutoBatchDml(_ context.Context, c *conn, params string, _ *ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
 	return setBoolVariable("AutoBatchDml", func(value bool) (driver.Result, error) {
 		return driver.ResultNoRows, c.SetAutoBatchDml(value)
 	}, params)
 }
 
-func (s *statementExecutor) SetAutoBatchDmlUpdateCount(_ context.Context, c *conn, params string, _ ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
+func (s *statementExecutor) SetAutoBatchDmlUpdateCount(_ context.Context, c *conn, params string, _ *ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
 	return setInt64Variable("AutoBatchDmlUpdateCount", func(value int64) (driver.Result, error) {
 		return driver.ResultNoRows, c.SetAutoBatchDmlUpdateCount(value)
 	}, params)
 }
 
-func (s *statementExecutor) SetAutoBatchDmlUpdateCountVerification(_ context.Context, c *conn, params string, _ ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
+func (s *statementExecutor) SetAutoBatchDmlUpdateCountVerification(_ context.Context, c *conn, params string, _ *ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
 	return setBoolVariable("AutoBatchDmlUpdateCountVerification", func(value bool) (driver.Result, error) {
 		return driver.ResultNoRows, c.SetAutoBatchDmlUpdateCountVerification(value)
 	}, params)
@@ -208,7 +176,7 @@ func setInt64Variable(name string, f func(value int64) (driver.Result, error), p
 	return f(value)
 }
 
-func (s *statementExecutor) SetAutocommitDmlMode(_ context.Context, c *conn, params string, _ ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
+func (s *statementExecutor) SetAutocommitDmlMode(_ context.Context, c *conn, params string, _ *ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
 	if params == "" {
 		return nil, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "no value given for AutocommitDMLMode"))
 	}
@@ -224,63 +192,13 @@ func (s *statementExecutor) SetAutocommitDmlMode(_ context.Context, c *conn, par
 	return c.setAutocommitDMLMode(mode)
 }
 
-func (s *statementExecutor) SetExcludeTxnFromChangeStreams(_ context.Context, c *conn, params string, _ ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
-	if params == "" {
-		return nil, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "no value given for ExcludeTxnFromChangeStreams"))
-	}
-	exclude, err := strconv.ParseBool(params)
-	if err != nil {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid boolean value: %s", params))
-	}
-	return c.setExcludeTxnFromChangeStreams(exclude)
-}
-
-var maxCommitDelayRegexp = regexp.MustCompile(`(?i)^\s*('(?P<duration>(\d{1,19})(s|ms|us|ns))'|(?P<number>\d{1,19})|(?P<null>NULL))\s*$`)
-
-func (s *statementExecutor) SetMaxCommitDelay(_ context.Context, c *conn, params string, _ ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
-	duration, err := parseDuration(maxCommitDelayRegexp, "max_commit_delay", params)
-	if err != nil {
-		return nil, err
-	}
-	return c.setMaxCommitDelay(duration)
-}
-
-func (s *statementExecutor) SetTransactionTag(_ context.Context, c *conn, params string, _ ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
-	tag, err := parseTag(params)
-	if err != nil {
-		return nil, err
-	}
-	return c.setTransactionTag(tag)
-}
-
-func (s *statementExecutor) SetStatementTag(_ context.Context, c *conn, params string, _ ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
-	tag, err := parseTag(params)
-	if err != nil {
-		return nil, err
-	}
-	return c.setStatementTag(tag)
-}
-
-func parseTag(params string) (string, error) {
-	if params == "" {
-		return "", spanner.ToSpannerError(status.Error(codes.InvalidArgument, "no value given for tag"))
-	}
-	tag := strings.TrimSpace(params)
-	if !(strings.HasPrefix(tag, "'") && strings.HasSuffix(tag, "'")) {
-		return "", spanner.ToSpannerError(status.Error(codes.InvalidArgument, "missing single quotes around tag"))
-	}
-	tag = strings.TrimLeft(tag, "'")
-	tag = strings.TrimRight(tag, "'")
-	return tag, nil
-}
-
 var strongRegexp = regexp.MustCompile("(?i)'STRONG'")
 var exactStalenessRegexp = regexp.MustCompile(`(?i)'(?P<type>EXACT_STALENESS)[\t ]+(?P<duration>(\d{1,19})(s|ms|us|ns))'`)
 var maxStalenessRegexp = regexp.MustCompile(`(?i)'(?P<type>MAX_STALENESS)[\t ]+(?P<duration>(\d{1,19})(s|ms|us|ns))'`)
 var readTimestampRegexp = regexp.MustCompile(`(?i)'(?P<type>READ_TIMESTAMP)[\t ]+(?P<timestamp>(\d{4})-(\d{2})-(\d{2})([Tt](\d{2}):(\d{2}):(\d{2})(\.\d{1,9})?)([Zz]|([+-])(\d{2}):(\d{2})))'`)
 var minReadTimestampRegexp = regexp.MustCompile(`(?i)'(?P<type>MIN_READ_TIMESTAMP)[\t ]+(?P<timestamp>(\d{4})-(\d{2})-(\d{2})([Tt](\d{2}):(\d{2}):(\d{2})(\.\d{1,9})?)([Zz]|([+-])(\d{2}):(\d{2})))'`)
 
-func (s *statementExecutor) SetReadOnlyStaleness(_ context.Context, c *conn, params string, _ ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
+func (s *statementExecutor) SetReadOnlyStaleness(_ context.Context, c *conn, params string, _ *ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
 	if params == "" {
 		return nil, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "no value given for ReadOnlyStaleness"))
 	}

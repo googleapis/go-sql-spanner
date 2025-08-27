@@ -37,6 +37,7 @@ import (
 	adminapi "cloud.google.com/go/spanner/admin/database/apiv1"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
+	"github.com/golang/protobuf/proto"
 	"github.com/google/uuid"
 	"github.com/googleapis/gax-go/v2"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
@@ -208,6 +209,108 @@ type ExecOptions struct {
 	// the execution. Set this flag to true to execute the query directly when
 	// [sql.DB.QueryContext] is called.
 	DirectExecuteQuery bool
+}
+
+func (dest *ExecOptions) merge(src *ExecOptions) {
+	if src == nil || dest == nil {
+		return
+	}
+	if src.DecodeOption != DecodeOptionNormal {
+		dest.DecodeOption = src.DecodeOption
+	}
+	if src.DecodeToNativeArrays {
+		dest.DecodeToNativeArrays = src.DecodeToNativeArrays
+	}
+	if src.ReturnResultSetStats {
+		dest.ReturnResultSetStats = src.ReturnResultSetStats
+	}
+	if src.ReturnResultSetMetadata {
+		dest.ReturnResultSetMetadata = src.ReturnResultSetMetadata
+	}
+	if src.DirectExecuteQuery {
+		dest.DirectExecuteQuery = src.DirectExecuteQuery
+	}
+	if src.AutocommitDMLMode != Unspecified {
+		dest.AutocommitDMLMode = src.AutocommitDMLMode
+	}
+	(&dest.PartitionedQueryOptions).merge(&src.PartitionedQueryOptions)
+	mergeQueryOptions(&dest.QueryOptions, &src.QueryOptions)
+	mergeTransactionOptions(&dest.TransactionOptions, &src.TransactionOptions)
+}
+
+func mergeTransactionOptions(dest *spanner.TransactionOptions, src *spanner.TransactionOptions) {
+	if src == nil || dest == nil {
+		return
+	}
+	if src.ExcludeTxnFromChangeStreams {
+		dest.ExcludeTxnFromChangeStreams = src.ExcludeTxnFromChangeStreams
+	}
+	if src.TransactionTag != "" {
+		dest.TransactionTag = src.TransactionTag
+	}
+	if src.ReadLockMode != spannerpb.TransactionOptions_ReadWrite_READ_LOCK_MODE_UNSPECIFIED {
+		dest.ReadLockMode = src.ReadLockMode
+	}
+	if src.IsolationLevel != spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED {
+		dest.IsolationLevel = src.IsolationLevel
+	}
+	if src.CommitPriority != spannerpb.RequestOptions_PRIORITY_UNSPECIFIED {
+		dest.CommitPriority = src.CommitPriority
+	}
+	if src.BeginTransactionOption != spanner.DefaultBeginTransaction {
+		dest.BeginTransactionOption = src.BeginTransactionOption
+	}
+	mergeCommitOptions(&dest.CommitOptions, &src.CommitOptions)
+}
+
+func mergeCommitOptions(dest *spanner.CommitOptions, src *spanner.CommitOptions) {
+	if src == nil || dest == nil {
+		return
+	}
+	if src.ReturnCommitStats {
+		dest.ReturnCommitStats = src.ReturnCommitStats
+	}
+	if src.MaxCommitDelay != nil {
+		dest.MaxCommitDelay = src.MaxCommitDelay
+	}
+}
+
+func mergeQueryOptions(dest *spanner.QueryOptions, src *spanner.QueryOptions) {
+	if src == nil || dest == nil {
+		return
+	}
+	if src.ExcludeTxnFromChangeStreams {
+		dest.ExcludeTxnFromChangeStreams = src.ExcludeTxnFromChangeStreams
+	}
+	if src.DataBoostEnabled {
+		dest.DataBoostEnabled = src.DataBoostEnabled
+	}
+	if src.LastStatement {
+		dest.LastStatement = src.LastStatement
+	}
+	if src.Options != nil {
+		if dest.Options != nil {
+			proto.Merge(dest.Options, src.Options)
+		} else {
+			dest.Options = src.Options
+		}
+	}
+	if src.DirectedReadOptions != nil {
+		if dest.DirectedReadOptions == nil {
+			dest.DirectedReadOptions = src.DirectedReadOptions
+		} else {
+			proto.Merge(dest.DirectedReadOptions, src.DirectedReadOptions)
+		}
+	}
+	if src.Mode != nil {
+		dest.Mode = src.Mode
+	}
+	if src.Priority != spannerpb.RequestOptions_PRIORITY_UNSPECIFIED {
+		dest.Priority = src.Priority
+	}
+	if src.RequestTag != "" {
+		dest.RequestTag = src.RequestTag
+	}
 }
 
 type DecodeOption int
@@ -564,13 +667,13 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 }
 
 func assignPropertyValueIfExists[T comparable](state *connectionstate.ConnectionState, property *connectionstate.TypedConnectionProperty[T], field *T) {
-	if val, err := property.GetValueOrError(state); err == nil {
+	if val, _, err := property.GetValueOrError(state); err == nil {
 		*field = val
 	}
 }
 
 func assignNegatedPropertyValueIfExists(state *connectionstate.ConnectionState, property *connectionstate.TypedConnectionProperty[bool], field *bool) {
-	if val, err := property.GetValueOrError(state); err == nil {
+	if val, _, err := property.GetValueOrError(state); err == nil {
 		*field = !val
 	}
 }
@@ -1417,6 +1520,11 @@ func toProtoIsolationLevel(level sql.IsolationLevel) (spannerpb.TransactionOptio
 	default:
 	}
 	return spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid or unsupported isolation level: %v", level))
+}
+
+func toProtoIsolationLevelOrDefault(level sql.IsolationLevel) spannerpb.TransactionOptions_IsolationLevel {
+	res, _ := toProtoIsolationLevel(level)
+	return res
 }
 
 type spannerIsolationLevel sql.IsolationLevel

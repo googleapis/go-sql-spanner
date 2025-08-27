@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/testutil"
@@ -649,7 +650,7 @@ func TestSetAndShowWithExtension(t *testing.T) {
 	defer func() { _ = conn.Close() }()
 
 	// Getting an unknown variable fails, even if it is a variable with an extension.
-	if _, err := conn.QueryContext(ctx, "show my_extension.my_property"); err == nil {
+	if _, err := conn.QueryContext(ctx, "show variable my_extension.my_property"); err == nil {
 		t.Fatal("missing expected error")
 	}
 
@@ -657,7 +658,7 @@ func TestSetAndShowWithExtension(t *testing.T) {
 	if _, err := conn.ExecContext(context.Background(), "set my_extension.my_property='my-value'"); err != nil {
 		t.Fatal(err)
 	}
-	it, err := conn.QueryContext(ctx, "show my_extension.my_property")
+	it, err := conn.QueryContext(ctx, "show variable my_extension.my_property")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -693,7 +694,7 @@ func TestSetAndShowIsolationLevel(t *testing.T) {
 	defer func() { _ = conn.Close() }()
 
 	// Isolation level should start with 'Default'.
-	row := conn.QueryRowContext(ctx, "show isolation_level")
+	row := conn.QueryRowContext(ctx, "show variable isolation_level")
 	var val string
 	if err := row.Scan(&val); err != nil {
 		t.Fatal(err)
@@ -707,7 +708,7 @@ func TestSetAndShowIsolationLevel(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The isolation level should now be 'RepeatableRead'.
-	row = conn.QueryRowContext(ctx, "show isolation_level")
+	row = conn.QueryRowContext(ctx, "show variable isolation_level")
 	if err := row.Scan(&val); err != nil {
 		t.Fatal(err)
 	}
@@ -738,7 +739,6 @@ func TestSetAndShowIsolationLevel(t *testing.T) {
 }
 
 func TestSetLocalIsolationLevel(t *testing.T) {
-	t.Skip("temporarily skipped, as transactions get their settings from the connection when the BeginTx call is done, instead of reading them when the transaction is actually started")
 	t.Parallel()
 
 	db, server, teardown := setupTestDBConnection(t)
@@ -756,7 +756,7 @@ func TestSetLocalIsolationLevel(t *testing.T) {
 	}
 	// The isolation level should now be 'RepeatableRead'.
 	var val string
-	row := tx.QueryRowContext(ctx, "show isolation_level")
+	row := tx.QueryRowContext(ctx, "show variable isolation_level")
 	if err := row.Scan(&val); err != nil {
 		t.Fatal(err)
 	}
@@ -780,4 +780,557 @@ func TestSetLocalIsolationLevel(t *testing.T) {
 	if g, w := request.Transaction.GetBegin().GetIsolationLevel(), wantIsolationLevel; g != w {
 		t.Fatalf("begin isolation level mismatch\n Got: %v\nWant: %v", g, w)
 	}
+}
+
+func TestGenericConnectionState_GoogleSQL(t *testing.T) {
+	t.Parallel()
+
+	// Create an initial connection state with an initial value for max_commit_delay.
+	db, _, teardown := setupTestDBConnectionWithParamsAndDialect(t, "max_commit_delay=100ms", databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+	defer teardown()
+	ctx := context.Background()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify that the initial value of max_commit_delay is used.
+	verifyConnectionPropertyValue(t, conn, "max_commit_delay", "100ms")
+	// Verify that other connection variables have a default value.
+	verifyConnectionPropertyValue(t, conn, "auto_batch_dml", false)
+
+	// Verify that changing a connection variable value outside a transaction works.
+	setConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+	verifyConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+
+	// Verify that changing a connection variable in a transaction works and is visible both in the transaction and
+	// after the transaction, regardless whether the transaction committed or not. GoogleSQL databases use
+	// non-transactional connection state by default.
+	for _, commit := range []bool{true, false} {
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+		setConnectionPropertyValue(t, conn, "max_commit_delay", "'20ms'")
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "20ms")
+		if commit {
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "20ms")
+		// Set the value back to 50ms before the next test.
+		setConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+	}
+	// Verify that resetting a connection variable in a transaction works and is visible both in the transaction and
+	// after the transaction, regardless whether the transaction committed or not. GoogleSQL databases use
+	// non-transactional connection state by default.
+	for _, commit := range []bool{true, false} {
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+		resetConnectionPropertyValue(t, conn, "max_commit_delay")
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "100ms")
+		if commit {
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "100ms")
+		// Set the value back to 50ms before the next test.
+		setConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+	}
+	// Verify that setting a connection variable to NULL in a transaction works and is visible both
+	// in the transaction and after the transaction, regardless whether the transaction committed or not.
+	// GoogleSQL databases use non-transactional connection state by default.
+	for _, commit := range []bool{true, false} {
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+		setConnectionPropertyValue(t, conn, "max_commit_delay", "null")
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "")
+		if commit {
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "")
+		// Set the value back to 50ms before the next test.
+		setConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+	}
+
+	// Verify that RESET sets the value to the original value.
+	resetConnectionPropertyValue(t, conn, "max_commit_delay")
+	verifyConnectionPropertyValue(t, conn, "max_commit_delay", "100ms")
+
+	// Verify that SET ... = DEFAULT sets the value to the original value.
+	setConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+	setConnectionPropertyValue(t, conn, "max_commit_delay", "default")
+	verifyConnectionPropertyValue(t, conn, "max_commit_delay", "100ms")
+
+	// Verify that SET ... = NULL sets the value to the default value for the property.
+	setConnectionPropertyValue(t, conn, "max_commit_delay", "null")
+	verifyConnectionPropertyValue(t, conn, "max_commit_delay", "")
+
+	// Verify that RESET after setting the value to null sets it back to its original value.
+	resetConnectionPropertyValue(t, conn, "max_commit_delay")
+	verifyConnectionPropertyValue(t, conn, "max_commit_delay", "100ms")
+
+	// Verify that SET LOCAL is only visible inside the transaction.
+	for _, commit := range []bool{true, false} {
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		setLocalConnectionPropertyValue(t, conn, "max_commit_delay", "'20ms'")
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "20ms")
+		if commit {
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "100ms")
+	}
+
+	// Verify that SET LOCAL ... = DEFAULT is only visible inside the transaction.
+	for _, commit := range []bool{true, false} {
+		setConnectionPropertyValue(t, conn, "max_commit_delay", "10ms")
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		setLocalConnectionPropertyValue(t, conn, "max_commit_delay", "default")
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "100ms")
+		if commit {
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "10ms")
+	}
+
+	// Verify that SET LOCAL ... = NULL is only visible inside the transaction.
+	for _, commit := range []bool{true, false} {
+		setConnectionPropertyValue(t, conn, "max_commit_delay", "10ms")
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		setLocalConnectionPropertyValue(t, conn, "max_commit_delay", "null")
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "")
+		if commit {
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "10ms")
+	}
+
+	// Verify that showing a non-existing variable always fails.
+	verifyShowFails[string](t, conn, "my_property")
+	verifyShowFails[string](t, conn, "my_extension.my_property")
+
+	// Verify that setting a non-existing variable is only possible if it has an extension.
+	verifySetFails(t, conn, "my_property", "some-value")
+	setConnectionPropertyValue(t, conn, "my_extension.my_property", "'some-value'")
+	verifyConnectionPropertyValue(t, conn, "my_extension.my_property", "some-value")
+
+	// Resetting a variable that did not exist at startup, removes it from the connection.
+	resetConnectionPropertyValue(t, conn, "my_extension.my_property")
+	verifyShowFails[string](t, conn, "my_extension.my_property")
+
+	// Verify that SET LOCAL my_extension.my_property = 'some-value' is only visible inside the transaction.
+	for _, commit := range []bool{true, false} {
+		verifyShowFails[string](t, conn, "my_extension.my_property")
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		setLocalConnectionPropertyValue(t, conn, "my_extension.my_property", "'some-value'")
+		verifyConnectionPropertyValue(t, conn, "my_extension.my_property", "some-value")
+		if commit {
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		verifyShowFails[string](t, conn, "my_extension.my_property")
+	}
+
+	// Verify that SET LOCAL my_extension.my_property = default temporarily removes the property from the connection.
+	for _, commit := range []bool{true, false} {
+		setConnectionPropertyValue(t, conn, "my_extension.my_property", "'some-value'")
+		verifyConnectionPropertyValue(t, conn, "my_extension.my_property", "some-value")
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// This is the equivalent of RESET my_extension.my_property, however RESET LOCAL ... is not valid syntax.
+		// This removes the property from the current transaction.
+		setLocalConnectionPropertyValue(t, conn, "my_extension.my_property", "default")
+		verifyShowFails[string](t, conn, "my_extension.my_property")
+		if commit {
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// The connection property should be visible again after the transaction.
+		verifyConnectionPropertyValue(t, conn, "my_extension.my_property", "some-value")
+	}
+
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestGenericConnectionState_PostgreSQL(t *testing.T) {
+	t.Parallel()
+
+	// Create an initial connection state with an initial value for max_commit_delay.
+	db, _, teardown := setupTestDBConnectionWithParamsAndDialect(t, "max_commit_delay=100ms", databasepb.DatabaseDialect_POSTGRESQL)
+	defer teardown()
+	ctx := context.Background()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify that the initial value of max_commit_delay is used.
+	verifyConnectionPropertyValue(t, conn, "max_commit_delay", "100ms")
+	// Verify that other connection variables have a default value.
+	verifyConnectionPropertyValue(t, conn, "auto_batch_dml", false)
+
+	// Verify that changing a connection variable value outside a transaction works.
+	setConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+	verifyConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+
+	// Verify that changing a connection variable in a transaction works and is visible in the transaction.
+	// The change should only be visible after the transaction if the transaction committed,
+	// as PostgreSQL uses transactional connection state by default.
+	for _, commit := range []bool{true, false} {
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+		setConnectionPropertyValue(t, conn, "max_commit_delay", "'20ms'")
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "20ms")
+		if commit {
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if commit {
+			verifyConnectionPropertyValue(t, conn, "max_commit_delay", "20ms")
+			// Set the value back to 50ms before the next test.
+			setConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+		} else {
+			verifyConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+		}
+	}
+	// Verify that resetting a connection variable in a transaction works and is visible in the transaction.
+	// The change should only be visible after the transaction if the transaction committed,
+	// as PostgreSQL uses transactional connection state by default.
+	for _, commit := range []bool{true, false} {
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+		resetConnectionPropertyValue(t, conn, "max_commit_delay")
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "100ms")
+		if commit {
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if commit {
+			verifyConnectionPropertyValue(t, conn, "max_commit_delay", "100ms")
+			// Set the value back to 50ms before the next test.
+			setConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+		} else {
+			verifyConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+		}
+	}
+	// Verify that setting a connection variable to NULL in a transaction works and is visible in the transaction.
+	// The change should only be visible after the transaction if the transaction committed,
+	// as PostgreSQL uses transactional connection state by default.
+	for _, commit := range []bool{true, false} {
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+		setConnectionPropertyValue(t, conn, "max_commit_delay", "null")
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "")
+		if commit {
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if commit {
+			verifyConnectionPropertyValue(t, conn, "max_commit_delay", "")
+			// Set the value back to 50ms before the next test.
+			setConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+		} else {
+			verifyConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+		}
+	}
+
+	// Verify that RESET sets the value to the original value.
+	resetConnectionPropertyValue(t, conn, "max_commit_delay")
+	verifyConnectionPropertyValue(t, conn, "max_commit_delay", "100ms")
+
+	// Verify that SET ... = DEFAULT sets the value to the original value.
+	setConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")
+	setConnectionPropertyValue(t, conn, "max_commit_delay", "default")
+	verifyConnectionPropertyValue(t, conn, "max_commit_delay", "100ms")
+
+	// Verify that SET ... = NULL sets the value to the default value for the property.
+	setConnectionPropertyValue(t, conn, "max_commit_delay", "null")
+	verifyConnectionPropertyValue(t, conn, "max_commit_delay", "")
+
+	// Verify that RESET after setting the value to null sets it back to its original value.
+	resetConnectionPropertyValue(t, conn, "max_commit_delay")
+	verifyConnectionPropertyValue(t, conn, "max_commit_delay", "100ms")
+
+	// Verify that SET LOCAL is only visible inside the transaction.
+	for _, commit := range []bool{true, false} {
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		setLocalConnectionPropertyValue(t, conn, "max_commit_delay", "'20ms'")
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "20ms")
+		if commit {
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "100ms")
+	}
+
+	// Verify that SET LOCAL ... = DEFAULT is only visible inside the transaction.
+	for _, commit := range []bool{true, false} {
+		setConnectionPropertyValue(t, conn, "max_commit_delay", "10ms")
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		setLocalConnectionPropertyValue(t, conn, "max_commit_delay", "default")
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "100ms")
+		if commit {
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "10ms")
+	}
+
+	// Verify that SET LOCAL ... = NULL is only visible inside the transaction.
+	for _, commit := range []bool{true, false} {
+		setConnectionPropertyValue(t, conn, "max_commit_delay", "10ms")
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		setLocalConnectionPropertyValue(t, conn, "max_commit_delay", "null")
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "")
+		if commit {
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		verifyConnectionPropertyValue(t, conn, "max_commit_delay", "10ms")
+	}
+
+	// Verify that showing a non-existing variable always fails.
+	verifyShowFails[string](t, conn, "my_property")
+	verifyShowFails[string](t, conn, "my_extension.my_property")
+
+	// Verify that setting a non-existing variable is only possible if it has an extension.
+	verifySetFails(t, conn, "my_property", "some-value")
+	setConnectionPropertyValue(t, conn, "my_extension.my_property", "'some-value'")
+	verifyConnectionPropertyValue(t, conn, "my_extension.my_property", "some-value")
+
+	// Resetting a variable that did not exist at startup, removes it from the connection.
+	resetConnectionPropertyValue(t, conn, "my_extension.my_property")
+	verifyShowFails[string](t, conn, "my_extension.my_property")
+
+	// Verify that SET LOCAL my_extension.my_property = 'some-value' is only visible inside the transaction.
+	for _, commit := range []bool{true, false} {
+		verifyShowFails[string](t, conn, "my_extension.my_property")
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		setLocalConnectionPropertyValue(t, conn, "my_extension.my_property", "'some-value'")
+		verifyConnectionPropertyValue(t, conn, "my_extension.my_property", "some-value")
+		if commit {
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		verifyShowFails[string](t, conn, "my_extension.my_property")
+	}
+
+	// Verify that SET LOCAL my_extension.my_property = default temporarily removes the property from the connection.
+	for _, commit := range []bool{true, false} {
+		setConnectionPropertyValue(t, conn, "my_extension.my_property", "'some-value'")
+		verifyConnectionPropertyValue(t, conn, "my_extension.my_property", "some-value")
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// This is the equivalent of RESET my_extension.my_property, however RESET LOCAL ... is not valid syntax.
+		// This removes the property from the current transaction.
+		setLocalConnectionPropertyValue(t, conn, "my_extension.my_property", "default")
+		verifyShowFails[string](t, conn, "my_extension.my_property")
+		if commit {
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// The connection property should be visible again after the transaction.
+		verifyConnectionPropertyValue(t, conn, "my_extension.my_property", "some-value")
+	}
+
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func verifyConnectionPropertyValue[T comparable](t *testing.T, c *sql.Conn, name string, value T) {
+	ctx := context.Background()
+	row := c.QueryRowContext(ctx, getShowStatement(c)+name)
+	var val T
+	if err := row.Scan(&val); err != nil {
+		t.Fatal(err)
+	}
+	if g, w := val, value; g != w {
+		t.Fatalf("value mismatch for connection property %q\n Got: %v\nWant: %v", name, g, w)
+	}
+}
+
+func verifyShowFails[T comparable](t *testing.T, c *sql.Conn, name string) {
+	ctx := context.Background()
+	row := c.QueryRowContext(ctx, getShowStatement(c)+name)
+	var val T
+	if err := row.Scan(&val); err == nil {
+		t.Fatal("missing expected error")
+	}
+}
+
+func setConnectionPropertyValue(t *testing.T, conn *sql.Conn, name string, value any) {
+	ctx := context.Background()
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf("set %s = %s", name, value)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func verifySetFails(t *testing.T, conn *sql.Conn, name string, value any) {
+	ctx := context.Background()
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf("set %s = %s", name, value)); err == nil {
+		t.Fatal("missing expected error")
+	}
+}
+
+func setLocalConnectionPropertyValue(t *testing.T, conn *sql.Conn, name string, value any) {
+	ctx := context.Background()
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf("set local %s = %s", name, value)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func resetConnectionPropertyValue(t *testing.T, conn *sql.Conn, name string) {
+	ctx := context.Background()
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf("reset %s", name)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func getShowStatement(c *sql.Conn) string {
+	if getDialect(c) == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL {
+		return "show variable "
+	}
+	return "show "
+}
+
+func getDialect(c *sql.Conn) (dialect databasepb.DatabaseDialect) {
+	_ = c.Raw(func(driverConn any) error {
+		sc, _ := driverConn.(SpannerConn)
+		conn := sc.(*conn)
+		dialect = conn.parser.dialect
+		return nil
+	})
+	return
 }

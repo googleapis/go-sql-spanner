@@ -10,6 +10,10 @@ import (
 func TestParseShowStatement(t *testing.T) {
 	t.Parallel()
 
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
 	type test struct {
 		input   string
 		want    parsedShowStatement
@@ -17,7 +21,8 @@ func TestParseShowStatement(t *testing.T) {
 	}
 	tests := []test{
 		{
-			input: "show my_property",
+			input:   "show my_property",
+			wantErr: parser.dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
 			want: parsedShowStatement{
 				query:      "show my_property",
 				identifier: identifier{parts: []string{"my_property"}},
@@ -31,41 +36,41 @@ func TestParseShowStatement(t *testing.T) {
 			},
 		},
 		{
-			input: "SHOW my_extension.my_property",
+			input: "SHOW variable my_extension.my_property",
 			want: parsedShowStatement{
-				query:      "SHOW my_extension.my_property",
+				query:      "SHOW variable my_extension.my_property",
 				identifier: identifier{parts: []string{"my_extension", "my_property"}},
 			},
 		},
 		{
-			input: "show my_extension. my_property",
+			input: "show variable my_extension. my_property",
 			want: parsedShowStatement{
-				query:      "show my_extension. my_property",
+				query:      "show variable my_extension. my_property",
 				identifier: identifier{parts: []string{"my_extension", "my_property"}},
 			},
 		},
 		{
-			input: "show                my_extension   .   my_property",
+			input: "show     variable            my_extension   .   my_property",
 			want: parsedShowStatement{
-				query:      "show                my_extension   .   my_property",
+				query:      "show     variable            my_extension   .   my_property",
 				identifier: identifier{parts: []string{"my_extension", "my_property"}},
 			},
 		},
 		{
-			input: "show /*comment*/\n my_extension  .  my_property   \n",
+			input: "show variable   /*comment*/\n my_extension  .  my_property   \n",
 			want: parsedShowStatement{
-				query:      "show /*comment*/\n my_extension  .  my_property   \n",
+				query:      "show variable   /*comment*/\n my_extension  .  my_property   \n",
 				identifier: identifier{parts: []string{"my_extension", "my_property"}},
 			},
 		},
 		{
 			// Extra tokens after the statement are not allowed.
-			input:   "show my_property foo",
+			input:   "show variable my_property foo",
 			wantErr: true,
 		},
 		{
 			// Extra tokens after the statement are not allowed.
-			input:   "show my_property/",
+			input:   "show variable my_property/",
 			wantErr: true,
 		},
 		{
@@ -74,13 +79,9 @@ func TestParseShowStatement(t *testing.T) {
 		},
 		{
 			// Garbled comment.
-			input:   "show /*should have been a comment* my_property",
+			input:   "show variable /*should have been a comment* my_property",
 			wantErr: true,
 		},
-	}
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
-	if err != nil {
-		t.Fatal(err)
 	}
 	keyword := "SHOW"
 	for _, test := range tests {

@@ -33,7 +33,7 @@ type stmt struct {
 	numArgs       int
 	query         string
 	statementType statementType
-	execOptions   ExecOptions
+	execOptions   *ExecOptions
 }
 
 func (s *stmt) Close() error {
@@ -66,7 +66,7 @@ func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
 	}
 
 	if execOptions, ok := value.Value.(ExecOptions); ok {
-		s.execOptions = execOptions
+		s.execOptions = &execOptions
 		return driver.ErrRemoveArgument
 	}
 	return s.conn.CheckNamedValue(value)

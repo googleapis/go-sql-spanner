@@ -43,12 +43,14 @@ var dmlStatements = union(insertStatements, union(updateStatements, deleteStatem
 var clientSideKeywords = map[string]bool{
 	"SHOW":  true,
 	"SET":   true,
+	"RESET": true,
 	"START": true,
 	"RUN":   true,
 	"ABORT": true,
 }
 var showStatements = map[string]bool{"SHOW": true}
 var setStatements = map[string]bool{"SET": true}
+var resetStatements = map[string]bool{"RESET": true}
 
 func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 	res := make(map[string]bool, len(m1)+len(m2))
@@ -961,6 +963,10 @@ func isSetStatementKeyword(keyword string) bool {
 	return isStatementKeyword(keyword, setStatements)
 }
 
+func isResetStatementKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, resetStatements)
+}
+
 func isStatementKeyword(keyword string, keywords map[string]bool) bool {
 	_, ok := keywords[keyword]
 	return ok
@@ -978,8 +984,8 @@ type clientSideStatements struct {
 type clientSideStatement struct {
 	Name                          string `json:"name"`
 	ExecutorName                  string `json:"executorName"`
-	execContext                   func(ctx context.Context, c *conn, params string, opts ExecOptions, args []driver.NamedValue) (driver.Result, error)
-	queryContext                  func(ctx context.Context, c *conn, params string, opts ExecOptions, args []driver.NamedValue) (driver.Rows, error)
+	execContext                   func(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error)
+	queryContext                  func(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error)
 	ResultType                    string `json:"resultType"`
 	Regex                         string `json:"regex"`
 	regexp                        *regexp.Regexp
@@ -1018,14 +1024,14 @@ func compileStatements() error {
 			return err
 		}
 		i := reflect.ValueOf(statements.executor).MethodByName(strings.TrimPrefix(stmt.MethodName, "statement")).Interface()
-		if execContext, ok := i.(func(ctx context.Context, c *conn, query string, opts ExecOptions, args []driver.NamedValue) (driver.Result, error)); ok {
+		if execContext, ok := i.(func(ctx context.Context, c *conn, query string, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error)); ok {
 			stmt.execContext = execContext
 		}
-		if queryContext, ok := i.(func(ctx context.Context, c *conn, query string, opts ExecOptions, args []driver.NamedValue) (driver.Rows, error)); ok {
+		if queryContext, ok := i.(func(ctx context.Context, c *conn, query string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error)); ok {
 			stmt.queryContext = queryContext
 		}
 		if stmt.queryContext == nil && stmt.execContext != nil {
-			stmt.queryContext = func(ctx context.Context, c *conn, params string, opts ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+			stmt.queryContext = func(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
 				_, err := stmt.execContext(ctx, c, params, opts, args)
 				if err != nil {
 					return nil, err
@@ -1054,14 +1060,14 @@ type executableClientSideStatement struct {
 	params string
 }
 
-func (c *executableClientSideStatement) ExecContext(ctx context.Context, opts ExecOptions, args []driver.NamedValue) (driver.Result, error) {
+func (c *executableClientSideStatement) ExecContext(ctx context.Context, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	if c.clientSideStatement.execContext == nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with execContext", c.query))
 	}
 	return c.clientSideStatement.execContext(ctx, c.conn, c.params, opts, args)
 }
 
-func (c *executableClientSideStatement) QueryContext(ctx context.Context, opts ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+func (c *executableClientSideStatement) QueryContext(ctx context.Context, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
 	if c.clientSideStatement.queryContext == nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with queryContext", c.query))
 	}
