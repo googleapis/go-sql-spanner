@@ -84,8 +84,8 @@ var noopLogger = slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{L
 //     The default is false
 //     - enableEndToEndTracing: Boolean that indicates if end-to-end tracing is enabled
 //     The default is false
-//     - minSessions: The minimum number of sessions in the backing session pool. The default is 100.
-//     - maxSessions: The maximum number of sessions in the backing session pool. The default is 400.
+//     - minSessions (DEPRECATED): The minimum number of sessions in the backing session pool. The default is 100. This option is deprecated, as the driver by default uses a single multiplexed session for all operations.
+//     - maxSessions (DEPRECATED): The maximum number of sessions in the backing session pool. The default is 400. This option is deprecated, as the driver by default uses a single multiplexed session for all operations.
 //     - numChannels: The number of gRPC channels to use to communicate with Cloud Spanner. The default is 4.
 //     - optimizerVersion: Sets the default query optimizer version to use for this connection.
 //     - optimizerStatisticsPackage: Sets the default query optimizer statistic package to use for this connection.
