@@ -1,6 +1,6 @@
 module github.com/googleapis/go-sql-spanner
 
-go 1.24
+go 1.24.0
 
 toolchain go1.25.0
 
@@ -13,15 +13,15 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/gax-go/v2 v2.15.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
-	google.golang.org/api v0.247.0
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250811230008-5f3141c8851a
-	google.golang.org/grpc v1.74.2
-	google.golang.org/protobuf v1.36.7
+	google.golang.org/api v0.248.0
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250826171959-ef028d996bc1
+	google.golang.org/grpc v1.75.0
+	google.golang.org/protobuf v1.36.8
 )
 
 require (
 	cel.dev/expr v0.24.0 // indirect
-	cloud.google.com/go/auth v0.16.4 // indirect
+	cloud.google.com/go/auth v0.16.5 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.8.0 // indirect
 	cloud.google.com/go/iam v1.5.2 // indirect

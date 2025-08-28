@@ -1,6 +1,6 @@
 module github.com/googleapis/go-sql-spanner/examples
 
-go 1.24
+go 1.24.0
 
 toolchain go1.25.0
 
@@ -9,14 +9,14 @@ replace github.com/googleapis/go-sql-spanner => ../
 require (
 	cloud.google.com/go/spanner v1.84.1
 	github.com/docker/docker v28.3.3+incompatible
-	github.com/googleapis/go-sql-spanner v1.16.3
+	github.com/googleapis/go-sql-spanner v1.17.0
 	github.com/testcontainers/testcontainers-go v0.38.0
 )
 
 require (
 	cel.dev/expr v0.24.0 // indirect
 	cloud.google.com/go v0.121.6 // indirect
-	cloud.google.com/go/auth v0.16.4 // indirect
+	cloud.google.com/go/auth v0.16.5 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.8.0 // indirect
 	cloud.google.com/go/iam v1.5.2 // indirect
@@ -98,11 +98,11 @@ require (
 	golang.org/x/sys v0.35.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
-	google.golang.org/api v0.247.0 // indirect
+	google.golang.org/api v0.248.0 // indirect
 	google.golang.org/genproto v0.0.0-20250804133106-a7a43d27e69b // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250804133106-a7a43d27e69b // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250811230008-5f3141c8851a // indirect
-	google.golang.org/grpc v1.74.2 // indirect
-	google.golang.org/protobuf v1.36.7 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250826171959-ef028d996bc1 // indirect
+	google.golang.org/grpc v1.75.0 // indirect
+	google.golang.org/protobuf v1.36.8 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
