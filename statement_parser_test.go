@@ -2399,6 +2399,168 @@ func TestCachedParamsAreImmutable(t *testing.T) {
 	}
 }
 
+func TestEatKeyword(t *testing.T) {
+	t.Parallel()
+
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		input   string
+		keyword string
+		wantOk  bool
+		want    string
+	}{
+		{
+			input:   "show my_property",
+			keyword: "SHOW",
+			wantOk:  true,
+			want:    "show",
+		},
+		{
+			input:   "/*comment*/ show my_property",
+			keyword: "SHOW",
+			wantOk:  true,
+			want:    "show",
+		},
+		{
+			input:   "/*comment*/ show my_property",
+			keyword: "SHOW",
+			wantOk:  true,
+			want:    "show",
+		},
+		{
+			input:   "/*comment*/SHOW/*another comment*/ my_property",
+			keyword: "SHOW",
+			wantOk:  true,
+			want:    "SHOW",
+		},
+		{
+			input:   "Set my_property to 'my-value'",
+			keyword: "SET",
+			wantOk:  true,
+			want:    "Set",
+		},
+		{
+			input:   "CREATE",
+			keyword: "CREATE",
+			wantOk:  true,
+			want:    "CREATE",
+		},
+		{
+			input:   "DROP table foo",
+			keyword: "CREATE",
+			wantOk:  false,
+		},
+		{
+			input:   "DROP",
+			keyword: "CREATE",
+			wantOk:  false,
+		},
+	}
+	for _, test := range tests {
+		sp := &simpleParser{sql: []byte(test.input), statementParser: parser}
+		startPos := sp.pos
+		keyword, ok := sp.eatKeyword(test.keyword)
+		if g, w := ok, test.wantOk; g != w {
+			t.Errorf("found mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if test.wantOk {
+			if g, w := keyword, test.want; g != w {
+				t.Errorf("keyword mismatch\n Got: %v\nWant: %v", g, w)
+			}
+		} else {
+			if g, w := sp.pos, startPos; g != w {
+				t.Errorf("position mismatch\n Got: %v\nWant: %v", g, w)
+			}
+		}
+	}
+}
+
+func TestEatIdentifier(t *testing.T) {
+	t.Parallel()
+
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		input   string
+		want    identifier
+		wantErr bool
+	}{
+		{
+			input: "my_property",
+			want:  identifier{parts: []string{"my_property"}},
+		},
+		{
+			input: "my_extension.my_property",
+			want:  identifier{parts: []string{"my_extension", "my_property"}},
+		},
+		{
+			// spaces are allowed
+			input: " \n my_extension  . \t my_property   ",
+			want:  identifier{parts: []string{"my_extension", "my_property"}},
+		},
+		{
+			// comments are treated the same as spaces and are allowed
+			input: " /* comment */ \n my_extension  -- yet another comment\n. \t -- Also a comment \nmy_property   ",
+			want:  identifier{parts: []string{"my_extension", "my_property"}},
+		},
+		{
+			input: "p1.p2.p3.p4",
+			want:  identifier{parts: []string{"p1", "p2", "p3", "p4"}},
+		},
+		{
+			input: "a.b.c",
+			want:  identifier{parts: []string{"a", "b", "c"}},
+		},
+		{
+			input:   "1a",
+			wantErr: true,
+		},
+		{
+			input:   "my_extension.",
+			wantErr: true,
+		},
+		{
+			// No identifier after the '.'.
+			input:   "my_extension   \n   . -- comment\n",
+			wantErr: true,
+		},
+		{
+			input:   "my_extension.1a",
+			wantErr: true,
+		},
+		{
+			input:   "a . 1a",
+			wantErr: true,
+		},
+	}
+	for _, test := range tests {
+		sp := &simpleParser{sql: []byte(test.input), statementParser: parser}
+		id, err := sp.eatIdentifier()
+		if err != nil {
+			if test.wantErr {
+				continue
+			}
+			t.Fatalf("%s\ngot unexpected error: %v", test.input, err)
+		}
+		if test.wantErr {
+			t.Fatalf("%s\nmissing expected error", test.input)
+		}
+		if g, w := len(id.parts), len(test.want.parts); g != w {
+			t.Fatalf("%s\nidentifier parts length mismatch\n Got: %v\nWant: %v", test.input, g, w)
+		}
+		for i := range id.parts {
+			if g, w := id.parts[i], test.want.parts[i]; g != w {
+				t.Fatalf("%s\n%d: identifier part mismatch\n Got: %v\nWant: %v", test.input, i, g, w)
+			}
+		}
+	}
+}
+
 func BenchmarkDetectStatementTypeWithoutCache(b *testing.B) {
 	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 0)
 	if err != nil {
