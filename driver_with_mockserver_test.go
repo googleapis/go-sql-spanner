@@ -3718,7 +3718,7 @@ func TestExcludeTxnFromChangeStreams_Transaction(t *testing.T) {
 	}
 
 	var exclude bool
-	if err := conn.QueryRowContext(ctx, "SHOW VARIABLE EXCLUDE_TXN_FROM_CHANGE_STREAMS").Scan(&exclude); err != nil {
+	if err := conn.QueryRowContext(ctx, "SHOW VARIABLE exclude_txn_from_change_streams").Scan(&exclude); err != nil {
 		t.Fatalf("failed to get exclude setting: %v", err)
 	}
 	if g, w := exclude, false; g != w {

@@ -17,6 +17,7 @@ package spannerdriver
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
@@ -187,7 +188,7 @@ var propertyOptimizerStatisticsPackage = createConnectionProperty(
 )
 var propertyDecodeToNativeArrays = createConnectionProperty(
 	"decode_to_native_arrays",
-	"DecodeToNativeArrays determines whether arrays that have a Go native type should be decoded to those "+
+	"decode_to_native_arrays determines whether arrays that have a Go native type should be decoded to those "+
 		"types rather than the corresponding spanner.NullTypeName type. Enabling this option will for example decode "+
 		"ARRAY<BOOL> to []bool instead of []spanner.NullBool.",
 	false,
@@ -197,6 +198,56 @@ var propertyDecodeToNativeArrays = createConnectionProperty(
 	connectionstate.ConvertBool,
 )
 
+// ------------------------------------------------------------------------------------------------
+// Transaction connection properties.
+// ------------------------------------------------------------------------------------------------
+
+var propertyExcludeTxnFromChangeStreams = createConnectionProperty(
+	"exclude_txn_from_change_streams",
+	"exclude_txn_from_change_streams determines whether transactions on this connection should be excluded from "+
+		"change streams. This property affects both normal read/write transactions, DML statements outside transactions, "+
+		"and partitioned DML statements.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
+var propertyTransactionTag = createConnectionProperty(
+	"transaction_tag",
+	"The transaction tag to add to the next read/write transaction on this connection.",
+	"",
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertString,
+)
+var propertyMaxCommitDelay = createConnectionProperty(
+	"max_commit_delay",
+	"The max delay that Spanner may apply to commit requests to improve throughput.",
+	time.Duration(0),
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertDuration,
+)
+
+// ------------------------------------------------------------------------------------------------
+// Statement connection properties.
+// ------------------------------------------------------------------------------------------------
+var propertyStatementTag = createConnectionProperty(
+	"statement_tag",
+	"The statement (request) tag to add to the next statement on this connection.",
+	"",
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertString,
+)
+
+// ------------------------------------------------------------------------------------------------
+// Startup connection properties.
+// ------------------------------------------------------------------------------------------------
 var propertyEndpoint = createConnectionProperty(
 	"endpoint",
 	"The endpoint that the driver should connect to. The default is the default Spanner production endpoint "+

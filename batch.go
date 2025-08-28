@@ -27,6 +27,6 @@ type batch struct {
 	tp           batchType
 	statements   []spanner.Statement
 	returnValues []int64
-	options      ExecOptions
+	options      *ExecOptions
 	automatic    bool
 }

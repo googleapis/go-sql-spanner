@@ -41,7 +41,7 @@ const (
 
 var _ driver.RowsNextResultSet = &rows{}
 
-func createRows(it rowIterator, opts ExecOptions) *rows {
+func createRows(it rowIterator, opts *ExecOptions) *rows {
 	return &rows{
 		it:                      it,
 		decodeOption:            opts.DecodeOption,

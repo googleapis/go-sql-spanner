@@ -84,12 +84,34 @@ type PartitionedQueryOptions struct {
 	ExecutePartition ExecutePartition
 }
 
+func (dest *PartitionedQueryOptions) merge(src *PartitionedQueryOptions) {
+	if dest == nil || src == nil {
+		return
+	}
+	if src.AutoPartitionQuery {
+		dest.AutoPartitionQuery = src.AutoPartitionQuery
+	}
+	if src.PartitionQuery {
+		dest.PartitionQuery = src.PartitionQuery
+	}
+	if src.MaxParallelism > 0 {
+		dest.MaxParallelism = src.MaxParallelism
+	}
+	(&dest.ExecutePartition).merge(&src.ExecutePartition)
+	if src.PartitionOptions.MaxPartitions > 0 {
+		dest.PartitionOptions.MaxPartitions = src.PartitionOptions.MaxPartitions
+	}
+	if src.PartitionOptions.PartitionBytes > 0 {
+		dest.PartitionOptions.PartitionBytes = src.PartitionOptions.PartitionBytes
+	}
+}
+
 // PartitionedQuery is returned by the driver when a query is executed on a
 // BatchReadOnlyTransaction with the PartitionedQueryOptions.PartitionQuery
 // option set to true.
 type PartitionedQuery struct {
 	stmt        spanner.Statement
-	execOptions ExecOptions
+	execOptions *ExecOptions
 
 	tx         *spanner.BatchReadOnlyTransaction
 	Partitions []*spanner.Partition
@@ -100,6 +122,15 @@ type PartitionedQuery struct {
 type ExecutePartition struct {
 	PartitionedQuery *PartitionedQuery
 	Index            int
+}
+
+func (dest *ExecutePartition) merge(src *ExecutePartition) {
+	if src.PartitionedQuery != nil {
+		dest.PartitionedQuery = src.PartitionedQuery
+	}
+	if src.Index > 0 {
+		dest.Index = src.Index
+	}
 }
 
 func (pq *PartitionedQuery) Scan(value any) error {

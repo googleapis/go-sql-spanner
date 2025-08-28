@@ -112,17 +112,17 @@ func NewConnectionState(connectionStateType Type, properties map[string]Connecti
 
 func toKey(extension, name string) (key string) {
 	if extension == "" {
-		key = name
+		key = strings.ToLower(name)
 	} else {
-		key = name + "." + extension
+		key = strings.ToLower(extension) + "." + strings.ToLower(name)
 	}
 	return
 }
 
-func (cs *ConnectionState) GetValue(extension, name string) (any, error) {
+func (cs *ConnectionState) GetValue(extension, name string) (any, bool, error) {
 	prop, err := cs.findProperty(extension, name)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	return prop.GetValue(cs)
 }
@@ -139,6 +139,24 @@ func (cs *ConnectionState) setValue(extension, name, value string, context Conte
 	prop, err := cs.findProperty(extension, name)
 	if err != nil {
 		return err
+	}
+	// The special value null (or NULL) is used to set a connection property to the null value of the property (the
+	// property's default value).
+	// This is different from RESET, which will set the connection property to the value that it had when the
+	// connection was created.
+	if strings.EqualFold(strings.TrimSpace(value), "null") {
+		if local {
+			return prop.SetLocalDefaultValue(cs)
+		}
+		return prop.SetDefaultValue(cs, context)
+	}
+
+	// The special value default (or DEFAULT) is used to reset a connection property to its original value.
+	if strings.EqualFold(strings.TrimSpace(value), "default") {
+		if local {
+			return prop.ResetLocalValue(cs)
+		}
+		return prop.ResetValue(cs, context)
 	}
 	convertedValue, err := prop.Convert(value)
 	if err != nil {
@@ -192,11 +210,20 @@ func (cs *ConnectionState) Commit() error {
 	cs.inTransaction = false
 	if cs.transactionProperties != nil {
 		for key, value := range cs.transactionProperties {
-			cs.properties[key] = value
+			if value.isRemoved() {
+				delete(cs.properties, key)
+			} else {
+				cs.properties[key] = value
+			}
 		}
 	}
 	cs.transactionProperties = nil
 	cs.localProperties = nil
+	for key, value := range cs.properties {
+		if value.isRemoved() {
+			delete(cs.properties, key)
+		}
+	}
 	return nil
 }
 
@@ -221,14 +248,10 @@ func (cs *ConnectionState) Rollback() error {
 func (cs *ConnectionState) Reset(context Context) error {
 	cs.transactionProperties = nil
 	cs.localProperties = nil
-	var remove map[string]bool
 	for _, value := range cs.properties {
 		if value.ConnectionProperty().Context() >= context {
 			if value.RemoveAtReset() {
-				if remove == nil {
-					remove = make(map[string]bool)
-				}
-				remove[value.ConnectionProperty().Key()] = true
+				delete(cs.properties, value.ConnectionProperty().Key())
 			} else {
 				if err := value.ResetValue(context); err != nil {
 					return err
@@ -236,24 +259,32 @@ func (cs *ConnectionState) Reset(context Context) error {
 			}
 		}
 	}
-	for key := range remove {
-		delete(cs.properties, key)
-	}
 	return nil
 }
 
 func (cs *ConnectionState) value(property ConnectionProperty, returnErrForUnknownProperty bool) (ConnectionPropertyValue, error) {
 	if val, ok := cs.localProperties[property.Key()]; ok {
-		return val, nil
+		return valOrError(property, returnErrForUnknownProperty, val)
 	}
 	if val, ok := cs.transactionProperties[property.Key()]; ok {
-		return val, nil
+		return valOrError(property, returnErrForUnknownProperty, val)
 	}
 	if val, ok := cs.properties[property.Key()]; ok {
-		return val, nil
+		return valOrError(property, returnErrForUnknownProperty, val)
 	}
 	if returnErrForUnknownProperty {
-		return nil, status.Errorf(codes.InvalidArgument, "unrecognized configuration property %q", property.Key())
+		return nil, unrecognizedPropertyErr(property)
 	}
 	return nil, nil
+}
+
+func valOrError(property ConnectionProperty, returnErrForUnknownProperty bool, val ConnectionPropertyValue) (ConnectionPropertyValue, error) {
+	if returnErrForUnknownProperty && val.isRemoved() {
+		return nil, unknownPropertyErr(property)
+	}
+	return val, nil
+}
+
+func unrecognizedPropertyErr(property ConnectionProperty) error {
+	return status.Errorf(codes.InvalidArgument, "unrecognized configuration property %q", property.Key())
 }
