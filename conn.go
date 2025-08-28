@@ -926,7 +926,10 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 func (c *conn) options(reset bool) ExecOptions {
 	if reset {
 		defer func() {
-			c.execOptions.TransactionOptions.TransactionTag = ""
+			// Only reset the transaction tag if there is no active transaction on the connection.
+			if !c.inTransaction() {
+				c.execOptions.TransactionOptions.TransactionTag = ""
+			}
 			c.execOptions.QueryOptions.RequestTag = ""
 		}()
 	}
@@ -958,7 +961,7 @@ func (c *conn) withTempTransactionOptions(options *ReadWriteTransactionOptions) 
 	c.tempTransactionOptions = options
 }
 
-func (c *conn) getTransactionOptions() ReadWriteTransactionOptions {
+func (c *conn) getTransactionOptions(execOptions ExecOptions) ReadWriteTransactionOptions {
 	if c.tempTransactionOptions != nil {
 		defer func() { c.tempTransactionOptions = nil }()
 		opts := *c.tempTransactionOptions
@@ -971,7 +974,7 @@ func (c *conn) getTransactionOptions() ReadWriteTransactionOptions {
 		c.execOptions.TransactionOptions.TransactionTag = ""
 	}()
 	txOpts := ReadWriteTransactionOptions{
-		TransactionOptions:     c.execOptions.TransactionOptions,
+		TransactionOptions:     execOptions.TransactionOptions,
 		DisableInternalRetries: !c.RetryAbortsInternally(),
 	}
 	// Only use the default isolation level from the connection if the ExecOptions
@@ -1019,7 +1022,7 @@ func (c *conn) Begin() (driver.Tx, error) {
 	return c.BeginTx(context.Background(), driver.TxOptions{})
 }
 
-func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
+func (c *conn) BeginTx(ctx context.Context, driverOpts driver.TxOptions) (driver.Tx, error) {
 	if c.resetForRetry {
 		c.resetForRetry = false
 		return c.tx, nil
@@ -1033,7 +1036,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 
 	readOnlyTxOpts := c.getReadOnlyTransactionOptions()
 	batchReadOnlyTxOpts := c.getBatchReadOnlyTransactionOptions()
-	readWriteTransactionOptions := c.getTransactionOptions()
+	execOptions := c.execOptions
 	if c.inTransaction() {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "already in a transaction"))
 	}
@@ -1041,18 +1044,19 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		return nil, status.Error(codes.FailedPrecondition, "This connection has an active batch. Run or abort the batch before starting a new transaction.")
 	}
 
+	isolationLevelFromTxOpts := spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED
 	// Determine whether internal retries have been disabled using a special
 	// value for the transaction isolation level.
 	disableRetryAborts := false
 	batchReadOnly := false
-	sil := opts.Isolation >> 8
-	opts.Isolation = opts.Isolation - sil<<8
-	if opts.Isolation != driver.IsolationLevel(sql.LevelDefault) {
-		level, err := toProtoIsolationLevel(sql.IsolationLevel(opts.Isolation))
+	sil := driverOpts.Isolation >> 8
+	driverOpts.Isolation = driverOpts.Isolation - sil<<8
+	if driverOpts.Isolation != driver.IsolationLevel(sql.LevelDefault) {
+		level, err := toProtoIsolationLevel(sql.IsolationLevel(driverOpts.Isolation))
 		if err != nil {
 			return nil, err
 		}
-		readWriteTransactionOptions.TransactionOptions.IsolationLevel = level
+		isolationLevelFromTxOpts = level
 	}
 	if sil > 0 {
 		switch spannerIsolationLevel(sil) {
@@ -1064,11 +1068,11 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 			// ignore
 		}
 	}
-	if batchReadOnly && !opts.ReadOnly {
+	if batchReadOnly && !driverOpts.ReadOnly {
 		return nil, status.Error(codes.InvalidArgument, "levelBatchReadOnly can only be used for read-only transactions")
 	}
 
-	if opts.ReadOnly {
+	if driverOpts.ReadOnly {
 		var logger *slog.Logger
 		var ro *spanner.ReadOnlyTransaction
 		var bo *spanner.BatchReadOnlyTransaction
@@ -1106,7 +1110,23 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		return c.tx, nil
 	}
 
-	tx, err := spanner.NewReadWriteStmtBasedTransactionWithOptions(ctx, c.client, readWriteTransactionOptions.TransactionOptions)
+	opts := spanner.TransactionOptions{}
+	if c.tempTransactionOptions != nil {
+		opts = c.tempTransactionOptions.TransactionOptions
+	}
+	opts.BeginTransactionOption = c.convertDefaultBeginTransactionOption(opts.BeginTransactionOption)
+	tempCloseFunc := func() {}
+	if c.tempTransactionOptions != nil && c.tempTransactionOptions.close != nil {
+		tempCloseFunc = c.tempTransactionOptions.close
+	}
+	disableInternalRetries := !c.RetryAbortsInternally()
+	if c.tempTransactionOptions != nil {
+		disableInternalRetries = c.tempTransactionOptions.DisableInternalRetries
+	}
+
+	tx, err := spanner.NewReadWriteStmtBasedTransactionWithCallbackForOptions(ctx, c.client, opts, func() spanner.TransactionOptions {
+		return c.effectiveTransactionOptions(isolationLevelFromTxOpts, execOptions)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1117,9 +1137,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		logger: logger,
 		rwTx:   tx,
 		close: func(result txResult, commitResponse *spanner.CommitResponse, commitErr error) {
-			if readWriteTransactionOptions.close != nil {
-				readWriteTransactionOptions.close()
-			}
+			tempCloseFunc()
 			c.prevTx = c.tx
 			c.tx = nil
 			if commitErr == nil {
@@ -1134,10 +1152,19 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 			}
 		},
 		// Disable internal retries if any of these options have been set.
-		retryAborts: !readWriteTransactionOptions.DisableInternalRetries && !disableRetryAborts,
+		retryAborts: !disableInternalRetries && !disableRetryAborts,
 	}
 	c.commitResponse = nil
 	return c.tx, nil
+}
+
+func (c *conn) effectiveTransactionOptions(isolationLevelFromTxOpts spannerpb.TransactionOptions_IsolationLevel, execOptions ExecOptions) spanner.TransactionOptions {
+	readWriteTransactionOptions := c.getTransactionOptions(execOptions)
+	res := readWriteTransactionOptions.TransactionOptions
+	if isolationLevelFromTxOpts != spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED {
+		res.IsolationLevel = isolationLevelFromTxOpts
+	}
+	return res
 }
 
 func (c *conn) convertDefaultBeginTransactionOption(opt spanner.BeginTransactionOption) spanner.BeginTransactionOption {
