@@ -37,7 +37,6 @@ import (
 	adminapi "cloud.google.com/go/spanner/admin/database/apiv1"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
-	"github.com/golang/protobuf/proto"
 	"github.com/google/uuid"
 	"github.com/googleapis/gax-go/v2"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
@@ -48,6 +47,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 const userAgent = "go-sql-spanner/1.17.0" // x-release-please-version
