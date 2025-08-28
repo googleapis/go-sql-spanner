@@ -551,3 +551,86 @@ func TestSetAutocommitDMLMode(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigureConnectionProperty(t *testing.T) {
+	t.Parallel()
+
+	type config int
+	const (
+		configConnString config = iota
+		configConnectorConfig
+		configConnectorConfigAndParams
+	)
+
+	for _, cfg := range []config{configConnString, configConnectorConfig, configConnectorConfigAndParams} {
+		var db *sql.DB
+		var teardown func()
+		switch cfg {
+		case configConnString:
+			db, _, teardown = setupTestDBConnectionWithParams(t, "isolationLevel=repeatable_read")
+		case configConnectorConfig:
+			db, _, teardown = setupTestDBConnectionWithConnectorConfig(t, ConnectorConfig{
+				Project:        "p",
+				Instance:       "i",
+				Database:       "d",
+				IsolationLevel: sql.LevelRepeatableRead,
+			})
+		case configConnectorConfigAndParams:
+			db, _, teardown = setupTestDBConnectionWithConnectorConfig(t, ConnectorConfig{
+				Project:        "p",
+				Instance:       "i",
+				Database:       "d",
+				IsolationLevel: sql.LevelSerializable,
+				// The configuration in the params (which come from the connection string)
+				// take precedence over the configuration in the ConnectorConfig.
+				Params: map[string]string{
+					"isolation_level": "repeatable_read",
+				},
+			})
+		default:
+			t.Fatalf("invalid config: %v", cfg)
+		}
+		defer teardown()
+		// Limit the number of open connections to 1 to ensure that the test re-uses the same connection.
+		db.SetMaxOpenConns(1)
+
+		// Repeat twice to ensure that we get a connection that has been reset
+		// when getting a fresh connection from the pool
+		for range 2 {
+			sqlConn, err := db.Conn(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = sqlConn.Raw(func(driverConn interface{}) error {
+				c, _ := driverConn.(SpannerConn)
+				if g, w := c.IsolationLevel(), sql.LevelRepeatableRead; g != w {
+					t.Fatalf("isolation level mismatch\n Got: %v\nWant: %v", g, w)
+				}
+				if err := c.SetIsolationLevel(sql.LevelSerializable); err != nil {
+					t.Fatal(err)
+				}
+				if g, w := c.IsolationLevel(), sql.LevelSerializable; g != w {
+					t.Fatalf("isolation level mismatch\n Got: %v\nWant: %v", g, w)
+				}
+				// Reset the connection manually (this should also happen automatically when the connection is closed).
+				sc := c.(*conn)
+				if err := sc.ResetSession(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+				// Verify that the isolation level is reset to the value it had when the connection was created.
+				if g, w := c.IsolationLevel(), sql.LevelRepeatableRead; g != w {
+					t.Fatalf("isolation level mismatch\n Got: %v\nWant: %v", g, w)
+				}
+				// Set the isolation level back to serializable in order to ensure that it is also correctly reset
+				// when the connection is closed.
+				if err := c.SetIsolationLevel(sql.LevelSerializable); err != nil {
+					t.Fatal(err)
+				}
+				return nil
+			})
+			if err := sqlConn.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}

@@ -21,8 +21,12 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
+func noop(v string) (string, error) {
+	return v, nil
+}
+
 func TestSetValueOutsideTransaction(t *testing.T) {
-	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", nil, ContextUser)
+	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", false, nil, ContextUser, noop)
 	properties := map[string]ConnectionProperty{
 		"my_property": prop,
 	}
@@ -44,7 +48,7 @@ func TestSetValueOutsideTransaction(t *testing.T) {
 }
 
 func TestSetValueInTransactionAndCommit(t *testing.T) {
-	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", nil, ContextUser)
+	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", false, nil, ContextUser, noop)
 	properties := map[string]ConnectionProperty{
 		"my_property": prop,
 	}
@@ -77,7 +81,7 @@ func TestSetValueInTransactionAndCommit(t *testing.T) {
 }
 
 func TestSetValueInTransactionAndRollback(t *testing.T) {
-	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", nil, ContextUser)
+	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", false, nil, ContextUser, noop)
 	properties := map[string]ConnectionProperty{
 		"my_property": prop,
 	}
@@ -117,7 +121,7 @@ func TestSetValueInTransactionAndRollback(t *testing.T) {
 }
 
 func TestResetValueOutsideTransaction(t *testing.T) {
-	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", nil, ContextUser)
+	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", false, nil, ContextUser, noop)
 	properties := map[string]ConnectionProperty{
 		"my_property": prop,
 	}
@@ -135,7 +139,7 @@ func TestResetValueOutsideTransaction(t *testing.T) {
 }
 
 func TestResetValueInTransactionAndCommit(t *testing.T) {
-	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", nil, ContextUser)
+	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", false, nil, ContextUser, noop)
 	properties := map[string]ConnectionProperty{
 		"my_property": prop,
 	}
@@ -175,7 +179,7 @@ func TestResetValueInTransactionAndCommit(t *testing.T) {
 }
 
 func TestResetValueInTransactionAndRollback(t *testing.T) {
-	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", nil, ContextUser)
+	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", false, nil, ContextUser, noop)
 	properties := map[string]ConnectionProperty{
 		"my_property": prop,
 	}
@@ -227,7 +231,7 @@ func TestResetValueInTransactionAndRollback(t *testing.T) {
 }
 
 func TestSetLocalValue(t *testing.T) {
-	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", nil, ContextUser)
+	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", false, nil, ContextUser, noop)
 	properties := map[string]ConnectionProperty{
 		"my_property": prop,
 	}
@@ -259,7 +263,7 @@ func TestSetLocalValue(t *testing.T) {
 }
 
 func TestSetLocalValueOutsideTransaction(t *testing.T) {
-	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", nil, ContextUser)
+	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", false, nil, ContextUser, noop)
 	properties := map[string]ConnectionProperty{
 		"my_property": prop,
 	}
@@ -280,7 +284,7 @@ func TestSetLocalValueOutsideTransaction(t *testing.T) {
 }
 
 func TestSetLocalValueForStartupProperty(t *testing.T) {
-	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", nil, ContextStartup)
+	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", false, nil, ContextStartup, noop)
 	properties := map[string]ConnectionProperty{
 		"my_property": prop,
 	}
@@ -295,7 +299,7 @@ func TestSetLocalValueForStartupProperty(t *testing.T) {
 }
 
 func TestSetInTransactionForStartupProperty(t *testing.T) {
-	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", nil, ContextStartup)
+	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", false, nil, ContextStartup, noop)
 	properties := map[string]ConnectionProperty{
 		"my_property": prop,
 	}
@@ -311,7 +315,7 @@ func TestSetInTransactionForStartupProperty(t *testing.T) {
 }
 
 func TestSetStartupProperty(t *testing.T) {
-	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", nil, ContextStartup)
+	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", false, nil, ContextStartup, noop)
 	properties := map[string]ConnectionProperty{
 		"my_property": prop,
 	}
@@ -326,7 +330,7 @@ func TestSetStartupProperty(t *testing.T) {
 }
 
 func TestSetNormalAndLocalValue(t *testing.T) {
-	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", nil, ContextUser)
+	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", false, nil, ContextUser, noop)
 	properties := map[string]ConnectionProperty{
 		"my_property": prop,
 	}
@@ -396,14 +400,14 @@ func TestSetUnknownProperty(t *testing.T) {
 		state, _ := NewConnectionState(tp, properties, map[string]ConnectionPropertyValue{})
 		// Try to add a new property without an extension to the connection state.
 		// This should fail.
-		prop := CreateConnectionProperty("prop", "Test property", "initial-value", nil, ContextUser)
+		prop := CreateConnectionProperty("prop", "Test property", "initial-value", false, nil, ContextUser, noop)
 		err := prop.SetValue(state, "new-value", ContextUser)
 		if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 			t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
 		}
 
 		// Adding a new property with an extension to the connection state should work.
-		propWithExtension := CreateConnectionPropertyWithExtension("spanner", "prop3", "Test property 3", "initial-value-3", nil, ContextUser)
+		propWithExtension := CreateConnectionPropertyWithExtension("spanner", "prop3", "Test property 3", "initial-value-3", false, nil, ContextUser, noop)
 		if err := propWithExtension.SetValue(state, "new-value", ContextUser); err != nil {
 			t.Fatal(err)
 		}
@@ -411,8 +415,8 @@ func TestSetUnknownProperty(t *testing.T) {
 }
 
 func TestReset(t *testing.T) {
-	prop1 := CreateConnectionProperty("prop1", "Test property 1", "initial-value-1", nil, ContextUser)
-	prop2 := CreateConnectionProperty("prop2", "Test property 2", "initial-value-2", nil, ContextUser)
+	prop1 := CreateConnectionProperty("prop1", "Test property 1", "initial-value-1", false, nil, ContextUser, noop)
+	prop2 := CreateConnectionProperty("prop2", "Test property 2", "initial-value-2", false, nil, ContextUser, noop)
 	properties := map[string]ConnectionProperty{
 		prop1.key: prop1,
 		prop2.key: prop2,
@@ -423,7 +427,7 @@ func TestReset(t *testing.T) {
 		_ = prop1.SetValue(state, "new-value-1", ContextUser)
 		_ = prop2.SetValue(state, "new-value-2", ContextUser)
 		// Add a new property to the connection state. This will be removed when the state is reset.
-		prop3 := CreateConnectionPropertyWithExtension("spanner", "prop3", "Test property 3", "initial-value-3", nil, ContextUser)
+		prop3 := CreateConnectionPropertyWithExtension("spanner", "prop3", "Test property 3", "initial-value-3", false, nil, ContextUser, noop)
 		if err := prop3.SetValue(state, "new-value-3", ContextUser); err != nil {
 			t.Fatal(err)
 		}
@@ -445,14 +449,14 @@ func TestReset(t *testing.T) {
 }
 
 func TestResetWithInitialValues(t *testing.T) {
-	prop1 := CreateConnectionProperty("prop1", "Test property 1", "default-value-1", nil, ContextUser)
-	prop2 := CreateConnectionProperty("prop2", "Test property 2", "default-value-2", nil, ContextUser)
+	prop1 := CreateConnectionProperty("prop1", "Test property 1", "default-value-1", false, nil, ContextUser, noop)
+	prop2 := CreateConnectionProperty("prop2", "Test property 2", "default-value-2", false, nil, ContextUser, noop)
 	properties := map[string]ConnectionProperty{
 		prop1.key: prop1,
 		prop2.key: prop2,
 	}
 	initialValues := map[string]ConnectionPropertyValue{
-		prop2.key: CreateInitialValue(prop2, "initial-value-2"),
+		prop2.key: prop2.CreateTypedInitialValue("initial-value-2"),
 	}
 
 	for _, tp := range []Type{TypeTransactional, TypeNonTransactional} {

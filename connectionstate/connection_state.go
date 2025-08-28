@@ -15,6 +15,8 @@
 package connectionstate
 
 import (
+	"strings"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -52,6 +54,39 @@ type ConnectionState struct {
 	localProperties       map[string]ConnectionPropertyValue
 }
 
+// ExtractValues extracts a map of ConnectionPropertyValue from a map of strings.
+// The converter function that is registered for the corresponding ConnectionProperty
+// is used to convert the string value to the actual value.
+func ExtractValues(properties map[string]ConnectionProperty, values map[string]string) (map[string]ConnectionPropertyValue, error) {
+	result := make(map[string]ConnectionPropertyValue)
+	for _, prop := range properties {
+		value, err := extractValue(prop, values)
+		if err != nil {
+			return nil, err
+		}
+		if value != nil {
+			result[prop.Key()] = value
+		}
+	}
+	return result, nil
+}
+
+func extractValue(prop ConnectionProperty, values map[string]string) (ConnectionPropertyValue, error) {
+	strVal, ok := values[prop.Key()]
+	if !ok {
+		strVal, ok = values[strings.Replace(prop.Key(), "_", "", -1)]
+		if !ok {
+			// No value found.
+			return nil, nil
+		}
+	}
+	val, err := prop.Convert(strVal)
+	if err != nil {
+		return nil, err
+	}
+	return prop.CreateInitialValue(val)
+}
+
 // NewConnectionState creates a new ConnectionState instance with the given initial values.
 // The Type must be either TypeTransactional or TypeNonTransactional.
 func NewConnectionState(connectionStateType Type, properties map[string]ConnectionProperty, initialValues map[string]ConnectionPropertyValue) (*ConnectionState, error) {
@@ -69,7 +104,7 @@ func NewConnectionState(connectionStateType Type, properties map[string]Connecti
 	}
 	for key, value := range properties {
 		if _, ok := state.properties[key]; !ok {
-			state.properties[key] = value.CreateInitialValue()
+			state.properties[key] = value.CreateDefaultValue()
 		}
 	}
 	return state, nil
