@@ -3366,7 +3366,8 @@ func TestShowVariableCommitTimestamp(t *testing.T) {
 }
 
 func TestMinSessions(t *testing.T) {
-	t.Parallel()
+	// MinSessions only has an effect if we are not using multiplexed sessions.
+	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
 
 	minSessions := int32(10)
 	ctx := context.Background()
@@ -3405,7 +3406,8 @@ func TestMinSessions(t *testing.T) {
 }
 
 func TestMaxSessions(t *testing.T) {
-	t.Parallel()
+	// MaxSessions only has an effect if we are not using multiplexed sessions.
+	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
 
 	ctx := context.Background()
 	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=0;maxSessions=2")
