@@ -731,11 +731,16 @@ func (s *inMemSpannerServer) CreateSession(ctx context.Context, req *spannerpb.C
 	}
 	sessionName := s.generateSessionNameLocked(req.Database)
 	ts := getCurrentTimestamp()
-	var creatorRole string
-	if req.Session != nil {
-		creatorRole = req.Session.CreatorRole
+	if req.Session == nil {
+		req.Session = &spannerpb.Session{}
 	}
-	session := &spannerpb.Session{Name: sessionName, CreateTime: ts, ApproximateLastUseTime: ts, CreatorRole: creatorRole}
+	session := &spannerpb.Session{
+		Name:                   sessionName,
+		CreateTime:             ts,
+		ApproximateLastUseTime: ts,
+		CreatorRole:            req.Session.CreatorRole,
+		Multiplexed:            req.Session.Multiplexed,
+	}
 	s.totalSessionsCreated++
 	s.sessions[sessionName] = session
 	return session, nil
