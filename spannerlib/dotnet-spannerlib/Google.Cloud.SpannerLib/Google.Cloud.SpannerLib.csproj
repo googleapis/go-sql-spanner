@@ -13,7 +13,7 @@
 
   <ItemGroup>
     <PackageReference Include="Experimental.SpannerLib.Grpc" Version="1.0.2" />
-    <PackageReference Include="Experimental.SpannerLib.Native" Version="1.0.9" />
+    <PackageReference Include="Experimental.SpannerLib.Native" Version="1.0.10" />
     <PackageReference Include="Google.Cloud.Spanner.Admin.Database.V1" Version="5.1.0" />
   </ItemGroup>
 

@@ -31,6 +31,7 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 )
@@ -281,9 +282,9 @@ func TestExtractDnsParts(t *testing.T) {
 				}
 				conn, err := newOrCachedConnector(&Driver{connectors: make(map[string]*connector)}, tc.input)
 				if err != nil {
-					t.Errorf("failed to get connector for %q: %v", tc.input, err)
+					t.Fatalf("failed to get connector for %q: %v", tc.input, err)
 				}
-				if diff := cmp.Diff(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{}, spanner.InactiveTransactionRemovalOptions{}, spannerpb.ExecuteSqlRequest_QueryOptions{})); diff != "" {
+				if diff := cmp.Diff(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{}, spanner.InactiveTransactionRemovalOptions{}, spannerpb.ExecuteSqlRequest_QueryOptions{}, spanner.TransactionOptions{})); diff != "" {
 					t.Errorf("connector Spanner client config mismatch for %q\n%v", tc.input, diff)
 				}
 				actualConfig := conn.connectorConfig
@@ -486,21 +487,24 @@ func TestConnection_Reset(t *testing.T) {
 		connector: &connector{
 			connectorConfig: ConnectorConfig{},
 		},
-		readOnlyStaleness: spanner.ExactStaleness(time.Second),
-		batch:             &batch{tp: dml},
-		commitResponse:    &spanner.CommitResponse{},
+		state:          createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		batch:          &batch{tp: BatchTypeDml},
+		commitResponse: &spanner.CommitResponse{},
 		tx: &readOnlyTransaction{
 			logger: noopLogger,
-			close: func() {
+			close: func(_ txResult) {
 				txClosed = true
 			},
 		},
 	}
 
+	if err := c.SetReadOnlyStaleness(spanner.ExactStaleness(time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	if err := c.ResetSession(context.Background()); err != nil {
 		t.Fatalf("failed to reset session: %v", err)
 	}
-	if !cmp.Equal(c.readOnlyStaleness, spanner.TimestampBound{}, cmp.AllowUnexported(spanner.TimestampBound{})) {
+	if !cmp.Equal(c.ReadOnlyStaleness(), spanner.TimestampBound{}, cmp.AllowUnexported(spanner.TimestampBound{})) {
 		t.Error("failed to reset read-only staleness")
 	}
 	if c.inBatch() {
@@ -517,6 +521,7 @@ func TestConnection_Reset(t *testing.T) {
 func TestConnection_NoNestedTransactions(t *testing.T) {
 	c := conn{
 		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
 		tx:     &readOnlyTransaction{},
 	}
 	_, err := c.BeginTx(context.Background(), driver.TxOptions{})
@@ -526,7 +531,7 @@ func TestConnection_NoNestedTransactions(t *testing.T) {
 }
 
 func TestConn_AbortBatch(t *testing.T) {
-	c := &conn{logger: noopLogger}
+	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 	if err := c.StartBatchDDL(); err != nil {
 		t.Fatalf("failed to start DDL batch: %v", err)
 	}
@@ -560,12 +565,12 @@ func TestConn_StartBatchDdl(t *testing.T) {
 		c       *conn
 		wantErr bool
 	}{
-		{"Default", &conn{logger: noopLogger}, false},
-		{"In DDL batch", &conn{logger: noopLogger, batch: &batch{tp: ddl}}, true},
-		{"In DML batch", &conn{logger: noopLogger, batch: &batch{tp: dml}}, true},
-		{"In read/write transaction", &conn{logger: noopLogger, tx: &readWriteTransaction{}}, true},
-		{"In read-only transaction", &conn{logger: noopLogger, tx: &readOnlyTransaction{}}, true},
-		{"In read/write transaction with a DML batch", &conn{logger: noopLogger, tx: &readWriteTransaction{batch: &batch{tp: dml}}}, true},
+		{"Default", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, false},
+		{"In DDL batch", &conn{logger: noopLogger, batch: &batch{tp: BatchTypeDdl}, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, true},
+		{"In DML batch", &conn{logger: noopLogger, batch: &batch{tp: BatchTypeDml}, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, true},
+		{"In read/write transaction", &conn{logger: noopLogger, tx: &readWriteTransaction{}, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, true},
+		{"In read-only transaction", &conn{logger: noopLogger, tx: &readOnlyTransaction{}, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, true},
+		{"In read/write transaction with a DML batch", &conn{logger: noopLogger, tx: &readWriteTransaction{batch: &batch{tp: BatchTypeDml}}, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, true},
 	} {
 		err := test.c.StartBatchDDL()
 		if test.wantErr {
@@ -589,12 +594,12 @@ func TestConn_StartBatchDml(t *testing.T) {
 		c       *conn
 		wantErr bool
 	}{
-		{"Default", &conn{logger: noopLogger}, false},
-		{"In DDL batch", &conn{logger: noopLogger, batch: &batch{tp: ddl}}, true},
-		{"In DML batch", &conn{logger: noopLogger, batch: &batch{tp: dml}}, true},
-		{"In read/write transaction", &conn{logger: noopLogger, tx: &readWriteTransaction{logger: noopLogger}}, false},
-		{"In read-only transaction", &conn{logger: noopLogger, tx: &readOnlyTransaction{logger: noopLogger}}, true},
-		{"In read/write transaction with a DML batch", &conn{logger: noopLogger, tx: &readWriteTransaction{logger: noopLogger, batch: &batch{tp: dml}}}, true},
+		{"Default", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, false},
+		{"In DDL batch", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}), batch: &batch{tp: BatchTypeDdl}}, true},
+		{"In DML batch", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}), batch: &batch{tp: BatchTypeDml}}, true},
+		{"In read/write transaction", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}), tx: &readWriteTransaction{logger: noopLogger}}, false},
+		{"In read-only transaction", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}), tx: &readOnlyTransaction{logger: noopLogger}}, true},
+		{"In read/write transaction with a DML batch", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}), tx: &readWriteTransaction{logger: noopLogger, batch: &batch{tp: BatchTypeDml}}}, true},
 	} {
 		err := test.c.StartBatchDML()
 		if test.wantErr {
@@ -618,19 +623,19 @@ func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := &conn{
-		parser:            parser,
-		logger:            noopLogger,
-		autocommitDMLMode: Transactional,
-		batch:             &batch{tp: ddl},
-		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
+		parser: parser,
+		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		batch:  &batch{tp: BatchTypeDdl},
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{
 				Metadata: &spannerpb.ResultSetMetadata{},
 			}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, *spanner.CommitResponse, error) {
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
 			return &result{}, &spanner.CommitResponse{}, nil
 		},
-		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
+		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -662,14 +667,15 @@ func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
 	c := &conn{
 		parser: parser,
 		logger: noopLogger,
-		batch:  &batch{tp: dml},
-		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		batch:  &batch{tp: BatchTypeDml},
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, *spanner.CommitResponse, error) {
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
 			return &result{}, &spanner.CommitResponse{}, nil
 		},
-		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
+		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -702,7 +708,7 @@ func TestConn_GetBatchedStatements(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	c := &conn{logger: noopLogger, parser: parser}
+	c := &conn{logger: noopLogger, parser: parser, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 	if !reflect.DeepEqual(c.GetBatchedStatements(), []spanner.Statement{}) {
 		t.Fatal("conn should return an empty slice when no batch is active")
 	}
@@ -751,16 +757,16 @@ func TestConn_GetCommitResponseAfterAutocommitDml(t *testing.T) {
 	}
 	want := &spanner.CommitResponse{CommitTs: time.Now()}
 	c := &conn{
-		parser:            parser,
-		logger:            noopLogger,
-		autocommitDMLMode: Transactional,
-		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
+		parser: parser,
+		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, *spanner.CommitResponse, error) {
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
 			return &result{}, want, nil
 		},
-		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
+		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -792,13 +798,14 @@ func TestConn_GetCommitResponseAfterAutocommitQuery(t *testing.T) {
 	c := &conn{
 		parser: parser,
 		logger: noopLogger,
-		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
+		state:  createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, *spanner.CommitResponse, error) {
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
 			return &result{}, &spanner.CommitResponse{}, nil
 		},
-		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
+		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error) {
 			return 0, nil
 		},
 	}

@@ -55,12 +55,12 @@ func Execute(poolId, connId int64, executeSqlRequestBytes []byte) *Message {
 	return idMessage(id)
 }
 
-func ExecuteBatchDml(poolId, connId int64, statementsBytes []byte) *Message {
+func ExecuteBatch(poolId, connId int64, statementsBytes []byte) *Message {
 	statements := spannerpb.ExecuteBatchDmlRequest{}
 	if err := proto.Unmarshal(statementsBytes, &statements); err != nil {
 		return errMessage(err)
 	}
-	response, err := api.ExecuteBatchDml(poolId, connId, &statements)
+	response, err := api.ExecuteBatch(poolId, connId, &statements)
 	if err != nil {
 		return errMessage(err)
 	}

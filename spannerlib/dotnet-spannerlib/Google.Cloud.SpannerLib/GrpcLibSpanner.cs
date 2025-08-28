@@ -100,7 +100,7 @@ public class GrpcLibSpanner : ISpanner
         return new Rows(transaction.Connection, rows.Id);
     }
 
-    public long[] ExecuteBatchDml(Connection connection, ExecuteBatchDmlRequest statements)
+    public long[] ExecuteBatch(Connection connection, ExecuteBatchDmlRequest statements)
     {
         var response = _lib.ExecuteBatchDml(ToProto(connection), statements);
         var result = new long[response.ResultSets.Count];
@@ -109,6 +109,11 @@ public class GrpcLibSpanner : ISpanner
             result[i] = response.ResultSets[i].Stats.RowCountExact;
         }
         return result;
+    }
+
+    public Task<long[]> ExecuteBatchAsync(Connection connection, ExecuteBatchDmlRequest statements)
+    {
+        throw new System.NotImplementedException();
     }
 
     public ResultSetMetadata? Metadata(Rows rows)

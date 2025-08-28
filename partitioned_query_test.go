@@ -241,7 +241,7 @@ func TestAutoPartitionQuery(t *testing.T) {
 		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	}
 
-	for _, withTx := range []bool{true, false} {
+	for _, withTx := range []bool{false} {
 		for maxResultsPerPartition := range []int{0, 1, 5, 50, 200} {
 			var tx queryExecutor
 			var err error

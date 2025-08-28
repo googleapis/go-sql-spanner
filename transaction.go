@@ -43,8 +43,8 @@ type contextTransaction interface {
 	Commit() error
 	Rollback() error
 	resetForRetry(ctx context.Context) error
-	Query(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (rowIterator, error)
-	partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (driver.Rows, error)
+	Query(ctx context.Context, stmt spanner.Statement, execOptions *ExecOptions) (rowIterator, error)
+	partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions *ExecOptions) (driver.Rows, error)
 	ExecContext(ctx context.Context, stmt spanner.Statement, statementInfo *statementInfo, options spanner.QueryOptions) (*result, error)
 
 	StartBatchDML(options spanner.QueryOptions, automatic bool) (driver.Result, error)
@@ -91,13 +91,20 @@ func (ri *readOnlyRowIterator) ResultSetStats() *sppb.ResultSetStats {
 	}
 }
 
+type txResult int
+
+const (
+	txResultCommit txResult = iota
+	txResultRollback
+)
+
 var _ contextTransaction = &readOnlyTransaction{}
 
 type readOnlyTransaction struct {
 	roTx   *spanner.ReadOnlyTransaction
 	boTx   *spanner.BatchReadOnlyTransaction
 	logger *slog.Logger
-	close  func()
+	close  func(result txResult)
 }
 
 func (tx *readOnlyTransaction) Commit() error {
@@ -109,7 +116,7 @@ func (tx *readOnlyTransaction) Commit() error {
 	} else if tx.roTx != nil {
 		tx.roTx.Close()
 	}
-	tx.close()
+	tx.close(txResultCommit)
 	return nil
 }
 
@@ -120,7 +127,7 @@ func (tx *readOnlyTransaction) Rollback() error {
 	if tx.roTx != nil {
 		tx.roTx.Close()
 	}
-	tx.close()
+	tx.close(txResultRollback)
 	return nil
 }
 
@@ -129,7 +136,7 @@ func (tx *readOnlyTransaction) resetForRetry(ctx context.Context) error {
 	return nil
 }
 
-func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (rowIterator, error) {
+func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement, execOptions *ExecOptions) (rowIterator, error) {
 	tx.logger.DebugContext(ctx, "Query", "stmt", stmt.SQL)
 	if execOptions.PartitionedQueryOptions.AutoPartitionQuery {
 		if tx.boTx == nil {
@@ -149,7 +156,7 @@ func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement
 	return &readOnlyRowIterator{tx.roTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions)}, nil
 }
 
-func (tx *readOnlyTransaction) partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (driver.Rows, error) {
+func (tx *readOnlyTransaction) partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions *ExecOptions) (driver.Rows, error) {
 	pq, err := tx.createPartitionedQuery(ctx, stmt, execOptions)
 	if err != nil {
 		return nil, err
@@ -157,7 +164,7 @@ func (tx *readOnlyTransaction) partitionQuery(ctx context.Context, stmt spanner.
 	return &partitionedQueryRows{partitionedQuery: pq}, nil
 }
 
-func (tx *readOnlyTransaction) createPartitionedQuery(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (*PartitionedQuery, error) {
+func (tx *readOnlyTransaction) createPartitionedQuery(ctx context.Context, stmt spanner.Statement, execOptions *ExecOptions) (*PartitionedQuery, error) {
 	if tx.boTx == nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "partitionQuery is only supported for batch read-only transactions"))
 	}
@@ -233,7 +240,7 @@ type readWriteTransaction struct {
 	active bool
 	// batch is any DML batch that is active for this transaction.
 	batch *batch
-	close func(commitResponse *spanner.CommitResponse, commitErr error)
+	close func(result txResult, commitResponse *spanner.CommitResponse, commitErr error)
 	// retryAborts indicates whether this transaction will automatically retry
 	// the transaction if it is aborted by Spanner. The default is true.
 	retryAborts bool
@@ -409,7 +416,7 @@ func (tx *readWriteTransaction) Commit() (err error) {
 	if tx.rwTx != nil {
 		if !tx.retryAborts {
 			ts, err := tx.rwTx.CommitWithReturnResp(tx.ctx)
-			tx.close(&ts, err)
+			tx.close(txResultCommit, &ts, err)
 			return err
 		}
 
@@ -421,7 +428,7 @@ func (tx *readWriteTransaction) Commit() (err error) {
 			tx.rwTx.Rollback(context.Background())
 		}
 	}
-	tx.close(&commitResponse, err)
+	tx.close(txResultCommit, &commitResponse, err)
 	return err
 }
 
@@ -439,7 +446,7 @@ func (tx *readWriteTransaction) rollback(ctx context.Context) error {
 	if tx.rwTx != nil {
 		tx.rwTx.Rollback(ctx)
 	}
-	tx.close(nil, nil)
+	tx.close(txResultRollback, nil, nil)
 	return nil
 }
 
@@ -455,7 +462,7 @@ func (tx *readWriteTransaction) resetForRetry(ctx context.Context) error {
 // Query executes a query using the read/write transaction and returns a
 // rowIterator that will automatically retry the read/write transaction if the
 // transaction is aborted during the query or while iterating the returned rows.
-func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (rowIterator, error) {
+func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement, execOptions *ExecOptions) (rowIterator, error) {
 	tx.logger.Debug("Query", "stmt", stmt.SQL)
 	tx.active = true
 	if err := tx.maybeRunAutoDmlBatch(ctx); err != nil {
@@ -483,7 +490,7 @@ func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statemen
 	return it, nil
 }
 
-func (tx *readWriteTransaction) partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions ExecOptions) (driver.Rows, error) {
+func (tx *readWriteTransaction) partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions *ExecOptions) (driver.Rows, error) {
 	return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read/write transactions cannot partition queries"))
 }
 
@@ -495,7 +502,7 @@ func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.St
 		tx.batch.statements = append(tx.batch.statements, stmt)
 		updateCount := int64(0)
 		if tx.batch.automatic {
-			updateCount = tx.conn.autoBatchDmlUpdateCount
+			updateCount = tx.conn.AutoBatchDmlUpdateCount()
 		}
 		tx.batch.returnValues = append(tx.batch.returnValues, updateCount)
 		return &result{rowsAffected: updateCount}, nil
@@ -528,7 +535,7 @@ func (tx *readWriteTransaction) StartBatchDML(options spanner.QueryOptions, auto
 	}
 	tx.logger.Debug("starting dml batch in transaction", "automatic", automatic)
 	tx.active = true
-	tx.batch = &batch{tp: dml, options: ExecOptions{QueryOptions: options}, automatic: automatic}
+	tx.batch = &batch{tp: BatchTypeDml, options: &ExecOptions{QueryOptions: options}, automatic: automatic}
 	return driver.ResultNoRows, nil
 }
 
@@ -537,9 +544,9 @@ func (tx *readWriteTransaction) RunBatch(ctx context.Context) (driver.Result, er
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This transaction does not have an active batch"))
 	}
 	switch tx.batch.tp {
-	case dml:
+	case BatchTypeDml:
 		return tx.runDmlBatch(ctx)
-	case ddl:
+	case BatchTypeDdl:
 		fallthrough
 	default:
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Unknown or unsupported batch type: %d", tx.batch.tp))
@@ -550,7 +557,7 @@ func (tx *readWriteTransaction) RunDmlBatch(ctx context.Context) (SpannerResult,
 	if tx.batch == nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "this transaction does not have an active batch"))
 	}
-	if tx.batch.tp != dml {
+	if tx.batch.tp != BatchTypeDml {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "batch is not a DML batch"))
 	}
 	return tx.runDmlBatch(ctx)
@@ -572,7 +579,7 @@ func (tx *readWriteTransaction) maybeRunAutoDmlBatch(ctx context.Context) error 
 	if err != nil {
 		return fmt.Errorf("running auto-dml-batch failed: %w", err)
 	}
-	if !tx.conn.autoBatchDmlUpdateCountVerification {
+	if !tx.conn.AutoBatchDmlUpdateCountVerification() {
 		// Skip verification.
 		return nil
 	}

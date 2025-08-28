@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using Google.Cloud.SpannerLib.Tests.MockServer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-namespace Google.Cloud.SpannerLib.Tests.MockServer;
+namespace Google.Cloud.SpannerLib.MockServer;
 
 /// <summary>
 /// Helper class for starting an in-memory mock Spanner server that is used for testing.

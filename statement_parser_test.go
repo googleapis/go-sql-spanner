@@ -1526,7 +1526,7 @@ func TestStatementIsDdl(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range tests {
-		got := parser.detectStatementType(tc.input).statementType == statementTypeDdl
+		got := parser.detectStatementType(tc.input).statementType == StatementTypeDdl
 		if got != tc.want {
 			t.Errorf("isDDL test failed, %s: wanted %t got %t.", tc.name, tc.want, got)
 		}
@@ -2286,74 +2286,74 @@ func TestEatDollarQuotedString(t *testing.T) {
 
 type detectStatementTypeTest struct {
 	input string
-	want  statementType
+	want  StatementType
 }
 
 func generateDetectStatementTypeTests() []detectStatementTypeTest {
 	return []detectStatementTypeTest{
 		{
 			input: "select 1",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "from test",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "with t as (select 1) select * from t",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "GRAPH FinGraph\nMATCH (n)\nRETURN LABELS(n) AS label, n.id",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "/* this is a comment */ -- this is also a comment\n @  { statement_hint_key=value } select 1",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "update foo set bar=1 where true",
-			want:  statementTypeDml,
+			want:  StatementTypeDml,
 		},
 		{
 			input: "insert into foo (id, value) select 1, 'test'",
-			want:  statementTypeDml,
+			want:  StatementTypeDml,
 		},
 		{
 			input: "delete from foo where true",
-			want:  statementTypeDml,
+			want:  StatementTypeDml,
 		},
 		{
 			input: "delete from foo where true then return *",
-			want:  statementTypeDml,
+			want:  StatementTypeDml,
 		},
 		{
 			input: "create table foo (id int64) primary key (id)",
-			want:  statementTypeDdl,
+			want:  StatementTypeDdl,
 		},
 		{
 			input: "drop table if exists foo",
-			want:  statementTypeDdl,
+			want:  StatementTypeDdl,
 		},
 		{
 			input: "input from borkisland",
-			want:  statementTypeUnknown,
+			want:  StatementTypeUnknown,
 		},
 		{
 			input: "start batch ddl",
-			want:  statementTypeClientSide,
+			want:  StatementTypeClientSide,
 		},
 		{
 			input: "set autocommit_dml_mode = 'partitioned_non_atomic'",
-			want:  statementTypeClientSide,
+			want:  StatementTypeClientSide,
 		},
 		{
 			input: "show variable commit_timestamp",
-			want:  statementTypeClientSide,
+			want:  StatementTypeClientSide,
 		},
 		{
 			input: "run batch",
-			want:  statementTypeClientSide,
+			want:  StatementTypeClientSide,
 		},
 	}
 }
@@ -2369,7 +2369,7 @@ func TestDetectStatementType(t *testing.T) {
 		if cs, err := parser.parseClientSideStatement(c, test.input); err != nil {
 			t.Errorf("failed to parse the statement as a client-side statement")
 		} else if cs != nil {
-			if g, w := statementTypeClientSide, test.want; g != w {
+			if g, w := StatementTypeClientSide, test.want; g != w {
 				t.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 			}
 		} else if g, w := parser.detectStatementType(test.input).statementType, test.want; g != w {
@@ -2399,6 +2399,168 @@ func TestCachedParamsAreImmutable(t *testing.T) {
 	}
 }
 
+func TestEatKeyword(t *testing.T) {
+	t.Parallel()
+
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		input   string
+		keyword string
+		wantOk  bool
+		want    string
+	}{
+		{
+			input:   "show my_property",
+			keyword: "SHOW",
+			wantOk:  true,
+			want:    "show",
+		},
+		{
+			input:   "/*comment*/ show my_property",
+			keyword: "SHOW",
+			wantOk:  true,
+			want:    "show",
+		},
+		{
+			input:   "/*comment*/ show my_property",
+			keyword: "SHOW",
+			wantOk:  true,
+			want:    "show",
+		},
+		{
+			input:   "/*comment*/SHOW/*another comment*/ my_property",
+			keyword: "SHOW",
+			wantOk:  true,
+			want:    "SHOW",
+		},
+		{
+			input:   "Set my_property to 'my-value'",
+			keyword: "SET",
+			wantOk:  true,
+			want:    "Set",
+		},
+		{
+			input:   "CREATE",
+			keyword: "CREATE",
+			wantOk:  true,
+			want:    "CREATE",
+		},
+		{
+			input:   "DROP table foo",
+			keyword: "CREATE",
+			wantOk:  false,
+		},
+		{
+			input:   "DROP",
+			keyword: "CREATE",
+			wantOk:  false,
+		},
+	}
+	for _, test := range tests {
+		sp := &simpleParser{sql: []byte(test.input), statementParser: parser}
+		startPos := sp.pos
+		keyword, ok := sp.eatKeyword(test.keyword)
+		if g, w := ok, test.wantOk; g != w {
+			t.Errorf("found mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if test.wantOk {
+			if g, w := keyword, test.want; g != w {
+				t.Errorf("keyword mismatch\n Got: %v\nWant: %v", g, w)
+			}
+		} else {
+			if g, w := sp.pos, startPos; g != w {
+				t.Errorf("position mismatch\n Got: %v\nWant: %v", g, w)
+			}
+		}
+	}
+}
+
+func TestEatIdentifier(t *testing.T) {
+	t.Parallel()
+
+	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		input   string
+		want    identifier
+		wantErr bool
+	}{
+		{
+			input: "my_property",
+			want:  identifier{parts: []string{"my_property"}},
+		},
+		{
+			input: "my_extension.my_property",
+			want:  identifier{parts: []string{"my_extension", "my_property"}},
+		},
+		{
+			// spaces are allowed
+			input: " \n my_extension  . \t my_property   ",
+			want:  identifier{parts: []string{"my_extension", "my_property"}},
+		},
+		{
+			// comments are treated the same as spaces and are allowed
+			input: " /* comment */ \n my_extension  -- yet another comment\n. \t -- Also a comment \nmy_property   ",
+			want:  identifier{parts: []string{"my_extension", "my_property"}},
+		},
+		{
+			input: "p1.p2.p3.p4",
+			want:  identifier{parts: []string{"p1", "p2", "p3", "p4"}},
+		},
+		{
+			input: "a.b.c",
+			want:  identifier{parts: []string{"a", "b", "c"}},
+		},
+		{
+			input:   "1a",
+			wantErr: true,
+		},
+		{
+			input:   "my_extension.",
+			wantErr: true,
+		},
+		{
+			// No identifier after the '.'.
+			input:   "my_extension   \n   . -- comment\n",
+			wantErr: true,
+		},
+		{
+			input:   "my_extension.1a",
+			wantErr: true,
+		},
+		{
+			input:   "a . 1a",
+			wantErr: true,
+		},
+	}
+	for _, test := range tests {
+		sp := &simpleParser{sql: []byte(test.input), statementParser: parser}
+		id, err := sp.eatIdentifier()
+		if err != nil {
+			if test.wantErr {
+				continue
+			}
+			t.Fatalf("%s\ngot unexpected error: %v", test.input, err)
+		}
+		if test.wantErr {
+			t.Fatalf("%s\nmissing expected error", test.input)
+		}
+		if g, w := len(id.parts), len(test.want.parts); g != w {
+			t.Fatalf("%s\nidentifier parts length mismatch\n Got: %v\nWant: %v", test.input, g, w)
+		}
+		for i := range id.parts {
+			if g, w := id.parts[i], test.want.parts[i]; g != w {
+				t.Fatalf("%s\n%d: identifier part mismatch\n Got: %v\nWant: %v", test.input, i, g, w)
+			}
+		}
+	}
+}
+
 func BenchmarkDetectStatementTypeWithoutCache(b *testing.B) {
 	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 0)
 	if err != nil {
@@ -2423,7 +2585,7 @@ func benchmarkDetectStatementType(b *testing.B, parser *statementParser) {
 			if cs, err := parser.parseClientSideStatement(c, test.input); err != nil {
 				b.Errorf("failed to parse the statement as a client-side statement")
 			} else if cs != nil {
-				if g, w := statementTypeClientSide, test.want; g != w {
+				if g, w := StatementTypeClientSide, test.want; g != w {
 					b.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 				}
 			} else if g, w := parser.detectStatementType(test.input).statementType, test.want; g != w {

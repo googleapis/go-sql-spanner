@@ -24,7 +24,9 @@ public interface ISpanner
 
     public Rows ExecuteTransaction(Transaction transaction, ExecuteSqlRequest statement);
 
-    public long[] ExecuteBatchDml(Connection connection, ExecuteBatchDmlRequest statements);
+    public long[] ExecuteBatch(Connection connection, ExecuteBatchDmlRequest statements);
+    
+    public Task<long[]> ExecuteBatchAsync(Connection connection, ExecuteBatchDmlRequest statements);
 
     public ResultSetMetadata? Metadata(Rows rows);
     

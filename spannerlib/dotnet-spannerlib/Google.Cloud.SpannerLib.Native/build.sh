@@ -5,7 +5,7 @@ mkdir -p libraries/any
 
 # Clear all local nuget cache
 dotnet nuget locals --clear all
-go build -o ../../spannerlib.so -buildmode=c-shared ../../
+go build -o ../../spannerlib.so -buildmode=c-shared ../../shared_lib.go
 cp ../../spannerlib.so $DEST
 dotnet pack
 dotnet nuget remove source local 2>/dev/null

@@ -124,11 +124,12 @@ func ExecuteTransaction(poolId, connectionId, txId int64, statement []byte) (int
 	return pin(msg)
 }
 
-// ExecuteBatchDml executes a batch of DML statements on the given connection.
+// ExecuteBatch executes a batch of statements on the given connection. The statements must all be either DML or DDL
+// statements. Mixing DML and DDL in a batch is not supported. Executing queries in a batch is also not supported.
 //
-//export ExecuteBatchDml
-func ExecuteBatchDml(poolId, connectionId int64, statements []byte) (int64, int32, int64, int32, unsafe.Pointer) {
-	msg := lib.ExecuteBatchDml(poolId, connectionId, statements)
+//export ExecuteBatch
+func ExecuteBatch(poolId, connectionId int64, statements []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := lib.ExecuteBatch(poolId, connectionId, statements)
 	return pin(msg)
 }
 

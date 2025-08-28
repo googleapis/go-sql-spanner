@@ -113,13 +113,13 @@ public class SharedLibSpanner : ISpanner
         return new Rows(transaction.Connection, handler.ObjectId());
     }
 
-    public long[] ExecuteBatchDml(Connection connection, ExecuteBatchDmlRequest statements)
+    public long[] ExecuteBatch(Connection connection, ExecuteBatchDmlRequest statements)
     {
         using var handler = ExecuteLibraryFunction(() =>
         {
             var statementsBytes = statements.ToByteArray();
             using var goStatements = DisposableGoSlice.Create(statementsBytes);
-            return Native.SpannerLib.ExecuteBatchDml(connection.Pool.Id, connection.Id, goStatements.GoSlice);
+            return Native.SpannerLib.ExecuteBatch(connection.Pool.Id, connection.Id, goStatements.GoSlice);
         });
         if (handler.Length == 0)
         {
@@ -134,6 +134,11 @@ public class SharedLibSpanner : ISpanner
         }
 
         return result;
+    }
+    
+    public Task<long[]> ExecuteBatchAsync(Connection connection, ExecuteBatchDmlRequest statements)
+    {
+        return Task.Run(() => ExecuteBatch(connection, statements));
     }
 
     public ResultSetMetadata? Metadata(Rows rows)

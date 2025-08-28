@@ -43,10 +43,14 @@ var dmlStatements = union(insertStatements, union(updateStatements, deleteStatem
 var clientSideKeywords = map[string]bool{
 	"SHOW":  true,
 	"SET":   true,
+	"RESET": true,
 	"START": true,
 	"RUN":   true,
 	"ABORT": true,
 }
+var showStatements = map[string]bool{"SHOW": true}
+var setStatements = map[string]bool{"SET": true}
+var resetStatements = map[string]bool{"RESET": true}
 
 func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 	res := make(map[string]bool, len(m1)+len(m2))
@@ -63,6 +67,14 @@ type simpleParser struct {
 	statementParser *statementParser
 	sql             []byte
 	pos             int
+}
+
+// hasMoreTokens returns true if there are more (non-whitespace) tokens in the SQL string.
+func (p *simpleParser) hasMoreTokens() bool {
+	startPos := p.pos
+	defer func() { p.pos = startPos }()
+	p.skipWhitespacesAndComments()
+	return p.pos < len(p.sql)
 }
 
 // eatToken advances the parser by one position and returns true
@@ -178,6 +190,99 @@ func (p *simpleParser) isDollar() bool {
 	return !p.isMultibyte() && p.sql[p.pos] == '$'
 }
 
+type identifier struct {
+	parts []string
+}
+
+func (i *identifier) String() string {
+	return strings.Join(i.parts, ".")
+}
+
+// eatIdentifier reads the identifier at the current parser position, updates the parser position,
+// and returns the identifier.
+func (p *simpleParser) eatIdentifier() (identifier, error) {
+	// TODO: Add support for quoted identifiers.
+	p.skipWhitespacesAndComments()
+	if p.pos >= len(p.sql) {
+		return identifier{}, status.Errorf(codes.InvalidArgument, "no identifier found at position %d", p.pos)
+	}
+	startPos := p.pos
+	first := true
+	result := identifier{parts: make([]string, 0, 1)}
+	appendLastPart := true
+	for p.pos < len(p.sql) {
+		if first {
+			first = false
+			if !p.isValidFirstIdentifierChar() {
+				return identifier{}, status.Errorf(codes.InvalidArgument, "invalid first identifier character found at position %d: %s", p.pos, p.sql[p.pos:p.pos+1])
+			}
+		} else {
+			if !p.isValidIdentifierChar() {
+				result.parts = append(result.parts, string(p.sql[startPos:p.pos]))
+				if p.eatToken('.') {
+					p.skipWhitespacesAndComments()
+					startPos = p.pos
+					first = true
+					continue
+				} else {
+					appendLastPart = false
+					break
+				}
+			}
+		}
+		p.nextChar()
+	}
+	if first {
+		return identifier{}, status.Errorf(codes.InvalidArgument, "no identifier found at position %d", startPos)
+	}
+	if appendLastPart && p.pos == len(p.sql) {
+		result.parts = append(result.parts, string(p.sql[startPos:p.pos]))
+	}
+	return result, nil
+}
+
+type literal struct {
+	value string
+}
+
+func (p *simpleParser) eatLiteral() (literal, error) {
+	p.skipWhitespacesAndComments()
+	if p.pos >= len(p.sql) {
+		return literal{}, status.Errorf(codes.InvalidArgument, "missing literal at position %d", p.pos)
+	}
+	startPos := p.pos
+	c := p.sql[p.pos]
+	if c == '\'' || (c == '"' && p.statementParser.supportsDoubleQuotedStringLiterals()) {
+		pos, quoteLen, err := p.statementParser.skipQuoted(p.sql, p.pos, c)
+		if err != nil {
+			return literal{}, err
+		}
+		p.pos = pos
+		value := string(p.sql[startPos+quoteLen : p.pos-quoteLen])
+		return literal{value: value}, nil
+	}
+
+	value := p.readUnquotedLiteral()
+	if value == "" {
+		return literal{}, status.Errorf(codes.InvalidArgument, "missing literal at position %d", p.pos)
+	}
+	return literal{value: value}, nil
+}
+
+// eatKeyword eats the given keyword at the current position of the parser if it exists.
+//
+// Returns the actual keyword that was read and true if the keyword is found, and updates the position of the parser.
+// Returns an empty string and false without updating the position of the parser if the keyword was not found.
+func (p *simpleParser) eatKeyword(keyword string) (string, bool) {
+	startPos := p.pos
+	found := p.readKeyword()
+	if !strings.EqualFold(found, keyword) {
+		p.pos = startPos
+		return "", false
+	}
+	return found, true
+}
+
 // readKeyword reads the keyword at the current position.
 // A keyword can only contain upper and lower case ASCII letters (A-Z, a-z).
 func (p *simpleParser) readKeyword() string {
@@ -192,6 +297,30 @@ func (p *simpleParser) readKeyword() string {
 		}
 		// Only upper/lower-case letters are allowed in keywords.
 		if !((p.sql[p.pos] >= 'A' && p.sql[p.pos] <= 'Z') || (p.sql[p.pos] >= 'a' && p.sql[p.pos] <= 'z')) {
+			break
+		}
+	}
+	return string(p.sql[start:p.pos])
+}
+
+// readUnquotedLiteral reads the unquoted literal at the current position.
+// An unquoted literal can contain upper and lower case ASCII letters (A-Z, a-z),
+// numbers, and decimal points.
+func (p *simpleParser) readUnquotedLiteral() string {
+	p.skipWhitespacesAndComments()
+	start := p.pos
+	for ; p.pos < len(p.sql) && !isSpace(p.sql[p.pos]); p.pos++ {
+		if isMultibyte(p.sql[p.pos]) {
+			break
+		}
+		if isSpace(p.sql[p.pos]) {
+			break
+		}
+		// Only upper/lower-case letters, numbers, and decimal points are allowed in unquoted literals.
+		if !((p.sql[p.pos] >= 'A' && p.sql[p.pos] <= 'Z') ||
+			(p.sql[p.pos] >= 'a' && p.sql[p.pos] <= 'z') ||
+			(p.sql[p.pos] >= '0' && p.sql[p.pos] <= '9') ||
+			p.sql[p.pos] == '.') {
 			break
 		}
 	}
@@ -321,6 +450,12 @@ func (p *statementParser) supportsBacktickQuotes() bool {
 	return p.dialect != databasepb.DatabaseDialect_POSTGRESQL
 }
 
+// supportsDoubleQuotedStringLiterals returns true if the SQL dialect supports
+// STRING literals starting with ".
+func (p *statementParser) supportsDoubleQuotedStringLiterals() bool {
+	return p.dialect != databasepb.DatabaseDialect_POSTGRESQL
+}
+
 func (p *statementParser) supportsTripleQuotedLiterals() bool {
 	return p.dialect != databasepb.DatabaseDialect_POSTGRESQL
 }
@@ -440,7 +575,8 @@ func (p *statementParser) skip(sql []byte, pos int) (int, error) {
 
 	if c == '\'' || c == '"' || (c == '`' && p.supportsBacktickQuotes()) {
 		// This is a quoted string or quoted identifier.
-		return p.skipQuoted(sql, pos, c)
+		pos, _, err := p.skipQuoted(sql, pos, c)
+		return pos, err
 	} else if c == '-' && len(sql) > pos+1 && sql[pos+1] == '-' {
 		// This is a single line comment starting with '--'.
 		return p.skipSingleLineComment(sql, pos+2), nil
@@ -517,16 +653,18 @@ func (p *statementParser) skipMultiLineComment(sql []byte, pos int) int {
 	return pos
 }
 
-func (p *statementParser) skipQuoted(sql []byte, pos int, quote byte) (int, error) {
+func (p *statementParser) skipQuoted(sql []byte, pos int, quote byte) (int, int, error) {
 	isTripleQuoted := p.supportsTripleQuotedLiterals() && len(sql) > pos+2 && sql[pos+1] == quote && sql[pos+2] == quote
 	if isTripleQuoted && (isMultibyte(sql[pos+1]) || isMultibyte(sql[pos+2])) {
 		isTripleQuoted = false
 	}
+	var quoteLength int
 	if isTripleQuoted {
-		pos += 3
+		quoteLength = 3
 	} else {
-		pos += 1
+		quoteLength = 1
 	}
+	pos += quoteLength
 	for pos < len(sql) {
 		c := sql[pos]
 		if isMultibyte(c) {
@@ -538,7 +676,7 @@ func (p *statementParser) skipQuoted(sql []byte, pos int, quote byte) (int, erro
 			if isTripleQuoted {
 				// Check if this is the end of the triple-quoted string.
 				if len(sql) > pos+2 && sql[pos+1] == quote && sql[pos+2] == quote {
-					return pos + 3, nil
+					return pos + 3, quoteLength, nil
 				}
 			} else {
 				if p.supportsEscapeQuoteWithQuote() && len(sql) > pos+1 && sql[pos+1] == quote {
@@ -546,7 +684,7 @@ func (p *statementParser) skipQuoted(sql []byte, pos int, quote byte) (int, erro
 					continue
 				}
 				// This was the end quote.
-				return pos + 1, nil
+				return pos + 1, quoteLength, nil
 			}
 		} else if p.supportsBackslashEscape() && len(sql) > pos+1 && c == '\\' && sql[pos+1] == quote {
 			// This is an escaped quote (e.g. 'foo\'bar').
@@ -559,7 +697,7 @@ func (p *statementParser) skipQuoted(sql []byte, pos int, quote byte) (int, erro
 		}
 		pos++
 	}
-	return 0, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", string(sql)))
+	return 0, 0, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", string(sql)))
 }
 
 // RemoveCommentsAndTrim removes any comments in the query string and trims any
@@ -786,7 +924,7 @@ func (p *statementParser) calculateFindParamsResult(sql string) (string, []strin
 // of the sql string have been removed.
 func (p *statementParser) isDDL(query string) bool {
 	info := p.detectStatementType(query)
-	return info.statementType == statementTypeDdl
+	return info.statementType == StatementTypeDdl
 }
 
 func isDDLKeyword(keyword string) bool {
@@ -798,7 +936,7 @@ func isDDLKeyword(keyword string) bool {
 // of the sql string have been removed.
 func (p *statementParser) isDml(query string) bool {
 	info := p.detectStatementType(query)
-	return info.statementType == statementTypeDml
+	return info.statementType == StatementTypeDml
 }
 
 func isDmlKeyword(keyword string) bool {
@@ -810,11 +948,23 @@ func isDmlKeyword(keyword string) bool {
 // of the sql string have been removed.
 func (p *statementParser) isQuery(query string) bool {
 	info := p.detectStatementType(query)
-	return info.statementType == statementTypeQuery
+	return info.statementType == StatementTypeQuery
 }
 
 func isQueryKeyword(keyword string) bool {
 	return isStatementKeyword(keyword, selectStatements)
+}
+
+func isShowStatementKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, showStatements)
+}
+
+func isSetStatementKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, setStatements)
+}
+
+func isResetStatementKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, resetStatements)
 }
 
 func isStatementKeyword(keyword string, keywords map[string]bool) bool {
@@ -834,8 +984,8 @@ type clientSideStatements struct {
 type clientSideStatement struct {
 	Name                          string `json:"name"`
 	ExecutorName                  string `json:"executorName"`
-	execContext                   func(ctx context.Context, c *conn, params string, opts ExecOptions, args []driver.NamedValue) (driver.Result, error)
-	queryContext                  func(ctx context.Context, c *conn, params string, opts ExecOptions, args []driver.NamedValue) (driver.Rows, error)
+	execContext                   func(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error)
+	queryContext                  func(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error)
 	ResultType                    string `json:"resultType"`
 	Regex                         string `json:"regex"`
 	regexp                        *regexp.Regexp
@@ -874,14 +1024,14 @@ func compileStatements() error {
 			return err
 		}
 		i := reflect.ValueOf(statements.executor).MethodByName(strings.TrimPrefix(stmt.MethodName, "statement")).Interface()
-		if execContext, ok := i.(func(ctx context.Context, c *conn, query string, opts ExecOptions, args []driver.NamedValue) (driver.Result, error)); ok {
+		if execContext, ok := i.(func(ctx context.Context, c *conn, query string, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error)); ok {
 			stmt.execContext = execContext
 		}
-		if queryContext, ok := i.(func(ctx context.Context, c *conn, query string, opts ExecOptions, args []driver.NamedValue) (driver.Rows, error)); ok {
+		if queryContext, ok := i.(func(ctx context.Context, c *conn, query string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error)); ok {
 			stmt.queryContext = queryContext
 		}
 		if stmt.queryContext == nil && stmt.execContext != nil {
-			stmt.queryContext = func(ctx context.Context, c *conn, params string, opts ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+			stmt.queryContext = func(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
 				_, err := stmt.execContext(ctx, c, params, opts, args)
 				if err != nil {
 					return nil, err
@@ -910,14 +1060,14 @@ type executableClientSideStatement struct {
 	params string
 }
 
-func (c *executableClientSideStatement) ExecContext(ctx context.Context, opts ExecOptions, args []driver.NamedValue) (driver.Result, error) {
+func (c *executableClientSideStatement) ExecContext(ctx context.Context, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	if c.clientSideStatement.execContext == nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with execContext", c.query))
 	}
 	return c.clientSideStatement.execContext(ctx, c.conn, c.params, opts, args)
 }
 
-func (c *executableClientSideStatement) QueryContext(ctx context.Context, opts ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+func (c *executableClientSideStatement) QueryContext(ctx context.Context, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
 	if c.clientSideStatement.queryContext == nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with queryContext", c.query))
 	}
@@ -930,7 +1080,7 @@ func (c *executableClientSideStatement) QueryContext(ctx context.Context, opts E
 func (p *statementParser) parseClientSideStatement(c *conn, query string) (*executableClientSideStatement, error) {
 	if p.useCache {
 		if val, ok := p.statementsCache.Get(query); ok {
-			if val.info.statementType == statementTypeClientSide {
+			if val.info.statementType == StatementTypeClientSide {
 				var params string
 				if len(val.params) > 0 {
 					params = val.params[0]
@@ -957,6 +1107,7 @@ func (p *statementParser) parseClientSideStatement(c *conn, query string) (*exec
 	if statementsCompileErr != nil {
 		return nil, statementsCompileErr
 	}
+	// TODO: Replace all regex-based statements with parsed statements.
 	for _, stmt := range statements.Statements {
 		if stmt.regexp.MatchString(query) {
 			var params string
@@ -972,7 +1123,7 @@ func (p *statementParser) parseClientSideStatement(c *conn, query string) (*exec
 					params:              []string{params},
 					clientSideStatement: stmt,
 					info: &statementInfo{
-						statementType: statementTypeClientSide,
+						statementType: StatementTypeClientSide,
 					},
 				}
 				p.statementsCache.Add(query, cacheEntry)
@@ -980,18 +1131,61 @@ func (p *statementParser) parseClientSideStatement(c *conn, query string) (*exec
 			return &executableClientSideStatement{stmt, c, query, params}, nil
 		}
 	}
+	// TODO: Cache parsed statements.
+	if stmt, err := parseStatement(p, keyword, query); err != nil {
+		return nil, err
+	} else if stmt != nil {
+		return stmt.executableStatement(c), nil
+	}
 	return nil, nil
 }
 
-type statementType int
+func (p *statementParser) parseShowStatement(c *conn, query string) (*executableClientSideStatement, error) {
+	stmt := &parsedShowStatement{}
+	if err := stmt.parse(p, query); err != nil {
+		return nil, err
+	}
+	return stmt.executableStatement(c), nil
+}
+
+func (p *statementParser) parseSetStatement(c *conn, query string) (*executableClientSideStatement, error) {
+	stmt := &parsedSetStatement{}
+	if err := stmt.parse(p, query); err != nil {
+		return nil, err
+	}
+	return stmt.executableStatement(c), nil
+}
+
+type StatementType int
 
 const (
-	statementTypeUnknown statementType = iota
-	statementTypeQuery
-	statementTypeDml
-	statementTypeDdl
-	statementTypeClientSide
+	StatementTypeUnknown StatementType = iota
+	StatementTypeQuery
+	StatementTypeDml
+	StatementTypeDdl
+	StatementTypeClientSide
+	StatementTypeShow
+	StatementTypeSet
 )
+
+func (st StatementType) String() string {
+	switch st {
+	case StatementTypeQuery:
+		return "Query"
+	case StatementTypeDml:
+		return "Dml"
+	case StatementTypeDdl:
+		return "Ddl"
+	case StatementTypeClientSide:
+		return "ClientSide"
+	case StatementTypeShow:
+		return "Show"
+	case StatementTypeSet:
+		return "Set"
+	default:
+		return "Unknown"
+	}
+}
 
 type dmlType int
 
@@ -1003,7 +1197,7 @@ const (
 )
 
 type statementInfo struct {
-	statementType statementType
+	statementType StatementType
 	dmlType       dmlType
 }
 
@@ -1030,16 +1224,16 @@ func (p *statementParser) calculateDetectStatementType(sql string) *statementInf
 	_ = parser.skipStatementHint()
 	keyword := strings.ToUpper(parser.readKeyword())
 	if isQueryKeyword(keyword) {
-		return &statementInfo{statementType: statementTypeQuery}
+		return &statementInfo{statementType: StatementTypeQuery}
 	} else if isDmlKeyword(keyword) {
 		return &statementInfo{
-			statementType: statementTypeDml,
+			statementType: StatementTypeDml,
 			dmlType:       detectDmlKeyword(keyword),
 		}
 	} else if isDDLKeyword(keyword) {
-		return &statementInfo{statementType: statementTypeDdl}
+		return &statementInfo{statementType: StatementTypeDdl}
 	}
-	return &statementInfo{statementType: statementTypeUnknown}
+	return &statementInfo{statementType: StatementTypeUnknown}
 }
 
 func detectDmlKeyword(keyword string) dmlType {

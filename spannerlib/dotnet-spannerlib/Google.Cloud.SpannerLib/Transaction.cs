@@ -1,3 +1,4 @@
+using System;
 using Google.Cloud.Spanner.V1;
 
 namespace Google.Cloud.SpannerLib;
@@ -35,7 +36,14 @@ public class Transaction : AbstractLibObject
 
     protected override void CloseLibObject()
     {
-        Spanner.Rollback(this);
+        try
+        {
+            Spanner.Rollback(this);
+        }
+        catch (Exception)
+        {
+            // ignore any exceptions
+        }
     }
 
 }

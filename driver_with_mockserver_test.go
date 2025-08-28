@@ -660,6 +660,9 @@ func TestSimpleReadWriteTransaction(t *testing.T) {
 		t.Fatalf("commit requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	commitReq := commitRequests[0].(*sppb.CommitRequest)
+	if commitReq.MaxCommitDelay == nil {
+		t.Fatal("missing max commit delay for CommitRequest")
+	}
 	if g, w := commitReq.MaxCommitDelay.Nanos, int32(time.Millisecond*10); g != w {
 		t.Fatalf("max_commit_delay mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -2096,6 +2099,39 @@ func TestQueryWithDuplicateNamedParameter(t *testing.T) {
 	}
 }
 
+func TestQueryWithDuplicateNamedParameterStartingWithUnderscore(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	// database/sql does not allow named arguments to start with an underscore.
+	// The Spanner database/sql driver allows a workaround for this by specifying those named arguments with a
+	// SpannerNamedArg.
+	s := "insert into users (id, name) values (@__name, @__name)"
+	_ = server.TestSpanner.PutStatementResult(s, &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	_, err := db.Exec(s, sql.Named("p__name", SpannerNamedArg{NameInQuery: "__name", Value: "foo"}), sql.Named("p__name", SpannerNamedArg{NameInQuery: "__name", Value: "bar"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify that 'bar' is used for both instances of the parameter @__name.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 1 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := len(req.Params.Fields), 1; g != w {
+		t.Fatalf("params count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := req.Params.Fields["__name"].GetStringValue(), "bar"; g != w {
+		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
 func TestQueryWithReusedNamedParameter(t *testing.T) {
 	t.Parallel()
 
@@ -2122,6 +2158,36 @@ func TestQueryWithReusedNamedParameter(t *testing.T) {
 		t.Fatalf("params count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	if g, w := req.Params.Fields["name"].GetStringValue(), "foo"; g != w {
+		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestQueryWithReusedNamedParameterStartingWithUnderscore(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	s := "insert into users (id, name) values (@__name, @__name)"
+	_ = server.TestSpanner.PutStatementResult(s, &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	_, err := db.Exec(s, sql.Named("p__name", SpannerNamedArg{NameInQuery: "__name", Value: "foo"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify that 'foo' is used for both instances of the parameter @__name.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 1 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := len(req.Params.Fields), 1; g != w {
+		t.Fatalf("params count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := req.Params.Fields["__name"].GetStringValue(), "foo"; g != w {
 		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
@@ -3363,7 +3429,8 @@ func TestShowVariableCommitTimestamp(t *testing.T) {
 }
 
 func TestMinSessions(t *testing.T) {
-	t.Parallel()
+	// MinSessions only has an effect if we are not using multiplexed sessions.
+	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
 
 	minSessions := int32(10)
 	ctx := context.Background()
@@ -3402,7 +3469,8 @@ func TestMinSessions(t *testing.T) {
 }
 
 func TestMaxSessions(t *testing.T) {
-	t.Parallel()
+	// MaxSessions only has an effect if we are not using multiplexed sessions.
+	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
 
 	ctx := context.Background()
 	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=0;maxSessions=2")
@@ -3439,7 +3507,8 @@ func TestMaxSessions(t *testing.T) {
 }
 
 func TestClientReuse(t *testing.T) {
-	t.Parallel()
+	// MinSessions only has an effect if we are not using multiplexed sessions.
+	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
 
 	ctx := context.Background()
 	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=2")
@@ -3497,7 +3566,8 @@ func TestClientReuse(t *testing.T) {
 }
 
 func TestStressClientReuse(t *testing.T) {
-	t.Parallel()
+	// MinSessions only has an effect if we are not using multiplexed sessions.
+	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
 
 	ctx := context.Background()
 	_, server, teardown := setupTestDBConnection(t)
@@ -3711,7 +3781,7 @@ func TestExcludeTxnFromChangeStreams_Transaction(t *testing.T) {
 	}
 
 	var exclude bool
-	if err := conn.QueryRowContext(ctx, "SHOW VARIABLE EXCLUDE_TXN_FROM_CHANGE_STREAMS").Scan(&exclude); err != nil {
+	if err := conn.QueryRowContext(ctx, "SHOW VARIABLE exclude_txn_from_change_streams").Scan(&exclude); err != nil {
 		t.Fatalf("failed to get exclude setting: %v", err)
 	}
 	if g, w := exclude, false; g != w {
@@ -4283,7 +4353,8 @@ func TestTag_RunTransactionWithOptions_IsNotSticky(t *testing.T) {
 }
 
 func TestMaxIdleConnectionsNonZero(t *testing.T) {
-	t.Parallel()
+	// MinSessions only has an effect if we are not using multiplexed sessions.
+	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
 
 	// Set MinSessions=1, so we can use the number of BatchCreateSessions requests as an indication
 	// of the number of clients that was created.
@@ -4305,7 +4376,8 @@ func TestMaxIdleConnectionsNonZero(t *testing.T) {
 }
 
 func TestMaxIdleConnectionsZero(t *testing.T) {
-	t.Parallel()
+	// MinSessions only has an effect if we are not using multiplexed sessions.
+	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
 
 	// Set MinSessions=1, so we can use the number of BatchCreateSessions requests as an indication
 	// of the number of clients that was created.
@@ -4351,8 +4423,15 @@ func openAndCloseConn(t *testing.T, db *sql.DB) {
 func TestCannotReuseClosedConnector(t *testing.T) {
 	// Note: This test cannot be parallel, as it inspects the size of the shared
 	// map of connectors in the driver. There is no guarantee how many connectors
-	// will be open when the test is running, if there are also other tests running
+	// will be open when the test is running, if there are other tests running
 	// in parallel.
+
+	// Make sure we start with an empty list of connectors. This cleans up connectors
+	// that other tests might have created, but not cleaned up.
+	connectors := spannerDriver.connectors
+	for _, connector := range connectors {
+		_ = connector.Close()
+	}
 
 	db, _, teardown := setupTestDBConnection(t)
 	defer teardown()
@@ -4363,9 +4442,8 @@ func TestCannotReuseClosedConnector(t *testing.T) {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
 	_ = conn.Close()
-	connectors := db.Driver().(*Driver).connectors
 	if g, w := len(connectors), 1; g != w {
-		t.Fatal("underlying connector has not been created")
+		t.Fatalf("underlying connector count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	var connector *connector
 	for _, v := range connectors {

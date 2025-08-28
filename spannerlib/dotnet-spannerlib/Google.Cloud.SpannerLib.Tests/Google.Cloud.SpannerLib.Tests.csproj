@@ -22,6 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Google.Cloud.SpannerLib.MockServer\Google.Cloud.SpannerLib.MockServer.csproj" />
     <ProjectReference Include="..\Google.Cloud.SpannerLib\Google.Cloud.SpannerLib.csproj" />
   </ItemGroup>
   

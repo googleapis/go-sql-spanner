@@ -47,9 +47,9 @@ namespace Google.Cloud.SpannerLib.Native
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
         internal static extern Message ExecuteTransaction(long poolId, long connectionId, long txId, GoSlice statement);
 
-        [DllImport(SpannerLibName, EntryPoint = "ExecuteBatchDml")]
+        [DllImport(SpannerLibName, EntryPoint = "ExecuteBatch")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
-        internal static extern Message ExecuteBatchDml(long poolId, long connectionId, GoSlice statements);
+        internal static extern Message ExecuteBatch(long poolId, long connectionId, GoSlice statements);
 
         [DllImport(SpannerLibName, EntryPoint = "Metadata")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]

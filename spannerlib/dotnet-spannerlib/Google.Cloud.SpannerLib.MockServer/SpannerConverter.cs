@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
 using System.Collections;
+using System.Linq;
 using System.Xml;
 using Google.Cloud.Spanner.V1;
 using Google.Protobuf.WellKnownTypes;

@@ -186,7 +186,7 @@ func (s *spannerLibServer) ExecuteTransaction(ctx context.Context, request *pb.E
 	return &pb.Rows{Connection: request.Transaction.Connection, Id: id}, nil
 }
 func (s *spannerLibServer) ExecuteBatchDml(ctx context.Context, request *pb.ExecuteBatchDmlRequest) (*spannerpb.ExecuteBatchDmlResponse, error) {
-	resp, err := api.ExecuteBatchDml(request.Connection.Pool.Id, request.Connection.Id, request.ExecuteBatchDmlRequest)
+	resp, err := api.ExecuteBatch(request.Connection.Pool.Id, request.Connection.Id, request.ExecuteBatchDmlRequest)
 	if err != nil {
 		return nil, err
 	}

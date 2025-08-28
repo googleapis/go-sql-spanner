@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Hosting;
@@ -19,7 +22,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
 
-namespace Google.Cloud.SpannerLib.Tests.MockServer;
+namespace Google.Cloud.SpannerLib.MockServer;
 
 public class SpannerMockServerFixture : IDisposable
 {
@@ -41,7 +44,7 @@ public class SpannerMockServerFixture : IDisposable
             StatementResult.CreateResultSet(
                 new List<Tuple<Cloud.Spanner.V1.TypeCode, string>>
                 {
-                    Tuple.Create(Cloud.Spanner.V1.TypeCode.String, "option_value"),
+                    Tuple.Create(Spanner.V1.TypeCode.String, "option_value"),
                 },
                 new List<object[]>
                 {

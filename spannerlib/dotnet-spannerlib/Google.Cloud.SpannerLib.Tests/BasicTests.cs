@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using Google.Cloud.Spanner.V1;
+using Google.Cloud.SpannerLib.MockServer;
 using Google.Cloud.SpannerLib.Tests.MockServer;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
@@ -11,8 +12,7 @@ public class BasicTests
 {
     private SpannerMockServerFixture _fixture;
         
-    // private string ConnectionString =>  $"{_fixture.Host}:{_fixture.Port}/projects/p1/instances/i1/databases/d1;UsePlainText=true";
-    private string ConnectionString =>  $"projects/appdev-soda-spanner-staging/instances/knut-test-ycsb/databases/knut-test-db";
+    private string ConnectionString =>  $"{_fixture.Host}:{_fixture.Port}/projects/p1/instances/i1/databases/d1;UsePlainText=true";
         
     [SetUp]
     public void Setup()
@@ -59,6 +59,12 @@ public class BasicTests
     [Test]
     public void TestExecuteParameterizedQuery()
     {
+        var sql = "select col_varchar from all_types where col_bigint=$1::bigint";
+        _fixture.SpannerMock.AddOrUpdateStatementResult(sql,
+            StatementResult.CreateSingleColumnResultSet(
+                new Spanner.V1.Type { Code = TypeCode.String }, 
+                "col_varchar", "some-value"));
+        
         using var pool = Pool.Create(ConnectionString);
         using var connection = pool.CreateConnection();
         var parameters = new Struct
@@ -70,14 +76,45 @@ public class BasicTests
         };
         using var rows = connection.Execute(new ExecuteSqlRequest
         {
-            Sql = "select col_varchar from all_types where col_bigint=$1::bigint",
+            Sql = sql,
             Params = parameters,
         });
         for (var row = rows.Next(); row != null; row = rows.Next())
         {
             Assert.That(row.Values.Count, Is.EqualTo(1));
             Assert.That(row.Values[0].HasStringValue);
-            Assert.That(row.Values[0].StringValue, Is.EqualTo("1"));
+            Assert.That(row.Values[0].StringValue, Is.EqualTo("some-value"));
+        }
+    }
+
+    [Test]
+    public void TestQueryParameterStartingWithUnderscore()
+    {
+        var sql = "select col_string from all_types where col_int64=@__id";
+        _fixture.SpannerMock.AddOrUpdateStatementResult(sql,
+            StatementResult.CreateSingleColumnResultSet(
+                new Spanner.V1.Type { Code = TypeCode.String }, 
+                "col_string", "some-value"));
+        
+        using var pool = Pool.Create(ConnectionString);
+        using var connection = pool.CreateConnection();
+        var parameters = new Struct
+        {
+            Fields =
+            {
+                ["__id"] = Value.ForString("1")
+            }
+        };
+        using var rows = connection.Execute(new ExecuteSqlRequest
+        {
+            Sql = sql,
+            Params = parameters,
+        });
+        for (var row = rows.Next(); row != null; row = rows.Next())
+        {
+            Assert.That(row.Values.Count, Is.EqualTo(1));
+            Assert.That(row.Values[0].HasStringValue);
+            Assert.That(row.Values[0].StringValue, Is.EqualTo("some-value"));
         }
     }
 

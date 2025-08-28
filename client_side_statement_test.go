@@ -18,35 +18,40 @@ import (
 	"context"
 	"database/sql/driver"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestStatementExecutor_StartBatchDdl(t *testing.T) {
-	c := &conn{retryAborts: true, logger: noopLogger}
+	t.Parallel()
+
+	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 	s := &statementExecutor{}
 	ctx := context.Background()
 
 	if c.InDDLBatch() {
 		t.Fatal("connection unexpectedly in a DDL batch")
 	}
-	if _, err := s.StartBatchDdl(ctx, c, "", ExecOptions{}, nil); err != nil {
+	if _, err := s.StartBatchDdl(ctx, c, "", &ExecOptions{}, nil); err != nil {
 		t.Fatalf("could not start a DDL batch: %v", err)
 	}
 	if !c.InDDLBatch() {
 		t.Fatal("connection unexpectedly not in a DDL batch")
 	}
-	if _, err := s.StartBatchDdl(ctx, c, "", ExecOptions{}, nil); spanner.ErrCode(err) != codes.FailedPrecondition {
+	if _, err := s.StartBatchDdl(ctx, c, "", &ExecOptions{}, nil); spanner.ErrCode(err) != codes.FailedPrecondition {
 		t.Fatalf("error mismatch for starting a DDL batch while already in a batch\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
 	}
-	if _, err := s.RunBatch(ctx, c, "", ExecOptions{}, nil); err != nil {
+	if _, err := s.RunBatch(ctx, c, "", &ExecOptions{}, nil); err != nil {
 		t.Fatalf("could not run empty DDL batch: %v", err)
 	}
 	if c.InDDLBatch() {
@@ -55,29 +60,31 @@ func TestStatementExecutor_StartBatchDdl(t *testing.T) {
 
 	// Starting a DDL batch while the connection is in a transaction is not allowed.
 	c.tx = &readWriteTransaction{}
-	if _, err := s.StartBatchDdl(ctx, c, "", ExecOptions{}, nil); spanner.ErrCode(err) != codes.FailedPrecondition {
+	if _, err := s.StartBatchDdl(ctx, c, "", &ExecOptions{}, nil); spanner.ErrCode(err) != codes.FailedPrecondition {
 		t.Fatalf("error mismatch for starting a DDL batch while in a transaction\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
 	}
 }
 
 func TestStatementExecutor_StartBatchDml(t *testing.T) {
-	c := &conn{retryAborts: true, logger: noopLogger}
+	t.Parallel()
+
+	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 	s := &statementExecutor{}
 	ctx := context.Background()
 
 	if c.InDMLBatch() {
 		t.Fatal("connection unexpectedly in a DML batch")
 	}
-	if _, err := s.StartBatchDml(ctx, c, "", ExecOptions{}, nil); err != nil {
+	if _, err := s.StartBatchDml(ctx, c, "", &ExecOptions{}, nil); err != nil {
 		t.Fatalf("could not start a DML batch: %v", err)
 	}
 	if !c.InDMLBatch() {
 		t.Fatal("connection unexpectedly not in a DML batch")
 	}
-	if _, err := s.StartBatchDml(ctx, c, "", ExecOptions{}, nil); spanner.ErrCode(err) != codes.FailedPrecondition {
+	if _, err := s.StartBatchDml(ctx, c, "", &ExecOptions{}, nil); spanner.ErrCode(err) != codes.FailedPrecondition {
 		t.Fatalf("error mismatch for starting a DML batch while already in a batch\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
 	}
-	if _, err := s.RunBatch(ctx, c, "", ExecOptions{}, nil); err != nil {
+	if _, err := s.RunBatch(ctx, c, "", &ExecOptions{}, nil); err != nil {
 		t.Fatalf("could not run empty DML batch: %v", err)
 	}
 	if c.InDMLBatch() {
@@ -86,19 +93,21 @@ func TestStatementExecutor_StartBatchDml(t *testing.T) {
 
 	// Starting a DML batch while the connection is in a read-only transaction is not allowed.
 	c.tx = &readOnlyTransaction{logger: noopLogger}
-	if _, err := s.StartBatchDml(ctx, c, "", ExecOptions{}, nil); spanner.ErrCode(err) != codes.FailedPrecondition {
+	if _, err := s.StartBatchDml(ctx, c, "", &ExecOptions{}, nil); spanner.ErrCode(err) != codes.FailedPrecondition {
 		t.Fatalf("error mismatch for starting a DML batch while in a read-only transaction\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
 	}
 
 	// Starting a DML batch while the connection is in a read/write transaction is allowed.
 	c.tx = &readWriteTransaction{logger: noopLogger}
-	if _, err := s.StartBatchDml(ctx, c, "", ExecOptions{}, nil); err != nil {
+	if _, err := s.StartBatchDml(ctx, c, "", &ExecOptions{}, nil); err != nil {
 		t.Fatalf("could not start a DML batch while in a read/write transaction: %v", err)
 	}
 }
 
 func TestStatementExecutor_RetryAbortsInternally(t *testing.T) {
-	c := &conn{retryAborts: true, logger: noopLogger}
+	t.Parallel()
+
+	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 	s := &statementExecutor{}
 	ctx := context.Background()
 	for i, test := range []struct {
@@ -115,7 +124,7 @@ func TestStatementExecutor_RetryAbortsInternally(t *testing.T) {
 		{true, "fasle", true},
 		{true, "truye", true},
 	} {
-		it, err := s.ShowRetryAbortsInternally(ctx, c, "", ExecOptions{}, nil)
+		it, err := s.ShowRetryAbortsInternally(ctx, c, "", &ExecOptions{}, nil)
 		if err != nil {
 			t.Fatalf("%d: could not get current retry value from connection: %v", i, err)
 		}
@@ -137,7 +146,7 @@ func TestStatementExecutor_RetryAbortsInternally(t *testing.T) {
 		}
 
 		// Set the next value.
-		res, err := s.SetRetryAbortsInternally(ctx, c, test.setValue, ExecOptions{}, nil)
+		res, err := s.SetRetryAbortsInternally(ctx, c, test.setValue, &ExecOptions{}, nil)
 		if test.wantSetErr {
 			if err == nil {
 				t.Fatalf("%d: missing expected error for value %q", i, test.setValue)
@@ -154,7 +163,9 @@ func TestStatementExecutor_RetryAbortsInternally(t *testing.T) {
 }
 
 func TestStatementExecutor_AutocommitDmlMode(t *testing.T) {
-	c := &conn{logger: noopLogger, connector: &connector{}}
+	t.Parallel()
+
+	c := &conn{logger: noopLogger, connector: &connector{}, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 	_ = c.ResetSession(context.Background())
 	s := &statementExecutor{}
 	ctx := context.Background()
@@ -172,7 +183,7 @@ func TestStatementExecutor_AutocommitDmlMode(t *testing.T) {
 		{Transactional, "'PartitionedNonAtomic'", true},
 		{Transactional, "'Transaction'", true},
 	} {
-		it, err := s.ShowAutocommitDmlMode(ctx, c, "", ExecOptions{}, nil)
+		it, err := s.ShowAutocommitDmlMode(ctx, c, "", &ExecOptions{}, nil)
 		if err != nil {
 			t.Fatalf("%d: could not get current autocommit dml mode value from connection: %v", i, err)
 		}
@@ -194,7 +205,7 @@ func TestStatementExecutor_AutocommitDmlMode(t *testing.T) {
 		}
 
 		// Set the next value.
-		res, err := s.SetAutocommitDmlMode(ctx, c, test.setValue, ExecOptions{}, nil)
+		res, err := s.SetAutocommitDmlMode(ctx, c, test.setValue, &ExecOptions{}, nil)
 		if test.wantSetErr {
 			if err == nil {
 				t.Fatalf("%d: missing expected error for value %q", i, test.setValue)
@@ -211,7 +222,9 @@ func TestStatementExecutor_AutocommitDmlMode(t *testing.T) {
 }
 
 func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
-	c := &conn{logger: noopLogger}
+	t.Parallel()
+
+	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 	s := &statementExecutor{}
 	ctx := context.Background()
 	for i, test := range []struct {
@@ -242,7 +255,7 @@ func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
 		{spanner.StrongRead(), "'Min_Read_Timestamp'", true},
 		{spanner.StrongRead(), "'Min_Read_Timestamp 2021-10-08 09:14:30Z'", true},
 	} {
-		res, err := s.SetReadOnlyStaleness(ctx, c, test.setValue, ExecOptions{}, nil)
+		res, err := s.SetReadOnlyStaleness(ctx, c, test.setValue, &ExecOptions{}, nil)
 		if test.wantSetErr {
 			if err == nil {
 				t.Fatalf("%d: missing expected error for value %q", i, test.setValue)
@@ -256,7 +269,7 @@ func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
 			}
 		}
 
-		it, err := s.ShowReadOnlyStaleness(ctx, c, "", ExecOptions{}, nil)
+		it, err := s.ShowReadOnlyStaleness(ctx, c, "", &ExecOptions{}, nil)
 		if err != nil {
 			t.Fatalf("%d: could not get current read-only staleness value from connection: %v", i, err)
 		}
@@ -282,7 +295,7 @@ func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
 func TestShowCommitTimestamp(t *testing.T) {
 	t.Parallel()
 
-	c := &conn{retryAborts: true, logger: noopLogger}
+	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 	s := &statementExecutor{}
 	ctx := context.Background()
 
@@ -299,7 +312,7 @@ func TestShowCommitTimestamp(t *testing.T) {
 			c.commitResponse = &spanner.CommitResponse{CommitTs: *test.wantValue}
 		}
 
-		it, err := s.ShowCommitTimestamp(ctx, c, "", ExecOptions{}, nil)
+		it, err := s.ShowCommitTimestamp(ctx, c, "", &ExecOptions{}, nil)
 		if err != nil {
 			t.Fatalf("could not get current commit timestamp from connection: %v", err)
 		}
@@ -328,8 +341,14 @@ func TestShowCommitTimestamp(t *testing.T) {
 }
 
 func TestStatementExecutor_ExcludeTxnFromChangeStreams(t *testing.T) {
-	c := &conn{retryAborts: true, logger: noopLogger}
-	s := &statementExecutor{}
+	t.Parallel()
+
+	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	c := &conn{
+		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		parser: parser,
+	}
 	ctx := context.Background()
 	for i, test := range []struct {
 		wantValue  bool
@@ -345,12 +364,12 @@ func TestStatementExecutor_ExcludeTxnFromChangeStreams(t *testing.T) {
 		{true, "fasle", true},
 		{true, "truye", true},
 	} {
-		it, err := s.ShowExcludeTxnFromChangeStreams(ctx, c, "", ExecOptions{}, nil)
+		it, err := c.QueryContext(ctx, "show variable exclude_txn_from_change_streams", []driver.NamedValue{})
 		if err != nil {
 			t.Fatalf("%d: could not get current exclude value from connection: %v", i, err)
 		}
 		cols := it.Columns()
-		wantCols := []string{"ExcludeTxnFromChangeStreams"}
+		wantCols := []string{"exclude_txn_from_change_streams"}
 		if !cmp.Equal(cols, wantCols) {
 			t.Fatalf("%d: column names mismatch\nGot: %v\nWant: %v", i, cols, wantCols)
 		}
@@ -367,7 +386,7 @@ func TestStatementExecutor_ExcludeTxnFromChangeStreams(t *testing.T) {
 		}
 
 		// Set the next value.
-		res, err := s.SetExcludeTxnFromChangeStreams(ctx, c, test.setValue, ExecOptions{}, nil)
+		res, err := c.ExecContext(ctx, "set exclude_txn_from_change_streams="+test.setValue, []driver.NamedValue{})
 		if test.wantSetErr {
 			if err == nil {
 				t.Fatalf("%d: missing expected error for value %q", i, test.setValue)
@@ -384,8 +403,14 @@ func TestStatementExecutor_ExcludeTxnFromChangeStreams(t *testing.T) {
 }
 
 func TestStatementExecutor_MaxCommitDelay(t *testing.T) {
-	c := &conn{logger: noopLogger}
-	s := &statementExecutor{}
+	t.Parallel()
+
+	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	c := &conn{
+		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		parser: parser,
+	}
 	ctx := context.Background()
 	for i, test := range []struct {
 		wantValue  time.Duration
@@ -401,12 +426,14 @@ func TestStatementExecutor_MaxCommitDelay(t *testing.T) {
 		{100 * time.Millisecond, "true", true},
 		{100 * time.Millisecond, "ms", true},
 		{100 * time.Millisecond, "'ms'", true},
-		{100 * time.Millisecond, "20ms", true},
-		{100 * time.Millisecond, "'10'", true},
-		{100 * time.Millisecond, "'10ms", true},
-		{100 * time.Millisecond, "10ms'", true},
+		{20 * time.Millisecond, "20ms", false},
+		{10 * time.Millisecond, "10", false},
+		{10 * time.Millisecond, "'10ms", true},
+		{10 * time.Millisecond, "10ms'", true},
+		// Note that setting it to '0s' is different from setting it to NULL.
+		{time.Duration(0), "0s", false},
 	} {
-		res, err := s.SetMaxCommitDelay(ctx, c, test.setValue, ExecOptions{}, nil)
+		_, err := c.ExecContext(ctx, "set max_commit_delay = "+test.setValue, []driver.NamedValue{})
 		if test.wantSetErr {
 			if err == nil {
 				t.Fatalf("%d: missing expected error for value %q", i, test.setValue)
@@ -415,17 +442,14 @@ func TestStatementExecutor_MaxCommitDelay(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%d: could not set new value %q for max_commit_delay: %v", i, test.setValue, err)
 			}
-			if res != driver.ResultNoRows {
-				t.Fatalf("%d: result mismatch\nGot: %v\nWant: %v", i, res, driver.ResultNoRows)
-			}
 		}
 
-		it, err := s.ShowMaxCommitDelay(ctx, c, "", ExecOptions{}, nil)
+		it, err := c.QueryContext(ctx, "show variable max_commit_delay", []driver.NamedValue{})
 		if err != nil {
 			t.Fatalf("%d: could not get current max_commit_delay value from connection: %v", i, err)
 		}
 		cols := it.Columns()
-		wantCols := []string{"MaxCommitDelay"}
+		wantCols := []string{"max_commit_delay"}
 		if !cmp.Equal(cols, wantCols) {
 			t.Fatalf("%d: column names mismatch\nGot: %v\nWant: %v", i, cols, wantCols)
 		}
@@ -434,8 +458,14 @@ func TestStatementExecutor_MaxCommitDelay(t *testing.T) {
 			t.Fatalf("%d: failed to get first row for max_commit_delay: %v", i, err)
 		}
 		wantValues := []driver.Value{test.wantValue.String()}
+		if strings.EqualFold(test.setValue, "null") {
+			// If the value is set to NULL (which means 'set it to the value it would have if no value had been set'),
+			// then the returned value is an empty string. This makes it possible to distinguish between having an
+			// explicit value of '0s' and having no value at all.
+			wantValues[0] = ""
+		}
 		if !cmp.Equal(values, wantValues) {
-			t.Fatalf("%d: max_commit_delay values mismatch\nGot: %v\nWant: %v", i, values, wantValues)
+			t.Fatalf("%d (%s): max_commit_delay values mismatch\n Got: %v\nWant: %v", i, test.setValue, values, wantValues)
 		}
 		if err := it.Next(values); err != io.EOF {
 			t.Fatalf("%d: error mismatch\nGot: %v\nWant: %v", i, err, io.EOF)
@@ -444,7 +474,10 @@ func TestStatementExecutor_MaxCommitDelay(t *testing.T) {
 }
 
 func TestStatementExecutor_SetTransactionTag(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
+	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	for i, test := range []struct {
 		wantValue  string
 		setValue   string
@@ -457,15 +490,18 @@ func TestStatementExecutor_SetTransactionTag(t *testing.T) {
 		{"", "tag-with-missing-opening-quote'", true},
 		{"", "'tag-with-missing-closing-quote", true},
 	} {
-		c := &conn{retryAborts: true, logger: noopLogger}
-		s := &statementExecutor{}
+		c := &conn{
+			logger: noopLogger,
+			state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+			parser: parser,
+		}
 
-		it, err := s.ShowTransactionTag(ctx, c, "", ExecOptions{}, nil)
+		it, err := c.QueryContext(ctx, "show variable transaction_tag", []driver.NamedValue{})
 		if err != nil {
 			t.Fatalf("%d: could not get current transaction tag value from connection: %v", i, err)
 		}
 		cols := it.Columns()
-		wantCols := []string{"TransactionTag"}
+		wantCols := []string{"transaction_tag"}
 		if !cmp.Equal(cols, wantCols) {
 			t.Fatalf("%d: column names mismatch\nGot: %v\nWant: %v", i, cols, wantCols)
 		}
@@ -482,7 +518,7 @@ func TestStatementExecutor_SetTransactionTag(t *testing.T) {
 		}
 
 		// Set a transaction tag.
-		res, err := s.SetTransactionTag(ctx, c, test.setValue, ExecOptions{}, nil)
+		res, err := c.ExecContext(ctx, "set transaction_tag="+test.setValue, []driver.NamedValue{})
 		if test.wantSetErr {
 			if err == nil {
 				t.Fatalf("%d: missing expected error for value %q", i, test.setValue)
@@ -497,7 +533,7 @@ func TestStatementExecutor_SetTransactionTag(t *testing.T) {
 		}
 
 		// Get the tag that was set
-		it, err = s.ShowTransactionTag(ctx, c, "", ExecOptions{}, nil)
+		it, err = c.QueryContext(ctx, "show variable transaction_tag", []driver.NamedValue{})
 		if err != nil {
 			t.Fatalf("%d: could not get current transaction tag value from connection: %v", i, err)
 		}
@@ -516,13 +552,15 @@ func TestStatementExecutor_SetTransactionTag(t *testing.T) {
 }
 
 func TestStatementExecutor_UsesExecOptions(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
-	c := &conn{retryAborts: true, logger: noopLogger}
+	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 	s := &statementExecutor{}
 
-	it, err := s.ShowTransactionTag(ctx, c, "", ExecOptions{DecodeOption: DecodeOptionProto, ReturnResultSetMetadata: true, ReturnResultSetStats: true}, nil)
+	it, err := s.ShowReadOnlyStaleness(ctx, c, "", &ExecOptions{DecodeOption: DecodeOptionProto, ReturnResultSetMetadata: true, ReturnResultSetStats: true}, nil)
 	if err != nil {
-		t.Fatalf("could not get current transaction tag value from connection: %v", err)
+		t.Fatalf("could not get current staleness value from connection: %v", err)
 	}
 	rows, ok := it.(driver.RowsNextResultSet)
 	if !ok {
@@ -537,7 +575,7 @@ func TestStatementExecutor_UsesExecOptions(t *testing.T) {
 	wantValues := []driver.Value{&spannerpb.ResultSetMetadata{
 		RowType: &spannerpb.StructType{
 			Fields: []*spannerpb.StructType_Field{
-				{Name: "TransactionTag", Type: &spannerpb.Type{Code: spannerpb.TypeCode_STRING}},
+				{Name: "ReadOnlyStaleness", Type: &spannerpb.Type{Code: spannerpb.TypeCode_STRING}},
 			},
 		},
 	}}
@@ -546,7 +584,7 @@ func TestStatementExecutor_UsesExecOptions(t *testing.T) {
 		t.Fatalf("failed to get first row: %v", err)
 	}
 	if !cmp.Equal(values, wantValues, cmpopts.IgnoreUnexported(spannerpb.ResultSetMetadata{}, spannerpb.StructType{}, spannerpb.StructType_Field{}, spannerpb.Type{})) {
-		t.Fatalf("default transaction tag mismatch\nGot: %v\nWant: %v", values, wantValues)
+		t.Fatalf("default staleness mismatch\nGot: %v\nWant: %v", values, wantValues)
 	}
 	if err := rows.Next(values); err != io.EOF {
 		t.Fatalf("error mismatch\nGot: %v\nWant: %v", err, io.EOF)
@@ -561,7 +599,7 @@ func TestStatementExecutor_UsesExecOptions(t *testing.T) {
 	}
 
 	cols = rows.Columns()
-	wantCols = []string{"TransactionTag"}
+	wantCols = []string{"ReadOnlyStaleness"}
 	if !cmp.Equal(cols, wantCols) {
 		t.Fatalf("column names mismatch\nGot: %v\nWant: %v", cols, wantCols)
 	}
@@ -572,10 +610,10 @@ func TestStatementExecutor_UsesExecOptions(t *testing.T) {
 	// The value that we get should be the raw protobuf value.
 	wantValues = []driver.Value{spanner.GenericColumnValue{
 		Type:  &spannerpb.Type{Code: spannerpb.TypeCode_STRING},
-		Value: &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: ""}},
+		Value: &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "(strong)"}},
 	}}
 	if !cmp.Equal(values, wantValues, cmpopts.IgnoreUnexported(spannerpb.Type{}, structpb.Value{})) {
-		t.Fatalf("default transaction tag mismatch\nGot: %v\nWant: %v", values, wantValues)
+		t.Fatalf("default staleness mismatch\nGot: %v\nWant: %v", values, wantValues)
 	}
 	if err := rows.Next(values); err != io.EOF {
 		t.Fatalf("error mismatch\nGot: %v\nWant: %v", err, io.EOF)

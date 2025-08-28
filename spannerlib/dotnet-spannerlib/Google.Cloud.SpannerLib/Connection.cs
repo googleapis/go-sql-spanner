@@ -33,13 +33,22 @@ public class Connection : AbstractLibObject
         return Spanner.ExecuteAsync(this, statement);
     }
 
-    public long[] ExecuteBatchDml(List<ExecuteBatchDmlRequest.Types.Statement> statements)
+    public long[] ExecuteBatch(List<ExecuteBatchDmlRequest.Types.Statement> statements)
     {
         var request = new ExecuteBatchDmlRequest
         {
             Statements = { statements }
         };
-        return Spanner.ExecuteBatchDml(this, request);
+        return Spanner.ExecuteBatch(this, request);
+    }
+
+    public Task<long[]> ExecuteBatchAsync(List<ExecuteBatchDmlRequest.Types.Statement> statements)
+    {
+        var request = new ExecuteBatchDmlRequest
+        {
+            Statements = { statements }
+        };
+        return Spanner.ExecuteBatchAsync(this, request);
     }
 
     protected override void CloseLibObject()
