@@ -31,6 +31,7 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 )
@@ -486,12 +487,13 @@ func TestConnection_Reset(t *testing.T) {
 		connector: &connector{
 			connectorConfig: ConnectorConfig{},
 		},
+		state:             createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
 		readOnlyStaleness: spanner.ExactStaleness(time.Second),
 		batch:             &batch{tp: dml},
 		commitResponse:    &spanner.CommitResponse{},
 		tx: &readOnlyTransaction{
 			logger: noopLogger,
-			close: func() {
+			close: func(_ txResult) {
 				txClosed = true
 			},
 		},
@@ -517,6 +519,7 @@ func TestConnection_Reset(t *testing.T) {
 func TestConnection_NoNestedTransactions(t *testing.T) {
 	c := conn{
 		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
 		tx:     &readOnlyTransaction{},
 	}
 	_, err := c.BeginTx(context.Background(), driver.TxOptions{})
@@ -618,10 +621,10 @@ func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := &conn{
-		parser:            parser,
-		logger:            noopLogger,
-		autocommitDMLMode: Transactional,
-		batch:             &batch{tp: ddl},
+		parser: parser,
+		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		batch:  &batch{tp: ddl},
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
@@ -749,9 +752,9 @@ func TestConn_GetCommitResponseAfterAutocommitDml(t *testing.T) {
 	}
 	want := &spanner.CommitResponse{CommitTs: time.Now()}
 	c := &conn{
-		parser:            parser,
-		logger:            noopLogger,
-		autocommitDMLMode: Transactional,
+		parser: parser,
+		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
