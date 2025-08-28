@@ -3444,7 +3444,8 @@ func TestMaxSessions(t *testing.T) {
 }
 
 func TestClientReuse(t *testing.T) {
-	t.Parallel()
+	// MinSessions only has an effect if we are not using multiplexed sessions.
+	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
 
 	ctx := context.Background()
 	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=2")
@@ -3502,7 +3503,8 @@ func TestClientReuse(t *testing.T) {
 }
 
 func TestStressClientReuse(t *testing.T) {
-	t.Parallel()
+	// MinSessions only has an effect if we are not using multiplexed sessions.
+	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
 
 	ctx := context.Background()
 	_, server, teardown := setupTestDBConnection(t)
@@ -4288,7 +4290,8 @@ func TestTag_RunTransactionWithOptions_IsNotSticky(t *testing.T) {
 }
 
 func TestMaxIdleConnectionsNonZero(t *testing.T) {
-	t.Parallel()
+	// MinSessions only has an effect if we are not using multiplexed sessions.
+	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
 
 	// Set MinSessions=1, so we can use the number of BatchCreateSessions requests as an indication
 	// of the number of clients that was created.
@@ -4310,7 +4313,8 @@ func TestMaxIdleConnectionsNonZero(t *testing.T) {
 }
 
 func TestMaxIdleConnectionsZero(t *testing.T) {
-	t.Parallel()
+	// MinSessions only has an effect if we are not using multiplexed sessions.
+	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
 
 	// Set MinSessions=1, so we can use the number of BatchCreateSessions requests as an indication
 	// of the number of clients that was created.
@@ -4356,8 +4360,15 @@ func openAndCloseConn(t *testing.T, db *sql.DB) {
 func TestCannotReuseClosedConnector(t *testing.T) {
 	// Note: This test cannot be parallel, as it inspects the size of the shared
 	// map of connectors in the driver. There is no guarantee how many connectors
-	// will be open when the test is running, if there are also other tests running
+	// will be open when the test is running, if there are other tests running
 	// in parallel.
+
+	// Make sure we start with an empty list of connectors. This cleans up connectors
+	// that other tests might have created, but not cleaned up.
+	connectors := spannerDriver.connectors
+	for _, connector := range connectors {
+		_ = connector.Close()
+	}
 
 	db, _, teardown := setupTestDBConnection(t)
 	defer teardown()
@@ -4368,9 +4379,8 @@ func TestCannotReuseClosedConnector(t *testing.T) {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
 	_ = conn.Close()
-	connectors := db.Driver().(*Driver).connectors
 	if g, w := len(connectors), 1; g != w {
-		t.Fatal("underlying connector has not been created")
+		t.Fatalf("underlying connector count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	var connector *connector
 	for _, v := range connectors {
