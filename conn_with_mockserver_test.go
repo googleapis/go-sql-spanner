@@ -357,7 +357,7 @@ func TestCreateDatabase(t *testing.T) {
 	}
 	defer silentClose(conn)
 
-	if _, err = conn.ExecContext(ctx, "create database foo"); err != nil {
+	if _, err = conn.ExecContext(ctx, "create database `foo`"); err != nil {
 		t.Fatalf("failed to execute CREATE DATABASE: %v", err)
 	}
 
