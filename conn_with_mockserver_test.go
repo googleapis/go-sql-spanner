@@ -21,11 +21,15 @@ import (
 	"reflect"
 	"testing"
 
+	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/testutil"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestBeginTx(t *testing.T) {
@@ -307,6 +311,78 @@ func TestIsolationLevelAutoCommit(t *testing.T) {
 		if g, w := request.Transaction.GetBegin().GetIsolationLevel(), wantIsolationLevel; g != w {
 			t.Fatalf("begin isolation level mismatch\n Got: %v\nWant: %v", g, w)
 		}
+	}
+}
+
+func TestCreateDatabase(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	var expectedResponse = &databasepb.Database{}
+	anyMsg, _ := anypb.New(expectedResponse)
+	server.TestDatabaseAdmin.SetResps([]proto.Message{
+		&longrunningpb.Operation{
+			Done:   true,
+			Result: &longrunningpb.Operation_Response{Response: anyMsg},
+			Name:   "test-operation",
+		},
+	})
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(conn)
+
+	if _, err = conn.ExecContext(ctx, "create database foo"); err != nil {
+		t.Fatalf("failed to execute CREATE DATABASE: %v", err)
+	}
+
+	requests := server.TestDatabaseAdmin.Reqs()
+	if g, w := len(requests), 1; g != w {
+		t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	if req, ok := requests[0].(*databasepb.CreateDatabaseRequest); ok {
+		if g, w := req.Parent, "projects/p/instances/i"; g != w {
+			t.Fatalf("parent mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	} else {
+		t.Fatalf("request type mismatch, got %v", requests[0])
+	}
+}
+
+func TestDropDatabase(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	server.TestDatabaseAdmin.SetResps([]proto.Message{&emptypb.Empty{}})
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(conn)
+
+	if _, err = conn.ExecContext(ctx, "drop database foo"); err != nil {
+		t.Fatalf("failed to execute DROP DATABASE: %v", err)
+	}
+
+	requests := server.TestDatabaseAdmin.Reqs()
+	if g, w := len(requests), 1; g != w {
+		t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	if req, ok := requests[0].(*databasepb.DropDatabaseRequest); ok {
+		if g, w := req.Database, "projects/p/instances/i/databases/foo"; g != w {
+			t.Fatalf("database name mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	} else {
+		t.Fatalf("request type mismatch, got %v", requests[0])
 	}
 }
 
