@@ -41,13 +41,17 @@ var updateStatements = map[string]bool{"UPDATE": true}
 var deleteStatements = map[string]bool{"DELETE": true}
 var dmlStatements = union(insertStatements, union(updateStatements, deleteStatements))
 var clientSideKeywords = map[string]bool{
-	"SHOW":  true,
-	"SET":   true,
-	"RESET": true,
-	"START": true,
-	"RUN":   true,
-	"ABORT": true,
+	"SHOW":   true,
+	"SET":    true,
+	"RESET":  true,
+	"START":  true,
+	"RUN":    true,
+	"ABORT":  true,
+	"CREATE": true, // CREATE DATABASE is handled as a client-side statement
+	"DROP":   true, // DROP DATABASE is handled as a client-side statement
 }
+var createStatements = map[string]bool{"CREATE": true}
+var dropStatements = map[string]bool{"DROP": true}
 var showStatements = map[string]bool{"SHOW": true}
 var setStatements = map[string]bool{"SET": true}
 var resetStatements = map[string]bool{"RESET": true}
@@ -201,11 +205,11 @@ func (i *identifier) String() string {
 // eatIdentifier reads the identifier at the current parser position, updates the parser position,
 // and returns the identifier.
 func (p *simpleParser) eatIdentifier() (identifier, error) {
-	// TODO: Add support for quoted identifiers.
 	p.skipWhitespacesAndComments()
 	if p.pos >= len(p.sql) {
 		return identifier{}, status.Errorf(codes.InvalidArgument, "no identifier found at position %d", p.pos)
 	}
+
 	startPos := p.pos
 	first := true
 	result := identifier{parts: make([]string, 0, 1)}
@@ -213,6 +217,24 @@ func (p *simpleParser) eatIdentifier() (identifier, error) {
 	for p.pos < len(p.sql) {
 		if first {
 			first = false
+			// Check if this is a quoted identifier.
+			if p.sql[p.pos] == p.statementParser.identifierQuoteToken() {
+				pos, quoteLen, err := p.statementParser.skipQuoted(p.sql, p.pos, p.sql[p.pos])
+				if err != nil {
+					return identifier{}, err
+				}
+				p.pos = pos
+				result.parts = append(result.parts, string(p.sql[startPos+quoteLen:pos-quoteLen]))
+				if p.eatToken('.') {
+					p.skipWhitespacesAndComments()
+					startPos = p.pos
+					first = true
+					continue
+				} else {
+					appendLastPart = false
+					break
+				}
+			}
 			if !p.isValidFirstIdentifierChar() {
 				return identifier{}, status.Errorf(codes.InvalidArgument, "invalid first identifier character found at position %d: %s", p.pos, p.sql[p.pos:p.pos+1])
 			}
@@ -446,6 +468,13 @@ func (p *statementParser) supportsNestedComments() bool {
 	return p.dialect == databasepb.DatabaseDialect_POSTGRESQL
 }
 
+func (p *statementParser) identifierQuoteToken() byte {
+	if p.dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		return '"'
+	}
+	return '`'
+}
+
 func (p *statementParser) supportsBacktickQuotes() bool {
 	return p.dialect != databasepb.DatabaseDialect_POSTGRESQL
 }
@@ -653,6 +682,10 @@ func (p *statementParser) skipMultiLineComment(sql []byte, pos int) int {
 	return pos
 }
 
+// skipQuoted skips a quoted string at the given position in the sql string and
+// returns the new position, the quote length, or an error if the quoted string
+// could not be read.
+// The quote length is either 1 for normal quoted strings, and 3 for triple-quoted string.
 func (p *statementParser) skipQuoted(sql []byte, pos int, quote byte) (int, int, error) {
 	isTripleQuoted := p.supportsTripleQuotedLiterals() && len(sql) > pos+2 && sql[pos+1] == quote && sql[pos+2] == quote
 	if isTripleQuoted && (isMultibyte(sql[pos+1]) || isMultibyte(sql[pos+2])) {
@@ -949,6 +982,14 @@ func isDmlKeyword(keyword string) bool {
 func (p *statementParser) isQuery(query string) bool {
 	info := p.detectStatementType(query)
 	return info.statementType == statementTypeQuery
+}
+
+func isCreateKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, createStatements)
+}
+
+func isDropKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, dropStatements)
 }
 
 func isQueryKeyword(keyword string) bool {

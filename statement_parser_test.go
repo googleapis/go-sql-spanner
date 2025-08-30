@@ -2495,12 +2495,25 @@ func TestEatIdentifier(t *testing.T) {
 			want:  identifier{parts: []string{"my_property"}},
 		},
 		{
+			input: "`my_property`",
+			want:  identifier{parts: []string{"my_property"}},
+		},
+		{
 			input: "my_extension.my_property",
+			want:  identifier{parts: []string{"my_extension", "my_property"}},
+		},
+		{
+			input: "`my_extension`.`my_property`",
 			want:  identifier{parts: []string{"my_extension", "my_property"}},
 		},
 		{
 			// spaces are allowed
 			input: " \n my_extension  . \t my_property   ",
+			want:  identifier{parts: []string{"my_extension", "my_property"}},
+		},
+		{
+			// spaces are allowed
+			input: " \n `my_extension`  . \t `my_property`   ",
 			want:  identifier{parts: []string{"my_extension", "my_property"}},
 		},
 		{
@@ -2513,11 +2526,24 @@ func TestEatIdentifier(t *testing.T) {
 			want:  identifier{parts: []string{"p1", "p2", "p3", "p4"}},
 		},
 		{
+			input: "`p1`.`p2`.`p3`.`p4`",
+			want:  identifier{parts: []string{"p1", "p2", "p3", "p4"}},
+		},
+		{
+			input: "`p1`.p2.`p3`.p4",
+			want:  identifier{parts: []string{"p1", "p2", "p3", "p4"}},
+		},
+		{
 			input: "a.b.c",
 			want:  identifier{parts: []string{"a", "b", "c"}},
 		},
 		{
 			input:   "1a",
+			wantErr: true,
+		},
+		{
+			// Double-quotes are not valid around identifiers in GoogleSQL.
+			input:   `"1a""`,
 			wantErr: true,
 		},
 		{
@@ -2536,6 +2562,14 @@ func TestEatIdentifier(t *testing.T) {
 		{
 			input:   "a . 1a",
 			wantErr: true,
+		},
+		{
+			input: "`p1 /* looks like a comment */ `.`p2`",
+			want:  identifier{parts: []string{"p1 /* looks like a comment */ ", "p2"}},
+		},
+		{
+			input: "```p1 -- looks like a comment\n ```.`p2`",
+			want:  identifier{parts: []string{"p1 -- looks like a comment\n ", "p2"}},
 		},
 	}
 	for _, test := range tests {
