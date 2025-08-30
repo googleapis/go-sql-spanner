@@ -41,13 +41,17 @@ var updateStatements = map[string]bool{"UPDATE": true}
 var deleteStatements = map[string]bool{"DELETE": true}
 var dmlStatements = union(insertStatements, union(updateStatements, deleteStatements))
 var clientSideKeywords = map[string]bool{
-	"SHOW":  true,
-	"SET":   true,
-	"RESET": true,
-	"START": true,
-	"RUN":   true,
-	"ABORT": true,
+	"SHOW":   true,
+	"SET":    true,
+	"RESET":  true,
+	"START":  true,
+	"RUN":    true,
+	"ABORT":  true,
+	"CREATE": true, // CREATE DATABASE is handled as a client-side statement
+	"DROP":   true, // DROP DATABASE is handled as a client-side statement
 }
+var createStatements = map[string]bool{"CREATE": true}
+var dropStatements = map[string]bool{"DROP": true}
 var showStatements = map[string]bool{"SHOW": true}
 var setStatements = map[string]bool{"SET": true}
 var resetStatements = map[string]bool{"RESET": true}
@@ -949,6 +953,14 @@ func isDmlKeyword(keyword string) bool {
 func (p *statementParser) isQuery(query string) bool {
 	info := p.detectStatementType(query)
 	return info.statementType == StatementTypeQuery
+}
+
+func isCreateKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, createStatements)
+}
+
+func isDropKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, dropStatements)
 }
 
 func isQueryKeyword(keyword string) bool {
