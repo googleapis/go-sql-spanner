@@ -39,6 +39,7 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/uuid"
 	"github.com/googleapis/gax-go/v2"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
@@ -293,6 +294,17 @@ type ConnectorConfig struct {
 	//    any of those do not yet exist.
 	AutoConfigEmulator bool
 
+	// ConnectionStateType determines the behavior of changes to connection state
+	// during a transaction.
+	// connectionstate.TypeTransactional means that changes during a transaction
+	// are only persisted if the transaction is committed. If the transaction is
+	// rolled back, any changes to the connection state during the transaction
+	// will be lost.
+	// connectionstate.TypeNonTransactional means that changes to the connection
+	// state during a transaction are persisted directly, and are always visible
+	// after the transaction, regardless whether the transaction was committed or
+	// rolled back.
+	ConnectionStateType connectionstate.Type
 	// Params contains key/value pairs for commonly used configuration parameters
 	// for connections. The valid values are the same as the parameters that can
 	// be added to a connection string.
@@ -678,6 +690,11 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 
 	connId := uuid.New().String()
 	logger := c.logger.With("connId", connId)
+	connectionStateType := c.connectorConfig.ConnectionStateType
+	if connectionStateType == connectionstate.TypeDefault {
+		// TODO: Determine the default type of connection state based on the dialect
+		connectionStateType = connectionstate.TypeNonTransactional
+	}
 	connection := &conn{
 		parser:      c.parser,
 		connector:   c,
@@ -688,6 +705,8 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		database:    databaseName,
 		retryAborts: c.retryAbortsInternally,
 
+		// TODO: Pass in initial values for the connection state
+		state:                               createInitialConnectionState(connectionStateType, map[string]connectionstate.ConnectionPropertyValue{}),
 		autoBatchDml:                        c.connectorConfig.AutoBatchDml,
 		autoBatchDmlUpdateCount:             c.connectorConfig.AutoBatchDmlUpdateCount,
 		autoBatchDmlUpdateCountVerification: !c.connectorConfig.DisableAutoBatchDmlUpdateCountVerification,
