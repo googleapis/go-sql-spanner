@@ -302,7 +302,7 @@ type ConnectorConfig struct {
 	// will be lost.
 	// connectionstate.TypeNonTransactional means that changes to the connection
 	// state during a transaction are persisted directly, and are always visible
-	// after the transaction, regardless whether the transaction committed or
+	// after the transaction, regardless whether the transaction was committed or
 	// rolled back.
 	ConnectionStateType connectionstate.Type
 	// Params contains key/value pairs for commonly used configuration parameters
@@ -644,7 +644,6 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		logger:      logger,
 		database:    databaseName,
 		state:       createInitialConnectionState(connectionStateType, c.initialPropertyValues),
-
 		execSingleQuery:              queryInSingleUse,
 		execSingleQueryTransactional: queryInNewRWTransaction,
 		execSingleDMLTransactional:   execInNewRWTransaction,

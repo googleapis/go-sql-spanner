@@ -200,6 +200,7 @@ func (p *TypedConnectionProperty[T]) ResetValue(state *ConnectionState, context 
 		return status.Errorf(codes.InvalidArgument, "value has wrong type: %T", resetValue)
 	}
 	return p.setConnectionStateValue(state, typedResetValue /*isReset=*/, true, context)
+
 }
 
 // SetValue sets the value of the property in the given ConnectionState.

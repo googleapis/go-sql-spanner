@@ -667,6 +667,7 @@ func (c *conn) ResetSession(_ context.Context) error {
 	c.batch = nil
 
 	_ = c.state.Reset(connectionstate.ContextUser)
+
 	c.execOptions = ExecOptions{
 		DecodeToNativeArrays: c.connector.connectorConfig.DecodeToNativeArrays,
 	}

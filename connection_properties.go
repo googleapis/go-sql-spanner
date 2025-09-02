@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+
 // connectionProperties contains all supported connection properties for Spanner.
 // These properties are added to all connectionstate.ConnectionState instances that are created for Spanner connections.
 var connectionProperties = map[string]connectionstate.ConnectionProperty{}
