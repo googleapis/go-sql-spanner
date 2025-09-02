@@ -636,14 +636,14 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		}
 	}
 	connection := &conn{
-		parser:      c.parser,
-		connector:   c,
-		client:      c.client,
-		adminClient: c.adminClient,
-		connId:      connId,
-		logger:      logger,
-		database:    databaseName,
-		state:       createInitialConnectionState(connectionStateType, c.initialPropertyValues),
+		parser:                       c.parser,
+		connector:                    c,
+		client:                       c.client,
+		adminClient:                  c.adminClient,
+		connId:                       connId,
+		logger:                       logger,
+		database:                     databaseName,
+		state:                        createInitialConnectionState(connectionStateType, c.initialPropertyValues),
 		execSingleQuery:              queryInSingleUse,
 		execSingleQueryTransactional: queryInNewRWTransaction,
 		execSingleDMLTransactional:   execInNewRWTransaction,
