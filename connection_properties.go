@@ -17,6 +17,7 @@ package spannerdriver
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -71,6 +72,34 @@ var propertyIsolationLevel = createConnectionProperty(
 	connectionstate.ContextUser,
 	func(value string) (sql.IsolationLevel, error) {
 		return parseIsolationLevel(value)
+	},
+)
+var propertyReadLockMode = createConnectionProperty(
+	"read_lock_mode",
+	"This option controls the locking behavior for read operations and queries within a read/write transaction. "+
+		"It works in conjunction with the transaction's isolation level.\n\n"+
+		"PESSIMISTIC: Read locks are acquired immediately on read. This mode only applies to SERIALIZABLE isolation. "+
+		"This mode prevents concurrent modifications by locking data throughout the transaction. This reduces commit-time "+
+		"aborts due to conflicts, but can increase how long transactions wait for locks and the overall contention.\n\n"+
+		"OPTIMISTIC: Locks for reads within the transaction are not acquired on read. Instead, the locks are acquired on "+
+		"commit to validate that read/queried data has not changed since the transaction started. If a conflict is "+
+		"detected, the transaction will fail. This mode only applies to SERIALIZABLE isolation. This mode defers locking "+
+		"until commit, which can reduce contention and improve throughput. However, be aware that this increases the "+
+		"risk of transaction aborts if there's significant write competition on the same data.\n\n"+
+		"READ_LOCK_MODE_UNSPECIFIED: This is the default if no mode is set. The locking behavior depends on the isolation level:\n\n"+
+		"REPEATABLE_READ: Locking semantics default to OPTIMISTIC. However, validation checks at commit are only "+
+		"performed for queries using SELECT FOR UPDATE, statements with {@code LOCK_SCANNED_RANGES} hints, and DML statements.\n\n"+
+		"For all other isolation levels: If the read lock mode is not set, it defaults to PESSIMISTIC locking.",
+	spannerpb.TransactionOptions_ReadWrite_READ_LOCK_MODE_UNSPECIFIED,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	func(value string) (spannerpb.TransactionOptions_ReadWrite_ReadLockMode, error) {
+		name := strings.ToUpper(value)
+		if _, ok := spannerpb.TransactionOptions_ReadWrite_ReadLockMode_value[name]; ok {
+			return spannerpb.TransactionOptions_ReadWrite_ReadLockMode(spannerpb.TransactionOptions_ReadWrite_ReadLockMode_value[name]), nil
+		}
+		return spannerpb.TransactionOptions_ReadWrite_READ_LOCK_MODE_UNSPECIFIED, status.Errorf(codes.InvalidArgument, "unknown read lock mode: %v", value)
 	},
 )
 var propertyBeginTransactionOption = createConnectionProperty(
