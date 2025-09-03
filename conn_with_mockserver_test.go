@@ -314,6 +314,184 @@ func TestIsolationLevelAutoCommit(t *testing.T) {
 	}
 }
 
+func TestDefaultReadLockMode(t *testing.T) {
+	t.Parallel()
+
+	for mode, name := range spannerpb.TransactionOptions_ReadWrite_ReadLockMode_name {
+		readLockMode := spannerpb.TransactionOptions_ReadWrite_ReadLockMode(mode)
+		db, server, teardown := setupTestDBConnectionWithParams(t, fmt.Sprintf("read_lock_mode=%v", name))
+		defer teardown()
+		ctx := context.Background()
+
+		c, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := c.Raw(func(driverConn interface{}) error {
+			spannerConn, ok := driverConn.(*conn)
+			if !ok {
+				return fmt.Errorf("expected spanner conn, got %T", driverConn)
+			}
+			if spannerConn.ReadLockMode() != readLockMode {
+				return fmt.Errorf("expected read lock mode %v, got %v", readLockMode, spannerConn.ReadLockMode())
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		tx, _ := db.BeginTx(ctx, &sql.TxOptions{})
+		_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
+		_ = tx.Rollback()
+
+		requests := drainRequestsFromServer(server.TestSpanner)
+		beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+		if g, w := len(beginRequests), 0; g != w {
+			t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		if g, w := len(executeRequests), 1; g != w {
+			t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		request := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+		if request.GetTransaction() == nil || request.GetTransaction().GetBegin() == nil {
+			t.Fatalf("ExecuteSqlRequest should have a Begin transaction")
+		}
+		if g, w := request.GetTransaction().GetBegin().GetReadWrite().GetReadLockMode(), readLockMode; g != w {
+			t.Fatalf("begin read lock mode mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+}
+
+func TestSetReadLockMode(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	// Repeat twice to ensure that the state is reset after closing the connection.
+	for i := 0; i < 2; i++ {
+		c, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var readLockMode spannerpb.TransactionOptions_ReadWrite_ReadLockMode
+		_ = c.Raw(func(driverConn interface{}) error {
+			readLockMode = driverConn.(*conn).ReadLockMode()
+			return nil
+		})
+		if g, w := readLockMode, spannerpb.TransactionOptions_ReadWrite_READ_LOCK_MODE_UNSPECIFIED; g != w {
+			t.Fatalf("read lock mode mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		_ = c.Raw(func(driverConn interface{}) error {
+			return driverConn.(SpannerConn).SetReadLockMode(spannerpb.TransactionOptions_ReadWrite_OPTIMISTIC)
+		})
+		_ = c.Raw(func(driverConn interface{}) error {
+			readLockMode = driverConn.(SpannerConn).ReadLockMode()
+			return nil
+		})
+		if g, w := readLockMode, spannerpb.TransactionOptions_ReadWrite_OPTIMISTIC; g != w {
+			t.Fatalf("read lock mode mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		_ = c.Close()
+	}
+}
+
+func TestReadLockModeAutoCommit(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	for mode := range spannerpb.TransactionOptions_ReadWrite_ReadLockMode_name {
+		readLockMode := spannerpb.TransactionOptions_ReadWrite_ReadLockMode(mode)
+		_, _ = db.ExecContext(ctx, testutil.UpdateBarSetFoo, ExecOptions{TransactionOptions: spanner.TransactionOptions{
+			ReadLockMode: readLockMode,
+		}})
+
+		requests := drainRequestsFromServer(server.TestSpanner)
+		executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		if g, w := len(executeRequests), 1; g != w {
+			t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		request := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+		if g, w := request.Transaction.GetBegin().GetReadWrite().GetReadLockMode(), readLockMode; g != w {
+			t.Fatalf("begin read lock mode mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+}
+
+func TestSetLocalReadLockMode(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	// Make sure we only have one connection in the pool.
+	db.SetMaxOpenConns(1)
+	defer teardown()
+	ctx := context.Background()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, "set local read_lock_mode='optimistic'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	requests := drainRequestsFromServer(server.TestSpanner)
+	beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+	if g, w := len(beginRequests), 0; g != w {
+		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	request := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+	if request.GetTransaction() == nil || request.GetTransaction().GetBegin() == nil {
+		t.Fatalf("ExecuteSqlRequest should have a Begin transaction")
+	}
+	if g, w := request.GetTransaction().GetBegin().GetReadWrite().GetReadLockMode(), spannerpb.TransactionOptions_ReadWrite_OPTIMISTIC; g != w {
+		t.Fatalf("begin read lock mode mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Execute another transaction without a specific read lock mode. This should then use the default.
+	tx, err = db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	requests = drainRequestsFromServer(server.TestSpanner)
+	beginRequests = requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+	if g, w := len(beginRequests), 0; g != w {
+		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	executeRequests = requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	request = executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+	if request.GetTransaction() == nil || request.GetTransaction().GetBegin() == nil {
+		t.Fatalf("ExecuteSqlRequest should have a Begin transaction")
+	}
+	if g, w := request.GetTransaction().GetBegin().GetReadWrite().GetReadLockMode(), spannerpb.TransactionOptions_ReadWrite_READ_LOCK_MODE_UNSPECIFIED; g != w {
+		t.Fatalf("begin read lock mode mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
 func TestCreateDatabase(t *testing.T) {
 	t.Parallel()
 
