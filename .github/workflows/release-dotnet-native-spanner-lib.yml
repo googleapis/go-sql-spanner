@@ -11,7 +11,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.24
+          go-version: 1.25
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Build shared library
@@ -36,7 +36,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.24
+          go-version: 1.25
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Build shared library
