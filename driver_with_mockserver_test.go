@@ -660,6 +660,9 @@ func TestSimpleReadWriteTransaction(t *testing.T) {
 		t.Fatalf("commit requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	commitReq := commitRequests[0].(*sppb.CommitRequest)
+	if commitReq.MaxCommitDelay == nil {
+		t.Fatal("missing max commit delay for CommitRequest")
+	}
 	if g, w := commitReq.MaxCommitDelay.Nanos, int32(time.Millisecond*10); g != w {
 		t.Fatalf("max_commit_delay mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -3715,7 +3718,7 @@ func TestExcludeTxnFromChangeStreams_Transaction(t *testing.T) {
 	}
 
 	var exclude bool
-	if err := conn.QueryRowContext(ctx, "SHOW VARIABLE EXCLUDE_TXN_FROM_CHANGE_STREAMS").Scan(&exclude); err != nil {
+	if err := conn.QueryRowContext(ctx, "SHOW VARIABLE exclude_txn_from_change_streams").Scan(&exclude); err != nil {
 		t.Fatalf("failed to get exclude setting: %v", err)
 	}
 	if g, w := exclude, false; g != w {
