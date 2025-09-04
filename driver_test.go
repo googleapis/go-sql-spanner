@@ -487,9 +487,10 @@ func TestConnection_Reset(t *testing.T) {
 		connector: &connector{
 			connectorConfig: ConnectorConfig{},
 		},
-		state:          createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
-		batch:          &batch{tp: dml},
-		commitResponse: &spanner.CommitResponse{},
+		state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{
+			propertyCommitResponse.Key(): propertyCommitResponse.CreateTypedInitialValue(nil),
+		}),
+		batch: &batch{tp: dml},
 		tx: &readOnlyTransaction{
 			logger: noopLogger,
 			close: func(_ txResult) {
@@ -498,6 +499,7 @@ func TestConnection_Reset(t *testing.T) {
 		},
 	}
 
+	c.setCommitResponse(&spanner.CommitResponse{})
 	if err := c.SetReadOnlyStaleness(spanner.ExactStaleness(time.Second)); err != nil {
 		t.Fatal(err)
 	}
@@ -510,7 +512,7 @@ func TestConnection_Reset(t *testing.T) {
 	if c.inBatch() {
 		t.Error("failed to clear batch")
 	}
-	if c.commitResponse != nil {
+	if _, err := c.CommitResponse(); err == nil {
 		t.Errorf("failed to clear commit response")
 	}
 	if !txClosed {

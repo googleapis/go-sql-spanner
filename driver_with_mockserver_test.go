@@ -3363,6 +3363,77 @@ func TestShowVariableCommitTimestamp(t *testing.T) {
 			t.Fatalf("got zero commit timestamp: %v", ts)
 		}
 	}
+
+	// Verify that we cannot manually set the commit_timestamp variable.
+	_, err = conn.ExecContext(ctx, "set commit_timestamp='2025-09-02T10:00:00Z'")
+	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Fatalf("set commit timestamp error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := err.Error(), "rpc error: code = FailedPrecondition desc = property commit_timestamp is read-only"; g != w {
+		t.Fatalf("set commit timestamp error message mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestShowVariableCommitResponse(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("failed to start transaction: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit failed: %v", err)
+	}
+	// Get the commit response from the connection using a custom SQL statement.
+	// We do this in a simple loop to verify that we can get it multiple times.
+	for i := 0; i < 2; i++ {
+		var resp string
+		if err := conn.QueryRowContext(ctx, "SHOW VARIABLE commit_response").Scan(&resp); err != nil {
+			t.Fatalf("failed to get commit response: %v", err)
+		}
+		if resp == "" {
+			t.Fatalf("got empty commit response: %v", resp)
+		}
+	}
+
+	// Verify that we cannot manually set the commit_response variable.
+	_, err = conn.ExecContext(ctx, "set commit_response='2025-09-02T10:00:00Z'")
+	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Fatalf("set commit response error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := err.Error(), "rpc error: code = FailedPrecondition desc = property commit_response is read-only"; g != w {
+		t.Fatalf("set commit response error message mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestSetCommitTimestampInConnectionString(t *testing.T) {
+	t.Parallel()
+
+	_, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	_, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;commit_timestamp='2025-09-02T10:00:00Z'", server.Address))
+	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := err.Error(), "rpc error: code = FailedPrecondition desc = property commit_timestamp is read-only"; g != w {
+		t.Fatalf("error message mismatch\n Got: %v\nWant: %v", g, w)
+	}
 }
 
 func TestMinSessions(t *testing.T) {

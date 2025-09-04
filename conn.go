@@ -245,18 +245,17 @@ type SpannerConn interface {
 var _ SpannerConn = &conn{}
 
 type conn struct {
-	parser         *statementParser
-	connector      *connector
-	closed         bool
-	client         *spanner.Client
-	adminClient    *adminapi.DatabaseAdminClient
-	connId         string
-	logger         *slog.Logger
-	tx             contextTransaction
-	prevTx         contextTransaction
-	resetForRetry  bool
-	commitResponse *spanner.CommitResponse
-	database       string
+	parser        *statementParser
+	connector     *connector
+	closed        bool
+	client        *spanner.Client
+	adminClient   *adminapi.DatabaseAdminClient
+	connId        string
+	logger        *slog.Logger
+	tx            contextTransaction
+	prevTx        contextTransaction
+	resetForRetry bool
+	database      string
 
 	execSingleQuery              func(ctx context.Context, c *spanner.Client, statement spanner.Statement, bound spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator
 	execSingleQueryTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (rowIterator, *spanner.CommitResponse, error)
@@ -286,17 +285,33 @@ func (c *conn) UnderlyingClient() (*spanner.Client, error) {
 }
 
 func (c *conn) CommitTimestamp() (time.Time, error) {
-	if c.commitResponse == nil {
+	ts := propertyCommitTimestamp.GetValueOrDefault(c.state)
+	if ts == nil {
 		return time.Time{}, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "this connection has not executed a read/write transaction that committed successfully"))
 	}
-	return c.commitResponse.CommitTs, nil
+	return *ts, nil
 }
 
 func (c *conn) CommitResponse() (commitResponse *spanner.CommitResponse, err error) {
-	if c.commitResponse == nil {
+	resp := propertyCommitResponse.GetValueOrDefault(c.state)
+	if resp == nil {
 		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "this connection has not executed a read/write transaction that committed successfully"))
 	}
-	return c.commitResponse, nil
+	return resp, nil
+}
+
+func (c *conn) clearCommitResponse() {
+	_ = propertyCommitResponse.SetValue(c.state, nil, connectionstate.ContextUser)
+	_ = propertyCommitTimestamp.SetValue(c.state, nil, connectionstate.ContextUser)
+}
+
+func (c *conn) setCommitResponse(commitResponse *spanner.CommitResponse) {
+	if commitResponse == nil {
+		c.clearCommitResponse()
+		return
+	}
+	_ = propertyCommitResponse.SetValue(c.state, commitResponse, connectionstate.ContextUser)
+	_ = propertyCommitTimestamp.SetValue(c.state, &commitResponse.CommitTs, connectionstate.ContextUser)
 }
 
 func (c *conn) showConnectionVariable(identifier identifier) (any, bool, error) {
@@ -715,7 +730,6 @@ func (c *conn) ResetSession(_ context.Context) error {
 			return driver.ErrBadConn
 		}
 	}
-	c.commitResponse = nil
 	c.batch = nil
 
 	_ = c.state.Reset(connectionstate.ContextUser)
@@ -805,7 +819,7 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 
 func (c *conn) queryContext(ctx context.Context, query string, execOptions *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
 	// Clear the commit timestamp of this connection before we execute the query.
-	c.commitResponse = nil
+	c.clearCommitResponse()
 	// Check if the execution options contains an instruction to execute
 	// a specific partition of a PartitionedQuery.
 	if pq := execOptions.PartitionedQueryOptions.ExecutePartition.PartitionedQuery; pq != nil {
@@ -830,7 +844,7 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 			if err != nil {
 				return nil, err
 			}
-			c.commitResponse = commitResponse
+			c.setCommitResponse(commitResponse)
 		} else if execOptions.PartitionedQueryOptions.PartitionQuery {
 			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "PartitionQuery is only supported in batch read-only transactions"))
 		} else if execOptions.PartitionedQueryOptions.AutoPartitionQuery {
@@ -877,7 +891,7 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 
 func (c *conn) execContext(ctx context.Context, query string, execOptions *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	// Clear the commit timestamp of this connection before we execute the statement.
-	c.commitResponse = nil
+	c.clearCommitResponse()
 
 	statementInfo := c.parser.detectStatementType(query)
 	// Use admin API if DDL statement is provided.
@@ -917,7 +931,7 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions *ExecO
 			if dmlMode == Transactional {
 				res, commitResponse, err = c.execSingleDMLTransactional(ctx, c.client, ss, statementInfo, execOptions)
 				if err == nil {
-					c.commitResponse = commitResponse
+					c.setCommitResponse(commitResponse)
 				}
 			} else if dmlMode == PartitionedNonAtomic {
 				var rowsAffected int64
@@ -1174,7 +1188,7 @@ func (c *conn) BeginTx(ctx context.Context, driverOpts driver.TxOptions) (driver
 			c.prevTx = c.tx
 			c.tx = nil
 			if commitErr == nil {
-				c.commitResponse = commitResponse
+				c.setCommitResponse(commitResponse)
 				if result == txResultCommit {
 					_ = c.state.Commit()
 				} else {
@@ -1187,7 +1201,7 @@ func (c *conn) BeginTx(ctx context.Context, driverOpts driver.TxOptions) (driver
 		// Disable internal retries if any of these options have been set.
 		retryAborts: !disableInternalRetries && !disableRetryAborts,
 	}
-	c.commitResponse = nil
+	c.clearCommitResponse()
 	return c.tx, nil
 }
 

@@ -18,15 +18,6 @@ var jsonFile = `{
   "statements":
   [
 	{
-	  "name": "SHOW VARIABLE COMMIT_TIMESTAMP",
-	  "executorName": "ClientSideStatementNoParamExecutor",
-	  "resultType": "RESULT_SET",
-	  "regex": "(?is)\\A\\s*show\\s+variable\\s+commit_timestamp\\s*\\z",
-	  "method": "statementShowCommitTimestamp",
-	  "exampleStatements": ["show variable commit_timestamp"],
-	  "examplePrerequisiteStatements": ["update foo set bar=1"]
-	},
-	{
       "name": "SHOW VARIABLE RETRY_ABORTS_INTERNALLY",
       "executorName": "ClientSideStatementNoParamExecutor",
       "resultType": "RESULT_SET",

@@ -48,19 +48,6 @@ import (
 type statementExecutor struct {
 }
 
-func (s *statementExecutor) ShowCommitTimestamp(_ context.Context, c *conn, _ string, opts *ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
-	ts, err := c.CommitTimestamp()
-	var commitTs *time.Time
-	if err == nil {
-		commitTs = &ts
-	}
-	it, err := createTimestampIterator("CommitTimestamp", commitTs)
-	if err != nil {
-		return nil, err
-	}
-	return createRows(it, opts), nil
-}
-
 func (s *statementExecutor) ShowRetryAbortsInternally(_ context.Context, c *conn, _ string, opts *ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
 	it, err := createBooleanIterator("RetryAbortsInternally", c.RetryAbortsInternally())
 	if err != nil {
