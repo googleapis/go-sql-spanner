@@ -126,6 +126,38 @@ type SpannerConn interface {
 	// transactions on this connection.
 	SetIsolationLevel(level sql.IsolationLevel) error
 
+	// ReadLockMode returns the current read lock mode that is used for read/write
+	// transactions on this connection.
+	ReadLockMode() spannerpb.TransactionOptions_ReadWrite_ReadLockMode
+	// SetReadLockMode sets the read lock mode to use for read/write transactions
+	// on this connection.
+	//
+	// The read lock mode option controls the locking behavior for read operations and queries within a
+	// read-write transaction. It works in conjunction with the transaction's isolation level.
+	//
+	// PESSIMISTIC: Read locks are acquired immediately on read. This mode only applies to SERIALIZABLE
+	// isolation. This mode prevents concurrent modifications by locking data throughout the transaction.
+	// This reduces commit-time aborts due to conflicts but can increase how long transactions wait for
+	// locks and the overall contention.
+	//
+	// OPTIMISTIC: Locks for reads within the transaction are not acquired on read. Instead, the locks
+	// are acquired on commit to validate that read/queried data has not changed since the transaction
+	// started. If a conflict is detected, the transaction will fail. This mode only applies to SERIALIZABLE
+	// isolation. This mode defers locking until commit, which can reduce contention and improve throughput.
+	// However, be aware that this increases the risk of transaction aborts if there's significant write
+	// competition on the same data.
+	//
+	// READ_LOCK_MODE_UNSPECIFIED: This is the default if no mode is set. The locking behavior depends on
+	// the isolation level:
+	//
+	// REPEATABLE_READ isolation: Locking semantics default to OPTIMISTIC. However, validation checks at
+	// commit are only performed for queries using SELECT FOR UPDATE, statements with LOCK_SCANNED_RANGES
+	// hints, and DML statements. Note: It is an error to explicitly set ReadLockMode when the isolation
+	// level is REPEATABLE_READ.
+	//
+	// For all other isolation levels: If the read lock mode is not set, it defaults to PESSIMISTIC locking.
+	SetReadLockMode(mode spannerpb.TransactionOptions_ReadWrite_ReadLockMode) error
+
 	// TransactionTag returns the transaction tag that will be applied to the next
 	// read/write transaction on this connection. The transaction tag that is set
 	// on the connection is cleared when a read/write transaction is started.
@@ -383,6 +415,14 @@ func (c *conn) IsolationLevel() sql.IsolationLevel {
 
 func (c *conn) SetIsolationLevel(level sql.IsolationLevel) error {
 	return propertyIsolationLevel.SetValue(c.state, level, connectionstate.ContextUser)
+}
+
+func (c *conn) ReadLockMode() spannerpb.TransactionOptions_ReadWrite_ReadLockMode {
+	return propertyReadLockMode.GetValueOrDefault(c.state)
+}
+
+func (c *conn) SetReadLockMode(mode spannerpb.TransactionOptions_ReadWrite_ReadLockMode) error {
+	return propertyReadLockMode.SetValue(c.state, mode, connectionstate.ContextUser)
 }
 
 func (c *conn) MaxCommitDelay() time.Duration {
@@ -942,6 +982,7 @@ func (c *conn) options(reset bool) *ExecOptions {
 			ExcludeTxnFromChangeStreams: c.ExcludeTxnFromChangeStreams(),
 			TransactionTag:              c.TransactionTag(),
 			IsolationLevel:              toProtoIsolationLevelOrDefault(c.IsolationLevel()),
+			ReadLockMode:                c.ReadLockMode(),
 			CommitOptions: spanner.CommitOptions{
 				MaxCommitDelay: c.maxCommitDelayPointer(),
 			},

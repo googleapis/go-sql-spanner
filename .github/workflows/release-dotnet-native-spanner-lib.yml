@@ -11,7 +11,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.24
+          go-version: 1.25
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Build shared library
@@ -36,7 +36,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.24
+          go-version: 1.25
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Build shared library
@@ -62,24 +62,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Download and copy linux-x64 shared lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: spannerlib-linux-x64
           path: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Native/libraries/linux-x64/
       - name: Download and copy linux-x64 gRPC server
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: spannerlib-server-linux-x64
           path: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/linux-x64/
       - name: Add execute permission to linux-x64 gRPC server
         run: chmod +x spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/linux-x64/grpc_server
       - name: Download and copy osx-arm64
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: spannerlib-osx-arm64
           path: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Native/libraries/osx-arm64/
       - name: Download and copy osx-arm64 gRPC server
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: spannerlib-server-osx-arm64
           path: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/osx-arm64/

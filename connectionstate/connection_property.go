@@ -388,7 +388,7 @@ func (p *TypedConnectionProperty[T]) checkValidValue(value T) error {
 			return nil
 		}
 	}
-	return nil
+	return status.Errorf(codes.InvalidArgument, "value %v is not a valid value for %s", value, p)
 }
 
 func unknownPropertyErr(p ConnectionProperty) error {
