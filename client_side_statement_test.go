@@ -295,8 +295,12 @@ func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
 func TestShowCommitTimestamp(t *testing.T) {
 	t.Parallel()
 
-	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
-	s := &statementExecutor{}
+	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	c := &conn{
+		logger: noopLogger,
+		parser: parser,
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+	}
 	ctx := context.Background()
 
 	ts := time.Now()
@@ -307,17 +311,17 @@ func TestShowCommitTimestamp(t *testing.T) {
 		{nil},
 	} {
 		if test.wantValue == nil {
-			c.commitResponse = nil
+			c.clearCommitResponse()
 		} else {
-			c.commitResponse = &spanner.CommitResponse{CommitTs: *test.wantValue}
+			c.setCommitResponse(&spanner.CommitResponse{CommitTs: *test.wantValue})
 		}
 
-		it, err := s.ShowCommitTimestamp(ctx, c, "", &ExecOptions{}, nil)
+		it, err := c.QueryContext(ctx, "show variable commit_timestamp", []driver.NamedValue{})
 		if err != nil {
 			t.Fatalf("could not get current commit timestamp from connection: %v", err)
 		}
 		cols := it.Columns()
-		wantCols := []string{"CommitTimestamp"}
+		wantCols := []string{"commit_timestamp"}
 		if !cmp.Equal(cols, wantCols) {
 			t.Fatalf("column names mismatch\nGot: %v\nWant: %v", cols, wantCols)
 		}

@@ -3,6 +3,7 @@ package spannerdriver
 import (
 	"context"
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -112,15 +113,19 @@ func (s *parsedShowStatement) queryContext(ctx context.Context, c *conn, params 
 	case *time.Time:
 		it, err = createTimestampIterator(col, val)
 	default:
-		if stringerVal, ok := val.(fmt.Stringer); ok {
-			if hasValue {
-				it, err = createStringIterator(col, stringerVal.String())
+		stringVal := ""
+		if hasValue {
+			if stringerVal, ok := val.(fmt.Stringer); ok {
+				stringVal = stringerVal.String()
 			} else {
-				it, err = createStringIterator(col, "")
+				jsonVal, err := json.Marshal(val)
+				if err != nil {
+					return nil, status.Errorf(codes.InvalidArgument, "unsupported type: %T", val)
+				}
+				stringVal = string(jsonVal)
 			}
-		} else {
-			err = status.Errorf(codes.InvalidArgument, "unsupported type: %T", val)
 		}
+		it, err = createStringIterator(col, stringVal)
 	}
 	if err != nil {
 		return nil, err

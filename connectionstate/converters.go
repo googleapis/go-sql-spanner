@@ -25,6 +25,13 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+func CreateReadOnlyConverter[T any](property string) func(value string) (T, error) {
+	return func(value string) (T, error) {
+		var t T
+		return t, status.Errorf(codes.FailedPrecondition, "property %s is read-only", property)
+	}
+}
+
 func ConvertBool(value string) (bool, error) {
 	return strconv.ParseBool(value)
 }
