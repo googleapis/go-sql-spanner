@@ -56,30 +56,6 @@ func (s *statementExecutor) ShowRetryAbortsInternally(_ context.Context, c *conn
 	return createRows(it, opts), nil
 }
 
-func (s *statementExecutor) ShowAutoBatchDml(_ context.Context, c *conn, _ string, opts *ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
-	it, err := createBooleanIterator("AutoBatchDml", c.AutoBatchDml())
-	if err != nil {
-		return nil, err
-	}
-	return createRows(it, opts), nil
-}
-
-func (s *statementExecutor) ShowAutoBatchDmlUpdateCount(_ context.Context, c *conn, _ string, opts *ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
-	it, err := createInt64Iterator("AutoBatchDmlUpdateCount", c.AutoBatchDmlUpdateCount())
-	if err != nil {
-		return nil, err
-	}
-	return createRows(it, opts), nil
-}
-
-func (s *statementExecutor) ShowAutoBatchDmlUpdateCountVerification(_ context.Context, c *conn, opts *ExecOptions, _ string, _ []driver.NamedValue) (driver.Rows, error) {
-	it, err := createBooleanIterator("AutoBatchDmlUpdateCountVerification", c.AutoBatchDmlUpdateCountVerification())
-	if err != nil {
-		return nil, err
-	}
-	return createRows(it, opts), nil
-}
-
 func (s *statementExecutor) ShowAutocommitDmlMode(_ context.Context, c *conn, _ string, opts *ExecOptions, _ []driver.NamedValue) (driver.Rows, error) {
 	it, err := createStringIterator("AutocommitDMLMode", c.AutocommitDMLMode().String())
 	if err != nil {
@@ -121,46 +97,6 @@ func (s *statementExecutor) SetRetryAbortsInternally(_ context.Context, c *conn,
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid boolean value: %s", params))
 	}
 	return c.setRetryAbortsInternally(retry)
-}
-
-func (s *statementExecutor) SetAutoBatchDml(_ context.Context, c *conn, params string, _ *ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
-	return setBoolVariable("AutoBatchDml", func(value bool) (driver.Result, error) {
-		return driver.ResultNoRows, c.SetAutoBatchDml(value)
-	}, params)
-}
-
-func (s *statementExecutor) SetAutoBatchDmlUpdateCount(_ context.Context, c *conn, params string, _ *ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
-	return setInt64Variable("AutoBatchDmlUpdateCount", func(value int64) (driver.Result, error) {
-		return driver.ResultNoRows, c.SetAutoBatchDmlUpdateCount(value)
-	}, params)
-}
-
-func (s *statementExecutor) SetAutoBatchDmlUpdateCountVerification(_ context.Context, c *conn, params string, _ *ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
-	return setBoolVariable("AutoBatchDmlUpdateCountVerification", func(value bool) (driver.Result, error) {
-		return driver.ResultNoRows, c.SetAutoBatchDmlUpdateCountVerification(value)
-	}, params)
-}
-
-func setBoolVariable(name string, f func(value bool) (driver.Result, error), params string) (driver.Result, error) {
-	if params == "" {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "no value given for %s", name))
-	}
-	value, err := strconv.ParseBool(params)
-	if err != nil {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid boolean value: %s", params))
-	}
-	return f(value)
-}
-
-func setInt64Variable(name string, f func(value int64) (driver.Result, error), params string) (driver.Result, error) {
-	if params == "" {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "no value given for %s", name))
-	}
-	value, err := strconv.ParseInt(params, 10, 64)
-	if err != nil {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid int64 value: %s", params))
-	}
-	return f(value)
 }
 
 func (s *statementExecutor) SetAutocommitDmlMode(_ context.Context, c *conn, params string, _ *ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
