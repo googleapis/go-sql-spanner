@@ -55,6 +55,9 @@ var dropStatements = map[string]bool{"DROP": true}
 var showStatements = map[string]bool{"SHOW": true}
 var setStatements = map[string]bool{"SET": true}
 var resetStatements = map[string]bool{"RESET": true}
+var startStatements = map[string]bool{"START": true}
+var runStatements = map[string]bool{"RUN": true}
+var abortStatements = map[string]bool{"ABORT": true}
 
 func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 	res := make(map[string]bool, len(m1)+len(m2))
@@ -289,6 +292,20 @@ func (p *simpleParser) eatLiteral() (literal, error) {
 		return literal{}, status.Errorf(codes.InvalidArgument, "missing literal at position %d", p.pos)
 	}
 	return literal{value: value}, nil
+}
+
+// eatKeywords eats the given keywords in the order of the slice.
+// Returns true and updates the position of the parser if all the keywords were successfully eaten.
+// Returns false and does not update the position of the parser if not all keywords could be eaten.
+func (p *simpleParser) eatKeywords(keywords []string) bool {
+	startPos := p.pos
+	for _, keyword := range keywords {
+		if _, ok := p.eatKeyword(keyword); !ok {
+			p.pos = startPos
+			return false
+		}
+	}
+	return true
 }
 
 // eatKeyword eats the given keyword at the current position of the parser if it exists.
@@ -1006,6 +1023,18 @@ func isSetStatementKeyword(keyword string) bool {
 
 func isResetStatementKeyword(keyword string) bool {
 	return isStatementKeyword(keyword, resetStatements)
+}
+
+func isStartStatementKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, startStatements)
+}
+
+func isRunStatementKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, runStatements)
+}
+
+func isAbortStatementKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, abortStatements)
 }
 
 func isStatementKeyword(keyword string, keywords map[string]bool) bool {
