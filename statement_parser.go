@@ -957,7 +957,7 @@ func (p *statementParser) calculateFindParamsResult(sql string) (string, []strin
 // of the sql string have been removed.
 func (p *statementParser) isDDL(query string) bool {
 	info := p.detectStatementType(query)
-	return info.statementType == statementTypeDdl
+	return info.statementType == StatementTypeDdl
 }
 
 func isDDLKeyword(keyword string) bool {
@@ -969,7 +969,7 @@ func isDDLKeyword(keyword string) bool {
 // of the sql string have been removed.
 func (p *statementParser) isDml(query string) bool {
 	info := p.detectStatementType(query)
-	return info.statementType == statementTypeDml
+	return info.statementType == StatementTypeDml
 }
 
 func isDmlKeyword(keyword string) bool {
@@ -981,7 +981,7 @@ func isDmlKeyword(keyword string) bool {
 // of the sql string have been removed.
 func (p *statementParser) isQuery(query string) bool {
 	info := p.detectStatementType(query)
-	return info.statementType == statementTypeQuery
+	return info.statementType == StatementTypeQuery
 }
 
 func isCreateKeyword(keyword string) bool {
@@ -1121,7 +1121,7 @@ func (c *executableClientSideStatement) QueryContext(ctx context.Context, opts *
 func (p *statementParser) parseClientSideStatement(c *conn, query string) (*executableClientSideStatement, error) {
 	if p.useCache {
 		if val, ok := p.statementsCache.Get(query); ok {
-			if val.info.statementType == statementTypeClientSide {
+			if val.info.statementType == StatementTypeClientSide {
 				var params string
 				if len(val.params) > 0 {
 					params = val.params[0]
@@ -1164,7 +1164,7 @@ func (p *statementParser) parseClientSideStatement(c *conn, query string) (*exec
 					params:              []string{params},
 					clientSideStatement: stmt,
 					info: &statementInfo{
-						statementType: statementTypeClientSide,
+						statementType: StatementTypeClientSide,
 					},
 				}
 				p.statementsCache.Add(query, cacheEntry)
@@ -1197,17 +1197,36 @@ func (p *statementParser) parseSetStatement(c *conn, query string) (*executableC
 	return stmt.executableStatement(c), nil
 }
 
-type statementType int
+type StatementType int
 
 const (
-	statementTypeUnknown statementType = iota
-	statementTypeQuery
-	statementTypeDml
-	statementTypeDdl
-	statementTypeClientSide
-	statementTypeShow
-	statementTypeSet
+	StatementTypeUnknown StatementType = iota
+	StatementTypeQuery
+	StatementTypeDml
+	StatementTypeDdl
+	StatementTypeClientSide
+	StatementTypeShow
+	StatementTypeSet
 )
+
+func (st StatementType) String() string {
+	switch st {
+	case StatementTypeQuery:
+		return "Query"
+	case StatementTypeDml:
+		return "Dml"
+	case StatementTypeDdl:
+		return "Ddl"
+	case StatementTypeClientSide:
+		return "ClientSide"
+	case StatementTypeShow:
+		return "Show"
+	case StatementTypeSet:
+		return "Set"
+	default:
+		return "Unknown"
+	}
+}
 
 type dmlType int
 
@@ -1219,7 +1238,7 @@ const (
 )
 
 type statementInfo struct {
-	statementType statementType
+	statementType StatementType
 	dmlType       dmlType
 }
 
@@ -1246,16 +1265,16 @@ func (p *statementParser) calculateDetectStatementType(sql string) *statementInf
 	_ = parser.skipStatementHint()
 	keyword := strings.ToUpper(parser.readKeyword())
 	if isQueryKeyword(keyword) {
-		return &statementInfo{statementType: statementTypeQuery}
+		return &statementInfo{statementType: StatementTypeQuery}
 	} else if isDmlKeyword(keyword) {
 		return &statementInfo{
-			statementType: statementTypeDml,
+			statementType: StatementTypeDml,
 			dmlType:       detectDmlKeyword(keyword),
 		}
 	} else if isDDLKeyword(keyword) {
-		return &statementInfo{statementType: statementTypeDdl}
+		return &statementInfo{statementType: StatementTypeDdl}
 	}
-	return &statementInfo{statementType: statementTypeUnknown}
+	return &statementInfo{statementType: StatementTypeUnknown}
 }
 
 func detectDmlKeyword(keyword string) dmlType {

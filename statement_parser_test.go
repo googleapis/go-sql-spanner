@@ -1526,7 +1526,7 @@ func TestStatementIsDdl(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range tests {
-		got := parser.detectStatementType(tc.input).statementType == statementTypeDdl
+		got := parser.detectStatementType(tc.input).statementType == StatementTypeDdl
 		if got != tc.want {
 			t.Errorf("isDDL test failed, %s: wanted %t got %t.", tc.name, tc.want, got)
 		}
@@ -2286,74 +2286,74 @@ func TestEatDollarQuotedString(t *testing.T) {
 
 type detectStatementTypeTest struct {
 	input string
-	want  statementType
+	want  StatementType
 }
 
 func generateDetectStatementTypeTests() []detectStatementTypeTest {
 	return []detectStatementTypeTest{
 		{
 			input: "select 1",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "from test",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "with t as (select 1) select * from t",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "GRAPH FinGraph\nMATCH (n)\nRETURN LABELS(n) AS label, n.id",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "/* this is a comment */ -- this is also a comment\n @  { statement_hint_key=value } select 1",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "update foo set bar=1 where true",
-			want:  statementTypeDml,
+			want:  StatementTypeDml,
 		},
 		{
 			input: "insert into foo (id, value) select 1, 'test'",
-			want:  statementTypeDml,
+			want:  StatementTypeDml,
 		},
 		{
 			input: "delete from foo where true",
-			want:  statementTypeDml,
+			want:  StatementTypeDml,
 		},
 		{
 			input: "delete from foo where true then return *",
-			want:  statementTypeDml,
+			want:  StatementTypeDml,
 		},
 		{
 			input: "create table foo (id int64) primary key (id)",
-			want:  statementTypeDdl,
+			want:  StatementTypeDdl,
 		},
 		{
 			input: "drop table if exists foo",
-			want:  statementTypeDdl,
+			want:  StatementTypeDdl,
 		},
 		{
 			input: "input from borkisland",
-			want:  statementTypeUnknown,
+			want:  StatementTypeUnknown,
 		},
 		{
 			input: "start batch ddl",
-			want:  statementTypeClientSide,
+			want:  StatementTypeClientSide,
 		},
 		{
 			input: "set autocommit_dml_mode = 'partitioned_non_atomic'",
-			want:  statementTypeClientSide,
+			want:  StatementTypeClientSide,
 		},
 		{
 			input: "show variable commit_timestamp",
-			want:  statementTypeClientSide,
+			want:  StatementTypeClientSide,
 		},
 		{
 			input: "run batch",
-			want:  statementTypeClientSide,
+			want:  StatementTypeClientSide,
 		},
 	}
 }
@@ -2369,7 +2369,7 @@ func TestDetectStatementType(t *testing.T) {
 		if cs, err := parser.parseClientSideStatement(c, test.input); err != nil {
 			t.Errorf("failed to parse the statement as a client-side statement")
 		} else if cs != nil {
-			if g, w := statementTypeClientSide, test.want; g != w {
+			if g, w := StatementTypeClientSide, test.want; g != w {
 				t.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 			}
 		} else if g, w := parser.detectStatementType(test.input).statementType, test.want; g != w {
@@ -2619,7 +2619,7 @@ func benchmarkDetectStatementType(b *testing.B, parser *statementParser) {
 			if cs, err := parser.parseClientSideStatement(c, test.input); err != nil {
 				b.Errorf("failed to parse the statement as a client-side statement")
 			} else if cs != nil {
-				if g, w := statementTypeClientSide, test.want; g != w {
+				if g, w := StatementTypeClientSide, test.want; g != w {
 					b.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 				}
 			} else if g, w := parser.detectStatementType(test.input).statementType, test.want; g != w {

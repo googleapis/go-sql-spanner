@@ -16,15 +16,16 @@ package spannerdriver
 
 import "cloud.google.com/go/spanner"
 
-type batchType int
+type BatchType int
 
 const (
-	ddl batchType = iota
-	dml
+	BatchTypeUnknown BatchType = iota
+	BatchTypeDdl
+	BatchTypeDml
 )
 
 type batch struct {
-	tp           batchType
+	tp           BatchType
 	statements   []spanner.Statement
 	returnValues []int64
 	options      *ExecOptions

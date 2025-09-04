@@ -32,8 +32,13 @@ type stmt struct {
 	conn          *conn
 	numArgs       int
 	query         string
-	statementType statementType
+	statementType StatementType
 	execOptions   *ExecOptions
+}
+
+type SpannerNamedArg struct {
+	NameInQuery string
+	Value       any
 }
 
 func (s *stmt) Close() error {
@@ -79,12 +84,17 @@ func prepareSpannerStmt(parser *statementParser, q string, args []driver.NamedVa
 	}
 	ss := spanner.NewStatement(q)
 	for i, v := range args {
+		value := v.Value
 		name := args[i].Name
+		if sa, ok := args[i].Value.(SpannerNamedArg); ok {
+			name = sa.NameInQuery
+			value = sa.Value
+		}
 		if name == "" && len(names) > i {
 			name = names[i]
 		}
 		if name != "" {
-			ss.Params[name] = convertParam(v.Value)
+			ss.Params[name] = convertParam(value)
 		}
 	}
 	// Verify that all parameters have a value.

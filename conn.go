@@ -220,6 +220,10 @@ type SpannerConn interface {
 	// return the same Spanner client.
 	UnderlyingClient() (client *spanner.Client, err error)
 
+	// DetectStatementType returns the type of SQL statement.
+	// TODO: Remove this, and rather move the entire parser to a separate package and export it.
+	DetectStatementType(query string) StatementType
+
 	// resetTransactionForRetry resets the current transaction after it has
 	// been aborted by Spanner. Calling this function on a transaction that
 	// has not been aborted is not supported and will cause an error to be
@@ -279,10 +283,16 @@ type conn struct {
 	// tempBatchReadOnlyTransactionOptions are temporarily set right before a
 	// batch read-only transaction is started on a Spanner connection.
 	tempBatchReadOnlyTransactionOptions *BatchReadOnlyTransactionOptions
+	tempProtoTransactionOptions         *spannerpb.TransactionOptions
 }
 
 func (c *conn) UnderlyingClient() (*spanner.Client, error) {
 	return c.client, nil
+}
+
+func (c *conn) DetectStatementType(query string) StatementType {
+	info := c.parser.detectStatementType(query)
+	return info.statementType
 }
 
 func (c *conn) CommitTimestamp() (time.Time, error) {
@@ -375,6 +385,16 @@ func (c *conn) setAutocommitDMLMode(mode AutocommitDMLMode) (driver.Result, erro
 
 func (c *conn) ReadOnlyStaleness() spanner.TimestampBound {
 	return propertyReadOnlyStaleness.GetValueOrDefault(c.state)
+}
+
+func (c *conn) readOnlyStalenessPointer() *spanner.TimestampBound {
+	val := propertyReadOnlyStaleness.GetConnectionPropertyValue(c.state)
+	if val == nil || !val.HasValue() {
+		return nil
+	}
+	staleness, _ := val.GetValue()
+	timestampBound := staleness.(spanner.TimestampBound)
+	return &timestampBound
 }
 
 func (c *conn) SetReadOnlyStaleness(staleness spanner.TimestampBound) error {
@@ -512,11 +532,11 @@ func (c *conn) AbortBatch() error {
 }
 
 func (c *conn) InDDLBatch() bool {
-	return c.batch != nil && c.batch.tp == ddl
+	return c.batch != nil && c.batch.tp == BatchTypeDdl
 }
 
 func (c *conn) InDMLBatch() bool {
-	return (c.batch != nil && c.batch.tp == dml) || (c.inReadWriteTransaction() && c.tx.(*readWriteTransaction).batch != nil)
+	return (c.batch != nil && c.batch.tp == BatchTypeDml) || (c.inReadWriteTransaction() && c.tx.(*readWriteTransaction).batch != nil)
 }
 
 func (c *conn) GetBatchedStatements() []spanner.Statement {
@@ -538,7 +558,7 @@ func (c *conn) startBatchDDL() (driver.Result, error) {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection has an active transaction. DDL batches in transactions are not supported."))
 	}
 	c.logger.Debug("started ddl batch")
-	c.batch = &batch{tp: ddl}
+	c.batch = &batch{tp: BatchTypeDdl}
 	return driver.ResultNoRows, nil
 }
 
@@ -556,7 +576,7 @@ func (c *conn) startBatchDML(automatic bool) (driver.Result, error) {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection has an active read-only transaction. Read-only transactions cannot execute DML batches."))
 	}
 	c.logger.Debug("starting dml batch outside transaction")
-	c.batch = &batch{tp: dml, options: execOptions}
+	c.batch = &batch{tp: BatchTypeDml, options: execOptions}
 	return driver.ResultNoRows, nil
 }
 
@@ -569,9 +589,9 @@ func (c *conn) runBatch(ctx context.Context) (driver.Result, error) {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection does not have an active batch"))
 	}
 	switch c.batch.tp {
-	case ddl:
+	case BatchTypeDdl:
 		return c.runDDLBatch(ctx)
-	case dml:
+	case BatchTypeDml:
 		return c.runDMLBatch(ctx)
 	default:
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Unknown batch type: %d", c.batch.tp))
@@ -606,10 +626,10 @@ func (c *conn) abortBatch() (driver.Result, error) {
 }
 
 func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (driver.Result, error) {
-	if c.batch != nil && c.batch.tp == dml {
-		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This connection has an active DML batch"))
+	if c.batch != nil && c.batch.tp == BatchTypeDml {
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This connection has an active DDL batch"))
 	}
-	if c.batch != nil && c.batch.tp == ddl {
+	if c.batch != nil && c.batch.tp == BatchTypeDdl {
 		c.batch.statements = append(c.batch.statements, statements...)
 		return driver.ResultNoRows, nil
 	}
@@ -817,13 +837,17 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 		return nil, err
 	}
 	statementType := c.parser.detectStatementType(query)
-	// DDL statements are not supported in QueryContext so fail early.
-	if statementType.statementType == statementTypeDdl {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "QueryContext does not support DDL statements, use ExecContext instead"))
+	// DDL statements are not supported in QueryContext so use the execContext method for the execution.
+	if statementType.statementType == StatementTypeDdl {
+		res, err := c.execContext(ctx, query, execOptions, args)
+		if err != nil {
+			return nil, err
+		}
+		return createDriverResultRows(res, execOptions), nil
 	}
 	var iter rowIterator
 	if c.tx == nil {
-		if statementType.statementType == statementTypeDml {
+		if statementType.statementType == StatementTypeDml {
 			// Use a read/write transaction to execute the statement.
 			var commitResponse *spanner.CommitResponse
 			iter, commitResponse, err = c.execSingleQueryTransactional(ctx, c.client, stmt, execOptions)
@@ -881,7 +905,7 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions *ExecO
 
 	statementInfo := c.parser.detectStatementType(query)
 	// Use admin API if DDL statement is provided.
-	if statementInfo.statementType == statementTypeDdl {
+	if statementInfo.statementType == StatementTypeDdl {
 		// Spanner does not support DDL in transactions, and although it is technically possible to execute DDL
 		// statements while a transaction is active, we return an error to avoid any confusion whether the DDL
 		// statement is executed as part of the active transaction or not.
@@ -964,6 +988,7 @@ func (c *conn) options(reset bool) *ExecOptions {
 			},
 		},
 		PartitionedQueryOptions: PartitionedQueryOptions{},
+		TimestampBound:          c.readOnlyStalenessPointer(),
 	}
 	if c.tempExecOptions != nil {
 		effectiveOptions.merge(c.tempExecOptions)
@@ -1231,6 +1256,9 @@ func (c *conn) inReadWriteTransaction() bool {
 }
 
 func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
+	if options.TimestampBound != nil {
+		tb = *options.TimestampBound
+	}
 	return c.Single().WithTimestampBound(tb).QueryWithOptions(ctx, statement, options.QueryOptions)
 }
 
