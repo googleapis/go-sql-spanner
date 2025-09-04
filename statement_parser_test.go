@@ -1559,31 +1559,31 @@ func TestParseClientSideStatement(t *testing.T) {
 		{
 			name:  "Start DDL batch",
 			input: "START BATCH DDL",
-			want:  "START BATCH DDL",
+			want:  "START BATCH",
 			exec:  true,
 		},
 		{
 			name:  "Start DDL batch using line feeds",
 			input: "START\nBATCH\nDDL",
-			want:  "START BATCH DDL",
+			want:  "START BATCH",
 			exec:  true,
 		},
 		{
 			name:  "Start DDL batch lower case",
 			input: "start batch ddl",
-			want:  "START BATCH DDL",
+			want:  "START BATCH",
 			exec:  true,
 		},
 		{
 			name:  "Start DDL batch with extra spaces",
 			input: "\tSTART  BATCH\n\nDDL",
-			want:  "START BATCH DDL",
+			want:  "START BATCH",
 			exec:  true,
 		},
 		{
 			name:  "Start DML batch",
 			input: "START BATCH DML",
-			want:  "START BATCH DML",
+			want:  "START BATCH",
 			exec:  true,
 		},
 		{
@@ -1638,11 +1638,11 @@ func TestParseClientSideStatement(t *testing.T) {
 				got = statement.Name
 			}
 			if got != tc.want {
-				t.Errorf("parseClientSideStatement test failed: %s\nGot: %s\nWant: %s.", tc.name, got, tc.want)
+				t.Errorf("parseClientSideStatement test failed: %s\n Got: %s\nWant: %s.", tc.name, got, tc.want)
 			}
 			if tc.wantParams != "" {
 				if g, w := statement.params, tc.wantParams; g != w {
-					t.Errorf("params mismatch for %s\nGot: %v\nWant: %v", tc.name, g, w)
+					t.Errorf("params mismatch for %s\n Got: %v\nWant: %v", tc.name, g, w)
 				}
 			}
 		})

@@ -30,6 +30,12 @@ func parseStatement(parser *statementParser, keyword, query string) (parsedState
 		stmt = &parsedCreateDatabaseStatement{}
 	} else if isDropKeyword(keyword) && isDropDatabase(parser, query) {
 		stmt = &parsedDropDatabaseStatement{}
+	} else if isStartStatementKeyword(keyword) {
+		stmt = &parsedStartBatchStatement{}
+	} else if isRunStatementKeyword(keyword) {
+		stmt = &parsedRunBatchStatement{}
+	} else if isAbortStatementKeyword(keyword) {
+		stmt = &parsedAbortBatchStatement{}
 	} else {
 		return nil, nil
 	}
@@ -395,6 +401,144 @@ func (s *parsedDropDatabaseStatement) executableStatement(c *conn) *executableCl
 		query: s.query,
 		clientSideStatement: &clientSideStatement{
 			Name:         "DROP DATABASE",
+			execContext:  s.execContext,
+			queryContext: s.queryContext,
+		},
+	}
+}
+
+type parsedStartBatchStatement struct {
+	query string
+	tp    batchType
+}
+
+func (s *parsedStartBatchStatement) parse(parser *statementParser, query string) error {
+	// Parse a statement of the form
+	// START BATCH {DDL | DML}
+	sp := &simpleParser{sql: []byte(query), statementParser: parser}
+	if !sp.eatKeywords([]string{"START", "BATCH"}) {
+		return status.Error(codes.InvalidArgument, "statement does not start with START BATCH")
+	}
+	if _, ok := sp.eatKeyword("DML"); ok {
+		s.tp = dml
+	} else if _, ok := sp.eatKeyword("DDL"); ok {
+		s.tp = ddl
+	} else {
+		return status.Errorf(codes.InvalidArgument, "unexpected token at pos %d in %q, expected DML or DDL", sp.pos, sp.sql)
+	}
+	if sp.hasMoreTokens() {
+		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
+	}
+	s.query = query
+	return nil
+}
+
+func (s *parsedStartBatchStatement) execContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
+	switch s.tp {
+	case dml:
+		return c.startBatchDML( /*automatic = */ false)
+	case ddl:
+		return c.startBatchDDL()
+	default:
+		return nil, status.Errorf(codes.FailedPrecondition, "unknown batch type: %v", s.tp)
+	}
+}
+
+func (s *parsedStartBatchStatement) queryContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, params, opts, args); err != nil {
+		return nil, err
+	}
+	return createEmptyRows(opts), nil
+}
+
+func (s *parsedStartBatchStatement) executableStatement(c *conn) *executableClientSideStatement {
+	return &executableClientSideStatement{
+		conn:  c,
+		query: s.query,
+		clientSideStatement: &clientSideStatement{
+			Name:         "START BATCH",
+			execContext:  s.execContext,
+			queryContext: s.queryContext,
+		},
+	}
+}
+
+type parsedRunBatchStatement struct {
+	query string
+}
+
+func (s *parsedRunBatchStatement) parse(parser *statementParser, query string) error {
+	// Parse a statement of the form
+	// RUN BATCH
+	sp := &simpleParser{sql: []byte(query), statementParser: parser}
+	if !sp.eatKeywords([]string{"RUN", "BATCH"}) {
+		return status.Error(codes.InvalidArgument, "statement does not start with RUN BATCH")
+	}
+	if sp.hasMoreTokens() {
+		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
+	}
+	s.query = query
+	return nil
+}
+
+func (s *parsedRunBatchStatement) execContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
+	return c.runBatch(ctx)
+}
+
+func (s *parsedRunBatchStatement) queryContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, params, opts, args); err != nil {
+		return nil, err
+	}
+	return createEmptyRows(opts), nil
+}
+
+func (s *parsedRunBatchStatement) executableStatement(c *conn) *executableClientSideStatement {
+	return &executableClientSideStatement{
+		conn:  c,
+		query: s.query,
+		clientSideStatement: &clientSideStatement{
+			Name:         "RUN BATCH",
+			execContext:  s.execContext,
+			queryContext: s.queryContext,
+		},
+	}
+}
+
+type parsedAbortBatchStatement struct {
+	query string
+}
+
+func (s *parsedAbortBatchStatement) parse(parser *statementParser, query string) error {
+	// Parse a statement of the form
+	// ABORT BATCH
+	sp := &simpleParser{sql: []byte(query), statementParser: parser}
+	if !sp.eatKeywords([]string{"ABORT", "BATCH"}) {
+		return status.Error(codes.InvalidArgument, "statement does not start with ABORT BATCH")
+	}
+	if sp.hasMoreTokens() {
+		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
+	}
+	s.query = query
+	return nil
+}
+
+func (s *parsedAbortBatchStatement) execContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
+	return c.abortBatch()
+}
+
+func (s *parsedAbortBatchStatement) queryContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, params, opts, args); err != nil {
+		return nil, err
+	}
+	return createEmptyRows(opts), nil
+}
+
+func (s *parsedAbortBatchStatement) executableStatement(c *conn) *executableClientSideStatement {
+	return &executableClientSideStatement{
+		conn:  c,
+		query: s.query,
+		clientSideStatement: &clientSideStatement{
+			Name:         "ABORT BATCH",
 			execContext:  s.execContext,
 			queryContext: s.queryContext,
 		},

@@ -42,40 +42,6 @@ var jsonFile = `{
       "method": "statementShowReadOnlyStaleness",
       "exampleStatements": ["show variable read_only_staleness"]
     },
-	{
-      "name": "START BATCH DDL",
-      "executorName": "ClientSideStatementNoParamExecutor",
-      "resultType": "NO_RESULT",
-      "regex": "(?is)\\A\\s*(?:start)(?:\\s+batch)(?:\\s+ddl)\\s*\\z",
-      "method": "statementStartBatchDdl",
-      "exampleStatements": ["start batch ddl"]
-    },
-    {
-      "name": "START BATCH DML",
-      "executorName": "ClientSideStatementNoParamExecutor",
-      "resultType": "NO_RESULT",
-      "regex": "(?is)\\A\\s*(?:start)(?:\\s+batch)(?:\\s+dml)\\s*\\z",
-      "method": "statementStartBatchDml",
-      "exampleStatements": ["start batch dml"]
-    },
-    {
-      "name": "RUN BATCH",
-      "executorName": "ClientSideStatementNoParamExecutor",
-      "resultType": "NO_RESULT",
-      "regex": "(?is)\\A\\s*(?:run)(?:\\s+batch)\\s*\\z",
-      "method": "statementRunBatch",
-      "exampleStatements": ["run batch"],
-      "examplePrerequisiteStatements": ["start batch ddl"]
-    },
-    {
-      "name": "ABORT BATCH",
-      "executorName": "ClientSideStatementNoParamExecutor",
-      "resultType": "NO_RESULT",
-      "regex": "(?is)\\A\\s*(?:abort)(?:\\s+batch)\\s*\\z",
-      "method": "statementAbortBatch",
-      "exampleStatements": ["abort batch"],
-      "examplePrerequisiteStatements": ["start batch ddl"]
-    },
     {
       "name": "SET RETRY_ABORTS_INTERNALLY = TRUE|FALSE",
       "executorName": "ClientSideStatementSetExecutor",
