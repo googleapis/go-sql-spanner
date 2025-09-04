@@ -17,6 +17,7 @@ package spannerdriver
 import (
 	"context"
 	"database/sql/driver"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -107,8 +108,12 @@ func TestStatementExecutor_StartBatchDml(t *testing.T) {
 func TestStatementExecutor_RetryAbortsInternally(t *testing.T) {
 	t.Parallel()
 
-	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
-	s := &statementExecutor{}
+	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	c := &conn{
+		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		parser: parser,
+	}
 	ctx := context.Background()
 	for i, test := range []struct {
 		wantValue  bool
@@ -124,12 +129,12 @@ func TestStatementExecutor_RetryAbortsInternally(t *testing.T) {
 		{true, "fasle", true},
 		{true, "truye", true},
 	} {
-		it, err := s.ShowRetryAbortsInternally(ctx, c, "", &ExecOptions{}, nil)
+		it, err := c.QueryContext(ctx, "show variable retry_aborts_internally", []driver.NamedValue{})
 		if err != nil {
 			t.Fatalf("%d: could not get current retry value from connection: %v", i, err)
 		}
 		cols := it.Columns()
-		wantCols := []string{"RetryAbortsInternally"}
+		wantCols := []string{"retry_aborts_internally"}
 		if !cmp.Equal(cols, wantCols) {
 			t.Fatalf("%d: column names mismatch\nGot: %v\nWant: %v", i, cols, wantCols)
 		}
@@ -146,7 +151,7 @@ func TestStatementExecutor_RetryAbortsInternally(t *testing.T) {
 		}
 
 		// Set the next value.
-		res, err := s.SetRetryAbortsInternally(ctx, c, test.setValue, &ExecOptions{}, nil)
+		res, err := c.ExecContext(ctx, fmt.Sprintf("set retry_aborts_internally = %s", test.setValue), []driver.NamedValue{})
 		if test.wantSetErr {
 			if err == nil {
 				t.Fatalf("%d: missing expected error for value %q", i, test.setValue)
@@ -165,9 +170,16 @@ func TestStatementExecutor_RetryAbortsInternally(t *testing.T) {
 func TestStatementExecutor_AutocommitDmlMode(t *testing.T) {
 	t.Parallel()
 
-	c := &conn{logger: noopLogger, connector: &connector{}, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
+	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	c := &conn{
+		logger:    noopLogger,
+		connector: &connector{},
+		state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{
+			propertyAutocommitDmlMode.Key(): propertyAutocommitDmlMode.CreateTypedInitialValue(Transactional),
+		}),
+		parser: parser,
+	}
 	_ = c.ResetSession(context.Background())
-	s := &statementExecutor{}
 	ctx := context.Background()
 	for i, test := range []struct {
 		wantValue  AutocommitDMLMode
@@ -180,15 +192,15 @@ func TestStatementExecutor_AutocommitDmlMode(t *testing.T) {
 		{PartitionedNonAtomic, "'TRANSACTIONAL'", false},
 		{Transactional, "'partitioned_non_atomic'", false},
 		{PartitionedNonAtomic, "'transactional'", false},
-		{Transactional, "'PartitionedNonAtomic'", true},
-		{Transactional, "'Transaction'", true},
+		{Transactional, "'PartitionedNonAtomic'", false},
+		{PartitionedNonAtomic, "'Transaction'", true},
 	} {
-		it, err := s.ShowAutocommitDmlMode(ctx, c, "", &ExecOptions{}, nil)
+		it, err := c.QueryContext(ctx, "show variable autocommit_dml_mode", []driver.NamedValue{})
 		if err != nil {
 			t.Fatalf("%d: could not get current autocommit dml mode value from connection: %v", i, err)
 		}
 		cols := it.Columns()
-		wantCols := []string{"AutocommitDMLMode"}
+		wantCols := []string{"autocommit_dml_mode"}
 		if !cmp.Equal(cols, wantCols) {
 			t.Fatalf("%d: column names mismatch\nGot: %v\nWant: %v", i, cols, wantCols)
 		}
@@ -198,14 +210,14 @@ func TestStatementExecutor_AutocommitDmlMode(t *testing.T) {
 		}
 		wantValues := []driver.Value{test.wantValue.String()}
 		if !cmp.Equal(values, wantValues) {
-			t.Fatalf("%d: autocommit dml mode values mismatch\nGot: %v\nWant: %v", i, values, wantValues)
+			t.Fatalf("%d: autocommit dml mode values mismatch\n Got: %v\nWant: %v", i, values, wantValues)
 		}
 		if err := it.Next(values); err != io.EOF {
 			t.Fatalf("%d: error mismatch\nGot: %v\nWant: %v", i, err, io.EOF)
 		}
 
 		// Set the next value.
-		res, err := s.SetAutocommitDmlMode(ctx, c, test.setValue, &ExecOptions{}, nil)
+		res, err := c.ExecContext(ctx, fmt.Sprintf("set autocommit_dml_mode = %s", test.setValue), []driver.NamedValue{})
 		if test.wantSetErr {
 			if err == nil {
 				t.Fatalf("%d: missing expected error for value %q", i, test.setValue)
@@ -224,8 +236,12 @@ func TestStatementExecutor_AutocommitDmlMode(t *testing.T) {
 func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
 	t.Parallel()
 
-	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
-	s := &statementExecutor{}
+	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	c := &conn{
+		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		parser: parser,
+	}
 	ctx := context.Background()
 	for i, test := range []struct {
 		wantValue  spanner.TimestampBound
@@ -255,7 +271,7 @@ func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
 		{spanner.StrongRead(), "'Min_Read_Timestamp'", true},
 		{spanner.StrongRead(), "'Min_Read_Timestamp 2021-10-08 09:14:30Z'", true},
 	} {
-		res, err := s.SetReadOnlyStaleness(ctx, c, test.setValue, &ExecOptions{}, nil)
+		res, err := c.ExecContext(ctx, "set read_only_staleness = "+test.setValue, []driver.NamedValue{})
 		if test.wantSetErr {
 			if err == nil {
 				t.Fatalf("%d: missing expected error for value %q", i, test.setValue)
@@ -269,14 +285,14 @@ func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
 			}
 		}
 
-		it, err := s.ShowReadOnlyStaleness(ctx, c, "", &ExecOptions{}, nil)
+		it, err := c.QueryContext(ctx, "show variable read_only_staleness", []driver.NamedValue{})
 		if err != nil {
 			t.Fatalf("%d: could not get current read-only staleness value from connection: %v", i, err)
 		}
 		cols := it.Columns()
-		wantCols := []string{"ReadOnlyStaleness"}
+		wantCols := []string{"read_only_staleness"}
 		if !cmp.Equal(cols, wantCols) {
-			t.Fatalf("%d: column names mismatch\nGot: %v\nWant: %v", i, cols, wantCols)
+			t.Fatalf("%d: column names mismatch\n Got: %v\nWant: %v", i, cols, wantCols)
 		}
 		values := make([]driver.Value, len(cols))
 		if err := it.Next(values); err != nil {
@@ -284,10 +300,10 @@ func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
 		}
 		wantValues := []driver.Value{test.wantValue.String()}
 		if !cmp.Equal(values, wantValues) {
-			t.Fatalf("%d: read-only staleness values mismatch\nGot: %v\nWant: %v", i, values, wantValues)
+			t.Fatalf("%d: read-only staleness values mismatch\n Got: %v\nWant: %v", i, values, wantValues)
 		}
 		if err := it.Next(values); err != io.EOF {
-			t.Fatalf("%d: error mismatch\nGot: %v\nWant: %v", i, err, io.EOF)
+			t.Fatalf("%d: error mismatch\n Got: %v\nWant: %v", i, err, io.EOF)
 		}
 	}
 }
@@ -559,10 +575,18 @@ func TestStatementExecutor_UsesExecOptions(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
-	s := &statementExecutor{}
+	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	c := &conn{
+		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		parser: parser,
+	}
 
-	it, err := s.ShowReadOnlyStaleness(ctx, c, "", &ExecOptions{DecodeOption: DecodeOptionProto, ReturnResultSetMetadata: true, ReturnResultSetStats: true}, nil)
+	clientStmt, err := c.parser.parseClientSideStatement(c, "show variable read_only_staleness")
+	if err != nil {
+		t.Fatal(err)
+	}
+	it, err := clientStmt.QueryContext(ctx, &ExecOptions{DecodeOption: DecodeOptionProto, ReturnResultSetMetadata: true, ReturnResultSetStats: true}, []driver.NamedValue{})
 	if err != nil {
 		t.Fatalf("could not get current staleness value from connection: %v", err)
 	}
@@ -579,7 +603,7 @@ func TestStatementExecutor_UsesExecOptions(t *testing.T) {
 	wantValues := []driver.Value{&spannerpb.ResultSetMetadata{
 		RowType: &spannerpb.StructType{
 			Fields: []*spannerpb.StructType_Field{
-				{Name: "ReadOnlyStaleness", Type: &spannerpb.Type{Code: spannerpb.TypeCode_STRING}},
+				{Name: "read_only_staleness", Type: &spannerpb.Type{Code: spannerpb.TypeCode_STRING}},
 			},
 		},
 	}}
@@ -588,7 +612,7 @@ func TestStatementExecutor_UsesExecOptions(t *testing.T) {
 		t.Fatalf("failed to get first row: %v", err)
 	}
 	if !cmp.Equal(values, wantValues, cmpopts.IgnoreUnexported(spannerpb.ResultSetMetadata{}, spannerpb.StructType{}, spannerpb.StructType_Field{}, spannerpb.Type{})) {
-		t.Fatalf("default staleness mismatch\nGot: %v\nWant: %v", values, wantValues)
+		t.Fatalf("default staleness mismatch\n Got: %v\nWant: %v", values, wantValues)
 	}
 	if err := rows.Next(values); err != io.EOF {
 		t.Fatalf("error mismatch\nGot: %v\nWant: %v", err, io.EOF)
@@ -603,9 +627,9 @@ func TestStatementExecutor_UsesExecOptions(t *testing.T) {
 	}
 
 	cols = rows.Columns()
-	wantCols = []string{"ReadOnlyStaleness"}
+	wantCols = []string{"read_only_staleness"}
 	if !cmp.Equal(cols, wantCols) {
-		t.Fatalf("column names mismatch\nGot: %v\nWant: %v", cols, wantCols)
+		t.Fatalf("column names mismatch\n Got: %v\nWant: %v", cols, wantCols)
 	}
 	values = make([]driver.Value, len(cols))
 	if err := rows.Next(values); err != nil {
@@ -614,10 +638,10 @@ func TestStatementExecutor_UsesExecOptions(t *testing.T) {
 	// The value that we get should be the raw protobuf value.
 	wantValues = []driver.Value{spanner.GenericColumnValue{
 		Type:  &spannerpb.Type{Code: spannerpb.TypeCode_STRING},
-		Value: &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "(strong)"}},
+		Value: &structpb.Value{Kind: &structpb.Value_StringValue{}},
 	}}
 	if !cmp.Equal(values, wantValues, cmpopts.IgnoreUnexported(spannerpb.Type{}, structpb.Value{})) {
-		t.Fatalf("default staleness mismatch\nGot: %v\nWant: %v", values, wantValues)
+		t.Fatalf("default staleness mismatch\n Got: %v\nWant: %v", values, wantValues)
 	}
 	if err := rows.Next(values); err != io.EOF {
 		t.Fatalf("error mismatch\nGot: %v\nWant: %v", err, io.EOF)

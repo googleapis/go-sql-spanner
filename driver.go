@@ -1456,6 +1456,8 @@ func parseConnectionStateType(val string) (connectionstate.Type, error) {
 }
 
 func parseAutocommitDmlMode(val string) (AutocommitDMLMode, error) {
+	// Allow both 'partitioned_non_atomic' and 'PartitionedNonAtomic'.
+	val = strings.Replace(val, "_", "", -1)
 	switch strings.ToLower(val) {
 	case strings.ToLower("Transactional"):
 		return Transactional, nil

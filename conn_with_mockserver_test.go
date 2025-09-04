@@ -698,9 +698,10 @@ func TestSetRetryAbortsInternallyInActiveTransaction(t *testing.T) {
 	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
 		t.Fatal(err)
 	}
-	_, err = tx.ExecContext(ctx, "set retry_aborts_internally = false")
-	if g, w := err.Error(), "spanner: code = \"FailedPrecondition\", desc = \"cannot change retry mode while a transaction is active\""; g != w {
-		t.Fatalf("error mismatch\n Got: %v\nWant: %v", g, w)
+	// It is (now) allowed to change this value during a transaction, but it won't have an effect on the
+	// running transaction.
+	if _, err := tx.ExecContext(ctx, "set retry_aborts_internally = false"); err != nil {
+		t.Fatal(err)
 	}
 	_ = tx.Rollback()
 }
