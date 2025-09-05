@@ -25,7 +25,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func TestRemoveCommentsAndTrim(t *testing.T) {
+func TestReadKeywordWithComments(t *testing.T) {
 	tests := []struct {
 		input   string
 		want    string
@@ -361,22 +361,21 @@ SELECT 1`,
 		t.Fatal(err)
 	}
 	for _, tc := range tests {
-		got, err := parser.removeCommentsAndTrim(tc.input)
-		if err != nil && !tc.wantErr {
-			t.Error(err)
-			continue
-		}
+		spInput := &simpleParser{sql: []byte(tc.input), statementParser: parser}
+		spWant := &simpleParser{sql: []byte(tc.want), statementParser: parser}
 		if tc.wantErr {
-			t.Errorf("missing expected error for %q", tc.input)
+			if spInput.readKeyword() != "" {
+				t.Errorf("%s: expected error", tc.input)
+			}
 			continue
 		}
-		if got != tc.want {
-			t.Errorf("removeCommentsAndTrim result mismatch\nGot: %q\nWant: %q", got, tc.want)
+		if g, w := spInput.readKeyword(), spWant.readKeyword(); g != w {
+			t.Errorf("%s:\nkeyword mismatch\n Got: %s\nWant: %s", tc.input, g, w)
 		}
 	}
 }
 
-func TestRemoveStatementHint(t *testing.T) {
+func TestReadKeywordAfterSkipStatementHint(t *testing.T) {
 	tests := []struct {
 		input string
 		want  string
@@ -483,14 +482,16 @@ SELECT SchoolID FROM Roster`,
 		t.Fatal(err)
 	}
 	for _, tc := range tests {
-		got := parser.removeStatementHint(tc.input)
-		if got != tc.want {
-			t.Errorf("removeStatementHint result mismatch\nGot: %q\nWant: %q", got, tc.want)
+		spInput := &simpleParser{sql: []byte(tc.input), statementParser: parser}
+		spInput.skipStatementHint()
+		spWant := &simpleParser{sql: []byte(tc.want), statementParser: parser}
+		if g, w := spInput.readKeyword(), spWant.readKeyword(); g != w {
+			t.Errorf("%s:\nkeyword mismatch\n Got: %s\nWant: %s", tc.input, g, w)
 		}
 	}
 }
 
-func FuzzRemoveCommentsAndTrim(f *testing.F) {
+func FuzzParseParameters(f *testing.F) {
 	for _, sample := range fuzzQuerySamples {
 		f.Add(sample)
 	}
@@ -500,13 +501,19 @@ func FuzzRemoveCommentsAndTrim(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _ = parser.removeCommentsAndTrim(input)
+		_, _, err = parser.parseParameters(input)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		parser, err = newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _ = parser.removeCommentsAndTrim(input)
+		_, _, err = parser.parseParameters(input)
+		if err != nil {
+			t.Fatal(err)
+		}
 	})
 }
 
@@ -1668,11 +1675,11 @@ func TestRemoveCommentsAndTrim_Errors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = parser.removeCommentsAndTrim("SELECT 'Hello World FROM SomeTable")
+	_, _, err = parser.parseParameters("SELECT 'Hello World FROM SomeTable")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}
-	_, err = parser.removeCommentsAndTrim("SELECT 'Hello World\nFROM SomeTable")
+	_, _, err = parser.parseParameters("SELECT 'Hello World\nFROM SomeTable")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}
@@ -2060,6 +2067,18 @@ func TestSkipStatementHint(t *testing.T) {
 		{
 			input: " \t @  \n {  key=value  }\nselect * from foo",
 			want:  "\nselect * from foo",
+		},
+		{
+			input: "@key=value}select * from foo",
+			want:  "@key=value}select * from foo",
+		},
+		{
+			input: "{key=value}select * from foo",
+			want:  "{key=value}select * from foo",
+		},
+		{
+			input: "{@key=value}select * from foo",
+			want:  "{@key=value}select * from foo",
 		},
 	}
 	statementParser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)

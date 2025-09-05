@@ -15,48 +15,12 @@
 package spannerdriver
 
 import (
-	"context"
-	"database/sql/driver"
 	"time"
 
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"google.golang.org/api/iterator"
 )
-
-// statementExecutor is an empty struct that is used to hold the execution methods
-// of the different client side statements. This makes it possible to look up the
-// methods using reflection, which is not possible if the methods do not belong to
-// a struct. The methods all accept the same arguments and return the same types.
-// This is to ensure that they can be assigned to a compiled clientSideStatement.
-//
-// The different methods of statementExecutor are invoked by a connection when one
-// of the valid client side statements is executed on a connection. These methods
-// are responsible for any argument parsing and translating that might be needed
-// before the corresponding method on the connection can be called.
-//
-// The names of the methods are exactly equal to the naming in the
-// client_side_statements.json file. This means that some methods do not adhere
-// to the Go style guide, as these method names are equal for all languages that
-// implement the Connection API.
-type statementExecutor struct {
-}
-
-func (s *statementExecutor) StartBatchDdl(_ context.Context, c *conn, _ string, _ *ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
-	return c.startBatchDDL()
-}
-
-func (s *statementExecutor) StartBatchDml(_ context.Context, c *conn, _ string, _ *ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
-	return c.startBatchDML( /* automatic = */ false)
-}
-
-func (s *statementExecutor) RunBatch(ctx context.Context, c *conn, _ string, _ *ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
-	return c.runBatch(ctx)
-}
-
-func (s *statementExecutor) AbortBatch(_ context.Context, c *conn, _ string, _ *ExecOptions, _ []driver.NamedValue) (driver.Result, error) {
-	return c.abortBatch()
-}
 
 func createEmptyIterator() *clientSideIterator {
 	return &clientSideIterator{
