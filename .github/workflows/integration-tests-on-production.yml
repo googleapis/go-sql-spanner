@@ -23,13 +23,13 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: 1.25.x
       - name: Checkout code
         uses: actions/checkout@v5
       - name: Auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
       - name: Run integration tests on production
