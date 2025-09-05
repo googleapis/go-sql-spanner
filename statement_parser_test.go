@@ -1601,13 +1601,13 @@ func TestParseClientSideStatement(t *testing.T) {
 		{
 			name:  "Show variable Retry_Aborts_Internally",
 			input: "show variable retry_aborts_internally",
-			want:  "SHOW VARIABLE RETRY_ABORTS_INTERNALLY",
+			want:  "SHOW",
 			query: true,
 		},
 		{
 			name:       "SET Retry_Aborts_Internally",
 			input:      "set retry_aborts_internally = false",
-			want:       "SET RETRY_ABORTS_INTERNALLY = TRUE|FALSE",
+			want:       "SET",
 			wantParams: "false",
 			exec:       true,
 		},

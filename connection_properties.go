@@ -141,10 +141,7 @@ var propertyReadOnlyStaleness = createConnectionProperty(
 	false,
 	nil,
 	connectionstate.ContextUser,
-	func(value string) (spanner.TimestampBound, error) {
-		// TODO: Implement staleness parser
-		return spanner.TimestampBound{}, status.Errorf(codes.Unimplemented, "not yet implemented")
-	},
+	connectionstate.ConvertReadOnlyStaleness,
 )
 
 var propertyAutoBatchDml = createConnectionProperty(

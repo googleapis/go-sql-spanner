@@ -2682,8 +2682,9 @@ func TestShowAndSetVariableRetryAbortsInternally(t *testing.T) {
 	if _, err := c.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
 		t.Fatal(err)
 	}
+	// Verify that the property can still be set, but it does not have any effect on the current transaction.
 	_, err = c.ExecContext(ctx, "SET RETRY_ABORTS_INTERNALLY = TRUE")
-	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+	if g, w := spanner.ErrCode(err), codes.OK; g != w {
 		t.Fatalf("error code mismatch for setting retry_aborts_internally during a transaction\nGot: %v\nWant: %v", g, w)
 	}
 	_ = tx.Rollback()
