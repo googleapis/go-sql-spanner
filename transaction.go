@@ -27,6 +27,7 @@ import (
 	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/gax-go/v2"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -45,7 +46,7 @@ type contextTransaction interface {
 	resetForRetry(ctx context.Context) error
 	Query(ctx context.Context, stmt spanner.Statement, execOptions *ExecOptions) (rowIterator, error)
 	partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions *ExecOptions) (driver.Rows, error)
-	ExecContext(ctx context.Context, stmt spanner.Statement, statementInfo *statementInfo, options spanner.QueryOptions) (*result, error)
+	ExecContext(ctx context.Context, stmt spanner.Statement, statementInfo *parser.StatementInfo, options spanner.QueryOptions) (*result, error)
 
 	StartBatchDML(options spanner.QueryOptions, automatic bool) (driver.Result, error)
 	RunBatch(ctx context.Context) (driver.Result, error)
@@ -180,7 +181,7 @@ func (tx *readOnlyTransaction) createPartitionedQuery(ctx context.Context, stmt 
 	}, nil
 }
 
-func (tx *readOnlyTransaction) ExecContext(_ context.Context, _ spanner.Statement, _ *statementInfo, _ spanner.QueryOptions) (*result, error) {
+func (tx *readOnlyTransaction) ExecContext(_ context.Context, _ spanner.Statement, _ *parser.StatementInfo, _ spanner.QueryOptions) (*result, error) {
 	return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
@@ -275,7 +276,7 @@ type retriableStatement interface {
 type retriableUpdate struct {
 	// stmt is the statement that was executed on Spanner.
 	stmt     spanner.Statement
-	stmtInfo *statementInfo
+	stmtInfo *parser.StatementInfo
 	options  spanner.QueryOptions
 	// res is the record count and other results that were returned by Spanner.
 	res result
@@ -494,7 +495,7 @@ func (tx *readWriteTransaction) partitionQuery(ctx context.Context, stmt spanner
 	return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read/write transactions cannot partition queries"))
 }
 
-func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.Statement, statementInfo *statementInfo, options spanner.QueryOptions) (res *result, err error) {
+func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.Statement, statementInfo *parser.StatementInfo, options spanner.QueryOptions) (res *result, err error) {
 	tx.logger.Debug("ExecContext", "stmt", stmt.SQL)
 	tx.active = true
 	if tx.batch != nil {

@@ -29,6 +29,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -36,11 +37,11 @@ import (
 func TestStatementExecutor_StartBatchDdl(t *testing.T) {
 	t.Parallel()
 
-	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, _ := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	c := &conn{
 		logger: noopLogger,
 		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
-		parser: parser,
+		parser: p,
 	}
 	ctx := context.Background()
 
@@ -73,11 +74,11 @@ func TestStatementExecutor_StartBatchDdl(t *testing.T) {
 func TestStatementExecutor_StartBatchDml(t *testing.T) {
 	t.Parallel()
 
-	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, _ := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	c := &conn{
 		logger: noopLogger,
 		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
-		parser: parser,
+		parser: p,
 	}
 	ctx := context.Background()
 
@@ -116,11 +117,11 @@ func TestStatementExecutor_StartBatchDml(t *testing.T) {
 func TestStatementExecutor_RetryAbortsInternally(t *testing.T) {
 	t.Parallel()
 
-	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, _ := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	c := &conn{
 		logger: noopLogger,
 		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
-		parser: parser,
+		parser: p,
 	}
 	ctx := context.Background()
 	for i, test := range []struct {
@@ -178,14 +179,14 @@ func TestStatementExecutor_RetryAbortsInternally(t *testing.T) {
 func TestStatementExecutor_AutocommitDmlMode(t *testing.T) {
 	t.Parallel()
 
-	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, _ := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	c := &conn{
 		logger:    noopLogger,
 		connector: &connector{},
 		state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{
 			propertyAutocommitDmlMode.Key(): propertyAutocommitDmlMode.CreateTypedInitialValue(Transactional),
 		}),
-		parser: parser,
+		parser: p,
 	}
 	_ = c.ResetSession(context.Background())
 	ctx := context.Background()
@@ -244,11 +245,11 @@ func TestStatementExecutor_AutocommitDmlMode(t *testing.T) {
 func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
 	t.Parallel()
 
-	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, _ := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	c := &conn{
 		logger: noopLogger,
 		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
-		parser: parser,
+		parser: p,
 	}
 	ctx := context.Background()
 	for i, test := range []struct {
@@ -319,10 +320,10 @@ func TestStatementExecutor_ReadOnlyStaleness(t *testing.T) {
 func TestShowCommitTimestamp(t *testing.T) {
 	t.Parallel()
 
-	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, _ := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	c := &conn{
 		logger: noopLogger,
-		parser: parser,
+		parser: p,
 		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
 	}
 	ctx := context.Background()
@@ -371,11 +372,11 @@ func TestShowCommitTimestamp(t *testing.T) {
 func TestStatementExecutor_ExcludeTxnFromChangeStreams(t *testing.T) {
 	t.Parallel()
 
-	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, _ := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	c := &conn{
 		logger: noopLogger,
 		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
-		parser: parser,
+		parser: p,
 	}
 	ctx := context.Background()
 	for i, test := range []struct {
@@ -433,11 +434,11 @@ func TestStatementExecutor_ExcludeTxnFromChangeStreams(t *testing.T) {
 func TestStatementExecutor_MaxCommitDelay(t *testing.T) {
 	t.Parallel()
 
-	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, _ := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	c := &conn{
 		logger: noopLogger,
 		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
-		parser: parser,
+		parser: p,
 	}
 	ctx := context.Background()
 	for i, test := range []struct {
@@ -505,7 +506,7 @@ func TestStatementExecutor_SetTransactionTag(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, _ := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	for i, test := range []struct {
 		wantValue  string
 		setValue   string
@@ -521,7 +522,7 @@ func TestStatementExecutor_SetTransactionTag(t *testing.T) {
 		c := &conn{
 			logger: noopLogger,
 			state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
-			parser: parser,
+			parser: p,
 		}
 
 		it, err := c.QueryContext(ctx, "show variable transaction_tag", []driver.NamedValue{})
@@ -583,18 +584,22 @@ func TestStatementExecutor_UsesExecOptions(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, _ := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	c := &conn{
 		logger: noopLogger,
 		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
-		parser: parser,
+		parser: p,
 	}
 
-	clientStmt, err := c.parser.parseClientSideStatement(c, "show variable read_only_staleness")
+	clientStmt, err := c.parser.ParseClientSideStatement("show variable read_only_staleness")
 	if err != nil {
 		t.Fatal(err)
 	}
-	it, err := clientStmt.QueryContext(ctx, &ExecOptions{DecodeOption: DecodeOptionProto, ReturnResultSetMetadata: true, ReturnResultSetStats: true}, []driver.NamedValue{})
+	execStmt, err := createExecutableStatement(clientStmt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	it, err := execStmt.queryContext(ctx, c, &ExecOptions{DecodeOption: DecodeOptionProto, ReturnResultSetMetadata: true, ReturnResultSetStats: true})
 	if err != nil {
 		t.Fatalf("could not get current staleness value from connection: %v", err)
 	}

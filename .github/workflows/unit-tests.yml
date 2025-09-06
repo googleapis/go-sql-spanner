@@ -22,6 +22,9 @@ jobs:
       - name: Run connection state unit tests
         run: go test -race -short
         working-directory: connectionstate
+      - name: Run parser unit tests
+        run: go test -race -short
+        working-directory: parser
 
   lint:
     runs-on: ubuntu-latest

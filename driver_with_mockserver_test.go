@@ -37,8 +37,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/google/uuid"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"github.com/googleapis/go-sql-spanner/testutil"
-	lru "github.com/hashicorp/golang-lru/v2"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -82,20 +82,20 @@ func TestStatementCacheSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error for connection: %v", err)
 	}
-	var cache *lru.Cache[string, *statementsCacheEntry]
+	var p *parser.StatementParser
 	if err := c.Raw(func(driverConn any) error {
 		sc, ok := driverConn.(*conn)
 		if !ok {
 			return fmt.Errorf("driverConn is not a Spanner conn")
 		}
-		cache = sc.parser.statementsCache
+		p = sc.parser
 		return nil
 	}); err != nil {
 		t.Fatalf("unexpected error for raw: %v", err)
 	}
 
 	// The cache should initially be empty.
-	if g, w := cache.Len(), 0; g != w {
+	if g, w := p.CacheSize(), 0; g != w {
 		t.Fatalf("cache size mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
@@ -112,7 +112,7 @@ func TestStatementCacheSize(t *testing.T) {
 	}
 
 	// Executing the same query multiple times should add the statement once to the cache.
-	if g, w := cache.Len(), 1; g != w {
+	if g, w := p.CacheSize(), 1; g != w {
 		t.Fatalf("cache size mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
@@ -120,7 +120,7 @@ func TestStatementCacheSize(t *testing.T) {
 	if _, err := db.ExecContext(context.Background(), testutil.UpdateBarSetFoo); err != nil {
 		t.Fatal(err)
 	}
-	if g, w := cache.Len(), 2; g != w {
+	if g, w := p.CacheSize(), 2; g != w {
 		t.Fatalf("cache size mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
@@ -134,7 +134,7 @@ func TestStatementCacheSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The cache size should still be 2.
-	if g, w := cache.Len(), 2; g != w {
+	if g, w := p.CacheSize(), 2; g != w {
 		t.Fatalf("cache size mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
@@ -149,20 +149,20 @@ func TestDisableStatementCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error for connection: %v", err)
 	}
-	var cache *lru.Cache[string, *statementsCacheEntry]
+	var p *parser.StatementParser
 	if err := c.Raw(func(driverConn any) error {
 		sc, ok := driverConn.(*conn)
 		if !ok {
 			return fmt.Errorf("driverConn is not a Spanner conn")
 		}
-		cache = sc.parser.statementsCache
+		p = sc.parser
 		return nil
 	}); err != nil {
 		t.Fatalf("unexpected error for raw: %v", err)
 	}
 
 	// There should be no cache.
-	if cache != nil {
+	if p.UseCache() {
 		t.Fatalf("statement cache should be disabled")
 	}
 

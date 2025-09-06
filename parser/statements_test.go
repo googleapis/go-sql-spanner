@@ -1,4 +1,18 @@
-package spannerdriver
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package parser
 
 import (
 	"reflect"
@@ -10,57 +24,57 @@ import (
 func TestParseShowStatement(t *testing.T) {
 	t.Parallel()
 
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	type test struct {
 		input   string
-		want    parsedShowStatement
+		want    ParsedShowStatement
 		wantErr bool
 	}
 	tests := []test{
 		{
 			input:   "show my_property",
-			wantErr: parser.dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
-			want: parsedShowStatement{
+			wantErr: parser.Dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+			want: ParsedShowStatement{
 				query:      "show my_property",
-				identifier: identifier{parts: []string{"my_property"}},
+				Identifier: Identifier{Parts: []string{"my_property"}},
 			},
 		},
 		{
 			input: "show variable my_property",
-			want: parsedShowStatement{
+			want: ParsedShowStatement{
 				query:      "show variable my_property",
-				identifier: identifier{parts: []string{"my_property"}},
+				Identifier: Identifier{Parts: []string{"my_property"}},
 			},
 		},
 		{
 			input: "SHOW variable my_extension.my_property",
-			want: parsedShowStatement{
+			want: ParsedShowStatement{
 				query:      "SHOW variable my_extension.my_property",
-				identifier: identifier{parts: []string{"my_extension", "my_property"}},
+				Identifier: Identifier{Parts: []string{"my_extension", "my_property"}},
 			},
 		},
 		{
 			input: "show variable my_extension. my_property",
-			want: parsedShowStatement{
+			want: ParsedShowStatement{
 				query:      "show variable my_extension. my_property",
-				identifier: identifier{parts: []string{"my_extension", "my_property"}},
+				Identifier: Identifier{Parts: []string{"my_extension", "my_property"}},
 			},
 		},
 		{
 			input: "show     variable            my_extension   .   my_property",
-			want: parsedShowStatement{
+			want: ParsedShowStatement{
 				query:      "show     variable            my_extension   .   my_property",
-				identifier: identifier{parts: []string{"my_extension", "my_property"}},
+				Identifier: Identifier{Parts: []string{"my_extension", "my_property"}},
 			},
 		},
 		{
 			input: "show variable   /*comment*/\n my_extension  .  my_property   \n",
-			want: parsedShowStatement{
+			want: ParsedShowStatement{
 				query:      "show variable   /*comment*/\n my_extension  .  my_property   \n",
-				identifier: identifier{parts: []string{"my_extension", "my_property"}},
+				Identifier: Identifier{Parts: []string{"my_extension", "my_property"}},
 			},
 		},
 		{
@@ -95,9 +109,9 @@ func TestParseShowStatement(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				showStmt, ok := stmt.(*parsedShowStatement)
+				showStmt, ok := stmt.(*ParsedShowStatement)
 				if !ok {
-					t.Fatalf("parseStatement(%q) should have returned a *parsedShowStatement", test.input)
+					t.Fatalf("parseStatement(%q) should have returned a *ParsedShowStatement", test.input)
 				}
 				if !reflect.DeepEqual(*showStmt, test.want) {
 					t.Errorf("parseStatement(%q) = %v, want %v", test.input, *showStmt, test.want)
@@ -112,57 +126,57 @@ func TestParseSetStatement(t *testing.T) {
 
 	type test struct {
 		input   string
-		want    parsedSetStatement
+		want    ParsedSetStatement
 		wantErr bool
 	}
 	tests := []test{
 		{
 			input: "set my_property = 'foo'",
-			want: parsedSetStatement{
+			want: ParsedSetStatement{
 				query:      "set my_property = 'foo'",
-				identifier: identifier{parts: []string{"my_property"}},
-				literal:    literal{value: "foo"},
+				Identifier: Identifier{Parts: []string{"my_property"}},
+				Literal:    Literal{Value: "foo"},
 			},
 		},
 		{
 			input: "set local my_property = 'foo'",
-			want: parsedSetStatement{
+			want: ParsedSetStatement{
 				query:      "set local my_property = 'foo'",
-				identifier: identifier{parts: []string{"my_property"}},
-				literal:    literal{value: "foo"},
-				isLocal:    true,
+				Identifier: Identifier{Parts: []string{"my_property"}},
+				Literal:    Literal{Value: "foo"},
+				IsLocal:    true,
 			},
 		},
 		{
 			input: "set my_property = 1",
-			want: parsedSetStatement{
+			want: ParsedSetStatement{
 				query:      "set my_property = 1",
-				identifier: identifier{parts: []string{"my_property"}},
-				literal:    literal{value: "1"},
+				Identifier: Identifier{Parts: []string{"my_property"}},
+				Literal:    Literal{Value: "1"},
 			},
 		},
 		{
 			input: "set my_property = true",
-			want: parsedSetStatement{
+			want: ParsedSetStatement{
 				query:      "set my_property = true",
-				identifier: identifier{parts: []string{"my_property"}},
-				literal:    literal{value: "true"},
+				Identifier: Identifier{Parts: []string{"my_property"}},
+				Literal:    Literal{Value: "true"},
 			},
 		},
 		{
 			input: "set \n -- comment \n my_property /* yet more comments */ = \ntrue/*comment*/  ",
-			want: parsedSetStatement{
+			want: ParsedSetStatement{
 				query:      "set \n -- comment \n my_property /* yet more comments */ = \ntrue/*comment*/  ",
-				identifier: identifier{parts: []string{"my_property"}},
-				literal:    literal{value: "true"},
+				Identifier: Identifier{Parts: []string{"my_property"}},
+				Literal:    Literal{Value: "true"},
 			},
 		},
 		{
 			input: "set \n -- comment \n a.b /* yet more comments */ =\n/*comment*/'value'/*comment*/  ",
-			want: parsedSetStatement{
+			want: ParsedSetStatement{
 				query:      "set \n -- comment \n a.b /* yet more comments */ =\n/*comment*/'value'/*comment*/  ",
-				identifier: identifier{parts: []string{"a", "b"}},
-				literal:    literal{value: "value"},
+				Identifier: Identifier{Parts: []string{"a", "b"}},
+				Literal:    Literal{Value: "value"},
 			},
 		},
 		{
@@ -190,7 +204,7 @@ func TestParseSetStatement(t *testing.T) {
 			wantErr: true,
 		},
 	}
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +220,7 @@ func TestParseSetStatement(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				showStmt, ok := stmt.(*parsedSetStatement)
+				showStmt, ok := stmt.(*ParsedSetStatement)
 				if !ok {
 					t.Fatalf("parseStatement(%q) should have returned a *parsedSetStatement", test.input)
 				}

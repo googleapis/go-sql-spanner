@@ -32,6 +32,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 )
@@ -620,19 +621,19 @@ func TestConn_StartBatchDml(t *testing.T) {
 }
 
 func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, err := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := &conn{
-		parser: parser,
+		parser: p,
 		logger: noopLogger,
 		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
 		batch:  &batch{tp: ddl},
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
 			return &result{}, &spanner.CommitResponse{}, nil
 		},
 		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error) {
@@ -660,19 +661,19 @@ func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 }
 
 func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, err := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := &conn{
-		parser: parser,
+		parser: p,
 		logger: noopLogger,
 		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
 		batch:  &batch{tp: dml},
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
 			return &result{}, &spanner.CommitResponse{}, nil
 		},
 		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error) {
@@ -703,12 +704,12 @@ func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
 func TestConn_GetBatchedStatements(t *testing.T) {
 	t.Parallel()
 
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, err := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	c := &conn{logger: noopLogger, parser: parser, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
+	c := &conn{logger: noopLogger, parser: p, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 	if !reflect.DeepEqual(c.GetBatchedStatements(), []spanner.Statement{}) {
 		t.Fatal("conn should return an empty slice when no batch is active")
 	}
@@ -751,19 +752,19 @@ func TestConn_GetBatchedStatements(t *testing.T) {
 }
 
 func TestConn_GetCommitResponseAfterAutocommitDml(t *testing.T) {
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, err := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := &spanner.CommitResponse{CommitTs: time.Now()}
 	c := &conn{
-		parser: parser,
+		parser: p,
 		logger: noopLogger,
 		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
 			return &result{}, want, nil
 		},
 		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error) {
@@ -791,18 +792,18 @@ func TestConn_GetCommitResponseAfterAutocommitDml(t *testing.T) {
 }
 
 func TestConn_GetCommitResponseAfterAutocommitQuery(t *testing.T) {
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, err := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := &conn{
-		parser: parser,
+		parser: p,
 		logger: noopLogger,
 		state:  createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
 			return &result{}, &spanner.CommitResponse{}, nil
 		},
 		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error) {
