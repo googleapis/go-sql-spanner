@@ -1,4 +1,4 @@
-// Copyright 2021 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -2299,23 +2299,23 @@ func generateDetectStatementTypeTests() []detectStatementTypeTest {
 	return []detectStatementTypeTest{
 		{
 			input: "select 1",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "from test",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "with t as (select 1) select * from t",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "GRAPH FinGraph\nMATCH (n)\nRETURN LABELS(n) AS label, n.id",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "/* this is a comment */ -- this is also a comment\n @  { statement_hint_key=value } select 1",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "update foo set bar=1 where true",
@@ -2343,23 +2343,23 @@ func generateDetectStatementTypeTests() []detectStatementTypeTest {
 		},
 		{
 			input: "input from borkisland",
-			want:  statementTypeUnknown,
+			want:  StatementTypeUnknown,
 		},
 		{
 			input: "start batch ddl",
-			want:  statementTypeClientSide,
+			want:  StatementTypeClientSide,
 		},
 		{
 			input: "set autocommit_dml_mode = 'partitioned_non_atomic'",
-			want:  statementTypeClientSide,
+			want:  StatementTypeClientSide,
 		},
 		{
 			input: "show variable commit_timestamp",
-			want:  statementTypeClientSide,
+			want:  StatementTypeClientSide,
 		},
 		{
 			input: "run batch",
-			want:  statementTypeClientSide,
+			want:  StatementTypeClientSide,
 		},
 	}
 }
@@ -2374,7 +2374,7 @@ func TestDetectStatementType(t *testing.T) {
 		if cs, err := parser.ParseClientSideStatement(test.input); err != nil {
 			t.Errorf("failed to parse the statement as a client-side statement")
 		} else if cs != nil {
-			if g, w := statementTypeClientSide, test.want; g != w {
+			if g, w := StatementTypeClientSide, test.want; g != w {
 				t.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 			}
 		} else if g, w := parser.DetectStatementType(test.input).StatementType, test.want; g != w {
@@ -2623,7 +2623,7 @@ func benchmarkDetectStatementType(b *testing.B, parser *StatementParser) {
 			if cs, err := parser.ParseClientSideStatement(test.input); err != nil {
 				b.Errorf("failed to parse the statement as a client-side statement")
 			} else if cs != nil {
-				if g, w := statementTypeClientSide, test.want; g != w {
+				if g, w := StatementTypeClientSide, test.want; g != w {
 					b.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 				}
 			} else if g, w := parser.DetectStatementType(test.input).StatementType, test.want; g != w {

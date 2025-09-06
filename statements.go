@@ -1,3 +1,17 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package spannerdriver
 
 import (
@@ -20,23 +34,23 @@ type executableStatement interface {
 }
 
 func createExecutableStatement(stmt parser.ParsedStatement) (executableStatement, error) {
-	switch stmt.(type) {
+	switch stmt := stmt.(type) {
 	case *parser.ParsedShowStatement:
-		return &executableShowStatement{stmt: stmt.(*parser.ParsedShowStatement)}, nil
+		return &executableShowStatement{stmt: stmt}, nil
 	case *parser.ParsedSetStatement:
-		return &executableSetStatement{stmt: stmt.(*parser.ParsedSetStatement)}, nil
+		return &executableSetStatement{stmt: stmt}, nil
 	case *parser.ParsedResetStatement:
-		return &executableResetStatement{stmt: stmt.(*parser.ParsedResetStatement)}, nil
+		return &executableResetStatement{stmt: stmt}, nil
 	case *parser.ParsedCreateDatabaseStatement:
-		return &executableCreateDatabaseStatement{stmt: stmt.(*parser.ParsedCreateDatabaseStatement)}, nil
+		return &executableCreateDatabaseStatement{stmt: stmt}, nil
 	case *parser.ParsedDropDatabaseStatement:
-		return &executableDropDatabaseStatement{stmt: stmt.(*parser.ParsedDropDatabaseStatement)}, nil
+		return &executableDropDatabaseStatement{stmt: stmt}, nil
 	case *parser.ParsedStartBatchStatement:
-		return &executableStartBatchStatement{stmt: stmt.(*parser.ParsedStartBatchStatement)}, nil
+		return &executableStartBatchStatement{stmt: stmt}, nil
 	case *parser.ParsedRunBatchStatement:
-		return &executableRunBatchStatement{stmt: stmt.(*parser.ParsedRunBatchStatement)}, nil
+		return &executableRunBatchStatement{stmt: stmt}, nil
 	case *parser.ParsedAbortBatchStatement:
-		return &executableAbortBatchStatement{stmt: stmt.(*parser.ParsedAbortBatchStatement)}, nil
+		return &executableAbortBatchStatement{stmt: stmt}, nil
 	}
 	return nil, status.Errorf(codes.Internal, "unsupported statement type: %T", stmt)
 }

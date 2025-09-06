@@ -1,3 +1,17 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package parser
 
 import (
@@ -159,6 +173,11 @@ func (p *simpleParser) isDollar() bool {
 	return !p.isMultibyte() && p.sql[p.pos] == '$'
 }
 
+// Identifier represents an identifier (e.g. table name, variable name) in a SQL string.
+// An identifier can consist of multiple parts separated by a dot in a SQL string.
+// E.g. table name my_schema.my_table is an Identifier with two parts:
+//   - my_schema
+//   - my_table
 type Identifier struct {
 	Parts []string
 }
@@ -228,6 +247,7 @@ func (p *simpleParser) eatIdentifier() (Identifier, error) {
 	return result, nil
 }
 
+// Literal is a string, number or other literal in a SQL string.
 type Literal struct {
 	Value string
 }

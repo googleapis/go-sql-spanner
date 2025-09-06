@@ -1,3 +1,17 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package parser
 
 import (
@@ -50,6 +64,13 @@ func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 	return res
 }
 
+type statementsCacheEntry struct {
+	sql             string
+	params          []string
+	info            *StatementInfo
+	parsedStatement ParsedStatement
+}
+
 var createParserLock sync.Mutex
 var statementParsers = sync.Map{}
 
@@ -72,12 +93,22 @@ func getStatementParser(dialect databasepb.DatabaseDialect, cacheSize int) (*Sta
 	}
 }
 
+// StatementParser is a simple, dialect-aware SQL statement parser for Spanner.
+// It can be used to determine the type of SQL statement (e.g. DQL/DML/DDL), and
+// extract further information from the statement, such as the query parameters.
+//
+// This is an internal type that can receive breaking changes without prior notice.
 type StatementParser struct {
 	Dialect         databasepb.DatabaseDialect
 	useCache        bool
 	statementsCache *lru.Cache[string, *statementsCacheEntry]
 }
 
+// NewStatementParser creates a new parser for the given SQL dialect and with the given
+// cache size. Parsers can be shared among multiple database connections. The Spanner
+// database/sql driver will only create one parser per database dialect and cache size combination.
+//
+// This is an internal function that can receive breaking changes without prior notice.
 func NewStatementParser(dialect databasepb.DatabaseDialect, cacheSize int) (*StatementParser, error) {
 	if cacheSize > 0 {
 		cache, err := lru.New[string, *statementsCacheEntry](cacheSize)
@@ -89,6 +120,7 @@ func NewStatementParser(dialect databasepb.DatabaseDialect, cacheSize int) (*Sta
 	return &StatementParser{Dialect: dialect}, nil
 }
 
+// CacheSize returns the current size of the statement cache of this StatementParser.
 func (p *StatementParser) CacheSize() int {
 	if p.useCache {
 		return p.statementsCache.Len()
@@ -96,18 +128,36 @@ func (p *StatementParser) CacheSize() int {
 	return 0
 }
 
+// UseCache returns true if this StatementParser uses a cache.
 func (p *StatementParser) UseCache() bool {
 	return p.useCache
 }
 
+// supportsHashSingleLineComments returns true if the database dialect of this parser supports
+// comments of the following form:
+//
+// # This is a single-line comment.
+//
+// GoogleSQL supports this type of comment.
+// PostgreSQL does not support this type of comment.
 func (p *StatementParser) supportsHashSingleLineComments() bool {
 	return p.Dialect != databasepb.DatabaseDialect_POSTGRESQL
 }
 
+// supportsNestedComments returns true if the database dialect of this parser supports
+// nested comments. Nested comments means that comments of this style are supported:
+//
+// /* This is a comment. /* This is a nested comment. */ This is still a comment. */
+//
+// GoogleSQL does not support nested comments.
+// PostgreSQL supports nested comments.
 func (p *StatementParser) supportsNestedComments() bool {
 	return p.Dialect == databasepb.DatabaseDialect_POSTGRESQL
 }
 
+// identifierQuoteToken returns the token that is used for quoted identifiers.
+// GoogleSQL uses ` (backtick) for quoted identifiers.
+// PostgreSQL uses " (double quotes) for quoted identifiers.
 func (p *StatementParser) identifierQuoteToken() byte {
 	if p.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
 		return '"'
@@ -115,6 +165,9 @@ func (p *StatementParser) identifierQuoteToken() byte {
 	return '`'
 }
 
+// supportsBacktickQuotes returns true if the dialect supports backticks as a valid quote token.
+// GoogleSQL supports backtick quotes for identifiers.
+// PostgreSQL does not support backticks as a valid quote token.
 func (p *StatementParser) supportsBacktickQuotes() bool {
 	return p.Dialect != databasepb.DatabaseDialect_POSTGRESQL
 }
@@ -125,10 +178,26 @@ func (p *StatementParser) supportsDoubleQuotedStringLiterals() bool {
 	return p.Dialect != databasepb.DatabaseDialect_POSTGRESQL
 }
 
+// supportsTripleQuotedLiterals returns true if the dialect supports quoted strings and identifiers
+// that start with three occurrences of the same quote token. Triple-quoted strings and identifiers
+// are allowed to contain linefeeds and single occurrences of the quote token. Example:
+//
+// ”'This is a string, and it's allowed to use a single quote inside the string”'
+//
+// GoogleSQL supports triple-quoted literals.
+// PostgreSQL does not support triple-quoted literals.
 func (p *StatementParser) supportsTripleQuotedLiterals() bool {
 	return p.Dialect != databasepb.DatabaseDialect_POSTGRESQL
 }
 
+// supportsDollarQuotedStrings returns true if the dialect supports strings that use double dollar signs
+// to mark the start and end of a string. The two dollar signs can optionally contain a tag. Examples:
+//
+// $$ This is a dollar-quoted string without a tag $$
+// $my_tag$ This is a dollar-quoted string with a tag $my_tag$
+//
+// GoogleSQL does not support dollar-quoted strings.
+// PostgreSQL supports dollar-quoted strings.
 func (p *StatementParser) supportsDollarQuotedStrings() bool {
 	return p.Dialect == databasepb.DatabaseDialect_POSTGRESQL
 }
@@ -492,7 +561,7 @@ func (p *StatementParser) calculateFindParamsResult(sql string) (string, []strin
 func (p *StatementParser) ParseClientSideStatement(query string) (ParsedStatement, error) {
 	if p.useCache {
 		if val, ok := p.statementsCache.Get(query); ok {
-			if val.info.StatementType == statementTypeClientSide {
+			if val.info.StatementType == StatementTypeClientSide {
 				return val.parsedStatement, nil
 			}
 			return nil, nil
@@ -513,7 +582,7 @@ func (p *StatementParser) ParseClientSideStatement(query string) (ParsedStatemen
 				sql:             query,
 				parsedStatement: stmt,
 				info: &StatementInfo{
-					StatementType: statementTypeClientSide,
+					StatementType: StatementTypeClientSide,
 				},
 			}
 			p.statementsCache.Add(query, cacheEntry)
@@ -552,7 +621,7 @@ func isDmlKeyword(keyword string) bool {
 // of the sql string have been removed.
 func (p *StatementParser) isQuery(query string) bool {
 	info := p.DetectStatementType(query)
-	return info.StatementType == statementTypeQuery
+	return info.StatementType == StatementTypeQuery
 }
 
 func isCreateKeyword(keyword string) bool {
@@ -596,28 +665,46 @@ func isStatementKeyword(keyword string, keywords map[string]bool) bool {
 	return ok
 }
 
+// StatementType indicates the type of SQL statement.
 type StatementType int
 
 const (
-	statementTypeUnknown StatementType = iota
-	statementTypeQuery
+	// StatementTypeUnknown indicates that the parser was not able to determine the
+	// type of SQL statement. This could be an indication that the SQL string is invalid,
+	// or that it uses a syntax that is not (yet) supported by the parser.
+	StatementTypeUnknown StatementType = iota
+	// StatementTypeQuery indicates that the statement is a query that will return rows from
+	// Spanner, and that will not make any modifications to the database.
+	StatementTypeQuery
+	// StatementTypeDml indicates that the statement is a data modification language (DML)
+	// statement that will make modifications to the data in the database. It may or may not
+	// return rows, depending on whether it contains a THEN RETURN (GoogleSQL) or RETURNING
+	// (PostgreSQL) clause.
 	StatementTypeDml
+	// StatementTypeDdl indicates that the statement is a data definition language (DDL)
+	// statement that will modify the schema of the database. It will never return rows.
 	StatementTypeDdl
-	statementTypeClientSide
+	// StatementTypeClientSide indicates that the statement will be handled client-side in
+	// the database/sql driver, and not be sent to Spanner. Examples of this includes SHOW
+	// and SET statements.
+	StatementTypeClientSide
 )
 
-type dmlType int
+// DmlType designates the type of modification that a DML statement will execute.
+type DmlType int
 
 const (
-	dmlTypeUnknown dmlType = iota
+	DmlTypeUnknown DmlType = iota
 	DmlTypeInsert
-	dmlTypeUpdate
-	dmlTypeDelete
+	DmlTypeUpdate
+	DmlTypeDelete
 )
 
+// StatementInfo contains the type of SQL statement, and in case of a DML statement,
+// the type of DML command.
 type StatementInfo struct {
 	StatementType StatementType
-	DmlType       dmlType
+	DmlType       DmlType
 }
 
 // DetectStatementType returns the type of SQL statement based on the first
@@ -643,7 +730,7 @@ func (p *StatementParser) calculateDetectStatementType(sql string) *StatementInf
 	_ = parser.skipStatementHint()
 	keyword := strings.ToUpper(parser.readKeyword())
 	if isQueryKeyword(keyword) {
-		return &StatementInfo{StatementType: statementTypeQuery}
+		return &StatementInfo{StatementType: StatementTypeQuery}
 	} else if isDmlKeyword(keyword) {
 		return &StatementInfo{
 			StatementType: StatementTypeDml,
@@ -652,16 +739,16 @@ func (p *StatementParser) calculateDetectStatementType(sql string) *StatementInf
 	} else if isDDLKeyword(keyword) {
 		return &StatementInfo{StatementType: StatementTypeDdl}
 	}
-	return &StatementInfo{StatementType: statementTypeUnknown}
+	return &StatementInfo{StatementType: StatementTypeUnknown}
 }
 
-func detectDmlKeyword(keyword string) dmlType {
+func detectDmlKeyword(keyword string) DmlType {
 	if isStatementKeyword(keyword, insertStatements) {
 		return DmlTypeInsert
 	} else if isStatementKeyword(keyword, updateStatements) {
-		return dmlTypeUpdate
+		return DmlTypeUpdate
 	} else if isStatementKeyword(keyword, deleteStatements) {
-		return dmlTypeDelete
+		return DmlTypeDelete
 	}
-	return dmlTypeUnknown
+	return DmlTypeUnknown
 }
