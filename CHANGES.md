@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.18.0](https://github.com/googleapis/go-sql-spanner/compare/v1.17.0...v1.18.0) (2025-09-06)
+
+
+### Features
+
+* Support read_lock_mode for r/w transactions ([#505](https://github.com/googleapis/go-sql-spanner/issues/505)) ([a552d5e](https://github.com/googleapis/go-sql-spanner/commit/a552d5e428a55fe5cdda1ffb1c5def1419c6f5ee))
+* Use a single multiplexed session for all operations ([#500](https://github.com/googleapis/go-sql-spanner/issues/500)) ([8463a6c](https://github.com/googleapis/go-sql-spanner/commit/8463a6cb8100a48283e8bf1a10936f950d961a52))
+
+
+### Bug Fixes
+
+* Update all dependencies ([#492](https://github.com/googleapis/go-sql-spanner/issues/492)) ([6dba3cf](https://github.com/googleapis/go-sql-spanner/commit/6dba3cf1e28c6732cf023e2f244417f9844aab9b))
+
 ## [1.17.0](https://github.com/googleapis/go-sql-spanner/compare/v1.16.3...v1.17.0) (2025-08-18)
 
 
