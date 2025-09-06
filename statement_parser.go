@@ -17,10 +17,7 @@ package spannerdriver
 import (
 	"context"
 	"database/sql/driver"
-	"encoding/json"
 	"fmt"
-	"reflect"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -82,6 +79,29 @@ func (p *simpleParser) hasMoreTokens() bool {
 	defer func() { p.pos = startPos }()
 	p.skipWhitespacesAndComments()
 	return p.pos < len(p.sql)
+}
+
+// eatTokens advances the parser by len(tokens) positions and returns true
+// if the next len(tokens) bytes are equal to the given bytes. This function
+// only works for characters that can be encoded in one byte.
+//
+// Any whitespace and/or comments before or between the tokens will be skipped.
+func (p *simpleParser) eatTokens(tokens []byte) bool {
+	if len(tokens) == 0 {
+		return true
+	}
+	if len(tokens) == 1 {
+		return p.eatToken(tokens[0])
+	}
+
+	startPos := p.pos
+	for _, t := range tokens {
+		if !p.eatToken(t) {
+			p.pos = startPos
+			return false
+		}
+	}
+	return true
 }
 
 // eatToken advances the parser by one position and returns true
@@ -373,9 +393,11 @@ func (p *simpleParser) skipWhitespacesAndComments() {
 	p.pos = p.statementParser.skipWhitespacesAndComments(p.sql, p.pos)
 }
 
+var statementHintPrefix = []byte{'@', '{'}
+
 // skipStatementHint skips any statement hint at the start of the statement.
 func (p *simpleParser) skipStatementHint() bool {
-	if p.eatToken('@') && p.eatToken('{') {
+	if p.eatTokens(statementHintPrefix) {
 		for ; p.pos < len(p.sql); p.pos++ {
 			// We don't have to worry about an '}' being inside a statement hint
 			// key or value, as it is not a valid part of an identifier, and
@@ -454,10 +476,10 @@ func getStatementParser(dialect databasepb.DatabaseDialect, cacheSize int) (*sta
 }
 
 type statementsCacheEntry struct {
-	sql                 string
-	params              []string
-	info                *statementInfo
-	clientSideStatement *clientSideStatement
+	sql             string
+	params          []string
+	info            *statementInfo
+	parsedStatement parsedStatement
 }
 
 type statementParser struct {
@@ -750,112 +772,6 @@ func (p *statementParser) skipQuoted(sql []byte, pos int, quote byte) (int, int,
 	return 0, 0, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", string(sql)))
 }
 
-// RemoveCommentsAndTrim removes any comments in the query string and trims any
-// spaces at the beginning and end of the query. This makes checking what type
-// of query a string is a lot easier, as only the first word(s) need to be
-// checked after this has been removed.
-func (p *statementParser) removeCommentsAndTrim(sql string) (string, error) {
-	const singleQuote = '\''
-	const doubleQuote = '"'
-	const backtick = '`'
-	const hyphen = '-'
-	const dash = '#'
-	const slash = '/'
-	const asterisk = '*'
-	isInQuoted := false
-	isInSingleLineComment := false
-	isInMultiLineComment := false
-	var startQuote rune
-	lastCharWasEscapeChar := false
-	isTripleQuoted := false
-	res := strings.Builder{}
-	res.Grow(len(sql))
-	index := 0
-	runes := []rune(sql)
-	for index < len(runes) {
-		c := runes[index]
-		if isInQuoted {
-			if (c == '\n' || c == '\r') && !isTripleQuoted {
-				return "", spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", sql))
-			} else if c == startQuote {
-				if lastCharWasEscapeChar {
-					lastCharWasEscapeChar = false
-				} else if isTripleQuoted {
-					if len(runes) > index+2 && runes[index+1] == startQuote && runes[index+2] == startQuote {
-						isInQuoted = false
-						startQuote = 0
-						isTripleQuoted = false
-						res.WriteRune(c)
-						res.WriteRune(c)
-						index += 2
-					}
-				} else {
-					isInQuoted = false
-					startQuote = 0
-				}
-			} else if c == '\\' {
-				lastCharWasEscapeChar = true
-			} else {
-				lastCharWasEscapeChar = false
-			}
-			res.WriteRune(c)
-		} else {
-			// We are not in a quoted string.
-			if isInSingleLineComment {
-				if c == '\n' {
-					isInSingleLineComment = false
-					// Include the line feed in the result.
-					res.WriteRune(c)
-				}
-			} else if isInMultiLineComment {
-				if len(runes) > index+1 && c == asterisk && runes[index+1] == slash {
-					isInMultiLineComment = false
-					index++
-				}
-			} else {
-				if c == dash || (len(runes) > index+1 && c == hyphen && runes[index+1] == hyphen) {
-					// This is a single line comment.
-					isInSingleLineComment = true
-				} else if len(runes) > index+1 && c == slash && runes[index+1] == asterisk {
-					isInMultiLineComment = true
-					index++
-				} else {
-					if c == singleQuote || c == doubleQuote || c == backtick {
-						isInQuoted = true
-						startQuote = c
-						// Check whether it is a triple-quote.
-						if len(runes) > index+2 && runes[index+1] == startQuote && runes[index+2] == startQuote {
-							isTripleQuoted = true
-							res.WriteRune(c)
-							res.WriteRune(c)
-							index += 2
-						}
-					}
-					res.WriteRune(c)
-				}
-			}
-		}
-		index++
-	}
-	if isInQuoted {
-		return "", spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement contains an unclosed literal: %s", sql))
-	}
-	trimmed := strings.TrimSpace(res.String())
-	if len(trimmed) > 0 && trimmed[len(trimmed)-1] == ';' {
-		return trimmed[:len(trimmed)-1], nil
-	}
-	return trimmed, nil
-}
-
-// Removes any statement hints at the beginning of the statement.
-func (p *statementParser) removeStatementHint(sql string) string {
-	parser := &simpleParser{sql: []byte(sql), statementParser: p}
-	if parser.skipStatementHint() {
-		return sql[parser.pos:]
-	}
-	return sql
-}
-
 // findParams finds all query parameters in the given SQL string.
 // The SQL string may contain comments and statement hints.
 func (p *statementParser) findParams(sql string) (string, []string, error) {
@@ -1042,82 +958,13 @@ func isStatementKeyword(keyword string, keywords map[string]bool) bool {
 	return ok
 }
 
-// clientSideStatements are loaded from the client_side_statements.json file.
-type clientSideStatements struct {
-	Statements []*clientSideStatement `json:"statements"`
-	executor   *statementExecutor
-}
-
 // clientSideStatement is the definition of a statement that can be executed on
 // a connection and that will be handled by the connection itself, instead of
 // sending it to Spanner.
 type clientSideStatement struct {
-	Name                          string `json:"name"`
-	ExecutorName                  string `json:"executorName"`
-	execContext                   func(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error)
-	queryContext                  func(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error)
-	ResultType                    string `json:"resultType"`
-	Regex                         string `json:"regex"`
-	regexp                        *regexp.Regexp
-	MethodName                    string `json:"method"`
-	method                        func(query string) error
-	ExampleStatements             []string `json:"exampleStatements"`
-	ExamplePrerequisiteStatements []string `json:"examplePrerequisiteStatements"`
-
-	setStatement `json:"setStatement"`
-}
-
-type setStatement struct {
-	PropertyName  string `json:"propertyName"`
-	Separator     string `json:"separator"`
-	AllowedValues string `json:"allowedValues"`
-	ConverterName string `json:"converterName"`
-}
-
-var statementsInit sync.Once
-var statements *clientSideStatements
-var statementsCompileErr error
-
-// compileStatements loads all client side statements from the json file and
-// assigns the Go methods to the different statements that should be executed
-// when on of the statements is executed on a connection.
-func compileStatements() error {
-	statements = new(clientSideStatements)
-	err := json.Unmarshal([]byte(jsonFile), statements)
-	if err != nil {
-		return err
-	}
-	statements.executor = &statementExecutor{}
-	for _, stmt := range statements.Statements {
-		stmt.regexp, err = regexp.Compile(stmt.Regex)
-		if err != nil {
-			return err
-		}
-		i := reflect.ValueOf(statements.executor).MethodByName(strings.TrimPrefix(stmt.MethodName, "statement")).Interface()
-		if execContext, ok := i.(func(ctx context.Context, c *conn, query string, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error)); ok {
-			stmt.execContext = execContext
-		}
-		if queryContext, ok := i.(func(ctx context.Context, c *conn, query string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error)); ok {
-			stmt.queryContext = queryContext
-		}
-		if stmt.queryContext == nil && stmt.execContext != nil {
-			stmt.queryContext = func(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
-				_, err := stmt.execContext(ctx, c, params, opts, args)
-				if err != nil {
-					return nil, err
-				}
-				it := createEmptyIterator()
-				return &rows{
-					it:                      it,
-					decodeOption:            opts.DecodeOption,
-					decodeToNativeArrays:    opts.DecodeToNativeArrays,
-					returnResultSetMetadata: opts.ReturnResultSetMetadata,
-					returnResultSetStats:    opts.ReturnResultSetStats,
-				}, nil
-			}
-		}
-	}
-	return nil
+	Name         string `json:"name"`
+	execContext  func(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error)
+	queryContext func(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error)
 }
 
 // executableClientSideStatement is the combination of a pre-defined client-side
@@ -1151,60 +998,31 @@ func (p *statementParser) parseClientSideStatement(c *conn, query string) (*exec
 	if p.useCache {
 		if val, ok := p.statementsCache.Get(query); ok {
 			if val.info.statementType == statementTypeClientSide {
-				var params string
-				if len(val.params) > 0 {
-					params = val.params[0]
-				}
-				return &executableClientSideStatement{val.clientSideStatement, c, query, params}, nil
+				return val.parsedStatement.executableStatement(c), nil
 			}
 			return nil, nil
 		}
 	}
 	// Determine whether it could be a valid client-side statement by looking at the first keyword.
-	// This is a lot more efficient than looping through all regular expressions for client-side
-	// statements to check whether the statement matches that expression.
 	sp := &simpleParser{sql: []byte(query), statementParser: c.parser}
 	keyword := strings.ToUpper(sp.readKeyword())
 	if _, ok := clientSideKeywords[keyword]; !ok {
 		return nil, nil
 	}
 
-	statementsInit.Do(func() {
-		if err := compileStatements(); err != nil {
-			statementsCompileErr = err
-		}
-	})
-	if statementsCompileErr != nil {
-		return nil, statementsCompileErr
-	}
-	// TODO: Replace all regex-based statements with parsed statements.
-	for _, stmt := range statements.Statements {
-		if stmt.regexp.MatchString(query) {
-			var params string
-			if stmt.setStatement.Separator != "" {
-				p := strings.SplitN(query, stmt.setStatement.Separator, 2)
-				if len(p) == 2 {
-					params = strings.TrimSpace(p[1])
-				}
-			}
-			if p.useCache {
-				cacheEntry := &statementsCacheEntry{
-					sql:                 query,
-					params:              []string{params},
-					clientSideStatement: stmt,
-					info: &statementInfo{
-						statementType: statementTypeClientSide,
-					},
-				}
-				p.statementsCache.Add(query, cacheEntry)
-			}
-			return &executableClientSideStatement{stmt, c, query, params}, nil
-		}
-	}
-	// TODO: Cache parsed statements.
 	if stmt, err := parseStatement(p, keyword, query); err != nil {
 		return nil, err
 	} else if stmt != nil {
+		if p.useCache {
+			cacheEntry := &statementsCacheEntry{
+				sql:             query,
+				parsedStatement: stmt,
+				info: &statementInfo{
+					statementType: statementTypeClientSide,
+				},
+			}
+			p.statementsCache.Add(query, cacheEntry)
+		}
 		return stmt.executableStatement(c), nil
 	}
 	return nil, nil
@@ -1234,8 +1052,6 @@ const (
 	statementTypeDml
 	statementTypeDdl
 	statementTypeClientSide
-	statementTypeShow
-	statementTypeSet
 )
 
 type dmlType int

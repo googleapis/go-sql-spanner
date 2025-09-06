@@ -36,23 +36,27 @@ import (
 func TestStatementExecutor_StartBatchDdl(t *testing.T) {
 	t.Parallel()
 
-	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
-	s := &statementExecutor{}
+	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	c := &conn{
+		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		parser: parser,
+	}
 	ctx := context.Background()
 
 	if c.InDDLBatch() {
 		t.Fatal("connection unexpectedly in a DDL batch")
 	}
-	if _, err := s.StartBatchDdl(ctx, c, "", &ExecOptions{}, nil); err != nil {
+	if _, err := c.ExecContext(ctx, "start batch ddl", []driver.NamedValue{}); err != nil {
 		t.Fatalf("could not start a DDL batch: %v", err)
 	}
 	if !c.InDDLBatch() {
 		t.Fatal("connection unexpectedly not in a DDL batch")
 	}
-	if _, err := s.StartBatchDdl(ctx, c, "", &ExecOptions{}, nil); spanner.ErrCode(err) != codes.FailedPrecondition {
+	if _, err := c.ExecContext(ctx, "start batch ddl", []driver.NamedValue{}); spanner.ErrCode(err) != codes.FailedPrecondition {
 		t.Fatalf("error mismatch for starting a DDL batch while already in a batch\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
 	}
-	if _, err := s.RunBatch(ctx, c, "", &ExecOptions{}, nil); err != nil {
+	if _, err := c.ExecContext(ctx, "run batch", []driver.NamedValue{}); err != nil {
 		t.Fatalf("could not run empty DDL batch: %v", err)
 	}
 	if c.InDDLBatch() {
@@ -61,7 +65,7 @@ func TestStatementExecutor_StartBatchDdl(t *testing.T) {
 
 	// Starting a DDL batch while the connection is in a transaction is not allowed.
 	c.tx = &readWriteTransaction{}
-	if _, err := s.StartBatchDdl(ctx, c, "", &ExecOptions{}, nil); spanner.ErrCode(err) != codes.FailedPrecondition {
+	if _, err := c.ExecContext(ctx, "start batch ddl", []driver.NamedValue{}); spanner.ErrCode(err) != codes.FailedPrecondition {
 		t.Fatalf("error mismatch for starting a DDL batch while in a transaction\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
 	}
 }
@@ -69,23 +73,27 @@ func TestStatementExecutor_StartBatchDdl(t *testing.T) {
 func TestStatementExecutor_StartBatchDml(t *testing.T) {
 	t.Parallel()
 
-	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
-	s := &statementExecutor{}
+	parser, _ := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	c := &conn{
+		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		parser: parser,
+	}
 	ctx := context.Background()
 
 	if c.InDMLBatch() {
 		t.Fatal("connection unexpectedly in a DML batch")
 	}
-	if _, err := s.StartBatchDml(ctx, c, "", &ExecOptions{}, nil); err != nil {
+	if _, err := c.ExecContext(ctx, "start batch dml", []driver.NamedValue{}); err != nil {
 		t.Fatalf("could not start a DML batch: %v", err)
 	}
 	if !c.InDMLBatch() {
 		t.Fatal("connection unexpectedly not in a DML batch")
 	}
-	if _, err := s.StartBatchDml(ctx, c, "", &ExecOptions{}, nil); spanner.ErrCode(err) != codes.FailedPrecondition {
+	if _, err := c.ExecContext(ctx, "start batch dml", []driver.NamedValue{}); spanner.ErrCode(err) != codes.FailedPrecondition {
 		t.Fatalf("error mismatch for starting a DML batch while already in a batch\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
 	}
-	if _, err := s.RunBatch(ctx, c, "", &ExecOptions{}, nil); err != nil {
+	if _, err := c.ExecContext(ctx, "run batch", []driver.NamedValue{}); err != nil {
 		t.Fatalf("could not run empty DML batch: %v", err)
 	}
 	if c.InDMLBatch() {
@@ -94,13 +102,13 @@ func TestStatementExecutor_StartBatchDml(t *testing.T) {
 
 	// Starting a DML batch while the connection is in a read-only transaction is not allowed.
 	c.tx = &readOnlyTransaction{logger: noopLogger}
-	if _, err := s.StartBatchDml(ctx, c, "", &ExecOptions{}, nil); spanner.ErrCode(err) != codes.FailedPrecondition {
+	if _, err := c.ExecContext(ctx, "start batch dml", []driver.NamedValue{}); spanner.ErrCode(err) != codes.FailedPrecondition {
 		t.Fatalf("error mismatch for starting a DML batch while in a read-only transaction\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
 	}
 
 	// Starting a DML batch while the connection is in a read/write transaction is allowed.
 	c.tx = &readWriteTransaction{logger: noopLogger}
-	if _, err := s.StartBatchDml(ctx, c, "", &ExecOptions{}, nil); err != nil {
+	if _, err := c.ExecContext(ctx, "start batch dml", []driver.NamedValue{}); err != nil {
 		t.Fatalf("could not start a DML batch while in a read/write transaction: %v", err)
 	}
 }
