@@ -19,6 +19,7 @@ import (
 	"database/sql/driver"
 
 	"cloud.google.com/go/spanner"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -32,7 +33,7 @@ type stmt struct {
 	conn          *conn
 	numArgs       int
 	query         string
-	statementType StatementType
+	statementType parser.StatementType
 	execOptions   *ExecOptions
 }
 
@@ -77,8 +78,8 @@ func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
 	return s.conn.CheckNamedValue(value)
 }
 
-func prepareSpannerStmt(parser *statementParser, q string, args []driver.NamedValue) (spanner.Statement, error) {
-	q, names, err := parser.parseParameters(q)
+func prepareSpannerStmt(parser *parser.StatementParser, q string, args []driver.NamedValue) (spanner.Statement, error) {
+	q, names, err := parser.ParseParameters(q)
 	if err != nil {
 		return spanner.Statement{}, err
 	}

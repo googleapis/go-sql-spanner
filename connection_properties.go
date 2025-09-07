@@ -141,10 +141,7 @@ var propertyReadOnlyStaleness = createConnectionProperty(
 	false,
 	nil,
 	connectionstate.ContextUser,
-	func(value string) (spanner.TimestampBound, error) {
-		// TODO: Implement staleness parser
-		return spanner.TimestampBound{}, status.Errorf(codes.Unimplemented, "not yet implemented")
-	},
+	connectionstate.ConvertReadOnlyStaleness,
 )
 
 var propertyAutoBatchDml = createConnectionProperty(
@@ -405,6 +402,33 @@ var propertyDisableStatementCache = createConnectionProperty(
 	connectionstate.ContextStartup,
 	connectionstate.ConvertBool,
 )
+
+// Generated read-only properties. These cannot be set by the user anywhere.
+var propertyCommitTimestamp = createReadOnlyConnectionProperty(
+	"commit_timestamp",
+	"The commit timestamp of the last implicit or explicit read/write transaction that "+
+		"was executed on the connection, or an error if the connection has not executed a read/write transaction "+
+		"that committed successfully. The timestamp is in the local timezone.",
+	(*time.Time)(nil),
+	false,
+	nil,
+	connectionstate.ContextUser,
+)
+var propertyCommitResponse = createReadOnlyConnectionProperty(
+	"commit_response",
+	"The commit response of the last implicit or explicit read/write transaction that "+
+		"was executed on the connection, or an error if the connection has not executed a read/write transaction "+
+		"that committed successfully.",
+	(*spanner.CommitResponse)(nil),
+	false,
+	nil,
+	connectionstate.ContextUser,
+)
+
+func createReadOnlyConnectionProperty[T comparable](name, description string, defaultValue T, hasDefaultValue bool, validValues []T, context connectionstate.Context) *connectionstate.TypedConnectionProperty[T] {
+	converter := connectionstate.CreateReadOnlyConverter[T](name)
+	return createConnectionProperty(name, description, defaultValue, hasDefaultValue, validValues, context, converter)
+}
 
 func createConnectionProperty[T comparable](name, description string, defaultValue T, hasDefaultValue bool, validValues []T, context connectionstate.Context, converter func(value string) (T, error)) *connectionstate.TypedConnectionProperty[T] {
 	prop := connectionstate.CreateConnectionProperty(name, description, defaultValue, hasDefaultValue, validValues, context, converter)

@@ -28,6 +28,7 @@ import (
 	adminpb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -221,8 +222,7 @@ type SpannerConn interface {
 	UnderlyingClient() (client *spanner.Client, err error)
 
 	// DetectStatementType returns the type of SQL statement.
-	// TODO: Remove this, and rather move the entire parser to a separate package and export it.
-	DetectStatementType(query string) StatementType
+	DetectStatementType(query string) parser.StatementType
 
 	// resetTransactionForRetry resets the current transaction after it has
 	// been aborted by Spanner. Calling this function on a transaction that
@@ -249,22 +249,21 @@ type SpannerConn interface {
 var _ SpannerConn = &conn{}
 
 type conn struct {
-	parser         *statementParser
-	connector      *connector
-	closed         bool
-	client         *spanner.Client
-	adminClient    *adminapi.DatabaseAdminClient
-	connId         string
-	logger         *slog.Logger
-	tx             contextTransaction
-	prevTx         contextTransaction
-	resetForRetry  bool
-	commitResponse *spanner.CommitResponse
-	database       string
+	parser        *parser.StatementParser
+	connector     *connector
+	closed        bool
+	client        *spanner.Client
+	adminClient   *adminapi.DatabaseAdminClient
+	connId        string
+	logger        *slog.Logger
+	tx            contextTransaction
+	prevTx        contextTransaction
+	resetForRetry bool
+	database      string
 
 	execSingleQuery              func(ctx context.Context, c *spanner.Client, statement spanner.Statement, bound spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator
 	execSingleQueryTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (rowIterator, *spanner.CommitResponse, error)
-	execSingleDMLTransactional   func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error)
+	execSingleDMLTransactional   func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error)
 	execSingleDMLPartitioned     func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error)
 
 	// state contains the current ConnectionState for this connection.
@@ -290,26 +289,42 @@ func (c *conn) UnderlyingClient() (*spanner.Client, error) {
 	return c.client, nil
 }
 
-func (c *conn) DetectStatementType(query string) StatementType {
-	info := c.parser.detectStatementType(query)
-	return info.statementType
+func (c *conn) DetectStatementType(query string) parser.StatementType {
+	info := c.parser.DetectStatementType(query)
+	return info.StatementType
 }
 
 func (c *conn) CommitTimestamp() (time.Time, error) {
-	if c.commitResponse == nil {
+	ts := propertyCommitTimestamp.GetValueOrDefault(c.state)
+	if ts == nil {
 		return time.Time{}, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "this connection has not executed a read/write transaction that committed successfully"))
 	}
-	return c.commitResponse.CommitTs, nil
+	return *ts, nil
 }
 
 func (c *conn) CommitResponse() (commitResponse *spanner.CommitResponse, err error) {
-	if c.commitResponse == nil {
+	resp := propertyCommitResponse.GetValueOrDefault(c.state)
+	if resp == nil {
 		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "this connection has not executed a read/write transaction that committed successfully"))
 	}
-	return c.commitResponse, nil
+	return resp, nil
 }
 
-func (c *conn) showConnectionVariable(identifier identifier) (any, bool, error) {
+func (c *conn) clearCommitResponse() {
+	_ = propertyCommitResponse.SetValue(c.state, nil, connectionstate.ContextUser)
+	_ = propertyCommitTimestamp.SetValue(c.state, nil, connectionstate.ContextUser)
+}
+
+func (c *conn) setCommitResponse(commitResponse *spanner.CommitResponse) {
+	if commitResponse == nil {
+		c.clearCommitResponse()
+		return
+	}
+	_ = propertyCommitResponse.SetValue(c.state, commitResponse, connectionstate.ContextUser)
+	_ = propertyCommitTimestamp.SetValue(c.state, &commitResponse.CommitTs, connectionstate.ContextUser)
+}
+
+func (c *conn) showConnectionVariable(identifier parser.Identifier) (any, bool, error) {
 	extension, name, err := toExtensionAndName(identifier)
 	if err != nil {
 		return nil, false, err
@@ -317,7 +332,7 @@ func (c *conn) showConnectionVariable(identifier identifier) (any, bool, error) 
 	return c.state.GetValue(extension, name)
 }
 
-func (c *conn) setConnectionVariable(identifier identifier, value string, local bool) error {
+func (c *conn) setConnectionVariable(identifier parser.Identifier, value string, local bool) error {
 	extension, name, err := toExtensionAndName(identifier)
 	if err != nil {
 		return err
@@ -328,15 +343,15 @@ func (c *conn) setConnectionVariable(identifier identifier, value string, local 
 	return c.state.SetValue(extension, name, value, connectionstate.ContextUser)
 }
 
-func toExtensionAndName(identifier identifier) (string, string, error) {
+func toExtensionAndName(identifier parser.Identifier) (string, string, error) {
 	var extension string
 	var name string
-	if len(identifier.parts) == 1 {
+	if len(identifier.Parts) == 1 {
 		extension = ""
-		name = identifier.parts[0]
-	} else if len(identifier.parts) == 2 {
-		extension = identifier.parts[0]
-		name = identifier.parts[1]
+		name = identifier.Parts[0]
+	} else if len(identifier.Parts) == 2 {
+		extension = identifier.Parts[0]
+		name = identifier.Parts[1]
 	} else {
 		return "", "", status.Errorf(codes.InvalidArgument, "invalid variable name: %s", identifier)
 	}
@@ -735,7 +750,6 @@ func (c *conn) ResetSession(_ context.Context) error {
 			return driver.ErrBadConn
 		}
 	}
-	c.commitResponse = nil
 	c.batch = nil
 
 	_ = c.state.Reset(connectionstate.ContextUser)
@@ -802,7 +816,7 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 
 func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, error) {
 	execOptions := c.options( /* reset = */ true)
-	parsedSQL, args, err := c.parser.parseParameters(query)
+	parsedSQL, args, err := c.parser.ParseParameters(query)
 	if err != nil {
 		return nil, err
 	}
@@ -811,13 +825,17 @@ func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, err
 
 func (c *conn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	// Execute client side statement if it is one.
-	clientStmt, err := c.parser.parseClientSideStatement(c, query)
+	clientStmt, err := c.parser.ParseClientSideStatement(query)
 	if err != nil {
 		return nil, err
 	}
 	execOptions := c.options( /* reset = */ clientStmt == nil)
 	if clientStmt != nil {
-		return clientStmt.QueryContext(ctx, execOptions, args)
+		execStmt, err := createExecutableStatement(clientStmt)
+		if err != nil {
+			return nil, err
+		}
+		return execStmt.queryContext(ctx, c, execOptions)
 	}
 
 	return c.queryContext(ctx, query, execOptions, args)
@@ -825,7 +843,7 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 
 func (c *conn) queryContext(ctx context.Context, query string, execOptions *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
 	// Clear the commit timestamp of this connection before we execute the query.
-	c.commitResponse = nil
+	c.clearCommitResponse()
 	// Check if the execution options contains an instruction to execute
 	// a specific partition of a PartitionedQuery.
 	if pq := execOptions.PartitionedQueryOptions.ExecutePartition.PartitionedQuery; pq != nil {
@@ -836,9 +854,9 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 	if err != nil {
 		return nil, err
 	}
-	statementType := c.parser.detectStatementType(query)
+	statementType := c.parser.DetectStatementType(query)
 	// DDL statements are not supported in QueryContext so use the execContext method for the execution.
-	if statementType.statementType == StatementTypeDdl {
+	if statementType.StatementType == parser.StatementTypeDdl {
 		res, err := c.execContext(ctx, query, execOptions, args)
 		if err != nil {
 			return nil, err
@@ -847,14 +865,14 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 	}
 	var iter rowIterator
 	if c.tx == nil {
-		if statementType.statementType == StatementTypeDml {
+		if statementType.StatementType == parser.StatementTypeDml {
 			// Use a read/write transaction to execute the statement.
 			var commitResponse *spanner.CommitResponse
 			iter, commitResponse, err = c.execSingleQueryTransactional(ctx, c.client, stmt, execOptions)
 			if err != nil {
 				return nil, err
 			}
-			c.commitResponse = commitResponse
+			c.setCommitResponse(commitResponse)
 		} else if execOptions.PartitionedQueryOptions.PartitionQuery {
 			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "PartitionQuery is only supported in batch read-only transactions"))
 		} else if execOptions.PartitionedQueryOptions.AutoPartitionQuery {
@@ -888,24 +906,28 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	// Execute client side statement if it is one.
-	stmt, err := c.parser.parseClientSideStatement(c, query)
+	stmt, err := c.parser.ParseClientSideStatement(query)
 	if err != nil {
 		return nil, err
 	}
 	execOptions := c.options( /*reset = */ stmt == nil)
 	if stmt != nil {
-		return stmt.ExecContext(ctx, execOptions, args)
+		execStmt, err := createExecutableStatement(stmt)
+		if err != nil {
+			return nil, err
+		}
+		return execStmt.execContext(ctx, c, execOptions)
 	}
 	return c.execContext(ctx, query, execOptions, args)
 }
 
 func (c *conn) execContext(ctx context.Context, query string, execOptions *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	// Clear the commit timestamp of this connection before we execute the statement.
-	c.commitResponse = nil
+	c.clearCommitResponse()
 
-	statementInfo := c.parser.detectStatementType(query)
+	statementInfo := c.parser.DetectStatementType(query)
 	// Use admin API if DDL statement is provided.
-	if statementInfo.statementType == StatementTypeDdl {
+	if statementInfo.StatementType == parser.StatementTypeDdl {
 		// Spanner does not support DDL in transactions, and although it is technically possible to execute DDL
 		// statements while a transaction is active, we return an error to avoid any confusion whether the DDL
 		// statement is executed as part of the active transaction or not.
@@ -941,7 +963,7 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions *ExecO
 			if dmlMode == Transactional {
 				res, commitResponse, err = c.execSingleDMLTransactional(ctx, c.client, ss, statementInfo, execOptions)
 				if err == nil {
-					c.commitResponse = commitResponse
+					c.setCommitResponse(commitResponse)
 				}
 			} else if dmlMode == PartitionedNonAtomic {
 				var rowsAffected int64
@@ -1199,7 +1221,7 @@ func (c *conn) BeginTx(ctx context.Context, driverOpts driver.TxOptions) (driver
 			c.prevTx = c.tx
 			c.tx = nil
 			if commitErr == nil {
-				c.commitResponse = commitResponse
+				c.setCommitResponse(commitResponse)
 				if result == txResultCommit {
 					_ = c.state.Commit()
 				} else {
@@ -1212,7 +1234,7 @@ func (c *conn) BeginTx(ctx context.Context, driverOpts driver.TxOptions) (driver
 		// Disable internal retries if any of these options have been set.
 		retryAborts: !disableInternalRetries && !disableRetryAborts,
 	}
-	c.commitResponse = nil
+	c.clearCommitResponse()
 	return c.tx, nil
 }
 
@@ -1311,7 +1333,7 @@ func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement s
 
 var errInvalidDmlForExecContext = spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "Exec and ExecContext can only be used with INSERT statements with a THEN RETURN clause that return exactly one row with one column of type INT64. Use Query or QueryContext for DML statements other than INSERT and/or with THEN RETURN clauses that return other/more data."))
 
-func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
+func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
 	var res *result
 	options.QueryOptions.LastStatement = true
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
@@ -1329,7 +1351,7 @@ func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement sp
 	return res, &resp, nil
 }
 
-func execTransactionalDML(ctx context.Context, tx spannerTransaction, statement spanner.Statement, statementInfo *statementInfo, options spanner.QueryOptions) (*result, error) {
+func execTransactionalDML(ctx context.Context, tx spannerTransaction, statement spanner.Statement, statementInfo *parser.StatementInfo, options spanner.QueryOptions) (*result, error) {
 	var rowsAffected int64
 	var lastInsertId int64
 	var hasLastInsertId bool
@@ -1341,7 +1363,7 @@ func execTransactionalDML(ctx context.Context, tx spannerTransaction, statement 
 	}
 	if len(it.Metadata.RowType.Fields) != 0 && !(len(it.Metadata.RowType.Fields) == 1 &&
 		it.Metadata.RowType.Fields[0].Type.Code == spannerpb.TypeCode_INT64 &&
-		statementInfo.dmlType == dmlTypeInsert) {
+		statementInfo.DmlType == parser.DmlTypeInsert) {
 		return nil, errInvalidDmlForExecContext
 	}
 	if err != iterator.Done {

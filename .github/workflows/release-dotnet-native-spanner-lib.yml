@@ -9,11 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: 1.25
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Build shared library
         working-directory: spannerlib
         run: go build -o spannerlib.so -buildmode=c-shared shared_lib.go
@@ -34,11 +34,11 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: 1.25
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Build shared library
         working-directory: spannerlib
         run: go build -o spannerlib.dylib -buildmode=c-shared shared_lib.go
@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Download and copy linux-x64 shared lib
         uses: actions/download-artifact@v5
         with:
@@ -86,7 +86,7 @@ jobs:
       - name: Add execute permission to osx-arm64 gRPC server
         run: chmod +x spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/osx-arm64/grpc_server
       - name: Install dotnet
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '9.0.x'
       - name: dotnet version

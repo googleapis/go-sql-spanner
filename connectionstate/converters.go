@@ -25,6 +25,13 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+func CreateReadOnlyConverter[T any](property string) func(value string) (T, error) {
+	return func(value string) (T, error) {
+		var t T
+		return t, status.Errorf(codes.FailedPrecondition, "property %s is read-only", property)
+	}
+}
+
 func ConvertBool(value string) (bool, error) {
 	return strconv.ParseBool(value)
 }
@@ -49,6 +56,58 @@ var durationRegEx = regexp.MustCompile(`(?i)^\s*((?P<duration>(\d{1,19})(s|ms|us
 
 func ConvertDuration(value string) (time.Duration, error) {
 	return parseDuration(durationRegEx, value)
+}
+
+var strongRegexp = regexp.MustCompile(`(?i)^\s*STRONG\s*$`)
+var exactStalenessRegexp = regexp.MustCompile(`(?i)^\s*(?P<type>EXACT_STALENESS)\s+(?P<duration>(\d{1,19})(s|ms|us|ns))\s*$`)
+var maxStalenessRegexp = regexp.MustCompile(`(?i)^\s*(?P<type>MAX_STALENESS)\s+(?P<duration>(\d{1,19})(s|ms|us|ns))\s*$`)
+var readTimestampRegexp = regexp.MustCompile(`(?i)^\s*(?P<type>READ_TIMESTAMP)\s+(?P<timestamp>(\d{4})-(\d{2})-(\d{2})([Tt](\d{2}):(\d{2}):(\d{2})(\.\d{1,9})?)([Zz]|([+-])(\d{2}):(\d{2})))\s*$`)
+var minReadTimestampRegexp = regexp.MustCompile(`(?i)^\s*(?P<type>MIN_READ_TIMESTAMP)\s+(?P<timestamp>(\d{4})-(\d{2})-(\d{2})([Tt](\d{2}):(\d{2}):(\d{2})(\.\d{1,9})?)([Zz]|([+-])(\d{2}):(\d{2})))\s*$`)
+
+func ConvertReadOnlyStaleness(value string) (spanner.TimestampBound, error) {
+	var staleness spanner.TimestampBound
+	if strongRegexp.MatchString(value) {
+		staleness = spanner.StrongRead()
+	} else if exactStalenessRegexp.MatchString(value) {
+		d, err := parseDuration(exactStalenessRegexp, value)
+		if err != nil {
+			return staleness, err
+		}
+		staleness = spanner.ExactStaleness(d)
+	} else if maxStalenessRegexp.MatchString(value) {
+		d, err := parseDuration(maxStalenessRegexp, value)
+		if err != nil {
+			return staleness, err
+		}
+		staleness = spanner.MaxStaleness(d)
+	} else if readTimestampRegexp.MatchString(value) {
+		t, err := parseTimestamp(readTimestampRegexp, value)
+		if err != nil {
+			return staleness, err
+		}
+		staleness = spanner.ReadTimestamp(t)
+	} else if minReadTimestampRegexp.MatchString(value) {
+		t, err := parseTimestamp(minReadTimestampRegexp, value)
+		if err != nil {
+			return staleness, err
+		}
+		staleness = spanner.MinReadTimestamp(t)
+	} else {
+		return staleness, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid ReadOnlyStaleness value: %s", value))
+	}
+	return staleness, nil
+}
+
+func parseTimestamp(re *regexp.Regexp, params string) (time.Time, error) {
+	matches := matchesToMap(re, params)
+	if matches["timestamp"] == "" {
+		return time.Time{}, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "No timestamp found in staleness string"))
+	}
+	t, err := time.Parse(time.RFC3339Nano, matches["timestamp"])
+	if err != nil {
+		return time.Time{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Invalid timestamp: %s", matches["timestamp"]))
+	}
+	return t, nil
 }
 
 func parseDuration(re *regexp.Regexp, value string) (time.Duration, error) {

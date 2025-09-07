@@ -40,6 +40,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/googleapis/gax-go/v2"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
@@ -536,7 +537,7 @@ type connector struct {
 	adminClient    *adminapi.DatabaseAdminClient
 	adminClientErr error
 	connCount      int32
-	parser         *statementParser
+	parser         *parser.StatementParser
 }
 
 func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
@@ -739,7 +740,7 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 	logger := c.logger.With("connId", connId)
 	connectionStateType := c.connectorConfig.ConnectionStateType
 	if connectionStateType == connectionstate.TypeDefault {
-		if c.parser.dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		if c.parser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
 			connectionStateType = connectionstate.TypeTransactional
 		} else {
 			connectionStateType = connectionstate.TypeNonTransactional
@@ -813,7 +814,7 @@ func (c *connector) increaseConnCount(ctx context.Context, databaseName string, 
 			} else if c.connectorConfig.StatementCacheSize == 0 {
 				cacheSize = defaultStatementCacheSize
 			}
-			c.parser, err = newStatementParser(dialect, cacheSize)
+			c.parser, err = parser.NewStatementParser(dialect, cacheSize)
 			if err != nil {
 				closeClient()
 				return err
@@ -1471,6 +1472,8 @@ func parseConnectionStateType(val string) (connectionstate.Type, error) {
 }
 
 func parseAutocommitDmlMode(val string) (AutocommitDMLMode, error) {
+	// Allow both 'partitioned_non_atomic' and 'PartitionedNonAtomic'.
+	val = strings.Replace(val, "_", "", -1)
 	switch strings.ToLower(val) {
 	case strings.ToLower("Transactional"):
 		return Transactional, nil
