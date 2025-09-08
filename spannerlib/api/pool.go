@@ -2,11 +2,12 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sync"
 	"sync/atomic"
 
-	"spannerlib/backend"
+	spannerdriver "github.com/googleapis/go-sql-spanner"
 )
 
 var pools = sync.Map{}
@@ -14,19 +15,25 @@ var poolsIdx = atomic.Int64{}
 
 // Pool is the equivalent of a sql.DB. It contains a pool of connections to the same database.
 type Pool struct {
-	backend        *backend.Pool
+	db             *sql.DB
 	connections    *sync.Map
 	connectionsIdx atomic.Int64
 }
 
 func CreatePool(dsn string) (int64, error) {
-	backendPool, err := backend.CreatePool(dsn)
+	config, err := spannerdriver.ExtractConnectorConfig(dsn)
 	if err != nil {
 		return 0, err
 	}
+	connector, err := spannerdriver.CreateConnector(config)
+	if err != nil {
+		return 0, err
+	}
+	db := sql.OpenDB(connector)
+
 	id := poolsIdx.Add(1)
 	pool := &Pool{
-		backend:     backendPool,
+		db:          db,
 		connections: &sync.Map{},
 	}
 	pools.Store(id, pool)
@@ -41,10 +48,10 @@ func ClosePool(id int64) error {
 	pool := p.(*Pool)
 	pool.connections.Range(func(key, value interface{}) bool {
 		conn := value.(*Connection)
-		conn.close()
+		_ = conn.close()
 		return true
 	})
-	if err := pool.backend.Close(); err != nil {
+	if err := pool.db.Close(); err != nil {
 		return err
 	}
 	return nil
@@ -56,13 +63,13 @@ func CreateConnection(poolId int64) (int64, error) {
 		return 0, fmt.Errorf("pool %v not found", poolId)
 	}
 	pool := p.(*Pool)
-	sqlConn, err := pool.backend.Conn(context.Background())
+	sqlConn, err := pool.db.Conn(context.Background())
 	if err != nil {
 		return 0, err
 	}
 	id := poolsIdx.Add(1)
 	conn := &Connection{
-		backend:      &backend.SpannerConnection{Conn: sqlConn},
+		backend:      sqlConn,
 		results:      &sync.Map{},
 		transactions: &sync.Map{},
 	}

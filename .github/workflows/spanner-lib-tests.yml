@@ -38,7 +38,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Build shared lib
-        working-directory: spannerlib
+        working-directory: spannerlib/shared
         run: go build -o spannerlib.so -buildmode=c-shared shared_lib.go
 
   test-dotnet-ubuntu:
@@ -51,21 +51,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Build shared lib
-        working-directory: spannerlib
+        working-directory: spannerlib/shared
         run: go build -o spannerlib.so -buildmode=c-shared shared_lib.go
       - name: Copy lib to dotnet folder
         working-directory: spannerlib
         run: |
           mkdir -p dotnet-spannerlib/Google.Cloud.SpannerLib.Native/libraries/any
-          cp spannerlib.so dotnet-spannerlib/Google.Cloud.SpannerLib.Native/libraries/any/spannerlib.so
+          cp shared/spannerlib.so dotnet-spannerlib/Google.Cloud.SpannerLib.Native/libraries/any/spannerlib.so
       - name: Build gRPC server
-        working-directory: spannerlib
+        working-directory: spannerlib/grpc-server
         run: go build grpc_server.go
       - name: Copy gRPC server to dotnet folder
         working-directory: spannerlib
         run: |
           mkdir -p dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/any
-          cp grpc_server dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/any/grpc_server
+          cp grpc-server/grpc_server dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/any/grpc_server
       - name: Install dotnet
         uses: actions/setup-dotnet@v4
         with:

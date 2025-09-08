@@ -78,7 +78,7 @@ func (tx *transaction) bufferWrite(mutation *spannerpb.BatchWriteRequest_Mutatio
 		}
 		mutations = append(mutations, spannerMutation)
 	}
-	if err := tx.conn.backend.Conn.Raw(func(driverConn any) error {
+	if err := tx.conn.backend.Raw(func(driverConn any) error {
 		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
 		return spannerConn.BufferWrite(mutations)
 	}); err != nil {
@@ -100,7 +100,7 @@ func (tx *transaction) Commit() (*spannerpb.CommitResponse, error) {
 	if tx.txOpts.GetReadWrite() == nil {
 		return &spannerpb.CommitResponse{}, nil
 	}
-	if err := tx.conn.backend.Conn.Raw(func(driverConn any) (err error) {
+	if err := tx.conn.backend.Raw(func(driverConn any) (err error) {
 		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
 		response, err = spannerConn.CommitResponse()
 		if err != nil {

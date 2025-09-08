@@ -16,7 +16,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"spannerlib/backend"
 )
 
 func CloseConnection(poolId, connId int64) error {
@@ -66,7 +65,7 @@ type Connection struct {
 	transactions    *sync.Map
 	transactionsIdx atomic.Int64
 
-	backend *backend.SpannerConnection
+	backend *sql.Conn
 }
 
 type queryExecutor interface {
@@ -77,12 +76,12 @@ type queryExecutor interface {
 func (conn *Connection) close() error {
 	conn.results.Range(func(key, value interface{}) bool {
 		res := value.(*rows)
-		res.Close()
+		_ = res.Close()
 		return true
 	})
 	conn.transactions.Range(func(key, value interface{}) bool {
 		res := value.(*transaction)
-		res.Close()
+		_ = res.Close()
 		return true
 	})
 	err := conn.backend.Close()
@@ -103,7 +102,7 @@ func (conn *Connection) apply(mutation *spannerpb.BatchWriteRequest_MutationGrou
 		mutations = append(mutations, spannerMutation)
 	}
 	var commitTimestamp time.Time
-	if err := conn.backend.Conn.Raw(func(driverConn any) (err error) {
+	if err := conn.backend.Raw(func(driverConn any) (err error) {
 		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
 		commitTimestamp, err = spannerConn.Apply(ctx, mutations)
 		return err
@@ -121,12 +120,12 @@ func (conn *Connection) BeginTransaction(txOpts *spannerpb.TransactionOptions) (
 	var err error
 	if txOpts.GetReadOnly() != nil {
 		tx, err = spannerdriver.BeginReadOnlyTransactionOnConn(
-			context.Background(), conn.backend.Conn, convertToReadOnlyOpts(txOpts))
+			context.Background(), conn.backend, convertToReadOnlyOpts(txOpts))
 	} else if txOpts.GetPartitionedDml() != nil {
 		err = spanner.ToSpannerError(status.Error(codes.InvalidArgument, "transaction type not supported"))
 	} else {
 		tx, err = spannerdriver.BeginReadWriteTransactionOnConn(
-			context.Background(), conn.backend.Conn, convertToReadWriteTransactionOptions(txOpts))
+			context.Background(), conn.backend, convertToReadWriteTransactionOptions(txOpts))
 	}
 	if err != nil {
 		return 0, err
@@ -187,11 +186,11 @@ func convertIsolationLevel(level spannerpb.TransactionOptions_IsolationLevel) sq
 }
 
 func (conn *Connection) Execute(statement *spannerpb.ExecuteSqlRequest) (int64, error) {
-	return execute(conn, conn.backend.Conn, statement)
+	return execute(conn, conn.backend, statement)
 }
 
 func (conn *Connection) ExecuteBatch(statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
-	return executeBatch(conn, conn.backend.Conn, statements)
+	return executeBatch(conn, conn.backend, statements)
 }
 
 func execute(conn *Connection, executor queryExecutor, statement *spannerpb.ExecuteSqlRequest) (int64, error) {
@@ -242,7 +241,7 @@ func executeBatch(conn *Connection, executor queryExecutor, statements []*spanne
 }
 
 func executeBatchDdl(conn *Connection, executor queryExecutor, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
-	if err := conn.backend.Conn.Raw(func(driverConn any) error {
+	if err := conn.backend.Raw(func(driverConn any) error {
 		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
 		return spannerConn.StartBatchDDL()
 	}); err != nil {
@@ -255,7 +254,7 @@ func executeBatchDdl(conn *Connection, executor queryExecutor, statements []*spa
 		}
 	}
 	// TODO: Add support for getting the actual Batch DDL response.
-	if err := conn.backend.Conn.Raw(func(driverConn any) (err error) {
+	if err := conn.backend.Raw(func(driverConn any) (err error) {
 		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
 		return spannerConn.RunBatch(context.Background())
 	}); err != nil {
@@ -271,7 +270,7 @@ func executeBatchDdl(conn *Connection, executor queryExecutor, statements []*spa
 }
 
 func executeBatchDml(conn *Connection, executor queryExecutor, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
-	if err := conn.backend.Conn.Raw(func(driverConn any) error {
+	if err := conn.backend.Raw(func(driverConn any) error {
 		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
 		return spannerConn.StartBatchDML()
 	}); err != nil {
@@ -290,7 +289,7 @@ func executeBatchDml(conn *Connection, executor queryExecutor, statements []*spa
 		}
 	}
 	var spannerResult spannerdriver.SpannerResult
-	if err := conn.backend.Conn.Raw(func(driverConn any) (err error) {
+	if err := conn.backend.Raw(func(driverConn any) (err error) {
 		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
 		spannerResult, err = spannerConn.RunDmlBatch(context.Background())
 		return err
@@ -348,7 +347,7 @@ func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDm
 		return spannerdriver.BatchTypeUnknown, status.Errorf(codes.InvalidArgument, "cannot determine type of an empty batch")
 	}
 	batchType := spannerdriver.BatchTypeUnknown
-	if err := conn.backend.Conn.Raw(func(driverConn any) error {
+	if err := conn.backend.Raw(func(driverConn any) error {
 		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
 		firstStatementType := spannerConn.DetectStatementType(statements[0].Sql)
 		if firstStatementType == parser.StatementTypeDml {
@@ -356,13 +355,13 @@ func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDm
 		} else if firstStatementType == parser.StatementTypeDdl {
 			batchType = spannerdriver.BatchTypeDdl
 		} else {
-			return status.Errorf(codes.InvalidArgument, "unsupported statement type for batching: %s", firstStatementType)
+			return status.Errorf(codes.InvalidArgument, "unsupported statement type for batching: %v", firstStatementType)
 		}
 		for i, statement := range statements {
 			if i > 0 {
 				tp := spannerConn.DetectStatementType(statement.Sql)
 				if tp != firstStatementType {
-					return status.Errorf(codes.InvalidArgument, "Batches may not contain different types of statements. The first statement is of type %s. The statement on position %d is of type %s.", firstStatementType, i, tp)
+					return status.Errorf(codes.InvalidArgument, "Batches may not contain different types of statements. The first statement is of type %v. The statement on position %d is of type %v.", firstStatementType, i, tp)
 				}
 			}
 		}
