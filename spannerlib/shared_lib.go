@@ -155,6 +155,10 @@ func ResultSetStats(poolId, connId, rowsId int64) (int64, int32, int64, int32, u
 // ListValue that contains all the columns of the row. The message is empty if there are
 // no more rows in the Rows object.
 //
+// TODO: Add support for:
+//  1. Fetching more than one row at a time.
+//  2. Specifying the return type (e.g. proto, struct, ...)
+//
 //export Next
 func Next(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
 	msg := lib.Next(poolId, connId, rowsId)

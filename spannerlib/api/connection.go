@@ -12,6 +12,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -350,9 +351,9 @@ func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDm
 	if err := conn.backend.Conn.Raw(func(driverConn any) error {
 		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
 		firstStatementType := spannerConn.DetectStatementType(statements[0].Sql)
-		if firstStatementType == spannerdriver.StatementTypeDml {
+		if firstStatementType == parser.StatementTypeDml {
 			batchType = spannerdriver.BatchTypeDml
-		} else if firstStatementType == spannerdriver.StatementTypeDdl {
+		} else if firstStatementType == parser.StatementTypeDdl {
 			batchType = spannerdriver.BatchTypeDdl
 		} else {
 			return status.Errorf(codes.InvalidArgument, "unsupported statement type for batching: %s", firstStatementType)
