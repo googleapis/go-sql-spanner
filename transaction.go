@@ -54,8 +54,6 @@ type contextTransaction interface {
 	AbortBatch() (driver.Result, error)
 
 	BufferWrite(ms []*spanner.Mutation) error
-
-	setRetryAbortsInternally(retry bool) (driver.Result, error)
 }
 
 type rowIterator interface {
@@ -205,11 +203,6 @@ func (tx *readOnlyTransaction) BufferWrite([]*spanner.Mutation) error {
 	return spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
-func (tx *readOnlyTransaction) setRetryAbortsInternally(_ bool) (driver.Result, error) {
-	// no-op, ignore
-	return driver.ResultNoRows, nil
-}
-
 // ErrAbortedDueToConcurrentModification is returned by a read/write transaction
 // that was aborted by Cloud Spanner, and where the internal retry attempt
 // failed because it detected that the results during the retry were different
@@ -244,7 +237,7 @@ type readWriteTransaction struct {
 	close func(result txResult, commitResponse *spanner.CommitResponse, commitErr error)
 	// retryAborts indicates whether this transaction will automatically retry
 	// the transaction if it is aborted by Spanner. The default is true.
-	retryAborts bool
+	retryAborts func() bool
 
 	// statements contains the list of statements that has been executed on this
 	// transaction so far. These statements will be replayed on a new read write
@@ -415,7 +408,7 @@ func (tx *readWriteTransaction) Commit() (err error) {
 	}
 	var commitResponse spanner.CommitResponse
 	if tx.rwTx != nil {
-		if !tx.retryAborts {
+		if !tx.retryAborts() {
 			ts, err := tx.rwTx.CommitWithReturnResp(tx.ctx)
 			tx.close(txResultCommit, &ts, err)
 			return err
@@ -471,7 +464,7 @@ func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statemen
 	}
 	// If internal retries have been disabled, we don't need to keep track of a
 	// running checksum for all results that we have seen.
-	if !tx.retryAborts {
+	if !tx.retryAborts() {
 		return &readOnlyRowIterator{tx.rwTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions)}, nil
 	}
 
@@ -509,7 +502,7 @@ func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.St
 		return &result{rowsAffected: updateCount}, nil
 	}
 
-	if !tx.retryAborts {
+	if !tx.retryAborts() {
 		return execTransactionalDML(ctx, tx.rwTx, stmt, statementInfo, options)
 	}
 
@@ -608,7 +601,7 @@ func (tx *readWriteTransaction) runDmlBatch(ctx context.Context) (*result, error
 	options := tx.batch.options
 	tx.batch = nil
 
-	if !tx.retryAborts {
+	if !tx.retryAborts() {
 		affected, err := tx.rwTx.BatchUpdateWithOptions(ctx, statements, options.QueryOptions)
 		return &result{rowsAffected: sum(affected)}, err
 	}
@@ -649,12 +642,4 @@ func errorsEqualForRetry(err1, err2 error) bool {
 		return true
 	}
 	return false
-}
-
-func (tx *readWriteTransaction) setRetryAbortsInternally(retry bool) (driver.Result, error) {
-	if tx.active {
-		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot change retry mode while a transaction is active"))
-	}
-	tx.retryAborts = retry
-	return driver.ResultNoRows, nil
 }

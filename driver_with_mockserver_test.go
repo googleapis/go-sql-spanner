@@ -4504,7 +4504,7 @@ func TestRunTransaction(t *testing.T) {
 		if g, w := rwTx.ctx, ctx; g != w {
 			return fmt.Errorf("getting the transaction through reflection failed")
 		}
-		if rwTx.retryAborts {
+		if rwTx.retryAborts() {
 			return fmt.Errorf("internal retries should be disabled during RunTransaction")
 		}
 
@@ -4965,7 +4965,7 @@ func TestBeginReadWriteTransaction(t *testing.T) {
 		if g, w := rwTx.ctx, ctx; g != w {
 			t.Fatal("getting the transaction through reflection failed")
 		}
-		if rwTx.retryAborts {
+		if rwTx.retryAborts() {
 			t.Fatal("internal retries should be disabled during this transaction")
 		}
 
