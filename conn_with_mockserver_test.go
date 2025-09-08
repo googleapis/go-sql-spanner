@@ -28,6 +28,7 @@ import (
 	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -729,6 +730,35 @@ func TestSetRetryAbortsInternallyInActiveTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = tx.Rollback()
+}
+
+func TestSetLocalRetryAbortsInternally(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, "set local retry_aborts_internally = false"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	// Instruct the mock server to return Aborted when Commit is called.
+	// This should cause the transaction to fail, and as internal retries have been
+	// disabled, it should not be retried.
+	server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+		Errors: []error{status.Error(codes.Aborted, "Aborted")},
+	})
+	err = tx.Commit()
+	if g, w := spanner.ErrCode(err), codes.Aborted; g != w {
+		t.Fatalf("error mismatch\n Got: %v\nWant: %v", g, w)
+	}
 }
 
 func TestSetAutocommitDMLMode(t *testing.T) {
