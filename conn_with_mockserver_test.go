@@ -1584,7 +1584,7 @@ func getDialect(c *sql.Conn) (dialect databasepb.DatabaseDialect) {
 	_ = c.Raw(func(driverConn any) error {
 		sc, _ := driverConn.(SpannerConn)
 		conn := sc.(*conn)
-		dialect = conn.parser.dialect
+		dialect = conn.parser.Dialect
 		return nil
 	})
 	return

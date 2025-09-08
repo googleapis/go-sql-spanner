@@ -1,3 +1,17 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package spannerdriver
 
 import (
@@ -9,102 +23,49 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-type parsedStatement interface {
-	parse(parser *statementParser, query string) error
-	executableStatement(c *conn) *executableClientSideStatement
+type executableStatement interface {
+	execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error)
+	queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error)
 }
 
-func parseStatement(parser *statementParser, keyword, query string) (parsedStatement, error) {
-	var stmt parsedStatement
-	if isShowStatementKeyword(keyword) {
-		stmt = &parsedShowStatement{}
-	} else if isSetStatementKeyword(keyword) {
-		stmt = &parsedSetStatement{}
-	} else if isResetStatementKeyword(keyword) {
-		stmt = &parsedResetStatement{}
-	} else if isCreateKeyword(keyword) && isCreateDatabase(parser, query) {
-		stmt = &parsedCreateDatabaseStatement{}
-	} else if isDropKeyword(keyword) && isDropDatabase(parser, query) {
-		stmt = &parsedDropDatabaseStatement{}
-	} else if isStartStatementKeyword(keyword) {
-		stmt = &parsedStartBatchStatement{}
-	} else if isRunStatementKeyword(keyword) {
-		stmt = &parsedRunBatchStatement{}
-	} else if isAbortStatementKeyword(keyword) {
-		stmt = &parsedAbortBatchStatement{}
-	} else {
-		return nil, nil
+func createExecutableStatement(stmt parser.ParsedStatement) (executableStatement, error) {
+	switch stmt := stmt.(type) {
+	case *parser.ParsedShowStatement:
+		return &executableShowStatement{stmt: stmt}, nil
+	case *parser.ParsedSetStatement:
+		return &executableSetStatement{stmt: stmt}, nil
+	case *parser.ParsedResetStatement:
+		return &executableResetStatement{stmt: stmt}, nil
+	case *parser.ParsedCreateDatabaseStatement:
+		return &executableCreateDatabaseStatement{stmt: stmt}, nil
+	case *parser.ParsedDropDatabaseStatement:
+		return &executableDropDatabaseStatement{stmt: stmt}, nil
+	case *parser.ParsedStartBatchStatement:
+		return &executableStartBatchStatement{stmt: stmt}, nil
+	case *parser.ParsedRunBatchStatement:
+		return &executableRunBatchStatement{stmt: stmt}, nil
+	case *parser.ParsedAbortBatchStatement:
+		return &executableAbortBatchStatement{stmt: stmt}, nil
 	}
-	if err := stmt.parse(parser, query); err != nil {
-		return nil, err
-	}
-	return stmt, nil
+	return nil, status.Errorf(codes.Internal, "unsupported statement type: %T", stmt)
 }
 
-func isCreateDatabase(parser *statementParser, query string) bool {
-	sp := &simpleParser{sql: []byte(query), statementParser: parser}
-	if _, ok := sp.eatKeyword("create"); !ok {
-		return false
-	}
-	if _, ok := sp.eatKeyword("database"); !ok {
-		return false
-	}
-	return true
+type executableShowStatement struct {
+	stmt *parser.ParsedShowStatement
 }
 
-func isDropDatabase(parser *statementParser, query string) bool {
-	sp := &simpleParser{sql: []byte(query), statementParser: parser}
-	if _, ok := sp.eatKeyword("drop"); !ok {
-		return false
-	}
-	if _, ok := sp.eatKeyword("database"); !ok {
-		return false
-	}
-	return true
+func (s *executableShowStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+	return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with execContext", s.stmt.Query()))
 }
 
-// SHOW [VARIABLE] [my_extension.]my_property
-type parsedShowStatement struct {
-	query      string
-	identifier identifier
-}
-
-func (s *parsedShowStatement) parse(parser *statementParser, query string) error {
-	// Parse a statement of the form
-	// SHOW [VARIABLE] [my_extension.]my_property
-	sp := &simpleParser{sql: []byte(query), statementParser: parser}
-	if _, ok := sp.eatKeyword("SHOW"); !ok {
-		return status.Error(codes.InvalidArgument, "statement does not start with SHOW")
-	}
-	if parser.dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL {
-		// Just eat and ignore the keyword VARIABLE.
-		if _, ok := sp.eatKeyword("VARIABLE"); !ok {
-			return status.Error(codes.InvalidArgument, "missing keyword VARIABLE")
-		}
-	}
-	identifier, err := sp.eatIdentifier()
-	if err != nil {
-		return err
-	}
-	if sp.hasMoreTokens() {
-		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
-	}
-	s.query = query
-	s.identifier = identifier
-	return nil
-}
-
-func (s *parsedShowStatement) execContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
-	return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with execContext", s.query))
-}
-
-func (s *parsedShowStatement) queryContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
-	col := s.identifier.String()
-	val, hasValue, err := c.showConnectionVariable(s.identifier)
+func (s *executableShowStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
+	col := s.stmt.Identifier.String()
+	val, hasValue, err := c.showConnectionVariable(s.stmt.Identifier)
 	if err != nil {
 		return nil, err
 	}
@@ -139,142 +100,42 @@ func (s *parsedShowStatement) queryContext(ctx context.Context, c *conn, params 
 	return createRows(it, opts), nil
 }
 
-func (s *parsedShowStatement) executableStatement(c *conn) *executableClientSideStatement {
-	return &executableClientSideStatement{
-		conn:  c,
-		query: s.query,
-		clientSideStatement: &clientSideStatement{
-			Name:         "SHOW",
-			execContext:  s.execContext,
-			queryContext: s.queryContext,
-		},
-	}
-}
-
 // SET [SESSION | LOCAL] [my_extension.]my_property {=|to} <value>
-type parsedSetStatement struct {
-	query      string
-	identifier identifier
-	literal    literal
-	isLocal    bool
+type executableSetStatement struct {
+	stmt *parser.ParsedSetStatement
 }
 
-func (s *parsedSetStatement) parse(parser *statementParser, query string) error {
-	// Parse a statement of the form
-	// SET [SESSION | LOCAL] [my_extension.]my_property {=|to} <value>
-	sp := &simpleParser{sql: []byte(query), statementParser: parser}
-	if _, ok := sp.eatKeyword("SET"); !ok {
-		return status.Errorf(codes.InvalidArgument, "syntax error: expected SET")
-	}
-	_, isLocal := sp.eatKeyword("LOCAL")
-	if !isLocal && parser.dialect == databasepb.DatabaseDialect_POSTGRESQL {
-		// Just eat and ignore the SESSION keyword if it exists, as SESSION is the default.
-		_, _ = sp.eatKeyword("SESSION")
-	}
-	identifier, err := sp.eatIdentifier()
-	if err != nil {
-		return err
-	}
-	if !sp.eatToken('=') {
-		// PostgreSQL supports both SET my_property TO <value> and SET my_property = <value>.
-		if parser.dialect == databasepb.DatabaseDialect_POSTGRESQL {
-			if _, ok := sp.eatKeyword("TO"); !ok {
-				return status.Errorf(codes.InvalidArgument, "missing {=|to} in SET statement")
-			}
-		} else {
-			return status.Errorf(codes.InvalidArgument, "missing = in SET statement")
-		}
-	}
-	literalValue, err := sp.eatLiteral()
-	if err != nil {
-		return err
-	}
-	if sp.hasMoreTokens() {
-		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
-	}
-	s.query = query
-	s.identifier = identifier
-	s.literal = literalValue
-	s.isLocal = isLocal
-	return nil
-}
-
-func (s *parsedSetStatement) executableStatement(c *conn) *executableClientSideStatement {
-	return &executableClientSideStatement{
-		conn:   c,
-		query:  s.query,
-		params: s.literal.value,
-		clientSideStatement: &clientSideStatement{
-			Name:         "SET",
-			execContext:  s.execContext,
-			queryContext: s.queryContext,
-		},
-	}
-}
-
-func (s *parsedSetStatement) execContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
-	if err := c.setConnectionVariable(s.identifier, s.literal.value, s.isLocal); err != nil {
+func (s *executableSetStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+	if err := c.setConnectionVariable(s.stmt.Identifier, s.stmt.Literal.Value, s.stmt.IsLocal); err != nil {
 		return nil, err
 	}
 	return driver.ResultNoRows, nil
 }
 
-func (s *parsedSetStatement) queryContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
-	if err := c.setConnectionVariable(s.identifier, s.literal.value, s.isLocal); err != nil {
+func (s *executableSetStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
+	if err := c.setConnectionVariable(s.stmt.Identifier, s.stmt.Literal.Value, s.stmt.IsLocal); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
 }
 
 // RESET [my_extension.]my_property
-type parsedResetStatement struct {
-	query      string
-	identifier identifier
+type executableResetStatement struct {
+	stmt *parser.ParsedResetStatement
 }
 
-func (s *parsedResetStatement) parse(parser *statementParser, query string) error {
-	// Parse a statement of the form
-	// REST [my_extension.]my_property
-	sp := &simpleParser{sql: []byte(query), statementParser: parser}
-	if _, ok := sp.eatKeyword("RESET"); !ok {
-		return status.Error(codes.InvalidArgument, "statement does not start with RESET")
-	}
-	identifier, err := sp.eatIdentifier()
-	if err != nil {
-		return err
-	}
-	if sp.hasMoreTokens() {
-		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
-	}
-	s.query = query
-	s.identifier = identifier
-	return nil
-}
-
-func (s *parsedResetStatement) execContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
-	if err := c.setConnectionVariable(s.identifier, "default", false); err != nil {
+func (s *executableResetStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+	if err := c.setConnectionVariable(s.stmt.Identifier, "default", false); err != nil {
 		return nil, err
 	}
 	return driver.ResultNoRows, nil
 }
 
-func (s *parsedResetStatement) queryContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
-	if err := c.setConnectionVariable(s.identifier, "default", false); err != nil {
+func (s *executableResetStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
+	if err := c.setConnectionVariable(s.stmt.Identifier, "default", false); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
-}
-
-func (s *parsedResetStatement) executableStatement(c *conn) *executableClientSideStatement {
-	return &executableClientSideStatement{
-		conn:  c,
-		query: s.query,
-		clientSideStatement: &clientSideStatement{
-			Name:         "RESET",
-			execContext:  s.execContext,
-			queryContext: s.queryContext,
-		},
-	}
 }
 
 func createEmptyRows(opts *ExecOptions) *rows {
@@ -288,36 +149,16 @@ func createEmptyRows(opts *ExecOptions) *rows {
 	}
 }
 
-type parsedCreateDatabaseStatement struct {
-	query      string
-	identifier identifier
+type executableCreateDatabaseStatement struct {
+	stmt *parser.ParsedCreateDatabaseStatement
 }
 
-func (s *parsedCreateDatabaseStatement) parse(parser *statementParser, query string) error {
-	// Parse a statement of the form
-	// CREATE DATABASE <database-name>
-	sp := &simpleParser{sql: []byte(query), statementParser: parser}
-	if _, ok := sp.eatKeyword("CREATE"); !ok {
-		return status.Error(codes.InvalidArgument, "statement does not start with CREATE DATABASE")
-	}
-	if _, ok := sp.eatKeyword("DATABASE"); !ok {
-		return status.Error(codes.InvalidArgument, "statement does not start with CREATE DATABASE")
-	}
-	identifier, err := sp.eatIdentifier()
-	if err != nil {
-		return err
-	}
-	s.query = query
-	s.identifier = identifier
-	return nil
-}
-
-func (s *parsedCreateDatabaseStatement) execContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
+func (s *executableCreateDatabaseStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
 	instance := fmt.Sprintf("projects/%s/instances/%s", c.connector.connectorConfig.Project, c.connector.connectorConfig.Instance)
 	request := &databasepb.CreateDatabaseRequest{
-		CreateStatement: s.query,
+		CreateStatement: s.stmt.Query(),
 		Parent:          instance,
-		DatabaseDialect: c.parser.dialect,
+		DatabaseDialect: c.parser.Dialect,
 	}
 	op, err := c.adminClient.CreateDatabase(ctx, request)
 	if err != nil {
@@ -329,55 +170,23 @@ func (s *parsedCreateDatabaseStatement) execContext(ctx context.Context, c *conn
 	return driver.ResultNoRows, nil
 }
 
-func (s *parsedCreateDatabaseStatement) queryContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
-	if _, err := s.execContext(ctx, c, params, opts, args); err != nil {
+func (s *executableCreateDatabaseStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
 }
 
-func (s *parsedCreateDatabaseStatement) executableStatement(c *conn) *executableClientSideStatement {
-	return &executableClientSideStatement{
-		conn:  c,
-		query: s.query,
-		clientSideStatement: &clientSideStatement{
-			Name:         "CREATE DATABASE",
-			execContext:  s.execContext,
-			queryContext: s.queryContext,
-		},
-	}
+type executableDropDatabaseStatement struct {
+	stmt *parser.ParsedDropDatabaseStatement
 }
 
-type parsedDropDatabaseStatement struct {
-	query      string
-	identifier identifier
-}
-
-func (s *parsedDropDatabaseStatement) parse(parser *statementParser, query string) error {
-	// Parse a statement of the form
-	// DROP DATABASE <database-name>
-	sp := &simpleParser{sql: []byte(query), statementParser: parser}
-	if _, ok := sp.eatKeyword("DROP"); !ok {
-		return status.Error(codes.InvalidArgument, "statement does not start with DROP DATABASE")
-	}
-	if _, ok := sp.eatKeyword("DATABASE"); !ok {
-		return status.Error(codes.InvalidArgument, "statement does not start with DROP DATABASE")
-	}
-	identifier, err := sp.eatIdentifier()
-	if err != nil {
-		return err
-	}
-	s.query = query
-	s.identifier = identifier
-	return nil
-}
-
-func (s *parsedDropDatabaseStatement) execContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
+func (s *executableDropDatabaseStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
 	database := fmt.Sprintf(
 		"projects/%s/instances/%s/databases/%s",
 		c.connector.connectorConfig.Project,
 		c.connector.connectorConfig.Instance,
-		s.identifier.String())
+		s.stmt.Identifier.String())
 	request := &databasepb.DropDatabaseRequest{
 		Database: database,
 	}
@@ -388,159 +197,61 @@ func (s *parsedDropDatabaseStatement) execContext(ctx context.Context, c *conn, 
 	return driver.ResultNoRows, nil
 }
 
-func (s *parsedDropDatabaseStatement) queryContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
-	if _, err := s.execContext(ctx, c, params, opts, args); err != nil {
+func (s *executableDropDatabaseStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
 }
 
-func (s *parsedDropDatabaseStatement) executableStatement(c *conn) *executableClientSideStatement {
-	return &executableClientSideStatement{
-		conn:  c,
-		query: s.query,
-		clientSideStatement: &clientSideStatement{
-			Name:         "DROP DATABASE",
-			execContext:  s.execContext,
-			queryContext: s.queryContext,
-		},
-	}
+type executableStartBatchStatement struct {
+	stmt *parser.ParsedStartBatchStatement
 }
 
-type parsedStartBatchStatement struct {
-	query string
-	tp    batchType
-}
-
-func (s *parsedStartBatchStatement) parse(parser *statementParser, query string) error {
-	// Parse a statement of the form
-	// START BATCH {DDL | DML}
-	sp := &simpleParser{sql: []byte(query), statementParser: parser}
-	if !sp.eatKeywords([]string{"START", "BATCH"}) {
-		return status.Error(codes.InvalidArgument, "statement does not start with START BATCH")
-	}
-	if _, ok := sp.eatKeyword("DML"); ok {
-		s.tp = dml
-	} else if _, ok := sp.eatKeyword("DDL"); ok {
-		s.tp = ddl
-	} else {
-		return status.Errorf(codes.InvalidArgument, "unexpected token at pos %d in %q, expected DML or DDL", sp.pos, sp.sql)
-	}
-	if sp.hasMoreTokens() {
-		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
-	}
-	s.query = query
-	return nil
-}
-
-func (s *parsedStartBatchStatement) execContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
-	switch s.tp {
-	case dml:
+func (s *executableStartBatchStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+	switch s.stmt.Type {
+	case parser.BatchTypeDml:
 		return c.startBatchDML( /*automatic = */ false)
-	case ddl:
+	case parser.BatchTypeDdl:
 		return c.startBatchDDL()
 	default:
-		return nil, status.Errorf(codes.FailedPrecondition, "unknown batch type: %v", s.tp)
+		return nil, status.Errorf(codes.FailedPrecondition, "unknown batch type: %v", s.stmt.Type)
 	}
 }
 
-func (s *parsedStartBatchStatement) queryContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
-	if _, err := s.execContext(ctx, c, params, opts, args); err != nil {
+func (s *executableStartBatchStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
 }
 
-func (s *parsedStartBatchStatement) executableStatement(c *conn) *executableClientSideStatement {
-	return &executableClientSideStatement{
-		conn:  c,
-		query: s.query,
-		clientSideStatement: &clientSideStatement{
-			Name:         "START BATCH",
-			execContext:  s.execContext,
-			queryContext: s.queryContext,
-		},
-	}
+type executableRunBatchStatement struct {
+	stmt *parser.ParsedRunBatchStatement
 }
 
-type parsedRunBatchStatement struct {
-	query string
-}
-
-func (s *parsedRunBatchStatement) parse(parser *statementParser, query string) error {
-	// Parse a statement of the form
-	// RUN BATCH
-	sp := &simpleParser{sql: []byte(query), statementParser: parser}
-	if !sp.eatKeywords([]string{"RUN", "BATCH"}) {
-		return status.Error(codes.InvalidArgument, "statement does not start with RUN BATCH")
-	}
-	if sp.hasMoreTokens() {
-		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
-	}
-	s.query = query
-	return nil
-}
-
-func (s *parsedRunBatchStatement) execContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
+func (s *executableRunBatchStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
 	return c.runBatch(ctx)
 }
 
-func (s *parsedRunBatchStatement) queryContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
-	if _, err := s.execContext(ctx, c, params, opts, args); err != nil {
+func (s *executableRunBatchStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
 }
 
-func (s *parsedRunBatchStatement) executableStatement(c *conn) *executableClientSideStatement {
-	return &executableClientSideStatement{
-		conn:  c,
-		query: s.query,
-		clientSideStatement: &clientSideStatement{
-			Name:         "RUN BATCH",
-			execContext:  s.execContext,
-			queryContext: s.queryContext,
-		},
-	}
+type executableAbortBatchStatement struct {
+	stmt *parser.ParsedAbortBatchStatement
 }
 
-type parsedAbortBatchStatement struct {
-	query string
-}
-
-func (s *parsedAbortBatchStatement) parse(parser *statementParser, query string) error {
-	// Parse a statement of the form
-	// ABORT BATCH
-	sp := &simpleParser{sql: []byte(query), statementParser: parser}
-	if !sp.eatKeywords([]string{"ABORT", "BATCH"}) {
-		return status.Error(codes.InvalidArgument, "statement does not start with ABORT BATCH")
-	}
-	if sp.hasMoreTokens() {
-		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
-	}
-	s.query = query
-	return nil
-}
-
-func (s *parsedAbortBatchStatement) execContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
+func (s *executableAbortBatchStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
 	return c.abortBatch()
 }
 
-func (s *parsedAbortBatchStatement) queryContext(ctx context.Context, c *conn, params string, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
-	if _, err := s.execContext(ctx, c, params, opts, args); err != nil {
+func (s *executableAbortBatchStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
-}
-
-func (s *parsedAbortBatchStatement) executableStatement(c *conn) *executableClientSideStatement {
-	return &executableClientSideStatement{
-		conn:  c,
-		query: s.query,
-		clientSideStatement: &clientSideStatement{
-			Name:         "ABORT BATCH",
-			execContext:  s.execContext,
-			queryContext: s.queryContext,
-		},
-	}
 }

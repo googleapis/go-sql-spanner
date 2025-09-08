@@ -1,4 +1,4 @@
-// Copyright 2021 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package spannerdriver
+package parser
 
 import (
 	"fmt"
@@ -356,7 +356,7 @@ SELECT 1`,
 			want: `SELECT 1`,
 		},
 	}
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,7 +477,7 @@ SELECT SchoolID FROM Roster`,
 			want:  "\xb0\xb0\xb0\x80SELECT",
 		},
 	}
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,20 +497,20 @@ func FuzzParseParameters(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, input string) {
-		parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+		parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _, err = parser.parseParameters(input)
+		_, _, err = parser.ParseParameters(input)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		parser, err = newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+		parser, err = NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _, err = parser.parseParameters(input)
+		_, _, err = parser.ParseParameters(input)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -899,14 +899,14 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 		},
 	}
 	for _, dialect := range []databasepb.DatabaseDialect{databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, databasepb.DatabaseDialect_POSTGRESQL} {
-		parser, err := newStatementParser(dialect, 1000)
+		parser, err := NewStatementParser(dialect, 1000)
 		if err != nil {
 			t.Fatal(err)
 		}
 		for name, tc := range tests {
 			t.Run(name, func(t *testing.T) {
 				sql := tc.input
-				gotSQL, got, err := parser.parseParameters(sql)
+				gotSQL, got, err := parser.ParseParameters(sql)
 				wantErr := expectedTestValue(dialect, tc.wantErr)
 				if err != nil && wantErr == nil {
 					t.Error(err)
@@ -1148,14 +1148,14 @@ SELECT * FROM PersonsTable WHERE id=$1`,
 					"select foo from bar where id=$tag$this is an invalid string and value=? order by value")),
 		},
 	}
-	parser, err := newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			sql := tc.input
-			gotSQL, got, err := parser.parseParameters(sql)
+			gotSQL, got, err := parser.ParseParameters(sql)
 			if err != nil && tc.wantErr == nil {
 				t.Error(err)
 			}
@@ -1303,7 +1303,7 @@ func TestFindParamsWithCommentsPostgreSQL(t *testing.T) {
 		},
 	}
 
-	parser, err := newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1343,21 +1343,21 @@ func FuzzFindParams(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, input string) {
-		parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+		parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _, _ = parser.parseParameters(input)
+		_, _, _ = parser.ParseParameters(input)
 
-		parser, err = newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+		parser, err = NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _, _ = parser.parseParameters(input)
+		_, _, _ = parser.ParseParameters(input)
 	})
 }
 
-// Note: The detectStatementType function does not check validity of a statement,
+// Note: The DetectStatementType function does not check validity of a statement,
 // only whether the statement begins with a DDL instruction.
 // Actual validity checks are performed by the database.
 func TestStatementIsDdl(t *testing.T) {
@@ -1528,12 +1528,12 @@ func TestStatementIsDdl(t *testing.T) {
 		},
 	}
 
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range tests {
-		got := parser.detectStatementType(tc.input).statementType == statementTypeDdl
+		got := parser.DetectStatementType(tc.input).StatementType == StatementTypeDdl
 		if got != tc.want {
 			t.Errorf("isDDL test failed, %s: wanted %t got %t.", tc.name, tc.want, got)
 		}
@@ -1545,7 +1545,7 @@ func FuzzIsDdl(f *testing.F) {
 		f.Add(sample)
 	}
 
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		f.Fatal(err)
 	}
@@ -1556,12 +1556,11 @@ func FuzzIsDdl(f *testing.F) {
 
 func TestParseClientSideStatement(t *testing.T) {
 	tests := []struct {
-		name       string
-		input      string
-		want       string
-		wantParams string
-		exec       bool
-		query      bool
+		name  string
+		input string
+		want  string
+		exec  bool
+		query bool
 	}{
 		{
 			name:  "Start DDL batch",
@@ -1612,45 +1611,33 @@ func TestParseClientSideStatement(t *testing.T) {
 			query: true,
 		},
 		{
-			name:       "SET Retry_Aborts_Internally",
-			input:      "set retry_aborts_internally = false",
-			want:       "SET",
-			wantParams: "false",
-			exec:       true,
+			name:  "SET Retry_Aborts_Internally",
+			input: "set retry_aborts_internally = false",
+			want:  "SET",
+			exec:  true,
 		},
 	}
 
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			statement, err := parser.parseClientSideStatement(&conn{logger: noopLogger, parser: parser}, tc.input)
+			statement, err := parser.ParseClientSideStatement(tc.input)
 			if err != nil {
 				t.Fatalf("failed to parse statement %s: %v", tc.name, err)
 			}
 			if statement == nil {
 				t.Fatalf("statement is not a client-side statement: %s", tc.input)
 			}
-			if tc.exec && statement.execContext == nil {
-				t.Errorf("execContext missing for %q", tc.input)
-			}
-			if tc.query && statement.queryContext == nil {
-				t.Errorf("queryContext missing for %q", tc.input)
-			}
 
 			var got string
 			if statement != nil {
-				got = statement.Name
+				got = statement.Name()
 			}
 			if got != tc.want {
 				t.Errorf("parseClientSideStatement test failed: %s\n Got: %s\nWant: %s.", tc.name, got, tc.want)
-			}
-			if tc.wantParams != "" {
-				if g, w := statement.params, tc.wantParams; g != w {
-					t.Errorf("params mismatch for %s\n Got: %v\nWant: %v", tc.name, g, w)
-				}
 			}
 		})
 	}
@@ -1662,31 +1649,31 @@ func FuzzParseClientSideStatement(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, input string) {
-		parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+		parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _ = parser.parseClientSideStatement(&conn{logger: noopLogger, parser: parser}, input)
+		_, _ = parser.ParseClientSideStatement(input)
 	})
 }
 
 func TestRemoveCommentsAndTrim_Errors(t *testing.T) {
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = parser.parseParameters("SELECT 'Hello World FROM SomeTable")
+	_, _, err = parser.ParseParameters("SELECT 'Hello World FROM SomeTable")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}
-	_, _, err = parser.parseParameters("SELECT 'Hello World\nFROM SomeTable")
+	_, _, err = parser.ParseParameters("SELECT 'Hello World\nFROM SomeTable")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}
 }
 
 func TestFindParams_Errors(t *testing.T) {
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2008,7 +1995,7 @@ func TestSkip(t *testing.T) {
 		},
 	}
 	for _, dialect := range []databasepb.DatabaseDialect{databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, databasepb.DatabaseDialect_POSTGRESQL} {
-		parser, err := newStatementParser(dialect, 1000)
+		parser, err := NewStatementParser(dialect, 1000)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2081,7 +2068,7 @@ func TestSkipStatementHint(t *testing.T) {
 			want:  "{@key=value}select * from foo",
 		},
 	}
-	statementParser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	statementParser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2149,7 +2136,7 @@ func TestReadKeyword(t *testing.T) {
 			want:  "Select",
 		},
 	}
-	statementParser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	statementParser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2204,7 +2191,7 @@ func TestEatDollarTag(t *testing.T) {
 			wantErr: true,
 		},
 	}
-	statementParser, err := newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+	statementParser, err := NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2278,7 +2265,7 @@ func TestEatDollarQuotedString(t *testing.T) {
 			wantErr: true,
 		},
 	}
-	statementParser, err := newStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+	statementParser, err := NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2305,100 +2292,99 @@ func TestEatDollarQuotedString(t *testing.T) {
 
 type detectStatementTypeTest struct {
 	input string
-	want  statementType
+	want  StatementType
 }
 
 func generateDetectStatementTypeTests() []detectStatementTypeTest {
 	return []detectStatementTypeTest{
 		{
 			input: "select 1",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "from test",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "with t as (select 1) select * from t",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "GRAPH FinGraph\nMATCH (n)\nRETURN LABELS(n) AS label, n.id",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "/* this is a comment */ -- this is also a comment\n @  { statement_hint_key=value } select 1",
-			want:  statementTypeQuery,
+			want:  StatementTypeQuery,
 		},
 		{
 			input: "update foo set bar=1 where true",
-			want:  statementTypeDml,
+			want:  StatementTypeDml,
 		},
 		{
 			input: "insert into foo (id, value) select 1, 'test'",
-			want:  statementTypeDml,
+			want:  StatementTypeDml,
 		},
 		{
 			input: "delete from foo where true",
-			want:  statementTypeDml,
+			want:  StatementTypeDml,
 		},
 		{
 			input: "delete from foo where true then return *",
-			want:  statementTypeDml,
+			want:  StatementTypeDml,
 		},
 		{
 			input: "create table foo (id int64) primary key (id)",
-			want:  statementTypeDdl,
+			want:  StatementTypeDdl,
 		},
 		{
 			input: "drop table if exists foo",
-			want:  statementTypeDdl,
+			want:  StatementTypeDdl,
 		},
 		{
 			input: "input from borkisland",
-			want:  statementTypeUnknown,
+			want:  StatementTypeUnknown,
 		},
 		{
 			input: "start batch ddl",
-			want:  statementTypeClientSide,
+			want:  StatementTypeClientSide,
 		},
 		{
 			input: "set autocommit_dml_mode = 'partitioned_non_atomic'",
-			want:  statementTypeClientSide,
+			want:  StatementTypeClientSide,
 		},
 		{
 			input: "show variable commit_timestamp",
-			want:  statementTypeClientSide,
+			want:  StatementTypeClientSide,
 		},
 		{
 			input: "run batch",
-			want:  statementTypeClientSide,
+			want:  StatementTypeClientSide,
 		},
 	}
 }
 
 func TestDetectStatementType(t *testing.T) {
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &conn{parser: parser}
 	tests := generateDetectStatementTypeTests()
 	for _, test := range tests {
-		if cs, err := parser.parseClientSideStatement(c, test.input); err != nil {
+		if cs, err := parser.ParseClientSideStatement(test.input); err != nil {
 			t.Errorf("failed to parse the statement as a client-side statement")
 		} else if cs != nil {
-			if g, w := statementTypeClientSide, test.want; g != w {
+			if g, w := StatementTypeClientSide, test.want; g != w {
 				t.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 			}
-		} else if g, w := parser.detectStatementType(test.input).statementType, test.want; g != w {
+		} else if g, w := parser.DetectStatementType(test.input).StatementType, test.want; g != w {
 			t.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 		}
 	}
 }
 
 func TestCachedParamsAreImmutable(t *testing.T) {
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2421,7 +2407,7 @@ func TestCachedParamsAreImmutable(t *testing.T) {
 func TestEatKeyword(t *testing.T) {
 	t.Parallel()
 
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2500,61 +2486,61 @@ func TestEatKeyword(t *testing.T) {
 func TestEatIdentifier(t *testing.T) {
 	t.Parallel()
 
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	tests := []struct {
 		input   string
-		want    identifier
+		want    Identifier
 		wantErr bool
 	}{
 		{
 			input: "my_property",
-			want:  identifier{parts: []string{"my_property"}},
+			want:  Identifier{Parts: []string{"my_property"}},
 		},
 		{
 			input: "`my_property`",
-			want:  identifier{parts: []string{"my_property"}},
+			want:  Identifier{Parts: []string{"my_property"}},
 		},
 		{
 			input: "my_extension.my_property",
-			want:  identifier{parts: []string{"my_extension", "my_property"}},
+			want:  Identifier{Parts: []string{"my_extension", "my_property"}},
 		},
 		{
 			input: "`my_extension`.`my_property`",
-			want:  identifier{parts: []string{"my_extension", "my_property"}},
+			want:  Identifier{Parts: []string{"my_extension", "my_property"}},
 		},
 		{
 			// spaces are allowed
 			input: " \n my_extension  . \t my_property   ",
-			want:  identifier{parts: []string{"my_extension", "my_property"}},
+			want:  Identifier{Parts: []string{"my_extension", "my_property"}},
 		},
 		{
 			// spaces are allowed
 			input: " \n `my_extension`  . \t `my_property`   ",
-			want:  identifier{parts: []string{"my_extension", "my_property"}},
+			want:  Identifier{Parts: []string{"my_extension", "my_property"}},
 		},
 		{
 			// comments are treated the same as spaces and are allowed
 			input: " /* comment */ \n my_extension  -- yet another comment\n. \t -- Also a comment \nmy_property   ",
-			want:  identifier{parts: []string{"my_extension", "my_property"}},
+			want:  Identifier{Parts: []string{"my_extension", "my_property"}},
 		},
 		{
 			input: "p1.p2.p3.p4",
-			want:  identifier{parts: []string{"p1", "p2", "p3", "p4"}},
+			want:  Identifier{Parts: []string{"p1", "p2", "p3", "p4"}},
 		},
 		{
 			input: "`p1`.`p2`.`p3`.`p4`",
-			want:  identifier{parts: []string{"p1", "p2", "p3", "p4"}},
+			want:  Identifier{Parts: []string{"p1", "p2", "p3", "p4"}},
 		},
 		{
 			input: "`p1`.p2.`p3`.p4",
-			want:  identifier{parts: []string{"p1", "p2", "p3", "p4"}},
+			want:  Identifier{Parts: []string{"p1", "p2", "p3", "p4"}},
 		},
 		{
 			input: "a.b.c",
-			want:  identifier{parts: []string{"a", "b", "c"}},
+			want:  Identifier{Parts: []string{"a", "b", "c"}},
 		},
 		{
 			input:   "1a",
@@ -2584,11 +2570,11 @@ func TestEatIdentifier(t *testing.T) {
 		},
 		{
 			input: "`p1 /* looks like a comment */ `.`p2`",
-			want:  identifier{parts: []string{"p1 /* looks like a comment */ ", "p2"}},
+			want:  Identifier{Parts: []string{"p1 /* looks like a comment */ ", "p2"}},
 		},
 		{
 			input: "```p1 -- looks like a comment\n ```.`p2`",
-			want:  identifier{parts: []string{"p1 -- looks like a comment\n ", "p2"}},
+			want:  Identifier{Parts: []string{"p1 -- looks like a comment\n ", "p2"}},
 		},
 	}
 	for _, test := range tests {
@@ -2603,11 +2589,11 @@ func TestEatIdentifier(t *testing.T) {
 		if test.wantErr {
 			t.Fatalf("%s\nmissing expected error", test.input)
 		}
-		if g, w := len(id.parts), len(test.want.parts); g != w {
+		if g, w := len(id.Parts), len(test.want.Parts); g != w {
 			t.Fatalf("%s\nidentifier parts length mismatch\n Got: %v\nWant: %v", test.input, g, w)
 		}
-		for i := range id.parts {
-			if g, w := id.parts[i], test.want.parts[i]; g != w {
+		for i := range id.Parts {
+			if g, w := id.Parts[i], test.want.Parts[i]; g != w {
 				t.Fatalf("%s\n%d: identifier part mismatch\n Got: %v\nWant: %v", test.input, i, g, w)
 			}
 		}
@@ -2615,7 +2601,7 @@ func TestEatIdentifier(t *testing.T) {
 }
 
 func BenchmarkDetectStatementTypeWithoutCache(b *testing.B) {
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 0)
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 0)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -2623,25 +2609,24 @@ func BenchmarkDetectStatementTypeWithoutCache(b *testing.B) {
 }
 
 func BenchmarkDetectStatementTypeWithCache(b *testing.B) {
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		b.Fatal(err)
 	}
 	benchmarkDetectStatementType(b, parser)
 }
 
-func benchmarkDetectStatementType(b *testing.B, parser *statementParser) {
-	c := &conn{parser: parser}
+func benchmarkDetectStatementType(b *testing.B, parser *StatementParser) {
 	tests := generateDetectStatementTypeTests()
 	for b.Loop() {
 		for _, test := range tests {
-			if cs, err := parser.parseClientSideStatement(c, test.input); err != nil {
+			if cs, err := parser.ParseClientSideStatement(test.input); err != nil {
 				b.Errorf("failed to parse the statement as a client-side statement")
 			} else if cs != nil {
-				if g, w := statementTypeClientSide, test.want; g != w {
+				if g, w := StatementTypeClientSide, test.want; g != w {
 					b.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 				}
-			} else if g, w := parser.detectStatementType(test.input).statementType, test.want; g != w {
+			} else if g, w := parser.DetectStatementType(test.input).StatementType, test.want; g != w {
 				b.Errorf("statement type mismatch for %q\n Got: %v\nWant: %v", test.input, g, w)
 			}
 		}
