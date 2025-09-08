@@ -2099,6 +2099,39 @@ func TestQueryWithDuplicateNamedParameter(t *testing.T) {
 	}
 }
 
+func TestQueryWithDuplicateNamedParameterStartingWithUnderscore(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	// database/sql does not allow named arguments to start with an underscore.
+	// The Spanner database/sql driver allows a workaround for this by specifying those named arguments with a
+	// SpannerNamedArg.
+	s := "insert into users (id, name) values (@__name, @__name)"
+	_ = server.TestSpanner.PutStatementResult(s, &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	_, err := db.Exec(s, sql.Named("p__name", SpannerNamedArg{NameInQuery: "__name", Value: "foo"}), sql.Named("p__name", SpannerNamedArg{NameInQuery: "__name", Value: "bar"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify that 'bar' is used for both instances of the parameter @__name.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 1 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := len(req.Params.Fields), 1; g != w {
+		t.Fatalf("params count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := req.Params.Fields["__name"].GetStringValue(), "bar"; g != w {
+		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
 func TestQueryWithReusedNamedParameter(t *testing.T) {
 	t.Parallel()
 
@@ -2125,6 +2158,36 @@ func TestQueryWithReusedNamedParameter(t *testing.T) {
 		t.Fatalf("params count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	if g, w := req.Params.Fields["name"].GetStringValue(), "foo"; g != w {
+		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestQueryWithReusedNamedParameterStartingWithUnderscore(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	s := "insert into users (id, name) values (@__name, @__name)"
+	_ = server.TestSpanner.PutStatementResult(s, &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	_, err := db.Exec(s, sql.Named("p__name", SpannerNamedArg{NameInQuery: "__name", Value: "foo"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify that 'foo' is used for both instances of the parameter @__name.
+	requests := drainRequestsFromServer(server.TestSpanner)
+	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 1 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := len(req.Params.Fields), 1; g != w {
+		t.Fatalf("params count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := req.Params.Fields["__name"].GetStringValue(), "foo"; g != w {
 		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
