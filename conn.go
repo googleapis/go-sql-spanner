@@ -836,9 +836,13 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 		return nil, err
 	}
 	statementType := c.parser.DetectStatementType(query)
-	// DDL statements are not supported in QueryContext so fail early.
+	// DDL statements are not supported in QueryContext so use the execContext method for the execution.
 	if statementType.StatementType == parser.StatementTypeDdl {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "QueryContext does not support DDL statements, use ExecContext instead"))
+		res, err := c.execContext(ctx, query, execOptions, args)
+		if err != nil {
+			return nil, err
+		}
+		return createDriverResultRows(res, execOptions), nil
 	}
 	var iter rowIterator
 	if c.tx == nil {

@@ -16,12 +16,15 @@ package spannerdriver
 
 import (
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"testing"
 
 	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
+	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -151,5 +154,72 @@ func TestRows_Next_Unsupported(t *testing.T) {
 	const expectedError = "unsupported type TYPE_CODE_UNSPECIFIED, use spannerdriver.ExecOptions{DecodeOption: spannerdriver.DecodeOptionProto} to return the underlying protobuf value"
 	if err.Error() != expectedError {
 		t.Fatalf("expected error %q, but got %q", expectedError, err.Error())
+	}
+}
+
+func TestEmptyRows(t *testing.T) {
+	r := createDriverResultRows(&result{}, &ExecOptions{})
+
+	if g, w := r.Columns(), []string{"affected_rows"}; !cmp.Equal(g, w) {
+		t.Fatalf("columns mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if r.HasNextResultSet() {
+		t.Fatalf("unexpected next result set available")
+	}
+}
+
+func TestEmptyRowsWithMetadataAndStats(t *testing.T) {
+	r := createDriverResultRows(&result{}, &ExecOptions{ReturnResultSetMetadata: true, ReturnResultSetStats: true})
+
+	// The first result set should contain ResultSetMetadata.
+	if g, w := r.Columns(), []string{"metadata"}; !cmp.Equal(g, w) {
+		t.Fatalf("columns mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	values := make([]driver.Value, 1)
+	if err := r.Next(values); err != nil {
+		t.Fatalf("unexpected error from Next: %v", err)
+	}
+	if g, w := reflect.TypeOf(values[0]), reflect.TypeOf(&sppb.ResultSetMetadata{}); g != w {
+		t.Fatalf("result set metadata type mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := r.Next(values), io.EOF; !errors.Is(g, w) {
+		t.Fatalf("next result set mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// The second result set should contain the actual data (which is empty).
+	if !r.HasNextResultSet() {
+		t.Fatalf("missing next result set")
+	}
+	if err := r.NextResultSet(); err != nil {
+		t.Fatalf("unexpected error from NextResultSet: %v", err)
+	}
+	if g, w := r.Columns(), []string{"affected_rows"}; !cmp.Equal(g, w) {
+		t.Fatalf("columns mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	// There should be no data.
+	if g, w := r.Next(values), io.EOF; !errors.Is(g, w) {
+		t.Fatalf("next result set mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// The third result set should contain ResultSetStats.
+	if !r.HasNextResultSet() {
+		t.Fatalf("missing next result set")
+	}
+	if err := r.NextResultSet(); err != nil {
+		t.Fatalf("unexpected error from NextResultSet: %v", err)
+	}
+	if err := r.Next(values); err != nil {
+		t.Fatalf("unexpected error from Next: %v", err)
+	}
+	if g, w := reflect.TypeOf(values[0]), reflect.TypeOf(&sppb.ResultSetStats{}); g != w {
+		t.Fatalf("result set stats type mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := r.Next(values), io.EOF; !errors.Is(g, w) {
+		t.Fatalf("next result set mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// There should be no more result sets.
+	if r.HasNextResultSet() {
+		t.Fatalf("unexpected next result set available")
 	}
 }
