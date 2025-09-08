@@ -158,15 +158,15 @@ public class SharedLibSpanner : ISpanner
         return handler.Length == 0 ? null : ResultSetStats.Parser.ParseFrom(handler.Value());
     }
 
-    public ListValue? Next(Rows rows)
+    public ListValue? Next(Rows rows, int numRows, ISpanner.RowEncoding encoding)
     {
-        using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.Next(rows.Connection.Pool.Id, rows.Connection.Id, rows.Id));
+        using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.Next(rows.Connection.Pool.Id, rows.Connection.Id, rows.Id, numRows, (int) encoding));
         return handler.Length == 0 ? null : ListValue.Parser.ParseFrom(handler.Value());
     }
 
-    public async Task<ListValue?> NextAsync(Rows rows)
+    public async Task<ListValue?> NextAsync(Rows rows, int numRows, ISpanner.RowEncoding encoding)
     {
-        return await Task.Run(() => Next(rows));
+        return await Task.Run(() => Next(rows, numRows, encoding));
     }
 
     public void CloseRows(Rows rows)

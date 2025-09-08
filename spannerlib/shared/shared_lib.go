@@ -54,6 +54,7 @@ func pin(msg *lib.Message) (int64, int32, int64, int32, unsafe.Pointer) {
 }
 
 // CreatePool creates a pool of database connections. A Pool is equivalent to a *sql.DB.
+// All connections that are created from a pool share the same underlying Spanner client.
 //
 //export CreatePool
 func CreatePool(dsn string) (int64, int32, int64, int32, unsafe.Pointer) {
@@ -61,7 +62,7 @@ func CreatePool(dsn string) (int64, int32, int64, int32, unsafe.Pointer) {
 	return pin(msg)
 }
 
-// ClosePool closes a previously opened Pool.
+// ClosePool closes a previously opened Pool. All connections in the pool are also closed.
 //
 //export ClosePool
 func ClosePool(id int64) (int64, int32, int64, int32, unsafe.Pointer) {
@@ -81,6 +82,9 @@ func CreateConnection(poolId int64) (int64, int32, int64, int32, unsafe.Pointer)
 	return pin(msg)
 }
 
+// CloseConnection closes a previously opened connection and releases all resources
+// associated with the connection.
+//
 //export CloseConnection
 func CloseConnection(poolId, connId int64) (int64, int32, int64, int32, unsafe.Pointer) {
 	msg := lib.CloseConnection(poolId, connId)
@@ -155,12 +159,11 @@ func ResultSetStats(poolId, connId, rowsId int64) (int64, int32, int64, int32, u
 // ListValue that contains all the columns of the row. The message is empty if there are
 // no more rows in the Rows object.
 //
-// TODO: Add support for:
-//  1. Fetching more than one row at a time.
-//  2. Specifying the return type (e.g. proto, struct, ...)
-//
 //export Next
-func Next(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+func Next(poolId, connId, rowsId int64, numRows int32, encodeRowOption int32) (int64, int32, int64, int32, unsafe.Pointer) {
+	// TODO: Implement support for:
+	//  1. Fetching more than one row at a time.
+	//  2. Specifying the return type (e.g. proto, struct, ...)
 	msg := lib.Next(poolId, connId, rowsId)
 	return pin(msg)
 }

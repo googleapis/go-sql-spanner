@@ -8,7 +8,6 @@ namespace Google.Cloud.SpannerLib.Native
     public static class SpannerLib
     {
         private const string SpannerLibName = "spannerlib";
-        //private const string SpannerLibName = "/Users/loite/CLionProjects/spannerlib/cmake-build-release/libspannerlib.dylib";
         
         [DllImport(SpannerLibName, EntryPoint = "Release")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
@@ -61,7 +60,7 @@ namespace Google.Cloud.SpannerLib.Native
 
         [DllImport(SpannerLibName, EntryPoint = "Next")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
-        internal static extern Message Next(long poolId, long connectionId, long rowsId);
+        internal static extern Message Next(long poolId, long connectionId, long rowsId, int numRows, int encodeRowOption);
 
         [DllImport(SpannerLibName, EntryPoint = "CloseRows")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]

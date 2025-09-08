@@ -149,7 +149,7 @@ public class GrpcLibSpanner : ISpanner
         return _lib.ResultSetStats(ToProto(rows));
     }
 
-    public ListValue? Next(Rows rows)
+    public ListValue? Next(Rows rows, int numRows, ISpanner.RowEncoding encoding)
     {
         var row = _lib.Next(ToProto(rows));
         if (row.Values.Count == 0)
@@ -159,13 +159,13 @@ public class GrpcLibSpanner : ISpanner
         return row;
     }
 
-    public async Task<ListValue?> NextAsync(Rows rows)
+    public async Task<ListValue?> NextAsync(Rows rows, int numRows, ISpanner.RowEncoding encoding)
     {
         if (_streams.TryGetValue(rows.Connection.Id, out var stream))
         {
             return await NextStreaming(stream, rows);
         }
-        return await Task.Run(() => Next(rows));
+        return await Task.Run(() => Next(rows, numRows, encoding));
     }
 
     private async Task<ListValue?> NextStreaming(AsyncDuplexStreamingCall<ConnectionStreamRequest, ConnectionStreamResponse> stream, Rows rows)

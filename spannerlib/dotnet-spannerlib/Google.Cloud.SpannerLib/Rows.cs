@@ -70,7 +70,7 @@ public class Rows : AbstractLibObject
     {
         if (_stream == null)
         {
-            var res = Spanner.Next(this);
+            var res = Spanner.Next(this, 1, ISpanner.RowEncoding.Proto);
             if (res == null && !_stats.IsValueCreated)
             {
                 // initialize stats.
@@ -95,7 +95,7 @@ public class Rows : AbstractLibObject
     {
         if (_stream == null)
         {
-            return await Spanner.NextAsync(this);
+            return await Spanner.NextAsync(this, 1, ISpanner.RowEncoding.Proto);
         }
         if (await _stream.ResponseStream.MoveNext())
         {

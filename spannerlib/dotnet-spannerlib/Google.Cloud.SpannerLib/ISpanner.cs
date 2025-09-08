@@ -6,6 +6,11 @@ namespace Google.Cloud.SpannerLib;
 
 public interface ISpanner
 {
+    public enum RowEncoding
+    {
+        Proto,
+    }
+    
     public Pool CreatePool(string dsn);
 
     public void ClosePool(Pool pool);
@@ -34,9 +39,9 @@ public interface ISpanner
 
     public ResultSetStats? Stats(Rows rows);
 
-    public ListValue? Next(Rows rows);
+    public ListValue? Next(Rows rows, int numRows, RowEncoding encoding);
     
-    public Task<ListValue?> NextAsync(Rows rows);
+    public Task<ListValue?> NextAsync(Rows rows, int numRows, RowEncoding encoding);
 
     public void CloseRows(Rows rows);
 

@@ -13,6 +13,12 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+type EncodeRowOption int32
+
+const (
+	EncodeRowOptionProto EncodeRowOption = iota
+)
+
 func Metadata(poolId, connId, rowsId int64) (*spannerpb.ResultSetMetadata, error) {
 	res, err := findRows(poolId, connId, rowsId)
 	if err != nil {
