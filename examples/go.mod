@@ -7,7 +7,7 @@ toolchain go1.24.3
 replace github.com/googleapis/go-sql-spanner => ../
 
 require (
-	cloud.google.com/go v0.121.6
+	cloud.google.com/go v0.122.0
 	cloud.google.com/go/spanner v1.85.0
 	github.com/docker/docker v28.3.3+incompatible
 	github.com/docker/go-connections v0.5.0
@@ -50,7 +50,6 @@ require (
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
-	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.6 // indirect
