@@ -2,10 +2,10 @@ module github.com/googleapis/go-sql-spanner
 
 go 1.24.0
 
-toolchain go1.25.0
+toolchain go1.25.1
 
 require (
-	cloud.google.com/go v0.121.6
+	cloud.google.com/go v0.122.0
 	cloud.google.com/go/longrunning v0.6.7
 	cloud.google.com/go/spanner v1.85.0
 	github.com/golang/protobuf v1.5.4
