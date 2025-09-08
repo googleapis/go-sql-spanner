@@ -163,8 +163,8 @@ func TestPrepareWithValuerScanner(t *testing.T) {
 		t.Fatalf("failed to close rows: %v", err)
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), 1; g != w {
 		t.Fatalf("number of execute requests mismatch\n Got: %v\nWant: %v", g, w)
 	}

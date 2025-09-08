@@ -27,6 +27,7 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/testutil"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -43,12 +44,12 @@ func TestBeginTx(t *testing.T) {
 	_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
 	_ = tx.Rollback()
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
 	if g, w := len(beginRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), 1; g != w {
 		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -58,6 +59,25 @@ func TestBeginTx(t *testing.T) {
 	}
 	if g, w := request.GetTransaction().GetBegin().GetIsolationLevel(), spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED; g != w {
 		t.Fatalf("begin isolation level mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestTwoTransactionsOnOneConn(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	c, _ := db.Conn(ctx)
+	tx1, err := c.BeginTx(ctx, &sql.TxOptions{})
+	defer func() { _ = tx1.Rollback() }()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.BeginTx(ctx, &sql.TxOptions{})
+	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Fatalf("BeginTx error code mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
@@ -92,12 +112,12 @@ func TestExplicitBeginTx(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
 		if g, w := len(beginRequests), 1; g != w {
 			t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 		if g, w := len(executeRequests), 1; g != w {
 			t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -134,12 +154,12 @@ func TestBeginTxWithIsolationLevel(t *testing.T) {
 			_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
 			_ = tx.Rollback()
 
-			requests := drainRequestsFromServer(server.TestSpanner)
-			beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+			requests := server.TestSpanner.DrainRequestsFromServer()
+			beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
 			if g, w := len(beginRequests), 0; g != w {
 				t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 			}
-			executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+			executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 			if g, w := len(executeRequests), 1; g != w {
 				t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 			}
@@ -227,12 +247,12 @@ func TestDefaultIsolationLevel(t *testing.T) {
 			_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
 			_ = tx.Rollback()
 
-			requests := drainRequestsFromServer(server.TestSpanner)
-			beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+			requests := server.TestSpanner.DrainRequestsFromServer()
+			beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
 			if g, w := len(beginRequests), 0; g != w {
 				t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 			}
-			executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+			executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 			if g, w := len(executeRequests), 1; g != w {
 				t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 			}
@@ -301,8 +321,8 @@ func TestIsolationLevelAutoCommit(t *testing.T) {
 			IsolationLevel: spannerLevel,
 		}})
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 		if g, w := len(executeRequests), 1; g != w {
 			t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -344,12 +364,12 @@ func TestDefaultReadLockMode(t *testing.T) {
 		_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
 		_ = tx.Rollback()
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
 		if g, w := len(beginRequests), 0; g != w {
 			t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 		if g, w := len(executeRequests), 1; g != w {
 			t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -411,8 +431,8 @@ func TestReadLockModeAutoCommit(t *testing.T) {
 			ReadLockMode: readLockMode,
 		}})
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 		if g, w := len(executeRequests), 1; g != w {
 			t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -446,12 +466,12 @@ func TestSetLocalReadLockMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
 	if g, w := len(beginRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), 1; g != w {
 		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -474,12 +494,12 @@ func TestSetLocalReadLockMode(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	requests = drainRequestsFromServer(server.TestSpanner)
-	beginRequests = requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+	requests = server.TestSpanner.DrainRequestsFromServer()
+	beginRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
 	if g, w := len(beginRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	executeRequests = requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	executeRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), 1; g != w {
 		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -981,8 +1001,8 @@ func TestSetAndShowIsolationLevel(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	requests := drainRequestsFromServer(server.TestSpanner)
-	executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), 1; g != w {
 		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -1025,8 +1045,8 @@ func TestSetLocalIsolationLevel(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	requests := drainRequestsFromServer(server.TestSpanner)
-	executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), 1; g != w {
 		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}

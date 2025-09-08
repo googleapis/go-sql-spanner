@@ -20,6 +20,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -326,6 +327,7 @@ type InMemSpannerServer interface {
 	SetMaxSessionsReturnedByServerInTotal(sessionCount int32)
 
 	ReceivedRequests() chan interface{}
+	DrainRequestsFromServer() []interface{}
 	DumpSessions() map[string]bool
 	ClearPings()
 	DumpPings() []string
@@ -1185,6 +1187,30 @@ func (s *inMemSpannerServer) PartitionRead(ctx context.Context, req *spannerpb.P
 			req.Table,
 		),
 	})
+}
+
+func (s *inMemSpannerServer) DrainRequestsFromServer() []interface{} {
+	var reqs []interface{}
+loop:
+	for {
+		select {
+		case req := <-s.ReceivedRequests():
+			reqs = append(reqs, req)
+		default:
+			break loop
+		}
+	}
+	return reqs
+}
+
+func RequestsOfType(requests []interface{}, t reflect.Type) []interface{} {
+	res := make([]interface{}, 0)
+	for _, req := range requests {
+		if reflect.TypeOf(req) == t {
+			res = append(res, req)
+		}
+	}
+	return res
 }
 
 // EncodeResumeToken return mock resume token encoding for an uint64 integer.
