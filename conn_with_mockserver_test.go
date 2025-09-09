@@ -129,6 +129,80 @@ func TestExplicitBeginTx(t *testing.T) {
 	}
 }
 
+func TestExecuteBegin(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	for _, end := range []string{"rollback", "commit"} {
+		c, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.ExecContext(ctx, "begin transaction"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.ExecContext(ctx, end); err != nil {
+			t.Fatal(err)
+		}
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		requests := drainRequestsFromServer(server.TestSpanner)
+		beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+		if g, w := len(beginRequests), 0; g != w {
+			t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		if g, w := len(executeRequests), 1; g != w {
+			t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		request := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+		if request.GetTransaction() == nil || request.GetTransaction().GetBegin() == nil {
+			t.Fatal("missing begin transaction on ExecuteSqlRequest")
+		}
+		commitRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+		rollbackRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.RollbackRequest{}))
+		if end == "commit" {
+			if g, w := len(commitRequests), 1; g != w {
+				t.Fatalf("commit requests count mismatch\n Got: %v\nWant: %v", g, w)
+			}
+		} else if end == "rollback" {
+			if g, w := len(rollbackRequests), 1; g != w {
+				t.Fatalf("rollback requests count mismatch\n Got: %v\nWant: %v", g, w)
+			}
+		}
+	}
+}
+
+func TestEndTransactionWithoutBegin(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	for _, end := range []string{"rollback", "commit"} {
+		c, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = c.ExecContext(ctx, end)
+		if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+			t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestBeginTxWithIsolationLevel(t *testing.T) {
 	t.Parallel()
 

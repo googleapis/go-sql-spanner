@@ -39,11 +39,21 @@ func parseStatement(parser *StatementParser, keyword, query string) (ParsedState
 	} else if isDropKeyword(keyword) && isDropDatabase(parser, query) {
 		stmt = &ParsedDropDatabaseStatement{}
 	} else if isStartStatementKeyword(keyword) {
-		stmt = &ParsedStartBatchStatement{}
+		if parser.Dialect == databasepb.DatabaseDialect_POSTGRESQL && isStartTransaction(parser, query) {
+			stmt = &ParsedBeginStatement{}
+		} else {
+			stmt = &ParsedStartBatchStatement{}
+		}
 	} else if isRunStatementKeyword(keyword) {
 		stmt = &ParsedRunBatchStatement{}
 	} else if isAbortStatementKeyword(keyword) {
 		stmt = &ParsedAbortBatchStatement{}
+	} else if isBeginStatementKeyword(keyword) {
+		stmt = &ParsedBeginStatement{}
+	} else if isCommitStatementKeyword(keyword) {
+		stmt = &ParsedCommitStatement{}
+	} else if isRollbackStatementKeyword(keyword) {
+		stmt = &ParsedRollbackStatement{}
 	} else {
 		return nil, nil
 	}
@@ -55,10 +65,10 @@ func parseStatement(parser *StatementParser, keyword, query string) (ParsedState
 
 func isCreateDatabase(parser *StatementParser, query string) bool {
 	sp := &simpleParser{sql: []byte(query), statementParser: parser}
-	if _, ok := sp.eatKeyword("create"); !ok {
+	if !sp.eatKeyword("create") {
 		return false
 	}
-	if _, ok := sp.eatKeyword("database"); !ok {
+	if !sp.eatKeyword("database") {
 		return false
 	}
 	return true
@@ -66,13 +76,28 @@ func isCreateDatabase(parser *StatementParser, query string) bool {
 
 func isDropDatabase(parser *StatementParser, query string) bool {
 	sp := &simpleParser{sql: []byte(query), statementParser: parser}
-	if _, ok := sp.eatKeyword("drop"); !ok {
+	if !sp.eatKeyword("drop") {
 		return false
 	}
-	if _, ok := sp.eatKeyword("database"); !ok {
+	if !sp.eatKeyword("database") {
 		return false
 	}
 	return true
+}
+
+func isStartTransaction(parser *StatementParser, query string) bool {
+	sp := &simpleParser{sql: []byte(query), statementParser: parser}
+	if !sp.eatKeyword("start") {
+		return false
+	}
+	if !sp.hasMoreTokens() {
+		// START is a synonym for START TRANSACTION
+		return true
+	}
+	if sp.eatKeyword("transaction") || sp.eatKeyword("work") {
+		return true
+	}
+	return false
 }
 
 // ParsedShowStatement is a statement of the form
@@ -94,12 +119,12 @@ func (s *ParsedShowStatement) parse(parser *StatementParser, query string) error
 	// Parse a statement of the form
 	// SHOW [VARIABLE] [my_extension.]my_property
 	sp := &simpleParser{sql: []byte(query), statementParser: parser}
-	if _, ok := sp.eatKeyword("SHOW"); !ok {
+	if !sp.eatKeyword("SHOW") {
 		return status.Error(codes.InvalidArgument, "statement does not start with SHOW")
 	}
 	if parser.Dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL {
 		// Just eat and ignore the keyword VARIABLE.
-		if _, ok := sp.eatKeyword("VARIABLE"); !ok {
+		if !sp.eatKeyword("VARIABLE") {
 			return status.Error(codes.InvalidArgument, "missing keyword VARIABLE")
 		}
 	}
@@ -136,13 +161,13 @@ func (s *ParsedSetStatement) parse(parser *StatementParser, query string) error 
 	// Parse a statement of the form
 	// SET [SESSION | LOCAL] [my_extension.]my_property {=|to} <value>
 	sp := &simpleParser{sql: []byte(query), statementParser: parser}
-	if _, ok := sp.eatKeyword("SET"); !ok {
+	if !sp.eatKeyword("SET") {
 		return status.Errorf(codes.InvalidArgument, "syntax error: expected SET")
 	}
-	_, isLocal := sp.eatKeyword("LOCAL")
+	isLocal := sp.eatKeyword("LOCAL")
 	if !isLocal && parser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
 		// Just eat and ignore the SESSION keyword if it exists, as SESSION is the default.
-		_, _ = sp.eatKeyword("SESSION")
+		_ = sp.eatKeyword("SESSION")
 	}
 	identifier, err := sp.eatIdentifier()
 	if err != nil {
@@ -151,7 +176,7 @@ func (s *ParsedSetStatement) parse(parser *StatementParser, query string) error 
 	if !sp.eatToken('=') {
 		// PostgreSQL supports both SET my_property TO <value> and SET my_property = <value>.
 		if parser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
-			if _, ok := sp.eatKeyword("TO"); !ok {
+			if !sp.eatKeyword("TO") {
 				return status.Errorf(codes.InvalidArgument, "missing {=|to} in SET statement")
 			}
 		} else {
@@ -191,7 +216,7 @@ func (s *ParsedResetStatement) parse(parser *StatementParser, query string) erro
 	// Parse a statement of the form
 	// REST [my_extension.]my_property
 	sp := &simpleParser{sql: []byte(query), statementParser: parser}
-	if _, ok := sp.eatKeyword("RESET"); !ok {
+	if !sp.eatKeyword("RESET") {
 		return status.Error(codes.InvalidArgument, "statement does not start with RESET")
 	}
 	identifier, err := sp.eatIdentifier()
@@ -223,10 +248,10 @@ func (s *ParsedCreateDatabaseStatement) parse(parser *StatementParser, query str
 	// Parse a statement of the form
 	// CREATE DATABASE <database-name>
 	sp := &simpleParser{sql: []byte(query), statementParser: parser}
-	if _, ok := sp.eatKeyword("CREATE"); !ok {
+	if !sp.eatKeyword("CREATE") {
 		return status.Error(codes.InvalidArgument, "statement does not start with CREATE DATABASE")
 	}
-	if _, ok := sp.eatKeyword("DATABASE"); !ok {
+	if !sp.eatKeyword("DATABASE") {
 		return status.Error(codes.InvalidArgument, "statement does not start with CREATE DATABASE")
 	}
 	identifier, err := sp.eatIdentifier()
@@ -255,10 +280,10 @@ func (s *ParsedDropDatabaseStatement) parse(parser *StatementParser, query strin
 	// Parse a statement of the form
 	// DROP DATABASE <database-name>
 	sp := &simpleParser{sql: []byte(query), statementParser: parser}
-	if _, ok := sp.eatKeyword("DROP"); !ok {
+	if !sp.eatKeyword("DROP") {
 		return status.Error(codes.InvalidArgument, "statement does not start with DROP DATABASE")
 	}
-	if _, ok := sp.eatKeyword("DATABASE"); !ok {
+	if !sp.eatKeyword("DATABASE") {
 		return status.Error(codes.InvalidArgument, "statement does not start with DROP DATABASE")
 	}
 	identifier, err := sp.eatIdentifier()
@@ -297,9 +322,9 @@ func (s *ParsedStartBatchStatement) parse(parser *StatementParser, query string)
 	if !sp.eatKeywords([]string{"START", "BATCH"}) {
 		return status.Error(codes.InvalidArgument, "statement does not start with START BATCH")
 	}
-	if _, ok := sp.eatKeyword("DML"); ok {
+	if sp.eatKeyword("DML") {
 		s.Type = BatchTypeDml
-	} else if _, ok := sp.eatKeyword("DDL"); ok {
+	} else if sp.eatKeyword("DDL") {
 		s.Type = BatchTypeDdl
 	} else {
 		return status.Errorf(codes.InvalidArgument, "unexpected token at pos %d in %q, expected DML or DDL", sp.pos, sp.sql)
@@ -356,6 +381,126 @@ func (s *ParsedAbortBatchStatement) parse(parser *StatementParser, query string)
 	if !sp.eatKeywords([]string{"ABORT", "BATCH"}) {
 		return status.Error(codes.InvalidArgument, "statement does not start with ABORT BATCH")
 	}
+	if sp.hasMoreTokens() {
+		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
+	}
+	s.query = query
+	return nil
+}
+
+type ParsedBeginStatement struct {
+	query string
+}
+
+func (s *ParsedBeginStatement) Name() string {
+	return "BEGIN"
+}
+
+func (s *ParsedBeginStatement) Query() string {
+	return s.query
+}
+
+func (s *ParsedBeginStatement) parse(parser *StatementParser, query string) error {
+	// Parse a statement of the form
+	// GoogleSQL: BEGIN [TRANSACTION]
+	// PostgreSQL: {START | BEGIN} [{TRANSACTION | WORK}] (https://www.postgresql.org/docs/current/sql-begin.html)
+	sp := &simpleParser{sql: []byte(query), statementParser: parser}
+	if sp.statementParser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		if !sp.eatKeyword("START") && !sp.eatKeyword("BEGIN") {
+			return status.Error(codes.InvalidArgument, "statement does not start with BEGIN or START")
+		}
+		// Just ignore the optional keywords TRANSACTION and WORK, but eat at most one of them.
+		if sp.eatKeyword("TRANSACTION") {
+			// ignore
+		} else if sp.eatKeyword("WORK") {
+			// ignore
+		}
+	} else {
+		if !sp.eatKeyword("BEGIN") {
+			return status.Error(codes.InvalidArgument, "statement does not start with BEGIN")
+		}
+		// Just ignore the optional TRANSACTION keyword.
+		_ = sp.eatKeyword("TRANSACTION")
+	}
+
+	if sp.hasMoreTokens() {
+		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
+	}
+	s.query = query
+	return nil
+}
+
+type ParsedCommitStatement struct {
+	query string
+}
+
+func (s *ParsedCommitStatement) Name() string {
+	return "COMMIT"
+}
+
+func (s *ParsedCommitStatement) Query() string {
+	return s.query
+}
+
+func (s *ParsedCommitStatement) parse(parser *StatementParser, query string) error {
+	// Parse a statement of the form
+	// GoogleSQL: COMMIT [TRANSACTION]
+	// PostgreSQL: COMMIT [{TRANSACTION | WORK}] (https://www.postgresql.org/docs/current/sql-commit.html)
+	sp := &simpleParser{sql: []byte(query), statementParser: parser}
+	if !sp.eatKeyword("COMMIT") {
+		return status.Error(codes.InvalidArgument, "statement does not start with COMMIT")
+	}
+	if sp.statementParser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		// Just ignore the optional keywords TRANSACTION and WORK, but eat at most one of them.
+		if sp.eatKeyword("TRANSACTION") {
+			// ignore
+		} else if sp.eatKeyword("WORK") {
+			// ignore
+		}
+	} else {
+		// Just ignore the optional TRANSACTION keyword.
+		_ = sp.eatKeyword("TRANSACTION")
+	}
+
+	if sp.hasMoreTokens() {
+		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
+	}
+	s.query = query
+	return nil
+}
+
+type ParsedRollbackStatement struct {
+	query string
+}
+
+func (s *ParsedRollbackStatement) Name() string {
+	return "ROLLBACK"
+}
+
+func (s *ParsedRollbackStatement) Query() string {
+	return s.query
+}
+
+func (s *ParsedRollbackStatement) parse(parser *StatementParser, query string) error {
+	// Parse a statement of the form
+	// GoogleSQL: ROLLBACK [TRANSACTION]
+	// PostgreSQL: ROLLBACK [{TRANSACTION | WORK}] (https://www.postgresql.org/docs/current/sql-rollback.html)
+	sp := &simpleParser{sql: []byte(query), statementParser: parser}
+	if !sp.eatKeyword("ROLLBACK") {
+		return status.Error(codes.InvalidArgument, "statement does not start with ROLLBACK")
+	}
+	if sp.statementParser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		// Just ignore the optional keywords TRANSACTION and WORK, but eat at most one of them.
+		if sp.eatKeyword("TRANSACTION") {
+			// ignore
+		} else if sp.eatKeyword("WORK") {
+			// ignore
+		}
+	} else {
+		// Just ignore the optional TRANSACTION keyword.
+		_ = sp.eatKeyword("TRANSACTION")
+	}
+
 	if sp.hasMoreTokens() {
 		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
 	}
