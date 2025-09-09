@@ -16,6 +16,7 @@ package parser
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
@@ -223,6 +224,156 @@ func TestParseSetStatement(t *testing.T) {
 				showStmt, ok := stmt.(*ParsedSetStatement)
 				if !ok {
 					t.Fatalf("parseStatement(%q) should have returned a *parsedSetStatement", test.input)
+				}
+				if !reflect.DeepEqual(*showStmt, test.want) {
+					t.Errorf("parseStatement(%q) = %v, want %v", test.input, *showStmt, test.want)
+				}
+			}
+		})
+	}
+}
+
+func TestParseBeginStatementGoogleSQL(t *testing.T) {
+	t.Parallel()
+
+	type test struct {
+		input   string
+		want    ParsedBeginStatement
+		wantErr bool
+	}
+	tests := []test{
+		{
+			input: "begin",
+			want: ParsedBeginStatement{
+				query: "begin",
+			},
+		},
+		{
+			input: "begin transaction",
+			want: ParsedBeginStatement{
+				query: "begin transaction",
+			},
+		},
+		{
+			input:   "start",
+			wantErr: true,
+		},
+		{
+			input:   "begin work",
+			wantErr: true,
+		},
+		{
+			input:   "begin transaction foo",
+			wantErr: true,
+		},
+	}
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			sp := &simpleParser{sql: []byte(test.input), statementParser: parser}
+			keyword := strings.ToUpper(sp.readKeyword())
+			stmt, err := parseStatement(parser, keyword, test.input)
+			if test.wantErr {
+				if err == nil {
+					t.Fatalf("parseStatement(%q) should have failed", test.input)
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				showStmt, ok := stmt.(*ParsedBeginStatement)
+				if !ok {
+					t.Fatalf("parseStatement(%q) should have returned a *parsedBeginStatement", test.input)
+				}
+				if !reflect.DeepEqual(*showStmt, test.want) {
+					t.Errorf("parseStatement(%q) = %v, want %v", test.input, *showStmt, test.want)
+				}
+			}
+		})
+	}
+}
+
+func TestParseBeginStatementPostgreSQL(t *testing.T) {
+	t.Parallel()
+
+	type test struct {
+		input   string
+		want    ParsedBeginStatement
+		wantErr bool
+	}
+	tests := []test{
+		{
+			input: "begin",
+			want: ParsedBeginStatement{
+				query: "begin",
+			},
+		},
+		{
+			input: "begin transaction",
+			want: ParsedBeginStatement{
+				query: "begin transaction",
+			},
+		},
+		{
+			input: "start",
+			want: ParsedBeginStatement{
+				query: "start",
+			},
+		},
+		{
+			input: "start transaction",
+			want: ParsedBeginStatement{
+				query: "start transaction",
+			},
+		},
+		{
+			input: "begin work",
+			want: ParsedBeginStatement{
+				query: "begin work",
+			},
+		},
+		{
+			input: "start work",
+			want: ParsedBeginStatement{
+				query: "start work",
+			},
+		},
+		{
+			input:   "start foo",
+			wantErr: true,
+		},
+		{
+			input:   "start work transaction",
+			wantErr: true,
+		},
+		{
+			input:   "begin transaction work",
+			wantErr: true,
+		},
+	}
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			sp := &simpleParser{sql: []byte(test.input), statementParser: parser}
+			keyword := strings.ToUpper(sp.readKeyword())
+			stmt, err := parseStatement(parser, keyword, test.input)
+			if test.wantErr {
+				if err == nil {
+					t.Fatalf("parseStatement(%q) should have failed", test.input)
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				showStmt, ok := stmt.(*ParsedBeginStatement)
+				if !ok {
+					t.Fatalf("parseStatement(%q) should have returned a *parsedBeginStatement", test.input)
 				}
 				if !reflect.DeepEqual(*showStmt, test.want) {
 					t.Errorf("parseStatement(%q) = %v, want %v", test.input, *showStmt, test.want)

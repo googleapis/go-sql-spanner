@@ -35,14 +35,17 @@ var updateStatements = map[string]bool{"UPDATE": true}
 var deleteStatements = map[string]bool{"DELETE": true}
 var dmlStatements = union(insertStatements, union(updateStatements, deleteStatements))
 var clientSideKeywords = map[string]bool{
-	"SHOW":   true,
-	"SET":    true,
-	"RESET":  true,
-	"START":  true,
-	"RUN":    true,
-	"ABORT":  true,
-	"CREATE": true, // CREATE DATABASE is handled as a client-side statement
-	"DROP":   true, // DROP DATABASE is handled as a client-side statement
+	"SHOW":     true,
+	"SET":      true,
+	"RESET":    true,
+	"START":    true,
+	"RUN":      true,
+	"ABORT":    true,
+	"BEGIN":    true,
+	"COMMIT":   true,
+	"ROLLBACK": true,
+	"CREATE":   true, // CREATE DATABASE is handled as a client-side statement
+	"DROP":     true, // DROP DATABASE is handled as a client-side statement
 }
 var createStatements = map[string]bool{"CREATE": true}
 var dropStatements = map[string]bool{"DROP": true}
@@ -52,6 +55,9 @@ var resetStatements = map[string]bool{"RESET": true}
 var startStatements = map[string]bool{"START": true}
 var runStatements = map[string]bool{"RUN": true}
 var abortStatements = map[string]bool{"ABORT": true}
+var beginStatements = map[string]bool{"BEGIN": true}
+var commitStatements = map[string]bool{"COMMIT": true}
+var rollbackStatements = map[string]bool{"ROLLBACK": true}
 
 func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 	res := make(map[string]bool, len(m1)+len(m2))
@@ -658,6 +664,18 @@ func isRunStatementKeyword(keyword string) bool {
 
 func isAbortStatementKeyword(keyword string) bool {
 	return isStatementKeyword(keyword, abortStatements)
+}
+
+func isBeginStatementKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, beginStatements)
+}
+
+func isCommitStatementKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, commitStatements)
+}
+
+func isRollbackStatementKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, rollbackStatements)
 }
 
 func isStatementKeyword(keyword string, keywords map[string]bool) bool {

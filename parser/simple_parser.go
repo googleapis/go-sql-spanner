@@ -282,7 +282,7 @@ func (p *simpleParser) eatLiteral() (Literal, error) {
 func (p *simpleParser) eatKeywords(keywords []string) bool {
 	startPos := p.pos
 	for _, keyword := range keywords {
-		if _, ok := p.eatKeyword(keyword); !ok {
+		if !p.eatKeyword(keyword) {
 			p.pos = startPos
 			return false
 		}
@@ -290,11 +290,18 @@ func (p *simpleParser) eatKeywords(keywords []string) bool {
 	return true
 }
 
-// eatKeyword eats the given keyword at the current position of the parser if it exists.
+// eatKeyword eats the given keyword at the current position of the parser if it exists
+// and returns true if the keyword was found. Otherwise, it returns false.
+func (p *simpleParser) eatKeyword(keyword string) bool {
+	_, ok := p.eatAndReturnKeyword(keyword)
+	return ok
+}
+
+// eatAndReturnKeyword eats the given keyword at the current position of the parser if it exists.
 //
 // Returns the actual keyword that was read and true if the keyword is found, and updates the position of the parser.
 // Returns an empty string and false without updating the position of the parser if the keyword was not found.
-func (p *simpleParser) eatKeyword(keyword string) (string, bool) {
+func (p *simpleParser) eatAndReturnKeyword(keyword string) (string, bool) {
 	startPos := p.pos
 	found := p.readKeyword()
 	if !strings.EqualFold(found, keyword) {
