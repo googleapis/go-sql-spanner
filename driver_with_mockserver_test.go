@@ -2118,8 +2118,8 @@ func TestQueryWithDuplicateNamedParameterStartingWithUnderscore(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Verify that 'bar' is used for both instances of the parameter @__name.
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if len(sqlRequests) != 1 {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
 	}
@@ -2178,8 +2178,8 @@ func TestQueryWithReusedNamedParameterStartingWithUnderscore(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Verify that 'foo' is used for both instances of the parameter @__name.
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if len(sqlRequests) != 1 {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
 	}
@@ -4567,7 +4567,7 @@ func TestRunTransaction(t *testing.T) {
 		if g, w := rwTx.ctx, ctx; g != w {
 			return fmt.Errorf("getting the transaction through reflection failed")
 		}
-		if rwTx.retryAborts {
+		if rwTx.retryAborts() {
 			return fmt.Errorf("internal retries should be disabled during RunTransaction")
 		}
 
@@ -5028,7 +5028,7 @@ func TestBeginReadWriteTransaction(t *testing.T) {
 		if g, w := rwTx.ctx, ctx; g != w {
 			t.Fatal("getting the transaction through reflection failed")
 		}
-		if rwTx.retryAborts {
+		if rwTx.retryAborts() {
 			t.Fatal("internal retries should be disabled during this transaction")
 		}
 

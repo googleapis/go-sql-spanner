@@ -21,6 +21,7 @@ import (
 	"errors"
 	"log/slog"
 	"slices"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -359,11 +360,6 @@ func (c *conn) SetRetryAbortsInternally(retry bool) error {
 }
 
 func (c *conn) setRetryAbortsInternally(retry bool) (driver.Result, error) {
-	if c.inTransaction() {
-		if _, err := c.tx.setRetryAbortsInternally(retry); err != nil {
-			return nil, err
-		}
-	}
 	if err := propertyRetryAbortsInternally.SetValue(c.state, retry, connectionstate.ContextUser); err != nil {
 		return nil, err
 	}
@@ -1175,9 +1171,8 @@ func (c *conn) BeginTx(ctx context.Context, driverOpts driver.TxOptions) (driver
 	if c.tempTransactionOptions != nil && c.tempTransactionOptions.close != nil {
 		tempCloseFunc = c.tempTransactionOptions.close
 	}
-	disableInternalRetries := !c.RetryAbortsInternally()
-	if c.tempTransactionOptions != nil {
-		disableInternalRetries = c.tempTransactionOptions.DisableInternalRetries
+	if !disableRetryAborts && c.tempTransactionOptions != nil {
+		disableRetryAborts = c.tempTransactionOptions.DisableInternalRetries
 	}
 
 	tx, err := spanner.NewReadWriteStmtBasedTransactionWithCallbackForOptions(ctx, c.client, opts, func() spanner.TransactionOptions {
@@ -1212,7 +1207,9 @@ func (c *conn) BeginTx(ctx context.Context, driverOpts driver.TxOptions) (driver
 			}
 		},
 		// Disable internal retries if any of these options have been set.
-		retryAborts: !disableInternalRetries && !disableRetryAborts,
+		retryAborts: sync.OnceValue(func() bool {
+			return c.RetryAbortsInternally() && !disableRetryAborts
+		}),
 	}
 	c.clearCommitResponse()
 	return c.tx, nil
