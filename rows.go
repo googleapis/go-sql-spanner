@@ -476,3 +476,97 @@ func (r *rows) nextStats(dest []driver.Value) error {
 	dest[0] = r.it.ResultSetStats()
 	return nil
 }
+
+var _ driver.Rows = (*emptyRows)(nil)
+var _ driver.RowsNextResultSet = (*emptyRows)(nil)
+var emptyRowsMetadata = &sppb.ResultSetMetadata{
+	RowType: &sppb.StructType{
+		Fields: []*sppb.StructType_Field{{Name: "affected_rows", Type: &sppb.Type{Code: sppb.TypeCode_INT64}}},
+	},
+}
+var emptyRowsStats = &sppb.ResultSetStats{}
+
+type emptyRows struct {
+	currentResultSetType    resultSetType
+	returnResultSetMetadata bool
+	returnResultSetStats    bool
+
+	hasReturnedResultSetMetadata bool
+	hasReturnedResultSetStats    bool
+}
+
+func createDriverResultRows(_ driver.Result, opts *ExecOptions) *emptyRows {
+	res := &emptyRows{
+		returnResultSetMetadata: opts.ReturnResultSetMetadata,
+		returnResultSetStats:    opts.ReturnResultSetStats,
+	}
+	if !opts.ReturnResultSetMetadata {
+		res.currentResultSetType = resultSetTypeResults
+	}
+	return res
+}
+
+func (e *emptyRows) HasNextResultSet() bool {
+	if e.currentResultSetType == resultSetTypeMetadata && e.returnResultSetMetadata {
+		return true
+	}
+	if e.currentResultSetType == resultSetTypeResults && e.returnResultSetStats {
+		return true
+	}
+	return false
+}
+
+func (e *emptyRows) NextResultSet() error {
+	if !e.HasNextResultSet() {
+		return io.EOF
+	}
+	e.currentResultSetType++
+	return nil
+}
+
+func (e *emptyRows) Columns() []string {
+	switch e.currentResultSetType {
+	case resultSetTypeMetadata:
+		return []string{"metadata"}
+	case resultSetTypeResults:
+		return []string{"affected_rows"}
+	case resultSetTypeStats:
+		return []string{"stats"}
+	case resultSetTypeNoMoreResults:
+		return []string{}
+	}
+	return []string{}
+}
+
+func (e *emptyRows) Close() error {
+	return nil
+}
+
+func (e *emptyRows) Next(dest []driver.Value) error {
+	if e.currentResultSetType == resultSetTypeMetadata {
+		return e.nextMetadata(dest)
+	}
+	if e.currentResultSetType == resultSetTypeStats {
+		return e.nextStats(dest)
+	}
+
+	return io.EOF
+}
+
+func (e *emptyRows) nextMetadata(dest []driver.Value) error {
+	if e.hasReturnedResultSetMetadata {
+		return io.EOF
+	}
+	e.hasReturnedResultSetMetadata = true
+	dest[0] = emptyRowsMetadata
+	return nil
+}
+
+func (e *emptyRows) nextStats(dest []driver.Value) error {
+	if e.hasReturnedResultSetStats {
+		return io.EOF
+	}
+	e.hasReturnedResultSetStats = true
+	dest[0] = emptyRowsStats
+	return nil
+}

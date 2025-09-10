@@ -524,11 +524,11 @@ func (c *conn) AbortBatch() error {
 }
 
 func (c *conn) InDDLBatch() bool {
-	return c.batch != nil && c.batch.tp == ddl
+	return c.batch != nil && c.batch.tp == parser.BatchTypeDdl
 }
 
 func (c *conn) InDMLBatch() bool {
-	return (c.batch != nil && c.batch.tp == dml) || (c.inReadWriteTransaction() && c.tx.(*readWriteTransaction).batch != nil)
+	return (c.batch != nil && c.batch.tp == parser.BatchTypeDml) || (c.inReadWriteTransaction() && c.tx.(*readWriteTransaction).batch != nil)
 }
 
 func (c *conn) GetBatchedStatements() []spanner.Statement {
@@ -550,7 +550,7 @@ func (c *conn) startBatchDDL() (driver.Result, error) {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection has an active transaction. DDL batches in transactions are not supported."))
 	}
 	c.logger.Debug("started ddl batch")
-	c.batch = &batch{tp: ddl}
+	c.batch = &batch{tp: parser.BatchTypeDdl}
 	return driver.ResultNoRows, nil
 }
 
@@ -568,7 +568,7 @@ func (c *conn) startBatchDML(automatic bool) (driver.Result, error) {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection has an active read-only transaction. Read-only transactions cannot execute DML batches."))
 	}
 	c.logger.Debug("starting dml batch outside transaction")
-	c.batch = &batch{tp: dml, options: execOptions}
+	c.batch = &batch{tp: parser.BatchTypeDml, options: execOptions}
 	return driver.ResultNoRows, nil
 }
 
@@ -581,9 +581,9 @@ func (c *conn) runBatch(ctx context.Context) (driver.Result, error) {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection does not have an active batch"))
 	}
 	switch c.batch.tp {
-	case ddl:
+	case parser.BatchTypeDdl:
 		return c.runDDLBatch(ctx)
-	case dml:
+	case parser.BatchTypeDml:
 		return c.runDMLBatch(ctx)
 	default:
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Unknown batch type: %d", c.batch.tp))
@@ -618,10 +618,10 @@ func (c *conn) abortBatch() (driver.Result, error) {
 }
 
 func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (driver.Result, error) {
-	if c.batch != nil && c.batch.tp == dml {
+	if c.batch != nil && c.batch.tp == parser.BatchTypeDml {
 		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This connection has an active DML batch"))
 	}
-	if c.batch != nil && c.batch.tp == ddl {
+	if c.batch != nil && c.batch.tp == parser.BatchTypeDdl {
 		c.batch.statements = append(c.batch.statements, statements...)
 		return driver.ResultNoRows, nil
 	}
@@ -832,9 +832,13 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 		return nil, err
 	}
 	statementType := c.parser.DetectStatementType(query)
-	// DDL statements are not supported in QueryContext so fail early.
+	// DDL statements are not supported in QueryContext so use the execContext method for the execution.
 	if statementType.StatementType == parser.StatementTypeDdl {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "QueryContext does not support DDL statements, use ExecContext instead"))
+		res, err := c.execContext(ctx, query, execOptions, args)
+		if err != nil {
+			return nil, err
+		}
+		return createDriverResultRows(res, execOptions), nil
 	}
 	var iter rowIterator
 	if c.tx == nil {
