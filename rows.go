@@ -501,10 +501,14 @@ type emptyRows struct {
 }
 
 func createDriverResultRows(_ driver.Result, opts *ExecOptions) *emptyRows {
-	return &emptyRows{
+	res := &emptyRows{
 		returnResultSetMetadata: opts.ReturnResultSetMetadata,
 		returnResultSetStats:    opts.ReturnResultSetStats,
 	}
+	if !opts.ReturnResultSetMetadata {
+		res.currentResultSetType = resultSetTypeResults
+	}
+	return res
 }
 
 func (e *emptyRows) HasNextResultSet() bool {

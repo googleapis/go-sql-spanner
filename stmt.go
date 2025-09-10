@@ -25,6 +25,15 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// SpannerNamedArg can be used for query parameters with a name that (might) start
+// with an underscore. The generic database/sql package does not allow query parameters
+// to start with an underscore, but Spanner allows this, and this struct can be used to
+// work around the limitation in database/sql.
+type SpannerNamedArg struct {
+	NameInQuery string
+	Value       any
+}
+
 var _ driver.Stmt = &stmt{}
 var _ driver.StmtExecContext = &stmt{}
 var _ driver.StmtQueryContext = &stmt{}
@@ -36,11 +45,6 @@ type stmt struct {
 	query         string
 	statementType parser.StatementType
 	execOptions   *ExecOptions
-}
-
-type SpannerNamedArg struct {
-	NameInQuery string
-	Value       any
 }
 
 func (s *stmt) Close() error {

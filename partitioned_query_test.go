@@ -57,8 +57,8 @@ func TestBeginBatchReadOnlyTransaction(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
 		if g, w := len(beginRequests), 1; g != w {
 			t.Fatalf("num begin requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -66,12 +66,12 @@ func TestBeginBatchReadOnlyTransaction(t *testing.T) {
 		if !beginRequest.Options.GetReadOnly().GetStrong() {
 			t.Fatal("missing strong timestamp bound option")
 		}
-		executeRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 		if g, w := len(executeRequests), 1; g != w {
 			t.Fatalf("num execute requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
 		// (Batch) read-only transactions should not be committed.
-		commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+		commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 		if g, w := len(commitRequests), 0; g != w {
 			t.Fatalf("num commit requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -152,8 +152,8 @@ func TestPartitionQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
 	if g, w := len(beginRequests), 1; g != w {
 		t.Fatalf("num begin requests mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -161,11 +161,11 @@ func TestPartitionQuery(t *testing.T) {
 	if !beginRequest.Options.GetReadOnly().GetStrong() {
 		t.Fatal("missing strong timestamp bound option")
 	}
-	partitionRequests := requestsOfType(requests, reflect.TypeOf(&sppb.PartitionQueryRequest{}))
+	partitionRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.PartitionQueryRequest{}))
 	if g, w := len(partitionRequests), 1; g != w {
 		t.Fatalf("num partition requests mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	executeRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), len(pq.Partitions); g != w {
 		t.Fatalf("num execute requests mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -174,7 +174,7 @@ func TestPartitionQuery(t *testing.T) {
 		t.Fatal("missing DataBoostEnabled option")
 	}
 	// (Batch) read-only transactions should not be committed.
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 0; g != w {
 		t.Fatalf("num commit requests mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -303,8 +303,8 @@ func TestAutoPartitionQuery(t *testing.T) {
 				}
 			}
 
-			requests := drainRequestsFromServer(server.TestSpanner)
-			beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+			requests := server.TestSpanner.DrainRequestsFromServer()
+			beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
 			if g, w := len(beginRequests), 1; g != w {
 				t.Fatalf("num begin requests mismatch\n Got: %v\nWant: %v", g, w)
 			}
@@ -312,11 +312,11 @@ func TestAutoPartitionQuery(t *testing.T) {
 			if !beginRequest.Options.GetReadOnly().GetStrong() {
 				t.Fatal("missing strong timestamp bound option")
 			}
-			partitionRequests := requestsOfType(requests, reflect.TypeOf(&sppb.PartitionQueryRequest{}))
+			partitionRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.PartitionQueryRequest{}))
 			if g, w := len(partitionRequests), 1; g != w {
 				t.Fatalf("num partition requests mismatch\n Got: %v\nWant: %v", g, w)
 			}
-			executeRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+			executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 			if g, w := len(executeRequests), maxPartitions; g != w {
 				t.Fatalf("num execute requests mismatch\n Got: %v\nWant: %v", g, w)
 			}
@@ -325,7 +325,7 @@ func TestAutoPartitionQuery(t *testing.T) {
 				t.Fatal("missing DataBoostEnabled option")
 			}
 			// (Batch) read-only transactions should not be committed.
-			commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+			commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 			if g, w := len(commitRequests), 0; g != w {
 				t.Fatalf("num commit requests mismatch\n Got: %v\nWant: %v", g, w)
 			}

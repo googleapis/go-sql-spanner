@@ -178,13 +178,6 @@ func (s *spannerLibServer) sendData(data chan *spannerpb.PartialResultSet, strea
 //	return nil
 //}
 
-func (s *spannerLibServer) ExecuteTransaction(ctx context.Context, request *pb.ExecuteTransactionRequest) (*pb.Rows, error) {
-	id, err := api.ExecuteTransaction(request.Transaction.Connection.Pool.Id, request.Transaction.Connection.Id, request.Transaction.Id, request.ExecuteSqlRequest)
-	if err != nil {
-		return nil, err
-	}
-	return &pb.Rows{Connection: request.Transaction.Connection, Id: id}, nil
-}
 func (s *spannerLibServer) ExecuteBatchDml(ctx context.Context, request *pb.ExecuteBatchDmlRequest) (*spannerpb.ExecuteBatchDmlResponse, error) {
 	resp, err := api.ExecuteBatch(request.Connection.Pool.Id, request.Connection.Id, request.ExecuteBatchDmlRequest)
 	if err != nil {
@@ -226,15 +219,15 @@ func (s *spannerLibServer) CloseRows(ctx context.Context, rows *pb.Rows) (*empty
 }
 
 func (s *spannerLibServer) BeginTransaction(ctx context.Context, request *pb.BeginTransactionRequest) (*pb.Transaction, error) {
-	id, err := api.BeginTransaction(request.Connection.Pool.Id, request.Connection.Id, request.TransactionOptions)
+	err := api.BeginTransaction(request.Connection.Pool.Id, request.Connection.Id, request.TransactionOptions)
 	if err != nil {
 		return nil, err
 	}
-	return &pb.Transaction{Connection: request.Connection, Id: id}, nil
+	return &pb.Transaction{Connection: request.Connection, Id: 0}, nil
 }
 
 func (s *spannerLibServer) Commit(ctx context.Context, request *pb.Transaction) (*spannerpb.CommitResponse, error) {
-	resp, err := api.Commit(request.Connection.Pool.Id, request.Connection.Id, request.Id)
+	resp, err := api.Commit(request.Connection.Pool.Id, request.Connection.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +235,7 @@ func (s *spannerLibServer) Commit(ctx context.Context, request *pb.Transaction) 
 }
 
 func (s *spannerLibServer) Rollback(ctx context.Context, request *pb.Transaction) (*emptypb.Empty, error) {
-	err := api.Rollback(request.Connection.Pool.Id, request.Connection.Id, request.Id)
+	err := api.Rollback(request.Connection.Pool.Id, request.Connection.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -255,14 +248,6 @@ func (s *spannerLibServer) Apply(ctx context.Context, request *pb.ApplyRequest) 
 		return nil, err
 	}
 	return resp, nil
-}
-
-func (s *spannerLibServer) BufferWrite(ctx context.Context, request *pb.BufferWriteRequest) (*emptypb.Empty, error) {
-	err := api.BufferWrite(request.Transaction.Connection.Pool.Id, request.Transaction.Connection.Id, request.Transaction.Id, request.Mutations)
-	if err != nil {
-		return nil, err
-	}
-	return &emptypb.Empty{}, nil
 }
 
 func (s *spannerLibServer) ConnectionStream(stream grpc.BidiStreamingServer[pb.ConnectionStreamRequest, pb.ConnectionStreamResponse]) error {

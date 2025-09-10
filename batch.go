@@ -14,18 +14,13 @@
 
 package spannerdriver
 
-import "cloud.google.com/go/spanner"
-
-type BatchType int
-
-const (
-	BatchTypeUnknown BatchType = iota
-	BatchTypeDdl
-	BatchTypeDml
+import (
+	"cloud.google.com/go/spanner"
+	"github.com/googleapis/go-sql-spanner/parser"
 )
 
 type batch struct {
-	tp           BatchType
+	tp           parser.BatchType
 	statements   []spanner.Statement
 	returnValues []int64
 	options      *ExecOptions

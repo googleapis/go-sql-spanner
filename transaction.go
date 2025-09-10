@@ -529,7 +529,7 @@ func (tx *readWriteTransaction) StartBatchDML(options spanner.QueryOptions, auto
 	}
 	tx.logger.Debug("starting dml batch in transaction", "automatic", automatic)
 	tx.active = true
-	tx.batch = &batch{tp: BatchTypeDml, options: &ExecOptions{QueryOptions: options}, automatic: automatic}
+	tx.batch = &batch{tp: parser.BatchTypeDml, options: &ExecOptions{QueryOptions: options}, automatic: automatic}
 	return driver.ResultNoRows, nil
 }
 
@@ -538,9 +538,9 @@ func (tx *readWriteTransaction) RunBatch(ctx context.Context) (driver.Result, er
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This transaction does not have an active batch"))
 	}
 	switch tx.batch.tp {
-	case BatchTypeDml:
+	case parser.BatchTypeDml:
 		return tx.runDmlBatch(ctx)
-	case BatchTypeDdl:
+	case parser.BatchTypeDdl:
 		fallthrough
 	default:
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Unknown or unsupported batch type: %d", tx.batch.tp))
@@ -551,7 +551,7 @@ func (tx *readWriteTransaction) RunDmlBatch(ctx context.Context) (SpannerResult,
 	if tx.batch == nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "this transaction does not have an active batch"))
 	}
-	if tx.batch.tp != BatchTypeDml {
+	if tx.batch.tp != parser.BatchTypeDml {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "batch is not a DML batch"))
 	}
 	return tx.runDmlBatch(ctx)

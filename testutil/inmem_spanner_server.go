@@ -327,12 +327,11 @@ type InMemSpannerServer interface {
 	SetMaxSessionsReturnedByServerInTotal(sessionCount int32)
 
 	ReceivedRequests() chan interface{}
+	DrainRequestsFromServer() []interface{}
 	DumpSessions() map[string]bool
 	ClearPings()
 	DumpPings() []string
 	IsPartitionedDmlTransaction(id []byte) bool
-
-	DrainRequestsFromServer() []interface{}
 }
 
 type inMemSpannerServer struct {
@@ -1204,6 +1203,16 @@ loop:
 	return reqs
 }
 
+func RequestsOfType(requests []interface{}, t reflect.Type) []interface{} {
+	res := make([]interface{}, 0)
+	for _, req := range requests {
+		if reflect.TypeOf(req) == t {
+			res = append(res, req)
+		}
+	}
+	return res
+}
+
 // EncodeResumeToken return mock resume token encoding for an uint64 integer.
 func EncodeResumeToken(t uint64) []byte {
 	rt := make([]byte, 16)
@@ -1218,14 +1227,4 @@ func DecodeResumeToken(t []byte) (uint64, error) {
 		return 0, fmt.Errorf("invalid resume token: %v", t)
 	}
 	return s, nil
-}
-
-func RequestsOfType(requests []interface{}, t reflect.Type) []interface{} {
-	res := make([]interface{}, 0)
-	for _, req := range requests {
-		if reflect.TypeOf(req) == t {
-			res = append(res, req)
-		}
-	}
-	return res
 }

@@ -491,7 +491,7 @@ func TestConnection_Reset(t *testing.T) {
 		state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{
 			propertyCommitResponse.Key(): propertyCommitResponse.CreateTypedInitialValue(nil),
 		}),
-		batch: &batch{tp: BatchTypeDml},
+		batch: &batch{tp: parser.BatchTypeDml},
 		tx: &readOnlyTransaction{
 			logger: noopLogger,
 			close: func(_ txResult) {
@@ -569,11 +569,11 @@ func TestConn_StartBatchDdl(t *testing.T) {
 		wantErr bool
 	}{
 		{"Default", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, false},
-		{"In DDL batch", &conn{logger: noopLogger, batch: &batch{tp: BatchTypeDdl}, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, true},
-		{"In DML batch", &conn{logger: noopLogger, batch: &batch{tp: BatchTypeDml}, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, true},
+		{"In DDL batch", &conn{logger: noopLogger, batch: &batch{tp: parser.BatchTypeDdl}, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, true},
+		{"In DML batch", &conn{logger: noopLogger, batch: &batch{tp: parser.BatchTypeDml}, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, true},
 		{"In read/write transaction", &conn{logger: noopLogger, tx: &readWriteTransaction{}, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, true},
 		{"In read-only transaction", &conn{logger: noopLogger, tx: &readOnlyTransaction{}, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, true},
-		{"In read/write transaction with a DML batch", &conn{logger: noopLogger, tx: &readWriteTransaction{batch: &batch{tp: BatchTypeDml}}, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, true},
+		{"In read/write transaction with a DML batch", &conn{logger: noopLogger, tx: &readWriteTransaction{batch: &batch{tp: parser.BatchTypeDml}}, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, true},
 	} {
 		err := test.c.StartBatchDDL()
 		if test.wantErr {
@@ -598,11 +598,11 @@ func TestConn_StartBatchDml(t *testing.T) {
 		wantErr bool
 	}{
 		{"Default", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, false},
-		{"In DDL batch", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}), batch: &batch{tp: BatchTypeDdl}}, true},
-		{"In DML batch", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}), batch: &batch{tp: BatchTypeDml}}, true},
+		{"In DDL batch", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}), batch: &batch{tp: parser.BatchTypeDdl}}, true},
+		{"In DML batch", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}), batch: &batch{tp: parser.BatchTypeDml}}, true},
 		{"In read/write transaction", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}), tx: &readWriteTransaction{logger: noopLogger}}, false},
 		{"In read-only transaction", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}), tx: &readOnlyTransaction{logger: noopLogger}}, true},
-		{"In read/write transaction with a DML batch", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}), tx: &readWriteTransaction{logger: noopLogger, batch: &batch{tp: BatchTypeDml}}}, true},
+		{"In read/write transaction with a DML batch", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}), tx: &readWriteTransaction{logger: noopLogger, batch: &batch{tp: parser.BatchTypeDml}}}, true},
 	} {
 		err := test.c.StartBatchDML()
 		if test.wantErr {
@@ -629,7 +629,7 @@ func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 		parser: p,
 		logger: noopLogger,
 		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
-		batch:  &batch{tp: BatchTypeDdl},
+		batch:  &batch{tp: parser.BatchTypeDdl},
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{
 				Metadata: &spannerpb.ResultSetMetadata{},
@@ -671,7 +671,7 @@ func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
 		parser: p,
 		logger: noopLogger,
 		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
-		batch:  &batch{tp: BatchTypeDml},
+		batch:  &batch{tp: parser.BatchTypeDml},
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},

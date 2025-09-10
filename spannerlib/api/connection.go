@@ -244,9 +244,9 @@ func executeBatch(conn *Connection, executor queryExecutor, statements []*spanne
 		return nil, err
 	}
 	switch batchType {
-	case spannerdriver.BatchTypeDml:
+	case parser.BatchTypeDml:
 		return executeBatchDml(conn, executor, statements)
-	case spannerdriver.BatchTypeDdl:
+	case parser.BatchTypeDdl:
 		return executeBatchDdl(conn, executor, statements)
 	default:
 		return nil, status.Errorf(codes.InvalidArgument, "unsupported batch type: %v", batchType)
@@ -355,18 +355,18 @@ func extractParams(statement *spannerpb.ExecuteSqlRequest) []any {
 	return params
 }
 
-func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (spannerdriver.BatchType, error) {
+func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (parser.BatchType, error) {
 	if len(statements) == 0 {
-		return spannerdriver.BatchTypeUnknown, status.Errorf(codes.InvalidArgument, "cannot determine type of an empty batch")
+		return parser.BatchTypeDdl, status.Errorf(codes.InvalidArgument, "cannot determine type of an empty batch")
 	}
-	batchType := spannerdriver.BatchTypeUnknown
+	var batchType parser.BatchType
 	if err := conn.backend.Raw(func(driverConn any) error {
 		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
 		firstStatementType := spannerConn.DetectStatementType(statements[0].Sql)
 		if firstStatementType == parser.StatementTypeDml {
-			batchType = spannerdriver.BatchTypeDml
+			batchType = parser.BatchTypeDml
 		} else if firstStatementType == parser.StatementTypeDdl {
-			batchType = spannerdriver.BatchTypeDdl
+			batchType = parser.BatchTypeDdl
 		} else {
 			return status.Errorf(codes.InvalidArgument, "unsupported statement type for batching: %v", firstStatementType)
 		}
@@ -380,7 +380,7 @@ func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDm
 		}
 		return nil
 	}); err != nil {
-		return spannerdriver.BatchTypeUnknown, err
+		return parser.BatchTypeDdl, err
 	}
 
 	return batchType, nil

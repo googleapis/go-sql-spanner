@@ -48,8 +48,8 @@ func TestCommitAborted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("commit failed: %v", err)
 	}
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	commitReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	commitReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitReqs), 2; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -92,8 +92,8 @@ func TestCommitWithMutationsAborted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("commit failed: %v", err)
 	}
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	commitReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	commitReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitReqs), 2; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -125,8 +125,8 @@ func TestCommitAbortedWithInternalRetriesDisabled(t *testing.T) {
 	if g, w := spanner.ErrCode(err), codes.Aborted; g != w {
 		t.Fatalf("commit error code mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	commitReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	commitReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitReqs), 1; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -167,12 +167,12 @@ func TestUpdateAborted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("commit failed: %v", err)
 	}
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	execReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	execReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(execReqs), 2; g != w {
 		t.Fatalf("execute request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	commitReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitReqs), 1; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -211,12 +211,12 @@ func TestBatchUpdateAborted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("commit failed: %v", err)
 	}
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	execReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	execReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	if g, w := len(execReqs), 2; g != w {
 		t.Fatalf("batch request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	commitReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitReqs), 1; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -488,12 +488,12 @@ func testRetryReadWriteTransactionWithQuery(t *testing.T, setupServer func(serve
 	if err != wantCommitErr {
 		t.Fatalf("commit error mismatch\nGot: %v\nWant: %v", err, wantCommitErr)
 	}
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	execReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	execReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(execReqs), wantSqlExecuteCount; g != w {
 		t.Fatalf("execute request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	commitReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitReqs), wantCommitCount; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -568,8 +568,8 @@ func TestQueryAbortedHalfway_WithDifferentResultsInFirstHalf(t *testing.T) {
 		t.Fatalf("failed to rollback transaction: %v", err)
 	}
 
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	execReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	execReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(execReqs), 2; g != w {
 		t.Fatalf("execute request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -651,8 +651,8 @@ func TestQueryAbortedHalfway_WithDifferentResultsInSecondHalf(t *testing.T) {
 		t.Fatalf("failed to commit transaction: %v", err)
 	}
 
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	execReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	execReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(execReqs), 2; g != w {
 		t.Fatalf("execute request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -702,14 +702,14 @@ func TestSecondUpdateAborted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("commit failed: %v", err)
 	}
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	execReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	execReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	// The server should receive 4 execute statements, as each update statement should
 	// be executed twice.
 	if g, w := len(execReqs), 4; g != w {
 		t.Fatalf("execute request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	commitReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitReqs), 1; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -761,14 +761,14 @@ func TestSecondBatchUpdateAborted(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit failed: %v", err)
 	}
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	execReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	execReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	// The server should receive 4 batch statements, as each update statement should
 	// be executed twice.
 	if g, w := len(execReqs), 4; g != w {
 		t.Fatalf("batch request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	commitReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitReqs), 1; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -823,14 +823,14 @@ func TestSecondUpdateAborted_FirstStatementWithSameError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("commit failed: %v", err)
 	}
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	execReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	execReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	// The server should receive 4 execute statements, as each update statement should
 	// be executed twice.
 	if g, w := len(execReqs), 4; g != w {
 		t.Fatalf("execute request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	commitReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitReqs), 1; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -912,8 +912,8 @@ func testSecondUpdateAborted_FirstResultChanged(t *testing.T, firstResult *testu
 	if err := tx.Rollback(); err != nil {
 		t.Fatalf("failed to rollback transaction: %v", err)
 	}
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	execReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	execReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	// The server should receive 3 execute statements, as only the first statement is retried.
 	if g, w := len(execReqs), 3; g != w {
 		t.Fatalf("execute request count mismatch\nGot: %v\nWant: %v", g, w)
@@ -973,12 +973,12 @@ func TestBatchUpdateAbortedWithError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("commit failed: %v", err)
 	}
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	execReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	execReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	if g, w := len(execReqs), 2; g != w {
 		t.Fatalf("batch request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	commitReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitReqs), 2; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -1037,12 +1037,12 @@ func TestBatchUpdateAbortedWithError_DifferentRowCountDuringRetry(t *testing.T) 
 	if err != ErrAbortedDueToConcurrentModification {
 		t.Fatalf("commit error mismatch\nGot: %v\nWant: %v", err, ErrAbortedDueToConcurrentModification)
 	}
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	execReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	execReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	if g, w := len(execReqs), 2; g != w {
 		t.Fatalf("batch request count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	commitReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	// The commit should be attempted only once.
 	if g, w := len(commitReqs), 1; g != w {
 		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
@@ -1096,8 +1096,8 @@ func TestBatchUpdateAbortedWithError_DifferentErrorDuringRetry(t *testing.T) {
 	if err != ErrAbortedDueToConcurrentModification {
 		t.Fatalf("commit error mismatch\n Got: %v\nWant: %v", err, ErrAbortedDueToConcurrentModification)
 	}
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	execReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	execReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	// There are 3 ExecuteBatchDmlRequests sent to Spanner:
 	// 1. An initial attempt with a BeginTransaction RPC, but this returns a NotFound error.
 	//    This causes the transaction to be retried with an explicit BeginTransaction request.
@@ -1106,7 +1106,7 @@ func TestBatchUpdateAbortedWithError_DifferentErrorDuringRetry(t *testing.T) {
 	if g, w := len(execReqs), 3; g != w {
 		t.Fatalf("batch request count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	commitReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	// The commit should be attempted only once.
 	if g, w := len(commitReqs), 1; g != w {
 		t.Fatalf("commit request count mismatch\n Got: %v\nWant: %v", g, w)
@@ -1121,7 +1121,7 @@ func TestBatchUpdateAbortedWithError_DifferentErrorDuringRetry(t *testing.T) {
 	if req2.GetTransaction() == nil || req2.GetTransaction().GetId() == nil {
 		t.Fatal("the second ExecuteBatchDmlRequest should have a transaction id")
 	}
-	beginRequests := requestsOfType(reqs, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	beginRequests := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
 	if g, w := len(beginRequests), 2; g != w {
 		t.Fatalf("begin request count mismatch\n Got: %v\nWant: %v", g, w)
 	}

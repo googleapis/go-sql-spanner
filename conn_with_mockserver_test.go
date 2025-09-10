@@ -45,12 +45,12 @@ func TestBeginTx(t *testing.T) {
 	_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
 	_ = tx.Rollback()
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
 	if g, w := len(beginRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), 1; g != w {
 		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -72,7 +72,7 @@ func TestTwoTransactionsOnOneConn(t *testing.T) {
 
 	c, _ := db.Conn(ctx)
 	tx1, err := c.BeginTx(ctx, &sql.TxOptions{})
-	defer tx1.Rollback()
+	defer func() { _ = tx1.Rollback() }()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,12 +113,12 @@ func TestExplicitBeginTx(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
 		if g, w := len(beginRequests), 1; g != w {
 			t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 		if g, w := len(executeRequests), 1; g != w {
 			t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -154,12 +154,12 @@ func TestExecuteBegin(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
 		if g, w := len(beginRequests), 0; g != w {
 			t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 		if g, w := len(executeRequests), 1; g != w {
 			t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -167,8 +167,8 @@ func TestExecuteBegin(t *testing.T) {
 		if request.GetTransaction() == nil || request.GetTransaction().GetBegin() == nil {
 			t.Fatal("missing begin transaction on ExecuteSqlRequest")
 		}
-		commitRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
-		rollbackRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.RollbackRequest{}))
+		commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+		rollbackRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.RollbackRequest{}))
 		if end == "commit" {
 			if g, w := len(commitRequests), 1; g != w {
 				t.Fatalf("commit requests count mismatch\n Got: %v\nWant: %v", g, w)
@@ -229,12 +229,12 @@ func TestBeginTxWithIsolationLevel(t *testing.T) {
 			_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
 			_ = tx.Rollback()
 
-			requests := drainRequestsFromServer(server.TestSpanner)
-			beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+			requests := server.TestSpanner.DrainRequestsFromServer()
+			beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
 			if g, w := len(beginRequests), 0; g != w {
 				t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 			}
-			executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+			executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 			if g, w := len(executeRequests), 1; g != w {
 				t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 			}
@@ -322,12 +322,12 @@ func TestDefaultIsolationLevel(t *testing.T) {
 			_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
 			_ = tx.Rollback()
 
-			requests := drainRequestsFromServer(server.TestSpanner)
-			beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+			requests := server.TestSpanner.DrainRequestsFromServer()
+			beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
 			if g, w := len(beginRequests), 0; g != w {
 				t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 			}
-			executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+			executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 			if g, w := len(executeRequests), 1; g != w {
 				t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 			}
@@ -396,8 +396,8 @@ func TestIsolationLevelAutoCommit(t *testing.T) {
 			IsolationLevel: spannerLevel,
 		}})
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 		if g, w := len(executeRequests), 1; g != w {
 			t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -439,12 +439,12 @@ func TestDefaultReadLockMode(t *testing.T) {
 		_, _ = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
 		_ = tx.Rollback()
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
 		if g, w := len(beginRequests), 0; g != w {
 			t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 		if g, w := len(executeRequests), 1; g != w {
 			t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -506,8 +506,8 @@ func TestReadLockModeAutoCommit(t *testing.T) {
 			ReadLockMode: readLockMode,
 		}})
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 		if g, w := len(executeRequests), 1; g != w {
 			t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -541,12 +541,12 @@ func TestSetLocalReadLockMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
 	if g, w := len(beginRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), 1; g != w {
 		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -569,12 +569,12 @@ func TestSetLocalReadLockMode(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	requests = drainRequestsFromServer(server.TestSpanner)
-	beginRequests = requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+	requests = server.TestSpanner.DrainRequestsFromServer()
+	beginRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
 	if g, w := len(beginRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	executeRequests = requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	executeRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), 1; g != w {
 		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -676,8 +676,12 @@ func TestDDLUsingQueryContext(t *testing.T) {
 	ctx := context.Background()
 
 	// DDL statements should be able to use QueryContext.
-	if _, err := db.QueryContext(ctx, "CREATE TABLE Foo (Bar STRING(100))"); err != nil {
+	if it, err := db.QueryContext(ctx, "CREATE TABLE Foo (Bar STRING(100))"); err != nil {
 		t.Fatal(err)
+	} else {
+		if it.Next() {
+			t.Fatalf("DDL should not return any rows")
+		}
 	}
 }
 
@@ -1110,8 +1114,8 @@ func TestSetAndShowIsolationLevel(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	requests := drainRequestsFromServer(server.TestSpanner)
-	executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), 1; g != w {
 		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -1154,8 +1158,8 @@ func TestSetLocalIsolationLevel(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	requests := drainRequestsFromServer(server.TestSpanner)
-	executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), 1; g != w {
 		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
