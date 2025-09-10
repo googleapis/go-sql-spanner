@@ -1257,6 +1257,25 @@ func (c *conn) inReadWriteTransaction() bool {
 	return false
 }
 
+func (c *conn) commit(ctx context.Context) (*spanner.CommitResponse, error) {
+	if !c.inTransaction() {
+		return nil, status.Errorf(codes.FailedPrecondition, "this connection does not have a transaction")
+	}
+	// TODO: Pass in context to the tx.Commit() function.
+	if err := c.tx.Commit(); err != nil {
+		return nil, err
+	}
+	return c.CommitResponse()
+}
+
+func (c *conn) rollback(ctx context.Context) error {
+	if !c.inTransaction() {
+		return status.Errorf(codes.FailedPrecondition, "this connection does not have a transaction")
+	}
+	// TODO: Pass in context to the tx.Rollback() function.
+	return c.tx.Rollback()
+}
+
 func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
 	return c.Single().WithTimestampBound(tb).QueryWithOptions(ctx, statement, options.QueryOptions)
 }

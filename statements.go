@@ -51,6 +51,12 @@ func createExecutableStatement(stmt parser.ParsedStatement) (executableStatement
 		return &executableRunBatchStatement{stmt: stmt}, nil
 	case *parser.ParsedAbortBatchStatement:
 		return &executableAbortBatchStatement{stmt: stmt}, nil
+	case *parser.ParsedBeginStatement:
+		return &executableBeginStatement{stmt: stmt}, nil
+	case *parser.ParsedCommitStatement:
+		return &executableCommitStatement{stmt: stmt}, nil
+	case *parser.ParsedRollbackStatement:
+		return &executableRollbackStatement{stmt: stmt}, nil
 	}
 	return nil, status.Errorf(codes.Internal, "unsupported statement type: %T", stmt)
 }
@@ -250,6 +256,62 @@ func (s *executableAbortBatchStatement) execContext(ctx context.Context, c *conn
 }
 
 func (s *executableAbortBatchStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts); err != nil {
+		return nil, err
+	}
+	return createEmptyRows(opts), nil
+}
+
+type executableBeginStatement struct {
+	stmt *parser.ParsedBeginStatement
+}
+
+func (s *executableBeginStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+	_, err := c.BeginTx(ctx, driver.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return driver.ResultNoRows, nil
+}
+
+func (s *executableBeginStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts); err != nil {
+		return nil, err
+	}
+	return createEmptyRows(opts), nil
+}
+
+type executableCommitStatement struct {
+	stmt *parser.ParsedCommitStatement
+}
+
+func (s *executableCommitStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+	_, err := c.commit(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return driver.ResultNoRows, nil
+}
+
+func (s *executableCommitStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts); err != nil {
+		return nil, err
+	}
+	return createEmptyRows(opts), nil
+}
+
+type executableRollbackStatement struct {
+	stmt *parser.ParsedRollbackStatement
+}
+
+func (s *executableRollbackStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+	if err := c.rollback(ctx); err != nil {
+		return nil, err
+	}
+	return driver.ResultNoRows, nil
+}
+
+func (s *executableRollbackStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
 	if _, err := s.execContext(ctx, c, opts); err != nil {
 		return nil, err
 	}

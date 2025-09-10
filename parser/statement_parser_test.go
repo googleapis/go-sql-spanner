@@ -2467,7 +2467,7 @@ func TestEatKeyword(t *testing.T) {
 	for _, test := range tests {
 		sp := &simpleParser{sql: []byte(test.input), statementParser: parser}
 		startPos := sp.pos
-		keyword, ok := sp.eatKeyword(test.keyword)
+		keyword, ok := sp.eatAndReturnKeyword(test.keyword)
 		if g, w := ok, test.wantOk; g != w {
 			t.Errorf("found mismatch\n Got: %v\nWant: %v", g, w)
 		}
