@@ -222,13 +222,16 @@ func TestDisableInternalRetries(t *testing.T) {
 	defer teardown()
 
 	pool := CreatePool(dsn)
-	defer ClosePool(pool.ObjectId)
+	//defer ClosePool(pool.ObjectId)
 	conn := CreateConnection(pool.ObjectId)
-	defer CloseConnection(pool.ObjectId, conn.ObjectId)
+	//defer CloseConnection(pool.ObjectId, conn.ObjectId)
 
 	txOpts := &sppb.TransactionOptions{}
 	txOptsBytes, _ := proto.Marshal(txOpts)
 	tx := BeginTransaction(pool.ObjectId, conn.ObjectId, txOptsBytes)
+	if tx.Code != 0 {
+		t.Fatalf("tx.Code: %v", tx.Code)
+	}
 
 	statement := sppb.ExecuteSqlRequest{
 		Sql: "set retry_aborts_internally = false",
@@ -253,11 +256,13 @@ func TestDisableInternalRetries(t *testing.T) {
 	server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
 		Errors: []error{status.Error(codes.Aborted, "Aborted")},
 	})
-	results = Commit(pool.ObjectId, conn.ObjectId, tx.ObjectId)
+	results = Commit(pool.ObjectId, conn.ObjectId)
 	if g, w := codes.Code(results.Code), codes.Aborted; g != w {
 		t.Fatalf("commit status mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	CloseRows(pool.ObjectId, conn.ObjectId, results.ObjectId)
+	CloseConnection(pool.ObjectId, conn.ObjectId)
+	ClosePool(pool.ObjectId)
 }
 
 func TestApply(t *testing.T) {
@@ -290,7 +295,7 @@ func TestApply(t *testing.T) {
 		},
 	}
 	mutationsBytes, _ := proto.Marshal(&mutations)
-	response := Apply(pool.ObjectId, conn.ObjectId, mutationsBytes)
+	response := WriteMutations(pool.ObjectId, conn.ObjectId, mutationsBytes)
 	if response.Code != 0 {
 		t.Fatalf("failed to apply mutations: %v", response.Code)
 	}
@@ -338,7 +343,7 @@ func TestBufferWrite(t *testing.T) {
 
 	txOpts := &sppb.TransactionOptions{}
 	txOptsBytes, _ := proto.Marshal(txOpts)
-	tx := BeginTransaction(pool.ObjectId, conn.ObjectId, txOptsBytes)
+	_ = BeginTransaction(pool.ObjectId, conn.ObjectId, txOptsBytes)
 
 	mutations := sppb.BatchWriteRequest_MutationGroup{
 		Mutations: []*sppb.Mutation{
@@ -359,7 +364,7 @@ func TestBufferWrite(t *testing.T) {
 		},
 	}
 	mutationsBytes, _ := proto.Marshal(&mutations)
-	response := BufferWrite(pool.ObjectId, conn.ObjectId, tx.ObjectId, mutationsBytes)
+	response := WriteMutations(pool.ObjectId, conn.ObjectId, mutationsBytes)
 	if response.Code != 0 {
 		t.Fatalf("failed to apply mutations: %v", response.Code)
 	}
@@ -380,7 +385,7 @@ func TestBufferWrite(t *testing.T) {
 	}
 
 	// Commit the transaction with the mutation.
-	res := Commit(pool.ObjectId, conn.ObjectId, tx.ObjectId)
+	res := Commit(pool.ObjectId, conn.ObjectId)
 	if res.Code != 0 {
 		t.Fatalf("failed to commit: %v", res.Code)
 	}
@@ -425,7 +430,7 @@ func TestBufferWrite_RetryAborted(t *testing.T) {
 
 	txOpts := &sppb.TransactionOptions{}
 	txOptsBytes, _ := proto.Marshal(txOpts)
-	tx := BeginTransaction(pool.ObjectId, conn.ObjectId, txOptsBytes)
+	_ = BeginTransaction(pool.ObjectId, conn.ObjectId, txOptsBytes)
 
 	mutations := sppb.BatchWriteRequest_MutationGroup{
 		Mutations: []*sppb.Mutation{
@@ -446,7 +451,7 @@ func TestBufferWrite_RetryAborted(t *testing.T) {
 		},
 	}
 	mutationsBytes, _ := proto.Marshal(&mutations)
-	response := BufferWrite(pool.ObjectId, conn.ObjectId, tx.ObjectId, mutationsBytes)
+	response := WriteMutations(pool.ObjectId, conn.ObjectId, mutationsBytes)
 	if response.Code != 0 {
 		t.Fatalf("failed to apply mutations: %v", response.Code)
 	}
@@ -467,7 +472,7 @@ func TestBufferWrite_RetryAborted(t *testing.T) {
 	})
 
 	// Commit the transaction with the mutation.
-	res := Commit(pool.ObjectId, conn.ObjectId, tx.ObjectId)
+	res := Commit(pool.ObjectId, conn.ObjectId)
 	if res.Code != 0 {
 		t.Fatalf("failed to commit: %v", res.Code)
 	}

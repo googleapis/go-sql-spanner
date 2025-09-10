@@ -15,12 +15,12 @@ func CloseConnection(poolId, connId int64) *Message {
 	return &Message{}
 }
 
-func Apply(poolId, connId int64, mutationBytes []byte) *Message {
+func WriteMutations(poolId, connId int64, mutationBytes []byte) *Message {
 	mutations := spannerpb.BatchWriteRequest_MutationGroup{}
 	if err := proto.Unmarshal(mutationBytes, &mutations); err != nil {
 		return errMessage(err)
 	}
-	response, err := api.Apply(poolId, connId, &mutations)
+	response, err := api.WriteMutations(poolId, connId, &mutations)
 	if err != nil {
 		return errMessage(err)
 	}
@@ -36,11 +36,11 @@ func BeginTransaction(poolId, connId int64, txOptsBytes []byte) *Message {
 	if err := proto.Unmarshal(txOptsBytes, &txOpts); err != nil {
 		return errMessage(err)
 	}
-	id, err := api.BeginTransaction(poolId, connId, &txOpts)
+	err := api.BeginTransaction(poolId, connId, &txOpts)
 	if err != nil {
 		return errMessage(err)
 	}
-	return idMessage(id)
+	return &Message{}
 }
 
 func Execute(poolId, connId int64, executeSqlRequestBytes []byte) *Message {

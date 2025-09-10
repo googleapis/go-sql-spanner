@@ -3,11 +3,11 @@ package api
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
@@ -26,18 +26,18 @@ func CloseConnection(poolId, connId int64) error {
 	return conn.close()
 }
 
-func Apply(poolId, connId int64, mutations *spannerpb.BatchWriteRequest_MutationGroup) (*spannerpb.CommitResponse, error) {
+func WriteMutations(poolId, connId int64, mutations *spannerpb.BatchWriteRequest_MutationGroup) (*spannerpb.CommitResponse, error) {
 	conn, err := findConnection(poolId, connId)
 	if err != nil {
 		return nil, err
 	}
-	return conn.apply(mutations)
+	return conn.writeMutations(mutations)
 }
 
-func BeginTransaction(poolId, connId int64, txOpts *spannerpb.TransactionOptions) (int64, error) {
+func BeginTransaction(poolId, connId int64, txOpts *spannerpb.TransactionOptions) error {
 	conn, err := findConnection(poolId, connId)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	return conn.BeginTransaction(txOpts)
 }
@@ -62,10 +62,16 @@ type Connection struct {
 	results    *sync.Map
 	resultsIdx atomic.Int64
 
-	transactions    *sync.Map
-	transactionsIdx atomic.Int64
-
 	backend *sql.Conn
+}
+
+// spannerConn is an internal interface that contains the internal functions that are used by this API.
+type spannerConn interface {
+	WriteMutations(ctx context.Context, ms []*spanner.Mutation) (*spanner.CommitResponse, error)
+	BeginReadOnlyTransaction(ctx context.Context, options *spannerdriver.ReadOnlyTransactionOptions) (driver.Tx, error)
+	BeginReadWriteTransaction(ctx context.Context, options *spannerdriver.ReadWriteTransactionOptions) (driver.Tx, error)
+	Commit(ctx context.Context) (*spanner.CommitResponse, error)
+	Rollback(ctx context.Context) error
 }
 
 type queryExecutor interface {
@@ -79,11 +85,6 @@ func (conn *Connection) close() error {
 		_ = res.Close()
 		return true
 	})
-	conn.transactions.Range(func(key, value interface{}) bool {
-		res := value.(*transaction)
-		_ = res.Close()
-		return true
-	})
 	err := conn.backend.Close()
 	if err != nil {
 		return err
@@ -91,7 +92,7 @@ func (conn *Connection) close() error {
 	return nil
 }
 
-func (conn *Connection) apply(mutation *spannerpb.BatchWriteRequest_MutationGroup) (*spannerpb.CommitResponse, error) {
+func (conn *Connection) writeMutations(mutation *spannerpb.BatchWriteRequest_MutationGroup) (*spannerpb.CommitResponse, error) {
 	ctx := context.Background()
 	mutations := make([]*spanner.Mutation, 0, len(mutation.Mutations))
 	for _, m := range mutation.Mutations {
@@ -101,47 +102,59 @@ func (conn *Connection) apply(mutation *spannerpb.BatchWriteRequest_MutationGrou
 		}
 		mutations = append(mutations, spannerMutation)
 	}
-	var commitTimestamp time.Time
+	var commitResponse *spanner.CommitResponse
 	if err := conn.backend.Raw(func(driverConn any) (err error) {
-		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
-		commitTimestamp, err = spannerConn.Apply(ctx, mutations)
+		sc, _ := driverConn.(spannerConn)
+		commitResponse, err = sc.WriteMutations(ctx, mutations)
 		return err
 	}); err != nil {
 		return nil, err
 	}
+
+	// The commit response is nil if the connection is currently in a transaction.
+	if commitResponse == nil {
+		return nil, nil
+	}
 	response := spannerpb.CommitResponse{
-		CommitTimestamp: timestamppb.New(commitTimestamp),
+		CommitTimestamp: timestamppb.New(commitResponse.CommitTs),
 	}
 	return &response, nil
 }
 
-func (conn *Connection) BeginTransaction(txOpts *spannerpb.TransactionOptions) (int64, error) {
-	var tx *sql.Tx
+func (conn *Connection) BeginTransaction(txOpts *spannerpb.TransactionOptions) error {
 	var err error
+	ctx := context.Background()
 	if txOpts.GetReadOnly() != nil {
-		tx, err = spannerdriver.BeginReadOnlyTransactionOnConn(
-			context.Background(), conn.backend, convertToReadOnlyOpts(txOpts))
+		return conn.beginReadOnlyTransaction(ctx, convertToReadOnlyOpts(txOpts))
 	} else if txOpts.GetPartitionedDml() != nil {
 		err = spanner.ToSpannerError(status.Error(codes.InvalidArgument, "transaction type not supported"))
 	} else {
-		tx, err = spannerdriver.BeginReadWriteTransactionOnConn(
-			context.Background(), conn.backend, convertToReadWriteTransactionOptions(txOpts))
+		return conn.beginReadWriteTransaction(ctx, convertToReadWriteTransactionOptions(txOpts))
 	}
 	if err != nil {
-		return 0, err
+		return err
 	}
-	id := conn.transactionsIdx.Add(1)
-	res := &transaction{
-		backend: tx,
-		conn:    conn,
-		txOpts:  txOpts,
-	}
-	conn.transactions.Store(id, res)
-	return id, nil
+	return nil
 }
 
-func convertToReadOnlyOpts(txOpts *spannerpb.TransactionOptions) spannerdriver.ReadOnlyTransactionOptions {
-	return spannerdriver.ReadOnlyTransactionOptions{
+func (conn *Connection) beginReadOnlyTransaction(ctx context.Context, opts *spannerdriver.ReadOnlyTransactionOptions) error {
+	return conn.backend.Raw(func(driverConn any) (err error) {
+		sc, _ := driverConn.(spannerConn)
+		_, err = sc.BeginReadOnlyTransaction(ctx, opts)
+		return err
+	})
+}
+
+func (conn *Connection) beginReadWriteTransaction(ctx context.Context, opts *spannerdriver.ReadWriteTransactionOptions) error {
+	return conn.backend.Raw(func(driverConn any) (err error) {
+		sc, _ := driverConn.(spannerConn)
+		_, err = sc.BeginReadWriteTransaction(ctx, opts)
+		return err
+	})
+}
+
+func convertToReadOnlyOpts(txOpts *spannerpb.TransactionOptions) *spannerdriver.ReadOnlyTransactionOptions {
+	return &spannerdriver.ReadOnlyTransactionOptions{
 		TimestampBound: convertTimestampBound(txOpts),
 	}
 }
@@ -162,12 +175,12 @@ func convertTimestampBound(txOpts *spannerpb.TransactionOptions) spanner.Timesta
 	return spanner.TimestampBound{}
 }
 
-func convertToReadWriteTransactionOptions(txOpts *spannerpb.TransactionOptions) spannerdriver.ReadWriteTransactionOptions {
+func convertToReadWriteTransactionOptions(txOpts *spannerpb.TransactionOptions) *spannerdriver.ReadWriteTransactionOptions {
 	readLockMode := spannerpb.TransactionOptions_ReadWrite_READ_LOCK_MODE_UNSPECIFIED
 	if txOpts.GetReadWrite() != nil {
 		readLockMode = txOpts.GetReadWrite().GetReadLockMode()
 	}
-	return spannerdriver.ReadWriteTransactionOptions{
+	return &spannerdriver.ReadWriteTransactionOptions{
 		TransactionOptions: spanner.TransactionOptions{
 			IsolationLevel: txOpts.GetIsolationLevel(),
 			ReadLockMode:   readLockMode,

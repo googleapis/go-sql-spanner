@@ -19,15 +19,11 @@ public interface ISpanner
 
     public void CloseConnection(Connection connection);
 
-    public CommitResponse Apply(Connection connection, BatchWriteRequest.Types.MutationGroup mutations);
-
-    public void BufferWrite(Transaction transaction, BatchWriteRequest.Types.MutationGroup mutations);
+    public CommitResponse WriteMutations(Connection connection, BatchWriteRequest.Types.MutationGroup mutations);
 
     public Rows Execute(Connection connection, ExecuteSqlRequest statement);
     
     public Task<Rows> ExecuteAsync(Connection connection, ExecuteSqlRequest statement);
-
-    public Rows ExecuteTransaction(Transaction transaction, ExecuteSqlRequest statement);
 
     public long[] ExecuteBatch(Connection connection, ExecuteBatchDmlRequest statements);
     
@@ -47,7 +43,7 @@ public interface ISpanner
 
     public Transaction BeginTransaction(Connection connection, TransactionOptions transactionOptions);
 
-    public CommitResponse Commit(Transaction transaction);
+    public CommitResponse Commit(Connection connection);
 
-    public void Rollback(Transaction transaction);
+    public void Rollback(Connection connection);
 }

@@ -91,21 +91,18 @@ func CloseConnection(poolId, connId int64) (int64, int32, int64, int32, unsafe.P
 	return pin(msg)
 }
 
-// Apply applies an array of mutations in a single read/write transaction.
+// WriteMutations writes an array of mutations to Spanner. The mutations are buffered in
+// the current read/write transaction if the connection currently has a read/write transaction.
+// The mutations are applied to the database in a new read/write transaction that is automatically
+// committed if the connection currently does not have a transaction.
+//
+// The function returns an error if the connection is currently in a read-only transaction.
+//
 // The mutationsBytes must be an encoded BatchWriteRequest_MutationGroup protobuf object.
 //
-//export Apply
-func Apply(poolId, connectionId int64, mutationsBytes []byte) (int64, int32, int64, int32, unsafe.Pointer) {
-	msg := lib.Apply(poolId, connectionId, mutationsBytes)
-	return pin(msg)
-}
-
-// BufferWrite buffers an array of mutations in the given read/write transaction.
-// The mutationsBytes must be an encoded BatchWriteRequest_MutationGroup protobuf object.
-//
-//export BufferWrite
-func BufferWrite(poolId, connectionId, txId int64, mutationsBytes []byte) (int64, int32, int64, int32, unsafe.Pointer) {
-	msg := lib.BufferWrite(poolId, connectionId, txId, mutationsBytes)
+//export WriteMutations
+func WriteMutations(poolId, connectionId int64, mutationsBytes []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := lib.WriteMutations(poolId, connectionId, mutationsBytes)
 	return pin(msg)
 }
 
@@ -186,13 +183,13 @@ func BeginTransaction(poolId, connectionId int64, txOpts []byte) (int64, int32, 
 	return pin(msg)
 }
 
-// Commit commits a previously started transaction. All transactions must be either
-// committed or rolled back, including read-only transactions. This to ensure that
-// all resources that are held by a transaction are cleaned up.
+// Commit commits the current transaction on a connection. All transactions must be
+// either committed or rolled back, including read-only transactions. This to ensure
+// that all resources that are held by a transaction are cleaned up.
 //
 //export Commit
-func Commit(poolId, connectionId, txId int64) (int64, int32, int64, int32, unsafe.Pointer) {
-	msg := lib.Commit(poolId, connectionId, txId)
+func Commit(poolId, connectionId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := lib.Commit(poolId, connectionId)
 	return pin(msg)
 }
 
@@ -205,7 +202,7 @@ func Commit(poolId, connectionId, txId int64) (int64, int32, int64, int32, unsaf
 // all resources. Commit and Rollback are semantically the same for read-only transactions.
 //
 //export Rollback
-func Rollback(poolId, connectionId, txId int64) (int64, int32, int64, int32, unsafe.Pointer) {
-	msg := lib.Rollback(poolId, connectionId, txId)
+func Rollback(poolId, connectionId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	msg := lib.Rollback(poolId, connectionId)
 	return pin(msg)
 }

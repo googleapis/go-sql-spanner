@@ -12,33 +12,28 @@ public class Transaction : AbstractLibObject
         Connection = connection;
     }
 
-    public void BufferWrite(BatchWriteRequest.Types.MutationGroup mutations)
-    {
-        Spanner.BufferWrite(this, mutations);
-    }
-
     public Rows Execute(ExecuteSqlRequest statement)
     {
-        return Spanner.ExecuteTransaction(this, statement);
+        return Spanner.Execute(Connection, statement);
     }
 
     public CommitResponse Commit()
     {
         MarkDisposed();
-        return Spanner.Commit(this);
+        return Spanner.Commit(Connection);
     }
 
     public void Rollback()
     {
         MarkDisposed();
-        Spanner.Rollback(this);
+        Spanner.Rollback(Connection);
     }
 
     protected override void CloseLibObject()
     {
         try
         {
-            Spanner.Rollback(this);
+            Spanner.Rollback(Connection);
         }
         catch (Exception)
         {

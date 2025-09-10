@@ -250,7 +250,7 @@ func (s *spannerLibServer) Rollback(ctx context.Context, request *pb.Transaction
 }
 
 func (s *spannerLibServer) Apply(ctx context.Context, request *pb.ApplyRequest) (*spannerpb.CommitResponse, error) {
-	resp, err := api.Apply(request.Connection.Pool.Id, request.Connection.Id, request.Mutations)
+	resp, err := api.WriteMutations(request.Connection.Pool.Id, request.Connection.Id, request.Mutations)
 	if err != nil {
 		return nil, err
 	}

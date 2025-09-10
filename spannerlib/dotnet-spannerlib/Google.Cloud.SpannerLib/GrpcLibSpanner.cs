@@ -49,7 +49,7 @@ public class GrpcLibSpanner : ISpanner
         return _lib.CreateStream();
     }
 
-    public CommitResponse Apply(Connection connection, BatchWriteRequest.Types.MutationGroup mutations)
+    public CommitResponse WriteMutations(Connection connection, BatchWriteRequest.Types.MutationGroup mutations)
     {
         return _lib.Apply(ToProto(connection), mutations);
     }
@@ -197,14 +197,16 @@ public class GrpcLibSpanner : ISpanner
         return new Transaction(connection, transaction.Id);
     }
 
-    public CommitResponse Commit(Transaction transaction)
+    public CommitResponse Commit(Connection connection)
     {
-        return _lib.Commit(ToProto(transaction));
+        throw new System.NotImplementedException();
+        //return _lib.Commit(ToProto(transaction));
     }
 
-    public void Rollback(Transaction transaction)
+    public void Rollback(Connection connection)
     {
-        _lib.Rollback(ToProto(transaction));
+        throw new System.NotImplementedException();
+        //_lib.Rollback(ToProto(transaction));
     }
     
     private static V1.Pool ToProto(Pool pool) => new() {Id = pool.Id};

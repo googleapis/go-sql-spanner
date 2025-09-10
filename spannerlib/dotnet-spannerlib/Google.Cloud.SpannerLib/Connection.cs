@@ -18,9 +18,9 @@ public class Connection : AbstractLibObject
         return Spanner.BeginTransaction(this, transactionOptions);
     }
 
-    public CommitResponse Apply(BatchWriteRequest.Types.MutationGroup mutations)
+    public CommitResponse WriteMutations(BatchWriteRequest.Types.MutationGroup mutations)
     {
-        return Spanner.Apply(this, mutations);
+        return Spanner.WriteMutations(this, mutations);
     }
 
     public Rows Execute(ExecuteSqlRequest statement)

@@ -61,27 +61,16 @@ public class SharedLibSpanner : ISpanner
         ExecuteAndReleaseLibraryFunction(() => Native.SpannerLib.CloseConnection(connection.Pool.Id, connection.Id));
     }
 
-    public CommitResponse Apply(Connection connection,
+    public CommitResponse WriteMutations(Connection connection,
         BatchWriteRequest.Types.MutationGroup mutations)
     {
         using var handler = ExecuteLibraryFunction(() =>
         {
             var mutationsBytes = mutations.ToByteArray();
             using var goMutations = DisposableGoSlice.Create(mutationsBytes);
-            return Native.SpannerLib.Apply(connection.Pool.Id, connection.Id, goMutations.GoSlice);
+            return Native.SpannerLib.WriteMutations(connection.Pool.Id, connection.Id, goMutations.GoSlice);
         });
         return CommitResponse.Parser.ParseFrom(handler.Value());
-    }
-
-    public void BufferWrite(Transaction transaction, BatchWriteRequest.Types.MutationGroup mutations)
-    {
-        ExecuteAndReleaseLibraryFunction(() =>
-        {
-            var mutationsBytes = mutations.ToByteArray();
-            using var goMutations = DisposableGoSlice.Create(mutationsBytes);
-            return Native.SpannerLib.BufferWrite(transaction.Connection.Pool.Id,
-                transaction.Connection.Id, transaction.Id, goMutations.GoSlice);
-        });
     }
 
     public Rows Execute(Connection connection, ExecuteSqlRequest statement)
@@ -98,19 +87,6 @@ public class SharedLibSpanner : ISpanner
     public Task<Rows> ExecuteAsync(Connection connection, ExecuteSqlRequest statement)
     {
         return Task.Run(() => Execute(connection, statement));
-    }
-
-    public Rows ExecuteTransaction(Transaction transaction, ExecuteSqlRequest statement)
-    {
-        using var handler = ExecuteLibraryFunction(() =>
-        {
-            var statementBytes = statement.ToByteArray();
-            using var goStatement = DisposableGoSlice.Create(statementBytes);
-            return Native.SpannerLib.ExecuteTransaction(
-                transaction.Connection.Pool.Id, transaction.Connection.Id,
-                transaction.Id, goStatement.GoSlice);
-        });
-        return new Rows(transaction.Connection, handler.ObjectId());
     }
 
     public long[] ExecuteBatch(Connection connection, ExecuteBatchDmlRequest statements)
@@ -185,14 +161,14 @@ public class SharedLibSpanner : ISpanner
         return new Transaction(connection, handler.ObjectId());
     }
 
-    public CommitResponse Commit(Transaction transaction)
+    public CommitResponse Commit(Connection connection)
     {
-        using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.Commit(transaction.Connection.Pool.Id, transaction.Connection.Id, transaction.Id));
+        using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.Commit(connection.Pool.Id, connection.Id));
         return CommitResponse.Parser.ParseFrom(handler.Value());
     }
 
-    public void Rollback(Transaction transaction)
+    public void Rollback(Connection connection)
     {
-        ExecuteAndReleaseLibraryFunction(() => Native.SpannerLib.Rollback(transaction.Connection.Pool.Id, transaction.Connection.Id, transaction.Id));
+        ExecuteAndReleaseLibraryFunction(() => Native.SpannerLib.Rollback(connection.Pool.Id, connection.Id));
     }
 }

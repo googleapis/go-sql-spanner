@@ -694,6 +694,17 @@ func sum(affected []int64) int64 {
 	return sum
 }
 
+func (c *conn) WriteMutations(ctx context.Context, ms []*spanner.Mutation) (*spanner.CommitResponse, error) {
+	if c.inTransaction() {
+		return nil, c.BufferWrite(ms)
+	}
+	ts, err := c.Apply(ctx, ms)
+	if err != nil {
+		return nil, err
+	}
+	return &spanner.CommitResponse{CommitTs: ts}, nil
+}
+
 func (c *conn) Apply(ctx context.Context, ms []*spanner.Mutation, opts ...spanner.ApplyOption) (commitTimestamp time.Time, err error) {
 	if c.inTransaction() {
 		return time.Time{}, spanner.ToSpannerError(
@@ -1091,6 +1102,26 @@ func (c *conn) getBatchReadOnlyTransactionOptions() BatchReadOnlyTransactionOpti
 	return BatchReadOnlyTransactionOptions{TimestampBound: c.ReadOnlyStaleness()}
 }
 
+func (c *conn) BeginReadOnlyTransaction(ctx context.Context, options *ReadOnlyTransactionOptions) (driver.Tx, error) {
+	c.withTempReadOnlyTransactionOptions(options)
+	tx, err := c.BeginTx(ctx, driver.TxOptions{ReadOnly: true})
+	if err != nil {
+		c.withTempReadOnlyTransactionOptions(nil)
+		return nil, err
+	}
+	return tx, nil
+}
+
+func (c *conn) BeginReadWriteTransaction(ctx context.Context, options *ReadWriteTransactionOptions) (driver.Tx, error) {
+	c.withTempTransactionOptions(options)
+	tx, err := c.BeginTx(ctx, driver.TxOptions{})
+	if err != nil {
+		c.withTempTransactionOptions(nil)
+		return nil, err
+	}
+	return tx, nil
+}
+
 func (c *conn) Begin() (driver.Tx, error) {
 	return c.BeginTx(context.Background(), driver.TxOptions{})
 }
@@ -1274,7 +1305,7 @@ func (c *conn) inReadWriteTransaction() bool {
 	return false
 }
 
-func (c *conn) commit(ctx context.Context) (*spanner.CommitResponse, error) {
+func (c *conn) Commit(ctx context.Context) (*spanner.CommitResponse, error) {
 	if !c.inTransaction() {
 		return nil, status.Errorf(codes.FailedPrecondition, "this connection does not have a transaction")
 	}
@@ -1282,10 +1313,13 @@ func (c *conn) commit(ctx context.Context) (*spanner.CommitResponse, error) {
 	if err := c.tx.Commit(); err != nil {
 		return nil, err
 	}
-	return c.CommitResponse()
+
+	// This will return either the commit response or nil, depending on whether the transaction was a
+	// read/write transaction or a read-only transaction.
+	return propertyCommitResponse.GetValueOrDefault(c.state), nil
 }
 
-func (c *conn) rollback(ctx context.Context) error {
+func (c *conn) Rollback(ctx context.Context) error {
 	if !c.inTransaction() {
 		return status.Errorf(codes.FailedPrecondition, "this connection does not have a transaction")
 	}

@@ -29,22 +29,13 @@ namespace Google.Cloud.SpannerLib.Native
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
         internal static extern Message CloseConnection(long poolId, long connectionId);
 
-        [DllImport(SpannerLibName, EntryPoint = "Apply")]
+        [DllImport(SpannerLibName, EntryPoint = "WriteMutations")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
-        internal static extern Message Apply(long poolId, long connectionId, GoSlice mutations);
-
-        [DllImport(SpannerLibName, EntryPoint = "BufferWrite")]
-        [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
-        internal static extern Message BufferWrite(long poolId, long connectionId, long transactionId,
-            GoSlice mutations);
+        internal static extern Message WriteMutations(long poolId, long connectionId, GoSlice mutations);
 
         [DllImport(SpannerLibName, EntryPoint = "Execute")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
         internal static extern Message Execute(long poolId, long connectionId, GoSlice statement);
-
-        [DllImport(SpannerLibName, EntryPoint = "ExecuteTransaction")]
-        [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
-        internal static extern Message ExecuteTransaction(long poolId, long connectionId, long txId, GoSlice statement);
 
         [DllImport(SpannerLibName, EntryPoint = "ExecuteBatch")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
@@ -72,10 +63,10 @@ namespace Google.Cloud.SpannerLib.Native
 
         [DllImport(SpannerLibName, EntryPoint = "Commit")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
-        internal static extern Message Commit(long poolId, long connectionId, long txId);
+        internal static extern Message Commit(long poolId, long connectionId);
 
         [DllImport(SpannerLibName, EntryPoint = "Rollback")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
-        internal static extern Message Rollback(long poolId, long connectionId, long txId);
+        internal static extern Message Rollback(long poolId, long connectionId);
     }
 }

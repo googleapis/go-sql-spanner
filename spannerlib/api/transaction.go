@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 
 	"cloud.google.com/go/spanner"
@@ -9,46 +10,20 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func BufferWrite(poolId, connId, txId int64, mutations *spannerpb.BatchWriteRequest_MutationGroup) error {
-	tx, err := findTx(poolId, connId, txId)
-	if err != nil {
-		return err
-	}
-	return tx.bufferWrite(mutations)
-}
-
-func ExecuteTransaction(poolId, connId, txId int64, request *spannerpb.ExecuteSqlRequest) (int64, error) {
-	tx, err := findTx(poolId, connId, txId)
-	if err != nil {
-		return 0, err
-	}
-	return tx.Execute(request)
-}
-
-func Commit(poolId, connId, txId int64) (*spannerpb.CommitResponse, error) {
-	tx, err := findTx(poolId, connId, txId)
-	if err != nil {
-		return nil, err
-	}
+func Commit(poolId, connId int64) (*spannerpb.CommitResponse, error) {
 	conn, err := findConnection(poolId, connId)
 	if err != nil {
 		return nil, err
 	}
-	conn.transactions.Delete(txId)
-	return tx.Commit()
+	return commit(conn)
 }
 
-func Rollback(poolId, connId, txId int64) error {
-	tx, err := findTx(poolId, connId, txId)
-	if err != nil {
-		return err
-	}
+func Rollback(poolId, connId int64) error {
 	conn, err := findConnection(poolId, connId)
 	if err != nil {
 		return err
 	}
-	conn.transactions.Delete(txId)
-	return tx.Rollback()
+	return rollback(conn)
 }
 
 type transaction struct {
@@ -91,18 +66,11 @@ func (tx *transaction) Execute(statement *spannerpb.ExecuteSqlRequest) (int64, e
 	return execute(tx.conn, tx.backend, statement)
 }
 
-func (tx *transaction) Commit() (*spannerpb.CommitResponse, error) {
-	tx.closed = true
-	if err := tx.backend.Commit(); err != nil {
-		return nil, err
-	}
+func commit(conn *Connection) (*spannerpb.CommitResponse, error) {
 	var response *spanner.CommitResponse
-	if tx.txOpts.GetReadWrite() == nil {
-		return &spannerpb.CommitResponse{}, nil
-	}
-	if err := tx.conn.backend.Raw(func(driverConn any) (err error) {
-		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
-		response, err = spannerConn.CommitResponse()
+	if err := conn.backend.Raw(func(driverConn any) (err error) {
+		spannerConn, _ := driverConn.(spannerConn)
+		response, err = spannerConn.Commit(context.Background())
 		if err != nil {
 			return err
 		}
@@ -110,14 +78,18 @@ func (tx *transaction) Commit() (*spannerpb.CommitResponse, error) {
 	}); err != nil {
 		return nil, err
 	}
+
+	// The commit response is nil for read-only transactions.
+	if response == nil {
+		return nil, nil
+	}
 	// TODO: Include commit stats
 	return &spannerpb.CommitResponse{CommitTimestamp: timestamppb.New(response.CommitTs)}, nil
 }
 
-func (tx *transaction) Rollback() error {
-	tx.closed = true
-	if err := tx.backend.Rollback(); err != nil {
-		return err
-	}
-	return nil
+func rollback(conn *Connection) error {
+	return conn.backend.Raw(func(driverConn any) (err error) {
+		spannerConn, _ := driverConn.(spannerConn)
+		return spannerConn.Rollback(context.Background())
+	})
 }

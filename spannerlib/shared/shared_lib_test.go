@@ -83,8 +83,8 @@ func TestApply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pinner, code, id, length, ptr := Apply(poolId, connId, mutationBytes)
-	verifyNonEmptyMessage(t, "Apply", pinner, code, id, length, ptr)
+	pinner, code, id, length, ptr := WriteMutations(poolId, connId, mutationBytes)
+	verifyNonEmptyMessage(t, "WriteMutations", pinner, code, id, length, ptr)
 	defer Release(pinner)
 
 	responseBytes := reflect.SliceAt(reflect.TypeOf(byte(0)), ptr, int(length)).Bytes()
