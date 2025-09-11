@@ -5,35 +5,35 @@ namespace Google.Cloud.SpannerLib;
 
 public class Transaction : AbstractLibObject
 {
-    internal Connection Connection { get; private set; }
+    internal Connection SpannerConnection { get; private set; }
 
     internal Transaction(Connection connection, long id) : base(connection.Spanner, id)
     {
-        Connection = connection;
+        SpannerConnection = connection;
     }
 
     public Rows Execute(ExecuteSqlRequest statement)
     {
-        return Spanner.Execute(Connection, statement);
+        return Spanner.Execute(SpannerConnection, statement);
     }
 
     public CommitResponse Commit()
     {
         MarkDisposed();
-        return Spanner.Commit(Connection);
+        return Spanner.Commit(SpannerConnection);
     }
 
     public void Rollback()
     {
         MarkDisposed();
-        Spanner.Rollback(Connection);
+        Spanner.Rollback(SpannerConnection);
     }
 
     protected override void CloseLibObject()
     {
         try
         {
-            Spanner.Rollback(Connection);
+            Spanner.Rollback(SpannerConnection);
         }
         catch (Exception)
         {

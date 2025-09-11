@@ -88,6 +88,7 @@ type rows struct {
 	backend  *sql.Rows
 	metadata *spannerpb.ResultSetMetadata
 	stats    *spannerpb.ResultSetStats
+	done     bool
 
 	buffer        []any
 	values        *structpb.ListValue
@@ -135,7 +136,7 @@ func (gv *genericValue) Scan(src any) error {
 
 func (rows *rows) Next() (*structpb.ListValue, error) {
 	// No columns means no rows, so just return nil to indicate that there are no (more) rows.
-	if len(rows.metadata.RowType.Fields) == 0 {
+	if len(rows.metadata.RowType.Fields) == 0 || rows.done {
 		return nil, nil
 	}
 	if rows.stats != nil {
@@ -143,7 +144,8 @@ func (rows *rows) Next() (*structpb.ListValue, error) {
 	}
 	ok := rows.backend.Next()
 	if !ok {
-		// No more rows. Read stats and nil.
+		rows.done = true
+		// No more rows. Read stats and return nil.
 		rows.readStats()
 		// nil indicates no more rows.
 		return nil, nil

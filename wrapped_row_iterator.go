@@ -22,6 +22,7 @@ import (
 
 var _ rowIterator = &wrappedRowIterator{}
 
+// wrappedRowIterator is used for DML statements that may or may not contain rows.
 type wrappedRowIterator struct {
 	*spanner.RowIterator
 
@@ -49,6 +50,7 @@ func (ri *wrappedRowIterator) Metadata() (*spannerpb.ResultSetMetadata, error) {
 }
 
 func (ri *wrappedRowIterator) ResultSetStats() *spannerpb.ResultSetStats {
+	// Include the row count in the stats, as this is a DML statement.
 	return &spannerpb.ResultSetStats{
 		RowCount:  &spannerpb.ResultSetStats_RowCountExact{RowCountExact: ri.RowIterator.RowCount},
 		QueryPlan: ri.RowIterator.QueryPlan,

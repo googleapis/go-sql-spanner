@@ -8,9 +8,9 @@ namespace Google.Cloud.SpannerLib;
 
 public class Rows : AbstractLibObject
 {
-    private Lazy<ResultSetStats?> _stats;
+    private readonly Lazy<ResultSetStats?> _stats;
 
-    internal Connection Connection { get; private set; }
+    internal Connection SpannerConnection { get; private set; }
 
     private readonly AsyncServerStreamingCall<ResultSet>? _stream;
 
@@ -39,13 +39,9 @@ public class Rows : AbstractLibObject
         }
     }
 
-    internal Rows(Connection connection, long id) : this(connection, id, true)
+    internal Rows(Connection connection, long id, bool initMetadata = true) : base(connection.Spanner, id)
     {
-    }
-
-    internal Rows(Connection connection, long id, bool initMetadata) : base(connection.Spanner, id)
-    {
-        Connection = connection;
+        SpannerConnection = connection;
         if (initMetadata)
         {
             Metadata = Spanner.Metadata(this);
@@ -56,7 +52,7 @@ public class Rows : AbstractLibObject
 
     internal Rows(Connection connection, AsyncServerStreamingCall<ResultSet> stream) : base(connection.Spanner, -1)
     {
-        Connection = connection;
+        SpannerConnection = connection;
         _stats = new(() => Spanner.Stats(this));
         _stream = stream;
     }

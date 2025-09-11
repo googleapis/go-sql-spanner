@@ -888,13 +888,13 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 			// The statement was either detected as being a query, or potentially not recognized at all.
 			// In that case, just default to using a single-use read-only transaction and let Spanner
 			// return an error if the statement is not suited for that type of transaction.
-			iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt, c.ReadOnlyStaleness(), execOptions)}
+			iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt, c.ReadOnlyStaleness(), execOptions), statementType.StatementType}
 		}
 	} else {
 		if execOptions.PartitionedQueryOptions.PartitionQuery {
 			return c.tx.partitionQuery(ctx, stmt, execOptions)
 		}
-		iter, err = c.tx.Query(ctx, stmt, execOptions)
+		iter, err = c.tx.Query(ctx, stmt, statementType.StatementType, execOptions)
 		if err != nil {
 			return nil, err
 		}

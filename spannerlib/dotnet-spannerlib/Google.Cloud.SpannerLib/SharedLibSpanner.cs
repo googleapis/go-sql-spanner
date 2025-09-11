@@ -119,7 +119,7 @@ public class SharedLibSpanner : ISpanner
 
     public ResultSetMetadata? Metadata(Rows rows)
     {
-        using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.Metadata(rows.Connection.Pool.Id, rows.Connection.Id, rows.Id));
+        using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.Metadata(rows.SpannerConnection.Pool.Id, rows.SpannerConnection.Id, rows.Id));
         return handler.Length == 0 ? null : ResultSetMetadata.Parser.ParseFrom(handler.Value());
     }
 
@@ -130,13 +130,13 @@ public class SharedLibSpanner : ISpanner
 
     public ResultSetStats? Stats(Rows rows)
     {
-        using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.ResultSetStats(rows.Connection.Pool.Id, rows.Connection.Id, rows.Id));
+        using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.ResultSetStats(rows.SpannerConnection.Pool.Id, rows.SpannerConnection.Id, rows.Id));
         return handler.Length == 0 ? null : ResultSetStats.Parser.ParseFrom(handler.Value());
     }
 
     public ListValue? Next(Rows rows, int numRows, ISpanner.RowEncoding encoding)
     {
-        using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.Next(rows.Connection.Pool.Id, rows.Connection.Id, rows.Id, numRows, (int) encoding));
+        using var handler = ExecuteLibraryFunction(() => Native.SpannerLib.Next(rows.SpannerConnection.Pool.Id, rows.SpannerConnection.Id, rows.Id, numRows, (int) encoding));
         return handler.Length == 0 ? null : ListValue.Parser.ParseFrom(handler.Value());
     }
 
@@ -147,7 +147,7 @@ public class SharedLibSpanner : ISpanner
 
     public void CloseRows(Rows rows)
     {
-        ExecuteAndReleaseLibraryFunction(() => Native.SpannerLib.CloseRows(rows.Connection.Pool.Id, rows.Connection.Id, rows.Id));
+        ExecuteAndReleaseLibraryFunction(() => Native.SpannerLib.CloseRows(rows.SpannerConnection.Pool.Id, rows.SpannerConnection.Id, rows.Id));
     }
 
     public Transaction BeginTransaction(Connection connection, TransactionOptions transactionOptions)

@@ -97,7 +97,7 @@ public class GrpcLibSpanner : ISpanner
     public Rows ExecuteTransaction(Transaction transaction, ExecuteSqlRequest statement)
     {
         var rows = _lib.ExecuteTransaction(ToProto(transaction), statement);
-        return new Rows(transaction.Connection, rows.Id);
+        return new Rows(transaction.SpannerConnection, rows.Id);
     }
 
     public long[] ExecuteBatch(Connection connection, ExecuteBatchDmlRequest statements)
@@ -123,7 +123,7 @@ public class GrpcLibSpanner : ISpanner
 
     public async Task<ResultSetMetadata?> MetadataAsync(Rows rows)
     {
-        if (_streams.TryGetValue(rows.Connection.Id, out var stream))
+        if (_streams.TryGetValue(rows.SpannerConnection.Id, out var stream))
         {
             return await MetadataStreaming(stream, rows);
         }
@@ -161,7 +161,7 @@ public class GrpcLibSpanner : ISpanner
 
     public async Task<ListValue?> NextAsync(Rows rows, int numRows, ISpanner.RowEncoding encoding)
     {
-        if (_streams.TryGetValue(rows.Connection.Id, out var stream))
+        if (_streams.TryGetValue(rows.SpannerConnection.Id, out var stream))
         {
             return await NextStreaming(stream, rows);
         }
@@ -213,7 +213,7 @@ public class GrpcLibSpanner : ISpanner
     
     private static V1.Connection ToProto(Connection connection) => new() {Pool = ToProto(connection.Pool), Id = connection.Id};
     
-    private static V1.Transaction ToProto(Transaction transaction) => new() {Connection = ToProto(transaction.Connection), Id = transaction.Id};
+    private static V1.Transaction ToProto(Transaction transaction) => new() {Connection = ToProto(transaction.SpannerConnection), Id = transaction.Id};
     
-    private static V1.Rows ToProto(Rows rows) => new() {Connection = ToProto(rows.Connection), Id = rows.Id};
+    private static V1.Rows ToProto(Rows rows) => new() {Connection = ToProto(rows.SpannerConnection), Id = rows.Id};
 }

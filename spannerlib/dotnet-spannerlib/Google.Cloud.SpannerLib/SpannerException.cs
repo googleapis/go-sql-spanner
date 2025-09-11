@@ -1,9 +1,10 @@
 using System.Data;
+using System.Data.Common;
 
 namespace Google.Cloud.SpannerLib
 {
 
-    public class SpannerException : DataException
+    public class SpannerException : DbException
     {
         /// <summary>
         /// An error code that indicates the general class of problem.

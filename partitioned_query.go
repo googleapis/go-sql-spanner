@@ -22,6 +22,7 @@ import (
 	"io"
 
 	"cloud.google.com/go/spanner"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -231,7 +232,7 @@ func (pq *PartitionedQuery) execute(ctx context.Context, index int) (*rows, erro
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid partition index: %d", index))
 	}
 	spannerIter := pq.tx.Execute(ctx, pq.Partitions[index])
-	iter := &readOnlyRowIterator{spannerIter}
+	iter := &readOnlyRowIterator{spannerIter, parser.StatementTypeQuery}
 	return &rows{it: iter, decodeOption: pq.execOptions.DecodeOption}, nil
 }
 
