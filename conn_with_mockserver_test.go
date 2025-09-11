@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/spanner"
@@ -584,6 +585,34 @@ func TestSetLocalReadLockMode(t *testing.T) {
 	}
 	if g, w := request.GetTransaction().GetBegin().GetReadWrite().GetReadLockMode(), spannerpb.TransactionOptions_ReadWrite_READ_LOCK_MODE_UNSPECIFIED; g != w {
 		t.Fatalf("begin read lock mode mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestTimestampBound(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	staleness := spanner.MaxStaleness(10 * time.Second)
+	row := db.QueryRowContext(ctx, testutil.SelectFooFromBar, ExecOptions{TimestampBound: &staleness})
+	if row.Err() != nil {
+		t.Fatal(row.Err())
+	}
+	var val int64
+	if err := row.Scan(&val); err != nil {
+		t.Fatal(err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	request := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+	if g, w := request.Transaction.GetSingleUse().GetReadOnly().GetMaxStaleness().GetSeconds(), int64(10); g != w {
+		t.Fatalf("read staleness mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
