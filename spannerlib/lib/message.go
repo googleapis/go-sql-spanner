@@ -3,8 +3,8 @@ package lib
 import (
 	"unsafe"
 
-	"github.com/google/uuid"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 type Message struct {
@@ -27,29 +27,14 @@ func (m *Message) ResPointer() unsafe.Pointer {
 	return unsafe.Pointer(&(m.Res[0]))
 }
 
-func generateId() (string, error) {
-	id, err := uuid.NewRandom()
-	if err != nil {
-		return "", err
-	}
-	return id.String(), nil
-}
-
-type BaseMsg struct {
-	Allowed bool
-}
-
-type OtherMsg struct {
-	BaseMsg
-	Foo string
-}
-
 func idMessage(id int64) *Message {
 	return &Message{ObjectId: id}
 }
 
 func errMessage(err error) *Message {
-	errCode := status.Code(err)
-	b := []byte(err.Error())
-	return &Message{Code: int32(errCode), Res: b}
+	s := status.Convert(err)
+	p := s.Proto()
+	// Ignore any marshalling errors and just return an empty status in that case.
+	b, _ := proto.Marshal(p)
+	return &Message{Code: int32(s.Code()), Res: b}
 }

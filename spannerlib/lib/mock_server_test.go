@@ -37,9 +37,22 @@ func TestSimpleQuery(t *testing.T) {
 		t.Fatalf("failed to marshal statement: %v", err)
 	}
 	results := Execute(pool.ObjectId, conn.ObjectId, statementBytes)
-	metadata := Metadata(pool.ObjectId, conn.ObjectId, results.ObjectId)
-	if metadata.Code != 0 {
-		t.Fatalf("metadata.Code: %v", metadata.Code)
+	metadataMsg := Metadata(pool.ObjectId, conn.ObjectId, results.ObjectId)
+	if metadataMsg.Code != 0 {
+		t.Fatalf("metadataMsg.Code: %v", metadataMsg.Code)
+	}
+	metadata := &sppb.ResultSetMetadata{}
+	if err := proto.Unmarshal(metadataMsg.Res, metadata); err != nil {
+		t.Fatalf("failed to unmarshal metadata: %v", err)
+	}
+	if g, w := len(metadata.RowType.Fields), 1; g != w {
+		t.Fatalf("field count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := metadata.RowType.Fields[0].Name, "FOO"; g != w {
+		t.Fatalf("field name mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := metadata.RowType.Fields[0].Type.Code, sppb.TypeCode_INT64; g != w {
+		t.Fatalf("field type code mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	for {
 		row := Next(pool.ObjectId, conn.ObjectId, results.ObjectId)
@@ -192,8 +205,8 @@ func TestQueryWithTimestampBound(t *testing.T) {
 	CloseConnection(pool.ObjectId, conn.ObjectId)
 	ClosePool(pool.ObjectId)
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -305,8 +318,8 @@ func TestApply(t *testing.T) {
 		t.Fatal("commit timestamp missing")
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
 	if g, w := len(beginRequests), 1; g != w {
 		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -317,7 +330,7 @@ func TestApply(t *testing.T) {
 	if req.Options.GetReadWrite() == nil {
 		t.Fatalf("missing tx read write")
 	}
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -372,14 +385,14 @@ func TestBufferWrite(t *testing.T) {
 		t.Fatal("response length mismatch")
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
+	requests := server.TestSpanner.DrainRequestsFromServer()
 	// There should not be any BeginTransaction requests yet, as we use inlined-begin.
-	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
 	if g, w := len(beginRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	// There should not be any commit requests yet.
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 0; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -391,8 +404,8 @@ func TestBufferWrite(t *testing.T) {
 	}
 
 	// Verify that we have a commit request on the server.
-	requests = drainRequestsFromServer(server.TestSpanner)
-	beginRequests = requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	requests = server.TestSpanner.DrainRequestsFromServer()
+	beginRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
 	if g, w := len(beginRequests), 1; g != w {
 		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -403,7 +416,7 @@ func TestBufferWrite(t *testing.T) {
 	if req.Options.GetReadWrite() == nil {
 		t.Fatalf("missing tx read write")
 	}
-	commitRequests = requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -459,9 +472,9 @@ func TestBufferWrite_RetryAborted(t *testing.T) {
 		t.Fatal("response length mismatch")
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
+	requests := server.TestSpanner.DrainRequestsFromServer()
 	// There should not be any commit requests yet.
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 0; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -478,8 +491,8 @@ func TestBufferWrite_RetryAborted(t *testing.T) {
 	}
 
 	// Verify that we have both begin and commit requests on the server.
-	requests = drainRequestsFromServer(server.TestSpanner)
-	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	requests = server.TestSpanner.DrainRequestsFromServer()
+	beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
 	if g, w := len(beginRequests), 2; g != w {
 		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -492,7 +505,7 @@ func TestBufferWrite_RetryAborted(t *testing.T) {
 			t.Fatalf("missing tx read write")
 		}
 	}
-	commitRequests = requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 2; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -553,28 +566,4 @@ func setupMockedTestServerWithConfigAndClientOptionsAndDialect(t *testing.T, con
 		client.Close()
 		serverTeardown()
 	}
-}
-
-func requestsOfType(requests []interface{}, t reflect.Type) []interface{} {
-	res := make([]interface{}, 0)
-	for _, req := range requests {
-		if reflect.TypeOf(req) == t {
-			res = append(res, req)
-		}
-	}
-	return res
-}
-
-func drainRequestsFromServer(server testutil.InMemSpannerServer) []interface{} {
-	var reqs []interface{}
-loop:
-	for {
-		select {
-		case req := <-server.ReceivedRequests():
-			reqs = append(reqs, req)
-		default:
-			break loop
-		}
-	}
-	return reqs
 }

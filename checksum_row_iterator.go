@@ -255,13 +255,5 @@ func (it *checksumRowIterator) Metadata() (*sppb.ResultSetMetadata, error) {
 }
 
 func (it *checksumRowIterator) ResultSetStats() *sppb.ResultSetStats {
-	// TODO: The Spanner client library should offer an option to get the full
-	//       ResultSetStats, instead of only the RowCount and QueryPlan.
-	stats := &sppb.ResultSetStats{
-		QueryPlan: it.RowIterator.QueryPlan,
-	}
-	if it.stmtType == parser.StatementTypeDml {
-		stats.RowCount = &sppb.ResultSetStats_RowCountExact{RowCountExact: it.RowIterator.RowCount}
-	}
-	return stats
+	return createResultSetStats(it.RowIterator, it.stmtType)
 }

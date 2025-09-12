@@ -31,16 +31,6 @@ namespace Google.Cloud.SpannerLib.Native
             return Message.Code != 0;
         }
 
-        internal string? Error()
-        {
-            if (!HasError())
-            {
-                return null;
-            }
-
-            return ValueAsString();
-        }
-
         internal string ValueAsString()
         {
             unsafe

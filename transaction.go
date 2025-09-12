@@ -83,13 +83,17 @@ func (ri *readOnlyRowIterator) Metadata() (*sppb.ResultSetMetadata, error) {
 }
 
 func (ri *readOnlyRowIterator) ResultSetStats() *sppb.ResultSetStats {
+	return createResultSetStats(ri.RowIterator, ri.stmtType)
+}
+
+func createResultSetStats(it *spanner.RowIterator, stmtType parser.StatementType) *sppb.ResultSetStats {
 	// TODO: The Spanner client library should offer an option to get the full
 	//       ResultSetStats, instead of only the RowCount and QueryPlan.
 	stats := &sppb.ResultSetStats{
-		QueryPlan: ri.RowIterator.QueryPlan,
+		QueryPlan: it.QueryPlan,
 	}
-	if ri.stmtType == parser.StatementTypeDml {
-		stats.RowCount = &sppb.ResultSetStats_RowCountExact{RowCountExact: ri.RowIterator.RowCount}
+	if stmtType == parser.StatementTypeDml {
+		stats.RowCount = &sppb.ResultSetStats_RowCountExact{RowCountExact: it.RowCount}
 	}
 	return stats
 }

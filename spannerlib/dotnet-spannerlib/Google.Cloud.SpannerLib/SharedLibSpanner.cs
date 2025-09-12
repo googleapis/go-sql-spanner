@@ -4,6 +4,7 @@ using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib.Native;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
+using Google.Rpc;
 
 namespace Google.Cloud.SpannerLib;
 
@@ -16,7 +17,7 @@ public class SharedLibSpanner : ISpanner
         {
             try
             {
-                throw new SpannerException(handler.Code(), handler.Error()!);
+                throw CreateException(handler);
             }
             finally
             {
@@ -26,12 +27,22 @@ public class SharedLibSpanner : ISpanner
         return handler;
     }
 
+    private SpannerException CreateException(MessageHandler handler)
+    {
+        if (handler.Length > 0)
+        {
+            var status = Status.Parser.ParseFrom(handler.Value());
+            return new SpannerException(status.Code, status.Message);
+        }
+        return new SpannerException(handler.Code(), "Unknown error");
+    }
+
     private void ExecuteAndReleaseLibraryFunction(Func<Message> func)
     {
         using var handler = new MessageHandler(func());
         if (handler.HasError())
         {
-            throw new SpannerException(handler.Code(), handler.Error()!);
+            throw CreateException(handler);
         }
     }
 

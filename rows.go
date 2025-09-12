@@ -55,10 +55,9 @@ type rows struct {
 	it    rowIterator
 	close func() error
 
-	colsOnce     sync.Once
-	dirtyErr     error
-	cols         []string
-	colTypeNames []string
+	colsOnce sync.Once
+	dirtyErr error
+	cols     []string
 
 	decodeOption         DecodeOption
 	decodeToNativeArrays bool
@@ -146,12 +145,8 @@ func (r *rows) getColumns() {
 		}
 		rowType := metadata.RowType
 		r.cols = make([]string, len(rowType.Fields))
-		r.colTypeNames = make([]string, len(rowType.Fields))
 		for i, c := range rowType.Fields {
 			r.cols[i] = c.Name
-			if r.decodeOption != DecodeOptionProto {
-				r.colTypeNames[i] = c.Type.Code.String()
-			}
 		}
 	})
 }

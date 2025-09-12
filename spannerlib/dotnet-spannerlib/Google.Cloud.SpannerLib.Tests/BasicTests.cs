@@ -57,6 +57,19 @@ public class BasicTests
     }
 
     [Test]
+    public void TestExecuteQueryError()
+    {
+        var sql = "select * from non_existing_table";
+        _fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateException(new RpcException(new Status(StatusCode.NotFound, "Table not found"))));
+        
+        using var pool = Pool.Create(ConnectionString);
+        using var connection = pool.CreateConnection();
+        SpannerException exception = Assert.Throws<SpannerException>(() => connection.Execute(new ExecuteSqlRequest { Sql = sql }));
+        Assert.That(exception.ErrorCode, Is.EqualTo(ErrorCode.NotFound));
+        Assert.That(exception.Message, Is.EqualTo("Table not found"));
+    }
+
+    [Test]
     public void TestExecuteParameterizedQuery()
     {
         var sql = "select col_varchar from all_types where col_bigint=$1::bigint";

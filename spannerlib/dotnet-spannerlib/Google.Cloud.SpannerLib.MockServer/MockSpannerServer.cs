@@ -57,7 +57,7 @@ namespace Google.Cloud.SpannerLib.MockServer
             return new StatementResult(count);
         }
 
-        internal static StatementResult CreateException(Exception exception)
+        public static StatementResult CreateException(Exception exception)
         {
             return new StatementResult(exception);
         }
