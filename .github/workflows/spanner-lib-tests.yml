@@ -1,0 +1,89 @@
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+permissions:
+  contents: read
+  pull-requests: write
+name: Spanner Lib Tests
+jobs:
+  test:
+    strategy:
+      matrix:
+        go-version: [1.24.x]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Run unit tests
+        working-directory: spannerlib/lib
+        run: go test -race -short
+
+  build-lib:
+    strategy:
+      matrix:
+        go-version: [1.24.x]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Build shared lib
+        working-directory: spannerlib/shared
+        run: go build -o spannerlib.so -buildmode=c-shared shared_lib.go
+
+  test-dotnet-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.24
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Build shared lib
+        working-directory: spannerlib/shared
+        run: go build -o spannerlib.so -buildmode=c-shared shared_lib.go
+      - name: Copy lib to dotnet folder
+        working-directory: spannerlib
+        run: |
+          mkdir -p dotnet-spannerlib/Google.Cloud.SpannerLib.Native/libraries/any
+          cp shared/spannerlib.so dotnet-spannerlib/Google.Cloud.SpannerLib.Native/libraries/any/spannerlib.so
+      - name: Build gRPC server
+        working-directory: spannerlib/grpc-server
+        run: go build grpc_server.go
+      - name: Copy gRPC server to dotnet folder
+        working-directory: spannerlib
+        run: |
+          mkdir -p dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/any
+          cp grpc-server/grpc_server dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/any/grpc_server
+      - name: Install dotnet
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: dotnet version
+        run: dotnet --version
+      - name: Build native library package
+        run: dotnet pack
+        working-directory: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Native
+      - name: Add package source
+        run: dotnet nuget add source "$PWD"/bin/Release --name local
+        working-directory: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Native
+      - name: Restore dependencies
+        run: dotnet restore
+        working-directory: spannerlib/dotnet-spannerlib
+      - name: Build
+        run: dotnet build --no-restore
+        working-directory: spannerlib/dotnet-spannerlib
+      - name: Unit Tests
+        working-directory: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Tests
+        run: dotnet test --no-build --verbosity normal

@@ -23,6 +23,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -51,10 +52,11 @@ type checksumRowIterator struct {
 	*spanner.RowIterator
 	metadata *sppb.ResultSetMetadata
 
-	ctx     context.Context
-	tx      *readWriteTransaction
-	stmt    spanner.Statement
-	options spanner.QueryOptions
+	ctx      context.Context
+	tx       *readWriteTransaction
+	stmt     spanner.Statement
+	stmtType parser.StatementType
+	options  spanner.QueryOptions
 	// nc (nextCount) indicates the number of times that next has been called
 	// on the iterator. Next() will be called the same number of times during
 	// a retry.
@@ -253,10 +255,5 @@ func (it *checksumRowIterator) Metadata() (*sppb.ResultSetMetadata, error) {
 }
 
 func (it *checksumRowIterator) ResultSetStats() *sppb.ResultSetStats {
-	// TODO: The Spanner client library should offer an option to get the full
-	//       ResultSetStats, instead of only the RowCount and QueryPlan.
-	return &sppb.ResultSetStats{
-		RowCount:  &sppb.ResultSetStats_RowCountExact{RowCountExact: it.RowIterator.RowCount},
-		QueryPlan: it.RowIterator.QueryPlan,
-	}
+	return createResultSetStats(it.RowIterator, it.stmtType)
 }

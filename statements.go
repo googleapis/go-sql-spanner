@@ -286,7 +286,7 @@ type executableCommitStatement struct {
 }
 
 func (s *executableCommitStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
-	_, err := c.commit(ctx)
+	_, err := c.Commit(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +305,7 @@ type executableRollbackStatement struct {
 }
 
 func (s *executableRollbackStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
-	if err := c.rollback(ctx); err != nil {
+	if err := c.Rollback(ctx); err != nil {
 		return nil, err
 	}
 	return driver.ResultNoRows, nil

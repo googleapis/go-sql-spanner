@@ -17,11 +17,13 @@ package spannerdriver
 import (
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/api/iterator"
 )
 
 var _ rowIterator = &wrappedRowIterator{}
 
+// wrappedRowIterator is used for DML statements that may or may not contain rows.
 type wrappedRowIterator struct {
 	*spanner.RowIterator
 
@@ -49,8 +51,6 @@ func (ri *wrappedRowIterator) Metadata() (*spannerpb.ResultSetMetadata, error) {
 }
 
 func (ri *wrappedRowIterator) ResultSetStats() *spannerpb.ResultSetStats {
-	return &spannerpb.ResultSetStats{
-		RowCount:  &spannerpb.ResultSetStats_RowCountExact{RowCountExact: ri.RowIterator.RowCount},
-		QueryPlan: ri.RowIterator.QueryPlan,
-	}
+	// wrappedRowIterator is only used for DML statements.
+	return createResultSetStats(ri.RowIterator, parser.StatementTypeDml)
 }

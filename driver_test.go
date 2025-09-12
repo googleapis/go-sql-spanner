@@ -631,7 +631,9 @@ func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
 		batch:  &batch{tp: parser.BatchTypeDdl},
 		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
-			return &spanner.RowIterator{}
+			return &spanner.RowIterator{
+				Metadata: &spannerpb.ResultSetMetadata{},
+			}
 		},
 		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
 			return &result{}, &spanner.CommitResponse{}, nil
