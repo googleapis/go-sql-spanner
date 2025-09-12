@@ -154,12 +154,12 @@ func TestExecuteBegin(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
 		if g, w := len(beginRequests), 0; g != w {
 			t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 		if g, w := len(executeRequests), 1; g != w {
 			t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -167,8 +167,8 @@ func TestExecuteBegin(t *testing.T) {
 		if request.GetTransaction() == nil || request.GetTransaction().GetBegin() == nil {
 			t.Fatal("missing begin transaction on ExecuteSqlRequest")
 		}
-		commitRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
-		rollbackRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.RollbackRequest{}))
+		commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+		rollbackRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.RollbackRequest{}))
 		if end == "commit" {
 			if g, w := len(commitRequests), 1; g != w {
 				t.Fatalf("commit requests count mismatch\n Got: %v\nWant: %v", g, w)
