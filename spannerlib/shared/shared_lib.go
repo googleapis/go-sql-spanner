@@ -110,3 +110,59 @@ func CloseConnection(poolId, connId int64) (int64, int32, int64, int32, unsafe.P
 	msg := lib.CloseConnection(ctx, poolId, connId)
 	return pin(msg)
 }
+
+// Execute executes a SQL statement on the given connection.
+// The return type is an identifier for a Rows object. This identifier can be used to
+// call the functions Metadata and Next to get respectively the metadata of the result
+// and the next row of results.
+//
+//export Execute
+func Execute(poolId, connectionId int64, statement []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	msg := lib.Execute(ctx, poolId, connectionId, statement)
+	return pin(msg)
+}
+
+// Metadata returns the metadata of a Rows object.
+//
+//export Metadata
+func Metadata(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	msg := lib.Metadata(ctx, poolId, connId, rowsId)
+	return pin(msg)
+}
+
+// ResultSetStats returns the statistics for a statement that has been executed. This includes
+// the number of rows affected in case of a DML statement.
+// Statistics are only available once all rows have been consumed.
+//
+//export ResultSetStats
+func ResultSetStats(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	msg := lib.ResultSetStats(ctx, poolId, connId, rowsId)
+	return pin(msg)
+}
+
+// Next returns the next row in a Rows object. The returned message contains a protobuf
+// ListValue that contains all the columns of the row. The message is empty if there are
+// no more rows in the Rows object.
+//
+//export Next
+func Next(poolId, connId, rowsId int64, numRows int32, encodeRowOption int32) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	// TODO: Implement support for:
+	//  1. Fetching more than one row at a time.
+	//  2. Specifying the return type (e.g. proto, struct, ...)
+	msg := lib.Next(ctx, poolId, connId, rowsId)
+	return pin(msg)
+}
+
+// CloseRows closes and cleans up all memory held by a Rows object. This must be called
+// when the application is done with the Rows object.
+//
+//export CloseRows
+func CloseRows(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	msg := lib.CloseRows(ctx, poolId, connId, rowsId)
+	return pin(msg)
+}

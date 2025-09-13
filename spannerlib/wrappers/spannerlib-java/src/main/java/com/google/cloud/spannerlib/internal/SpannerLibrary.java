@@ -26,10 +26,6 @@ import java.util.function.Function;
  * SpannerLib library.
  */
 public interface SpannerLibrary extends Library {
-  //  String LIBRARY_PATH =
-  //      System.getProperty(
-  //          "spanner.library", SpannerLibrary.class.getResource("spannerlib.so").getPath());
-  //  SpannerLibrary LIBRARY = Native.load(LIBRARY_PATH, SpannerLibrary.class);
   SpannerLibrary LIBRARY = Native.load("spanner", SpannerLibrary.class);
 
   /** Returns the singleton instance of the library. */
@@ -68,4 +64,19 @@ public interface SpannerLibrary extends Library {
 
   /** Closes the given Connection. */
   Message CloseConnection(long poolId, long connectionId);
+
+  /** Executes a SQL statement on the given Connection. */
+  Message Execute(long poolId, long connectionId, GoBytes executeSqlRequest);
+
+  /** Returns the {@link com.google.spanner.v1.ResultSetMetadata} of the given Rows object. */
+  Message Metadata(long poolId, long connectionId, long rowsId);
+
+  /** Returns the next row from the given Rows object. */
+  Message Next(long poolId, long connectionId, long rowsId, int numRows, int encoding);
+
+  /** Returns the {@link com.google.spanner.v1.ResultSetStats} of the given Rows object. */
+  Message ResultSetStats(long poolId, long connectionId, long rowsId);
+
+  /** Closes the given Rows object. */
+  Message CloseRows(long poolId, long connectionId, long rowsId);
 }

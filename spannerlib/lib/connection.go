@@ -17,7 +17,10 @@ package lib
 import "C"
 import (
 	"context"
+	"fmt"
 
+	"cloud.google.com/go/spanner/apiv1/spannerpb"
+	"google.golang.org/protobuf/proto"
 	"spannerlib/api"
 )
 
@@ -29,4 +32,21 @@ func CloseConnection(ctx context.Context, poolId, connId int64) *Message {
 		return errMessage(err)
 	}
 	return &Message{}
+}
+
+func Execute(ctx context.Context, poolId, connId int64, executeSqlRequestBytes []byte) (msg *Message) {
+	defer func() {
+		if r := recover(); r != nil {
+			msg = errMessage(fmt.Errorf("panic for message with size %d: %v", len(executeSqlRequestBytes), r))
+		}
+	}()
+	statement := spannerpb.ExecuteSqlRequest{}
+	if err := proto.Unmarshal(executeSqlRequestBytes, &statement); err != nil {
+		return errMessage(err)
+	}
+	id, err := api.Execute(ctx, poolId, connId, &statement)
+	if err != nil {
+		return errMessage(err)
+	}
+	return idMessage(id)
 }

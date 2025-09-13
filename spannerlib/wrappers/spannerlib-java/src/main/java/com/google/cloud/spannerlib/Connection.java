@@ -18,6 +18,10 @@ package com.google.cloud.spannerlib;
 
 import static com.google.cloud.spannerlib.internal.SpannerLibrary.executeAndRelease;
 
+import com.google.cloud.spannerlib.internal.MessageHandler;
+import com.google.cloud.spannerlib.internal.WrappedGoBytes;
+import com.google.spanner.v1.ExecuteSqlRequest;
+
 /** A {@link Connection} that has been created by SpannerLib. */
 public class Connection extends AbstractLibraryObject {
   private final Pool pool;
@@ -29,6 +33,18 @@ public class Connection extends AbstractLibraryObject {
 
   public Pool getPool() {
     return this.pool;
+  }
+
+  /** Executes the given SQL statement on this connection. */
+  public Rows execute(ExecuteSqlRequest request) {
+    try (WrappedGoBytes serializedRequest = WrappedGoBytes.serialize(request);
+        MessageHandler message =
+            getLibrary()
+                .execute(
+                    library ->
+                        library.Execute(pool.getId(), getId(), serializedRequest.getGoBytes()))) {
+      return new Rows(this, message.getObjectId());
+    }
   }
 
   @Override

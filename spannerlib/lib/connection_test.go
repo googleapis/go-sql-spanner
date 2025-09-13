@@ -19,7 +19,10 @@ import (
 	"fmt"
 	"testing"
 
+	"cloud.google.com/go/spanner/apiv1/spannerpb"
+	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestCreateAndCloseConnection(t *testing.T) {
@@ -63,5 +66,53 @@ func TestCreateConnectionWithUnknownPool(t *testing.T) {
 	connMsg := CreateConnection(ctx, -1)
 	if g, w := codes.Code(connMsg.Code), codes.NotFound; g != w {
 		t.Fatalf("CreateConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestExecute(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolMsg := CreatePool(ctx, dsn)
+	if g, w := poolMsg.Code, int32(0); g != w {
+		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	connMsg := CreateConnection(ctx, poolMsg.ObjectId)
+	if g, w := connMsg.Code, int32(0); g != w {
+		t.Fatalf("CreateConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	request := &spannerpb.ExecuteSqlRequest{
+		Sql: testutil.SelectFooFromBar,
+	}
+	requestBytes, err := proto.Marshal(request)
+	if err != nil {
+		t.Fatalf("Failed to marshal request: %v", err)
+	}
+	rowsMsg := Execute(ctx, poolMsg.ObjectId, connMsg.ObjectId, requestBytes)
+	if g, w := rowsMsg.Code, int32(0); g != w {
+		t.Fatalf("Execute result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if rowsMsg.ObjectId <= 0 {
+		t.Fatalf("rowsId mismatch: %v", rowsMsg.ObjectId)
+	}
+	if g, w := rowsMsg.Length(), int32(0); g != w {
+		t.Fatalf("result length mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	closeMsg := CloseRows(ctx, poolMsg.ObjectId, connMsg.ObjectId, rowsMsg.ObjectId)
+	if g, w := closeMsg.Code, int32(0); g != w {
+		t.Fatalf("CloseRows result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	closeMsg = CloseConnection(ctx, poolMsg.ObjectId, connMsg.ObjectId)
+	if g, w := closeMsg.Code, int32(0); g != w {
+		t.Fatalf("CloseConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	closeMsg = ClosePool(ctx, poolMsg.ObjectId)
+	if g, w := closeMsg.Code, int32(0); g != w {
+		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
