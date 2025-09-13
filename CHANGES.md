@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.18.1](https://github.com/googleapis/go-sql-spanner/compare/v1.18.0...v1.18.1) (2025-09-13)
+
+
+### Bug Fixes
+
+* Do not return update count for queries ([#524](https://github.com/googleapis/go-sql-spanner/issues/524)) ([4403e52](https://github.com/googleapis/go-sql-spanner/commit/4403e5287515c83fb889f9e7f8a107f9cfdb1ea8))
+* Update module github.com/googleapis/go-sql-spanner to v1.18.0 ([#528](https://github.com/googleapis/go-sql-spanner/issues/528)) ([f5100ce](https://github.com/googleapis/go-sql-spanner/commit/f5100cec9d99099b3a538e45688f27f0c3dd0376))
+
 ## [1.18.0](https://github.com/googleapis/go-sql-spanner/compare/v1.17.0...v1.18.0) (2025-09-12)
 
 
