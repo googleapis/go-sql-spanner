@@ -117,6 +117,48 @@ func TestExecute(t *testing.T) {
 	}
 }
 
+func TestExecuteBatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolMsg := CreatePool(ctx, dsn)
+	if g, w := poolMsg.Code, int32(0); g != w {
+		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	connMsg := CreateConnection(ctx, poolMsg.ObjectId)
+	if g, w := connMsg.Code, int32(0); g != w {
+		t.Fatalf("CreateConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	request := &spannerpb.ExecuteBatchDmlRequest{Statements: []*spannerpb.ExecuteBatchDmlRequest_Statement{
+		{Sql: testutil.UpdateBarSetFoo},
+		{Sql: testutil.UpdateBarSetFoo},
+	}}
+	requestBytes, err := proto.Marshal(request)
+	if err != nil {
+		t.Fatalf("Failed to marshal request: %v", err)
+	}
+	rowsMsg := ExecuteBatch(ctx, poolMsg.ObjectId, connMsg.ObjectId, requestBytes)
+	if g, w := rowsMsg.Code, int32(0); g != w {
+		t.Fatalf("ExecuteBatch result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if rowsMsg.Length() == 0 {
+		t.Fatal("ExecuteBatch returned no data")
+	}
+
+	closeMsg := CloseConnection(ctx, poolMsg.ObjectId, connMsg.ObjectId)
+	if g, w := closeMsg.Code, int32(0); g != w {
+		t.Fatalf("CloseConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	closeMsg = ClosePool(ctx, poolMsg.ObjectId)
+	if g, w := closeMsg.Code, int32(0); g != w {
+		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
 func TestBeginAndCommit(t *testing.T) {
 	t.Parallel()
 

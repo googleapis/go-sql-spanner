@@ -22,6 +22,8 @@ import com.google.cloud.spannerlib.internal.MessageHandler;
 import com.google.cloud.spannerlib.internal.WrappedGoBytes;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.spanner.v1.CommitResponse;
+import com.google.spanner.v1.ExecuteBatchDmlRequest;
+import com.google.spanner.v1.ExecuteBatchDmlResponse;
 import com.google.spanner.v1.ExecuteSqlRequest;
 import com.google.spanner.v1.TransactionOptions;
 import java.nio.ByteBuffer;
@@ -81,6 +83,25 @@ public class Connection extends AbstractLibraryObject {
                     library ->
                         library.Execute(pool.getId(), getId(), serializedRequest.getGoBytes()))) {
       return new Rows(this, message.getObjectId());
+    }
+  }
+
+  /**
+   * Executes the given batch of DML or DDL statements on this connection. The statements must all
+   * be of the same type.
+   */
+  public ExecuteBatchDmlResponse executeBatch(ExecuteBatchDmlRequest request) {
+    try (WrappedGoBytes serializedRequest = WrappedGoBytes.serialize(request);
+        MessageHandler message =
+            getLibrary()
+                .execute(
+                    library ->
+                        library.ExecuteBatch(
+                            pool.getId(), getId(), serializedRequest.getGoBytes()))) {
+      ByteBuffer buffer = message.getValue().getByteBuffer(0, message.getLength());
+      return ExecuteBatchDmlResponse.parseFrom(buffer);
+    } catch (InvalidProtocolBufferException decodeException) {
+      throw new RuntimeException(decodeException);
     }
   }
 

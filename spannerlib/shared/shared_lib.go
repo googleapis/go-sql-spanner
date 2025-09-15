@@ -123,6 +123,18 @@ func Execute(poolId, connectionId int64, statement []byte) (int64, int32, int64,
 	return pin(msg)
 }
 
+// ExecuteBatch executes a batch of statements on the given connection. The statements must all be either DML or DDL
+// statements. Mixing DML and DDL in a batch is not supported. Executing queries in a batch is also not supported.
+// The batch will use the current transaction on the given connection, or execute as a single auto-commit statement
+// if the connection does not have a transaction.
+//
+//export ExecuteBatch
+func ExecuteBatch(poolId, connectionId int64, statements []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	msg := lib.ExecuteBatch(ctx, poolId, connectionId, statements)
+	return pin(msg)
+}
+
 // Metadata returns the metadata of a Rows object.
 //
 //export Metadata

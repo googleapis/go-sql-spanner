@@ -222,6 +222,9 @@ type SpannerConn interface {
 	// return the same Spanner client.
 	UnderlyingClient() (client *spanner.Client, err error)
 
+	// DetectStatementType returns the type of SQL statement.
+	DetectStatementType(query string) parser.StatementType
+
 	// resetTransactionForRetry resets the current transaction after it has
 	// been aborted by Spanner. Calling this function on a transaction that
 	// has not been aborted is not supported and will cause an error to be
@@ -284,6 +287,11 @@ type conn struct {
 
 func (c *conn) UnderlyingClient() (*spanner.Client, error) {
 	return c.client, nil
+}
+
+func (c *conn) DetectStatementType(query string) parser.StatementType {
+	info := c.parser.DetectStatementType(query)
+	return info.StatementType
 }
 
 func (c *conn) CommitTimestamp() (time.Time, error) {

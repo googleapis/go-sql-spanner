@@ -26,6 +26,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -81,6 +82,14 @@ func Execute(ctx context.Context, poolId, connId int64, executeSqlRequest *spann
 		return 0, err
 	}
 	return conn.Execute(ctx, executeSqlRequest)
+}
+
+func ExecuteBatch(ctx context.Context, poolId, connId int64, statements *spannerpb.ExecuteBatchDmlRequest) (*spannerpb.ExecuteBatchDmlResponse, error) {
+	conn, err := findConnection(poolId, connId)
+	if err != nil {
+		return nil, err
+	}
+	return conn.ExecuteBatch(ctx, statements.Statements)
 }
 
 type Connection struct {
@@ -235,6 +244,10 @@ func (conn *Connection) Execute(ctx context.Context, statement *spannerpb.Execut
 	return execute(ctx, conn, conn.backend, statement)
 }
 
+func (conn *Connection) ExecuteBatch(ctx context.Context, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
+	return executeBatch(ctx, conn, conn.backend, statements)
+}
+
 func execute(ctx context.Context, conn *Connection, executor queryExecutor, statement *spannerpb.ExecuteSqlRequest) (int64, error) {
 	params := extractParams(statement)
 	it, err := executor.QueryContext(ctx, statement.Sql, params...)
@@ -264,6 +277,90 @@ func execute(ctx context.Context, conn *Connection, executor queryExecutor, stat
 	}
 	conn.results.Store(id, res)
 	return id, nil
+}
+
+func executeBatch(ctx context.Context, conn *Connection, executor queryExecutor, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
+	// Determine the type of batch that should be executed based on the type of statements.
+	batchType, err := determineBatchType(conn, statements)
+	if err != nil {
+		return nil, err
+	}
+	switch batchType {
+	case parser.BatchTypeDml:
+		return executeBatchDml(ctx, conn, executor, statements)
+	case parser.BatchTypeDdl:
+		return executeBatchDdl(ctx, conn, executor, statements)
+	default:
+		return nil, status.Errorf(codes.InvalidArgument, "unsupported batch type: %v", batchType)
+	}
+}
+
+func executeBatchDdl(ctx context.Context, conn *Connection, executor queryExecutor, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
+	if err := conn.backend.Raw(func(driverConn any) error {
+		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
+		return spannerConn.StartBatchDDL()
+	}); err != nil {
+		return nil, err
+	}
+	for _, statement := range statements {
+		_, err := executor.ExecContext(ctx, statement.Sql)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// TODO: Add support for getting the actual Batch DDL response.
+	if err := conn.backend.Raw(func(driverConn any) (err error) {
+		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
+		return spannerConn.RunBatch(ctx)
+	}); err != nil {
+		return nil, err
+	}
+
+	response := spannerpb.ExecuteBatchDmlResponse{}
+	response.ResultSets = make([]*spannerpb.ResultSet, len(statements))
+	for i := range statements {
+		response.ResultSets[i] = &spannerpb.ResultSet{Stats: &spannerpb.ResultSetStats{}}
+	}
+	return &response, nil
+}
+
+func executeBatchDml(ctx context.Context, conn *Connection, executor queryExecutor, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
+	if err := conn.backend.Raw(func(driverConn any) error {
+		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
+		return spannerConn.StartBatchDML()
+	}); err != nil {
+		return nil, err
+	}
+	for _, statement := range statements {
+		request := &spannerpb.ExecuteSqlRequest{
+			Sql:        statement.Sql,
+			Params:     statement.Params,
+			ParamTypes: statement.ParamTypes,
+		}
+		params := extractParams(request)
+		_, err := executor.ExecContext(ctx, statement.Sql, params...)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var spannerResult spannerdriver.SpannerResult
+	if err := conn.backend.Raw(func(driverConn any) (err error) {
+		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
+		spannerResult, err = spannerConn.RunDmlBatch(ctx)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	affected, err := spannerResult.BatchRowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	response := spannerpb.ExecuteBatchDmlResponse{}
+	response.ResultSets = make([]*spannerpb.ResultSet, len(affected))
+	for i, aff := range affected {
+		response.ResultSets[i] = &spannerpb.ResultSet{Stats: &spannerpb.ResultSetStats{RowCount: &spannerpb.ResultSetStats_RowCountExact{RowCountExact: aff}}}
+	}
+	return &response, nil
 }
 
 func extractParams(statement *spannerpb.ExecuteSqlRequest) []any {
@@ -299,4 +396,35 @@ func extractParams(statement *spannerpb.ExecuteSqlRequest) []any {
 		}
 	}
 	return params
+}
+
+func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (parser.BatchType, error) {
+	if len(statements) == 0 {
+		return parser.BatchTypeDdl, status.Errorf(codes.InvalidArgument, "cannot determine type of an empty batch")
+	}
+	var batchType parser.BatchType
+	if err := conn.backend.Raw(func(driverConn any) error {
+		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
+		firstStatementType := spannerConn.DetectStatementType(statements[0].Sql)
+		if firstStatementType == parser.StatementTypeDml {
+			batchType = parser.BatchTypeDml
+		} else if firstStatementType == parser.StatementTypeDdl {
+			batchType = parser.BatchTypeDdl
+		} else {
+			return status.Errorf(codes.InvalidArgument, "unsupported statement type for batching: %v", firstStatementType)
+		}
+		for i, statement := range statements {
+			if i > 0 {
+				tp := spannerConn.DetectStatementType(statement.Sql)
+				if tp != firstStatementType {
+					return status.Errorf(codes.InvalidArgument, "Batches may not contain different types of statements. The first statement is of type %v. The statement on position %d is of type %v.", firstStatementType, i, tp)
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		return parser.BatchTypeDdl, err
+	}
+
+	return batchType, nil
 }

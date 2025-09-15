@@ -80,6 +80,12 @@ public interface SpannerLibrary extends Library {
   /** Executes a SQL statement on the given Connection. */
   Message Execute(long poolId, long connectionId, GoBytes executeSqlRequest);
 
+  /**
+   * Executes a batch of DML or DDL statements on the given Connection. Returns an {@link
+   * com.google.spanner.v1.ExecuteBatchDmlResponse} for both DML and DDL batches.
+   */
+  Message ExecuteBatch(long poolId, long connectionId, GoBytes executeBatchDmlRequest);
+
   /** Returns the {@link com.google.spanner.v1.ResultSetMetadata} of the given Rows object. */
   Message Metadata(long poolId, long connectionId, long rowsId);
 
