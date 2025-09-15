@@ -100,7 +100,7 @@ func TestCreateConnection(t *testing.T) {
 }
 
 func TestExecute(t *testing.T) {
-	t.Parallel()
+	// This test is intentionally not marked as Parallel, as it checks the number of open memory pointers.
 
 	server, teardown := setupMockServer(t)
 	defer teardown()
@@ -242,6 +242,153 @@ func TestExecute(t *testing.T) {
 
 	if g, w := countOpenMemoryPointers(), 0; g != w {
 		t.Fatalf("countOpenMemoryPointers() result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestBeginAndCommitTransaction(t *testing.T) {
+	t.Parallel()
+
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	_, code, poolId, _, _ := CreatePool(dsn)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	_, code, connId, _, _ := CreateConnection(poolId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CreateConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	txOpts := &spannerpb.TransactionOptions{}
+	txOptsBytes, err := proto.Marshal(txOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem, code, id, length, res := BeginTransaction(poolId, connId, txOptsBytes)
+	// BeginTransaction should return an empty message.
+	// That is, there should be no error code, no ObjectID, and no data.
+	verifyEmptyMessage(t, "BeginTransaction", mem, code, id, length, res)
+
+	// Execute a statement in the transaction.
+	request := &spannerpb.ExecuteSqlRequest{Sql: testutil.UpdateBarSetFoo}
+	requestBytes, err := proto.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, code, rowsId, _, _ := Execute(poolId, connId, requestBytes)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("Execute result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	_, code, _, _, _ = CloseRows(poolId, connId, rowsId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CloseRows result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Commit returns the CommitResponse (if any).
+	mem, code, id, length, res = Commit(poolId, connId)
+	verifyDataMessage(t, "Commit", mem, code, id, length, res)
+
+	_, code, _, _, _ = CloseConnection(poolId, connId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CloseConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	_, code, _, _, _ = ClosePool(poolId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestBeginAndRollbackTransaction(t *testing.T) {
+	t.Parallel()
+
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	_, code, poolId, _, _ := CreatePool(dsn)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	_, code, connId, _, _ := CreateConnection(poolId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CreateConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	txOpts := &spannerpb.TransactionOptions{}
+	txOptsBytes, err := proto.Marshal(txOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem, code, id, length, res := BeginTransaction(poolId, connId, txOptsBytes)
+	// BeginTransaction should return an empty message.
+	// That is, there should be no error code, no ObjectID, and no data.
+	verifyEmptyMessage(t, "BeginTransaction", mem, code, id, length, res)
+
+	// Execute a statement in the transaction.
+	request := &spannerpb.ExecuteSqlRequest{Sql: testutil.UpdateBarSetFoo}
+	requestBytes, err := proto.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, code, rowsId, _, _ := Execute(poolId, connId, requestBytes)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("Execute result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	_, code, _, _, _ = CloseRows(poolId, connId, rowsId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CloseRows result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Rollback returns nothing.
+	mem, code, id, length, res = Rollback(poolId, connId)
+	verifyEmptyMessage(t, "Rollback", mem, code, id, length, res)
+
+	_, code, _, _, _ = CloseConnection(poolId, connId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CloseConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	_, code, _, _, _ = ClosePool(poolId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func verifyEmptyMessage(t *testing.T, name string, mem int64, code int32, id int64, length int32, res unsafe.Pointer) {
+	if g, w := mem, int64(0); g != w {
+		t.Fatalf("%s: mem ID mismatch\n Got: %v\nWant: %v", name, g, w)
+	}
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("%s: result mismatch\n Got: %v\nWant: %v", name, g, w)
+	}
+	if g, w := id, int64(0); g != w {
+		t.Fatalf("%s: ID mismatch\n Got: %v\nWant: %v", name, g, w)
+	}
+	if g, w := length, int32(0); g != w {
+		t.Fatalf("%s: length mismatch\n Got: %v\nWant: %v", name, g, w)
+	}
+	if g, w := res, unsafe.Pointer(nil); g != w {
+		t.Fatalf("%s: ptr mismatch\n Got: %v\nWant: %v", name, g, w)
+	}
+}
+
+// verifyDataMessage verifies that the result contains a data message.
+func verifyDataMessage(t *testing.T, name string, mem int64, code int32, id int64, length int32, res unsafe.Pointer) {
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("%s: result mismatch\n Got: %v\nWant: %v", name, g, w)
+	}
+	if mem == int64(0) {
+		t.Fatalf("%s: No memory identifier returned", name)
+	}
+	if g, w := id, int64(0); g != w {
+		t.Fatalf("%s: ID mismatch\n Got: %v\nWant: %v", name, g, w)
+	}
+	if length == int32(0) {
+		t.Fatalf("%s: zero length returned", name)
+	}
+	if res == unsafe.Pointer(nil) {
+		t.Fatalf("%s: nil pointer returned", name)
 	}
 }
 

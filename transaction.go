@@ -407,6 +407,7 @@ func (tx *readWriteTransaction) Commit() (err error) {
 		return err
 	}
 	var commitResponse spanner.CommitResponse
+	// TODO: Optimize this to skip the Commit also if the transaction has not yet been used.
 	if tx.rwTx != nil {
 		if !tx.retryAborts() {
 			ts, err := tx.rwTx.CommitWithReturnResp(tx.ctx)

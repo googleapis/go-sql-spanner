@@ -34,6 +34,45 @@ func CloseConnection(ctx context.Context, poolId, connId int64) *Message {
 	return &Message{}
 }
 
+// BeginTransaction starts a new transaction on the given connection. A connection can have at most one active
+// transaction at any time. This function therefore returns an error if the connection has an active transaction.
+func BeginTransaction(ctx context.Context, poolId, connId int64, txOptsBytes []byte) *Message {
+	txOpts := spannerpb.TransactionOptions{}
+	if err := proto.Unmarshal(txOptsBytes, &txOpts); err != nil {
+		return errMessage(err)
+	}
+	err := api.BeginTransaction(ctx, poolId, connId, &txOpts)
+	if err != nil {
+		return errMessage(err)
+	}
+	return &Message{}
+}
+
+// Commit commits the current transaction on the given connection.
+func Commit(ctx context.Context, poolId, connId int64) *Message {
+	response, err := api.Commit(ctx, poolId, connId)
+	if err != nil {
+		return errMessage(err)
+	}
+	if response == nil {
+		return &Message{}
+	}
+	res, err := proto.Marshal(response)
+	if err != nil {
+		return errMessage(err)
+	}
+	return &Message{Res: res}
+}
+
+// Rollback rollbacks the current transaction on the given connection.
+func Rollback(ctx context.Context, poolId, connId int64) *Message {
+	err := api.Rollback(ctx, poolId, connId)
+	if err != nil {
+		return errMessage(err)
+	}
+	return &Message{}
+}
+
 func Execute(ctx context.Context, poolId, connId int64, executeSqlRequestBytes []byte) (msg *Message) {
 	defer func() {
 		if r := recover(); r != nil {

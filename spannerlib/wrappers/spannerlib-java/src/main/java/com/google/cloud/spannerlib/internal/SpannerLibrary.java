@@ -65,6 +65,18 @@ public interface SpannerLibrary extends Library {
   /** Closes the given Connection. */
   Message CloseConnection(long poolId, long connectionId);
 
+  /** Starts a new transaction on the given Connection. */
+  Message BeginTransaction(long poolId, long connectionId, GoBytes transactionOptions);
+
+  /**
+   * Commits the current transaction on the given Connection and returns a {@link
+   * com.google.spanner.v1.CommitResponse}.
+   */
+  Message Commit(long poolId, long connectionId);
+
+  /** Rollbacks the current transaction on the given Connection. */
+  Message Rollback(long poolId, long connectionId);
+
   /** Executes a SQL statement on the given Connection. */
   Message Execute(long poolId, long connectionId, GoBytes executeSqlRequest);
 

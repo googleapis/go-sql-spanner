@@ -166,3 +166,40 @@ func CloseRows(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe
 	msg := lib.CloseRows(ctx, poolId, connId, rowsId)
 	return pin(msg)
 }
+
+// BeginTransaction begins a new transaction on the given connection.
+// The txOpts byte slice contains a serialized protobuf TransactionOptions object.
+//
+//export BeginTransaction
+func BeginTransaction(poolId, connectionId int64, txOpts []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	msg := lib.BeginTransaction(ctx, poolId, connectionId, txOpts)
+	return pin(msg)
+}
+
+// Commit commits the current transaction on a connection. All transactions must be
+// either committed or rolled back, including read-only transactions. This to ensure
+// that all resources that are held by a transaction are cleaned up.
+//
+//export Commit
+func Commit(poolId, connectionId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	msg := lib.Commit(ctx, poolId, connectionId)
+	return pin(msg)
+}
+
+// Rollback rolls back a previously started transaction. All transactions must be either
+// committed or rolled back, including read-only transactions. This to ensure that
+// all resources that are held by a transaction are cleaned up.
+//
+// Spanner does not require read-only transactions to be committed or rolled back, but
+// this library requires that all transactions are committed or rolled back to clean up
+// all resources. Commit and Rollback are semantically the same for read-only transactions
+// on Spanner, and both functions just close the transaction.
+//
+//export Rollback
+func Rollback(poolId, connectionId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	msg := lib.Rollback(ctx, poolId, connectionId)
+	return pin(msg)
+}

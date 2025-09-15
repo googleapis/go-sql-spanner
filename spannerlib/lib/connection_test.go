@@ -116,3 +116,107 @@ func TestExecute(t *testing.T) {
 		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
+
+func TestBeginAndCommit(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolMsg := CreatePool(ctx, dsn)
+	if g, w := poolMsg.Code, int32(0); g != w {
+		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	connMsg := CreateConnection(ctx, poolMsg.ObjectId)
+	if g, w := connMsg.Code, int32(0); g != w {
+		t.Fatalf("CreateConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	txOpts := &spannerpb.TransactionOptions{}
+	txOptsBytes, err := proto.Marshal(txOpts)
+	if err != nil {
+		t.Fatalf("Failed to marshal transaction options: %v", err)
+	}
+	txMsg := BeginTransaction(ctx, poolMsg.ObjectId, connMsg.ObjectId, txOptsBytes)
+	if g, w := txMsg.Code, int32(0); g != w {
+		t.Fatalf("BeginTransaction result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := txMsg.ObjectId, int64(0); g != w {
+		t.Fatalf("object ID result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := txMsg.Length(), int32(0); g != w {
+		t.Fatalf("result length mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	commitMsg := Commit(ctx, poolMsg.ObjectId, connMsg.ObjectId)
+	if g, w := commitMsg.Code, int32(0); g != w {
+		t.Fatalf("Commit result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if commitMsg.Length() == 0 {
+		t.Fatal("Commit return zero length")
+	}
+	resp := &spannerpb.CommitResponse{}
+	if err := proto.Unmarshal(commitMsg.Res, resp); err != nil {
+		t.Fatalf("Failed to unmarshal commit response: %v", err)
+	}
+
+	closeMsg := CloseConnection(ctx, poolMsg.ObjectId, connMsg.ObjectId)
+	if g, w := closeMsg.Code, int32(0); g != w {
+		t.Fatalf("CloseConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	closeMsg = ClosePool(ctx, poolMsg.ObjectId)
+	if g, w := closeMsg.Code, int32(0); g != w {
+		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestBeginAndRollback(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolMsg := CreatePool(ctx, dsn)
+	if g, w := poolMsg.Code, int32(0); g != w {
+		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	connMsg := CreateConnection(ctx, poolMsg.ObjectId)
+	if g, w := connMsg.Code, int32(0); g != w {
+		t.Fatalf("CreateConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	txOpts := &spannerpb.TransactionOptions{}
+	txOptsBytes, err := proto.Marshal(txOpts)
+	if err != nil {
+		t.Fatalf("Failed to marshal transaction options: %v", err)
+	}
+	txMsg := BeginTransaction(ctx, poolMsg.ObjectId, connMsg.ObjectId, txOptsBytes)
+	if g, w := txMsg.Code, int32(0); g != w {
+		t.Fatalf("BeginTransaction result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := txMsg.ObjectId, int64(0); g != w {
+		t.Fatalf("object ID result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := txMsg.Length(), int32(0); g != w {
+		t.Fatalf("result length mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	rollbackMsg := Rollback(ctx, poolMsg.ObjectId, connMsg.ObjectId)
+	if g, w := rollbackMsg.Code, int32(0); g != w {
+		t.Fatalf("Rollback result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := rollbackMsg.Length(), int32(0); g != w {
+		t.Fatalf("Rollback length mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	closeMsg := CloseConnection(ctx, poolMsg.ObjectId, connMsg.ObjectId)
+	if g, w := closeMsg.Code, int32(0); g != w {
+		t.Fatalf("CloseConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	closeMsg = ClosePool(ctx, poolMsg.ObjectId)
+	if g, w := closeMsg.Code, int32(0); g != w {
+		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
