@@ -34,6 +34,30 @@ func CloseConnection(ctx context.Context, poolId, connId int64) *Message {
 	return &Message{}
 }
 
+// WriteMutations writes an array of mutations to Spanner. The mutations are buffered in
+// the current read/write transaction if the connection currently has a read/write transaction.
+// The mutations are applied to the database in a new read/write transaction that is automatically
+// committed if the connection currently does not have a transaction.
+//
+// The function returns an error if the connection is currently in a read-only transaction.
+//
+// The mutationsBytes must be an encoded BatchWriteRequest_MutationGroup protobuf object.
+func WriteMutations(ctx context.Context, poolId, connId int64, mutationBytes []byte) *Message {
+	mutations := spannerpb.BatchWriteRequest_MutationGroup{}
+	if err := proto.Unmarshal(mutationBytes, &mutations); err != nil {
+		return errMessage(err)
+	}
+	response, err := api.WriteMutations(ctx, poolId, connId, &mutations)
+	if err != nil {
+		return errMessage(err)
+	}
+	res, err := proto.Marshal(response)
+	if err != nil {
+		return errMessage(err)
+	}
+	return &Message{Res: res}
+}
+
 // BeginTransaction starts a new transaction on the given connection. A connection can have at most one active
 // transaction at any time. This function therefore returns an error if the connection has an active transaction.
 func BeginTransaction(ctx context.Context, poolId, connId int64, txOptsBytes []byte) *Message {

@@ -47,6 +47,22 @@ func CloseConnection(ctx context.Context, poolId, connId int64) error {
 	return conn.close(ctx)
 }
 
+// WriteMutations writes an array of mutations to Spanner. The mutations are buffered in
+// the current read/write transaction if the connection currently has a read/write transaction.
+// The mutations are applied to the database in a new read/write transaction that is automatically
+// committed if the connection currently does not have a transaction.
+//
+// The function returns an error if the connection is currently in a read-only transaction.
+//
+// The mutationsBytes must be an encoded BatchWriteRequest_MutationGroup protobuf object.
+func WriteMutations(ctx context.Context, poolId, connId int64, mutations *spannerpb.BatchWriteRequest_MutationGroup) (*spannerpb.CommitResponse, error) {
+	conn, err := findConnection(poolId, connId)
+	if err != nil {
+		return nil, err
+	}
+	return conn.writeMutations(ctx, mutations)
+}
+
 // BeginTransaction starts a new transaction on the given connection.
 // A connection can have at most one transaction at any time. This function therefore returns an error if the
 // connection has an active transaction.
@@ -104,6 +120,7 @@ type Connection struct {
 // spannerConn is an internal interface that contains the internal functions that are used by this API.
 // It is implemented by the spannerdriver.conn struct.
 type spannerConn interface {
+	WriteMutations(ctx context.Context, ms []*spanner.Mutation) (*spanner.CommitResponse, error)
 	BeginReadOnlyTransaction(ctx context.Context, options *spannerdriver.ReadOnlyTransactionOptions) (driver.Tx, error)
 	BeginReadWriteTransaction(ctx context.Context, options *spannerdriver.ReadWriteTransactionOptions) (driver.Tx, error)
 	Commit(ctx context.Context) (*spanner.CommitResponse, error)
@@ -125,6 +142,34 @@ func (conn *Connection) close(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+func (conn *Connection) writeMutations(ctx context.Context, mutation *spannerpb.BatchWriteRequest_MutationGroup) (*spannerpb.CommitResponse, error) {
+	mutations := make([]*spanner.Mutation, 0, len(mutation.Mutations))
+	for _, m := range mutation.Mutations {
+		spannerMutation, err := spanner.WrapMutation(m)
+		if err != nil {
+			return nil, err
+		}
+		mutations = append(mutations, spannerMutation)
+	}
+	var commitResponse *spanner.CommitResponse
+	if err := conn.backend.Raw(func(driverConn any) (err error) {
+		sc, _ := driverConn.(spannerConn)
+		commitResponse, err = sc.WriteMutations(ctx, mutations)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+
+	// The commit response is nil if the connection is currently in a transaction.
+	if commitResponse == nil {
+		return nil, nil
+	}
+	response := spannerpb.CommitResponse{
+		CommitTimestamp: timestamppb.New(commitResponse.CommitTs),
+	}
+	return &response, nil
 }
 
 func (conn *Connection) BeginTransaction(ctx context.Context, txOpts *spannerpb.TransactionOptions) error {

@@ -21,6 +21,7 @@ import static com.google.cloud.spannerlib.internal.SpannerLibrary.executeAndRele
 import com.google.cloud.spannerlib.internal.MessageHandler;
 import com.google.cloud.spannerlib.internal.WrappedGoBytes;
 import com.google.protobuf.InvalidProtocolBufferException;
+import com.google.spanner.v1.BatchWriteRequest.MutationGroup;
 import com.google.spanner.v1.CommitResponse;
 import com.google.spanner.v1.ExecuteBatchDmlRequest;
 import com.google.spanner.v1.ExecuteBatchDmlResponse;
@@ -39,6 +40,31 @@ public class Connection extends AbstractLibraryObject {
 
   public Pool getPool() {
     return this.pool;
+  }
+
+  /**
+   * Writes a group of mutations to Spanner. The mutations are buffered in the current read/write
+   * transaction if the connection has an active read/write transaction. Otherwise, the mutations
+   * are written directly to Spanner using a new read/write transaction. Returns a {@link
+   * CommitResponse} if the mutations were written directly to Spanner, and otherwise null if the
+   * mutations were buffered in the current transaction.
+   */
+  public CommitResponse WriteMutations(MutationGroup mutations) {
+    try (WrappedGoBytes serializedRequest = WrappedGoBytes.serialize(mutations);
+        MessageHandler message =
+            getLibrary()
+                .execute(
+                    library ->
+                        library.WriteMutations(
+                            pool.getId(), getId(), serializedRequest.getGoBytes()))) {
+      if (message.getLength() == 0) {
+        return null;
+      }
+      ByteBuffer buffer = message.getValue().getByteBuffer(0, message.getLength());
+      return CommitResponse.parseFrom(buffer);
+    } catch (InvalidProtocolBufferException decodeException) {
+      throw new RuntimeException(decodeException);
+    }
   }
 
   /** Starts a transaction on this connection. */
