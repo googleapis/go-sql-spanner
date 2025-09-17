@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <RootNamespace>Google.Cloud.SpannerLib.MockServer</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Cloud.Spanner.Admin.Database.V1" Version="5.1.0" />
+    <PackageReference Include="Google.Cloud.Spanner.V1" Version="5.1.0" />
+    <PackageReference Include="Grpc.AspNetCore.Server" Version="2.71.0" />
+  </ItemGroup>
+
+</Project>
