@@ -48,6 +48,11 @@ jobs:
       - name: Build shared library
         working-directory: spannerlib/shared
         run: go build -o spannerlib.so -buildmode=c-shared shared_lib.go
+      - name: Build gRPC server
+        working-directory: spannerlib/grpc-server
+        run: |
+          go build -o grpc_server server.go
+          chmod +x grpc_server
       - name: Copy to Java wrapper
         working-directory: spannerlib
         run: |
@@ -55,12 +60,15 @@ jobs:
           if [ "$RUNNER_OS" == "Windows" ]; then
             mkdir -p wrappers/spannerlib-java/src/main/resources/win32-x86-64
             cp shared/spannerlib.so wrappers/spannerlib-java/src/main/resources/win32-x86-64/spanner.dll
+            cp grpc-server/grpc_server wrappers/spannerlib-java/src/main/resources/win32-x86-64/grpc_server
           elif [ "$RUNNER_OS" == "macOS" ]; then
             mkdir -p wrappers/spannerlib-java/src/main/resources/darwin-aarch64
             cp shared/spannerlib.so wrappers/spannerlib-java/src/main/resources/darwin-aarch64/libspanner.dylib
+            cp grpc-server/grpc_server wrappers/spannerlib-java/src/main/resources/darwin-aarch64/grpc_server
           else
             mkdir -p wrappers/spannerlib-java/src/main/resources/linux-x86-64
             cp shared/spannerlib.so wrappers/spannerlib-java/src/main/resources/linux-x86-64/libspanner.so
+            cp grpc-server/grpc_server wrappers/spannerlib-java/src/main/resources/linux-x86-64/grpc_server
           fi
         shell: bash
       - name: ls spannerlib.so

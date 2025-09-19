@@ -165,6 +165,9 @@ func (rows *rows) Next(ctx context.Context) (*structpb.ListValue, error) {
 		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot read more data after returning stats"))
 	}
 	ok := rows.backend.Next()
+	if !ok && rows.backend.Err() != nil {
+		return nil, rows.backend.Err()
+	}
 	if !ok {
 		rows.done = true
 		// No more rows. Read stats and return nil.
