@@ -245,6 +245,63 @@ func TestExecute(t *testing.T) {
 	}
 }
 
+func TestExecuteBatch(t *testing.T) {
+	t.Parallel()
+
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	_, code, poolId, _, _ := CreatePool(dsn)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	_, code, connId, _, _ := CreateConnection(poolId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CreateConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	request := &spannerpb.ExecuteBatchDmlRequest{
+		Statements: []*spannerpb.ExecuteBatchDmlRequest_Statement{
+			{Sql: testutil.UpdateBarSetFoo},
+			{Sql: testutil.UpdateBarSetFoo},
+		},
+	}
+	requestBytes, err := proto.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// ExecuteBatch returns a ExecuteBatchDml response.
+	mem, code, batchId, length, data := ExecuteBatch(poolId, connId, requestBytes)
+	verifyDataMessage(t, "ExecuteBatch", mem, code, batchId, length, data)
+	response := &spannerpb.ExecuteBatchDmlResponse{}
+	responseBytes := reflect.SliceAt(reflect.TypeOf(byte(0)), data, int(length)).Bytes()
+	if err := proto.Unmarshal(responseBytes, response); err != nil {
+		t.Fatal(err)
+	}
+	if g, w := len(response.ResultSets), 2; g != w {
+		t.Fatalf("num results mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	for i, result := range response.ResultSets {
+		if g, w := result.Stats.GetRowCountExact(), int64(testutil.UpdateBarSetFooRowCount); g != w {
+			t.Fatalf("%d: update count mismatch\n Got: %v\nWant: %v", i, g, w)
+		}
+	}
+	// Release the memory held by the response.
+	if g, w := Release(mem), int32(0); g != w {
+		t.Fatalf("Release() result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	_, code, _, _, _ = CloseConnection(poolId, connId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CloseConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	_, code, _, _, _ = ClosePool(poolId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
 func TestBeginAndCommitTransaction(t *testing.T) {
 	t.Parallel()
 
@@ -344,6 +401,75 @@ func TestBeginAndRollbackTransaction(t *testing.T) {
 	// Rollback returns nothing.
 	mem, code, id, length, res = Rollback(poolId, connId)
 	verifyEmptyMessage(t, "Rollback", mem, code, id, length, res)
+
+	_, code, _, _, _ = CloseConnection(poolId, connId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CloseConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	_, code, _, _, _ = ClosePool(poolId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestWriteMutations(t *testing.T) {
+	t.Parallel()
+
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	_, code, poolId, _, _ := CreatePool(dsn)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	_, code, connId, _, _ := CreateConnection(poolId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CreateConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	mutations := &spannerpb.BatchWriteRequest_MutationGroup{Mutations: []*spannerpb.Mutation{
+		{Operation: &spannerpb.Mutation_Insert{Insert: &spannerpb.Mutation_Write{
+			Table:   "my_table",
+			Columns: []string{"id", "value"},
+			Values: []*structpb.ListValue{
+				{Values: []*structpb.Value{structpb.NewStringValue("1"), structpb.NewStringValue("One")}},
+				{Values: []*structpb.Value{structpb.NewStringValue("2"), structpb.NewStringValue("Two")}},
+				{Values: []*structpb.Value{structpb.NewStringValue("3"), structpb.NewStringValue("Three")}},
+			},
+		}}},
+	}}
+	mutationBytes, err := proto.Marshal(mutations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// WriteMutations returns a CommitResponse or nil, depending on whether the connection has an active transaction.
+	mem, code, id, length, data := WriteMutations(poolId, connId, mutationBytes)
+	verifyDataMessage(t, "WriteMutations", mem, code, id, length, data)
+
+	response := &spannerpb.CommitResponse{}
+	responseBytes := reflect.SliceAt(reflect.TypeOf(byte(0)), data, int(length)).Bytes()
+	if err := proto.Unmarshal(responseBytes, response); err != nil {
+		t.Fatal(err)
+	}
+	if response.CommitTimestamp == nil {
+		t.Fatal("CommitTimestamp is nil")
+	}
+	// Release the memory held by the response.
+	if g, w := Release(mem), int32(0); g != w {
+		t.Fatalf("Release() result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Start a transaction on the connection and write the mutations to that transaction.
+	txOpts := &spannerpb.TransactionOptions{}
+	txOptsBytes, err := proto.Marshal(txOpts)
+	_, code, _, _, _ = BeginTransaction(poolId, connId, txOptsBytes)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("BeginTransaction result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	mem, code, id, length, data = WriteMutations(poolId, connId, mutationBytes)
+	// The response should now be an empty message, as the mutations were buffered in the current transaction.
+	verifyEmptyMessage(t, "WriteMutations in tx", mem, code, id, length, data)
 
 	_, code, _, _, _ = CloseConnection(poolId, connId)
 	if g, w := code, int32(0); g != w {

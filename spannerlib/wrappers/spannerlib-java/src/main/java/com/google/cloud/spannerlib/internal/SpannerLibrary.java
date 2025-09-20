@@ -65,6 +65,15 @@ public interface SpannerLibrary extends Library {
   /** Closes the given Connection. */
   Message CloseConnection(long poolId, long connectionId);
 
+  /**
+   * Writes a group of mutations on Spanner. The mutations are buffered in the current read/write
+   * transaction if the connection has an active read/write transaction. Otherwise, the mutations
+   * are written directly to Spanner in a new read/write transaction. Returns a {@link
+   * com.google.spanner.v1.CommitResponse} if the mutations were written directly to Spanner, and an
+   * empty message if the mutations were only buffered in the current transaction.
+   */
+  Message WriteMutations(long poolId, long connectionId, GoBytes mutations);
+
   /** Starts a new transaction on the given Connection. */
   Message BeginTransaction(long poolId, long connectionId, GoBytes transactionOptions);
 
@@ -79,6 +88,12 @@ public interface SpannerLibrary extends Library {
 
   /** Executes a SQL statement on the given Connection. */
   Message Execute(long poolId, long connectionId, GoBytes executeSqlRequest);
+
+  /**
+   * Executes a batch of DML or DDL statements on the given Connection. Returns an {@link
+   * com.google.spanner.v1.ExecuteBatchDmlResponse} for both DML and DDL batches.
+   */
+  Message ExecuteBatch(long poolId, long connectionId, GoBytes executeBatchDmlRequest);
 
   /** Returns the {@link com.google.spanner.v1.ResultSetMetadata} of the given Rows object. */
   Message Metadata(long poolId, long connectionId, long rowsId);

@@ -23,6 +23,7 @@ import (
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestCreateAndCloseConnection(t *testing.T) {
@@ -108,6 +109,48 @@ func TestExecute(t *testing.T) {
 		t.Fatalf("CloseRows result mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	closeMsg = CloseConnection(ctx, poolMsg.ObjectId, connMsg.ObjectId)
+	if g, w := closeMsg.Code, int32(0); g != w {
+		t.Fatalf("CloseConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	closeMsg = ClosePool(ctx, poolMsg.ObjectId)
+	if g, w := closeMsg.Code, int32(0); g != w {
+		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestExecuteBatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolMsg := CreatePool(ctx, dsn)
+	if g, w := poolMsg.Code, int32(0); g != w {
+		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	connMsg := CreateConnection(ctx, poolMsg.ObjectId)
+	if g, w := connMsg.Code, int32(0); g != w {
+		t.Fatalf("CreateConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	request := &spannerpb.ExecuteBatchDmlRequest{Statements: []*spannerpb.ExecuteBatchDmlRequest_Statement{
+		{Sql: testutil.UpdateBarSetFoo},
+		{Sql: testutil.UpdateBarSetFoo},
+	}}
+	requestBytes, err := proto.Marshal(request)
+	if err != nil {
+		t.Fatalf("Failed to marshal request: %v", err)
+	}
+	rowsMsg := ExecuteBatch(ctx, poolMsg.ObjectId, connMsg.ObjectId, requestBytes)
+	if g, w := rowsMsg.Code, int32(0); g != w {
+		t.Fatalf("ExecuteBatch result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if rowsMsg.Length() == 0 {
+		t.Fatal("ExecuteBatch returned no data")
+	}
+
+	closeMsg := CloseConnection(ctx, poolMsg.ObjectId, connMsg.ObjectId)
 	if g, w := closeMsg.Code, int32(0); g != w {
 		t.Fatalf("CloseConnection result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -209,6 +252,65 @@ func TestBeginAndRollback(t *testing.T) {
 	}
 	if g, w := rollbackMsg.Length(), int32(0); g != w {
 		t.Fatalf("Rollback length mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	closeMsg := CloseConnection(ctx, poolMsg.ObjectId, connMsg.ObjectId)
+	if g, w := closeMsg.Code, int32(0); g != w {
+		t.Fatalf("CloseConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	closeMsg = ClosePool(ctx, poolMsg.ObjectId)
+	if g, w := closeMsg.Code, int32(0); g != w {
+		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestWriteMutations(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolMsg := CreatePool(ctx, dsn)
+	if g, w := poolMsg.Code, int32(0); g != w {
+		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	connMsg := CreateConnection(ctx, poolMsg.ObjectId)
+	if g, w := connMsg.Code, int32(0); g != w {
+		t.Fatalf("CreateConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	mutations := &spannerpb.BatchWriteRequest_MutationGroup{Mutations: []*spannerpb.Mutation{
+		{Operation: &spannerpb.Mutation_Insert{Insert: &spannerpb.Mutation_Write{
+			Table:   "my_table",
+			Columns: []string{"id", "value"},
+			Values: []*structpb.ListValue{
+				{Values: []*structpb.Value{structpb.NewStringValue("1"), structpb.NewStringValue("One")}},
+				{Values: []*structpb.Value{structpb.NewStringValue("2"), structpb.NewStringValue("Two")}},
+				{Values: []*structpb.Value{structpb.NewStringValue("3"), structpb.NewStringValue("Three")}},
+			},
+		}}},
+	}}
+	mutationBytes, err := proto.Marshal(mutations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutationsMsg := WriteMutations(ctx, poolMsg.ObjectId, connMsg.ObjectId, mutationBytes)
+	if g, w := mutationsMsg.Code, int32(0); g != w {
+		t.Fatalf("WriteMutations result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if mutationsMsg.Length() == 0 {
+		t.Fatal("WriteMutations returned no data")
+	}
+
+	// Write mutations in a transaction.
+	mutationsMsg = BeginTransaction(ctx, poolMsg.ObjectId, connMsg.ObjectId, mutationBytes)
+	// The response should now be an empty message, as the mutations were only buffered in the transaction.
+	if g, w := mutationsMsg.Code, int32(0); g != w {
+		t.Fatalf("WriteMutations result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := mutationsMsg.Length(), int32(0); g != w {
+		t.Fatalf("WriteMutations data length mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
 	closeMsg := CloseConnection(ctx, poolMsg.ObjectId, connMsg.ObjectId)
