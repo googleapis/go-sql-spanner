@@ -1,6 +1,6 @@
 PATH="${PATH}:${HOME}/go/bin"
-rm -rf googleapis/google/spannerlib
-cp -r google/spannerlib googleapis/google
+rm -rf googleapis/google/spannerlib || true
+cp -r google/spannerlib googleapis/google/spannerlib
 cd googleapis || exit 1
 protoc \
   --go_out=../ \

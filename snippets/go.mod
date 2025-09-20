@@ -9,7 +9,7 @@ replace github.com/googleapis/go-sql-spanner => ../
 require (
 	cloud.google.com/go/spanner v1.85.1
 	github.com/docker/docker v28.4.0+incompatible
-	github.com/googleapis/go-sql-spanner v1.17.0
+	github.com/googleapis/go-sql-spanner v1.18.0
 	github.com/testcontainers/testcontainers-go v0.38.0
 )
 

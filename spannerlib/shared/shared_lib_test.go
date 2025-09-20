@@ -205,24 +205,14 @@ func TestExecute(t *testing.T) {
 		t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
-	// Get the ResultSetStats. For queries, this is an empty instance.
+	// Get the ResultSetStats. For queries, this is nil.
 	mem, code, _, length, data = ResultSetStats(poolId, connId, rowsId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("ResultSetStats result code mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	if length == int32(0) {
-		t.Fatalf("ResultSetStats length mismatch: %v", length)
+	if g, w := length, int32(0); g != w {
+		t.Fatalf("ResultSetStats length mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	statsBytes := reflect.SliceAt(reflect.TypeOf(byte(0)), data, int(length)).Bytes()
-	stats := &spannerpb.ResultSetStats{}
-	if err := proto.Unmarshal(statsBytes, stats); err != nil {
-		t.Fatal(err)
-	}
-	// TODO: Enable when this branch is up to date with main
-	// emptyStats := &spannerpb.ResultSetStats{}
-	//if g, w := stats, emptyStats; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(spannerpb.ResultSetStats{})) {
-	//	t.Fatalf("ResultSetStats mismatch\n Got: %v\nWant: %v", g, w)
-	//}
 	if res := Release(mem); res != 0 {
 		t.Fatalf("Release() result mismatch\n Got: %v\nWant: %v", res, 0)
 	}
