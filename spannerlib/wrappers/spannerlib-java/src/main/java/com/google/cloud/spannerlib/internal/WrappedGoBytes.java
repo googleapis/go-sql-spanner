@@ -33,7 +33,7 @@ public class WrappedGoBytes implements AutoCloseable {
   /** Serializes a protobuf {@link Message} into a {@link WrappedGoBytes} instance. */
   public static WrappedGoBytes serialize(Message message) {
     int size = message.getSerializedSize();
-    byte[] bytes = message.toByteArray();
+    // TODO: Use a pool of direct byte buffers to prevent creating new buffers for every request.
     ByteBuffer buffer = ByteBuffer.allocateDirect(size);
     try {
       message.writeTo(CodedOutputStream.newInstance(buffer));

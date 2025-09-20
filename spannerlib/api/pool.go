@@ -17,6 +17,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -130,4 +131,17 @@ func findConnection(poolId, connId int64) (*Connection, error) {
 	}
 	conn := c.(*Connection)
 	return conn, nil
+}
+
+func findRows(poolId, connId, rowsId int64) (*rows, error) {
+	conn, err := findConnection(poolId, connId)
+	if err != nil {
+		return nil, err
+	}
+	r, ok := conn.results.Load(rowsId)
+	if !ok {
+		return nil, fmt.Errorf("rows %v not found", rowsId)
+	}
+	res := r.(*rows)
+	return res, nil
 }

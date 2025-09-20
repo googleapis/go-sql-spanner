@@ -17,6 +17,7 @@
 package com.google.cloud.spannerlib.internal;
 
 import com.google.cloud.spannerlib.SpannerLibException;
+import com.google.common.base.Preconditions;
 import com.google.protobuf.CodedOutputStream;
 import com.google.protobuf.Message;
 import com.google.rpc.Code;
@@ -30,7 +31,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /** {@link GoBytes} is the Java representation of a Go byte slice ([]byte). */
-public class GoBytes extends Structure implements Structure.ByReference, AutoCloseable {
+public class GoBytes extends Structure implements Structure.ByValue, AutoCloseable {
   // JNA does not allow these fields to be final.
 
   /** The pointer to the actual data. */
@@ -60,7 +61,7 @@ public class GoBytes extends Structure implements Structure.ByReference, AutoClo
   }
 
   GoBytes(ByteBuffer buffer, long size) {
-    this.p = Native.getDirectBufferPointer(buffer);
+    this.p = Preconditions.checkNotNull(Native.getDirectBufferPointer(buffer));
     this.n = size;
     this.c = size;
   }

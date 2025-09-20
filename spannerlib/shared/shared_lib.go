@@ -110,3 +110,124 @@ func CloseConnection(poolId, connId int64) (int64, int32, int64, int32, unsafe.P
 	msg := lib.CloseConnection(ctx, poolId, connId)
 	return pin(msg)
 }
+
+// WriteMutations writes an array of mutations to Spanner. The mutations are buffered in
+// the current read/write transaction if the connection currently has a read/write transaction.
+// The mutations are applied to the database in a new read/write transaction that is automatically
+// committed if the connection currently does not have a transaction.
+//
+// The function returns an error if the connection is currently in a read-only transaction.
+//
+// The mutationsBytes must be an encoded BatchWriteRequest_MutationGroup protobuf object.
+//
+//export WriteMutations
+func WriteMutations(poolId, connectionId int64, mutationsBytes []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	msg := lib.WriteMutations(ctx, poolId, connectionId, mutationsBytes)
+	return pin(msg)
+}
+
+// Execute executes a SQL statement on the given connection.
+// The return type is an identifier for a Rows object. This identifier can be used to
+// call the functions Metadata and Next to get respectively the metadata of the result
+// and the next row of results.
+//
+//export Execute
+func Execute(poolId, connectionId int64, statement []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	msg := lib.Execute(ctx, poolId, connectionId, statement)
+	return pin(msg)
+}
+
+// ExecuteBatch executes a batch of statements on the given connection. The statements must all be either DML or DDL
+// statements. Mixing DML and DDL in a batch is not supported. Executing queries in a batch is also not supported.
+// The batch will use the current transaction on the given connection, or execute as a single auto-commit statement
+// if the connection does not have a transaction.
+//
+//export ExecuteBatch
+func ExecuteBatch(poolId, connectionId int64, statements []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	msg := lib.ExecuteBatch(ctx, poolId, connectionId, statements)
+	return pin(msg)
+}
+
+// Metadata returns the metadata of a Rows object.
+//
+//export Metadata
+func Metadata(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	msg := lib.Metadata(ctx, poolId, connId, rowsId)
+	return pin(msg)
+}
+
+// ResultSetStats returns the statistics for a statement that has been executed. This includes
+// the number of rows affected in case of a DML statement.
+// Statistics are only available once all rows have been consumed.
+//
+//export ResultSetStats
+func ResultSetStats(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	msg := lib.ResultSetStats(ctx, poolId, connId, rowsId)
+	return pin(msg)
+}
+
+// Next returns the next row in a Rows object. The returned message contains a protobuf
+// ListValue that contains all the columns of the row. The message is empty if there are
+// no more rows in the Rows object.
+//
+//export Next
+func Next(poolId, connId, rowsId int64, numRows int32, encodeRowOption int32) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	// TODO: Implement support for:
+	//  1. Fetching more than one row at a time.
+	//  2. Specifying the return type (e.g. proto, struct, ...)
+	msg := lib.Next(ctx, poolId, connId, rowsId)
+	return pin(msg)
+}
+
+// CloseRows closes and cleans up all memory held by a Rows object. This must be called
+// when the application is done with the Rows object.
+//
+//export CloseRows
+func CloseRows(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	msg := lib.CloseRows(ctx, poolId, connId, rowsId)
+	return pin(msg)
+}
+
+// BeginTransaction begins a new transaction on the given connection.
+// The txOpts byte slice contains a serialized protobuf TransactionOptions object.
+//
+//export BeginTransaction
+func BeginTransaction(poolId, connectionId int64, txOpts []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	msg := lib.BeginTransaction(ctx, poolId, connectionId, txOpts)
+	return pin(msg)
+}
+
+// Commit commits the current transaction on a connection. All transactions must be
+// either committed or rolled back, including read-only transactions. This to ensure
+// that all resources that are held by a transaction are cleaned up.
+//
+//export Commit
+func Commit(poolId, connectionId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	msg := lib.Commit(ctx, poolId, connectionId)
+	return pin(msg)
+}
+
+// Rollback rolls back a previously started transaction. All transactions must be either
+// committed or rolled back, including read-only transactions. This to ensure that
+// all resources that are held by a transaction are cleaned up.
+//
+// Spanner does not require read-only transactions to be committed or rolled back, but
+// this library requires that all transactions are committed or rolled back to clean up
+// all resources. Commit and Rollback are semantically the same for read-only transactions
+// on Spanner, and both functions just close the transaction.
+//
+//export Rollback
+func Rollback(poolId, connectionId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	msg := lib.Rollback(ctx, poolId, connectionId)
+	return pin(msg)
+}
