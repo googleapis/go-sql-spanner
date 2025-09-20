@@ -65,6 +65,15 @@ public interface SpannerLibrary extends Library {
   /** Closes the given Connection. */
   Message CloseConnection(long poolId, long connectionId);
 
+  /**
+   * Writes a group of mutations on Spanner. The mutations are buffered in the current read/write
+   * transaction if the connection has an active read/write transaction. Otherwise, the mutations
+   * are written directly to Spanner in a new read/write transaction. Returns a {@link
+   * com.google.spanner.v1.CommitResponse} if the mutations were written directly to Spanner, and an
+   * empty message if the mutations were only buffered in the current transaction.
+   */
+  Message WriteMutations(long poolId, long connectionId, GoBytes mutations);
+
   /** Starts a new transaction on the given Connection. */
   Message BeginTransaction(long poolId, long connectionId, GoBytes transactionOptions);
 
