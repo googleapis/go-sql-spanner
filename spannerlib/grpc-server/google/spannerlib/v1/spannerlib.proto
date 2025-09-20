@@ -1,0 +1,161 @@
+syntax = "proto3";
+
+package google.spannerlib.v1;
+
+import "google/api/field_behavior.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/struct.proto";
+import "google/spanner/v1/result_set.proto";
+import "google/spanner/v1/spanner.proto";
+import "google/spanner/v1/transaction.proto";
+
+option csharp_namespace = "Google.Cloud.SpannerLib.V1";
+option go_package = "cloud.google.com/go/spannerlib/apiv1/spannerlibpb;spannerlibpb";
+option java_multiple_files = true;
+option java_outer_classname = "SpannerLibProto";
+option java_package = "com.google.cloud.spannerlib.v1";
+option php_namespace = "Google\\Cloud\\SpannerLib\\V1";
+option ruby_package = "Google::Cloud::SpannerLib::V1";
+
+service SpannerLib {
+  rpc CreatePool(CreatePoolRequest) returns (Pool) {}
+  rpc ClosePool(Pool) returns (google.protobuf.Empty) {}
+
+  rpc CreateConnection(CreateConnectionRequest) returns (Connection) {}
+  rpc CloseConnection(Connection) returns (google.protobuf.Empty) {}
+
+  rpc Execute(ExecuteRequest) returns (Rows) {}
+  rpc ExecuteStreaming(ExecuteRequest) returns (stream RowData) {}
+  rpc ExecuteBatch(ExecuteBatchRequest) returns (google.spanner.v1.ExecuteBatchDmlResponse) {}
+  rpc Metadata(Rows) returns (google.spanner.v1.ResultSetMetadata) {}
+  rpc Next(NextRequest) returns (google.protobuf.ListValue) {}
+  rpc ResultSetStats(Rows) returns (google.spanner.v1.ResultSetStats) {}
+  rpc CloseRows(Rows) returns (google.protobuf.Empty) {}
+
+  rpc BeginTransaction(BeginTransactionRequest) returns (google.protobuf.Empty) {}
+  rpc Commit(Connection) returns (google.spanner.v1.CommitResponse) {}
+  rpc Rollback(Connection) returns (google.protobuf.Empty) {}
+
+  rpc WriteMutations(WriteMutationsRequest) returns (google.spanner.v1.CommitResponse) {}
+
+  rpc ConnectionStream(stream ConnectionStreamRequest) returns (stream ConnectionStreamResponse) {}
+}
+
+message CreatePoolRequest {
+  string connection_string = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message CreateConnectionRequest {
+  Pool pool = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message ExecuteRequest {
+  Connection connection = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message ExecuteBatchRequest {
+  Connection connection = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  google.spanner.v1.ExecuteBatchDmlRequest execute_batch_dml_request = 2 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message BeginTransactionRequest {
+  Connection connection = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  google.spanner.v1.TransactionOptions transaction_options = 2 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message WriteMutationsRequest {
+  Connection connection = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  google.spanner.v1.BatchWriteRequest.MutationGroup mutations = 2 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message Pool {
+  int64 id = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message Connection {
+  Pool pool = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  int64 id = 2 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message Rows {
+  Connection connection = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  int64 id = 2 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message NextRequest {
+  Rows rows = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  int64 num_rows = 2 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  int64 encoding = 3 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message RowData {
+  Rows rows = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  google.spanner.v1.ResultSetMetadata metadata = 2;
+  repeated google.protobuf.ListValue data = 3 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  google.spanner.v1.ResultSetStats stats = 4;
+}
+
+message MetadataRequest {
+  Rows rows = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message ResultSetStatsRequest {
+  Rows rows = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message ConnectionStreamRequest {
+  oneof request {
+    ExecuteRequest execute_request = 1;
+  }
+}
+
+message ConnectionStreamResponse {
+  oneof response {
+    google.spanner.v1.PartialResultSet row = 1;
+  }
+}

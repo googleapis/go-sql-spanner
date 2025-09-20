@@ -16,26 +16,42 @@
 
 package com.google.cloud.spannerlib;
 
-import static com.google.cloud.spannerlib.internal.SpannerLibrary.executeAndRelease;
-
-import com.google.cloud.spannerlib.internal.MessageHandler;
-import com.google.cloud.spannerlib.internal.WrappedGoBytes;
-import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.spanner.v1.BatchWriteRequest.MutationGroup;
 import com.google.spanner.v1.CommitResponse;
 import com.google.spanner.v1.ExecuteBatchDmlRequest;
 import com.google.spanner.v1.ExecuteBatchDmlResponse;
 import com.google.spanner.v1.ExecuteSqlRequest;
 import com.google.spanner.v1.TransactionOptions;
-import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
 /** A {@link Connection} that has been created by SpannerLib. */
 public class Connection extends AbstractLibraryObject {
   private final Pool pool;
+  private final List<StreamingRows> streams = new ArrayList<>();
 
   Connection(Pool pool, long id) {
     super(pool.getLibrary(), id);
     this.pool = pool;
+  }
+
+  void registerStream(StreamingRows stream) {
+    this.streams.add(stream);
+  }
+
+  void deregisterStream(StreamingRows stream) {
+    this.streams.remove(stream);
+  }
+
+  /** Closes this connection. Any active transaction on the connection is rolled back. */
+  @Override
+  public void close() {
+    synchronized (this.streams) {
+      for (StreamingRows stream : this.streams) {
+        stream.cancel("connection closed");
+      }
+    }
+    getLibrary().closeConnection(this);
   }
 
   public Pool getPool() {
@@ -50,31 +66,12 @@ public class Connection extends AbstractLibraryObject {
    * mutations were buffered in the current transaction.
    */
   public CommitResponse WriteMutations(MutationGroup mutations) {
-    try (WrappedGoBytes serializedRequest = WrappedGoBytes.serialize(mutations);
-        MessageHandler message =
-            getLibrary()
-                .execute(
-                    library ->
-                        library.WriteMutations(
-                            pool.getId(), getId(), serializedRequest.getGoBytes()))) {
-      if (message.getLength() == 0) {
-        return null;
-      }
-      ByteBuffer buffer = message.getValue().getByteBuffer(0, message.getLength());
-      return CommitResponse.parseFrom(buffer);
-    } catch (InvalidProtocolBufferException decodeException) {
-      throw new RuntimeException(decodeException);
-    }
+    return getLibrary().writeMutations(this, mutations);
   }
 
   /** Starts a transaction on this connection. */
   public void beginTransaction(TransactionOptions options) {
-    try (WrappedGoBytes serializedOptions = WrappedGoBytes.serialize(options)) {
-      executeAndRelease(
-          getLibrary(),
-          library ->
-              library.BeginTransaction(pool.getId(), getId(), serializedOptions.getGoBytes()));
-    }
+    getLibrary().beginTransaction(this, options);
   }
 
   /**
@@ -82,34 +79,17 @@ public class Connection extends AbstractLibraryObject {
    * null if there is no {@link CommitResponse} (e.g. for read-only transactions).
    */
   public CommitResponse commit() {
-    try (MessageHandler message =
-        getLibrary().execute(library -> library.Commit(pool.getId(), getId()))) {
-      // Return null in case there is no CommitResponse.
-      if (message.getLength() == 0) {
-        return null;
-      }
-      ByteBuffer buffer = message.getValue().getByteBuffer(0, message.getLength());
-      return CommitResponse.parseFrom(buffer);
-    } catch (InvalidProtocolBufferException decodeException) {
-      throw new RuntimeException(decodeException);
-    }
+    return getLibrary().commit(this);
   }
 
   /** Rollbacks the current transaction on this connection. */
   public void rollback() {
-    executeAndRelease(getLibrary(), library -> library.Rollback(pool.getId(), getId()));
+    getLibrary().rollback(this);
   }
 
   /** Executes the given SQL statement on this connection. */
   public Rows execute(ExecuteSqlRequest request) {
-    try (WrappedGoBytes serializedRequest = WrappedGoBytes.serialize(request);
-        MessageHandler message =
-            getLibrary()
-                .execute(
-                    library ->
-                        library.Execute(pool.getId(), getId(), serializedRequest.getGoBytes()))) {
-      return new Rows(this, message.getObjectId());
-    }
+    return getLibrary().execute(this, request);
   }
 
   /**
@@ -117,23 +97,6 @@ public class Connection extends AbstractLibraryObject {
    * be of the same type.
    */
   public ExecuteBatchDmlResponse executeBatch(ExecuteBatchDmlRequest request) {
-    try (WrappedGoBytes serializedRequest = WrappedGoBytes.serialize(request);
-        MessageHandler message =
-            getLibrary()
-                .execute(
-                    library ->
-                        library.ExecuteBatch(
-                            pool.getId(), getId(), serializedRequest.getGoBytes()))) {
-      ByteBuffer buffer = message.getValue().getByteBuffer(0, message.getLength());
-      return ExecuteBatchDmlResponse.parseFrom(buffer);
-    } catch (InvalidProtocolBufferException decodeException) {
-      throw new RuntimeException(decodeException);
-    }
-  }
-
-  /** Closes this connection. Any active transaction on the connection is rolled back. */
-  @Override
-  public void close() {
-    executeAndRelease(getLibrary(), library -> library.CloseConnection(pool.getId(), getId()));
+    return getLibrary().executeBatch(this, request);
   }
 }

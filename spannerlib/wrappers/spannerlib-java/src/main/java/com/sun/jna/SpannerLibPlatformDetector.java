@@ -14,26 +14,15 @@
  * limitations under the License.
  */
 
-package com.google.cloud.spannerlib;
+package com.sun.jna;
 
 /**
- * {@link AbstractLibraryObject} is the base class for all objects that are created by SpannerLib,
- * such as {@link Pool} and {@link Connection}.
+ * This class is only here to get access to the package-private {@link
+ * Platform#getNativeLibraryResourcePrefix()} method.
  */
-abstract class AbstractLibraryObject implements AutoCloseable {
-  private final SpannerLibrary library;
-  private final long id;
-
-  AbstractLibraryObject(SpannerLibrary library, long id) {
-    this.library = library;
-    this.id = id;
-  }
-
-  SpannerLibrary getLibrary() {
-    return this.library;
-  }
-
-  long getId() {
-    return this.id;
+public class SpannerLibPlatformDetector {
+  /** Wrapper around {@link Platform#getNativeLibraryResourcePrefix()}. */
+  public static String getNativeLibraryResourcePrefix() {
+    return Platform.getNativeLibraryResourcePrefix();
   }
 }
