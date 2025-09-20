@@ -222,6 +222,9 @@ type SpannerConn interface {
 	// return the same Spanner client.
 	UnderlyingClient() (client *spanner.Client, err error)
 
+	// DetectStatementType returns the type of SQL statement.
+	DetectStatementType(query string) parser.StatementType
+
 	// resetTransactionForRetry resets the current transaction after it has
 	// been aborted by Spanner. Calling this function on a transaction that
 	// has not been aborted is not supported and will cause an error to be
@@ -284,6 +287,11 @@ type conn struct {
 
 func (c *conn) UnderlyingClient() (*spanner.Client, error) {
 	return c.client, nil
+}
+
+func (c *conn) DetectStatementType(query string) parser.StatementType {
+	info := c.parser.DetectStatementType(query)
+	return info.StatementType
 }
 
 func (c *conn) CommitTimestamp() (time.Time, error) {
@@ -673,6 +681,27 @@ func sum(affected []int64) int64 {
 		sum += c
 	}
 	return sum
+}
+
+// WriteMutations is not part of the public API of the database/sql driver.
+// It is exported for internal reasons, and may receive breaking changes without prior notice.
+//
+// WriteMutations writes mutations using this connection. The mutations are either buffered in the current transaction,
+// or written directly to Spanner using a new read/write transaction if the connection does not have a transaction.
+//
+// The function returns an error if the connection currently has a read-only transaction.
+//
+// The returned CommitResponse is nil if the connection currently has a transaction, as the mutations will only be
+// applied to Spanner when the transaction commits.
+func (c *conn) WriteMutations(ctx context.Context, ms []*spanner.Mutation) (*spanner.CommitResponse, error) {
+	if c.inTransaction() {
+		return nil, c.BufferWrite(ms)
+	}
+	ts, err := c.Apply(ctx, ms)
+	if err != nil {
+		return nil, err
+	}
+	return &spanner.CommitResponse{CommitTs: ts}, nil
 }
 
 func (c *conn) Apply(ctx context.Context, ms []*spanner.Mutation, opts ...spanner.ApplyOption) (commitTimestamp time.Time, err error) {
@@ -1071,6 +1100,34 @@ func (c *conn) getBatchReadOnlyTransactionOptions() BatchReadOnlyTransactionOpti
 	return BatchReadOnlyTransactionOptions{TimestampBound: c.ReadOnlyStaleness()}
 }
 
+// BeginReadOnlyTransaction is not part of the public API of the database/sql driver.
+// It is exported for internal reasons, and may receive breaking changes without prior notice.
+//
+// BeginReadOnlyTransaction starts a new read-only transaction on this connection.
+func (c *conn) BeginReadOnlyTransaction(ctx context.Context, options *ReadOnlyTransactionOptions) (driver.Tx, error) {
+	c.withTempReadOnlyTransactionOptions(options)
+	tx, err := c.BeginTx(ctx, driver.TxOptions{ReadOnly: true})
+	if err != nil {
+		c.withTempReadOnlyTransactionOptions(nil)
+		return nil, err
+	}
+	return tx, nil
+}
+
+// BeginReadWriteTransaction is not part of the public API of the database/sql driver.
+// It is exported for internal reasons, and may receive breaking changes without prior notice.
+//
+// BeginReadWriteTransaction starts a new read/write transaction on this connection.
+func (c *conn) BeginReadWriteTransaction(ctx context.Context, options *ReadWriteTransactionOptions) (driver.Tx, error) {
+	c.withTempTransactionOptions(options)
+	tx, err := c.BeginTx(ctx, driver.TxOptions{})
+	if err != nil {
+		c.withTempTransactionOptions(nil)
+		return nil, err
+	}
+	return tx, nil
+}
+
 func (c *conn) Begin() (driver.Tx, error) {
 	return c.BeginTx(context.Background(), driver.TxOptions{})
 }
@@ -1254,7 +1311,11 @@ func (c *conn) inReadWriteTransaction() bool {
 	return false
 }
 
-func (c *conn) commit(ctx context.Context) (*spanner.CommitResponse, error) {
+// Commit is not part of the public API of the database/sql driver.
+// It is exported for internal reasons, and may receive breaking changes without prior notice.
+//
+// Commit commits the current transaction on this connection.
+func (c *conn) Commit(ctx context.Context) (*spanner.CommitResponse, error) {
 	if !c.inTransaction() {
 		return nil, status.Errorf(codes.FailedPrecondition, "this connection does not have a transaction")
 	}
@@ -1262,10 +1323,17 @@ func (c *conn) commit(ctx context.Context) (*spanner.CommitResponse, error) {
 	if err := c.tx.Commit(); err != nil {
 		return nil, err
 	}
-	return c.CommitResponse()
+
+	// This will return either the commit response or nil, depending on whether the transaction was a
+	// read/write transaction or a read-only transaction.
+	return propertyCommitResponse.GetValueOrDefault(c.state), nil
 }
 
-func (c *conn) rollback(ctx context.Context) error {
+// Rollback is not part of the public API of the database/sql driver.
+// It is exported for internal reasons, and may receive breaking changes without prior notice.
+//
+// Rollback rollbacks the current transaction on this connection.
+func (c *conn) Rollback(ctx context.Context) error {
 	if !c.inTransaction() {
 		return status.Errorf(codes.FailedPrecondition, "this connection does not have a transaction")
 	}

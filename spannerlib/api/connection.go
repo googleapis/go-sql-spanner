@@ -17,6 +17,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"strings"
 	"sync"
@@ -25,6 +26,10 @@ import (
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
+	"github.com/googleapis/go-sql-spanner/parser"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // CloseConnection looks up the connection with the given poolId and connId and closes it.
@@ -42,12 +47,65 @@ func CloseConnection(ctx context.Context, poolId, connId int64) error {
 	return conn.close(ctx)
 }
 
+// WriteMutations writes an array of mutations to Spanner. The mutations are buffered in
+// the current read/write transaction if the connection currently has a read/write transaction.
+// The mutations are applied to the database in a new read/write transaction that is automatically
+// committed if the connection currently does not have a transaction.
+//
+// The function returns an error if the connection is currently in a read-only transaction.
+//
+// The mutationsBytes must be an encoded BatchWriteRequest_MutationGroup protobuf object.
+func WriteMutations(ctx context.Context, poolId, connId int64, mutations *spannerpb.BatchWriteRequest_MutationGroup) (*spannerpb.CommitResponse, error) {
+	conn, err := findConnection(poolId, connId)
+	if err != nil {
+		return nil, err
+	}
+	return conn.writeMutations(ctx, mutations)
+}
+
+// BeginTransaction starts a new transaction on the given connection.
+// A connection can have at most one transaction at any time. This function therefore returns an error if the
+// connection has an active transaction.
+func BeginTransaction(ctx context.Context, poolId, connId int64, txOpts *spannerpb.TransactionOptions) error {
+	conn, err := findConnection(poolId, connId)
+	if err != nil {
+		return err
+	}
+	return conn.BeginTransaction(ctx, txOpts)
+}
+
+// Commit commits the current transaction on the given connection.
+func Commit(ctx context.Context, poolId, connId int64) (*spannerpb.CommitResponse, error) {
+	conn, err := findConnection(poolId, connId)
+	if err != nil {
+		return nil, err
+	}
+	return conn.commit(ctx)
+}
+
+// Rollback rollbacks the current transaction on the given connection.
+func Rollback(ctx context.Context, poolId, connId int64) error {
+	conn, err := findConnection(poolId, connId)
+	if err != nil {
+		return err
+	}
+	return conn.rollback(ctx)
+}
+
 func Execute(ctx context.Context, poolId, connId int64, executeSqlRequest *spannerpb.ExecuteSqlRequest) (int64, error) {
 	conn, err := findConnection(poolId, connId)
 	if err != nil {
 		return 0, err
 	}
 	return conn.Execute(ctx, executeSqlRequest)
+}
+
+func ExecuteBatch(ctx context.Context, poolId, connId int64, statements *spannerpb.ExecuteBatchDmlRequest) (*spannerpb.ExecuteBatchDmlResponse, error) {
+	conn, err := findConnection(poolId, connId)
+	if err != nil {
+		return nil, err
+	}
+	return conn.ExecuteBatch(ctx, statements.Statements)
 }
 
 type Connection struct {
@@ -59,6 +117,16 @@ type Connection struct {
 	backend *sql.Conn
 }
 
+// spannerConn is an internal interface that contains the internal functions that are used by this API.
+// It is implemented by the spannerdriver.conn struct.
+type spannerConn interface {
+	WriteMutations(ctx context.Context, ms []*spanner.Mutation) (*spanner.CommitResponse, error)
+	BeginReadOnlyTransaction(ctx context.Context, options *spannerdriver.ReadOnlyTransactionOptions) (driver.Tx, error)
+	BeginReadWriteTransaction(ctx context.Context, options *spannerdriver.ReadWriteTransactionOptions) (driver.Tx, error)
+	Commit(ctx context.Context) (*spanner.CommitResponse, error)
+	Rollback(ctx context.Context) error
+}
+
 type queryExecutor interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
@@ -66,6 +134,9 @@ type queryExecutor interface {
 
 func (conn *Connection) close(ctx context.Context) error {
 	conn.closeResults(ctx)
+	// Rollback any open transactions on the connection.
+	_ = conn.rollback(ctx)
+
 	err := conn.backend.Close()
 	if err != nil {
 		return err
@@ -73,15 +144,153 @@ func (conn *Connection) close(ctx context.Context) error {
 	return nil
 }
 
+func (conn *Connection) writeMutations(ctx context.Context, mutation *spannerpb.BatchWriteRequest_MutationGroup) (*spannerpb.CommitResponse, error) {
+	mutations := make([]*spanner.Mutation, 0, len(mutation.Mutations))
+	for _, m := range mutation.Mutations {
+		spannerMutation, err := spanner.WrapMutation(m)
+		if err != nil {
+			return nil, err
+		}
+		mutations = append(mutations, spannerMutation)
+	}
+	var commitResponse *spanner.CommitResponse
+	if err := conn.backend.Raw(func(driverConn any) (err error) {
+		sc, _ := driverConn.(spannerConn)
+		commitResponse, err = sc.WriteMutations(ctx, mutations)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+
+	// The commit response is nil if the connection is currently in a transaction.
+	if commitResponse == nil {
+		return nil, nil
+	}
+	response := spannerpb.CommitResponse{
+		CommitTimestamp: timestamppb.New(commitResponse.CommitTs),
+	}
+	return &response, nil
+}
+
+func (conn *Connection) BeginTransaction(ctx context.Context, txOpts *spannerpb.TransactionOptions) error {
+	var err error
+	if txOpts.GetReadOnly() != nil {
+		return conn.beginReadOnlyTransaction(ctx, convertToReadOnlyOpts(txOpts))
+	} else if txOpts.GetPartitionedDml() != nil {
+		err = spanner.ToSpannerError(status.Error(codes.InvalidArgument, "transaction type not supported"))
+	} else {
+		return conn.beginReadWriteTransaction(ctx, convertToReadWriteTransactionOptions(txOpts))
+	}
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (conn *Connection) beginReadOnlyTransaction(ctx context.Context, opts *spannerdriver.ReadOnlyTransactionOptions) error {
+	return conn.backend.Raw(func(driverConn any) (err error) {
+		sc, _ := driverConn.(spannerConn)
+		_, err = sc.BeginReadOnlyTransaction(ctx, opts)
+		return err
+	})
+}
+
+func (conn *Connection) beginReadWriteTransaction(ctx context.Context, opts *spannerdriver.ReadWriteTransactionOptions) error {
+	return conn.backend.Raw(func(driverConn any) (err error) {
+		sc, _ := driverConn.(spannerConn)
+		_, err = sc.BeginReadWriteTransaction(ctx, opts)
+		return err
+	})
+}
+
+func (conn *Connection) commit(ctx context.Context) (*spannerpb.CommitResponse, error) {
+	var response *spanner.CommitResponse
+	if err := conn.backend.Raw(func(driverConn any) (err error) {
+		spannerConn, _ := driverConn.(spannerConn)
+		response, err = spannerConn.Commit(ctx)
+		if err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	// The commit response is nil for read-only transactions.
+	if response == nil {
+		return nil, nil
+	}
+	// TODO: Include commit stats
+	return &spannerpb.CommitResponse{CommitTimestamp: timestamppb.New(response.CommitTs)}, nil
+}
+
+func (conn *Connection) rollback(ctx context.Context) error {
+	return conn.backend.Raw(func(driverConn any) (err error) {
+		spannerConn, _ := driverConn.(spannerConn)
+		return spannerConn.Rollback(ctx)
+	})
+}
+
+func convertToReadOnlyOpts(txOpts *spannerpb.TransactionOptions) *spannerdriver.ReadOnlyTransactionOptions {
+	return &spannerdriver.ReadOnlyTransactionOptions{
+		TimestampBound: convertTimestampBound(txOpts),
+	}
+}
+
+func convertTimestampBound(txOpts *spannerpb.TransactionOptions) spanner.TimestampBound {
+	ro := txOpts.GetReadOnly()
+	if ro.GetStrong() {
+		return spanner.StrongRead()
+	} else if ro.GetReadTimestamp() != nil {
+		return spanner.ReadTimestamp(ro.GetReadTimestamp().AsTime())
+	} else if ro.GetMinReadTimestamp() != nil {
+		return spanner.ReadTimestamp(ro.GetMinReadTimestamp().AsTime())
+	} else if ro.GetExactStaleness() != nil {
+		return spanner.ExactStaleness(ro.GetExactStaleness().AsDuration())
+	} else if ro.GetMaxStaleness() != nil {
+		return spanner.MaxStaleness(ro.GetMaxStaleness().AsDuration())
+	}
+	return spanner.TimestampBound{}
+}
+
+func convertToReadWriteTransactionOptions(txOpts *spannerpb.TransactionOptions) *spannerdriver.ReadWriteTransactionOptions {
+	readLockMode := spannerpb.TransactionOptions_ReadWrite_READ_LOCK_MODE_UNSPECIFIED
+	if txOpts.GetReadWrite() != nil {
+		readLockMode = txOpts.GetReadWrite().GetReadLockMode()
+	}
+	return &spannerdriver.ReadWriteTransactionOptions{
+		TransactionOptions: spanner.TransactionOptions{
+			IsolationLevel: txOpts.GetIsolationLevel(),
+			ReadLockMode:   readLockMode,
+		},
+	}
+}
+
+func convertIsolationLevel(level spannerpb.TransactionOptions_IsolationLevel) sql.IsolationLevel {
+	switch level {
+	case spannerpb.TransactionOptions_SERIALIZABLE:
+		return sql.LevelSerializable
+	case spannerpb.TransactionOptions_REPEATABLE_READ:
+		return sql.LevelRepeatableRead
+	}
+	return sql.LevelDefault
+}
+
 func (conn *Connection) closeResults(ctx context.Context) {
 	conn.results.Range(func(key, value interface{}) bool {
-		// TODO: Implement
+		if r, ok := value.(*rows); ok {
+			_ = r.Close(ctx)
+		}
 		return true
 	})
 }
 
 func (conn *Connection) Execute(ctx context.Context, statement *spannerpb.ExecuteSqlRequest) (int64, error) {
 	return execute(ctx, conn, conn.backend, statement)
+}
+
+func (conn *Connection) ExecuteBatch(ctx context.Context, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
+	return executeBatch(ctx, conn, conn.backend, statements)
 }
 
 func execute(ctx context.Context, conn *Connection, executor queryExecutor, statement *spannerpb.ExecuteSqlRequest) (int64, error) {
@@ -113,6 +322,90 @@ func execute(ctx context.Context, conn *Connection, executor queryExecutor, stat
 	}
 	conn.results.Store(id, res)
 	return id, nil
+}
+
+func executeBatch(ctx context.Context, conn *Connection, executor queryExecutor, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
+	// Determine the type of batch that should be executed based on the type of statements.
+	batchType, err := determineBatchType(conn, statements)
+	if err != nil {
+		return nil, err
+	}
+	switch batchType {
+	case parser.BatchTypeDml:
+		return executeBatchDml(ctx, conn, executor, statements)
+	case parser.BatchTypeDdl:
+		return executeBatchDdl(ctx, conn, executor, statements)
+	default:
+		return nil, status.Errorf(codes.InvalidArgument, "unsupported batch type: %v", batchType)
+	}
+}
+
+func executeBatchDdl(ctx context.Context, conn *Connection, executor queryExecutor, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
+	if err := conn.backend.Raw(func(driverConn any) error {
+		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
+		return spannerConn.StartBatchDDL()
+	}); err != nil {
+		return nil, err
+	}
+	for _, statement := range statements {
+		_, err := executor.ExecContext(ctx, statement.Sql)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// TODO: Add support for getting the actual Batch DDL response.
+	if err := conn.backend.Raw(func(driverConn any) (err error) {
+		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
+		return spannerConn.RunBatch(ctx)
+	}); err != nil {
+		return nil, err
+	}
+
+	response := spannerpb.ExecuteBatchDmlResponse{}
+	response.ResultSets = make([]*spannerpb.ResultSet, len(statements))
+	for i := range statements {
+		response.ResultSets[i] = &spannerpb.ResultSet{Stats: &spannerpb.ResultSetStats{}}
+	}
+	return &response, nil
+}
+
+func executeBatchDml(ctx context.Context, conn *Connection, executor queryExecutor, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
+	if err := conn.backend.Raw(func(driverConn any) error {
+		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
+		return spannerConn.StartBatchDML()
+	}); err != nil {
+		return nil, err
+	}
+	for _, statement := range statements {
+		request := &spannerpb.ExecuteSqlRequest{
+			Sql:        statement.Sql,
+			Params:     statement.Params,
+			ParamTypes: statement.ParamTypes,
+		}
+		params := extractParams(request)
+		_, err := executor.ExecContext(ctx, statement.Sql, params...)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var spannerResult spannerdriver.SpannerResult
+	if err := conn.backend.Raw(func(driverConn any) (err error) {
+		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
+		spannerResult, err = spannerConn.RunDmlBatch(ctx)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	affected, err := spannerResult.BatchRowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	response := spannerpb.ExecuteBatchDmlResponse{}
+	response.ResultSets = make([]*spannerpb.ResultSet, len(affected))
+	for i, aff := range affected {
+		response.ResultSets[i] = &spannerpb.ResultSet{Stats: &spannerpb.ResultSetStats{RowCount: &spannerpb.ResultSetStats_RowCountExact{RowCountExact: aff}}}
+	}
+	return &response, nil
 }
 
 func extractParams(statement *spannerpb.ExecuteSqlRequest) []any {
@@ -148,4 +441,35 @@ func extractParams(statement *spannerpb.ExecuteSqlRequest) []any {
 		}
 	}
 	return params
+}
+
+func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (parser.BatchType, error) {
+	if len(statements) == 0 {
+		return parser.BatchTypeDdl, status.Errorf(codes.InvalidArgument, "cannot determine type of an empty batch")
+	}
+	var batchType parser.BatchType
+	if err := conn.backend.Raw(func(driverConn any) error {
+		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
+		firstStatementType := spannerConn.DetectStatementType(statements[0].Sql)
+		if firstStatementType == parser.StatementTypeDml {
+			batchType = parser.BatchTypeDml
+		} else if firstStatementType == parser.StatementTypeDdl {
+			batchType = parser.BatchTypeDdl
+		} else {
+			return status.Errorf(codes.InvalidArgument, "unsupported statement type for batching: %v", firstStatementType)
+		}
+		for i, statement := range statements {
+			if i > 0 {
+				tp := spannerConn.DetectStatementType(statement.Sql)
+				if tp != firstStatementType {
+					return status.Errorf(codes.InvalidArgument, "Batches may not contain different types of statements. The first statement is of type %v. The statement on position %d is of type %v.", firstStatementType, i, tp)
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		return parser.BatchTypeDdl, err
+	}
+
+	return batchType, nil
 }

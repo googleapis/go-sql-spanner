@@ -82,6 +82,26 @@ func TestTwoTransactionsOnOneConn(t *testing.T) {
 	}
 }
 
+func TestTwoQueriesOnOneConn(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	c, _ := db.Conn(ctx)
+	defer silentClose(c)
+
+	for range 2 {
+		r, err := c.QueryContext(context.Background(), testutil.SelectFooFromBar)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = r.Next()
+		defer silentClose(r)
+	}
+}
+
 func TestExplicitBeginTx(t *testing.T) {
 	t.Parallel()
 
