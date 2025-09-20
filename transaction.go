@@ -44,7 +44,7 @@ type contextTransaction interface {
 	Commit() error
 	Rollback() error
 	resetForRetry(ctx context.Context) error
-	Query(ctx context.Context, stmt spanner.Statement, execOptions *ExecOptions) (rowIterator, error)
+	Query(ctx context.Context, stmt spanner.Statement, stmtType parser.StatementType, execOptions *ExecOptions) (rowIterator, error)
 	partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions *ExecOptions) (driver.Rows, error)
 	ExecContext(ctx context.Context, stmt spanner.Statement, statementInfo *parser.StatementInfo, options spanner.QueryOptions) (*result, error)
 
@@ -67,6 +67,7 @@ var _ rowIterator = &readOnlyRowIterator{}
 
 type readOnlyRowIterator struct {
 	*spanner.RowIterator
+	stmtType parser.StatementType
 }
 
 func (ri *readOnlyRowIterator) Next() (*spanner.Row, error) {
@@ -82,12 +83,19 @@ func (ri *readOnlyRowIterator) Metadata() (*sppb.ResultSetMetadata, error) {
 }
 
 func (ri *readOnlyRowIterator) ResultSetStats() *sppb.ResultSetStats {
+	return createResultSetStats(ri.RowIterator, ri.stmtType)
+}
+
+func createResultSetStats(it *spanner.RowIterator, stmtType parser.StatementType) *sppb.ResultSetStats {
 	// TODO: The Spanner client library should offer an option to get the full
 	//       ResultSetStats, instead of only the RowCount and QueryPlan.
-	return &sppb.ResultSetStats{
-		RowCount:  &sppb.ResultSetStats_RowCountExact{RowCountExact: ri.RowIterator.RowCount},
-		QueryPlan: ri.RowIterator.QueryPlan,
+	stats := &sppb.ResultSetStats{
+		QueryPlan: it.QueryPlan,
 	}
+	if stmtType == parser.StatementTypeDml {
+		stats.RowCount = &sppb.ResultSetStats_RowCountExact{RowCountExact: it.RowCount}
+	}
+	return stats
 }
 
 type txResult int
@@ -135,7 +143,7 @@ func (tx *readOnlyTransaction) resetForRetry(ctx context.Context) error {
 	return nil
 }
 
-func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement, execOptions *ExecOptions) (rowIterator, error) {
+func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement, stmtType parser.StatementType, execOptions *ExecOptions) (rowIterator, error) {
 	tx.logger.DebugContext(ctx, "Query", "stmt", stmt.SQL)
 	if execOptions.PartitionedQueryOptions.AutoPartitionQuery {
 		if tx.boTx == nil {
@@ -152,7 +160,7 @@ func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement
 		}
 		return mi, nil
 	}
-	return &readOnlyRowIterator{tx.roTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions)}, nil
+	return &readOnlyRowIterator{tx.roTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions), stmtType}, nil
 }
 
 func (tx *readOnlyTransaction) partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions *ExecOptions) (driver.Rows, error) {
@@ -457,7 +465,7 @@ func (tx *readWriteTransaction) resetForRetry(ctx context.Context) error {
 // Query executes a query using the read/write transaction and returns a
 // rowIterator that will automatically retry the read/write transaction if the
 // transaction is aborted during the query or while iterating the returned rows.
-func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement, execOptions *ExecOptions) (rowIterator, error) {
+func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement, stmtType parser.StatementType, execOptions *ExecOptions) (rowIterator, error) {
 	tx.logger.Debug("Query", "stmt", stmt.SQL)
 	tx.active = true
 	if err := tx.maybeRunAutoDmlBatch(ctx); err != nil {
@@ -466,7 +474,7 @@ func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statemen
 	// If internal retries have been disabled, we don't need to keep track of a
 	// running checksum for all results that we have seen.
 	if !tx.retryAborts() {
-		return &readOnlyRowIterator{tx.rwTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions)}, nil
+		return &readOnlyRowIterator{tx.rwTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions), stmtType}, nil
 	}
 
 	// If retries are enabled, we need to use a row iterator that will keep
@@ -477,6 +485,7 @@ func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statemen
 		ctx:         ctx,
 		tx:          tx,
 		stmt:        stmt,
+		stmtType:    stmtType,
 		options:     execOptions.QueryOptions,
 		buffer:      buffer,
 		enc:         gob.NewEncoder(buffer),

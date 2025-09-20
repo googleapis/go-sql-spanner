@@ -139,7 +139,9 @@ func (rows *rows) Metadata() (*spannerpb.ResultSetMetadata, error) {
 
 func (rows *rows) ResultSetStats(ctx context.Context) (*spannerpb.ResultSetStats, error) {
 	if rows.stats == nil {
-		rows.readStats(ctx)
+		if err := rows.readStats(ctx); err != nil {
+			return nil, err
+		}
 	}
 	return rows.stats, nil
 }
@@ -165,10 +167,15 @@ func (rows *rows) Next(ctx context.Context) (*structpb.ListValue, error) {
 		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot read more data after returning stats"))
 	}
 	ok := rows.backend.Next()
+	if !ok && rows.backend.Err() != nil {
+		return nil, rows.backend.Err()
+	}
 	if !ok {
 		rows.done = true
 		// No more rows. Read stats and return nil.
-		rows.readStats(ctx)
+		if err := rows.readStats(ctx); err != nil {
+			return nil, err
+		}
 		// nil indicates no more rows.
 		return nil, nil
 	}
@@ -192,12 +199,20 @@ func (rows *rows) Next(ctx context.Context) (*structpb.ListValue, error) {
 	return rows.values, nil
 }
 
-func (rows *rows) readStats(ctx context.Context) {
+func (rows *rows) readStats(ctx context.Context) error {
 	rows.stats = &spannerpb.ResultSetStats{}
 	if !rows.backend.NextResultSet() {
-		return
+		return status.Error(codes.Internal, "stats results not found")
 	}
 	if rows.backend.Next() {
-		_ = rows.backend.Scan(&rows.stats)
+		if err := rows.backend.Scan(&rows.stats); err != nil {
+			return err
+		}
+	} else {
+		if err := rows.backend.Err(); err != nil {
+			return err
+		}
+		return status.Error(codes.Internal, "stats row not found")
 	}
+	return nil
 }
