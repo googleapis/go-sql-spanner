@@ -415,6 +415,7 @@ func (tx *readWriteTransaction) Commit() (err error) {
 		return err
 	}
 	var commitResponse spanner.CommitResponse
+	// TODO: Optimize this to skip the Commit also if the transaction has not yet been used.
 	if tx.rwTx != nil {
 		if !tx.retryAborts() {
 			ts, err := tx.rwTx.CommitWithReturnResp(tx.ctx)
@@ -484,6 +485,7 @@ func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statemen
 		ctx:         ctx,
 		tx:          tx,
 		stmt:        stmt,
+		stmtType:    stmtType,
 		options:     execOptions.QueryOptions,
 		buffer:      buffer,
 		enc:         gob.NewEncoder(buffer),
