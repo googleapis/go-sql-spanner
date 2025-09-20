@@ -56,7 +56,7 @@ func TestBeginAndCommit(t *testing.T) {
 		t.Fatalf("ResultSetStats returned unexpected error: %v", err)
 	}
 	if g, w := stats.GetRowCountExact(), int64(testutil.UpdateBarSetFooRowCount); g != w {
-		t.Fatalf("row count mismatch\n Got: %v\nWant: %v", g, w)
+		t.Fatalf("row count mismatch for rows %d:%d:%d\n Got: %v\nWant: %v", poolId, connId, rowsId, g, w)
 	}
 	if err := CloseRows(ctx, poolId, connId, rowsId); err != nil {
 		t.Fatalf("CloseRows returned unexpected error: %v", err)
@@ -125,7 +125,7 @@ func TestBeginAndRollback(t *testing.T) {
 		t.Fatalf("ResultSetStats returned unexpected error: %v", err)
 	}
 	if g, w := stats.GetRowCountExact(), int64(testutil.UpdateBarSetFooRowCount); g != w {
-		t.Fatalf("row count mismatch\n Got: %v\nWant: %v", g, w)
+		t.Fatalf("row count mismatch for rows %d:%d:%d\n Got: %v\nWant: %v", poolId, connId, rowsId, g, w)
 	}
 	if err := CloseRows(ctx, poolId, connId, rowsId); err != nil {
 		t.Fatalf("CloseRows returned unexpected error: %v", err)
