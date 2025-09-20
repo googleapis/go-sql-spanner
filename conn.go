@@ -262,8 +262,8 @@ type conn struct {
 	resetForRetry bool
 	database      string
 
-	execSingleQuery              func(ctx context.Context, c *spanner.Client, statement spanner.Statement, bound spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator
-	execSingleQueryTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (rowIterator, *spanner.CommitResponse, error)
+	execSingleQuery              func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, bound spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator
+	execSingleQueryTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (rowIterator, *spanner.CommitResponse, error)
 	execSingleDMLTransactional   func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error)
 	execSingleDMLPartitioned     func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error)
 
@@ -860,9 +860,9 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 	if err != nil {
 		return nil, err
 	}
-	statementType := c.parser.DetectStatementType(query)
+	statementInfo := c.parser.DetectStatementType(query)
 	// DDL statements are not supported in QueryContext so use the execContext method for the execution.
-	if statementType.StatementType == parser.StatementTypeDdl {
+	if statementInfo.StatementType == parser.StatementTypeDdl {
 		res, err := c.execContext(ctx, query, execOptions, args)
 		if err != nil {
 			return nil, err
@@ -871,10 +871,10 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 	}
 	var iter rowIterator
 	if c.tx == nil {
-		if statementType.StatementType == parser.StatementTypeDml {
+		if statementInfo.StatementType == parser.StatementTypeDml {
 			// Use a read/write transaction to execute the statement.
 			var commitResponse *spanner.CommitResponse
-			iter, commitResponse, err = c.execSingleQueryTransactional(ctx, c.client, stmt, execOptions)
+			iter, commitResponse, err = c.execSingleQueryTransactional(ctx, c.client, stmt, statementInfo, execOptions)
 			if err != nil {
 				return nil, err
 			}
@@ -887,13 +887,13 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 			// The statement was either detected as being a query, or potentially not recognized at all.
 			// In that case, just default to using a single-use read-only transaction and let Spanner
 			// return an error if the statement is not suited for that type of transaction.
-			iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt, c.ReadOnlyStaleness(), execOptions)}
+			iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt, statementInfo, c.ReadOnlyStaleness(), execOptions), statementInfo.StatementType}
 		}
 	} else {
 		if execOptions.PartitionedQueryOptions.PartitionQuery {
 			return c.tx.partitionQuery(ctx, stmt, execOptions)
 		}
-		iter, err = c.tx.Query(ctx, stmt, execOptions)
+		iter, err = c.tx.Query(ctx, stmt, statementInfo.StatementType, execOptions)
 		if err != nil {
 			return nil, err
 		}
@@ -1341,7 +1341,7 @@ func (c *conn) Rollback(ctx context.Context) error {
 	return c.tx.Rollback()
 }
 
-func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
+func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
 	return c.Single().WithTimestampBound(tb).QueryWithOptions(ctx, statement, options.QueryOptions)
 }
 
@@ -1363,7 +1363,7 @@ func (c *conn) executeAutoPartitionedQuery(ctx context.Context, query string, ex
 	return r, nil
 }
 
-func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (rowIterator, *spanner.CommitResponse, error) {
+func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (rowIterator, *spanner.CommitResponse, error) {
 	var result *wrappedRowIterator
 	options.QueryOptions.LastStatement = true
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
@@ -1372,6 +1372,7 @@ func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement s
 		if err == iterator.Done {
 			result = &wrappedRowIterator{
 				RowIterator: it,
+				stmtType:    statementInfo.StatementType,
 				noRows:      true,
 			}
 		} else if err != nil {
@@ -1380,6 +1381,7 @@ func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement s
 		} else {
 			result = &wrappedRowIterator{
 				RowIterator: it,
+				stmtType:    statementInfo.StatementType,
 				firstRow:    row,
 			}
 		}
