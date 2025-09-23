@@ -13,47 +13,27 @@
 // limitations under the License.
 
 using Google.Cloud.Spanner.V1;
-using Google.Cloud.SpannerLib.MockServer;
-using Google.Cloud.SpannerLib.Native.Impl;
 using Google.Protobuf.WellKnownTypes;
 using Google.Rpc;
 
 namespace Google.Cloud.SpannerLib.Tests;
 
-public class ConnectionTests
+public class ConnectionTests : AbstractMockServerTests
 {
-    private readonly ISpannerLib _spannerLib = new SharedLibSpanner();
-    
-    private SpannerMockServerFixture _fixture;
-        
-    private string ConnectionString =>  $"{_fixture.Host}:{_fixture.Port}/projects/p1/instances/i1/databases/d1;UsePlainText=true";
-        
-    [SetUp]
-    public void Setup()
-    {
-        _fixture = new SpannerMockServerFixture();
-    }
-        
-    [TearDown]
-    public void Teardown()
-    {
-        _fixture.Dispose();
-    }
-
     [Test]
-    public void TestCreateConnection()
+    public void TestCreateConnection([Values] LibType libType)
     {
-        using var pool = Pool.Create(_spannerLib, ConnectionString);
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
         Assert.That(connection, Is.Not.Null);
         Assert.That(connection.Id, Is.GreaterThan(0));
-        Assert.That(_fixture.SpannerMock.Requests.OfType<CreateSessionRequest>().Count(), Is.EqualTo(1));
+        Assert.That(Fixture.SpannerMock.Requests.OfType<CreateSessionRequest>().Count(), Is.EqualTo(1));
     }
 
     [Test]
-    public void TestCreateTwoConnections()
+    public void TestCreateTwoConnections([Values] LibType libType)
     {
-        using var pool = Pool.Create(_spannerLib, ConnectionString);
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection1 = pool.CreateConnection();
         using var connection2 = pool.CreateConnection();
         Assert.That(connection1, Is.Not.Null);
@@ -61,13 +41,13 @@ public class ConnectionTests
         Assert.That(connection1.Id, Is.GreaterThan(0));
         Assert.That(connection2.Id, Is.GreaterThan(0));
         Assert.That(connection1.Id, Is.Not.EqualTo(connection2.Id));
-        Assert.That(_fixture.SpannerMock.Requests.OfType<CreateSessionRequest>().Count(), Is.EqualTo(1));
+        Assert.That(Fixture.SpannerMock.Requests.OfType<CreateSessionRequest>().Count(), Is.EqualTo(1));
     }
 
     [Test]
-    public void TestWriteMutations()
+    public void TestWriteMutations([Values] LibType libType)
     {
-        using var pool = Pool.Create(_spannerLib, ConnectionString);
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
         var insertMutation = new Mutation
         {
@@ -99,9 +79,9 @@ public class ConnectionTests
         });
         Assert.That(response, Is.Not.Null);
         Assert.That(response.CommitTimestamp, Is.Not.Null);
-        Assert.That(_fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>().Count(), Is.EqualTo(1));
-        Assert.That(_fixture.SpannerMock.Requests.OfType<CommitRequest>().Count(), Is.EqualTo(1));
-        var commit = _fixture.SpannerMock.Requests.OfType<CommitRequest>().Single();
+        Assert.That(Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>().Count(), Is.EqualTo(1));
+        Assert.That(Fixture.SpannerMock.Requests.OfType<CommitRequest>().Count(), Is.EqualTo(1));
+        var commit = Fixture.SpannerMock.Requests.OfType<CommitRequest>().Single();
         Assert.That(commit, Is.Not.Null);
         Assert.That(commit.Mutations.Count, Is.EqualTo(2));
         Assert.That(commit.Mutations[0].Insert.Values.Count, Is.EqualTo(2));
@@ -109,9 +89,9 @@ public class ConnectionTests
     }
 
     [Test]
-    public void TestWriteMutationsInTransaction()
+    public void TestWriteMutationsInTransaction([Values] LibType libType)
     {
-        using var pool = Pool.Create(_spannerLib, ConnectionString);
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
         connection.BeginTransaction(new TransactionOptions());
         
@@ -136,18 +116,18 @@ public class ConnectionTests
         response = connection.Commit();
         Assert.That(response, Is.Not.Null);
         
-        Assert.That(_fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>().Count(), Is.EqualTo(1));
-        Assert.That(_fixture.SpannerMock.Requests.OfType<CommitRequest>().Count(), Is.EqualTo(1));
-        var commit = _fixture.SpannerMock.Requests.OfType<CommitRequest>().Single();
+        Assert.That(Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>().Count(), Is.EqualTo(1));
+        Assert.That(Fixture.SpannerMock.Requests.OfType<CommitRequest>().Count(), Is.EqualTo(1));
+        var commit = Fixture.SpannerMock.Requests.OfType<CommitRequest>().Single();
         Assert.That(commit, Is.Not.Null);
         Assert.That(commit.Mutations.Count, Is.EqualTo(1));
         Assert.That(commit.Mutations[0].Insert.Values.Count, Is.EqualTo(1));
     }
 
     [Test]
-    public void TestWriteMutationsInReadOnlyTransaction()
+    public void TestWriteMutationsInReadOnlyTransaction([Values] LibType libType)
     {
-        using var pool = Pool.Create(_spannerLib, ConnectionString);
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
         connection.BeginTransaction(new TransactionOptions{ReadOnly = new TransactionOptions.Types.ReadOnly()});
         

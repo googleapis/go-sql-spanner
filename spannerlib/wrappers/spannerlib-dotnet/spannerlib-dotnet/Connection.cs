@@ -13,6 +13,7 @@
 // limitations under the License.
 
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Google.Cloud.Spanner.V1;
 
@@ -54,12 +55,22 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
         return Spanner.Commit(this);
     }
 
+    public Task<CommitResponse?> CommitAsync(CancellationToken cancellationToken = default)
+    {
+        return Spanner.CommitAsync(this, cancellationToken);
+    }
+
     /// <summary>
     /// Rollbacks the current transaction.
     /// </summary>
     public void Rollback()
     {
         Spanner.Rollback(this);
+    }
+
+    public Task RollbackAsync(CancellationToken cancellationToken = default)
+    {
+        return Spanner.RollbackAsync(this, cancellationToken);
     }
 
     /// <summary>
@@ -138,5 +149,10 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     protected override void CloseLibObject()
     {
         Spanner.CloseConnection(this);
+    }
+
+    protected override async ValueTask CloseLibObjectAsync()
+    {
+        await Spanner.CloseConnectionAsync(this);
     }
 }

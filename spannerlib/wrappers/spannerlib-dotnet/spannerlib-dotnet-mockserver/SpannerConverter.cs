@@ -61,10 +61,18 @@ internal static class SpannerConverter
                         .ToString(InvariantCulture)
                 };
             case TypeCode.Float32:
+                if (value is float float32)
+                {
+                    return new Value { NumberValue = float32 };
+                }
                 return new Value { NumberValue = Convert.ToSingle(value, InvariantCulture) };
             case TypeCode.Float64:
                 return new Value { NumberValue = Convert.ToDouble(value, InvariantCulture) };
             case TypeCode.Timestamp:
+                if (value is string value1)
+                {
+                    return Value.ForString(value1);
+                }
                 return new Value
                 {
                     StringValue = XmlConvert.ToString(Convert.ToDateTime(value, InvariantCulture), XmlDateTimeSerializationMode.Utc)
@@ -100,7 +108,7 @@ internal static class SpannerConverter
                 }
                 if (value is string str)
                 {
-                    return Value.ForString(SpannerNumeric.Parse(str).ToString());
+                    return Value.ForString(str);
                 }
                 if (value is float || value is double || value is decimal)
                 {
@@ -122,6 +130,8 @@ internal static class SpannerConverter
                     return Value.ForString(numericValue.ToString());
                 }
                 throw new ArgumentException("Numeric parameters must be of type SpannerNumeric or string");
+            case TypeCode.Uuid:
+                return Value.ForString(value.ToString());
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(type.Code), type.Code, null);

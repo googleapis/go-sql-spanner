@@ -18,9 +18,11 @@ package com.google.cloud.spannerlib;
 
 import com.google.cloud.spanner.connection.AbstractMockServerTest;
 import com.google.common.collect.ImmutableList;
-import io.grpc.ManagedChannel;
+import io.grpc.Channel;
 import io.grpc.ManagedChannelBuilder;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -81,9 +83,16 @@ public abstract class AbstractSpannerLibTest extends AbstractMockServerTest {
 
   private SpannerLibrary createLibrary() {
     if (libraryType == PoolTest.LibraryType.GRPC) {
-      ManagedChannel channel =
-          ManagedChannelBuilder.forTarget(grpcServerAddress).usePlaintext().build();
-      return new GrpcSpannerLibraryImpl(channel, true);
+      int numChannels = 20;
+      List<Channel> channels = new ArrayList<>(numChannels);
+      for (int i = 0; i < numChannels; i++) {
+        channels.add(ManagedChannelBuilder.forTarget(grpcServerAddress).usePlaintext().build());
+      }
+      return new GrpcSpannerLibraryImpl(channels);
+
+      //      ManagedChannel channel =
+      //          ManagedChannelBuilder.forTarget(grpcServerAddress).usePlaintext().build();
+      //      return new GrpcSpannerLibraryImpl(channel, true);
     } else if (libraryType == PoolTest.LibraryType.SHARED) {
       return NativeSpannerLibraryImpl.getInstance();
     } else {
