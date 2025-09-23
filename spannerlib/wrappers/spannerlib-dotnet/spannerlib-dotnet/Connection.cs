@@ -139,4 +139,9 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     {
         Spanner.CloseConnection(this);
     }
+
+    protected override async ValueTask CloseLibObjectAsync()
+    {
+        await Spanner.CloseConnectionAsync(this);
+    }
 }

@@ -18,6 +18,8 @@ option php_namespace = "Google\\Cloud\\SpannerLib\\V1";
 option ruby_package = "Google::Cloud::SpannerLib::V1";
 
 service SpannerLib {
+  rpc Info(InfoRequest) returns (InfoResponse) {}
+
   rpc CreatePool(CreatePoolRequest) returns (Pool) {}
   rpc ClosePool(Pool) returns (google.protobuf.Empty) {}
 
@@ -39,6 +41,13 @@ service SpannerLib {
   rpc WriteMutations(WriteMutationsRequest) returns (google.spanner.v1.CommitResponse) {}
 
   rpc ConnectionStream(stream ConnectionStreamRequest) returns (stream ConnectionStreamResponse) {}
+}
+
+message InfoRequest {
+}
+
+message InfoResponse {
+  string version = 1;
 }
 
 message CreatePoolRequest {

@@ -12,6 +12,47 @@ public final class SpannerLibGrpc {
 
   // Static method descriptors that strictly reflect the proto.
   private static volatile io.grpc.MethodDescriptor<
+          com.google.cloud.spannerlib.v1.InfoRequest, com.google.cloud.spannerlib.v1.InfoResponse>
+      getInfoMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "Info",
+      requestType = com.google.cloud.spannerlib.v1.InfoRequest.class,
+      responseType = com.google.cloud.spannerlib.v1.InfoResponse.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+  public static io.grpc.MethodDescriptor<
+          com.google.cloud.spannerlib.v1.InfoRequest, com.google.cloud.spannerlib.v1.InfoResponse>
+      getInfoMethod() {
+    io.grpc.MethodDescriptor<
+            com.google.cloud.spannerlib.v1.InfoRequest, com.google.cloud.spannerlib.v1.InfoResponse>
+        getInfoMethod;
+    if ((getInfoMethod = SpannerLibGrpc.getInfoMethod) == null) {
+      synchronized (SpannerLibGrpc.class) {
+        if ((getInfoMethod = SpannerLibGrpc.getInfoMethod) == null) {
+          SpannerLibGrpc.getInfoMethod =
+              getInfoMethod =
+                  io.grpc.MethodDescriptor
+                      .<com.google.cloud.spannerlib.v1.InfoRequest,
+                          com.google.cloud.spannerlib.v1.InfoResponse>
+                          newBuilder()
+                      .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+                      .setFullMethodName(generateFullMethodName(SERVICE_NAME, "Info"))
+                      .setSampledToLocalTracing(true)
+                      .setRequestMarshaller(
+                          io.grpc.protobuf.ProtoUtils.marshaller(
+                              com.google.cloud.spannerlib.v1.InfoRequest.getDefaultInstance()))
+                      .setResponseMarshaller(
+                          io.grpc.protobuf.ProtoUtils.marshaller(
+                              com.google.cloud.spannerlib.v1.InfoResponse.getDefaultInstance()))
+                      .setSchemaDescriptor(new SpannerLibMethodDescriptorSupplier("Info"))
+                      .build();
+        }
+      }
+    }
+    return getInfoMethod;
+  }
+
+  private static volatile io.grpc.MethodDescriptor<
           com.google.cloud.spannerlib.v1.CreatePoolRequest, com.google.cloud.spannerlib.v1.Pool>
       getCreatePoolMethod;
 
@@ -736,6 +777,13 @@ public final class SpannerLibGrpc {
   public interface AsyncService {
 
     /** */
+    default void info(
+        com.google.cloud.spannerlib.v1.InfoRequest request,
+        io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.InfoResponse> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getInfoMethod(), responseObserver);
+    }
+
+    /** */
     default void createPool(
         com.google.cloud.spannerlib.v1.CreatePoolRequest request,
         io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.Pool> responseObserver) {
@@ -876,6 +924,14 @@ public final class SpannerLibGrpc {
     @java.lang.Override
     protected SpannerLibStub build(io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
       return new SpannerLibStub(channel, callOptions);
+    }
+
+    /** */
+    public void info(
+        com.google.cloud.spannerlib.v1.InfoRequest request,
+        io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.InfoResponse> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncUnaryCall(
+          getChannel().newCall(getInfoMethod(), getCallOptions()), request, responseObserver);
     }
 
     /** */
@@ -1037,6 +1093,13 @@ public final class SpannerLibGrpc {
     }
 
     /** */
+    public com.google.cloud.spannerlib.v1.InfoResponse info(
+        com.google.cloud.spannerlib.v1.InfoRequest request) throws io.grpc.StatusException {
+      return io.grpc.stub.ClientCalls.blockingV2UnaryCall(
+          getChannel(), getInfoMethod(), getCallOptions(), request);
+    }
+
+    /** */
     public com.google.cloud.spannerlib.v1.Pool createPool(
         com.google.cloud.spannerlib.v1.CreatePoolRequest request) throws io.grpc.StatusException {
       return io.grpc.stub.ClientCalls.blockingV2UnaryCall(
@@ -1170,6 +1233,13 @@ public final class SpannerLibGrpc {
     }
 
     /** */
+    public com.google.cloud.spannerlib.v1.InfoResponse info(
+        com.google.cloud.spannerlib.v1.InfoRequest request) {
+      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+          getChannel(), getInfoMethod(), getCallOptions(), request);
+    }
+
+    /** */
     public com.google.cloud.spannerlib.v1.Pool createPool(
         com.google.cloud.spannerlib.v1.CreatePoolRequest request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
@@ -1284,6 +1354,14 @@ public final class SpannerLibGrpc {
     }
 
     /** */
+    public com.google.common.util.concurrent.ListenableFuture<
+            com.google.cloud.spannerlib.v1.InfoResponse>
+        info(com.google.cloud.spannerlib.v1.InfoRequest request) {
+      return io.grpc.stub.ClientCalls.futureUnaryCall(
+          getChannel().newCall(getInfoMethod(), getCallOptions()), request);
+    }
+
+    /** */
     public com.google.common.util.concurrent.ListenableFuture<com.google.cloud.spannerlib.v1.Pool>
         createPool(com.google.cloud.spannerlib.v1.CreatePoolRequest request) {
       return io.grpc.stub.ClientCalls.futureUnaryCall(
@@ -1385,22 +1463,23 @@ public final class SpannerLibGrpc {
     }
   }
 
-  private static final int METHODID_CREATE_POOL = 0;
-  private static final int METHODID_CLOSE_POOL = 1;
-  private static final int METHODID_CREATE_CONNECTION = 2;
-  private static final int METHODID_CLOSE_CONNECTION = 3;
-  private static final int METHODID_EXECUTE = 4;
-  private static final int METHODID_EXECUTE_STREAMING = 5;
-  private static final int METHODID_EXECUTE_BATCH = 6;
-  private static final int METHODID_METADATA = 7;
-  private static final int METHODID_NEXT = 8;
-  private static final int METHODID_RESULT_SET_STATS = 9;
-  private static final int METHODID_CLOSE_ROWS = 10;
-  private static final int METHODID_BEGIN_TRANSACTION = 11;
-  private static final int METHODID_COMMIT = 12;
-  private static final int METHODID_ROLLBACK = 13;
-  private static final int METHODID_WRITE_MUTATIONS = 14;
-  private static final int METHODID_CONNECTION_STREAM = 15;
+  private static final int METHODID_INFO = 0;
+  private static final int METHODID_CREATE_POOL = 1;
+  private static final int METHODID_CLOSE_POOL = 2;
+  private static final int METHODID_CREATE_CONNECTION = 3;
+  private static final int METHODID_CLOSE_CONNECTION = 4;
+  private static final int METHODID_EXECUTE = 5;
+  private static final int METHODID_EXECUTE_STREAMING = 6;
+  private static final int METHODID_EXECUTE_BATCH = 7;
+  private static final int METHODID_METADATA = 8;
+  private static final int METHODID_NEXT = 9;
+  private static final int METHODID_RESULT_SET_STATS = 10;
+  private static final int METHODID_CLOSE_ROWS = 11;
+  private static final int METHODID_BEGIN_TRANSACTION = 12;
+  private static final int METHODID_COMMIT = 13;
+  private static final int METHODID_ROLLBACK = 14;
+  private static final int METHODID_WRITE_MUTATIONS = 15;
+  private static final int METHODID_CONNECTION_STREAM = 16;
 
   private static final class MethodHandlers<Req, Resp>
       implements io.grpc.stub.ServerCalls.UnaryMethod<Req, Resp>,
@@ -1419,6 +1498,12 @@ public final class SpannerLibGrpc {
     @java.lang.SuppressWarnings("unchecked")
     public void invoke(Req request, io.grpc.stub.StreamObserver<Resp> responseObserver) {
       switch (methodId) {
+        case METHODID_INFO:
+          serviceImpl.info(
+              (com.google.cloud.spannerlib.v1.InfoRequest) request,
+              (io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.InfoResponse>)
+                  responseObserver);
+          break;
         case METHODID_CREATE_POOL:
           serviceImpl.createPool(
               (com.google.cloud.spannerlib.v1.CreatePoolRequest) request,
@@ -1522,6 +1607,12 @@ public final class SpannerLibGrpc {
 
   public static final io.grpc.ServerServiceDefinition bindService(AsyncService service) {
     return io.grpc.ServerServiceDefinition.builder(getServiceDescriptor())
+        .addMethod(
+            getInfoMethod(),
+            io.grpc.stub.ServerCalls.asyncUnaryCall(
+                new MethodHandlers<
+                    com.google.cloud.spannerlib.v1.InfoRequest,
+                    com.google.cloud.spannerlib.v1.InfoResponse>(service, METHODID_INFO)))
         .addMethod(
             getCreatePoolMethod(),
             io.grpc.stub.ServerCalls.asyncUnaryCall(
@@ -1670,6 +1761,7 @@ public final class SpannerLibGrpc {
               result =
                   io.grpc.ServiceDescriptor.newBuilder(SERVICE_NAME)
                       .setSchemaDescriptor(new SpannerLibFileDescriptorSupplier())
+                      .addMethod(getInfoMethod())
                       .addMethod(getCreatePoolMethod())
                       .addMethod(getClosePoolMethod())
                       .addMethod(getCreateConnectionMethod())

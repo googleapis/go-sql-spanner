@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
 using System.Threading.Tasks;
 using Google.Cloud.Spanner.V1;
 using Google.Protobuf.WellKnownTypes;
@@ -24,7 +25,7 @@ namespace Google.Cloud.SpannerLib;
 /// it as a child process and communicating with it through a gRPC API. The classes in this assembly use this generic
 /// interface to abstract away the underlying communication method.
 /// </summary>
-public interface ISpannerLib
+public interface ISpannerLib : IDisposable
 {
     /// <summary>
     /// RowEncoding is used to specify the format that SpannerLib should use to return row data. 
@@ -66,6 +67,13 @@ public interface ISpannerLib
     /// </summary>
     /// <param name="connection">The connection to close</param>
     public void CloseConnection(Connection connection);
+    
+    /// <summary>
+    /// Closes the given connection. This also closes any open Rows objects of this connection. Any active transaction
+    /// on the connection is rolled back.
+    /// </summary>
+    /// <param name="connection">The connection to close</param>
+    public Task CloseConnectionAsync(Connection connection) => Task.Run(() => CloseConnection(connection));
 
     /// <summary>
     /// Writes an array of mutations to Spanner. The mutations are buffered in the current transaction of the given
@@ -172,6 +180,12 @@ public interface ISpannerLib
     /// </summary>
     /// <param name="rows">The Rows object to close</param>
     public void CloseRows(Rows rows);
+    
+    /// <summary>
+    /// Closes the given Rows object. This releases all resources associated with this statement result.
+    /// </summary>
+    /// <param name="rows">The Rows object to close</param>
+    public Task CloseRowsAsync(Rows rows) => Task.Run(() => CloseRows(rows));
 
     /// <summary>
     /// Starts a new transaction on this connection. A connection can have at most one transaction at any time. All
@@ -196,4 +210,9 @@ public interface ISpannerLib
     /// </summary>
     /// <param name="connection">The connection that has the transaction that should be rolled back</param>
     public void Rollback(Connection connection);
+
+    void IDisposable.Dispose()
+    {
+        // no-op
+    }
 }

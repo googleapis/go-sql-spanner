@@ -41,6 +41,9 @@ import io.grpc.Channel;
 import io.grpc.ManagedChannel;
 import io.grpc.StatusException;
 import io.grpc.stub.BlockingClientCall;
+import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
 
 /** This implementation communicates with SpannerLib through a gRPC interface. */
 public class GrpcSpannerLibraryImpl implements SpannerLibrary {
@@ -48,10 +51,26 @@ public class GrpcSpannerLibraryImpl implements SpannerLibrary {
   private final SpannerLibBlockingV2Stub stub;
   private final boolean useStreamingRows;
 
+  private final List<Channel> channels;
+  private final List<SpannerLibBlockingV2Stub> stubs;
+
   public GrpcSpannerLibraryImpl(Channel channel, boolean useStreamingRows) {
     this.channel = channel;
     this.stub = SpannerLibGrpc.newBlockingV2Stub(channel);
     this.useStreamingRows = useStreamingRows;
+
+    this.channels = null;
+    this.stubs = null;
+  }
+
+  public GrpcSpannerLibraryImpl(List<Channel> channels) {
+    this.channel = channels.get(0);
+    this.stub = SpannerLibGrpc.newBlockingV2Stub(channels.get(0));
+    this.useStreamingRows = true;
+
+    this.channels = channels;
+    this.stubs =
+        channels.stream().map(SpannerLibGrpc::newBlockingV2Stub).collect(Collectors.toList());
   }
 
   static SpannerLibException toSpannerLibException(StatusException exception) {
@@ -86,6 +105,13 @@ public class GrpcSpannerLibraryImpl implements SpannerLibrary {
 
   @Override
   public void close() {
+    if (this.channels != null) {
+      for (Channel channel : channels) {
+        if (channel instanceof ManagedChannel) {
+          ((ManagedChannel) channel).shutdown();
+        }
+      }
+    }
     if (this.channel instanceof ManagedChannel) {
       ((ManagedChannel) this.channel).shutdown();
     }
@@ -207,6 +233,10 @@ public class GrpcSpannerLibraryImpl implements SpannerLibrary {
   }
 
   private Rows executeStreaming(Connection connection, ExecuteSqlRequest request) {
+    SpannerLibBlockingV2Stub stub = this.stub;
+    if (stubs != null) {
+      stub = stubs.get(ThreadLocalRandom.current().nextInt(stubs.size()));
+    }
     BlockingClientCall<?, RowData> stream =
         stub.executeStreaming(
             ExecuteRequest.newBuilder()

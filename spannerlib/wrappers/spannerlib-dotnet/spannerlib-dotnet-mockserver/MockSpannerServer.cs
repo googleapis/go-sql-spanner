@@ -795,4 +795,10 @@ public class MockDatabaseAdminService : DatabaseAdmin.DatabaseAdminBase
         _requests.Enqueue(request);
         return Task.FromResult(new Empty());
     }
+    
+    public void Reset()
+    {
+        _requests.Clear();
+    }
+    
 }
