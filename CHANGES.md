@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.18.1](https://github.com/googleapis/go-sql-spanner/compare/v1.18.0...v1.18.1) (2025-09-23)
+
+
+### Bug Fixes
+
+* Do not return update count for queries ([#524](https://github.com/googleapis/go-sql-spanner/issues/524)) ([4403e52](https://github.com/googleapis/go-sql-spanner/commit/4403e5287515c83fb889f9e7f8a107f9cfdb1ea8))
+* Update all dependencies ([#536](https://github.com/googleapis/go-sql-spanner/issues/536)) ([13bda8d](https://github.com/googleapis/go-sql-spanner/commit/13bda8dae03e8af663450e21a888808521857c81))
+* Update dependency net.java.dev.jna:jna to v5.18.0 ([#538](https://github.com/googleapis/go-sql-spanner/issues/538)) ([61cc7e8](https://github.com/googleapis/go-sql-spanner/commit/61cc7e81908e9b5eef42ce2d1e6dec2ec7c044e9))
+* Update module github.com/googleapis/go-sql-spanner to v1.18.0 ([#528](https://github.com/googleapis/go-sql-spanner/issues/528)) ([f5100ce](https://github.com/googleapis/go-sql-spanner/commit/f5100cec9d99099b3a538e45688f27f0c3dd0376))
+* Update module github.com/testcontainers/testcontainers-go to v0.39.0 ([#535](https://github.com/googleapis/go-sql-spanner/issues/535)) ([c3a8109](https://github.com/googleapis/go-sql-spanner/commit/c3a8109084ee4a876ae5a57aec015d330e25b381))
+
 ## [1.18.0](https://github.com/googleapis/go-sql-spanner/compare/v1.17.0...v1.18.0) (2025-09-12)
 
 
