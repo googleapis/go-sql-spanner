@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.2](https://github.com/googleapis/go-sql-spanner/compare/v1.18.1...v1.18.2) (2025-09-25)
+
+
+### Bug Fixes
+
+* Update module github.com/googleapis/go-sql-spanner to v1.18.1 ([#540](https://github.com/googleapis/go-sql-spanner/issues/540)) ([1eca441](https://github.com/googleapis/go-sql-spanner/commit/1eca4414dfddef2c5e9e3642712317c3929738be))
+
 ## [1.18.1](https://github.com/googleapis/go-sql-spanner/compare/v1.18.0...v1.18.1) (2025-09-23)
 
 
