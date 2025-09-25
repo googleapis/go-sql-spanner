@@ -71,3 +71,60 @@ jobs:
         run: mvn -Djna.debug_load=true test
         working-directory: spannerlib/wrappers/spannerlib-java
         shell: bash
+
+  dotnet-wrapper:
+    strategy:
+      matrix:
+        go-version: [1.25.x]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Install dotnet
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Build shared library
+        working-directory: spannerlib/shared
+        run: go build -o spannerlib.so -buildmode=c-shared shared_lib.go
+      - name: Copy to .NET wrapper
+        working-directory: spannerlib
+        run: |
+          mkdir -p wrappers/spannerlib-dotnet/spannerlib-dotnet-native/libraries/any
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            cp shared/spannerlib.so wrappers/spannerlib-dotnet/spannerlib-dotnet-native/libraries/any/spannerlib.dll
+          else
+            cp shared/spannerlib.so wrappers/spannerlib-dotnet/spannerlib-dotnet-native/libraries/any/spannerlib
+          fi
+        shell: bash
+      - name: Build .NET native library package
+        run: dotnet pack
+        working-directory: spannerlib/wrappers/spannerlib-dotnet/spannerlib-dotnet-native
+        shell: bash
+      - name: Add .NET package source
+        run: |
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            echo ${GITHUB_WORKSPACE}"\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-native\bin\Release"
+            dotnet nuget add source ${GITHUB_WORKSPACE}"\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-native\bin\Release" --name local
+          else
+            dotnet nuget add source "$PWD"/bin/Release --name local
+          fi
+        working-directory: spannerlib/wrappers/spannerlib-dotnet/spannerlib-dotnet-native
+        shell: bash
+      - name: Restore dependencies
+        run: dotnet restore
+        working-directory: spannerlib/wrappers/spannerlib-dotnet
+        shell: bash
+      - name: Build
+        run: dotnet build --no-restore
+        working-directory: spannerlib/wrappers/spannerlib-dotnet
+        shell: bash
+      - name: .NET Unit Tests
+        working-directory: spannerlib/wrappers/spannerlib-dotnet/spannerlib-dotnet-tests
+        run: dotnet test --no-build --verbosity normal
+        shell: bash
