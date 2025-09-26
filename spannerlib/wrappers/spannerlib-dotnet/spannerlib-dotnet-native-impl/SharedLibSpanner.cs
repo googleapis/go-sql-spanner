@@ -192,6 +192,11 @@ public class SharedLibSpanner : ISpannerLib
         ExecuteAndReleaseLibraryFunction(() => SpannerLib.CloseRows(rows.SpannerConnection.Pool.Id, rows.SpannerConnection.Id, rows.Id));
     }
 
+    public Task CloseRowsAsync(Rows rows)
+    {
+        return Task.Run(() => CloseRows(rows));
+    }
+
     public void BeginTransaction(Connection connection, TransactionOptions transactionOptions)
     {
         using var handler = ExecuteLibraryFunction(() =>
