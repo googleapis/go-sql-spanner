@@ -22,6 +22,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	SpannerLib_Info_FullMethodName             = "/google.spannerlib.v1.SpannerLib/Info"
 	SpannerLib_CreatePool_FullMethodName       = "/google.spannerlib.v1.SpannerLib/CreatePool"
 	SpannerLib_ClosePool_FullMethodName        = "/google.spannerlib.v1.SpannerLib/ClosePool"
 	SpannerLib_CreateConnection_FullMethodName = "/google.spannerlib.v1.SpannerLib/CreateConnection"
@@ -44,6 +45,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type SpannerLibClient interface {
+	Info(ctx context.Context, in *InfoRequest, opts ...grpc.CallOption) (*InfoResponse, error)
 	CreatePool(ctx context.Context, in *CreatePoolRequest, opts ...grpc.CallOption) (*Pool, error)
 	ClosePool(ctx context.Context, in *Pool, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	CreateConnection(ctx context.Context, in *CreateConnectionRequest, opts ...grpc.CallOption) (*Connection, error)
@@ -68,6 +70,16 @@ type spannerLibClient struct {
 
 func NewSpannerLibClient(cc grpc.ClientConnInterface) SpannerLibClient {
 	return &spannerLibClient{cc}
+}
+
+func (c *spannerLibClient) Info(ctx context.Context, in *InfoRequest, opts ...grpc.CallOption) (*InfoResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(InfoResponse)
+	err := c.cc.Invoke(ctx, SpannerLib_Info_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *spannerLibClient) CreatePool(ctx context.Context, in *CreatePoolRequest, opts ...grpc.CallOption) (*Pool, error) {
@@ -246,6 +258,7 @@ type SpannerLib_ConnectionStreamClient = grpc.BidiStreamingClient[ConnectionStre
 // All implementations must embed UnimplementedSpannerLibServer
 // for forward compatibility.
 type SpannerLibServer interface {
+	Info(context.Context, *InfoRequest) (*InfoResponse, error)
 	CreatePool(context.Context, *CreatePoolRequest) (*Pool, error)
 	ClosePool(context.Context, *Pool) (*emptypb.Empty, error)
 	CreateConnection(context.Context, *CreateConnectionRequest) (*Connection, error)
@@ -272,6 +285,9 @@ type SpannerLibServer interface {
 // pointer dereference when methods are called.
 type UnimplementedSpannerLibServer struct{}
 
+func (UnimplementedSpannerLibServer) Info(context.Context, *InfoRequest) (*InfoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Info not implemented")
+}
 func (UnimplementedSpannerLibServer) CreatePool(context.Context, *CreatePoolRequest) (*Pool, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreatePool not implemented")
 }
@@ -339,6 +355,24 @@ func RegisterSpannerLibServer(s grpc.ServiceRegistrar, srv SpannerLibServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&SpannerLib_ServiceDesc, srv)
+}
+
+func _SpannerLib_Info_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SpannerLibServer).Info(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SpannerLib_Info_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SpannerLibServer).Info(ctx, req.(*InfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _SpannerLib_CreatePool_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -618,6 +652,10 @@ var SpannerLib_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "google.spannerlib.v1.SpannerLib",
 	HandlerType: (*SpannerLibServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Info",
+			Handler:    _SpannerLib_Info_Handler,
+		},
 		{
 			MethodName: "CreatePool",
 			Handler:    _SpannerLib_CreatePool_Handler,

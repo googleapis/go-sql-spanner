@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <RootNamespace>Google.Cloud.SpannerLib.Grpc</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>default</LangVersion>
+    <PackageId>Google.Cloud.SpannerLib.GrpcServer</PackageId>
+    <Title>SpannerLib Grpc Server</Title>
+    <Authors>Google</Authors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="binaries/any/*" Pack="true" PackagePath="runtimes/any/native/" />
+    <None Include="binaries/linux-x64/*" Pack="true" PackagePath="runtimes/linux-x64/native/" />
+    <None Include="binaries/osx-arm64/*" Pack="true" PackagePath="runtimes/osx-arm64/native/" />
+    <None Include="binaries/win-x64/*" Pack="true" PackagePath="runtimes/win-x64/native/" />
+  </ItemGroup>
+</Project>

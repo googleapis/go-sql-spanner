@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
-    <RootNamespace>Google.Cloud.SpannerLib.Tests</RootNamespace>
+    <RootNamespace>Google.Cloud.SpannerLib.Grpc</RootNamespace>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -11,7 +11,6 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.2"/>
-    <PackageReference Include="Google.Cloud.Spanner.Data" Version="5.2.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0"/>
     <PackageReference Include="NUnit" Version="4.2.2"/>
     <PackageReference Include="NUnit.Analyzers" Version="4.4.0"/>
@@ -24,10 +23,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\spannerlib-dotnet-grpc-impl\spannerlib-dotnet-grpc-impl.csproj" />
-    <ProjectReference Include="..\spannerlib-dotnet-mockserver\spannerlib-dotnet-mockserver.csproj" />
-    <ProjectReference Include="..\spannerlib-dotnet-native-impl\spannerlib-dotnet-native-impl.csproj" />
   </ItemGroup>
-  <ItemGroup>
-    <None Include="appsettings.json" CopyToOutputDirectory="Always" />
-  </ItemGroup>
+
 </Project>

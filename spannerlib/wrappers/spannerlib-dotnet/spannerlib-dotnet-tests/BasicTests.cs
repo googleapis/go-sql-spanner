@@ -24,46 +24,28 @@ using TypeCode = Google.Cloud.Spanner.V1.TypeCode;
 
 namespace Google.Cloud.SpannerLib.Tests;
 
-public class BasicTests
+public class BasicTests : AbstractMockServerTests
 {
-    private readonly ISpannerLib _spannerLib = new SharedLibSpanner();
-    
-    private SpannerMockServerFixture _fixture;
-        
-    private string ConnectionString =>  $"{_fixture.Host}:{_fixture.Port}/projects/p1/instances/i1/databases/d1;UsePlainText=true";
-        
-    [SetUp]
-    public void Setup()
-    {
-        _fixture = new SpannerMockServerFixture();
-        _fixture.SpannerMock.AddOrUpdateStatementResult("SELECT 1", StatementResult.CreateSelect1ResultSet());
-    }
-        
-    [TearDown]
-    public void Teardown()
-    {
-        _fixture.Dispose();
-    }
 
     [Test]
-    public void TestCreatePool()
+    public void TestCreatePool([Values] LibType libType)
     {
-        var pool = Pool.Create(_spannerLib, ConnectionString);
+        var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         pool.Close();
     }
 
     [Test]
-    public void TestCreateConnection()
+    public void TestCreateConnection([Values] LibType libType)
     {
-        using var pool = Pool.Create(_spannerLib, ConnectionString);
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         var connection = pool.CreateConnection();
         connection.Close();
     }
 
     [Test]
-    public void TestExecuteQuery()
+    public void TestExecuteQuery([Values] LibType libType)
     {
-        using var pool = Pool.Create(_spannerLib, ConnectionString);
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
         using var rows = connection.Execute(new ExecuteSqlRequest { Sql = "SELECT 1" });
         for (var row = rows.Next(); row != null; row = rows.Next())
@@ -75,12 +57,12 @@ public class BasicTests
     }
 
     [Test]
-    public void TestExecuteQueryError()
+    public void TestExecuteQueryError([Values] LibType libType)
     {
         var sql = "select * from non_existing_table";
-        _fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateException(new RpcException(new Status(StatusCode.NotFound, "Table not found"))));
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateException(new RpcException(new Status(StatusCode.NotFound, "Table not found"))));
         
-        using var pool = Pool.Create(_spannerLib, ConnectionString);
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
         SpannerException exception = Assert.Throws<SpannerException>(() => connection.Execute(new ExecuteSqlRequest { Sql = sql }));
         Assert.That(exception.Code, Is.EqualTo(Code.NotFound));
@@ -88,15 +70,15 @@ public class BasicTests
     }
 
     [Test]
-    public void TestExecuteParameterizedQuery()
+    public void TestExecuteParameterizedQuery([Values] LibType libType)
     {
         var sql = "select col_varchar from all_types where col_bigint=$1::bigint";
-        _fixture.SpannerMock.AddOrUpdateStatementResult(sql,
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql,
             StatementResult.CreateSingleColumnResultSet(
                 new Spanner.V1.Type { Code = TypeCode.String }, 
                 "col_varchar", "some-value"));
         
-        using var pool = Pool.Create(_spannerLib, ConnectionString);
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
         var parameters = new Struct
         {
@@ -119,15 +101,15 @@ public class BasicTests
     }
 
     [Test]
-    public void TestQueryParameterStartingWithUnderscore()
+    public void TestQueryParameterStartingWithUnderscore([Values] LibType libType)
     {
         var sql = "select col_string from all_types where col_int64=@__id";
-        _fixture.SpannerMock.AddOrUpdateStatementResult(sql,
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql,
             StatementResult.CreateSingleColumnResultSet(
                 new Spanner.V1.Type { Code = TypeCode.String }, 
                 "col_string", "some-value"));
         
-        using var pool = Pool.Create(_spannerLib, ConnectionString);
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
         var parameters = new Struct
         {
@@ -151,9 +133,9 @@ public class BasicTests
 
     [Test]
     [Ignore("execute async disabled for now")]
-    public async Task TestExecuteQueryAsync()
+    public async Task TestExecuteQueryAsync([Values] LibType libType)
     {
-        using var pool = Pool.Create(_spannerLib, ConnectionString);
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
         using var rows = await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = "SELECT 1" });
         var metadata = rows.Metadata;
@@ -167,9 +149,9 @@ public class BasicTests
     }
 
     [Test]
-    public void TestReadOnlyTransaction()
+    public void TestReadOnlyTransaction([Values] LibType libType)
     {
-        using var pool = Pool.Create(_spannerLib, ConnectionString);
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
         connection.BeginTransaction(new TransactionOptions { ReadOnly = new TransactionOptions.Types.ReadOnly() });
         using var rows = connection.Execute(new ExecuteSqlRequest { Sql = "SELECT 1" });
@@ -184,11 +166,11 @@ public class BasicTests
     }
 
     [Test]
-    public void TestReadWriteTransaction()
+    public void TestReadWriteTransaction([Values] LibType libType)
     {
         var sql = "update table1 set value='one' where id=1";
-        _fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateUpdateCount(1));
-        using var pool = Pool.Create(_spannerLib, ConnectionString);
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateUpdateCount(1));
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
         connection.BeginTransaction(new TransactionOptions { ReadWrite = new TransactionOptions.Types.ReadWrite() });
         using var rows = connection.Execute(new ExecuteSqlRequest { Sql = sql });
@@ -202,7 +184,7 @@ public class BasicTests
     public void TestBenchmarkNativeSpannerLib()
     {
         var totalRowCount = 1000000;
-        _fixture.SpannerMock.AddOrUpdateStatementResult(
+        Fixture.SpannerMock.AddOrUpdateStatementResult(
             "select * from all_types",
             StatementResult.CreateResultSet(
                 new List<Tuple<TypeCode, string>>
@@ -236,7 +218,7 @@ public class BasicTests
     public void TestBenchmarkDotnetGrpcClient()
     {
         var totalRowCount = 1000000;
-        _fixture.SpannerMock.AddOrUpdateStatementResult(
+        Fixture.SpannerMock.AddOrUpdateStatementResult(
             "select * from all_types",
             StatementResult.CreateResultSet(
                 new List<Tuple<TypeCode, string>>
@@ -251,7 +233,7 @@ public class BasicTests
         var totalValueCount = totalRowCount * 5;
         var builder = new SpannerClientBuilder
         {
-            Endpoint = $"http://{_fixture.Endpoint}",
+            Endpoint = $"http://{Fixture.Endpoint}",
             ChannelCredentials = ChannelCredentials.Insecure
         };
         SpannerClient client = builder.Build();
