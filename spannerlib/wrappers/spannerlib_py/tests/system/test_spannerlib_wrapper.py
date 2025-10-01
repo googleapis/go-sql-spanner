@@ -1,9 +1,9 @@
-import sys
 import os
+import sys
 import unittest
 
 # Adjust path to import from src
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
 
 from google.cloud.spannerlib import Pool
 
@@ -22,9 +22,14 @@ from google.cloud.spannerlib import Pool
 TEST_ON_PROD = False
 
 EMULATOR_TEST_CONNECTION_STRING = "projects/test-project/instances/test-instance/databases/testdb?autoConfigEmulator=true"
-PROD_TEST_CONNECTION_STRING = "projects/span-cloud-testing/instances/asapha-test/databases/testdb"
+PROD_TEST_CONNECTION_STRING = (
+    "projects/span-cloud-testing/instances/asapha-test/databases/testdb"
+)
 
-TEST_CONNECTION_STRING = PROD_TEST_CONNECTION_STRING if TEST_ON_PROD else EMULATOR_TEST_CONNECTION_STRING
+TEST_CONNECTION_STRING = (
+    PROD_TEST_CONNECTION_STRING if TEST_ON_PROD else EMULATOR_TEST_CONNECTION_STRING
+)
+
 
 class TestSpannerE2E(unittest.TestCase):
 
@@ -35,7 +40,9 @@ class TestSpannerE2E(unittest.TestCase):
             pool = Pool(TEST_CONNECTION_STRING)
             print(f"Pool created with ID: {pool.pool_id}")  # Debug print
             self.assertIsNotNone(pool.pool_id, "Pool ID should not be None")
-            self.assertNotEqual(pool.pool_id, 0, "Pool ID should not be 0") # Check for non-zero
+            self.assertNotEqual(
+                pool.pool_id, 0, "Pool ID should not be 0"
+            )  # Check for non-zero
             self.assertFalse(pool._closed, "Pool should not be closed initially")
 
             # Test Connection creation
@@ -53,7 +60,9 @@ class TestSpannerE2E(unittest.TestCase):
             with pool.create_connection() as conn2:
                 self.assertIsNotNone(conn2.conn_id)
                 self.assertFalse(conn2._closed)
-            self.assertTrue(conn2._closed, "Connection should be closed after with statement")
+            self.assertTrue(
+                conn2._closed, "Connection should be closed after with statement"
+            )
 
         except Exception as e:
             self.fail(f"E2E test failed with exception: {e}")
@@ -76,7 +85,8 @@ class TestSpannerE2E(unittest.TestCase):
         except Exception as e:
             self.fail(f"E2E test failed with exception: {e}")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     print("Running E2E tests... This requires a live Spanner instance or Emulator.")
     if not TEST_ON_PROD:
         # Set environment variable for Spanner Emulator

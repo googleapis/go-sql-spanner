@@ -1,8 +1,8 @@
 """Python wrapper for the Spanner Go library."""
 
-from .pool import Pool
 from .connection import Connection
-from .errors import SpannerError, SpannerPoolError, SpannerConnectionError
+from .errors import SpannerConnectionError, SpannerError, SpannerPoolError
+from .pool import Pool
 
 __all__ = [
     "Pool",

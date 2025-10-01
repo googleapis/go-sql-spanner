@@ -1,31 +1,43 @@
 import ctypes
-import os
 import logging
+import os
+
 from ..errors import SpannerLibraryError
 
 logger = logging.getLogger(__name__)
 
 # Load the shared library
-_lib_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../../spannerlib-artifacts/spannerlib.so'))
+_lib_path = os.path.abspath(
+    os.path.join(
+        os.path.dirname(__file__), "../../../../spannerlib-artifacts/spannerlib.so"
+    )
+)
 try:
     _lib = ctypes.CDLL(_lib_path)
 except OSError as e:
     logger.error(f"Failed to load shared library from {_lib_path}: {e}")
     raise SpannerLibraryError(f"Failed to load shared library: {e}")
 
+
 # Define GoString structure
 class GoString(ctypes.Structure):
     """Represents a Go string.pina"""
+
     _fields_ = [("p", ctypes.c_char_p), ("n", ctypes.c_ssize_t)]
+
 
 # Define common return structure
 class _GoReturn(ctypes.Structure):
     """Represents the common return structure from Go functions."""
-    _fields_ = [("r0", ctypes.c_longlong),  # result pinnerId
-                ("r1", ctypes.c_int32),    # error code
-                ("r2", ctypes.c_longlong),  # object code
-                ("r3", ctypes.c_int32),    # msg length
-                ("r4", ctypes.c_void_p)]   # msg string
+
+    _fields_ = [
+        ("r0", ctypes.c_longlong),  # result pinnerId
+        ("r1", ctypes.c_int32),  # error code
+        ("r2", ctypes.c_longlong),  # object code
+        ("r3", ctypes.c_int32),  # msg length
+        ("r4", ctypes.c_void_p),
+    ]  # msg string
+
 
 def _check_error(ret: _GoReturn, func_name: str):
     """Checks the return value from Go functions for errors."""
@@ -47,10 +59,12 @@ def _check_error(ret: _GoReturn, func_name: str):
         except Exception as e:
             logger.warning(f"Error releasing pinnerId {ret.r2}: {e}")
 
+
 def to_go_string(s: str) -> GoString:
     """Converts a Python string to a GoString."""
-    encoded_s = s.encode('utf-8')
+    encoded_s = s.encode("utf-8")
     return GoString(encoded_s, len(encoded_s))
+
 
 # --- Function Definitions ---
 # These are set up to match the exported functions in spannerlib.h

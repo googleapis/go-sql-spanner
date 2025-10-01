@@ -1,9 +1,11 @@
 import logging
+
 from .connection import Connection
-from .internal.spannerlib import _lib, _check_error, to_go_string
 from .errors import SpannerPoolError
+from .internal.spannerlib import _check_error, _lib, to_go_string
 
 logger = logging.getLogger(__name__)
+
 
 class Pool:
     """Manages a pool of connections to the Spanner database."""
@@ -48,7 +50,9 @@ class Pool:
         logger.debug(f"Creating connection from pool ID: {self.pool_id}")
         ret = _lib.CreateConnection(self.pool_id)
         _check_error(ret, "CreateConnection")
-        logger.info(f"Connection created with ID: {ret.r2} from pool ID: {self.pool_id}")
+        logger.info(
+            f"Connection created with ID: {ret.r2} from pool ID: {self.pool_id}"
+        )
         return Connection(self, ret.r2)
 
     def __enter__(self):
@@ -62,5 +66,7 @@ class Pool:
     def __del__(self):
         """Destructor to ensure the pool is closed."""
         if not self._closed:
-            logger.warning(f"Pool ID: {self.pool_id} was not explicitly closed. Closing in destructor.")
+            logger.warning(
+                f"Pool ID: {self.pool_id} was not explicitly closed. Closing in destructor."
+            )
             self.close()
