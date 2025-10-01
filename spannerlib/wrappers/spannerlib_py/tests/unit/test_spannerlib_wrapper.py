@@ -3,11 +3,11 @@ import sys
 import unittest
 from unittest import mock
 
-# Adjust path to import from src
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
-
 from google.cloud.spannerlib import Pool
 from google.cloud.spannerlib.internal.spannerlib import _GoReturn
+
+# Adjust path to import from src
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
 
 TEST_CONNECTION_STRING = (
     "projects/test-project/instances/test-instance/databases/test-database"
@@ -15,7 +15,6 @@ TEST_CONNECTION_STRING = (
 
 
 class TestSpannerLib(unittest.TestCase):
-
     @mock.patch("google.cloud.spannerlib.pool._lib")
     def test_pool_creation_and_close(self, mock_pool_lib):
         mock_pool_lib.CreatePool.return_value = _GoReturn(

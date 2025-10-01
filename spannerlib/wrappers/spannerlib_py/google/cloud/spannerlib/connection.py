@@ -1,6 +1,5 @@
 import logging
 
-from .errors import SpannerConnectionError
 from .internal.spannerlib import _check_error, _lib
 
 logger = logging.getLogger(__name__)
