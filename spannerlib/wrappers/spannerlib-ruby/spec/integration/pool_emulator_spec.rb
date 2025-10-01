@@ -2,12 +2,10 @@
 
 require "spec_helper"
 
-RSpec.describe "Pool against Spanner emulator", :integration do
+RSpec.describe "Connection APIs against Spanner emulator", :integration do
   before(:all) do
-    @emulator_host = ENV["SPANNER_EMULATOR_HOST"]
-    unless @emulator_host && !@emulator_host.empty?
-      skip "SPANNER_EMULATOR_HOST not set; skipping emulator integration tests"
-    end
+    @emulator_host = ENV.fetch("SPANNER_EMULATOR_HOST", nil)
+    skip "SPANNER_EMULATOR_HOST not set; skipping emulator integration tests" unless @emulator_host && !@emulator_host.empty?
 
     begin
       require "spannerlib/pool"
@@ -18,8 +16,8 @@ RSpec.describe "Pool against Spanner emulator", :integration do
   end
 
   it "creates a pool and a connection against the emulator" do
-    pool = Pool.create_pool(@dsn)
-    expect(pool).to be_a(Pool)
+    pool = described_class.create_pool(@dsn)
+    expect(pool).to be_a(described_class)
     expect(pool.id).to be > 0
 
     conn = pool.create_connection
@@ -28,5 +26,4 @@ RSpec.describe "Pool against Spanner emulator", :integration do
 
     expect { pool.close }.not_to raise_error
   end
-
 end

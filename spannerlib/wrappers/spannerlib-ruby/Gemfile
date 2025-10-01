@@ -8,13 +8,15 @@ gemspec
 gem "irb"
 gem "rake", "~> 13.0"
 
-gem "rspec", "~> 3.0"
+gem "ffi"
+gem "googleapis-common-protos", "~> 1.0"
+gem "google-protobuf", "~> 3.19"
+gem "grpc", "~> 1.60"
 
-gem "rubocop", "~> 1.21"
+gem "google-cloud-spanner"
 
-gem 'ffi'
-gem 'google-protobuf', '~> 3.19'
-gem 'grpc', '~> 1.60'
-gem 'googleapis-common-protos', '~> 1.0'
-
-gem 'google-cloud-spanner'
+group :development, :test do
+  gem "rspec", "~> 3.0"
+  gem "rubocop", require: false
+  gem "rubocop-rspec", require: false
+end

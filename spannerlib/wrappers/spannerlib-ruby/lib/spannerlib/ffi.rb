@@ -1,21 +1,26 @@
-require 'rubygems'
-require 'bundler/setup'
+# frozen_string_literal: true
 
-require 'google/protobuf'
-require 'google/rpc/status_pb'
+# rubocop:disable Metrics/ModuleLength
 
-require 'ffi'
+require "rubygems"
+require "bundler/setup"
+
+require "google/protobuf"
+require "google/rpc/status_pb"
+
+require "ffi"
 
 module SpannerLib
   extend FFI::Library
-  ffi_lib File.expand_path('../../shared/spannerlib.so', __dir__)
+
+  ffi_lib File.expand_path("../../shared/spannerlib.so", __dir__)
 
   class GoString < FFI::Struct
     layout :p,   :pointer,
            :len, :long
   end
 
-  # GoBytes is the Ruby representation of a Go byte slice 
+  # GoBytes is the Ruby representation of a Go byte slice
   class GoBytes < FFI::Struct
     layout :p,   :pointer,
            :len, :long,
@@ -24,28 +29,28 @@ module SpannerLib
 
   # Message is the common return type for all native functions.
   class Message < FFI::Struct
-    layout :pinner,   :long_long, 
-           :code,     :int,       
-           :objectId, :long_long,  
-           :length,   :int,       
-           :pointer,  :pointer     
+    layout :pinner,   :long_long,
+           :code,     :int,
+           :objectId, :long_long,
+           :length,   :int,
+           :pointer,  :pointer
   end
 
   # --- Native Function Signatures ---
   attach_function :CreatePool, [GoString.by_value], Message.by_value
   attach_function :ClosePool, [:int64], Message.by_value
   attach_function :CreateConnection, [:int64], Message.by_value
-  attach_function :CloseConnection, [:int64, :int64], Message.by_value
+  attach_function :CloseConnection, %i[int64 int64], Message.by_value
   attach_function :WriteMutations, [:int64, :int64, GoBytes.by_value], Message.by_value
   attach_function :BeginTransaction, [:int64, :int64, GoBytes.by_value], Message.by_value
-  attach_function :Commit, [:int64, :int64], Message.by_value
-  attach_function :Rollback, [:int64, :int64], Message.by_value
+  attach_function :Commit, %i[int64 int64], Message.by_value
+  attach_function :Rollback, %i[int64 int64], Message.by_value
   attach_function :Execute, [:int64, :int64, GoBytes.by_value], Message.by_value
   attach_function :ExecuteBatch, [:int64, :int64, GoBytes.by_value], Message.by_value
-  attach_function :Metadata, [:int64, :int64, :int64], Message.by_value
-  attach_function :Next, [:int64, :int64, :int64, :int32, :int32], Message.by_value
-  attach_function :ResultSetStats, [:int64, :int64, :int64], Message.by_value
-  attach_function :CloseRows, [:int64, :int64, :int64], Message.by_value
+  attach_function :Metadata, %i[int64 int64 int64], Message.by_value
+  attach_function :Next, %i[int64 int64 int64 int32 int32], Message.by_value
+  attach_function :ResultSetStats, %i[int64 int64 int64], Message.by_value
+  attach_function :CloseRows, %i[int64 int64 int64], Message.by_value
   attach_function :Release, [:int64], :void
 
   # --- Ruby-friendly Wrappers ---
@@ -53,7 +58,7 @@ module SpannerLib
   def self.create_pool(dsn)
     dsn_str = dsn.to_s.dup
     dsn_ptr = FFI::MemoryPointer.from_string(dsn_str)
-    
+
     go_dsn = GoString.new
     go_dsn[:p] = dsn_ptr
     go_dsn[:len] = dsn_str.bytesize
@@ -72,7 +77,7 @@ module SpannerLib
     message = CreateConnection(pool_id)
     handle_object_id_response(message, "CreateConnection")
   end
-  
+
   def self.close_connection(pool_id, conn_id)
     message = CloseConnection(pool_id, conn_id)
     handle_status_response(message, "CloseConnection")
@@ -84,19 +89,19 @@ module SpannerLib
   end
 
   def self.with_gobytes(bytes)
-  bytes ||= ""
-  len = bytes.bytesize
-  ptr = FFI::MemoryPointer.new(len)
-  ptr.write_bytes(bytes, 0, len) if len > 0
+    bytes ||= ""
+    len = bytes.bytesize
+    ptr = FFI::MemoryPointer.new(len)
+    ptr.write_bytes(bytes, 0, len) if len.positive?
 
-  go_bytes = GoBytes.new
-  go_bytes[:p] = ptr
-  go_bytes[:len] = len
-  go_bytes[:cap] = len 
-  
-  yield(go_bytes)
-end
-  
+    go_bytes = GoBytes.new
+    go_bytes[:p] = ptr
+    go_bytes[:len] = len
+    go_bytes[:cap] = len
+
+    yield(go_bytes)
+  end
+
   def self.ensure_release(message)
     pinner = message[:pinner]
     begin
@@ -107,9 +112,7 @@ end
   end
 
   def self.handle_object_id_response(message, func_name)
-    puts "--- #{func_name} response: code=#{message[:code]}, objectId=#{message[:objectId]}, length=#{message[:length]} ---"
     ensure_release(message) do
-      puts "Message received from #{func_name}: code=#{message[:code]}, objectId=#{message[:objectId]}, length=#{message[:length]}"
       if message[:code] != 0
         error_msg = read_error_message(message)
         raise "#{func_name} failed with code #{message[:code]}: #{error_msg}"
@@ -127,6 +130,7 @@ end
     end
   end
 
+  # rubocop:disable Metrics/MethodLength
   def self.handle_data_response(message, func_name)
     ensure_release(message) do
       if message[:code] != 0
@@ -137,30 +141,33 @@ end
       len = message[:length]
       ptr = message[:pointer]
 
-      if len > 0 && !ptr.null?
+      if len.positive? && !ptr.null?
         ptr.read_bytes(len)
       else
         ""
       end
     end
   end
+  # rubocop:enable Metrics/MethodLength
 
+  # rubocop:disable Metrics/MethodLength
   def self.read_error_message(message)
     len = message[:length]
     ptr = message[:pointer]
-    if len > 0 && !ptr.null?
+    if len.positive? && !ptr.null?
       raw_bytes = ptr.read_bytes(len)
       begin
         status_proto = ::Google::Rpc::Status.decode(raw_bytes)
-        return "Status Proto { code: #{status_proto.code}, message: '#{status_proto.message}' }"
-      rescue => e
-        clean_string = raw_bytes.encode('UTF-8', invalid: :replace, undef: :replace, replace: '?').strip
-        return "Failed to decode Status proto (code #{message[:code]}): #{e.class}: #{e.message} | Raw: #{clean_string}"
+        "Status Proto { code: #{status_proto.code}, message: '#{status_proto.message}' }"
+      rescue StandardError => e
+        clean_string = raw_bytes.encode("UTF-8", invalid: :replace, undef: :replace, replace: "?").strip
+        "Failed to decode Status proto (code #{message[:code]}): #{e.class}: #{e.message} | Raw: #{clean_string}"
       end
     else
       "No error message provided"
     end
   end
+  # rubocop:enable Metrics/MethodLength
 
   def self.write_mutations(pool_id, conn_id, proto_bytes)
     with_gobytes(proto_bytes) do |gobytes|
@@ -214,7 +221,7 @@ end
   def self.result_set_stats(pool_id, conn_id, rows_id)
     message = ResultSetStats(pool_id, conn_id, rows_id)
     handle_data_response(message, "ResultSetStats")
-  end 
+  end
 
   def self.close_rows(pool_id, conn_id, rows_id)
     message = CloseRows(pool_id, conn_id, rows_id)
@@ -222,3 +229,5 @@ end
     nil
   end
 end
+
+# rubocop:enable Metrics/ModuleLength

@@ -1,4 +1,6 @@
-require_relative 'ffi'
+# frozen_string_literal: true
+
+require_relative "ffi"
 
 class Connection
   attr_reader :pool_id, :conn_id
@@ -29,7 +31,7 @@ class Connection
     bytes = if transaction_options.respond_to?(:to_proto)
               transaction_options.to_proto
             else
-              transaction_options && transaction_options.is_a?(String) ? transaction_options : transaction_options&.to_s
+              transaction_options.is_a?(String) ? transaction_options : transaction_options&.to_s
             end
     SpannerLib.begin_transaction(@pool_id, @conn_id, bytes)
   end
@@ -47,13 +49,21 @@ class Connection
 
   # Execute SQL request (expects a request object with to_proto or raw bytes). Returns message bytes (or nil).
   def execute(request)
-    bytes = request.respond_to?(:to_proto) ? request.to_proto : request.is_a?(String) ? request : request.to_s
+    bytes = if request.respond_to?(:to_proto)
+              request.to_proto
+            else
+              request.is_a?(String) ? request : request.to_s
+            end
     SpannerLib.execute(@pool_id, @conn_id, bytes)
   end
 
   # Execute batch DML/DDL request. Returns ExecuteBatchDmlResponse bytes (or nil).
   def execute_batch(request)
-    bytes = request.respond_to?(:to_proto) ? request.to_proto : request.is_a?(String) ? request : request.to_s
+    bytes = if request.respond_to?(:to_proto)
+              request.to_proto
+            else
+              request.is_a?(String) ? request : request.to_s
+            end
     SpannerLib.execute_batch(@pool_id, @conn_id, bytes)
   end
 

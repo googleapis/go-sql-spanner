@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class SpannerLibException < StandardError
   attr_reader :status
 

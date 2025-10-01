@@ -1,5 +1,7 @@
-require_relative 'ffi'
-require_relative 'connection'
+# frozen_string_literal: true
+
+require_relative "ffi"
+require_relative "connection"
 
 class Pool
   attr_reader :id
@@ -13,13 +15,11 @@ class Pool
   def self.create_pool(dsn)
     begin
       pool_id = SpannerLib.create_pool(dsn)
-    rescue => e
-      raise SpannerLibException.new(e.message)
+    rescue StandardError => e
+      raise SpannerLibException, e.message
     end
 
-    if pool_id.nil? || pool_id <= 0
-      raise SpannerLibException.new('failed to create pool')
-    end
+    raise SpannerLibException, "failed to create pool" if pool_id.nil? || pool_id <= 0
 
     Pool.new(pool_id)
   end
@@ -27,26 +27,23 @@ class Pool
   # Close this pool and free native resources.
   def close
     return if @closed
+
     SpannerLib.close_pool(@id)
     @closed = true
   end
 
   # Create a new Connection associated with this Pool.
   def create_connection
-    raise SpannerLibException.new('pool closed') if @closed
+    raise SpannerLibException, "pool closed" if @closed
+
     begin
       conn_id = SpannerLib.create_connection(@id)
-    rescue => e
-      raise SpannerLibException.new(e.message)
+    rescue StandardError => e
+      raise SpannerLibException, e.message
     end
 
-    if conn_id.nil? || conn_id <= 0
-      raise SpannerLibException.new('failed to create connection')
-    end
+    raise SpannerLibException, "failed to create connection" if conn_id.nil? || conn_id <= 0
 
     Connection.new(@id, conn_id)
   end
 end
-
-
-
