@@ -153,3 +153,5 @@ spannerlib-artifacts
 # C extensions
 *.so
 *.h
+
+*_sponge_log.xml

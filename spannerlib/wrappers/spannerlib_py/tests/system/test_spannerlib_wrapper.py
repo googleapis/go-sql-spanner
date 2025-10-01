@@ -5,7 +5,7 @@ import unittest
 # Adjust path to import from src
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
 
-from google.cloud.spannerlib import Pool # noqa: E402
+from google.cloud.spannerlib import Pool  # noqa: E402
 
 # To run these E2E tests against a Cloud Spanner Emulator:
 # 1. Start the emulator: gcloud emulators spanner start
