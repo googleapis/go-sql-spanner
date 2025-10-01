@@ -28,3 +28,15 @@ GO-SQL-SPANNER
                     |___system # E2E tests (requires Spanner Emulator)
                 |___README.md
 ```
+
+## Go Shared Spannerlib
+
+### Expected return 
+```
+# Represents the common return structure from Go functions.
+    r0 - result pinnerId
+    r1 -  error code
+    r2 - object code
+    r3 - msg length
+    r4 - msg string
+```
