@@ -30,6 +30,8 @@ SYSTEM_TEST_STANDARD_DEPENDENCIES = [
 VERBOSE = True
 MODE = "--verbose" if VERBOSE else "--quiet"
 
+# Error if a python version is missing
+nox.options.error_on_missing_interpreters = True
 
 @nox.session
 def lint(session):

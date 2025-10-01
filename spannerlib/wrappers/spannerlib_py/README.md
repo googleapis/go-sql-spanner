@@ -1,6 +1,9 @@
-# SpannerLib Python Wrapper
+# SPANNERLIB-PY: A High-Performance Python Wrapper for the Go Spanner Client Shared lib 🐍
 
-This is a Python wrapper for the Go `spannerlib` library, which has been compiled as a C-shared library (`spannerlib.so`).
+## Introduction
+spannerlib-py provides a high-performance, idiomatic Python interface for Google Cloud Spanner by wrapping the official Go Client Shared library.
+
+The Go library is compiled into a C-shared library (.so), and this project uses ctypes to call it directly from Python, aiming to combine Go's performance with Python's ease of use.
 
 ## Running Tests
 
