@@ -1,0 +1,27 @@
+# Wrapper for spannerlib
+
+Language - Python
+
+## Objective
+As an experienced software engineer proficient in both Python and Go, you are tasked with creating a comprehensive Python wrapper for a Go library. This Go library has been compiled as a C-shared library, providing the following artifacts: spannerlib.h and spannerlib.so.
+
+## Your Responsibilities
+Analyze the spannerlib.h header file thoroughly to understand the Go library's exposed interface, including functions, data structures, and any specific calling conventions.
+Develop a robust Python wrapper (located in the main folder) that provides idiomatic Python access to the functionalities exposed by spannerlib.so.
+Implement a comprehensive test suite (located in the tests folder) comprising both unit and integration tests to ensure the wrapper's correctness and reliability.
+
+## Expected Code Structure:
+`
+GO-SQL-SPANNER
+|___spannerlib
+    |___spannerlib
+        |___shared
+        |___wrappers
+            |___spannerlib-py
+                |___spannerlib-artifacts
+                    |___spannerlib.h
+                    |___spannerlib.so
+                |___src
+                    |___main
+                    |___tests
+`
