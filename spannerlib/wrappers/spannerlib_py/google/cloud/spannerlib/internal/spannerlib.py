@@ -80,7 +80,7 @@ class Spannerlib:
             if ret.msg_len != 0:
                 try:
                     # Attempt to convert the error message from bytes
-                    go_error_msg = ctypes.cast(ret.r4, ctypes.c_char_p).value
+                    go_error_msg = ctypes.cast(ret.msg, ctypes.c_char_p).value
                     if go_error_msg:
                         error_msg += (
                             f": {go_error_msg.decode('utf-8', errors='replace')}"
