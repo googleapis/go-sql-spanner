@@ -13,11 +13,11 @@ class GoReturn(ctypes.Structure):
     """Represents the common return structure from Go functions."""
 
     _fields_ = [
-        ("r0", ctypes.c_longlong),  # result pinnerId
-        ("r1", ctypes.c_int32),  # error code
-        ("r2", ctypes.c_longlong),  # object code
-        ("r3", ctypes.c_int32),  # msg length
-        ("r4", ctypes.c_void_p),  # msg string
+        ("pinner_id", ctypes.c_longlong),  # result pinnerId - r0
+        ("error_code", ctypes.c_int32),  # error code - r1
+        ("object_id", ctypes.c_longlong),  # object code - r2
+        ("msg_len", ctypes.c_int32),  # msg length - r3
+        ("msg", ctypes.c_void_p),  # msg string - r4
     ]
 
 

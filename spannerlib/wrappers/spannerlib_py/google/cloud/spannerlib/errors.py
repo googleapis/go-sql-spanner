@@ -1,5 +1,6 @@
 from .internal import SpannerError
 
+
 class SpannerPoolError(SpannerError):
     """Error related to Pool operations."""
 

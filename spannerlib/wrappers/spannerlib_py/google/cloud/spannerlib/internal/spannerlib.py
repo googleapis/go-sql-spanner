@@ -4,7 +4,7 @@ import os
 import threading
 
 from .errors import SpannerLibraryError
-from .types import GoString, GoReturn
+from .types import GoReturn, GoString
 
 logger = logging.getLogger(__name__)
 
@@ -75,9 +75,9 @@ class Spannerlib:
     @staticmethod
     def _check_error(ret: GoReturn, func_name: str):
         """Checks the return value from Go functions for errors."""
-        if ret.r1 != 0:
+        if ret.error_code != 0:
             error_msg = f"{func_name} failed"
-            if ret.r3 != 0:
+            if ret.msg_len != 0:
                 try:
                     # Attempt to convert the error message from bytes
                     go_error_msg = ctypes.cast(ret.r4, ctypes.c_char_p).value
@@ -88,14 +88,14 @@ class Spannerlib:
                 except Exception as e:
                     error_msg += f" (Failed to decode error message: {e})"
             logger.error(error_msg)
-            raise SpannerLibraryError(error_msg, error_code=ret.r1)
-        if ret.r2 != 0:
+            raise SpannerLibraryError(error_msg, error_code=ret.msg)
+        if ret.object_id != 0:
             try:
                 lib = Spannerlib.get_instance().lib
                 if lib:
-                    lib.Release(ret.r2)
+                    lib.Release(ret.object_id)
             except Exception as e:
-                logger.warning(f"Error releasing pinnerId {ret.r2}: {e}")
+                logger.warning(f"Error releasing pinnerId {ret.object_id}: {e}")
 
     @property
     def lib(self):

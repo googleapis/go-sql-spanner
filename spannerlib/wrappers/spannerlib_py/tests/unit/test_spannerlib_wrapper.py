@@ -17,8 +17,12 @@ TEST_CONNECTION_STRING = (
 class TestSpannerLib(unittest.TestCase):
     @mock.patch("google.cloud.spannerlib.internal.spannerlib.Spannerlib._lib")
     def test_pool_creation_and_close(self, mock_lib):
-        mock_lib.CreatePool.return_value = GoReturn(r0=1, r1=0, r2=1, r3=0, r4=None)
-        mock_lib.ClosePool.return_value = GoReturn(r0=0, r1=0, r2=0, r3=0, r4=None)
+        mock_lib.CreatePool.return_value = GoReturn(
+            pinner_id=1, error_code=0, object_id=1, msg_len=0, msg=None
+        )
+        mock_lib.ClosePool.return_value = GoReturn(
+            pinner_id=0, error_code=0, object_id=1, msg_len=0, msg=None
+        )
 
         pool = Pool(TEST_CONNECTION_STRING)
         self.assertEqual(pool.pool_id, 1)
@@ -30,14 +34,18 @@ class TestSpannerLib(unittest.TestCase):
 
     @mock.patch("google.cloud.spannerlib.internal.spannerlib.Spannerlib._lib")
     def test_connection_creation_and_close(self, mock_lib):
-        mock_lib.CreatePool.return_value = GoReturn(r0=1, r1=0, r2=1, r3=0, r4=None)
+        mock_lib.CreatePool.return_value = GoReturn(
+            pinner_id=1, error_code=0, object_id=1, msg_len=0, msg=None
+        )
         mock_lib.CreateConnection.return_value = GoReturn(
-            r0=101, r1=0, r2=101, r3=0, r4=None
+            pinner_id=2, error_code=0, object_id=101, msg_len=0, msg=None
         )
         mock_lib.CloseConnection.return_value = GoReturn(
-            r0=0, r1=0, r2=0, r3=0, r4=None
+            pinner_id=0, error_code=0, object_id=0, msg_len=0, msg=None
         )
-        mock_lib.ClosePool.return_value = GoReturn(r0=0, r1=0, r2=0, r3=0, r4=None)
+        mock_lib.ClosePool.return_value = GoReturn(
+            pinner_id=0, error_code=0, object_id=0, msg_len=0, msg=None
+        )
 
         with Pool(TEST_CONNECTION_STRING) as pool:
             conn = pool.create_connection()
@@ -52,14 +60,18 @@ class TestSpannerLib(unittest.TestCase):
 
     @mock.patch("google.cloud.spannerlib.internal.spannerlib.Spannerlib._lib")
     def test_connection_with_statement(self, mock_lib):
-        mock_lib.CreatePool.return_value = GoReturn(r0=1, r1=0, r2=1, r3=0, r4=None)
+        mock_lib.CreatePool.return_value = GoReturn(
+            pinner_id=1, error_code=0, object_id=1, msg_len=0, msg=None
+        )
         mock_lib.CreateConnection.return_value = GoReturn(
-            r0=101, r1=0, r2=101, r3=0, r4=None
+            pinner_id=2, error_code=0, object_id=101, msg_len=0, msg=None
         )
         mock_lib.CloseConnection.return_value = GoReturn(
-            r0=0, r1=0, r2=0, r3=0, r4=None
+            pinner_id=0, error_code=0, object_id=0, msg_len=0, msg=None
         )
-        mock_lib.ClosePool.return_value = GoReturn(r0=0, r1=0, r2=0, r3=0, r4=None)
+        mock_lib.ClosePool.return_value = GoReturn(
+            pinner_id=0, error_code=0, object_id=0, msg_len=0, msg=None
+        )
 
         with Pool(TEST_CONNECTION_STRING) as pool:
             with pool.create_connection() as conn:
