@@ -34,18 +34,6 @@ MODE = "--verbose" if VERBOSE else "--quiet"
 nox.options.error_on_missing_interpreters = True
 
 
-@nox.session
-def lint(session):
-    """Run linters.
-
-    Returns a failure if the linters find linting errors or sufficiently
-    serious code quality issues.
-    """
-    session.install(FLAKE8_VERSION, BLACK_VERSION)
-    session.run("flake8", "--max-line-length=124", "google", "tests")
-    session.install("black", "isort")
-
-
 @nox.session(python=DEFAULT_PYTHON_VERSION)
 def format(session):
     """
@@ -66,16 +54,16 @@ def format(session):
     )
 
 
-# Use a python runtime which is available in the owlbot post processor here
-# https://github.com/googleapis/synthtool/blob/master/docker/owlbot/python/Dockerfile
-@nox.session(python=DEFAULT_PYTHON_VERSION)
-def blacken(session):
-    """Run black. Format code to uniform standard."""
-    session.install(BLACK_VERSION)
-    session.run(
-        "black",
-        *LINT_PATHS,
-    )
+@nox.session
+def lint(session):
+    """Run linters.
+
+    Returns a failure if the linters find linting errors or sufficiently
+    serious code quality issues.
+    """
+    session.install(FLAKE8_VERSION, BLACK_VERSION)
+    session.run("flake8", "--max-line-length=124", "google", "tests")
+    session.install("black", "isort")
 
 
 @nox.session(python=UNIT_TEST_PYTHON_VERSIONS)

@@ -2,7 +2,7 @@ import logging
 
 from .connection import Connection
 from .errors import SpannerPoolError
-from .internal.spannerlib import _check_error, _lib, to_go_string
+from .internal import _check_error, _lib, to_go_string
 
 logger = logging.getLogger(__name__)
 
