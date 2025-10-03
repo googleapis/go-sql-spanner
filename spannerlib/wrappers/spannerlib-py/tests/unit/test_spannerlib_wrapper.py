@@ -24,7 +24,7 @@ class TestSpannerLib(unittest.TestCase):
             pinner_id=0, error_code=0, object_id=1, msg_len=0, msg=None
         )
 
-        pool = Pool(TEST_CONNECTION_STRING)
+        pool = Pool.create_pool(TEST_CONNECTION_STRING)
         self.assertEqual(pool.pool_id, 1)
         self.assertFalse(pool._closed)
         pool.close()
@@ -47,7 +47,8 @@ class TestSpannerLib(unittest.TestCase):
             pinner_id=0, error_code=0, object_id=0, msg_len=0, msg=None
         )
 
-        with Pool(TEST_CONNECTION_STRING) as pool:
+        with Pool.create_pool(TEST_CONNECTION_STRING) as pool:
+            pool.connect(TEST_CONNECTION_STRING)
             conn = pool.create_connection()
             self.assertEqual(conn.conn_id, 101)
             self.assertFalse(conn._closed)
@@ -73,7 +74,7 @@ class TestSpannerLib(unittest.TestCase):
             pinner_id=0, error_code=0, object_id=0, msg_len=0, msg=None
         )
 
-        with Pool(TEST_CONNECTION_STRING) as pool:
+        with Pool.create_pool(TEST_CONNECTION_STRING) as pool:
             with pool.create_connection() as conn:
                 self.assertEqual(conn.conn_id, 101)
             mock_lib.CloseConnection.assert_called_once_with(1, 101)

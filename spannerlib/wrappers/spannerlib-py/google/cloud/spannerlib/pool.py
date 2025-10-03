@@ -10,22 +10,14 @@ logger = logging.getLogger(__name__)
 
 class Pool:
     """Manages a pool of connections to the Spanner database."""
-    _closed = True
 
-    def __init__(self, connection_string: str):
+    def __init__(self):
         """
         Initializes the connection pool.
 
-        Args:
-            connection_string: The Spanner database connection string.
         """
-        logger.info(f"Creating pool for connection string: {connection_string}")
-        go_conn_str = GoString(connection_string.encode("utf-8"))
-        ret = get_lib().CreatePool(go_conn_str)
-        _check_error(ret, "CreatePool")
-        self.pool_id = ret.object_id
-        self._closed = False
-        logger.info(f"Pool created with ID: {self.pool_id}")
+        self.pool_id = -1
+        self._closed = True
 
     def close(self):
         """Closes the connection pool and releases resources."""
@@ -72,3 +64,27 @@ class Pool:
                 f"Pool ID: {self.pool_id} was not explicitly closed. Closing in destructor."
             )
             self.close()
+    
+    def connect(self, connection_string: str):
+        go_conn_str = GoString(connection_string.encode("utf-8"))
+        ret = get_lib().CreatePool(go_conn_str)
+        _check_error(ret, "CreatePool")
+        self.pool_id = ret.object_id
+        self._closed = False
+        logger.info(f"Pool created with ID: {self.pool_id}")
+
+    @classmethod
+    def create_pool(cls, connection_string: str):
+        """
+        Creates a new connection pool.
+
+        Args:
+            connection_string (str): The connection string for the database.
+
+        Returns:
+            Pool: A new Pool object.
+        """
+        pool = cls()
+        pool.connect(connection_string)
+        return pool
+
