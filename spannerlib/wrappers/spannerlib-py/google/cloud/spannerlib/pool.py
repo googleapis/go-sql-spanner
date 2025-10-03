@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 class Pool:
     """Manages a pool of connections to the Spanner database."""
+    _closed = True
 
     def __init__(self, connection_string: str):
         """
