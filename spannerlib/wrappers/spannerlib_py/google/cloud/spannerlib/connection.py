@@ -1,6 +1,6 @@
 import logging
 
-from .internal import _check_error, _lib
+from .internal.spannerlib import _check_error, get_lib
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class Connection:
             logger.info(
                 f"Closing connection ID: {self.conn_id} for pool ID: {self.pool.pool_id}"
             )
-            ret = _lib.CloseConnection(self.pool.pool_id, self.conn_id)
+            ret = get_lib().CloseConnection(self.pool.pool_id, self.conn_id)
             _check_error(ret, "CloseConnection")
             self._closed = True
             logger.info(f"Connection ID: {self.conn_id} closed")

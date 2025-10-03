@@ -9,7 +9,7 @@ class GoString(ctypes.Structure):
 
 
 # Define common return structure
-class _GoReturn(ctypes.Structure):
+class GoReturn(ctypes.Structure):
     """Represents the common return structure from Go functions."""
 
     _fields_ = [

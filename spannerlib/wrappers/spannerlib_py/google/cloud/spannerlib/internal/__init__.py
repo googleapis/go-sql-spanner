@@ -1,4 +1,5 @@
-from .spannerlib import _check_error, _lib
-from .types import GoString, _GoReturn, to_go_string
+from .spannerlib import _check_error, get_lib
+from .types import GoString, GoReturn, to_go_string
+from .errors import SpannerError, SpannerLibraryError
 
-__all__ = ["_lib", "_check_error", "to_go_string", "GoString", "_GoReturn"]
+__all__ = ["_check_error", "get_lib", "to_go_string", "GoString", "GoReturn", "SpannerError", "SpannerLibraryError"]

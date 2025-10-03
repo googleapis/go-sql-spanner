@@ -2,7 +2,8 @@ import logging
 
 from .connection import Connection
 from .errors import SpannerPoolError
-from .internal import _check_error, _lib, to_go_string
+from .internal.spannerlib import _check_error, get_lib
+from .internal.types import GoString
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +19,8 @@ class Pool:
             connection_string: The Spanner database connection string.
         """
         logger.info(f"Creating pool for connection string: {connection_string}")
-        go_conn_str = to_go_string(connection_string)
-        ret = _lib.CreatePool(go_conn_str)
+        go_conn_str = GoString(connection_string.encode("utf-8"))
+        ret = get_lib().CreatePool(go_conn_str)
         _check_error(ret, "CreatePool")
         self.pool_id = ret.r2
         self._closed = False
@@ -29,7 +30,7 @@ class Pool:
         """Closes the connection pool and releases resources."""
         if not self._closed:
             logger.info(f"Closing pool ID: {self.pool_id}")
-            ret = _lib.ClosePool(self.pool_id)
+            ret = get_lib().ClosePool(self.pool_id)
             _check_error(ret, "ClosePool")
             self._closed = True
             logger.info(f"Pool ID: {self.pool_id} closed")
@@ -48,7 +49,7 @@ class Pool:
             logger.error("Attempted to create connection from a closed pool")
             raise SpannerPoolError("Pool is closed")
         logger.debug(f"Creating connection from pool ID: {self.pool_id}")
-        ret = _lib.CreateConnection(self.pool_id)
+        ret = get_lib().CreateConnection(self.pool_id)
         _check_error(ret, "CreateConnection")
         logger.info(
             f"Connection created with ID: {ret.r2} from pool ID: {self.pool_id}"
