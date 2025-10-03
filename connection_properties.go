@@ -286,6 +286,17 @@ var propertyEndpoint = createConnectionProperty(
 	connectionstate.ContextStartup,
 	connectionstate.ConvertString,
 )
+var propertyAuthority = createConnectionProperty(
+	"authority",
+	"The expected server name in the TLS handshake. By default, the endpoint hostname is used. This option "+
+		"is useful when connecting to Spanner via Google Private Connect or other custom endpoints where the "+
+		"endpoint hostname does not match the server’s TLS certificate.",
+	"",
+	false,
+	nil,
+	connectionstate.ContextStartup,
+	connectionstate.ConvertString,
+)
 var propertyCredentials = createConnectionProperty(
 	"credentials",
 	"The location of the credentials file to use for this connection. If neither this property or encoded "+
