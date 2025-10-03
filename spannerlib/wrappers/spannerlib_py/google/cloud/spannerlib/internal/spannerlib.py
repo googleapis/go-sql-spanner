@@ -35,8 +35,8 @@ class _GoReturn(ctypes.Structure):
         ("r1", ctypes.c_int32),  # error code
         ("r2", ctypes.c_longlong),  # object code
         ("r3", ctypes.c_int32),  # msg length
-        ("r4", ctypes.c_void_p), # msg string
-    ]  
+        ("r4", ctypes.c_void_p),  # msg string
+    ]
 
 
 def _check_error(ret: _GoReturn, func_name: str):

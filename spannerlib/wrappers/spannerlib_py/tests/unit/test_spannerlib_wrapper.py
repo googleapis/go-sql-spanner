@@ -3,8 +3,9 @@ import sys
 import unittest
 from unittest import mock
 
-from google.cloud.spannerlib import Pool
 from google.cloud.spannerlib.internal.spannerlib import _GoReturn
+
+from google.cloud.spannerlib import Pool
 
 # Adjust path to import from src
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
