@@ -75,7 +75,7 @@ class Spannerlib:
         Spannerlib._lib.CloseConnection.restype = GoReturn
 
     @staticmethod
-    def _check_error(ret: GoReturn, func_name: str):
+    def check_error(ret: GoReturn, func_name: str):
         """Checks the return value from Go functions for errors."""
         if ret.error_code != 0:
             error_msg = f"{func_name} failed"
@@ -88,14 +88,18 @@ class Spannerlib:
                 except Exception as e:
                     error_msg += f" (Failed to decode error message: {e})"
             logger.error(error_msg)
+            # Release the pinner_ids
+            if ret.pinner_id != 0:
+                try:
+                    lib = Spannerlib.get_instance().lib
+                    if lib:
+                        lib.Release(ret.pinner_id)
+                except Exception as e:
+                    logger.warning(
+                        f"Error releasing pinnerId {ret.pinner_id}: {e}"
+                    )
+
             raise SpannerLibraryError(error_msg, error_code=ret.msg)
-        if ret.object_id != 0:
-            try:
-                lib = Spannerlib.get_instance().lib
-                if lib:
-                    lib.Release(ret.object_id)
-            except Exception as e:
-                logger.warning(f"Error releasing pinnerId {ret.object_id}: {e}")
 
     @property
     def lib(self):
@@ -105,8 +109,8 @@ class Spannerlib:
 
 
 # Module-level functions to interact with the singleton
-def _check_error(ret: GoReturn, func_name: str):
-    Spannerlib._check_error(ret, func_name)
+def check_error(ret: GoReturn, func_name: str):
+    Spannerlib.check_error(ret, func_name)
 
 
 def get_lib():

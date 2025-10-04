@@ -50,12 +50,11 @@ class TestSpannerLib(unittest.TestCase):
         )
 
         with Pool.create_pool(TEST_CONNECTION_STRING) as pool:
-            pool.connect(TEST_CONNECTION_STRING)
             conn = pool.create_connection()
             self.assertEqual(conn.conn_id, 101)
-            self.assertFalse(conn._closed)
+            self.assertFalse(conn.closed)
             conn.close()
-            self.assertTrue(conn._closed)
+            self.assertTrue(conn.closed)
             mock_lib.CreateConnection.assert_called_once_with(1)
             mock_lib.CloseConnection.assert_called_once_with(1, 101)
 

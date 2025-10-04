@@ -2,31 +2,50 @@ import logging
 
 from .connection import Connection
 from .errors import SpannerPoolError
-from .internal.spannerlib import _check_error, get_lib
+from .internal.spannerlib import check_error, get_lib
 from .internal.types import to_go_string
+from .library_object import AbstractLibraryObject
 
 logger = logging.getLogger(__name__)
 
 
-class Pool:
+class Pool(AbstractLibraryObject):
     """Manages a pool of connections to the Spanner database."""
 
-    def __init__(self):
+    def __init__(self, id):
         """
         Initializes the connection pool.
 
         """
-        self.pool_id = -1
+        super().__init__(id)
+        self._pool_id = -1
         self._closed = True
+
+    @property
+    def pool_id(self):
+        return self._pool_id
+
+    @pool_id.setter
+    def pool_id(self, value):
+        self._pool_id = value
+
+    @property
+    def closed(self):
+        return self._closed
+
+    @closed.setter
+    def closed(self, value):
+        self._closed = value
 
     def close(self):
         """Closes the connection pool and releases resources."""
-        if not self._closed:
+        if not self.closed:
             logger.info(f"Closing pool ID: {self.pool_id}")
             ret = get_lib().ClosePool(self.pool_id)
-            _check_error(ret, "ClosePool")
-            self._closed = True
+            check_error(ret, "ClosePool")
+            self.closed = True
             logger.info(f"Pool ID: {self.pool_id} closed")
+            self.release()
 
     def create_connection(self):
         """
@@ -43,11 +62,11 @@ class Pool:
             raise SpannerPoolError("Pool is closed")
         logger.debug(f"Creating connection from pool ID: {self.pool_id}")
         ret = get_lib().CreateConnection(self.pool_id)
-        _check_error(ret, "CreateConnection")
+        check_error(ret, "CreateConnection")
         logger.info(
             f"Connection created with ID: {ret.object_id} from pool ID: {self.pool_id}"
         )
-        return Connection(self, ret.object_id)
+        return Connection(self, ret.pinner_id, ret.object_id)
 
     def __enter__(self):
         """Enter the runtime context related to this object."""
@@ -59,18 +78,11 @@ class Pool:
 
     def __del__(self):
         """Destructor to ensure the pool is closed."""
-        if not self._closed:
+        if not self.closed:
             logger.warning(
                 f"Pool ID: {self.pool_id} was not explicitly closed. Closing in destructor."
             )
             self.close()
-
-    def connect(self, connection_string: str):
-        ret = get_lib().CreatePool(to_go_string(connection_string))
-        _check_error(ret, "CreatePool")
-        self.pool_id = ret.object_id
-        self._closed = False
-        logger.info(f"Pool created with ID: {self.pool_id}")
 
     @classmethod
     def create_pool(cls, connection_string: str):
@@ -84,6 +96,10 @@ class Pool:
             Pool: A new Pool object.
         """
         print(f"Creating pool with connection string: {connection_string}")
-        pool = cls()
-        pool.connect(connection_string)
+        ret = get_lib().CreatePool(to_go_string(connection_string))
+        check_error(ret, "CreatePool")
+        pool = cls(ret.pinner_id)
+        pool.pool_id = ret.object_id
+        pool.closed = False
+        logger.info(f"Pool created with ID: {pool.pool_id}")
         return pool

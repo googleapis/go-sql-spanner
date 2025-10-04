@@ -34,12 +34,14 @@ public class Connection extends AbstractLibraryObject {
   private final Pool pool;
 
   Connection(Pool pool, long id) {
-    super(pool.getLibrary(), id);
+    super(id);
     this.pool = pool;
   }
 
+
+
   public Pool getPool() {
-    return this.pool;
+    return this._pool;
   }
 
   /**

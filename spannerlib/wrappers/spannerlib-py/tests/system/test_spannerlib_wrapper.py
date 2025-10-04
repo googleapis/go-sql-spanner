@@ -87,7 +87,6 @@ class TestSpannerE2E(unittest.TestCase):
     def test_pool_context_manager(self):
         try:
             with Pool.create_pool(TEST_CONNECTION_STRING) as pool:
-                pool.connect(TEST_CONNECTION_STRING)
                 self.assertIsNotNone(pool.pool_id)
                 self.assertFalse(pool._closed)
                 with pool.create_connection() as conn:
