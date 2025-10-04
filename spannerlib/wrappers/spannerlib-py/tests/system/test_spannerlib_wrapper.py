@@ -3,7 +3,9 @@ import sys
 import unittest
 
 # Adjust path to import from src
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+)
 
 from google.cloud.spannerlib import Pool  # noqa: E402
 
@@ -27,7 +29,9 @@ PROD_TEST_CONNECTION_STRING = (
 )
 
 TEST_CONNECTION_STRING = (
-    PROD_TEST_CONNECTION_STRING if TEST_ON_PROD else EMULATOR_TEST_CONNECTION_STRING
+    PROD_TEST_CONNECTION_STRING
+    if TEST_ON_PROD
+    else EMULATOR_TEST_CONNECTION_STRING
 )
 
 
@@ -42,14 +46,22 @@ class TestSpannerE2E(unittest.TestCase):
             self.assertNotEqual(
                 pool.pool_id, 0, "Pool ID should not be 0"
             )  # Check for non-zero
-            self.assertFalse(pool._closed, "Pool should not be closed initially")
+            self.assertFalse(
+                pool._closed, "Pool should not be closed initially"
+            )
 
             # Test Connection creation
             conn = pool.create_connection()
             print(f"Connection created with ID: {conn.conn_id}")  # Debug print
-            self.assertIsNotNone(conn.conn_id, "Connection ID should not be None")
-            self.assertNotEqual(conn.conn_id, 0, "Connection ID should not be 0")
-            self.assertFalse(conn._closed, "Connection should not be closed initially")
+            self.assertIsNotNone(
+                conn.conn_id, "Connection ID should not be None"
+            )
+            self.assertNotEqual(
+                conn.conn_id, 0, "Connection ID should not be 0"
+            )
+            self.assertFalse(
+                conn._closed, "Connection should not be closed initially"
+            )
 
             # Test Connection close
             conn.close()
@@ -60,7 +72,8 @@ class TestSpannerE2E(unittest.TestCase):
                 self.assertIsNotNone(conn2.conn_id)
                 self.assertFalse(conn2._closed)
             self.assertTrue(
-                conn2._closed, "Connection should be closed after with statement"
+                conn2._closed,
+                "Connection should be closed after with statement",
             )
 
         except Exception as e:
@@ -87,10 +100,14 @@ class TestSpannerE2E(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    print("Running E2E tests... This requires a live Spanner instance or Emulator.")
+    print(
+        "Running E2E tests... This requires a live Spanner instance or Emulator."
+    )
     if not TEST_ON_PROD:
         # Set environment variable for Spanner Emulator
         os.environ["SPANNER_EMULATOR_HOST"] = "localhost:9010"
-        print(f"Set SPANNER_EMULATOR_HOST to {os.environ['SPANNER_EMULATOR_HOST']}")
+        print(
+            f"Set SPANNER_EMULATOR_HOST to {os.environ['SPANNER_EMULATOR_HOST']}"
+        )
     print(f"Using Connection String: {TEST_CONNECTION_STRING}")
     unittest.main()

@@ -50,6 +50,7 @@ def format(session):
     )
     session.run(
         "black",
+        "--line-length=80",
         *LINT_PATHS,
     )
 
@@ -62,8 +63,12 @@ def lint(session):
     serious code quality issues.
     """
     session.install(FLAKE8_VERSION, BLACK_VERSION)
-    session.run("flake8", "--max-line-length=124", "google", "tests")
     session.install("black", "isort")
+    session.run(
+        "flake8",
+        "--max-line-length=124",
+        *LINT_PATHS,
+    )
 
 
 @nox.session(python=UNIT_TEST_PYTHON_VERSIONS)

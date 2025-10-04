@@ -38,7 +38,9 @@ class Spannerlib:
                 Spannerlib._lib = ctypes.CDLL(_lib_path)
                 self._setup_functions()
             except OSError as e:
-                logger.error(f"Failed to load shared library from {_lib_path}: {e}")
+                logger.error(
+                    f"Failed to load shared library from {_lib_path}: {e}"
+                )
                 Spannerlib._lib = None  # Ensure _lib is None if loading failed
                 raise SpannerLibraryError(f"Failed to load shared library: {e}")
 
@@ -82,9 +84,7 @@ class Spannerlib:
                     # Attempt to convert the error message from bytes
                     go_error_msg = ctypes.cast(ret.msg, ctypes.c_char_p).value
                     if go_error_msg:
-                        error_msg += (
-                            f": {go_error_msg.decode('utf-8', errors='replace')}"
-                        )
+                        error_msg += f": {go_error_msg.decode('utf-8', errors='replace')}"
                 except Exception as e:
                     error_msg += f" (Failed to decode error message: {e})"
             logger.error(error_msg)
