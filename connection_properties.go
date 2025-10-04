@@ -257,6 +257,27 @@ var propertyMaxCommitDelay = createConnectionProperty(
 	connectionstate.ContextUser,
 	connectionstate.ConvertDuration,
 )
+var propertyCommitPriority = createConnectionProperty(
+	"commit_priority",
+	"Sets the priority for commit RPC invocations from this connection (HIGH/MEDIUM/LOW/UNSPECIFIED). "+
+		"The default is UNSPECIFIED.",
+	spannerpb.RequestOptions_PRIORITY_UNSPECIFIED,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	func(value string) (spannerpb.RequestOptions_Priority, error) {
+		return parseRpcPriority(value)
+	},
+)
+var propertyReturnCommitStats = createConnectionProperty(
+	"return_commit_stats",
+	"return_commit_stats determines whether transactions should request Spanner to return commit statistics.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
 
 // ------------------------------------------------------------------------------------------------
 // Statement connection properties.
