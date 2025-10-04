@@ -5,7 +5,6 @@ from .errors import SpannerPoolError
 from .internal.spannerlib import _check_error, get_lib
 from .internal.types import to_go_string
 
-
 logger = logging.getLogger(__name__)
 
 
