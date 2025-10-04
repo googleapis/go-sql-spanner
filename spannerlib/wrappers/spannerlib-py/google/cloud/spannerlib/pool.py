@@ -3,7 +3,8 @@ import logging
 from .connection import Connection
 from .errors import SpannerPoolError
 from .internal.spannerlib import _check_error, get_lib
-from .internal.types import GoString
+from .internal.types import to_go_string
+
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +65,9 @@ class Pool:
                 f"Pool ID: {self.pool_id} was not explicitly closed. Closing in destructor."
             )
             self.close()
-    
+
     def connect(self, connection_string: str):
-        go_conn_str = GoString(connection_string.encode("utf-8"))
-        ret = get_lib().CreatePool(go_conn_str)
+        ret = get_lib().CreatePool(to_go_string(connection_string))
         _check_error(ret, "CreatePool")
         self.pool_id = ret.object_id
         self._closed = False
@@ -84,7 +84,7 @@ class Pool:
         Returns:
             Pool: A new Pool object.
         """
+        print(f"Creating pool with connection string: {connection_string}")
         pool = cls()
         pool.connect(connection_string)
         return pool
-

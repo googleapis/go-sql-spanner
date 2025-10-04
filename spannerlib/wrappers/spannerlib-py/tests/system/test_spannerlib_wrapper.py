@@ -21,7 +21,7 @@ from google.cloud.spannerlib import Pool  # noqa: E402
 
 TEST_ON_PROD = False
 
-EMULATOR_TEST_CONNECTION_STRING = "projects/test-project/instances/test-instance/databases/testdb?autoConfigEmulator=true"
+EMULATOR_TEST_CONNECTION_STRING = "localhost:9010/projects/test-project/instances/test-instance/databases/testdb?autoConfigEmulator=true"
 PROD_TEST_CONNECTION_STRING = (
     "projects/span-cloud-testing/instances/asapha-test/databases/testdb"
 )

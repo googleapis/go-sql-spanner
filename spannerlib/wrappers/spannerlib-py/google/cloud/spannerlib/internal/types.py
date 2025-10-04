@@ -20,6 +20,10 @@ class GoReturn(ctypes.Structure):
         ("msg", ctypes.c_void_p),  # msg string - r4
     ]
 
+def print_go_string(go_string: GoString):
+    """Prints the contents of a GoString."""
+    print(f"Length field (n): {go_string.n}")
+    print(f"Pointer field (p) as bytes: {go_string.p}")
 
 def to_go_string(s: str) -> GoString:
     """Converts a Python string to a GoString."""
