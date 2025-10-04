@@ -1119,6 +1119,12 @@ func (c *conn) BeginReadOnlyTransaction(ctx context.Context, options *ReadOnlyTr
 //
 // BeginReadWriteTransaction starts a new read/write transaction on this connection.
 func (c *conn) BeginReadWriteTransaction(ctx context.Context, options *ReadWriteTransactionOptions) (driver.Tx, error) {
+	// TODO: Support `set local transaction_tag = 'my_tag'` and similar.
+	// Get the current options of this connection and merge these with the input options.
+	// The input options take precedence over the default options of the connection.
+	execOptions := c.options(false)
+	mergeTransactionOptions(&execOptions.TransactionOptions, &options.TransactionOptions)
+	options.TransactionOptions = execOptions.TransactionOptions
 	c.withTempTransactionOptions(options)
 	tx, err := c.BeginTx(ctx, driver.TxOptions{})
 	if err != nil {

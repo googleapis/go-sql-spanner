@@ -173,6 +173,24 @@ public class GrpcLibSpanner : ISpannerLib
         return response.CommitTimestamp == null ? null : response;
     }
 
+    public async Task<CommitResponse?> WriteMutationsAsync(Connection connection,
+        BatchWriteRequest.Types.MutationGroup mutations, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await _client.WriteMutationsAsync(new WriteMutationsRequest
+            {
+                Connection = ToProto(connection),
+                Mutations = mutations,
+            });
+            return response.CommitTimestamp == null ? null : response;
+        }
+        catch (RpcException exception)
+        {
+            throw SpannerException.ToSpannerException(exception);
+        }
+    }
+
     public Rows Execute(Connection connection, ExecuteSqlRequest statement)
     {
         if (_useStreamingRows) 
