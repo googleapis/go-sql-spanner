@@ -12,6 +12,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+"""Internal module for the spannerlib package."""
+
 from .errors import SpannerError, SpannerLibraryError
 from .spannerlib import check_error, get_lib
 from .types import GoReturn, GoString, to_go_string

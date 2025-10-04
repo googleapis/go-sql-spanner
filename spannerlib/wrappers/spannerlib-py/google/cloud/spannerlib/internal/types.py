@@ -12,19 +12,34 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+"""CTypes definitions for interacting with the Go library."""
+
 import ctypes
 
 
-# Define GoString structure
+# Define GoString structure, matching the Go layout.
 class GoString(ctypes.Structure):
-    """Represents a Go string.pina"""
+    """Represents a Go string for C interop.
+
+    Fields:
+        p: Pointer to the first byte of the string data.
+        n: Length of the string.
+    """
 
     _fields_ = [("p", ctypes.c_char_p), ("n", ctypes.c_ssize_t)]
 
 
-# Define common return structure
+# Define common return structure from Go functions.
 class GoReturn(ctypes.Structure):
-    """Represents the common return structure from Go functions."""
+    """Represents the common return structure from Go functions.
+
+    Fields:
+        pinner_id: ID for managing memory in Go (r0).
+        error_code: Error code, 0 for success (r1).
+        object_id: ID of the created object in Go, if any (r2).
+        msg_len: Length of the error message (r3).
+        msg: Pointer to the error message string, if any (r4).
+    """
 
     _fields_ = [
         ("pinner_id", ctypes.c_longlong),  # result pinnerId - r0
@@ -36,12 +51,25 @@ class GoReturn(ctypes.Structure):
 
 
 def print_go_string(go_string: GoString):
-    """Prints the contents of a GoString."""
-    print(f"Length field (n): {go_string.n}")
-    print(f"Pointer field (p) as bytes: {go_string.p}")
+    """Helper function to print the contents of a GoString for debugging."""
+    print(f"GoString Length (n): {go_string.n}")
+    if go_string.p:
+        try:
+            py_string = go_string.p[: go_string.n].decode("utf-8")
+            print(f"GoString Content (p): {py_string}")
+        except UnicodeDecodeError:
+            print(f"GoString Content (p) as bytes: {go_string.p[:go_string.n]}")
+    else:
+        print("GoString Content (p): NULL")
 
 
 def to_go_string(s: str) -> GoString:
-    """Converts a Python string to a GoString."""
+    """Converts a Python string to a GoString.
+
+    Args:
+        s: The Python string to convert.
+
+    Returns:
+        GoString: A GoString instance."""
     encoded_s = s.encode("utf-8")
     return GoString(encoded_s, len(encoded_s))

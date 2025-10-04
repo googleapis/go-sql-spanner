@@ -12,6 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+"""Internal error types for the spannerlib package."""
+
+
 class SpannerError(Exception):
     """Base exception for spannerlib_py."""
 
@@ -19,8 +22,18 @@ class SpannerError(Exception):
 
 
 class SpannerLibraryError(SpannerError):
-    """Error related to the underlying Go library call."""
+    """Error related to an underlying Go library call.
+
+    Attributes:
+        error_code: The error code returned by the Go library, if available.
+    """
 
     def __init__(self, message, error_code=None):
+        """Initializes a SpannerLibraryError.
+
+        Args:
+            message: The error message.
+            error_code: The optional error code from the Go library.
+        """
         super().__init__(message)
         self.error_code = error_code
