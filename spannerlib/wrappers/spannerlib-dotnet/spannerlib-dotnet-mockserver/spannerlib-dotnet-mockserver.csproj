@@ -5,6 +5,9 @@
     <RootNamespace>Google.Cloud.SpannerLib.MockServer</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <PackageId>Alpha.Google.Cloud.SpannerLib.MockServer</PackageId>
+    <Version>1.0.0-alpha.20251003164708</Version>
+    <Authors>Google</Authors>
   </PropertyGroup>
 
   <ItemGroup>
