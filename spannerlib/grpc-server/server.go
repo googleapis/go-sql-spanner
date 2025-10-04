@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"math"
 	"net"
 	"os"
 
@@ -30,8 +31,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to listen: %v\n", err)
 	}
-	var opts []grpc.ServerOption
-	grpcServer := grpc.NewServer(opts...)
+	grpcServer := grpc.NewServer(grpc.MaxRecvMsgSize(math.MaxInt32))
 
 	server := spannerLibServer{}
 	pb.RegisterSpannerLibServer(grpcServer, &server)

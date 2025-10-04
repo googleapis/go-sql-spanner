@@ -1,3 +1,5 @@
 spannerlib.h
 spannerlib.so
+spannerlib.dll
 grpc_server
+grpc_server.exe

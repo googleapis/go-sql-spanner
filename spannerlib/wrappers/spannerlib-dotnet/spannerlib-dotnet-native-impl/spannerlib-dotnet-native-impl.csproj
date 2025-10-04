@@ -5,6 +5,9 @@
     <RootNamespace>Google.Cloud.SpannerLib.Native.Impl</RootNamespace>
     <Nullable>enable</Nullable>
     <LangVersion>default</LangVersion>
+    <PackageId>Alpha.Google.Cloud.SpannerLib.NativeImpl</PackageId>
+    <Version>1.0.0-alpha.20251009140944</Version>
+    <Authors>Google</Authors>
   </PropertyGroup>
 
   <ItemGroup>
@@ -12,7 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Google.Cloud.SpannerLib.Native" Version="1.0.0" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.Native" Version="1.0.0-alpha.20251009140944" />
   </ItemGroup>
 
 </Project>

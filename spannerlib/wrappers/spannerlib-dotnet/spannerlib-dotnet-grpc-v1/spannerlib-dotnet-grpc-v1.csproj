@@ -5,6 +5,9 @@
     <RootNamespace>Google.Cloud.SpannerLib.V1</RootNamespace>
     <Nullable>enable</Nullable>
     <LangVersion>default</LangVersion>
+    <PackageId>Alpha.Google.Cloud.SpannerLib.Grpc.V1</PackageId>
+    <Version>1.0.0-alpha.20251009140944</Version>
+    <Authors>Google</Authors>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Google.Cloud.Spanner.V1" Version="5.2.0" />

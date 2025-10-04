@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"testing"
 
@@ -256,7 +257,7 @@ func TestExecuteBatch(t *testing.T) {
 
 	server, teardown := setupMockSpannerServer(t)
 	defer teardown()
-	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;retryAbortsInternally=false", server.Address)
 
 	client, cleanup := startTestSpannerLibServer(t)
 	defer cleanup()
@@ -268,6 +269,9 @@ func TestExecuteBatch(t *testing.T) {
 	connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
 	if err != nil {
 		t.Fatalf("failed to create connection: %v", err)
+	}
+	if _, err := client.BeginTransaction(ctx, &pb.BeginTransactionRequest{Connection: connection}); err != nil {
+		t.Fatalf("failed to begin transaction: %v", err)
 	}
 
 	resp, err := client.ExecuteBatch(ctx, &pb.ExecuteBatchRequest{
@@ -284,6 +288,9 @@ func TestExecuteBatch(t *testing.T) {
 	}
 	if g, w := len(resp.ResultSets), 2; g != w {
 		t.Fatalf("num results mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if _, err := client.Commit(ctx, connection); err != nil {
+		t.Fatalf("failed to commit: %v", err)
 	}
 
 	if _, err := client.ClosePool(ctx, pool); err != nil {
@@ -309,6 +316,12 @@ func TestTransaction(t *testing.T) {
 	connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
 	if err != nil {
 		t.Fatalf("failed to create connection: %v", err)
+	}
+	if _, err := client.Execute(ctx, &pb.ExecuteRequest{
+		Connection:        connection,
+		ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: "set transaction_tag='test_tag'"},
+	}); err != nil {
+		t.Fatalf("failed to set transaction_tag: %v", err)
 	}
 	if _, err := client.BeginTransaction(ctx, &pb.BeginTransactionRequest{
 		Connection:         connection,
@@ -346,6 +359,16 @@ func TestTransaction(t *testing.T) {
 
 	if _, err := client.ClosePool(ctx, pool); err != nil {
 		t.Fatalf("failed to close pool: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("num execute requests mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	request := executeRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := request.RequestOptions.TransactionTag, "test_tag"; g != w {
+		t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
