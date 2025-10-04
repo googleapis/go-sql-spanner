@@ -613,7 +613,7 @@ func (tx *readWriteTransaction) runDmlBatch(ctx context.Context) (*result, error
 
 	if !tx.retryAborts() {
 		affected, err := tx.rwTx.BatchUpdateWithOptions(ctx, statements, options.QueryOptions)
-		return &result{rowsAffected: sum(affected)}, err
+		return &result{rowsAffected: sum(affected), batchUpdateCounts: affected}, err
 	}
 
 	var affected []int64
