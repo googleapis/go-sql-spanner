@@ -15,6 +15,7 @@
 package parser
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -128,6 +129,7 @@ func TestParseSetStatement(t *testing.T) {
 	type test struct {
 		input   string
 		want    ParsedSetStatement
+		onlyPg  bool
 		wantErr bool
 	}
 	tests := []test{
@@ -181,6 +183,116 @@ func TestParseSetStatement(t *testing.T) {
 			},
 		},
 		{
+			input: "set transaction isolation level serializable",
+			want: ParsedSetStatement{
+				query:         "set transaction isolation level serializable",
+				Identifier:    Identifier{Parts: []string{"isolation_level"}},
+				Literal:       Literal{Value: "serializable"},
+				IsLocal:       true,
+				IsTransaction: true,
+			},
+		},
+		{
+			input:   "set transaction isolation serializable",
+			wantErr: true,
+		},
+		{
+			input:   "set transaction isolation level serializable foo",
+			wantErr: true,
+		},
+		{
+			input:   "set isolation level serializable",
+			wantErr: true,
+		},
+		{
+			input:   "set transaction isolation level serialisable",
+			wantErr: true,
+		},
+		{
+			input: "set transaction isolation level repeatable read",
+			want: ParsedSetStatement{
+				query:         "set transaction isolation level repeatable read",
+				Identifier:    Identifier{Parts: []string{"isolation_level"}},
+				Literal:       Literal{Value: "repeatable_read"},
+				IsLocal:       true,
+				IsTransaction: true,
+			},
+		},
+		{
+			input:   "set transaction isolation level repeatable",
+			wantErr: true,
+		},
+		{
+			input:   "set transaction isolation level read",
+			wantErr: true,
+		},
+		{
+			input:   "set transaction isolation level repeatable read serializable",
+			wantErr: true,
+		},
+		{
+			input:   "set transaction isolation level serializable repeatable read",
+			wantErr: true,
+		},
+		{
+			input: "set transaction read write",
+			want: ParsedSetStatement{
+				query:         "set transaction read write",
+				Identifier:    Identifier{Parts: []string{"transaction_read_only"}},
+				Literal:       Literal{Value: "false"},
+				IsLocal:       true,
+				IsTransaction: true,
+			},
+		},
+		{
+			input: "set transaction read only",
+			want: ParsedSetStatement{
+				query:         "set transaction read only",
+				Identifier:    Identifier{Parts: []string{"transaction_read_only"}},
+				Literal:       Literal{Value: "true"},
+				IsLocal:       true,
+				IsTransaction: true,
+			},
+		},
+		{
+			input:   "set transaction read",
+			wantErr: true,
+		},
+		{
+			input:   "set transaction write",
+			wantErr: true,
+		},
+		{
+			input:   "set transaction read only write",
+			wantErr: true,
+		},
+		{
+			input:   "set transaction write only",
+			wantErr: true,
+		},
+		{
+			onlyPg: true,
+			input:  "set transaction deferrable",
+			want: ParsedSetStatement{
+				query:         "set transaction deferrable",
+				Identifier:    Identifier{Parts: []string{"transaction_deferrable"}},
+				Literal:       Literal{Value: "true"},
+				IsLocal:       true,
+				IsTransaction: true,
+			},
+		},
+		{
+			onlyPg: true,
+			input:  "set transaction not deferrable",
+			want: ParsedSetStatement{
+				query:         "set transaction not deferrable",
+				Identifier:    Identifier{Parts: []string{"transaction_deferrable"}},
+				Literal:       Literal{Value: "false"},
+				IsLocal:       true,
+				IsTransaction: true,
+			},
+		},
+		{
 			input:   "set my_property =",
 			wantErr: true,
 		},
@@ -205,31 +317,33 @@ func TestParseSetStatement(t *testing.T) {
 			wantErr: true,
 		},
 	}
-	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	keyword := "SET"
-	for _, test := range tests {
-		t.Run(test.input, func(t *testing.T) {
-			stmt, err := parseStatement(parser, keyword, test.input)
-			if test.wantErr {
-				if err == nil {
-					t.Fatalf("parseStatement(%q) should have failed", test.input)
+	for _, dialect := range []databasepb.DatabaseDialect{databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, databasepb.DatabaseDialect_POSTGRESQL} {
+		parser, err := NewStatementParser(dialect, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		keyword := "SET"
+		for _, test := range tests {
+			t.Run(fmt.Sprintf("%s %s", dialect, test.input), func(t *testing.T) {
+				stmt, err := parseStatement(parser, keyword, test.input)
+				if test.wantErr || (test.onlyPg && dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL) {
+					if err == nil {
+						t.Fatalf("parseStatement(%q) should have failed", test.input)
+					}
+				} else {
+					if err != nil {
+						t.Fatal(err)
+					}
+					showStmt, ok := stmt.(*ParsedSetStatement)
+					if !ok {
+						t.Fatalf("parseStatement(%q) should have returned a *parsedSetStatement", test.input)
+					}
+					if !reflect.DeepEqual(*showStmt, test.want) {
+						t.Errorf("parseStatement(%q) = %v, want %v", test.input, *showStmt, test.want)
+					}
 				}
-			} else {
-				if err != nil {
-					t.Fatal(err)
-				}
-				showStmt, ok := stmt.(*ParsedSetStatement)
-				if !ok {
-					t.Fatalf("parseStatement(%q) should have returned a *parsedSetStatement", test.input)
-				}
-				if !reflect.DeepEqual(*showStmt, test.want) {
-					t.Errorf("parseStatement(%q) = %v, want %v", test.input, *showStmt, test.want)
-				}
-			}
-		})
+			})
+		}
 	}
 }
 

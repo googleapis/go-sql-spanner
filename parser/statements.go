@@ -15,6 +15,8 @@
 package parser
 
 import (
+	"fmt"
+
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -142,11 +144,19 @@ func (s *ParsedShowStatement) parse(parser *StatementParser, query string) error
 
 // ParsedSetStatement is a statement of the form
 // SET [SESSION | LOCAL] [my_extension.]my_property {=|to} <value>
+//
+// It also covers statements of the form SET TRANSACTION. This is a
+// synonym for SET LOCAL, but is only supported for a specific set of
+// properties, and may only be executed before a transaction has been
+// activated. Examples include:
+// SET TRANSACTION READ ONLY
+// SET TRANSACTION ISOLATION LEVEL [SERIALIZABLE | REPEATABLE READ]
 type ParsedSetStatement struct {
-	query      string
-	Identifier Identifier
-	Literal    Literal
-	IsLocal    bool
+	query         string
+	Identifier    Identifier
+	Literal       Literal
+	IsLocal       bool
+	IsTransaction bool
 }
 
 func (s *ParsedSetStatement) Name() string {
@@ -165,9 +175,16 @@ func (s *ParsedSetStatement) parse(parser *StatementParser, query string) error 
 		return status.Errorf(codes.InvalidArgument, "syntax error: expected SET")
 	}
 	isLocal := sp.eatKeyword("LOCAL")
-	if !isLocal && parser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+	isTransaction := false
+	if !isLocal {
+		isTransaction = sp.eatKeyword("TRANSACTION")
+	}
+	if !isLocal && !isTransaction && parser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
 		// Just eat and ignore the SESSION keyword if it exists, as SESSION is the default.
 		_ = sp.eatKeyword("SESSION")
+	}
+	if isTransaction {
+		return s.parseSetTransaction(sp, query)
 	}
 	identifier, err := sp.eatIdentifier()
 	if err != nil {
@@ -194,6 +211,93 @@ func (s *ParsedSetStatement) parse(parser *StatementParser, query string) error 
 	s.Identifier = identifier
 	s.Literal = literalValue
 	s.IsLocal = isLocal
+	return nil
+}
+
+func (s *ParsedSetStatement) parseSetTransaction(sp *simpleParser, query string) error {
+	if !sp.hasMoreTokens() {
+		return status.Errorf(codes.InvalidArgument, "syntax error: missing TRANSACTION OPTION, expected one of ISOLATION LEVEL, READ WRITE, or READ ONLY")
+	}
+	// TODO: Support multiple transaction mode settings in one statement:
+	//       SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ WRITE
+	if sp.peekKeyword("ISOLATION") {
+		return s.parseSetTransactionIsolationLevel(sp, query)
+	}
+	if sp.peekKeyword("READ") {
+		return s.parseSetTransactionMode(sp, query)
+	}
+	if sp.statementParser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		// https://www.postgresql.org/docs/current/sql-set-transaction.html
+		if sp.peekKeyword("DEFERRABLE") || sp.peekKeyword("NOT") {
+			return s.parseSetTransactionDeferrable(sp, query)
+		}
+	}
+	return status.Error(codes.InvalidArgument, "invalid TRANSACTION option, expected one of ISOLATION LEVEL, READ WRITE, or READ ONLY")
+}
+
+func (s *ParsedSetStatement) parseSetTransactionIsolationLevel(sp *simpleParser, query string) error {
+	if !sp.eatKeywords([]string{"ISOLATION", "LEVEL"}) {
+		return status.Errorf(codes.InvalidArgument, "syntax error: expected ISOLATION LEVEL")
+	}
+	var value Literal
+	if sp.eatKeyword("SERIALIZABLE") {
+		value = Literal{Value: "serializable"}
+	} else if sp.eatKeywords([]string{"REPEATABLE", "READ"}) {
+		value = Literal{Value: "repeatable_read"}
+	} else {
+		return status.Errorf(codes.InvalidArgument, "syntax error: expected SERIALIZABLE OR REPETABLE READ")
+	}
+	if sp.hasMoreTokens() {
+		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
+	}
+
+	s.query = query
+	s.Identifier = Identifier{Parts: []string{"isolation_level"}}
+	s.Literal = value
+	s.IsLocal = true
+	s.IsTransaction = true
+	return nil
+}
+
+func (s *ParsedSetStatement) parseSetTransactionMode(sp *simpleParser, query string) error {
+	readOnly := false
+	if sp.eatKeywords([]string{"READ", "ONLY"}) {
+		readOnly = true
+	} else if sp.eatKeywords([]string{"READ", "WRITE"}) {
+		readOnly = false
+	} else {
+		return status.Errorf(codes.InvalidArgument, "syntax error: expected READ ONLY or READ WRITE")
+	}
+	if sp.hasMoreTokens() {
+		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
+	}
+
+	s.query = query
+	s.Identifier = Identifier{Parts: []string{"transaction_read_only"}}
+	s.Literal = Literal{Value: fmt.Sprintf("%v", readOnly)}
+	s.IsLocal = true
+	s.IsTransaction = true
+	return nil
+}
+
+func (s *ParsedSetStatement) parseSetTransactionDeferrable(sp *simpleParser, query string) error {
+	deferrable := false
+	if sp.eatKeywords([]string{"NOT", "DEFERRABLE"}) {
+		deferrable = false
+	} else if sp.eatKeyword("DEFERRABLE") {
+		deferrable = true
+	} else {
+		return status.Errorf(codes.InvalidArgument, "syntax error: expected [NOT] DEFERRABLE")
+	}
+	if sp.hasMoreTokens() {
+		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
+	}
+
+	s.query = query
+	s.Identifier = Identifier{Parts: []string{"transaction_deferrable"}}
+	s.Literal = Literal{Value: fmt.Sprintf("%v", deferrable)}
+	s.IsLocal = true
+	s.IsTransaction = true
 	return nil
 }
 
@@ -404,6 +508,7 @@ func (s *ParsedBeginStatement) parse(parser *StatementParser, query string) erro
 	// Parse a statement of the form
 	// GoogleSQL: BEGIN [TRANSACTION]
 	// PostgreSQL: {START | BEGIN} [{TRANSACTION | WORK}] (https://www.postgresql.org/docs/current/sql-begin.html)
+	// TODO: Support transaction modes in the BEGIN / START statement.
 	sp := &simpleParser{sql: []byte(query), statementParser: parser}
 	if sp.statementParser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
 		if !sp.eatKeyword("START") && !sp.eatKeyword("BEGIN") {

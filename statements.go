@@ -112,14 +112,14 @@ type executableSetStatement struct {
 }
 
 func (s *executableSetStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
-	if err := c.setConnectionVariable(s.stmt.Identifier, s.stmt.Literal.Value, s.stmt.IsLocal); err != nil {
+	if err := c.setConnectionVariable(s.stmt.Identifier, s.stmt.Literal.Value, s.stmt.IsLocal, s.stmt.IsTransaction); err != nil {
 		return nil, err
 	}
 	return driver.ResultNoRows, nil
 }
 
 func (s *executableSetStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
-	if err := c.setConnectionVariable(s.stmt.Identifier, s.stmt.Literal.Value, s.stmt.IsLocal); err != nil {
+	if err := c.setConnectionVariable(s.stmt.Identifier, s.stmt.Literal.Value, s.stmt.IsLocal, s.stmt.IsTransaction); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
@@ -131,14 +131,14 @@ type executableResetStatement struct {
 }
 
 func (s *executableResetStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
-	if err := c.setConnectionVariable(s.stmt.Identifier, "default", false); err != nil {
+	if err := c.setConnectionVariable(s.stmt.Identifier, "default", false, false); err != nil {
 		return nil, err
 	}
 	return driver.ResultNoRows, nil
 }
 
 func (s *executableResetStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
-	if err := c.setConnectionVariable(s.stmt.Identifier, "default", false); err != nil {
+	if err := c.setConnectionVariable(s.stmt.Identifier, "default", false, false); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
