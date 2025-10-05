@@ -136,58 +136,58 @@ func TestParseSetStatement(t *testing.T) {
 		{
 			input: "set my_property = 'foo'",
 			want: ParsedSetStatement{
-				query:      "set my_property = 'foo'",
-				Identifier: Identifier{Parts: []string{"my_property"}},
-				Literal:    Literal{Value: "foo"},
+				query:       "set my_property = 'foo'",
+				Identifiers: []Identifier{{Parts: []string{"my_property"}}},
+				Literals:    []Literal{{Value: "foo"}},
 			},
 		},
 		{
 			input: "set local my_property = 'foo'",
 			want: ParsedSetStatement{
-				query:      "set local my_property = 'foo'",
-				Identifier: Identifier{Parts: []string{"my_property"}},
-				Literal:    Literal{Value: "foo"},
-				IsLocal:    true,
+				query:       "set local my_property = 'foo'",
+				Identifiers: []Identifier{{Parts: []string{"my_property"}}},
+				Literals:    []Literal{{Value: "foo"}},
+				IsLocal:     true,
 			},
 		},
 		{
 			input: "set my_property = 1",
 			want: ParsedSetStatement{
-				query:      "set my_property = 1",
-				Identifier: Identifier{Parts: []string{"my_property"}},
-				Literal:    Literal{Value: "1"},
+				query:       "set my_property = 1",
+				Identifiers: []Identifier{{Parts: []string{"my_property"}}},
+				Literals:    []Literal{{Value: "1"}},
 			},
 		},
 		{
 			input: "set my_property = true",
 			want: ParsedSetStatement{
-				query:      "set my_property = true",
-				Identifier: Identifier{Parts: []string{"my_property"}},
-				Literal:    Literal{Value: "true"},
+				query:       "set my_property = true",
+				Identifiers: []Identifier{{Parts: []string{"my_property"}}},
+				Literals:    []Literal{{Value: "true"}},
 			},
 		},
 		{
 			input: "set \n -- comment \n my_property /* yet more comments */ = \ntrue/*comment*/  ",
 			want: ParsedSetStatement{
-				query:      "set \n -- comment \n my_property /* yet more comments */ = \ntrue/*comment*/  ",
-				Identifier: Identifier{Parts: []string{"my_property"}},
-				Literal:    Literal{Value: "true"},
+				query:       "set \n -- comment \n my_property /* yet more comments */ = \ntrue/*comment*/  ",
+				Identifiers: []Identifier{{Parts: []string{"my_property"}}},
+				Literals:    []Literal{{Value: "true"}},
 			},
 		},
 		{
 			input: "set \n -- comment \n a.b /* yet more comments */ =\n/*comment*/'value'/*comment*/  ",
 			want: ParsedSetStatement{
-				query:      "set \n -- comment \n a.b /* yet more comments */ =\n/*comment*/'value'/*comment*/  ",
-				Identifier: Identifier{Parts: []string{"a", "b"}},
-				Literal:    Literal{Value: "value"},
+				query:       "set \n -- comment \n a.b /* yet more comments */ =\n/*comment*/'value'/*comment*/  ",
+				Identifiers: []Identifier{{Parts: []string{"a", "b"}}},
+				Literals:    []Literal{{Value: "value"}},
 			},
 		},
 		{
 			input: "set transaction isolation level serializable",
 			want: ParsedSetStatement{
 				query:         "set transaction isolation level serializable",
-				Identifier:    Identifier{Parts: []string{"isolation_level"}},
-				Literal:       Literal{Value: "serializable"},
+				Identifiers:   []Identifier{{Parts: []string{"isolation_level"}}},
+				Literals:      []Literal{{Value: "serializable"}},
 				IsLocal:       true,
 				IsTransaction: true,
 			},
@@ -212,8 +212,8 @@ func TestParseSetStatement(t *testing.T) {
 			input: "set transaction isolation level repeatable read",
 			want: ParsedSetStatement{
 				query:         "set transaction isolation level repeatable read",
-				Identifier:    Identifier{Parts: []string{"isolation_level"}},
-				Literal:       Literal{Value: "repeatable_read"},
+				Identifiers:   []Identifier{{Parts: []string{"isolation_level"}}},
+				Literals:      []Literal{{Value: "repeatable_read"}},
 				IsLocal:       true,
 				IsTransaction: true,
 			},
@@ -238,8 +238,59 @@ func TestParseSetStatement(t *testing.T) {
 			input: "set transaction read write",
 			want: ParsedSetStatement{
 				query:         "set transaction read write",
-				Identifier:    Identifier{Parts: []string{"transaction_read_only"}},
-				Literal:       Literal{Value: "false"},
+				Identifiers:   []Identifier{{Parts: []string{"transaction_read_only"}}},
+				Literals:      []Literal{{Value: "false"}},
+				IsLocal:       true,
+				IsTransaction: true,
+			},
+		},
+		{
+			input: "set transaction read write isolation level serializable",
+			want: ParsedSetStatement{
+				query: "set transaction read write isolation level serializable",
+				Identifiers: []Identifier{
+					{Parts: []string{"transaction_read_only"}},
+					{Parts: []string{"isolation_level"}},
+				},
+				Literals: []Literal{
+					{Value: "false"},
+					{Value: "serializable"},
+				},
+				IsLocal:       true,
+				IsTransaction: true,
+			},
+		},
+		{
+			input: "set transaction read only, isolation level repeatable read",
+			want: ParsedSetStatement{
+				query: "set transaction read only, isolation level repeatable read",
+				Identifiers: []Identifier{
+					{Parts: []string{"transaction_read_only"}},
+					{Parts: []string{"isolation_level"}},
+				},
+				Literals: []Literal{
+					{Value: "true"},
+					{Value: "repeatable_read"},
+				},
+				IsLocal:       true,
+				IsTransaction: true,
+			},
+		},
+		{
+			onlyPg: true,
+			input:  "set transaction read only, isolation level repeatable read not deferrable",
+			want: ParsedSetStatement{
+				query: "set transaction read only, isolation level repeatable read not deferrable",
+				Identifiers: []Identifier{
+					{Parts: []string{"transaction_read_only"}},
+					{Parts: []string{"isolation_level"}},
+					{Parts: []string{"transaction_deferrable"}},
+				},
+				Literals: []Literal{
+					{Value: "true"},
+					{Value: "repeatable_read"},
+					{Value: "false"},
+				},
 				IsLocal:       true,
 				IsTransaction: true,
 			},
@@ -248,8 +299,8 @@ func TestParseSetStatement(t *testing.T) {
 			input: "set transaction read only",
 			want: ParsedSetStatement{
 				query:         "set transaction read only",
-				Identifier:    Identifier{Parts: []string{"transaction_read_only"}},
-				Literal:       Literal{Value: "true"},
+				Identifiers:   []Identifier{{Parts: []string{"transaction_read_only"}}},
+				Literals:      []Literal{{Value: "true"}},
 				IsLocal:       true,
 				IsTransaction: true,
 			},
@@ -275,8 +326,8 @@ func TestParseSetStatement(t *testing.T) {
 			input:  "set transaction deferrable",
 			want: ParsedSetStatement{
 				query:         "set transaction deferrable",
-				Identifier:    Identifier{Parts: []string{"transaction_deferrable"}},
-				Literal:       Literal{Value: "true"},
+				Identifiers:   []Identifier{{Parts: []string{"transaction_deferrable"}}},
+				Literals:      []Literal{{Value: "true"}},
 				IsLocal:       true,
 				IsTransaction: true,
 			},
@@ -286,8 +337,8 @@ func TestParseSetStatement(t *testing.T) {
 			input:  "set transaction not deferrable",
 			want: ParsedSetStatement{
 				query:         "set transaction not deferrable",
-				Identifier:    Identifier{Parts: []string{"transaction_deferrable"}},
-				Literal:       Literal{Value: "false"},
+				Identifiers:   []Identifier{{Parts: []string{"transaction_deferrable"}}},
+				Literals:      []Literal{{Value: "false"}},
 				IsLocal:       true,
 				IsTransaction: true,
 			},

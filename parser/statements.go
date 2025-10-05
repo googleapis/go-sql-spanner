@@ -151,11 +151,19 @@ func (s *ParsedShowStatement) parse(parser *StatementParser, query string) error
 // activated. Examples include:
 // SET TRANSACTION READ ONLY
 // SET TRANSACTION ISOLATION LEVEL [SERIALIZABLE | REPEATABLE READ]
+//
+// One SET statement can set more than one property.
 type ParsedSetStatement struct {
-	query         string
-	Identifier    Identifier
-	Literal       Literal
-	IsLocal       bool
+	query string
+	// Identifiers contains the properties that are being set. The number of elements in this slice
+	// must be equal to the number of Literals.
+	Identifiers []Identifier
+	// Literals contains the values that should be set for the properties.
+	Literals []Literal
+	// IsLocal indicates whether this is a SET LOCAL statement or not.
+	IsLocal bool
+	// IsTransaction indicates whether this is a SET TRANSACTION statement or not.
+	// IsTransaction automatically also implies IsLocal.
 	IsTransaction bool
 }
 
@@ -208,8 +216,8 @@ func (s *ParsedSetStatement) parse(parser *StatementParser, query string) error 
 		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
 	}
 	s.query = query
-	s.Identifier = identifier
-	s.Literal = literalValue
+	s.Identifiers = []Identifier{identifier}
+	s.Literals = []Literal{literalValue}
 	s.IsLocal = isLocal
 	return nil
 }
@@ -218,21 +226,33 @@ func (s *ParsedSetStatement) parseSetTransaction(sp *simpleParser, query string)
 	if !sp.hasMoreTokens() {
 		return status.Errorf(codes.InvalidArgument, "syntax error: missing TRANSACTION OPTION, expected one of ISOLATION LEVEL, READ WRITE, or READ ONLY")
 	}
-	// TODO: Support multiple transaction mode settings in one statement:
-	//       SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ WRITE
-	if sp.peekKeyword("ISOLATION") {
-		return s.parseSetTransactionIsolationLevel(sp, query)
-	}
-	if sp.peekKeyword("READ") {
-		return s.parseSetTransactionMode(sp, query)
-	}
-	if sp.statementParser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
-		// https://www.postgresql.org/docs/current/sql-set-transaction.html
-		if sp.peekKeyword("DEFERRABLE") || sp.peekKeyword("NOT") {
-			return s.parseSetTransactionDeferrable(sp, query)
+	s.query = query
+	s.IsLocal = true
+	s.IsTransaction = true
+
+	for {
+		if sp.peekKeyword("ISOLATION") {
+			if err := s.parseSetTransactionIsolationLevel(sp, query); err != nil {
+				return err
+			}
+		} else if sp.peekKeyword("READ") {
+			if err := s.parseSetTransactionMode(sp, query); err != nil {
+				return err
+			}
+		} else if sp.statementParser.Dialect == databasepb.DatabaseDialect_POSTGRESQL && (sp.peekKeyword("DEFERRABLE") || sp.peekKeyword("NOT")) {
+			// https://www.postgresql.org/docs/current/sql-set-transaction.html
+			if err := s.parseSetTransactionDeferrable(sp, query); err != nil {
+				return err
+			}
+		} else {
+			return status.Error(codes.InvalidArgument, "invalid TRANSACTION option, expected one of ISOLATION LEVEL, READ WRITE, or READ ONLY")
 		}
+		if !sp.hasMoreTokens() {
+			return nil
+		}
+		// Eat and ignore any commas separating the various options.
+		sp.eatToken(',')
 	}
-	return status.Error(codes.InvalidArgument, "invalid TRANSACTION option, expected one of ISOLATION LEVEL, READ WRITE, or READ ONLY")
 }
 
 func (s *ParsedSetStatement) parseSetTransactionIsolationLevel(sp *simpleParser, query string) error {
@@ -247,15 +267,9 @@ func (s *ParsedSetStatement) parseSetTransactionIsolationLevel(sp *simpleParser,
 	} else {
 		return status.Errorf(codes.InvalidArgument, "syntax error: expected SERIALIZABLE OR REPETABLE READ")
 	}
-	if sp.hasMoreTokens() {
-		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
-	}
 
-	s.query = query
-	s.Identifier = Identifier{Parts: []string{"isolation_level"}}
-	s.Literal = value
-	s.IsLocal = true
-	s.IsTransaction = true
+	s.Identifiers = append(s.Identifiers, Identifier{Parts: []string{"isolation_level"}})
+	s.Literals = append(s.Literals, value)
 	return nil
 }
 
@@ -268,15 +282,9 @@ func (s *ParsedSetStatement) parseSetTransactionMode(sp *simpleParser, query str
 	} else {
 		return status.Errorf(codes.InvalidArgument, "syntax error: expected READ ONLY or READ WRITE")
 	}
-	if sp.hasMoreTokens() {
-		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
-	}
 
-	s.query = query
-	s.Identifier = Identifier{Parts: []string{"transaction_read_only"}}
-	s.Literal = Literal{Value: fmt.Sprintf("%v", readOnly)}
-	s.IsLocal = true
-	s.IsTransaction = true
+	s.Identifiers = append(s.Identifiers, Identifier{Parts: []string{"transaction_read_only"}})
+	s.Literals = append(s.Literals, Literal{Value: fmt.Sprintf("%v", readOnly)})
 	return nil
 }
 
@@ -289,15 +297,9 @@ func (s *ParsedSetStatement) parseSetTransactionDeferrable(sp *simpleParser, que
 	} else {
 		return status.Errorf(codes.InvalidArgument, "syntax error: expected [NOT] DEFERRABLE")
 	}
-	if sp.hasMoreTokens() {
-		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
-	}
 
-	s.query = query
-	s.Identifier = Identifier{Parts: []string{"transaction_deferrable"}}
-	s.Literal = Literal{Value: fmt.Sprintf("%v", deferrable)}
-	s.IsLocal = true
-	s.IsTransaction = true
+	s.Identifiers = append(s.Identifiers, Identifier{Parts: []string{"transaction_deferrable"}})
+	s.Literals = append(s.Literals, Literal{Value: fmt.Sprintf("%v", deferrable)})
 	return nil
 }
 

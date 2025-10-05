@@ -112,17 +112,29 @@ type executableSetStatement struct {
 }
 
 func (s *executableSetStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
-	if err := c.setConnectionVariable(s.stmt.Identifier, s.stmt.Literal.Value, s.stmt.IsLocal, s.stmt.IsTransaction); err != nil {
+	if err := s.execute(c); err != nil {
 		return nil, err
 	}
 	return driver.ResultNoRows, nil
 }
 
 func (s *executableSetStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
-	if err := c.setConnectionVariable(s.stmt.Identifier, s.stmt.Literal.Value, s.stmt.IsLocal, s.stmt.IsTransaction); err != nil {
+	if err := s.execute(c); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
+}
+
+func (s *executableSetStatement) execute(c *conn) error {
+	if len(s.stmt.Identifiers) != len(s.stmt.Literals) {
+		return status.Errorf(codes.InvalidArgument, "statement contains %d identifiers, but %d values given", len(s.stmt.Identifiers), len(s.stmt.Literals))
+	}
+	for index := range s.stmt.Identifiers {
+		if err := c.setConnectionVariable(s.stmt.Identifiers[index], s.stmt.Literals[index].Value, s.stmt.IsLocal, s.stmt.IsTransaction); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RESET [my_extension.]my_property
