@@ -431,6 +431,38 @@ func TestParseBeginStatementGoogleSQL(t *testing.T) {
 			input:   "begin transaction foo",
 			wantErr: true,
 		},
+		{
+			input: "begin read only",
+			want: ParsedBeginStatement{
+				query:       "begin read only",
+				Identifiers: []Identifier{{Parts: []string{"transaction_read_only"}}},
+				Literals:    []Literal{{Value: "true"}},
+			},
+		},
+		{
+			input: "begin read write",
+			want: ParsedBeginStatement{
+				query:       "begin read write",
+				Identifiers: []Identifier{{Parts: []string{"transaction_read_only"}}},
+				Literals:    []Literal{{Value: "false"}},
+			},
+		},
+		{
+			input: "begin transaction isolation level serializable",
+			want: ParsedBeginStatement{
+				query:       "begin transaction isolation level serializable",
+				Identifiers: []Identifier{{Parts: []string{"isolation_level"}}},
+				Literals:    []Literal{{Value: "serializable"}},
+			},
+		},
+		{
+			input: "begin transaction isolation level repeatable read, read write",
+			want: ParsedBeginStatement{
+				query:       "begin transaction isolation level repeatable read, read write",
+				Identifiers: []Identifier{{Parts: []string{"isolation_level"}}, {Parts: []string{"transaction_read_only"}}},
+				Literals:    []Literal{{Value: "repeatable_read"}, {Value: "false"}},
+			},
+		},
 	}
 	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
@@ -454,7 +486,7 @@ func TestParseBeginStatementGoogleSQL(t *testing.T) {
 					t.Fatalf("parseStatement(%q) should have returned a *parsedBeginStatement", test.input)
 				}
 				if !reflect.DeepEqual(*showStmt, test.want) {
-					t.Errorf("parseStatement(%q) = %v, want %v", test.input, *showStmt, test.want)
+					t.Errorf("parseStatement(%q) mismatch\n Got: %v\nWant: %v", test.input, *showStmt, test.want)
 				}
 			}
 		})
@@ -507,6 +539,56 @@ func TestParseBeginStatementPostgreSQL(t *testing.T) {
 			},
 		},
 		{
+			input: "start work read only",
+			want: ParsedBeginStatement{
+				query:       "start work read only",
+				Identifiers: []Identifier{{Parts: []string{"transaction_read_only"}}},
+				Literals:    []Literal{{Value: "true"}},
+			},
+		},
+		{
+			input: "begin read write",
+			want: ParsedBeginStatement{
+				query:       "begin read write",
+				Identifiers: []Identifier{{Parts: []string{"transaction_read_only"}}},
+				Literals:    []Literal{{Value: "false"}},
+			},
+		},
+		{
+			input: "begin read write, isolation level repeatable read",
+			want: ParsedBeginStatement{
+				query:       "begin read write, isolation level repeatable read",
+				Identifiers: []Identifier{{Parts: []string{"transaction_read_only"}}, {Parts: []string{"isolation_level"}}},
+				Literals:    []Literal{{Value: "false"}, {Value: "repeatable_read"}},
+			},
+		},
+		{
+			// Note that it is possible to set multiple conflicting transaction options in one statement.
+			// This statement for example sets the transaction to both read/write and read-only.
+			// The last option will take precedence, as these options are essentially the same as executing the
+			// following statements sequentially after the BEGIN TRANSACTION statement:
+			// SET TRANSACTION READ WRITE
+			// SET TRANSACTION ISOLATION LEVEL REPEATABLE READ
+			// SET TRANSACTION READ ONLY
+			// SET TRANSACTION DEFERRABLE
+			input: "begin transaction \nread write,\nisolation level repeatable read\nread only\ndeferrable",
+			want: ParsedBeginStatement{
+				query: "begin transaction \nread write,\nisolation level repeatable read\nread only\ndeferrable",
+				Identifiers: []Identifier{
+					{Parts: []string{"transaction_read_only"}},
+					{Parts: []string{"isolation_level"}},
+					{Parts: []string{"transaction_read_only"}},
+					{Parts: []string{"transaction_deferrable"}},
+				},
+				Literals: []Literal{
+					{Value: "false"},
+					{Value: "repeatable_read"},
+					{Value: "true"},
+					{Value: "true"},
+				},
+			},
+		},
+		{
 			input:   "start foo",
 			wantErr: true,
 		},
@@ -541,7 +623,7 @@ func TestParseBeginStatementPostgreSQL(t *testing.T) {
 					t.Fatalf("parseStatement(%q) should have returned a *parsedBeginStatement", test.input)
 				}
 				if !reflect.DeepEqual(*showStmt, test.want) {
-					t.Errorf("parseStatement(%q) = %v, want %v", test.input, *showStmt, test.want)
+					t.Errorf("parseStatement(%q) mismatch\n Got: %v\nWant: %v", test.input, *showStmt, test.want)
 				}
 			}
 		})

@@ -230,34 +230,49 @@ func (s *ParsedSetStatement) parseSetTransaction(sp *simpleParser, query string)
 	s.IsLocal = true
 	s.IsTransaction = true
 
+	var err error
+	s.Identifiers, s.Literals, err = parseTransactionOptions(sp)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func parseTransactionOptions(sp *simpleParser) ([]Identifier, []Literal, error) {
+	identifiers := make([]Identifier, 0, 2)
+	literals := make([]Literal, 0, 2)
+	var err error
 	for {
 		if sp.peekKeyword("ISOLATION") {
-			if err := s.parseSetTransactionIsolationLevel(sp, query); err != nil {
-				return err
+			identifiers, literals, err = parseTransactionIsolationLevel(sp, identifiers, literals)
+			if err != nil {
+				return nil, nil, err
 			}
 		} else if sp.peekKeyword("READ") {
-			if err := s.parseSetTransactionMode(sp, query); err != nil {
-				return err
+			identifiers, literals, err = parseTransactionMode(sp, identifiers, literals)
+			if err != nil {
+				return nil, nil, err
 			}
 		} else if sp.statementParser.Dialect == databasepb.DatabaseDialect_POSTGRESQL && (sp.peekKeyword("DEFERRABLE") || sp.peekKeyword("NOT")) {
 			// https://www.postgresql.org/docs/current/sql-set-transaction.html
-			if err := s.parseSetTransactionDeferrable(sp, query); err != nil {
-				return err
+			identifiers, literals, err = parseTransactionDeferrable(sp, identifiers, literals)
+			if err != nil {
+				return nil, nil, err
 			}
 		} else {
-			return status.Error(codes.InvalidArgument, "invalid TRANSACTION option, expected one of ISOLATION LEVEL, READ WRITE, or READ ONLY")
+			return nil, nil, status.Error(codes.InvalidArgument, "invalid TRANSACTION option, expected one of ISOLATION LEVEL, READ WRITE, or READ ONLY")
 		}
 		if !sp.hasMoreTokens() {
-			return nil
+			return identifiers, literals, nil
 		}
 		// Eat and ignore any commas separating the various options.
 		sp.eatToken(',')
 	}
 }
 
-func (s *ParsedSetStatement) parseSetTransactionIsolationLevel(sp *simpleParser, query string) error {
+func parseTransactionIsolationLevel(sp *simpleParser, identifiers []Identifier, literals []Literal) ([]Identifier, []Literal, error) {
 	if !sp.eatKeywords([]string{"ISOLATION", "LEVEL"}) {
-		return status.Errorf(codes.InvalidArgument, "syntax error: expected ISOLATION LEVEL")
+		return nil, nil, status.Errorf(codes.InvalidArgument, "syntax error: expected ISOLATION LEVEL")
 	}
 	var value Literal
 	if sp.eatKeyword("SERIALIZABLE") {
@@ -265,42 +280,42 @@ func (s *ParsedSetStatement) parseSetTransactionIsolationLevel(sp *simpleParser,
 	} else if sp.eatKeywords([]string{"REPEATABLE", "READ"}) {
 		value = Literal{Value: "repeatable_read"}
 	} else {
-		return status.Errorf(codes.InvalidArgument, "syntax error: expected SERIALIZABLE OR REPETABLE READ")
+		return nil, nil, status.Errorf(codes.InvalidArgument, "syntax error: expected SERIALIZABLE OR REPETABLE READ")
 	}
 
-	s.Identifiers = append(s.Identifiers, Identifier{Parts: []string{"isolation_level"}})
-	s.Literals = append(s.Literals, value)
-	return nil
+	identifiers = append(identifiers, Identifier{Parts: []string{"isolation_level"}})
+	literals = append(literals, value)
+	return identifiers, literals, nil
 }
 
-func (s *ParsedSetStatement) parseSetTransactionMode(sp *simpleParser, query string) error {
+func parseTransactionMode(sp *simpleParser, identifiers []Identifier, literals []Literal) ([]Identifier, []Literal, error) {
 	readOnly := false
 	if sp.eatKeywords([]string{"READ", "ONLY"}) {
 		readOnly = true
 	} else if sp.eatKeywords([]string{"READ", "WRITE"}) {
 		readOnly = false
 	} else {
-		return status.Errorf(codes.InvalidArgument, "syntax error: expected READ ONLY or READ WRITE")
+		return nil, nil, status.Errorf(codes.InvalidArgument, "syntax error: expected READ ONLY or READ WRITE")
 	}
 
-	s.Identifiers = append(s.Identifiers, Identifier{Parts: []string{"transaction_read_only"}})
-	s.Literals = append(s.Literals, Literal{Value: fmt.Sprintf("%v", readOnly)})
-	return nil
+	identifiers = append(identifiers, Identifier{Parts: []string{"transaction_read_only"}})
+	literals = append(literals, Literal{Value: fmt.Sprintf("%v", readOnly)})
+	return identifiers, literals, nil
 }
 
-func (s *ParsedSetStatement) parseSetTransactionDeferrable(sp *simpleParser, query string) error {
+func parseTransactionDeferrable(sp *simpleParser, identifiers []Identifier, literals []Literal) ([]Identifier, []Literal, error) {
 	deferrable := false
 	if sp.eatKeywords([]string{"NOT", "DEFERRABLE"}) {
 		deferrable = false
 	} else if sp.eatKeyword("DEFERRABLE") {
 		deferrable = true
 	} else {
-		return status.Errorf(codes.InvalidArgument, "syntax error: expected [NOT] DEFERRABLE")
+		return nil, nil, status.Errorf(codes.InvalidArgument, "syntax error: expected [NOT] DEFERRABLE")
 	}
 
-	s.Identifiers = append(s.Identifiers, Identifier{Parts: []string{"transaction_deferrable"}})
-	s.Literals = append(s.Literals, Literal{Value: fmt.Sprintf("%v", deferrable)})
-	return nil
+	identifiers = append(identifiers, Identifier{Parts: []string{"transaction_deferrable"}})
+	literals = append(literals, Literal{Value: fmt.Sprintf("%v", deferrable)})
+	return identifiers, literals, nil
 }
 
 // ParsedResetStatement is a statement of the form
@@ -496,6 +511,12 @@ func (s *ParsedAbortBatchStatement) parse(parser *StatementParser, query string)
 
 type ParsedBeginStatement struct {
 	query string
+	// Identifiers contains the transaction properties that were included in the BEGIN statement. E.g. the statement
+	// BEGIN TRANSACTION READ ONLY contains the transaction property 'transaction_read_only'.
+	Identifiers []Identifier
+	// Literals contains the transaction property values that were included in the BEGIN statement. E.g. the statement
+	// BEGIN TRANSACTION READ ONLY contains the value 'true' for the property 'transaction_read_only'.
+	Literals []Literal
 }
 
 func (s *ParsedBeginStatement) Name() string {
@@ -508,9 +529,8 @@ func (s *ParsedBeginStatement) Query() string {
 
 func (s *ParsedBeginStatement) parse(parser *StatementParser, query string) error {
 	// Parse a statement of the form
-	// GoogleSQL: BEGIN [TRANSACTION]
+	// GoogleSQL: BEGIN [TRANSACTION] [READ WRITE | READ ONLY | ISOLATION LEVEL {SERIALIZABLE | READ COMMITTED}]
 	// PostgreSQL: {START | BEGIN} [{TRANSACTION | WORK}] (https://www.postgresql.org/docs/current/sql-begin.html)
-	// TODO: Support transaction modes in the BEGIN / START statement.
 	sp := &simpleParser{sql: []byte(query), statementParser: parser}
 	if sp.statementParser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
 		if !sp.eatKeyword("START") && !sp.eatKeyword("BEGIN") {
@@ -531,8 +551,13 @@ func (s *ParsedBeginStatement) parse(parser *StatementParser, query string) erro
 	}
 
 	if sp.hasMoreTokens() {
-		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
+		var err error
+		s.Identifiers, s.Literals, err = parseTransactionOptions(sp)
+		if err != nil {
+			return err
+		}
 	}
+
 	s.query = query
 	return nil
 }
