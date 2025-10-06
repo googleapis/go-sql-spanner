@@ -5,21 +5,15 @@ require_relative "lib/spannerlib/ruby/version"
 Gem::Specification.new do |spec|
   spec.name = "spannerlib-ruby"
   spec.version = Spannerlib::Ruby::VERSION
-  spec.authors = ["Spannerlib Contributors"]
-  spec.email = ["spannerlib@example.com"]
+  spec.authors = ["Google LLC"]
+  spec.email = ["cloud-spanner-developers@googlegroups.com"]
 
   spec.summary = "Ruby wrapper for the Spanner native library"
   spec.description = "Lightweight Ruby FFI bindings for the Spanner native library produced from the Go implementation."
-  # Use an example homepage for local builds; replace with your project's URL.
-  spec.homepage = "https://example.com/spannerlib-ruby"
+  spec.homepage = "https://github.com/googleapis/go-sql-spanner/tree/main/spannerlib/wrappers/spannerlib-ruby"
   spec.license = "Apache 2.0 License"
   spec.required_ruby_version = ">= 3.1.0"
 
-  spec.metadata["allowed_push_host"] = "TODO: Set to your gem server 'https://example.com'"
-
-  spec.metadata["homepage_uri"] = spec.homepage || "https://example.com"
-  spec.metadata["source_code_uri"] = "https://example.com/source"
-  spec.metadata["changelog_uri"] = "https://example.com/CHANGELOG.md"
   spec.metadata["rubygems_mfa_required"] = "true"
 
   spec.bindir = "exe"
