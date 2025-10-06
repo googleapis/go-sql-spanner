@@ -1,3 +1,17 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # frozen_string_literal: true
 
 # rubocop:disable Metrics/ModuleLength
@@ -13,7 +27,12 @@ require "ffi"
 module SpannerLib
   extend FFI::Library
 
-  ffi_lib File.expand_path("../../shared/spannerlib.so", __dir__)
+  def self.library_path
+    lib_dir = File.expand_path(__dir__)
+    Dir.glob(File.join(lib_dir, "*/spannerlib.#{FFI::Platform::LIBSUFFIX}")).first
+  end
+
+  ffi_lib library_path
 
   class GoString < FFI::Struct
     layout :p,   :pointer,
@@ -70,7 +89,6 @@ module SpannerLib
   def self.close_pool(pool_id)
     message = ClosePool(pool_id)
     handle_status_response(message, "ClosePool")
-    nil
   end
 
   def self.create_connection(pool_id)
@@ -81,7 +99,6 @@ module SpannerLib
   def self.close_connection(pool_id, conn_id)
     message = CloseConnection(pool_id, conn_id)
     handle_status_response(message, "CloseConnection")
-    nil
   end
 
   def self.release(pinner)
@@ -128,6 +145,7 @@ module SpannerLib
         raise "#{func_name} failed with code #{message[:code]}: #{error_msg}"
       end
     end
+    nil
   end
 
   # rubocop:disable Metrics/MethodLength
@@ -191,7 +209,6 @@ module SpannerLib
   def self.rollback(pool_id, conn_id)
     message = Rollback(pool_id, conn_id)
     handle_status_response(message, "Rollback")
-    nil
   end
 
   def self.execute(pool_id, conn_id, proto_bytes)
@@ -226,7 +243,6 @@ module SpannerLib
   def self.close_rows(pool_id, conn_id, rows_id)
     message = CloseRows(pool_id, conn_id, rows_id)
     handle_status_response(message, "CloseRows")
-    nil
   end
 end
 

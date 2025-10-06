@@ -6,3 +6,5 @@ shared/
 *.gem
 .DS_Store
 *.swp
+ext/
+Gemfile.lock
