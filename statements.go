@@ -279,10 +279,19 @@ type executableBeginStatement struct {
 }
 
 func (s *executableBeginStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+	if len(s.stmt.Identifiers) != len(s.stmt.Literals) {
+		return nil, status.Errorf(codes.InvalidArgument, "statement contains %d identifiers, but %d values given", len(s.stmt.Identifiers), len(s.stmt.Literals))
+	}
 	_, err := c.BeginTx(ctx, driver.TxOptions{})
 	if err != nil {
 		return nil, err
 	}
+	for index := range s.stmt.Identifiers {
+		if err := c.setConnectionVariable(s.stmt.Identifiers[index], s.stmt.Literals[index].Value /*IsLocal=*/, true /*IsTransaction=*/, true); err != nil {
+			return nil, err
+		}
+	}
+
 	return driver.ResultNoRows, nil
 }
 
