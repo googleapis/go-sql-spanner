@@ -531,6 +531,7 @@ func (s *ParsedBeginStatement) parse(parser *StatementParser, query string) erro
 	// Parse a statement of the form
 	// GoogleSQL: BEGIN [TRANSACTION] [READ WRITE | READ ONLY | ISOLATION LEVEL {SERIALIZABLE | READ COMMITTED}]
 	// PostgreSQL: {START | BEGIN} [{TRANSACTION | WORK}] (https://www.postgresql.org/docs/current/sql-begin.html)
+	// TODO: Support transaction modes in the BEGIN / START statement.
 	sp := &simpleParser{sql: []byte(query), statementParser: parser}
 	if sp.statementParser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
 		if !sp.eatKeyword("START") && !sp.eatKeyword("BEGIN") {

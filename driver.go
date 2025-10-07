@@ -51,7 +51,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const userAgent = "go-sql-spanner/1.18.1" // x-release-please-version
+const userAgent = "go-sql-spanner/1.19.0" // x-release-please-version
 
 const gormModule = "github.com/googleapis/go-gorm-spanner"
 const gormUserAgent = "go-gorm-spanner"
@@ -372,6 +372,10 @@ type ConnectorConfig struct {
 	// Leave this empty to use the standard Spanner API endpoint.
 	Host string
 
+	// The expected server name in the TLS handshake.
+	// Leave this empty to use the endpoint hostname.
+	Authority string
+
 	// Project, Instance, and Database identify the database that the connector
 	// should create connections for.
 	Project  string
@@ -567,6 +571,10 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	assignPropertyValueIfExists(state, propertyEndpoint, &connectorConfig.Host)
 	if connectorConfig.Host != "" {
 		opts = append(opts, option.WithEndpoint(connectorConfig.Host))
+	}
+	assignPropertyValueIfExists(state, propertyAuthority, &connectorConfig.Authority)
+	if connectorConfig.Authority != "" {
+		opts = append(opts, option.WithGRPCDialOption(grpc.WithAuthority(connectorConfig.Authority)))
 	}
 	if val := propertyCredentials.GetValueOrDefault(state); val != "" {
 		opts = append(opts, option.WithCredentialsFile(val))
@@ -1148,7 +1156,6 @@ func BeginReadWriteTransaction(ctx context.Context, db *sql.DB, options ReadWrit
 	}
 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
-		clearTempReadWriteTransactionOptions(conn)
 		return nil, err
 	}
 	return tx, nil
@@ -1164,11 +1171,6 @@ func withTempReadWriteTransactionOptions(conn *sql.Conn, options *ReadWriteTrans
 		spannerConn.withTempTransactionOptions(options)
 		return nil
 	})
-}
-
-func clearTempReadWriteTransactionOptions(conn *sql.Conn) {
-	_ = withTempReadWriteTransactionOptions(conn, nil)
-	_ = conn.Close()
 }
 
 // ReadOnlyTransactionOptions can be used to create a read-only transaction
@@ -1526,6 +1528,24 @@ func toProtoIsolationLevel(level sql.IsolationLevel) (spannerpb.TransactionOptio
 
 func toProtoIsolationLevelOrDefault(level sql.IsolationLevel) spannerpb.TransactionOptions_IsolationLevel {
 	res, _ := toProtoIsolationLevel(level)
+	return res
+}
+
+func toSqlIsolationLevel(level spannerpb.TransactionOptions_IsolationLevel) (sql.IsolationLevel, error) {
+	switch level {
+	case spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED:
+		return sql.LevelDefault, nil
+	case spannerpb.TransactionOptions_SERIALIZABLE:
+		return sql.LevelSerializable, nil
+	case spannerpb.TransactionOptions_REPEATABLE_READ:
+		return sql.LevelRepeatableRead, nil
+	default:
+	}
+	return sql.LevelDefault, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid or unsupported isolation level: %v", level))
+}
+
+func toSqlIsolationLevelOrDefault(level spannerpb.TransactionOptions_IsolationLevel) sql.IsolationLevel {
+	res, _ := toSqlIsolationLevel(level)
 	return res
 }
 

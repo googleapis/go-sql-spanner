@@ -275,6 +275,27 @@ var propertyMaxCommitDelay = createConnectionProperty(
 	connectionstate.ContextUser,
 	connectionstate.ConvertDuration,
 )
+var propertyCommitPriority = createConnectionProperty(
+	"commit_priority",
+	"Sets the priority for commit RPC invocations from this connection (HIGH/MEDIUM/LOW/UNSPECIFIED). "+
+		"The default is UNSPECIFIED.",
+	spannerpb.RequestOptions_PRIORITY_UNSPECIFIED,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	func(value string) (spannerpb.RequestOptions_Priority, error) {
+		return parseRpcPriority(value)
+	},
+)
+var propertyReturnCommitStats = createConnectionProperty(
+	"return_commit_stats",
+	"return_commit_stats determines whether transactions should request Spanner to return commit statistics.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
 
 // ------------------------------------------------------------------------------------------------
 // Statement connection properties.
@@ -298,6 +319,17 @@ var propertyEndpoint = createConnectionProperty(
 		"when auto_config_emulator=false, and the default Spanner emulator endpoint (localhost:9010) when "+
 		"auto_config_emulator=true. This property takes precedence over any host name at the start of the "+
 		"connection string.",
+	"",
+	false,
+	nil,
+	connectionstate.ContextStartup,
+	connectionstate.ConvertString,
+)
+var propertyAuthority = createConnectionProperty(
+	"authority",
+	"The expected server name in the TLS handshake. By default, the endpoint hostname is used. This option "+
+		"is useful when connecting to Spanner via Google Private Connect or other custom endpoints where the "+
+		"endpoint hostname does not match the server’s TLS certificate.",
 	"",
 	false,
 	nil,

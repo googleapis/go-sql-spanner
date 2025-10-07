@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.19.0](https://github.com/googleapis/go-sql-spanner/compare/v1.18.1...v1.19.0) (2025-10-07)
+
+
+### Features
+
+* Add authority param support to DSN ([#546](https://github.com/googleapis/go-sql-spanner/issues/546)) ([002d386](https://github.com/googleapis/go-sql-spanner/commit/002d386b88d031ad4c8e8cb98153678ad5a74cba))
+* **ruby:** Add Ruby FFI wrapper for spannerlib ([#545](https://github.com/googleapis/go-sql-spanner/issues/545)) ([bb87d96](https://github.com/googleapis/go-sql-spanner/commit/bb87d9605f38cb875ec83a61a216d8697e60f490))
+
+
+### Bug Fixes
+
+* Update all dependencies ([#542](https://github.com/googleapis/go-sql-spanner/issues/542)) ([fba2986](https://github.com/googleapis/go-sql-spanner/commit/fba2986be9416ba761285645644d9a5a8eb7180b))
+* Update dependency net.java.dev.jna:jna to v5.18.1 ([#544](https://github.com/googleapis/go-sql-spanner/issues/544)) ([98f2429](https://github.com/googleapis/go-sql-spanner/commit/98f24298fe58ef31ddf8a35923912e998e4d133b))
+* Update module github.com/googleapis/go-sql-spanner to v1.18.1 ([#540](https://github.com/googleapis/go-sql-spanner/issues/540)) ([1eca441](https://github.com/googleapis/go-sql-spanner/commit/1eca4414dfddef2c5e9e3642712317c3929738be))
+
 ## [1.18.1](https://github.com/googleapis/go-sql-spanner/compare/v1.18.0...v1.18.1) (2025-09-23)
 
 
