@@ -24,6 +24,7 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestBeginAndCommit(t *testing.T) {
@@ -400,6 +401,169 @@ func TestDdlInTransaction(t *testing.T) {
 	_, err = Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: "create table my_table (id int64 primary key)"})
 	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
 		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	if err := CloseConnection(ctx, poolId, connId); err != nil {
+		t.Fatalf("CloseConnection returned unexpected error: %v", err)
+	}
+	if err := ClosePool(ctx, poolId); err != nil {
+		t.Fatalf("ClosePool returned unexpected error: %v", err)
+	}
+}
+
+func TestTransactionOptionsAsSqlStatements(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolId, err := CreatePool(ctx, dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	if err := BeginTransaction(ctx, poolId, connId, &spannerpb.TransactionOptions{}); err != nil {
+		t.Fatalf("BeginTransaction returned unexpected error: %v", err)
+	}
+
+	// Set some local transaction options.
+	if rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: "set local transaction_tag = 'my_tag'"}); err != nil {
+		t.Fatalf("setting transaction_tag returned unexpected error: %v", err)
+	} else {
+		_ = CloseRows(ctx, poolId, connId, rowsId)
+	}
+	if rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: "set local retry_aborts_internally = false"}); err != nil {
+		t.Fatalf("setting retry_aborts_internally returned unexpected error: %v", err)
+	} else {
+		_ = CloseRows(ctx, poolId, connId, rowsId)
+	}
+
+	// Execute a statement in the transaction.
+	if rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: testutil.UpdateBarSetFoo}); err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
+	} else {
+		_ = CloseRows(ctx, poolId, connId, rowsId)
+	}
+
+	// Abort the transaction to verify that the retry_aborts_internally setting was respected.
+	server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+		Errors: []error{status.Error(codes.Aborted, "Aborted")},
+	})
+
+	// Commit the transaction. This should fail with an Aborted error.
+	if _, err := Commit(ctx, poolId, connId); err == nil {
+		t.Fatal("missing expected error")
+	} else {
+		if g, w := spanner.ErrCode(err), codes.Aborted; g != w {
+			t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+
+	// Verify that the transaction_tag setting was respected.
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("Execute request count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	executeRequest := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+	if executeRequest.RequestOptions == nil {
+		t.Fatalf("Execute request options not set")
+	}
+	if g, w := executeRequest.RequestOptions.TransactionTag, "my_tag"; g != w {
+		t.Fatalf("TransactionTag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("Commit request count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	commitRequest := commitRequests[0].(*spannerpb.CommitRequest)
+	if commitRequest.RequestOptions == nil {
+		t.Fatalf("Commit request options not set")
+	}
+	if g, w := commitRequest.RequestOptions.TransactionTag, "my_tag"; g != w {
+		t.Fatalf("TransactionTag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	if err := CloseConnection(ctx, poolId, connId); err != nil {
+		t.Fatalf("CloseConnection returned unexpected error: %v", err)
+	}
+	if err := ClosePool(ctx, poolId); err != nil {
+		t.Fatalf("ClosePool returned unexpected error: %v", err)
+	}
+}
+
+func TestReadOnlyTransactionOptionsAsSqlStatements(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolId, err := CreatePool(ctx, dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	// Start a read-only transaction without any further options.
+	if err := BeginTransaction(ctx, poolId, connId, &spannerpb.TransactionOptions{
+		Mode: &spannerpb.TransactionOptions_ReadOnly_{
+			ReadOnly: &spannerpb.TransactionOptions_ReadOnly{},
+		},
+	}); err != nil {
+		t.Fatalf("BeginTransaction returned unexpected error: %v", err)
+	}
+
+	// Set a local read-only transaction options.
+	if rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: "set local read_only_staleness = 'exact_staleness 10s'"}); err != nil {
+		t.Fatalf("setting read_only_staleness returned unexpected error: %v", err)
+	} else {
+		_ = CloseRows(ctx, poolId, connId, rowsId)
+	}
+
+	// Execute a statement in the transaction.
+	if rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: testutil.SelectFooFromBar}); err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
+	} else {
+		_ = CloseRows(ctx, poolId, connId, rowsId)
+	}
+
+	// Commit the transaction to end it.
+	if _, err := Commit(ctx, poolId, connId); err != nil {
+		t.Fatalf("commit returned unexpected error: %v", err)
+	}
+
+	// Verify that the read-only staleness setting was used.
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("Execute request count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	executeRequest := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+	if executeRequest.GetTransaction() == nil || executeRequest.GetTransaction().GetBegin() == nil || executeRequest.GetTransaction().GetBegin().GetReadOnly() == nil {
+		t.Fatal("ExecuteRequest does not contain a BeginTransaction option")
+	}
+
+	readOnly := executeRequest.GetTransaction().GetBegin().GetReadOnly()
+	if readOnly.GetExactStaleness() == nil {
+		t.Fatal("BeginTransaction does not contain a ExactStaleness option")
+	}
+	if g, w := readOnly.GetExactStaleness().GetSeconds(), int64(10); g != w {
+		t.Fatalf("read staleness mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// There should be no commit requests, as committing a read-only transaction is a no-op on Spanner.
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 0; g != w {
+		t.Fatalf("Commit request count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
 	if err := CloseConnection(ctx, poolId, connId); err != nil {

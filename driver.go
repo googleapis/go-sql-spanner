@@ -1156,7 +1156,6 @@ func BeginReadWriteTransaction(ctx context.Context, db *sql.DB, options ReadWrit
 	}
 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
-		clearTempReadWriteTransactionOptions(conn)
 		return nil, err
 	}
 	return tx, nil
@@ -1172,11 +1171,6 @@ func withTempReadWriteTransactionOptions(conn *sql.Conn, options *ReadWriteTrans
 		spannerConn.withTempTransactionOptions(options)
 		return nil
 	})
-}
-
-func clearTempReadWriteTransactionOptions(conn *sql.Conn) {
-	_ = withTempReadWriteTransactionOptions(conn, nil)
-	_ = conn.Close()
 }
 
 // ReadOnlyTransactionOptions can be used to create a read-only transaction
@@ -1534,6 +1528,24 @@ func toProtoIsolationLevel(level sql.IsolationLevel) (spannerpb.TransactionOptio
 
 func toProtoIsolationLevelOrDefault(level sql.IsolationLevel) spannerpb.TransactionOptions_IsolationLevel {
 	res, _ := toProtoIsolationLevel(level)
+	return res
+}
+
+func toSqlIsolationLevel(level spannerpb.TransactionOptions_IsolationLevel) (sql.IsolationLevel, error) {
+	switch level {
+	case spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED:
+		return sql.LevelDefault, nil
+	case spannerpb.TransactionOptions_SERIALIZABLE:
+		return sql.LevelSerializable, nil
+	case spannerpb.TransactionOptions_REPEATABLE_READ:
+		return sql.LevelRepeatableRead, nil
+	default:
+	}
+	return sql.LevelDefault, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid or unsupported isolation level: %v", level))
+}
+
+func toSqlIsolationLevelOrDefault(level spannerpb.TransactionOptions_IsolationLevel) sql.IsolationLevel {
+	res, _ := toSqlIsolationLevel(level)
 	return res
 }
 
