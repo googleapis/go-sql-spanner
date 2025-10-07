@@ -95,16 +95,9 @@ RSpec.describe "Connection APIs against Spanner emulator", :integration do
     @conn.commit
 
     select_req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: "SELECT id, name FROM test_table ORDER BY id")
-    rows_id = @conn.execute(select_req)
+    rows = @conn.execute(select_req)
 
-    all_rows = []
-    loop do
-      row_bytes = @conn.next_rows(rows_id, 1)
-      break if row_bytes.nil? || row_bytes.empty?
-
-      all_rows << Google::Protobuf::ListValue.decode(row_bytes)
-    end
-    @conn.close_rows(rows_id)
+    all_rows = rows.map { |row_bytes| Google::Protobuf::ListValue.decode(row_bytes) }
 
     expect(all_rows.length).to eq(2)
     expect(all_rows[0].values[1].string_value).to eq("Alice")
@@ -130,16 +123,9 @@ RSpec.describe "Connection APIs against Spanner emulator", :integration do
     @conn.write_mutations(insert_data_req)
 
     select_req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: "SELECT id, name FROM test_table ORDER BY id")
-    rows_id = @conn.execute(select_req)
+    rows = @conn.execute(select_req)
 
-    all_rows = []
-    loop do
-      row_bytes = @conn.next_rows(rows_id, 1)
-      break if row_bytes.nil? || row_bytes.empty?
-
-      all_rows << Google::Protobuf::ListValue.decode(row_bytes)
-    end
-    @conn.close_rows(rows_id)
+    all_rows = rows.map { |row_bytes| Google::Protobuf::ListValue.decode(row_bytes) }
 
     expect(all_rows.length).to eq(2)
     expect(all_rows[0].values[1].string_value).to eq("Charlie")
@@ -158,7 +144,7 @@ RSpec.describe "Connection APIs against Spanner emulator", :integration do
         )
       ]
     )
-    expect { @conn.write_mutations(insert_data_req) }.to raise_error(RuntimeError, /read-only transactions cannot write/)
+    expect { @conn.write_mutations(insert_data_req) }.to raise_error(SpannerLibException, /read-only transactions cannot write/)
 
     @conn.rollback
   end

@@ -42,4 +42,3 @@ task :compile do
 end
 
 task default: %i[compile spec rubocop]
-
