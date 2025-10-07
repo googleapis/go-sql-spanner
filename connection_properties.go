@@ -237,6 +237,15 @@ var propertyTransactionReadOnly = createConnectionProperty(
 	connectionstate.ContextUser,
 	connectionstate.ConvertBool,
 )
+var propertyTransactionDeferrable = createConnectionProperty(
+	"transaction_deferrable",
+	"transaction_deferrable is a no-op on Spanner. It is defined in this driver for compatibility with PostgreSQL.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
 var propertyExcludeTxnFromChangeStreams = createConnectionProperty(
 	"exclude_txn_from_change_streams",
 	"exclude_txn_from_change_streams determines whether transactions on this connection should be excluded from "+
@@ -319,6 +328,17 @@ var propertyEndpoint = createConnectionProperty(
 		"when auto_config_emulator=false, and the default Spanner emulator endpoint (localhost:9010) when "+
 		"auto_config_emulator=true. This property takes precedence over any host name at the start of the "+
 		"connection string.",
+	"",
+	false,
+	nil,
+	connectionstate.ContextStartup,
+	connectionstate.ConvertString,
+)
+var propertyAuthority = createConnectionProperty(
+	"authority",
+	"The expected server name in the TLS handshake. By default, the endpoint hostname is used. This option "+
+		"is useful when connecting to Spanner via Google Private Connect or other custom endpoints where the "+
+		"endpoint hostname does not match the server’s TLS certificate.",
 	"",
 	false,
 	nil,

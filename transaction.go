@@ -224,10 +224,6 @@ type readOnlyTransaction struct {
 	timestampBoundCallback func() spanner.TimestampBound
 }
 
-func (tx *readOnlyTransaction) isReadOnly() bool {
-	return true
-}
-
 func (tx *readOnlyTransaction) Commit() error {
 	tx.logger.Debug("committing transaction")
 	// Read-only transactions don't really commit, but closing the transaction

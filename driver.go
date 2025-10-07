@@ -51,7 +51,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const userAgent = "go-sql-spanner/1.18.0" // x-release-please-version
+const userAgent = "go-sql-spanner/1.19.0" // x-release-please-version
 
 const gormModule = "github.com/googleapis/go-gorm-spanner"
 const gormUserAgent = "go-gorm-spanner"
@@ -372,6 +372,10 @@ type ConnectorConfig struct {
 	// Leave this empty to use the standard Spanner API endpoint.
 	Host string
 
+	// The expected server name in the TLS handshake.
+	// Leave this empty to use the endpoint hostname.
+	Authority string
+
 	// Project, Instance, and Database identify the database that the connector
 	// should create connections for.
 	Project  string
@@ -567,6 +571,10 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	assignPropertyValueIfExists(state, propertyEndpoint, &connectorConfig.Host)
 	if connectorConfig.Host != "" {
 		opts = append(opts, option.WithEndpoint(connectorConfig.Host))
+	}
+	assignPropertyValueIfExists(state, propertyAuthority, &connectorConfig.Authority)
+	if connectorConfig.Authority != "" {
+		opts = append(opts, option.WithGRPCDialOption(grpc.WithAuthority(connectorConfig.Authority)))
 	}
 	if val := propertyCredentials.GetValueOrDefault(state); val != "" {
 		opts = append(opts, option.WithCredentialsFile(val))

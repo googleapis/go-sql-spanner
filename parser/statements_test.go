@@ -15,6 +15,7 @@
 package parser
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -128,56 +129,218 @@ func TestParseSetStatement(t *testing.T) {
 	type test struct {
 		input   string
 		want    ParsedSetStatement
+		onlyPg  bool
 		wantErr bool
 	}
 	tests := []test{
 		{
 			input: "set my_property = 'foo'",
 			want: ParsedSetStatement{
-				query:      "set my_property = 'foo'",
-				Identifier: Identifier{Parts: []string{"my_property"}},
-				Literal:    Literal{Value: "foo"},
+				query:       "set my_property = 'foo'",
+				Identifiers: []Identifier{{Parts: []string{"my_property"}}},
+				Literals:    []Literal{{Value: "foo"}},
 			},
 		},
 		{
 			input: "set local my_property = 'foo'",
 			want: ParsedSetStatement{
-				query:      "set local my_property = 'foo'",
-				Identifier: Identifier{Parts: []string{"my_property"}},
-				Literal:    Literal{Value: "foo"},
-				IsLocal:    true,
+				query:       "set local my_property = 'foo'",
+				Identifiers: []Identifier{{Parts: []string{"my_property"}}},
+				Literals:    []Literal{{Value: "foo"}},
+				IsLocal:     true,
 			},
 		},
 		{
 			input: "set my_property = 1",
 			want: ParsedSetStatement{
-				query:      "set my_property = 1",
-				Identifier: Identifier{Parts: []string{"my_property"}},
-				Literal:    Literal{Value: "1"},
+				query:       "set my_property = 1",
+				Identifiers: []Identifier{{Parts: []string{"my_property"}}},
+				Literals:    []Literal{{Value: "1"}},
 			},
 		},
 		{
 			input: "set my_property = true",
 			want: ParsedSetStatement{
-				query:      "set my_property = true",
-				Identifier: Identifier{Parts: []string{"my_property"}},
-				Literal:    Literal{Value: "true"},
+				query:       "set my_property = true",
+				Identifiers: []Identifier{{Parts: []string{"my_property"}}},
+				Literals:    []Literal{{Value: "true"}},
 			},
 		},
 		{
 			input: "set \n -- comment \n my_property /* yet more comments */ = \ntrue/*comment*/  ",
 			want: ParsedSetStatement{
-				query:      "set \n -- comment \n my_property /* yet more comments */ = \ntrue/*comment*/  ",
-				Identifier: Identifier{Parts: []string{"my_property"}},
-				Literal:    Literal{Value: "true"},
+				query:       "set \n -- comment \n my_property /* yet more comments */ = \ntrue/*comment*/  ",
+				Identifiers: []Identifier{{Parts: []string{"my_property"}}},
+				Literals:    []Literal{{Value: "true"}},
 			},
 		},
 		{
 			input: "set \n -- comment \n a.b /* yet more comments */ =\n/*comment*/'value'/*comment*/  ",
 			want: ParsedSetStatement{
-				query:      "set \n -- comment \n a.b /* yet more comments */ =\n/*comment*/'value'/*comment*/  ",
-				Identifier: Identifier{Parts: []string{"a", "b"}},
-				Literal:    Literal{Value: "value"},
+				query:       "set \n -- comment \n a.b /* yet more comments */ =\n/*comment*/'value'/*comment*/  ",
+				Identifiers: []Identifier{{Parts: []string{"a", "b"}}},
+				Literals:    []Literal{{Value: "value"}},
+			},
+		},
+		{
+			input: "set transaction isolation level serializable",
+			want: ParsedSetStatement{
+				query:         "set transaction isolation level serializable",
+				Identifiers:   []Identifier{{Parts: []string{"isolation_level"}}},
+				Literals:      []Literal{{Value: "serializable"}},
+				IsLocal:       true,
+				IsTransaction: true,
+			},
+		},
+		{
+			input:   "set transaction isolation serializable",
+			wantErr: true,
+		},
+		{
+			input:   "set transaction isolation level serializable foo",
+			wantErr: true,
+		},
+		{
+			input:   "set isolation level serializable",
+			wantErr: true,
+		},
+		{
+			input:   "set transaction isolation level serialisable",
+			wantErr: true,
+		},
+		{
+			input: "set transaction isolation level repeatable read",
+			want: ParsedSetStatement{
+				query:         "set transaction isolation level repeatable read",
+				Identifiers:   []Identifier{{Parts: []string{"isolation_level"}}},
+				Literals:      []Literal{{Value: "repeatable_read"}},
+				IsLocal:       true,
+				IsTransaction: true,
+			},
+		},
+		{
+			input:   "set transaction isolation level repeatable",
+			wantErr: true,
+		},
+		{
+			input:   "set transaction isolation level read",
+			wantErr: true,
+		},
+		{
+			input:   "set transaction isolation level repeatable read serializable",
+			wantErr: true,
+		},
+		{
+			input:   "set transaction isolation level serializable repeatable read",
+			wantErr: true,
+		},
+		{
+			input: "set transaction read write",
+			want: ParsedSetStatement{
+				query:         "set transaction read write",
+				Identifiers:   []Identifier{{Parts: []string{"transaction_read_only"}}},
+				Literals:      []Literal{{Value: "false"}},
+				IsLocal:       true,
+				IsTransaction: true,
+			},
+		},
+		{
+			input: "set transaction read write isolation level serializable",
+			want: ParsedSetStatement{
+				query: "set transaction read write isolation level serializable",
+				Identifiers: []Identifier{
+					{Parts: []string{"transaction_read_only"}},
+					{Parts: []string{"isolation_level"}},
+				},
+				Literals: []Literal{
+					{Value: "false"},
+					{Value: "serializable"},
+				},
+				IsLocal:       true,
+				IsTransaction: true,
+			},
+		},
+		{
+			input: "set transaction read only, isolation level repeatable read",
+			want: ParsedSetStatement{
+				query: "set transaction read only, isolation level repeatable read",
+				Identifiers: []Identifier{
+					{Parts: []string{"transaction_read_only"}},
+					{Parts: []string{"isolation_level"}},
+				},
+				Literals: []Literal{
+					{Value: "true"},
+					{Value: "repeatable_read"},
+				},
+				IsLocal:       true,
+				IsTransaction: true,
+			},
+		},
+		{
+			onlyPg: true,
+			input:  "set transaction read only, isolation level repeatable read not deferrable",
+			want: ParsedSetStatement{
+				query: "set transaction read only, isolation level repeatable read not deferrable",
+				Identifiers: []Identifier{
+					{Parts: []string{"transaction_read_only"}},
+					{Parts: []string{"isolation_level"}},
+					{Parts: []string{"transaction_deferrable"}},
+				},
+				Literals: []Literal{
+					{Value: "true"},
+					{Value: "repeatable_read"},
+					{Value: "false"},
+				},
+				IsLocal:       true,
+				IsTransaction: true,
+			},
+		},
+		{
+			input: "set transaction read only",
+			want: ParsedSetStatement{
+				query:         "set transaction read only",
+				Identifiers:   []Identifier{{Parts: []string{"transaction_read_only"}}},
+				Literals:      []Literal{{Value: "true"}},
+				IsLocal:       true,
+				IsTransaction: true,
+			},
+		},
+		{
+			input:   "set transaction read",
+			wantErr: true,
+		},
+		{
+			input:   "set transaction write",
+			wantErr: true,
+		},
+		{
+			input:   "set transaction read only write",
+			wantErr: true,
+		},
+		{
+			input:   "set transaction write only",
+			wantErr: true,
+		},
+		{
+			onlyPg: true,
+			input:  "set transaction deferrable",
+			want: ParsedSetStatement{
+				query:         "set transaction deferrable",
+				Identifiers:   []Identifier{{Parts: []string{"transaction_deferrable"}}},
+				Literals:      []Literal{{Value: "true"}},
+				IsLocal:       true,
+				IsTransaction: true,
+			},
+		},
+		{
+			onlyPg: true,
+			input:  "set transaction not deferrable",
+			want: ParsedSetStatement{
+				query:         "set transaction not deferrable",
+				Identifiers:   []Identifier{{Parts: []string{"transaction_deferrable"}}},
+				Literals:      []Literal{{Value: "false"}},
+				IsLocal:       true,
+				IsTransaction: true,
 			},
 		},
 		{
@@ -205,31 +368,33 @@ func TestParseSetStatement(t *testing.T) {
 			wantErr: true,
 		},
 	}
-	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	keyword := "SET"
-	for _, test := range tests {
-		t.Run(test.input, func(t *testing.T) {
-			stmt, err := parseStatement(parser, keyword, test.input)
-			if test.wantErr {
-				if err == nil {
-					t.Fatalf("parseStatement(%q) should have failed", test.input)
+	for _, dialect := range []databasepb.DatabaseDialect{databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, databasepb.DatabaseDialect_POSTGRESQL} {
+		parser, err := NewStatementParser(dialect, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		keyword := "SET"
+		for _, test := range tests {
+			t.Run(fmt.Sprintf("%s %s", dialect, test.input), func(t *testing.T) {
+				stmt, err := parseStatement(parser, keyword, test.input)
+				if test.wantErr || (test.onlyPg && dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL) {
+					if err == nil {
+						t.Fatalf("parseStatement(%q) should have failed", test.input)
+					}
+				} else {
+					if err != nil {
+						t.Fatal(err)
+					}
+					showStmt, ok := stmt.(*ParsedSetStatement)
+					if !ok {
+						t.Fatalf("parseStatement(%q) should have returned a *parsedSetStatement", test.input)
+					}
+					if !reflect.DeepEqual(*showStmt, test.want) {
+						t.Errorf("parseStatement(%q) = %v, want %v", test.input, *showStmt, test.want)
+					}
 				}
-			} else {
-				if err != nil {
-					t.Fatal(err)
-				}
-				showStmt, ok := stmt.(*ParsedSetStatement)
-				if !ok {
-					t.Fatalf("parseStatement(%q) should have returned a *parsedSetStatement", test.input)
-				}
-				if !reflect.DeepEqual(*showStmt, test.want) {
-					t.Errorf("parseStatement(%q) = %v, want %v", test.input, *showStmt, test.want)
-				}
-			}
-		})
+			})
+		}
 	}
 }
 
