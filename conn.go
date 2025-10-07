@@ -327,13 +327,18 @@ func (c *conn) showConnectionVariable(identifier parser.Identifier) (any, bool, 
 	return c.state.GetValue(extension, name)
 }
 
-func (c *conn) setConnectionVariable(identifier parser.Identifier, value string, local bool) error {
+func (c *conn) setConnectionVariable(identifier parser.Identifier, value string, local bool, transaction bool) error {
+	if transaction && !local {
+		// When transaction == true, then local must also be true.
+		// We should never hit this condition, as this is an indication of a bug in the driver code.
+		return status.Errorf(codes.FailedPrecondition, "transaction properties must be set as a local value")
+	}
 	extension, name, err := toExtensionAndName(identifier)
 	if err != nil {
 		return err
 	}
 	if local {
-		return c.state.SetLocalValue(extension, name, value)
+		return c.state.SetLocalValue(extension, name, value, transaction)
 	}
 	return c.state.SetValue(extension, name, value, connectionstate.ContextUser)
 }
@@ -1188,6 +1193,8 @@ func (c *conn) beginTx(ctx context.Context, driverOpts driver.TxOptions, closeFu
 		}
 	}()
 
+	// TODO: Delay the actual determination of the transaction type until the first query.
+	//       This is required in order to support SET TRANSACTION READ {ONLY | WRITE}
 	readOnlyTxOpts := c.getReadOnlyTransactionOptions()
 	batchReadOnlyTxOpts := c.getBatchReadOnlyTransactionOptions()
 	if c.inTransaction() {

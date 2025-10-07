@@ -228,6 +228,24 @@ var propertyDecodeToNativeArrays = createConnectionProperty(
 // Transaction connection properties.
 // ------------------------------------------------------------------------------------------------
 
+var propertyTransactionReadOnly = createConnectionProperty(
+	"transaction_read_only",
+	"transaction_read_only is the default read-only mode for transactions on this connection.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
+var propertyTransactionDeferrable = createConnectionProperty(
+	"transaction_deferrable",
+	"transaction_deferrable is a no-op on Spanner. It is defined in this driver for compatibility with PostgreSQL.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
 var propertyExcludeTxnFromChangeStreams = createConnectionProperty(
 	"exclude_txn_from_change_streams",
 	"exclude_txn_from_change_streams determines whether transactions on this connection should be excluded from "+
