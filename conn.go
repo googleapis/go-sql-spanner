@@ -231,22 +231,25 @@ type SpannerConn interface {
 	// returned.
 	resetTransactionForRetry(ctx context.Context, errDuringCommit bool) error
 
+	// withTransactionCloseFunc sets the close function that should be registered
+	// on the next transaction on this connection. This method should only be called
+	// directly before starting a new transaction.
 	withTransactionCloseFunc(close func())
 
-	// withTempTransactionOptions sets the TransactionOptions that should be used
-	// for the next read/write transaction. This method should only be called
-	// directly before starting a new read/write transaction.
-	withTempTransactionOptions(options *ReadWriteTransactionOptions)
+	// setReadWriteTransactionOptions sets the ReadWriteTransactionOptions that should be
+	// used for the current read/write transaction. This method should be called right
+	// after starting a new read/write transaction.
+	setReadWriteTransactionOptions(options *ReadWriteTransactionOptions)
 
-	// withTempReadOnlyTransactionOptions sets the options that should be used
-	// for the next read-only transaction. This method should only be called
-	// directly before starting a new read-only transaction.
-	withTempReadOnlyTransactionOptions(options *ReadOnlyTransactionOptions)
+	// setReadOnlyTransactionOptions sets the options that should be used
+	// for the current read-only transaction. This method should be called
+	// right after starting a new read-only transaction.
+	setReadOnlyTransactionOptions(options *ReadOnlyTransactionOptions)
 
-	// withTempBatchReadOnlyTransactionOptions sets the options that should be used
-	// for the next batch read-only transaction. This method should only be called
-	// directly before starting a new batch read-only transaction.
-	withTempBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransactionOptions)
+	// setBatchReadOnlyTransactionOptions sets the options that should be used
+	// for the current batch read-only transaction. This method should be called
+	// right after starting a new batch read-only transaction.
+	setBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransactionOptions)
 }
 
 var _ SpannerConn = &conn{}
@@ -1049,7 +1052,7 @@ func (c *conn) withTransactionCloseFunc(close func()) {
 	c.tempTransactionCloseFunc = close
 }
 
-func (c *conn) withTempTransactionOptions(options *ReadWriteTransactionOptions) {
+func (c *conn) setReadWriteTransactionOptions(options *ReadWriteTransactionOptions) {
 	if options == nil {
 		return
 	}
@@ -1102,7 +1105,7 @@ func (c *conn) getTransactionOptions(execOptions *ExecOptions) ReadWriteTransact
 	return txOpts
 }
 
-func (c *conn) withTempReadOnlyTransactionOptions(options *ReadOnlyTransactionOptions) {
+func (c *conn) setReadOnlyTransactionOptions(options *ReadOnlyTransactionOptions) {
 	if options == nil {
 		return
 	}
@@ -1118,7 +1121,7 @@ func (c *conn) getReadOnlyTransactionOptions() ReadOnlyTransactionOptions {
 	return ReadOnlyTransactionOptions{TimestampBound: c.ReadOnlyStaleness(), BeginTransactionOption: c.convertDefaultBeginTransactionOption(propertyBeginTransactionOption.GetValueOrDefault(c.state))}
 }
 
-func (c *conn) withTempBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransactionOptions) {
+func (c *conn) setBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransactionOptions) {
 	if options == nil {
 		return
 	}
@@ -1137,7 +1140,7 @@ func (c *conn) getBatchReadOnlyTransactionOptions() BatchReadOnlyTransactionOpti
 // BeginReadOnlyTransaction starts a new read-only transaction on this connection.
 func (c *conn) BeginReadOnlyTransaction(ctx context.Context, options *ReadOnlyTransactionOptions, close func()) (driver.Tx, error) {
 	tx, err := c.beginTx(ctx, driver.TxOptions{ReadOnly: true}, close)
-	c.withTempReadOnlyTransactionOptions(options)
+	c.setReadOnlyTransactionOptions(options)
 	if err != nil {
 		return nil, err
 	}
@@ -1150,7 +1153,7 @@ func (c *conn) BeginReadOnlyTransaction(ctx context.Context, options *ReadOnlyTr
 // BeginReadWriteTransaction starts a new read/write transaction on this connection.
 func (c *conn) BeginReadWriteTransaction(ctx context.Context, options *ReadWriteTransactionOptions, close func()) (driver.Tx, error) {
 	tx, err := c.beginTx(ctx, driver.TxOptions{}, close)
-	c.withTempTransactionOptions(options)
+	c.setReadWriteTransactionOptions(options)
 	if err != nil {
 		return nil, err
 	}

@@ -1012,7 +1012,7 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 			// It is not a Spanner connection, so just ignore and continue without any special handling.
 			return nil
 		}
-		spannerConn.withTempTransactionOptions(transactionOptions)
+		spannerConn.setReadWriteTransactionOptions(transactionOptions)
 		return nil
 	}); err != nil {
 		return nil, err
@@ -1168,7 +1168,7 @@ func withTempReadWriteTransactionOptions(conn *sql.Conn, options *ReadWriteTrans
 			// It is not a Spanner connection.
 			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
 		}
-		spannerConn.withTempTransactionOptions(options)
+		spannerConn.setReadWriteTransactionOptions(options)
 		return nil
 	})
 }
@@ -1227,7 +1227,7 @@ func withTempReadOnlyTransactionOptions(conn *sql.Conn, options *ReadOnlyTransac
 			// It is not a Spanner connection.
 			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
 		}
-		spannerConn.withTempReadOnlyTransactionOptions(options)
+		spannerConn.setReadOnlyTransactionOptions(options)
 		return nil
 	})
 }

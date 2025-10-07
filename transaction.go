@@ -109,6 +109,12 @@ const (
 
 var _ contextTransaction = &delegatingTransaction{}
 
+// delegatingTransaction wraps a read/write or read-only transaction and delegates
+// all calls to the underlying transaction. The underlying transaction is automatically
+// created when the first query or DML statement is executed. The type of transaction is
+// determined at the moment that the underlying transaction is created. This allows an
+// application to execute statements like `set transaction read only` at the start of a
+// transaction to set the type of transaction.
 type delegatingTransaction struct {
 	conn               *conn
 	ctx                context.Context

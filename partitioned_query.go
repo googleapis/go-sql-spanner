@@ -206,7 +206,7 @@ func withTempBatchReadOnlyTransactionOptions(conn *sql.Conn, options *BatchReadO
 			// It is not a Spanner connection.
 			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
 		}
-		spannerConn.withTempBatchReadOnlyTransactionOptions(options)
+		spannerConn.setBatchReadOnlyTransactionOptions(options)
 		return nil
 	})
 }

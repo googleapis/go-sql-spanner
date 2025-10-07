@@ -509,7 +509,7 @@ func TestReadOnlyTransactionWithStaleness(t *testing.T) {
 func TestReadOnlyTransactionWithOptions(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*500)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
