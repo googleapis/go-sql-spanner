@@ -1,0 +1,16 @@
+/.bundle/
+/.yardoc
+/_yardoc/
+/coverage/
+/doc/
+/pkg/
+/spec/reports/
+/tmp/
+
+.rspec_status
+/vendor/bundle
+/shared/
+*.gem
+
+.DS_Store
+*.swp

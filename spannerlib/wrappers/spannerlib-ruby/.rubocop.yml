@@ -1,0 +1,32 @@
+AllCops:
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - 'lib/spanner_pb.rb'
+    - 'vendor/**/*'
+
+plugins:
+  - rubocop-rspec
+
+Layout/LineLength:
+  Max: 150
+
+Style/Documentation:
+  Enabled: false
+
+RSpec/ExampleLength:
+  Enabled: false
+RSpec/MultipleExpectations:
+  Enabled: false
+
+# Add this block to disable the 'let' rule
+RSpec/InstanceVariable:
+  Enabled: false
+RSpec/BeforeAfterAll:
+  Enabled: false
+RSpec/DescribeClass:
+  Exclude:
+    - 'spec/integration/**/*'
+
+Style/StringLiterals:
+  EnforcedStyle: double_quotes

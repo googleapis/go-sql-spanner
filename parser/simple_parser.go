@@ -290,6 +290,16 @@ func (p *simpleParser) eatKeywords(keywords []string) bool {
 	return true
 }
 
+// peekKeyword checks if the next keyword is the given keyword.
+// The position of the parser is not updated.
+func (p *simpleParser) peekKeyword(keyword string) bool {
+	pos := p.pos
+	defer func() {
+		p.pos = pos
+	}()
+	return p.eatKeyword(keyword)
+}
+
 // eatKeyword eats the given keyword at the current position of the parser if it exists
 // and returns true if the keyword was found. Otherwise, it returns false.
 func (p *simpleParser) eatKeyword(keyword string) bool {
@@ -323,8 +333,8 @@ func (p *simpleParser) readKeyword() string {
 		if isSpace(p.sql[p.pos]) {
 			break
 		}
-		// Only upper/lower-case letters are allowed in keywords.
-		if !((p.sql[p.pos] >= 'A' && p.sql[p.pos] <= 'Z') || (p.sql[p.pos] >= 'a' && p.sql[p.pos] <= 'z')) {
+		// Only upper/lower-case letters and underscores are allowed in keywords.
+		if !((p.sql[p.pos] >= 'A' && p.sql[p.pos] <= 'Z') || (p.sql[p.pos] >= 'a' && p.sql[p.pos] <= 'z')) && p.sql[p.pos] != '_' {
 			break
 		}
 	}

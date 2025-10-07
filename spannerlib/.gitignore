@@ -1,3 +1,10 @@
 spannerlib.h
 spannerlib.so
 grpc_server
+vendor/bundle
+shared/
+*.gem
+.DS_Store
+*.swp
+ext/
+Gemfile.lock
