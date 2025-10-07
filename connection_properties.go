@@ -228,6 +228,15 @@ var propertyDecodeToNativeArrays = createConnectionProperty(
 // Transaction connection properties.
 // ------------------------------------------------------------------------------------------------
 
+var propertyTransactionReadOnly = createConnectionProperty(
+	"transaction_read_only",
+	"transaction_read_only is the default read-only mode for transactions on this connection.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
 var propertyExcludeTxnFromChangeStreams = createConnectionProperty(
 	"exclude_txn_from_change_streams",
 	"exclude_txn_from_change_streams determines whether transactions on this connection should be excluded from "+
@@ -272,6 +281,15 @@ var propertyCommitPriority = createConnectionProperty(
 var propertyReturnCommitStats = createConnectionProperty(
 	"return_commit_stats",
 	"return_commit_stats determines whether transactions should request Spanner to return commit statistics.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
+var propertyTransactionBatchReadOnly = createConnectionProperty(
+	"transaction_batch_read_only",
+	"transaction_batch_read_only indicates whether read-only transactions on this connection should use a batch read-only transaction.",
 	false,
 	false,
 	nil,

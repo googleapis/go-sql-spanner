@@ -121,8 +121,8 @@ type Connection struct {
 // It is implemented by the spannerdriver.conn struct.
 type spannerConn interface {
 	WriteMutations(ctx context.Context, ms []*spanner.Mutation) (*spanner.CommitResponse, error)
-	BeginReadOnlyTransaction(ctx context.Context, options *spannerdriver.ReadOnlyTransactionOptions) (driver.Tx, error)
-	BeginReadWriteTransaction(ctx context.Context, options *spannerdriver.ReadWriteTransactionOptions) (driver.Tx, error)
+	BeginReadOnlyTransaction(ctx context.Context, options *spannerdriver.ReadOnlyTransactionOptions, close func()) (driver.Tx, error)
+	BeginReadWriteTransaction(ctx context.Context, options *spannerdriver.ReadWriteTransactionOptions, close func()) (driver.Tx, error)
 	Commit(ctx context.Context) (*spanner.CommitResponse, error)
 	Rollback(ctx context.Context) error
 }
@@ -155,7 +155,10 @@ func (conn *Connection) writeMutations(ctx context.Context, mutation *spannerpb.
 	}
 	var commitResponse *spanner.CommitResponse
 	if err := conn.backend.Raw(func(driverConn any) (err error) {
-		sc, _ := driverConn.(spannerConn)
+		sc, ok := driverConn.(spannerConn)
+		if !ok {
+			return status.Error(codes.Internal, "spanner driver connection does not implement spannerConn")
+		}
 		commitResponse, err = sc.WriteMutations(ctx, mutations)
 		return err
 	}); err != nil {
@@ -189,16 +192,22 @@ func (conn *Connection) BeginTransaction(ctx context.Context, txOpts *spannerpb.
 
 func (conn *Connection) beginReadOnlyTransaction(ctx context.Context, opts *spannerdriver.ReadOnlyTransactionOptions) error {
 	return conn.backend.Raw(func(driverConn any) (err error) {
-		sc, _ := driverConn.(spannerConn)
-		_, err = sc.BeginReadOnlyTransaction(ctx, opts)
+		sc, ok := driverConn.(spannerConn)
+		if !ok {
+			return status.Error(codes.Internal, "driver connection does not implement spannerConn")
+		}
+		_, err = sc.BeginReadOnlyTransaction(ctx, opts, func() {})
 		return err
 	})
 }
 
 func (conn *Connection) beginReadWriteTransaction(ctx context.Context, opts *spannerdriver.ReadWriteTransactionOptions) error {
 	return conn.backend.Raw(func(driverConn any) (err error) {
-		sc, _ := driverConn.(spannerConn)
-		_, err = sc.BeginReadWriteTransaction(ctx, opts)
+		sc, ok := driverConn.(spannerConn)
+		if !ok {
+			return status.Error(codes.Internal, "driver connection does not implement spannerConn")
+		}
+		_, err = sc.BeginReadWriteTransaction(ctx, opts, func() {})
 		return err
 	})
 }
@@ -206,8 +215,11 @@ func (conn *Connection) beginReadWriteTransaction(ctx context.Context, opts *spa
 func (conn *Connection) commit(ctx context.Context) (*spannerpb.CommitResponse, error) {
 	var response *spanner.CommitResponse
 	if err := conn.backend.Raw(func(driverConn any) (err error) {
-		spannerConn, _ := driverConn.(spannerConn)
-		response, err = spannerConn.Commit(ctx)
+		sc, ok := driverConn.(spannerConn)
+		if !ok {
+			return status.Error(codes.Internal, "driver connection does not implement spannerConn")
+		}
+		response, err = sc.Commit(ctx)
 		if err != nil {
 			return err
 		}
@@ -226,8 +238,11 @@ func (conn *Connection) commit(ctx context.Context) (*spannerpb.CommitResponse, 
 
 func (conn *Connection) rollback(ctx context.Context) error {
 	return conn.backend.Raw(func(driverConn any) (err error) {
-		spannerConn, _ := driverConn.(spannerConn)
-		return spannerConn.Rollback(ctx)
+		sc, ok := driverConn.(spannerConn)
+		if !ok {
+			return status.Error(codes.Internal, "driver connection does not implement spannerConn")
+		}
+		return sc.Rollback(ctx)
 	})
 }
 

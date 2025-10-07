@@ -53,6 +53,7 @@ type contextTransaction interface {
 	RunBatch(ctx context.Context) (driver.Result, error)
 	RunDmlBatch(ctx context.Context) (SpannerResult, error)
 	AbortBatch() (driver.Result, error)
+	IsInBatch() bool
 
 	BufferWrite(ms []*spanner.Mutation) error
 }
@@ -106,6 +107,110 @@ const (
 	txResultRollback
 )
 
+var _ contextTransaction = &delegatingTransaction{}
+
+type delegatingTransaction struct {
+	conn               *conn
+	ctx                context.Context
+	close              func(result txResult)
+	contextTransaction contextTransaction
+}
+
+func (d *delegatingTransaction) ensureActivated() error {
+	if d.contextTransaction != nil {
+		return nil
+	}
+	tx, err := d.conn.activateTransaction()
+	if err != nil {
+		return err
+	}
+	d.contextTransaction = tx
+	return nil
+}
+
+func (d *delegatingTransaction) Commit() error {
+	if d.contextTransaction == nil {
+		d.close(txResultCommit)
+		return nil
+	}
+	return d.contextTransaction.Commit()
+}
+
+func (d *delegatingTransaction) Rollback() error {
+	if d.contextTransaction == nil {
+		d.close(txResultRollback)
+		return nil
+	}
+	return d.contextTransaction.Rollback()
+}
+
+func (d *delegatingTransaction) resetForRetry(ctx context.Context) error {
+	if d.contextTransaction == nil {
+		return status.Error(codes.FailedPrecondition, "a transaction can only be reset after it has been activated")
+	}
+	return d.contextTransaction.resetForRetry(ctx)
+}
+
+func (d *delegatingTransaction) Query(ctx context.Context, stmt spanner.Statement, stmtType parser.StatementType, execOptions *ExecOptions) (rowIterator, error) {
+	if err := d.ensureActivated(); err != nil {
+		return nil, err
+	}
+	return d.contextTransaction.Query(ctx, stmt, stmtType, execOptions)
+}
+
+func (d *delegatingTransaction) partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions *ExecOptions) (driver.Rows, error) {
+	if err := d.ensureActivated(); err != nil {
+		return nil, err
+	}
+	return d.contextTransaction.partitionQuery(ctx, stmt, execOptions)
+}
+
+func (d *delegatingTransaction) ExecContext(ctx context.Context, stmt spanner.Statement, statementInfo *parser.StatementInfo, options spanner.QueryOptions) (*result, error) {
+	if err := d.ensureActivated(); err != nil {
+		return nil, err
+	}
+	return d.contextTransaction.ExecContext(ctx, stmt, statementInfo, options)
+}
+
+func (d *delegatingTransaction) StartBatchDML(options spanner.QueryOptions, automatic bool) (driver.Result, error) {
+	if err := d.ensureActivated(); err != nil {
+		return nil, err
+	}
+	return d.contextTransaction.StartBatchDML(options, automatic)
+}
+
+func (d *delegatingTransaction) RunBatch(ctx context.Context) (driver.Result, error) {
+	if err := d.ensureActivated(); err != nil {
+		return nil, err
+	}
+	return d.contextTransaction.RunBatch(ctx)
+}
+
+func (d *delegatingTransaction) RunDmlBatch(ctx context.Context) (SpannerResult, error) {
+	if err := d.ensureActivated(); err != nil {
+		return nil, err
+	}
+	return d.contextTransaction.RunDmlBatch(ctx)
+}
+
+func (d *delegatingTransaction) AbortBatch() (driver.Result, error) {
+	if err := d.ensureActivated(); err != nil {
+		return nil, err
+	}
+	return d.contextTransaction.AbortBatch()
+}
+
+func (d *delegatingTransaction) IsInBatch() bool {
+	return d.contextTransaction != nil && d.contextTransaction.IsInBatch()
+}
+
+func (d *delegatingTransaction) BufferWrite(ms []*spanner.Mutation) error {
+	if err := d.ensureActivated(); err != nil {
+		return err
+	}
+	return d.contextTransaction.BufferWrite(ms)
+}
+
 var _ contextTransaction = &readOnlyTransaction{}
 
 type readOnlyTransaction struct {
@@ -117,6 +222,10 @@ type readOnlyTransaction struct {
 	timestampBoundMu       sync.Mutex
 	timestampBoundSet      bool
 	timestampBoundCallback func() spanner.TimestampBound
+}
+
+func (tx *readOnlyTransaction) isReadOnly() bool {
+	return true
 }
 
 func (tx *readOnlyTransaction) Commit() error {
@@ -218,6 +327,10 @@ func (tx *readOnlyTransaction) RunDmlBatch(_ context.Context) (SpannerResult, er
 
 func (tx *readOnlyTransaction) AbortBatch() (driver.Result, error) {
 	return driver.ResultNoRows, nil
+}
+
+func (tx *readOnlyTransaction) IsInBatch() bool {
+	return false
 }
 
 func (tx *readOnlyTransaction) BufferWrite([]*spanner.Mutation) error {
@@ -428,7 +541,6 @@ func (tx *readWriteTransaction) Commit() (err error) {
 		return err
 	}
 	var commitResponse spanner.CommitResponse
-	// TODO: Optimize this to skip the Commit also if the transaction has not yet been used.
 	if tx.rwTx != nil {
 		if !tx.retryAborts() {
 			ts, err := tx.rwTx.CommitWithReturnResp(tx.ctx)
@@ -584,6 +696,10 @@ func (tx *readWriteTransaction) AbortBatch() (driver.Result, error) {
 	tx.logger.Debug("aborting batch")
 	tx.batch = nil
 	return driver.ResultNoRows, nil
+}
+
+func (tx *readWriteTransaction) IsInBatch() bool {
+	return tx.batch != nil
 }
 
 func (tx *readWriteTransaction) maybeRunAutoDmlBatch(ctx context.Context) error {

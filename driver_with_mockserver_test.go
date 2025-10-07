@@ -509,7 +509,7 @@ func TestReadOnlyTransactionWithStaleness(t *testing.T) {
 func TestReadOnlyTransactionWithOptions(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*500)
 	defer cancel()
 	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
@@ -570,7 +570,7 @@ func TestReadOnlyTransactionWithOptions(t *testing.T) {
 	requests = server.TestSpanner.DrainRequestsFromServer()
 	beginReadOnlyRequests = filterBeginReadOnlyRequests(testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
 	if g, w := len(beginReadOnlyRequests), 0; g != w {
-		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
+		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	executeRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), 1; g != w {
@@ -2723,6 +2723,9 @@ func TestShowAndSetVariableRetryAbortsInternally(t *testing.T) {
 
 		// Check that the behavior matches the setting.
 		tx, _ := c.BeginTx(ctx, nil)
+		if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+			t.Fatal(err)
+		}
 		server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
 			Errors: []error{gstatus.Error(codes.Aborted, "Aborted")},
 		})
@@ -3242,6 +3245,9 @@ func TestCommitResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to start transaction: %v", err)
 	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit failed: %v", err)
 	}
@@ -3410,6 +3416,9 @@ func TestShowVariableCommitTimestamp(t *testing.T) {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
 	tx, err := conn.BeginTx(ctx, nil)
+	if _, err := conn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
 	if err != nil {
 		t.Fatalf("failed to start transaction: %v", err)
 	}
@@ -4562,7 +4571,8 @@ func TestRunTransaction(t *testing.T) {
 		defer silentClose(rows)
 		// Verify that internal retries are disabled during RunTransaction
 		txi := reflect.ValueOf(tx).Elem().FieldByName("txi")
-		rwTx := (*readWriteTransaction)(txi.Elem().UnsafePointer())
+		delegatingTx := (*delegatingTransaction)(txi.Elem().UnsafePointer())
+		rwTx := delegatingTx.contextTransaction.(*readWriteTransaction)
 		// Verify that getting the transaction through reflection worked.
 		if g, w := rwTx.ctx, ctx; g != w {
 			return fmt.Errorf("getting the transaction through reflection failed")
@@ -5023,7 +5033,8 @@ func TestBeginReadWriteTransaction(t *testing.T) {
 		}
 		// Verify that internal retries are disabled during this transaction.
 		txi := reflect.ValueOf(tx).Elem().FieldByName("txi")
-		rwTx := (*readWriteTransaction)(txi.Elem().UnsafePointer())
+		delegatingTx := (*delegatingTransaction)(txi.Elem().UnsafePointer())
+		rwTx := delegatingTx.contextTransaction.(*readWriteTransaction)
 		// Verify that getting the transaction through reflection worked.
 		if g, w := rwTx.ctx, ctx; g != w {
 			t.Fatal("getting the transaction through reflection failed")

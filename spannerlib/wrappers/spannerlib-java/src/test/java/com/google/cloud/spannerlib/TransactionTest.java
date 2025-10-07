@@ -53,9 +53,8 @@ public class TransactionTest extends AbstractMockServerTest {
       connection.beginTransaction(TransactionOptions.getDefaultInstance());
       connection.commit();
 
-      // TODO: The library should take a shortcut and just skip committing empty transactions.
-      assertEquals(1, mockSpanner.countRequestsOfType(BeginTransactionRequest.class));
-      assertEquals(1, mockSpanner.countRequestsOfType(CommitRequest.class));
+      assertEquals(0, mockSpanner.countRequestsOfType(BeginTransactionRequest.class));
+      assertEquals(0, mockSpanner.countRequestsOfType(CommitRequest.class));
     }
   }
 
