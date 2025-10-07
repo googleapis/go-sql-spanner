@@ -25,8 +25,8 @@ RSpec.describe "Batch API test", :integration do
     require "spannerlib/pool"
     @dsn = "projects/your-project-id/instances/test-instance/databases/test-database?autoConfigEmulator=true"
 
-    pool = Pool.create_pool(@dsn)
-    conn = pool.create_connection
+    @pool = Pool.create_pool(@dsn)
+    conn = @pool.create_connection
     ddl_batch_req = Google::Cloud::Spanner::V1::ExecuteBatchDmlRequest.new(
       statements: [
         Google::Cloud::Spanner::V1::ExecuteBatchDmlRequest::Statement.new(sql: "DROP TABLE IF EXISTS test_table"),
@@ -37,11 +37,13 @@ RSpec.describe "Batch API test", :integration do
     )
     conn.execute_batch(ddl_batch_req)
     conn.close
-    pool.close
+  end
+
+  after(:all) do
+    @pool&.close
   end
 
   before do
-    @pool = Pool.create_pool(@dsn)
     @conn = @pool.create_connection
     delete_req = Google::Cloud::Spanner::V1::BatchWriteRequest::MutationGroup.new(
       mutations: [
@@ -57,8 +59,7 @@ RSpec.describe "Batch API test", :integration do
   end
 
   after do
-    @conn.close
-    @pool.close
+    @conn&.close
   end
 
   it "tests a batch DML request" do
@@ -122,5 +123,43 @@ RSpec.describe "Batch API test", :integration do
       ]
     )
     expect { @conn.write_mutations(insert_req) }.not_to raise_error
+  end
+
+  it "queries data using parameters" do
+    insert_req = Google::Cloud::Spanner::V1::BatchWriteRequest::MutationGroup.new(
+      mutations: [
+        Google::Cloud::Spanner::V1::Mutation.new(
+          insert: Google::Cloud::Spanner::V1::Mutation::Write.new(
+            table: "test_table",
+            columns: %w[key data],
+            values: [
+              Google::Protobuf::ListValue.new(values: [Google::Protobuf::Value.new(string_value: "1"),
+                                                       Google::Protobuf::Value.new(string_value: "Alice")]),
+              Google::Protobuf::ListValue.new(values: [Google::Protobuf::Value.new(string_value: "2"),
+                                                       Google::Protobuf::Value.new(string_value: "Bob")])
+            ]
+          )
+        )
+      ]
+    )
+    @conn.write_mutations(insert_req)
+
+    # Execute the parameterized query.
+    select_req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(
+      sql: "SELECT key, data FROM test_table WHERE data = @dataParam",
+      params: Google::Protobuf::Struct.new(
+        fields: {
+          "dataParam" => Google::Protobuf::Value.new(string_value: "Alice")
+        }
+      ),
+      param_types: {
+        "dataParam" => Google::Cloud::Spanner::V1::Type.new(code: Google::Cloud::Spanner::V1::TypeCode::STRING)
+      }
+    )
+    rows = @conn.execute(select_req)
+    all_rows = rows.map { |row_bytes| Google::Protobuf::ListValue.decode(row_bytes) }
+
+    expect(all_rows.length).to eq(1)
+    expect(all_rows[0].values[1].string_value).to eq("Alice")
   end
 end
