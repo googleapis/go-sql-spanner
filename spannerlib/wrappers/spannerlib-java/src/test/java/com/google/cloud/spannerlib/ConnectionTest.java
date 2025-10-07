@@ -23,7 +23,6 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
-import com.google.cloud.spanner.connection.AbstractMockServerTest;
 import com.google.common.collect.ImmutableList;
 import com.google.protobuf.ListValue;
 import com.google.protobuf.Value;
@@ -39,14 +38,14 @@ import com.google.spanner.v1.TransactionOptions;
 import com.google.spanner.v1.TransactionOptions.ReadOnly;
 import org.junit.Test;
 
-public class ConnectionTest extends AbstractMockServerTest {
+public class ConnectionTest extends AbstractSpannerLibTest {
 
   @Test
   public void testCreateConnection() {
     String dsn =
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
-    try (Pool pool = Pool.createPool(dsn);
+    try (Pool pool = Pool.createPool(library, dsn);
         Connection connection = pool.createConnection()) {
       assertTrue(connection.getId() > 0);
       assertEquals(1, mockSpanner.countRequestsOfType(CreateSessionRequest.class));
@@ -58,7 +57,7 @@ public class ConnectionTest extends AbstractMockServerTest {
     String dsn =
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
-    try (Pool pool = Pool.createPool(dsn)) {
+    try (Pool pool = Pool.createPool(library, dsn)) {
       try (Connection connection1 = pool.createConnection();
           Connection connection2 = pool.createConnection()) {
         assertTrue(connection1.getId() > 0);
@@ -74,7 +73,7 @@ public class ConnectionTest extends AbstractMockServerTest {
     String dsn =
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
-    try (Pool pool = Pool.createPool(dsn);
+    try (Pool pool = Pool.createPool(library, dsn);
         Connection connection = pool.createConnection()) {
       CommitResponse response =
           connection.WriteMutations(
@@ -129,7 +128,7 @@ public class ConnectionTest extends AbstractMockServerTest {
     String dsn =
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
-    try (Pool pool = Pool.createPool(dsn);
+    try (Pool pool = Pool.createPool(library, dsn);
         Connection connection = pool.createConnection()) {
       connection.beginTransaction(TransactionOptions.getDefaultInstance());
       CommitResponse response =
@@ -170,7 +169,7 @@ public class ConnectionTest extends AbstractMockServerTest {
     String dsn =
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
-    try (Pool pool = Pool.createPool(dsn);
+    try (Pool pool = Pool.createPool(library, dsn);
         Connection connection = pool.createConnection()) {
       connection.beginTransaction(
           TransactionOptions.newBuilder().setReadOnly(ReadOnly.newBuilder().build()).build());

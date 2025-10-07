@@ -20,7 +20,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
 import com.google.cloud.spanner.MockSpannerServiceImpl.StatementResult;
-import com.google.cloud.spanner.connection.AbstractMockServerTest;
 import com.google.common.collect.ImmutableMap;
 import com.google.longrunning.Operation;
 import com.google.protobuf.AbstractMessage;
@@ -40,7 +39,7 @@ import com.google.spanner.v1.TypeCode;
 import java.util.List;
 import org.junit.Test;
 
-public class BatchTest extends AbstractMockServerTest {
+public class BatchTest extends AbstractSpannerLibTest {
 
   @Test
   public void testBatchDml() {
@@ -67,7 +66,7 @@ public class BatchTest extends AbstractMockServerTest {
     String dsn =
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
-    try (Pool pool = Pool.createPool(dsn);
+    try (Pool pool = Pool.createPool(library, dsn);
         Connection connection = pool.createConnection()) {
       ExecuteBatchDmlResponse response =
           connection.executeBatch(
@@ -125,7 +124,7 @@ public class BatchTest extends AbstractMockServerTest {
     String dsn =
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
-    try (Pool pool = Pool.createPool(dsn);
+    try (Pool pool = Pool.createPool(library, dsn);
         Connection connection = pool.createConnection()) {
       ExecuteBatchDmlResponse response =
           connection.executeBatch(

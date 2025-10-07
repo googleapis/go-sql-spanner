@@ -21,20 +21,19 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.google.cloud.spanner.MockSpannerServiceImpl.SimulatedExecutionTime;
-import com.google.cloud.spanner.connection.AbstractMockServerTest;
 import com.google.rpc.Code;
 import com.google.spanner.v1.CreateSessionRequest;
 import io.grpc.Status;
 import org.junit.Test;
 
-public class PoolTest extends AbstractMockServerTest {
+public class PoolTest extends AbstractSpannerLibTest {
 
   @Test
   public void testCreatePool() {
     String dsn =
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
-    try (Pool pool = Pool.createPool(dsn)) {
+    try (Pool pool = Pool.createPool(library, dsn)) {
       assertTrue(pool.getId() > 0);
       assertEquals(1, mockSpanner.countRequestsOfType(CreateSessionRequest.class));
     }
@@ -50,7 +49,7 @@ public class PoolTest extends AbstractMockServerTest {
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
     SpannerLibException exception =
-        assertThrows(SpannerLibException.class, () -> Pool.createPool(dsn));
+        assertThrows(SpannerLibException.class, () -> Pool.createPool(library, dsn));
     assertEquals(Code.PERMISSION_DENIED.getNumber(), exception.getStatus().getCode());
   }
 }
