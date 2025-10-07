@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Google.Cloud.SpannerLib.Grpc</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>default</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Cloud.SpannerLib.GrpcServer" Version="1.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\spannerlib-dotnet-grpc-v1\spannerlib-dotnet-grpc-v1.csproj" />
+    <ProjectReference Include="..\spannerlib-dotnet\spannerlib-dotnet.csproj" />
+  </ItemGroup>
+
+</Project>

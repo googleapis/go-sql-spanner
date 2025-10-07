@@ -97,6 +97,8 @@ jobs:
           go-version: ${{ matrix.go-version }}
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: 'true'
       - name: Build shared library
         working-directory: spannerlib/shared
         run: go build -o spannerlib.so -buildmode=c-shared shared_lib.go
@@ -123,6 +125,34 @@ jobs:
             dotnet nuget add source "$PWD"/bin/Release --name local
           fi
         working-directory: spannerlib/wrappers/spannerlib-dotnet/spannerlib-dotnet-native
+        shell: bash
+      - name: Build gRPC server
+        working-directory: spannerlib/grpc-server
+        run: |
+          go build -o grpc_server server.go
+          chmod +x grpc_server
+      - name: Copy gRPC server to .NET wrapper
+        working-directory: spannerlib
+        run: |
+          mkdir -p wrappers/spannerlib-dotnet/spannerlib-dotnet-grpc-server/binaries/any
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            cp grpc-server/grpc_server wrappers/spannerlib-dotnet/spannerlib-dotnet-grpc-server/binaries/any/grpc_server.exe
+          else
+            cp grpc-server/grpc_server wrappers/spannerlib-dotnet/spannerlib-dotnet-grpc-server/binaries/any/grpc_server
+          fi
+        shell: bash
+      - name: Build .NET gRPC server package
+        run: dotnet pack
+        working-directory: spannerlib/wrappers/spannerlib-dotnet/spannerlib-dotnet-grpc-server
+        shell: bash
+      - name: Add .NET package source
+        run: |
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            dotnet nuget add source ${GITHUB_WORKSPACE}"\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-grpc-server\bin\Release" --name local-grpc-server
+          else
+            dotnet nuget add source "$PWD"/bin/Release --name local-grpc-server
+          fi
+        working-directory: spannerlib/wrappers/spannerlib-dotnet/spannerlib-dotnet-grpc-server
         shell: bash
       - name: Restore dependencies
         run: dotnet restore

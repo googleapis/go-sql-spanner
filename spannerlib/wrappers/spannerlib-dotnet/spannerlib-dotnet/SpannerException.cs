@@ -14,6 +14,8 @@
 
 using System;
 using Google.Rpc;
+using Grpc.Core;
+using Status = Google.Rpc.Status;
 
 namespace Google.Cloud.SpannerLib;
 
@@ -24,6 +26,11 @@ namespace Google.Cloud.SpannerLib;
 /// <param name="status">The status that was returned by SpannerLib</param>
 public class SpannerException(Status status) : Exception(status.Message)
 {
+    public static SpannerException ToSpannerException(RpcException exception)
+    {
+        return new SpannerException(new Status { Code = (int) exception.Status.StatusCode, Message = exception.Message });
+    }
+    
     public Status Status { get; } = status;
 
     public Code Code => (Code)Status.Code;
