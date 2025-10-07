@@ -15,11 +15,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ matrix.go-version }}
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Run unit tests
         working-directory: spannerlib
         run: go test ./... -race -short
@@ -32,17 +32,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Install Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Check Java formatting
         run: mvn com.spotify.fmt:fmt-maven-plugin:check
         working-directory: spannerlib/wrappers/spannerlib-java
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ matrix.go-version }}
       - name: Build shared library

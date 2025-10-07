@@ -2135,6 +2135,10 @@ func TestReadKeyword(t *testing.T) {
 			input: "Select from my_table",
 			want:  "Select",
 		},
+		{
+			input: "statement_tag",
+			want:  "statement_tag",
+		},
 	}
 	statementParser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
@@ -2401,6 +2405,36 @@ func TestCachedParamsAreImmutable(t *testing.T) {
 		}
 		// Modify the params we got from the parser and verify that this does not modify the cached params.
 		params[0] = "test"
+	}
+}
+
+func TestPeekKeyword(t *testing.T) {
+	t.Parallel()
+
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sp := &simpleParser{sql: []byte("select * from foo"), statementParser: parser}
+	if !sp.peekKeyword("select") {
+		t.Fatal("peekKeyword should have returned true")
+	}
+	if g, w := sp.pos, 0; g != w {
+		t.Fatalf("position mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	if !sp.eatKeyword("select") {
+		t.Fatal("eatKeyword should have returned true")
+	}
+	if !sp.eatToken('*') {
+		t.Fatal("eatToken should have returned true")
+	}
+	pos := sp.pos
+	if !sp.peekKeyword("from") {
+		t.Fatal("peekKeyword should have returned true")
+	}
+	if g, w := sp.pos, pos; g != w {
+		t.Fatalf("position mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 

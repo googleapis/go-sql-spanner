@@ -5076,7 +5076,7 @@ func TestBeginReadWriteTransaction(t *testing.T) {
 			t.Fatalf("missing transaction for ExecuteSqlRequest")
 		}
 		if req.Transaction.GetId() == nil {
-			t.Fatalf("missing begin selector for ExecuteSqlRequest")
+			t.Fatalf("missing ID selector for ExecuteSqlRequest")
 		}
 		if g, w := req.RequestOptions.TransactionTag, tag; g != w {
 			t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)

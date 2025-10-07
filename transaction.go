@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -112,6 +113,10 @@ type readOnlyTransaction struct {
 	boTx   *spanner.BatchReadOnlyTransaction
 	logger *slog.Logger
 	close  func(result txResult)
+
+	timestampBoundMu       sync.Mutex
+	timestampBoundSet      bool
+	timestampBoundCallback func() spanner.TimestampBound
 }
 
 func (tx *readOnlyTransaction) Commit() error {
@@ -159,6 +164,14 @@ func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement
 			return nil, err
 		}
 		return mi, nil
+	}
+	if tx.timestampBoundCallback != nil {
+		tx.timestampBoundMu.Lock()
+		if !tx.timestampBoundSet {
+			tx.roTx.WithTimestampBound(tx.timestampBoundCallback())
+			tx.timestampBoundSet = true
+		}
+		tx.timestampBoundMu.Unlock()
 	}
 	return &readOnlyRowIterator{tx.roTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions), stmtType}, nil
 }
