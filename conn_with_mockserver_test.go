@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/spanner"
@@ -79,6 +80,79 @@ func TestTwoTransactionsOnOneConn(t *testing.T) {
 	_, err = c.BeginTx(ctx, &sql.TxOptions{})
 	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
 		t.Fatalf("BeginTx error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestEmptyTransaction(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	db.SetMaxOpenConns(1)
+
+	c, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(c)
+	// Run twice to ensure that there is no connection leak.
+	for range 2 {
+		tx, err := c.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+
+		// An empty transaction should be a no-op and not lead to any requests being sent to Spanner.
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+		if g, w := len(beginRequests), 0; g != w {
+			t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+		if g, w := len(commitRequests), 0; g != w {
+			t.Fatalf("commit requests count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+}
+
+func TestEmptyTransactionUsingSql(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	db.SetMaxOpenConns(1)
+
+	c, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(c)
+	// Run twice to ensure that there is no connection leak.
+	for range 2 {
+		if _, err := c.ExecContext(ctx, "begin"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.ExecContext(ctx, "commit"); err != nil {
+			t.Fatal(err)
+		}
+
+		// An empty transaction should be a no-op and not lead to any requests being sent to Spanner.
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+		if g, w := len(beginRequests), 0; g != w {
+			t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+		if g, w := len(commitRequests), 0; g != w {
+			t.Fatalf("commit requests count mismatch\n Got: %v\nWant: %v", g, w)
+		}
 	}
 }
 

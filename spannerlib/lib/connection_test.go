@@ -196,12 +196,8 @@ func TestBeginAndCommit(t *testing.T) {
 	if g, w := commitMsg.Code, int32(0); g != w {
 		t.Fatalf("Commit result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	if commitMsg.Length() == 0 {
-		t.Fatal("Commit return zero length")
-	}
-	resp := &spannerpb.CommitResponse{}
-	if err := proto.Unmarshal(commitMsg.Res, resp); err != nil {
-		t.Fatalf("Failed to unmarshal commit response: %v", err)
+	if commitMsg.Length() != 0 {
+		t.Fatal("Commit returned non-zero length")
 	}
 
 	closeMsg := CloseConnection(ctx, poolMsg.ObjectId, connMsg.ObjectId)
