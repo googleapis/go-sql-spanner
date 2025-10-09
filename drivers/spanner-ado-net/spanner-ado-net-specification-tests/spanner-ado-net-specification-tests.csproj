@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Google.Cloud.Spanner.DataProvider.SpecificationTests</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <AssemblyName>Google.Cloud.Spanner.DataProvider.SpecificationTests</AssemblyName>
+    <LangVersion>default</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AdoNet.Specification.Tests" Version="2.0.0-beta.2" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.MockServer" Version="1.0.0-alpha.20251009102337" />
+    <PackageReference Include="coverlet.collector" Version="6.0.0"/>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0"/>
+    <PackageReference Include="xunit" Version="2.9.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit"/>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\spanner-ado-net\spanner-ado-net.csproj" />
+  </ItemGroup>
+
+</Project>

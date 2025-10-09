@@ -1,0 +1,40 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "spanner-ado-net", "spanner-ado-net\spanner-ado-net.csproj", "{C01E227F-E396-45E7-A82F-478EFA9AC0A6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "spanner-ado-net-tests", "spanner-ado-net-tests\spanner-ado-net-tests.csproj", "{56052199-927F-46F5-8D0F-4826360E70B8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "spanner-ado-net-specification-tests", "spanner-ado-net-specification-tests\spanner-ado-net-specification-tests.csproj", "{97D93DB7-CEB6-4C21-B4C2-A5A98D3FD59C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "spanner-ado-net-samples", "spanner-ado-net-samples\spanner-ado-net-samples.csproj", "{537A257C-0228-418F-9DD5-A46324E591AE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "spanner-ado-net-benchmarks", "spanner-ado-net-benchmarks\spanner-ado-net-benchmarks.csproj", "{2C70D969-A8AA-440B-81D8-532C327F237E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{C01E227F-E396-45E7-A82F-478EFA9AC0A6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C01E227F-E396-45E7-A82F-478EFA9AC0A6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C01E227F-E396-45E7-A82F-478EFA9AC0A6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C01E227F-E396-45E7-A82F-478EFA9AC0A6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{56052199-927F-46F5-8D0F-4826360E70B8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{56052199-927F-46F5-8D0F-4826360E70B8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{56052199-927F-46F5-8D0F-4826360E70B8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{56052199-927F-46F5-8D0F-4826360E70B8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{97D93DB7-CEB6-4C21-B4C2-A5A98D3FD59C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{97D93DB7-CEB6-4C21-B4C2-A5A98D3FD59C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{97D93DB7-CEB6-4C21-B4C2-A5A98D3FD59C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{97D93DB7-CEB6-4C21-B4C2-A5A98D3FD59C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{537A257C-0228-418F-9DD5-A46324E591AE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{537A257C-0228-418F-9DD5-A46324E591AE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{537A257C-0228-418F-9DD5-A46324E591AE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{537A257C-0228-418F-9DD5-A46324E591AE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2C70D969-A8AA-440B-81D8-532C327F237E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2C70D969-A8AA-440B-81D8-532C327F237E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2C70D969-A8AA-440B-81D8-532C327F237E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2C70D969-A8AA-440B-81D8-532C327F237E}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
