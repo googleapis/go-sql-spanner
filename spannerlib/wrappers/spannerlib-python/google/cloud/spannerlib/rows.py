@@ -18,7 +18,7 @@ import ctypes
 import logging
 from typing import Any
 
-from google.cloud.spanner_v1 import ResultSetMetadata
+from google.cloud.spanner_v1 import ResultSetMetadata, ResultSetStats
 from google.protobuf.struct_pb2 import ListValue
 
 from google.cloud.spannerlib.internal.spannerlib import check_error, get_lib
@@ -144,3 +144,40 @@ class Rows(AbstractLibraryObject):
             # Assuming no message means no more rows
             logger.debug("No more rows...")
             return None
+
+    def result_set_stats(self) -> ResultSetStats:
+        """Retrieves the result set statistics.
+
+        Returns:
+            ResultSetStats object containing the statistics.
+        """
+        if self.closed:
+            raise RuntimeError("Rows object is closed.")
+
+        logger.debug(f"Getting ResultSetStats for Rows ID: {self.id}")
+        ret = get_lib().ResultSetStats(self.pool.id, self.conn.id, self.id)
+        check_error(ret, "ResultSetStats")
+
+        if ret.msg_len > 0:
+            try:
+                proto_bytes = ctypes.string_at(ret.msg, ret.msg_len)
+                return ResultSetStats.deserialize(proto_bytes)
+            except Exception as e:
+                logger.error(f"Failed to decode/parse ResultSetStats JSON: {e}")
+                raise RuntimeError(f"Failed to get ResultSetStats: {e}")
+
+        return ResultSetStats()
+
+    def update_count(self) -> int:
+        """Retrieves the update count.
+
+        Returns:
+            int representing the update count.
+        """
+        stats = self.result_set_stats()
+        if stats.row_count_exact:
+            return stats.row_count_exact
+        elif stats.row_count_lower_bound:
+            return stats.row_count_lower_bound
+
+        return 0

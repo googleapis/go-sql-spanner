@@ -19,7 +19,7 @@ import ctypes
 import unittest
 from unittest.mock import MagicMock, patch
 
-from google.cloud.spanner_v1 import ResultSetMetadata
+from google.cloud.spanner_v1 import ResultSetMetadata, ResultSetStats
 from google.protobuf.struct_pb2 import ListValue, Value
 
 from google.cloud.spannerlib import Rows, SpannerLibError
@@ -152,6 +152,50 @@ class TestRows(unittest.TestCase):
         self.rows.closed = True
         with self.assertRaises(RuntimeError):
             self.rows.next()
+
+    @patch("google.cloud.spannerlib.rows.get_lib")
+    def test_result_set_stats_success(self, mock_get_lib):
+        """Test result_set_stats success."""
+        mock_get_lib.return_value = self.mock_lib
+        stats = ResultSetStats(row_count_exact=5)
+        stats_bytes = ResultSetStats.serialize(stats)
+        self.mock_lib.ResultSetStats.return_value = GoReturn(
+            pinner_id=0,
+            error_code=0,
+            object_id=0,
+            msg_len=len(stats_bytes),
+            msg=ctypes.cast(ctypes.c_char_p(stats_bytes), ctypes.c_void_p),
+        )
+
+        result = self.rows.result_set_stats()
+        self.assertIsInstance(result, ResultSetStats)
+        self.assertEqual(result.row_count_exact, 5)
+        self.mock_lib.ResultSetStats.assert_called_once_with(1, 123, 101)
+
+    @patch("google.cloud.spannerlib.rows.get_lib")
+    def test_result_set_stats_failure(self, mock_get_lib):
+        """Test result_set_stats failure."""
+        mock_get_lib.return_value = self.mock_lib
+        self.mock_lib.ResultSetStats.return_value = GoReturn(
+            pinner_id=0, error_code=1, object_id=0, msg_len=0, msg=None
+        )
+        with self.assertRaises(SpannerLibError):
+            self.rows.result_set_stats()
+
+    @patch("google.cloud.spannerlib.rows.get_lib")
+    def test_update_count(self, mock_get_lib):
+        """Test update_count."""
+        mock_get_lib.return_value = self.mock_lib
+        stats = ResultSetStats(row_count_exact=10)
+        stats_bytes = ResultSetStats.serialize(stats)
+        self.mock_lib.ResultSetStats.return_value = GoReturn(
+            pinner_id=0,
+            error_code=0,
+            object_id=0,
+            msg_len=len(stats_bytes),
+            msg=ctypes.cast(ctypes.c_char_p(stats_bytes), ctypes.c_void_p),
+        )
+        self.assertEqual(self.rows.update_count(), 10)
 
 
 if __name__ == "__main__":

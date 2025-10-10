@@ -19,7 +19,7 @@ from __future__ import absolute_import
 import logging
 from typing import Any
 
-from google.cloud.spanner_v1 import ExecuteSqlRequest
+from google.cloud.spanner_v1 import ExecuteSqlRequest, TransactionOptions
 
 from google.cloud.spannerlib.internal.spannerlib import check_error, get_lib
 from google.cloud.spannerlib.internal.types import serialized_bytes_to_go_slice
@@ -120,3 +120,62 @@ class Connection(AbstractLibraryObject):
             f"SQL execution successful on connection ID: {self.id}. Got Rows ID: {ret.object_id}"
         )
         return Rows(ret.object_id, self.pool, self)
+
+    def begin_transaction(self, options: TransactionOptions = None):
+        """Begins a new transaction on the connection.
+
+        Args:
+            options: Optional transaction options from google.cloud.spanner_v1.
+
+        Raises:
+            RuntimeError: If the connection is closed.
+            SpannerLibraryError: If the Go library call fails.
+        """
+        if self.closed:
+            raise RuntimeError("Connection is closed.")
+
+        logger.info(
+            f"Beginning transaction on connection ID: {self.id} for pool ID: {self.pool.id}"
+        )
+
+        if options is None:
+            options = TransactionOptions()
+
+        options_slice = serialized_bytes_to_go_slice(
+            TransactionOptions.serialize(options)
+        )
+
+        ret = get_lib().BeginTransaction(self.pool.id, self.id, options_slice)
+        check_error(ret, "BeginTransaction")
+
+        logger.info(f"Transaction started on connection ID: {self.id}")
+
+    def commit(self):
+        """Commits the transaction.
+
+        Raises:
+            RuntimeError: If the connection is closed.
+            SpannerLibraryError: If the Go library call fails.
+        """
+        if self.closed:
+            raise RuntimeError("Connection is closed.")
+
+        logger.info(f"Committing on connection ID: {self.id}")
+        ret = get_lib().Commit(self.pool.id, self.id)
+        check_error(ret, "Commit")
+        logger.info("Committed")
+
+    def rollback(self):
+        """Rolls back the transaction.
+
+        Raises:
+            RuntimeError: If the connection is closed.
+            SpannerLibraryError: If the Go library call fails.
+        """
+        if self.closed:
+            raise RuntimeError("Connection is closed.")
+
+        logger.info(f"Rolling back on connection ID: {self.id}")
+        ret = get_lib().Rollback(self.pool.id, self.id)
+        check_error(ret, "Rollback")
+        logger.info("Rolled back")

@@ -14,6 +14,57 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+import os
+
+from google.cloud.spanner_v1 import ExecuteSqlRequest
+
+from google.cloud.spannerlib import SpannerLibError
+
+
+def setup_env():
+    # Set environment variable for Spanner Emulator if not set
+    if not os.environ.get("SPANNER_EMULATOR_HOST"):
+        os.environ["SPANNER_EMULATOR_HOST"] = "localhost:9010"
+        print(
+            f"Set SPANNER_EMULATOR_HOST to {os.environ['SPANNER_EMULATOR_HOST']}"
+        )
+
+
+def setup(conn):
+    print("\nSetting up the environment...")
+    try:
+        conn.execute(ExecuteSqlRequest(sql="DROP TABLE IF EXISTS Singers"))
+        print("Dropped existing Singers table.")
+    except SpannerLibError as e:
+        print(f"Error dropping table: {e}")
+    conn.execute(
+        ExecuteSqlRequest(
+            sql=(
+                "CREATE TABLE Singers "
+                "(SingerId INT64, FirstName STRING(1024), LastName STRING(1024)) "
+                "PRIMARY KEY (SingerId)"
+            )
+        )
+    )
+    print("Created Singers table.")
+
+
+def cleanup(conn):
+    print("\nCleaning up the environment...")
+    try:
+        conn.execute(ExecuteSqlRequest(sql="DROP TABLE IF EXISTS Singers"))
+        print("Dropped Singers table.")
+    except SpannerLibError as e:
+        print(f"Error dropping table: {e}")
+
+
+def count_rows(rows) -> int:
+    """Counts the number of rows in the result set."""
+    count = 0
+    while rows.next() is not None:
+        count += 1
+    return count
+
 
 def format_results(metadata, rows_data):
     """Formats the results as a table string."""

@@ -122,6 +122,58 @@ class Spannerlib:
         ]
         Spannerlib._lib.Metadata.restype = GoReturn
 
+        # ResultSetStats
+        # Corresponds to: GoReturn ResultSetStats(int64_t poolId, int64_t connId, int64_t rowsId);
+        Spannerlib._lib.ResultSetStats.argtypes = [
+            ctypes.c_longlong,
+            ctypes.c_longlong,
+            ctypes.c_longlong,
+        ]
+        Spannerlib._lib.ResultSetStats.restype = GoReturn
+
+        # BeginTransaction
+        # Corresponds to: GoReturn BeginTransaction(int64_t poolId, int64_t connId, GoSlice txOpts);
+        Spannerlib._lib.BeginTransaction.argtypes = [
+            ctypes.c_longlong,
+            ctypes.c_longlong,
+            GoSlice,
+        ]
+        Spannerlib._lib.BeginTransaction.restype = GoReturn
+
+        # Commit
+        # Corresponds to: GoReturn Commit(int64_t poolId, int64_t connId);
+        Spannerlib._lib.Commit.argtypes = [
+            ctypes.c_longlong,
+            ctypes.c_longlong,
+        ]
+        Spannerlib._lib.Commit.restype = GoReturn
+
+        # Rollback
+        # Corresponds to: GoReturn Rollback(int64_t poolId, int64_t connId);
+        Spannerlib._lib.Rollback.argtypes = [
+            ctypes.c_longlong,
+            ctypes.c_longlong,
+        ]
+        Spannerlib._lib.Rollback.restype = GoReturn
+
+        # ExecuteBatch
+        # Corresponds to: GoReturn ExecuteBatch(int64_t poolId, int64_t connId, GoSlice statements);
+        Spannerlib._lib.ExecuteBatch.argtypes = [
+            ctypes.c_longlong,
+            ctypes.c_longlong,
+            GoSlice,
+        ]
+        Spannerlib._lib.ExecuteBatch.restype = GoReturn
+
+        # WriteMutations
+        # Corresponds to: GoReturn WriteMutations(int64_t poolId, int64_t connId, GoSlice mutations);
+        Spannerlib._lib.WriteMutations.argtypes = [
+            ctypes.c_longlong,
+            ctypes.c_longlong,
+            GoSlice,
+        ]
+        Spannerlib._lib.WriteMutations.restype = GoReturn
+
         # Next
         # Corresponds to:
         # GoReturn Next(int64_t poolId, int64_t connId, int64_t rowsId, int32_t numRows, int32_t encodeRowOption);

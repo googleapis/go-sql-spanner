@@ -21,7 +21,13 @@ from google.cloud.spanner_v1 import ExecuteSqlRequest  # noqa: E402
 
 from google.cloud.spannerlib import Pool, SpannerLibError  # noqa: E402
 
-EMULATOR_TEST_CONNECTION_STRING = "localhost:9010/projects/test-project/instances/test-instance/databases/testdb?autoConfigEmulator=true"  # noqa: E501
+EMULATOR_TEST_CONNECTION_STRING = (
+    "localhost:9010"
+    "/projects/test-project"
+    "/instances/test-instance"
+    "/databases/testdb"
+    "?autoConfigEmulator=true"
+)
 
 
 def setup_env():

@@ -108,6 +108,41 @@ class TestRowsE2E(unittest.TestCase):
             self.assertFalse(rows.closed)
         self.assertTrue(rows.closed)
 
+    def test_rows_stats_select(self):
+        """Test ResultSetStats for a SELECT statement."""
+        with self.conn.execute(
+            ExecuteSqlRequest(sql="SELECT id, name FROM rows_test")
+        ) as rows:
+            stats = rows.result_set_stats()
+            # Stats are not typically populated for SELECT in the same way as DML
+            self.assertIsNotNone(stats)
+
+    def test_ddl_update_count(self):
+        """Test update_count for DDL."""
+        with self.conn.execute(
+            ExecuteSqlRequest(
+                sql="CREATE TABLE dummy (id INT64) PRIMARY KEY (id)"
+            )
+        ) as rows:
+            self.assertEqual(rows.update_count(), 0)
+        with self.conn.execute(
+            ExecuteSqlRequest(sql="DROP TABLE dummy")
+        ) as rows:
+            self.assertEqual(rows.update_count(), 0)
+
+    def test_dml_update_count(self):
+        """Test update_count for DML."""
+        with self.conn.execute(
+            ExecuteSqlRequest(
+                sql="INSERT INTO rows_test (id, name) VALUES (100, 'DML Test')"
+            )
+        ) as rows:
+            self.assertEqual(rows.update_count(), 1)
+        # Clean up
+        self.conn.execute(
+            ExecuteSqlRequest(sql="DELETE FROM rows_test WHERE id = 100")
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

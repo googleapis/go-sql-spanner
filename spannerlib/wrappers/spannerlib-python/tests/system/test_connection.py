@@ -74,6 +74,45 @@ class TestConnectionE2E(unittest.TestCase):
         self.assertIsNone(rows.next())  # No more rows
         rows.close()
 
+    def test_transaction_commit(self):
+        """Test begin_transaction, execute, and commit."""
+        self.conn.begin_transaction()
+
+        insert_request = ExecuteSqlRequest(
+            sql="INSERT INTO test_table (id, name) VALUES (1, 'Test User')"
+        )
+        self.conn.execute(insert_request)
+
+        self.conn.commit()
+
+        # Verify the insert
+        select_request = ExecuteSqlRequest(
+            sql="SELECT name FROM test_table WHERE id = 1"
+        )
+        rows = self.conn.execute(select_request)
+        row = rows.next()
+        self.assertEqual(row.values[0].string_value, "Test User")
+        rows.close()
+
+    def test_transaction_rollback(self):
+        """Test begin_transaction, execute, and rollback."""
+        self.conn.begin_transaction()
+
+        insert_request = ExecuteSqlRequest(
+            sql="INSERT INTO test_table (id, name) VALUES (2, 'Rollback User')"
+        )
+        self.conn.execute(insert_request)
+
+        self.conn.rollback()
+
+        # Verify the insert was rolled back
+        select_request = ExecuteSqlRequest(
+            sql="SELECT name FROM test_table WHERE id = 2"
+        )
+        rows = self.conn.execute(select_request)
+        self.assertIsNone(rows.next())
+        rows.close()
+
 
 if __name__ == "__main__":
     unittest.main()

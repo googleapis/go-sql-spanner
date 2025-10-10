@@ -116,6 +116,75 @@ class TestConnection(unittest.TestCase):
             request = ExecuteSqlRequest(sql=sql)
             self.conn.execute(request)
 
+    @patch("google.cloud.spannerlib.connection.get_lib")
+    def test_begin_transaction_success(self, mock_get_lib):
+        """Test the begin_transaction method in case of success."""
+        mock_get_lib.return_value = self.mock_lib
+        self.mock_lib.BeginTransaction.return_value = GoReturn(
+            pinner_id=0, error_code=0, object_id=0, msg_len=0, msg=None
+        )
+
+        self.conn.begin_transaction()
+        self.mock_lib.BeginTransaction.assert_called_once()
+
+    @patch("google.cloud.spannerlib.connection.get_lib")
+    def test_begin_transaction_failure(self, mock_get_lib):
+        """Test the begin_transaction method in case of failure."""
+        mock_get_lib.return_value = self.mock_lib
+        self.mock_lib.BeginTransaction.return_value = GoReturn(
+            pinner_id=0, error_code=1, object_id=0, msg_len=0, msg=None
+        )
+
+        with self.assertRaises(SpannerLibError):
+            self.conn.begin_transaction()
+        self.mock_lib.BeginTransaction.assert_called_once()
+
+    @patch("google.cloud.spannerlib.connection.get_lib")
+    def test_commit_success(self, mock_get_lib):
+        """Test the commit method in case of success."""
+        mock_get_lib.return_value = self.mock_lib
+        self.mock_lib.Commit.return_value = GoReturn(
+            pinner_id=0, error_code=0, object_id=0, msg_len=0, msg=None
+        )
+
+        self.conn.commit()
+        self.mock_lib.Commit.assert_called_once_with(1, 123)
+
+    @patch("google.cloud.spannerlib.connection.get_lib")
+    def test_commit_failure(self, mock_get_lib):
+        """Test the commit method in case of failure."""
+        mock_get_lib.return_value = self.mock_lib
+        self.mock_lib.Commit.return_value = GoReturn(
+            pinner_id=0, error_code=1, object_id=0, msg_len=0, msg=None
+        )
+
+        with self.assertRaises(SpannerLibError):
+            self.conn.commit()
+        self.mock_lib.Commit.assert_called_once_with(1, 123)
+
+    @patch("google.cloud.spannerlib.connection.get_lib")
+    def test_rollback_success(self, mock_get_lib):
+        """Test the rollback method in case of success."""
+        mock_get_lib.return_value = self.mock_lib
+        self.mock_lib.Rollback.return_value = GoReturn(
+            pinner_id=0, error_code=0, object_id=0, msg_len=0, msg=None
+        )
+
+        self.conn.rollback()
+        self.mock_lib.Rollback.assert_called_once()
+
+    @patch("google.cloud.spannerlib.connection.get_lib")
+    def test_rollback_failure(self, mock_get_lib):
+        """Test the rollback method in case of failure."""
+        mock_get_lib.return_value = self.mock_lib
+        self.mock_lib.Rollback.return_value = GoReturn(
+            pinner_id=0, error_code=1, object_id=0, msg_len=0, msg=None
+        )
+
+        with self.assertRaises(SpannerLibError):
+            self.conn.rollback()
+        self.mock_lib.Rollback.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
