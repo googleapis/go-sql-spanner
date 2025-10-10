@@ -24,9 +24,10 @@ sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 )
 
+from google.cloud.spanner_v1 import ExecuteBatchDmlRequest  # noqa: E402
 from google.cloud.spanner_v1 import ExecuteSqlRequest  # noqa: E402
 
-from google.cloud.spannerlib import Pool  # noqa: E402
+from google.cloud.spannerlib import Pool, SpannerLibError  # noqa: E402
 from google.cloud.spannerlib.rows import Rows  # noqa: E402
 
 
@@ -108,6 +109,63 @@ class TestConnectionE2E(unittest.TestCase):
         # Verify the insert was rolled back
         select_request = ExecuteSqlRequest(
             sql="SELECT name FROM test_table WHERE id = 2"
+        )
+        rows = self.conn.execute(select_request)
+        self.assertIsNone(rows.next())
+        rows.close()
+
+    def test_execute_batch_dml(self):
+        """Test ExecuteBatchDmlRequest with INSERT statements."""
+        statements = [
+            ExecuteBatchDmlRequest.Statement(
+                sql="INSERT INTO test_table (id, name) VALUES (10, 'Batch User 1')"
+            ),
+            ExecuteBatchDmlRequest.Statement(
+                sql="INSERT INTO test_table (id, name) VALUES (11, 'Batch User 2')"
+            ),
+        ]
+        request = ExecuteBatchDmlRequest(statements=statements)
+
+        response = self.conn.execute_batch(request)
+        self.assertIsNotNone(response)
+        self.assertEqual(len(response.result_sets), 2)
+        self.assertEqual(response.status.code, 0)  # OK
+
+        for i, result_set in enumerate(response.result_sets):
+            self.assertEqual(result_set.stats.row_count_exact, 1)
+
+        # Verify the inserts
+        select_request = ExecuteSqlRequest(
+            sql="SELECT name FROM test_table WHERE id IN (10, 11) ORDER BY id"
+        )
+        rows = self.conn.execute(select_request)
+        row = rows.next()
+        self.assertEqual(row.values[0].string_value, "Batch User 1")
+        row = rows.next()
+        self.assertEqual(row.values[0].string_value, "Batch User 2")
+        self.assertIsNone(rows.next())
+        rows.close()
+
+    def test_execute_batch_dml_with_error(self):
+        """Test ExecuteBatchDmlRequest with a statement that causes an error."""
+        statements = [
+            ExecuteBatchDmlRequest.Statement(
+                sql="INSERT INTO test_table (id, name) VALUES (20, 'Good Batch')"
+            ),
+            ExecuteBatchDmlRequest.Statement(
+                sql="INSERT INTO non_existent_table (id, name) VALUES (21, 'Bad Batch')"
+            ),
+        ]
+        request = ExecuteBatchDmlRequest(statements=statements)
+
+        with self.assertRaises(SpannerLibError) as cm:
+            self.conn.execute_batch(request)
+
+        self.assertIn("non_existent_table", str(cm.exception))
+
+        # The first statement should have been rolled back
+        select_request = ExecuteSqlRequest(
+            sql="SELECT name FROM test_table WHERE id = 20"
         )
         rows = self.conn.execute(select_request)
         self.assertIsNone(rows.next())

@@ -19,7 +19,7 @@ import ctypes
 import unittest
 from unittest.mock import MagicMock, patch
 
-from google.cloud.spanner_v1 import ExecuteSqlRequest
+from google.cloud.spanner_v1 import ExecuteBatchDmlRequest, ExecuteSqlRequest
 
 from google.cloud.spannerlib import Connection, Rows, SpannerLibError
 from google.cloud.spannerlib.internal import GoReturn
@@ -184,6 +184,55 @@ class TestConnection(unittest.TestCase):
         with self.assertRaises(SpannerLibError):
             self.conn.rollback()
         self.mock_lib.Rollback.assert_called_once()
+
+    @patch("google.cloud.spannerlib.connection.ExecuteBatchDmlResponse")
+    @patch("google.cloud.spannerlib.connection.get_lib")
+    def test_execute_batch_success(self, mock_get_lib, mock_response_cls):
+        """Test the execute_batch method in case of success."""
+        mock_get_lib.return_value = self.mock_lib
+        mock_deserialize = MagicMock()
+        mock_response_cls.deserialize = mock_deserialize
+        mock_response_obj = MagicMock()
+        mock_deserialize.return_value = mock_response_obj
+
+        # Simulate a serialized response
+        dummy_response_bytes = b"dummy"
+        self.mock_lib.ExecuteBatch.return_value = GoReturn(
+            pinner_id=0,
+            error_code=0,
+            object_id=0,
+            msg_len=len(dummy_response_bytes),
+            msg=ctypes.cast(
+                ctypes.c_char_p(dummy_response_bytes), ctypes.c_void_p
+            ),
+        )
+
+        request = ExecuteBatchDmlRequest()
+        response = self.conn.execute_batch(request)
+
+        self.mock_lib.ExecuteBatch.assert_called_once()
+        mock_deserialize.assert_called_once_with(dummy_response_bytes)
+        self.assertIs(response, mock_response_obj)
+
+    @patch("google.cloud.spannerlib.connection.get_lib")
+    def test_execute_batch_failure(self, mock_get_lib):
+        """Test the execute_batch method in case of failure."""
+        mock_get_lib.return_value = self.mock_lib
+        self.mock_lib.ExecuteBatch.return_value = GoReturn(
+            pinner_id=0, error_code=1, object_id=0, msg_len=0, msg=None
+        )
+
+        request = ExecuteBatchDmlRequest()
+        with self.assertRaises(SpannerLibError):
+            self.conn.execute_batch(request)
+        self.mock_lib.ExecuteBatch.assert_called_once()
+
+    def test_execute_batch_closed_connection(self):
+        """Test executing batch on a closed connection."""
+        self.conn.closed = True
+        with self.assertRaises(RuntimeError):
+            request = ExecuteBatchDmlRequest()
+            self.conn.execute_batch(request)
 
 
 if __name__ == "__main__":

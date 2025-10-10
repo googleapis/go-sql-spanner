@@ -16,10 +16,16 @@
 
 from __future__ import absolute_import
 
+import ctypes
 import logging
 from typing import Any
 
-from google.cloud.spanner_v1 import ExecuteSqlRequest, TransactionOptions
+from google.cloud.spanner_v1 import (
+    ExecuteBatchDmlRequest,
+    ExecuteBatchDmlResponse,
+    ExecuteSqlRequest,
+    TransactionOptions,
+)
 
 from google.cloud.spannerlib.internal.spannerlib import check_error, get_lib
 from google.cloud.spannerlib.internal.types import serialized_bytes_to_go_slice
@@ -179,3 +185,38 @@ class Connection(AbstractLibraryObject):
         ret = get_lib().Rollback(self.pool.id, self.id)
         check_error(ret, "Rollback")
         logger.info("Rolled back")
+
+    def execute_batch(
+        self, request: ExecuteBatchDmlRequest
+    ) -> ExecuteBatchDmlResponse:
+        """Executes a batch of DML statements on the connection.
+
+        Args:
+            request: The ExecuteBatchDmlRequest object.
+
+        Returns:
+            An ExecuteBatchDmlResponse object representing the result of the execution.
+        """
+        if self.closed:
+            raise RuntimeError("Connection is closed.")
+
+        logger.info(
+            f"Executing batch DML on connection ID: {self.id} for pool ID: {self.pool.id}"
+        )
+
+        request_slice = serialized_bytes_to_go_slice(
+            ExecuteBatchDmlRequest.serialize(request)
+        )
+
+        # Call the Go library function to execute the batch DML statement.
+        ret = get_lib().ExecuteBatch(
+            self.pool.id,
+            self.id,
+            request_slice,
+        )
+        check_error(ret, "ExecuteBatch")
+        logger.info(
+            f"Batch DML execution successful on connection ID: {self.id}."
+        )
+        response_bytes = ctypes.string_at(ret.msg, ret.msg_len)
+        return ExecuteBatchDmlResponse.deserialize(response_bytes)
