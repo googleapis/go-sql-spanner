@@ -59,7 +59,9 @@ def run_execute_batch_sample(test_connection_string):
                 if response.status.code == 0:
                     print("Batch DML executed successfully.")
                     for i, result_set in enumerate(response.result_sets):
-                        print(f"  Statement {i}: Rows affected: {result_set.stats.row_count_exact}")
+                        print(
+                            f"  Statement {i}: Rows affected: {result_set.stats.row_count_exact}"
+                        )
                 else:
                     print(f"Batch DML failed with status: {response.status}")
 
@@ -67,8 +69,14 @@ def run_execute_batch_sample(test_connection_string):
                 print(f"Error during execute_batch: {e}")
 
             # Verify
-            rows = conn.execute(ExecuteSqlRequest(sql="SELECT * FROM Singers WHERE SingerId >= 100"))
-            print("\nVerification Query: SELECT * FROM Singers WHERE SingerId >= 100")
+            rows = conn.execute(
+                ExecuteSqlRequest(
+                    sql="SELECT * FROM Singers WHERE SingerId >= 100"
+                )
+            )
+            print(
+                "\nVerification Query: SELECT * FROM Singers WHERE SingerId >= 100"
+            )
             print(f"Found {count_rows(rows)} rows.")
             rows.close()
 
@@ -89,8 +97,14 @@ def run_execute_batch_sample(test_connection_string):
                 print(f"Error during execute_batch as expected: {e}")
 
             # Verify the transaction was rolled back
-            rows = conn.execute(ExecuteSqlRequest(sql="SELECT * FROM Singers WHERE SingerId >= 200"))
-            print("\nVerification Query: SELECT * FROM Singers WHERE SingerId >= 200")
+            rows = conn.execute(
+                ExecuteSqlRequest(
+                    sql="SELECT * FROM Singers WHERE SingerId >= 200"
+                )
+            )
+            print(
+                "\nVerification Query: SELECT * FROM Singers WHERE SingerId >= 200"
+            )
             print(f"Found {count_rows(rows)} rows (should be 0).")
             rows.close()
 

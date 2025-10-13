@@ -16,11 +16,11 @@
 
 from __future__ import absolute_import
 
-import ctypes
 import logging
 from typing import Any
 
 from google.cloud.spanner_v1 import (
+    CommitResponse,
     ExecuteBatchDmlRequest,
     ExecuteBatchDmlResponse,
     ExecuteSqlRequest,
@@ -28,7 +28,10 @@ from google.cloud.spanner_v1 import (
 )
 
 from google.cloud.spannerlib.internal.spannerlib import check_error, get_lib
-from google.cloud.spannerlib.internal.types import serialized_bytes_to_go_slice
+from google.cloud.spannerlib.internal.types import (
+    serialized_bytes_to_go_slice,
+    to_bytes,
+)
 from google.cloud.spannerlib.library_object import AbstractLibraryObject
 from google.cloud.spannerlib.rows import Rows
 
@@ -156,12 +159,15 @@ class Connection(AbstractLibraryObject):
 
         logger.info(f"Transaction started on connection ID: {self.id}")
 
-    def commit(self):
+    def commit(self) -> CommitResponse:
         """Commits the transaction.
 
         Raises:
             RuntimeError: If the connection is closed.
             SpannerLibraryError: If the Go library call fails.
+
+        Returns:
+            A CommitResponse object.
         """
         if self.closed:
             raise RuntimeError("Connection is closed.")
@@ -170,6 +176,8 @@ class Connection(AbstractLibraryObject):
         ret = get_lib().Commit(self.pool.id, self.id)
         check_error(ret, "Commit")
         logger.info("Committed")
+        response_bytes = to_bytes(ret.msg, ret.msg_len)
+        return CommitResponse.deserialize(response_bytes)
 
     def rollback(self):
         """Rolls back the transaction.
@@ -218,5 +226,5 @@ class Connection(AbstractLibraryObject):
         logger.info(
             f"Batch DML execution successful on connection ID: {self.id}."
         )
-        response_bytes = ctypes.string_at(ret.msg, ret.msg_len)
+        response_bytes = to_bytes(ret.msg, ret.msg_len)
         return ExecuteBatchDmlResponse.deserialize(response_bytes)

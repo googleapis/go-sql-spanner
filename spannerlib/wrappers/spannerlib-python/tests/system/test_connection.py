@@ -24,6 +24,7 @@ sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 )
 
+from google.cloud.spanner_v1 import CommitResponse  # noqa: E402
 from google.cloud.spanner_v1 import ExecuteBatchDmlRequest  # noqa: E402
 from google.cloud.spanner_v1 import ExecuteSqlRequest  # noqa: E402
 
@@ -84,7 +85,8 @@ class TestConnectionE2E(unittest.TestCase):
         )
         self.conn.execute(insert_request)
 
-        self.conn.commit()
+        commit_response = self.conn.commit()
+        self.assertIsInstance(commit_response, CommitResponse)
 
         # Verify the insert
         select_request = ExecuteSqlRequest(

@@ -102,3 +102,8 @@ def serialized_bytes_to_go_slice(serialized_bytes: bytes) -> GoSlice:
     )
     go_slice._keepalive = serialized_bytes
     return go_slice
+
+
+def to_bytes(msg: ctypes.c_void_p, len: ctypes.c_int32) -> bytes:
+    """Converts shared lib msg to a bytes."""
+    return ctypes.string_at(msg, len)

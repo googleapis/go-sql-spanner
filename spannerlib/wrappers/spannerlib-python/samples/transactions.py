@@ -77,8 +77,8 @@ def run_transaction_sample(test_connection_string):
                     )
                 )
                 print("Executed second INSERT.")
-                conn.commit()
-                print("Transaction committed successfully.")
+                commit_response = conn.commit()
+                print(f"Transaction committed successfully: {commit_response}")
             except SpannerLibError as e:
                 print(f"Error during transaction: {e}")
 

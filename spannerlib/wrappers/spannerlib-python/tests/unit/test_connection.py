@@ -19,7 +19,11 @@ import ctypes
 import unittest
 from unittest.mock import MagicMock, patch
 
-from google.cloud.spanner_v1 import ExecuteBatchDmlRequest, ExecuteSqlRequest
+from google.cloud.spanner_v1 import (
+    CommitResponse,
+    ExecuteBatchDmlRequest,
+    ExecuteSqlRequest,
+)
 
 from google.cloud.spannerlib import Connection, Rows, SpannerLibError
 from google.cloud.spannerlib.internal import GoReturn
@@ -143,11 +147,21 @@ class TestConnection(unittest.TestCase):
     def test_commit_success(self, mock_get_lib):
         """Test the commit method in case of success."""
         mock_get_lib.return_value = self.mock_lib
+        commit_response = CommitResponse()
+        commit_response_bytes = CommitResponse.serialize(commit_response)
+
         self.mock_lib.Commit.return_value = GoReturn(
-            pinner_id=0, error_code=0, object_id=0, msg_len=0, msg=None
+            pinner_id=0,
+            error_code=0,
+            object_id=0,
+            msg_len=len(commit_response_bytes),
+            msg=ctypes.cast(
+                ctypes.c_char_p(commit_response_bytes), ctypes.c_void_p
+            ),
         )
 
-        self.conn.commit()
+        response = self.conn.commit()
+        self.assertIsInstance(response, CommitResponse)
         self.mock_lib.Commit.assert_called_once_with(1, 123)
 
     @patch("google.cloud.spannerlib.connection.get_lib")
