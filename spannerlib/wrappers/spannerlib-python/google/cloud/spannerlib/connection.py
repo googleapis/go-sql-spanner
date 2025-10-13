@@ -20,6 +20,7 @@ import logging
 from typing import Any
 
 from google.cloud.spanner_v1 import (
+    BatchWriteRequest,
     CommitResponse,
     ExecuteBatchDmlRequest,
     ExecuteBatchDmlResponse,
@@ -228,3 +229,36 @@ class Connection(AbstractLibraryObject):
         )
         response_bytes = to_bytes(ret.msg, ret.msg_len)
         return ExecuteBatchDmlResponse.deserialize(response_bytes)
+
+    def write_mutations(
+        self, request: BatchWriteRequest.MutationGroup
+    ) -> CommitResponse:
+        """Writes a mutation to the connection.
+
+        Args:
+            request: The BatchWriteRequest_MutationGroup object.
+
+        Returns:
+            A CommitResponse object.
+        """
+        if self.closed:
+            raise RuntimeError("Connection is closed.")
+
+        logger.info(
+            f"Writing mutation on connection ID: {self.id} for pool ID: {self.pool.id}"
+        )
+
+        request_slice = serialized_bytes_to_go_slice(
+            BatchWriteRequest.MutationGroup.serialize(request)
+        )
+
+        # Call the Go library function to write the mutation.
+        ret = get_lib().WriteMutations(
+            self.pool.id,
+            self.id,
+            request_slice,
+        )
+        check_error(ret, "WriteMutations")
+        logger.info(f"Mutation write successful on connection ID: {self.id}.")
+        response_bytes = to_bytes(ret.msg, ret.msg_len)
+        return CommitResponse.deserialize(response_bytes)

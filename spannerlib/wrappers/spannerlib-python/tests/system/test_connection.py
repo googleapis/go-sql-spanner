@@ -24,9 +24,12 @@ sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 )
 
+from google.cloud.spanner_v1 import BatchWriteRequest  # noqa: E402
 from google.cloud.spanner_v1 import CommitResponse  # noqa: E402
 from google.cloud.spanner_v1 import ExecuteBatchDmlRequest  # noqa: E402
 from google.cloud.spanner_v1 import ExecuteSqlRequest  # noqa: E402
+from google.cloud.spanner_v1 import Mutation  # noqa: E402
+from google.protobuf.struct_pb2 import ListValue, Value  # noqa: E402
 
 from google.cloud.spannerlib import Pool, SpannerLibError  # noqa: E402
 from google.cloud.spannerlib.rows import Rows  # noqa: E402
@@ -58,6 +61,14 @@ class TestConnectionE2E(unittest.TestCase):
     def setUp(self):
         self.pool = Pool.create_pool(get_test_connection_string())
         self.conn = self.pool.create_connection()
+        # Clean up the table before each test
+        try:
+            self.conn.execute(
+                ExecuteSqlRequest(sql="DELETE FROM test_table WHERE TRUE")
+            )
+        except Exception as e:
+            print(f"Error in setUp: {e}")
+            raise
 
     def tearDown(self):
         if self.conn:
@@ -172,6 +183,49 @@ class TestConnectionE2E(unittest.TestCase):
         rows = self.conn.execute(select_request)
         self.assertIsNone(rows.next())
         rows.close()
+
+    def test_write_mutations(self):
+        """Test write_mutation with an INSERT statement."""
+        mutation = Mutation(
+            insert=Mutation.Write(
+                table="test_table",
+                columns=["id", "name"],
+                values=[
+                    ListValue(
+                        values=[
+                            Value(string_value="30"),
+                            Value(string_value="Mutation User"),
+                        ]
+                    )
+                ],
+            )
+        )
+        mutation_group = BatchWriteRequest.MutationGroup(mutations=[mutation])
+
+        response = self.conn.write_mutations(mutation_group)
+        self.assertIsInstance(response, CommitResponse)
+        self.assertIsNotNone(response.commit_timestamp)
+
+        # Verify the insert
+        select_request = ExecuteSqlRequest(
+            sql="SELECT name FROM test_table WHERE id = 30"
+        )
+        rows = self.conn.execute(select_request)
+        row = rows.next()
+        self.assertEqual(row.values[0].string_value, "Mutation User")
+        rows.close()
+
+    def test_write_mutations_empty(self):
+        """Test write_mutation with an empty mutation group."""
+        mutation_group = BatchWriteRequest.MutationGroup(mutations=[])
+        # This should not raise an error, but the behavior might be a no-op.
+        # Depending on the Go library, this might return an error.
+        # For now, just check if it runs without exceptions.
+        try:
+            response = self.conn.write_mutations(mutation_group)
+            self.assertIsInstance(response, CommitResponse)
+        except SpannerLibError as e:
+            self.fail(f"write_mutations with empty mutations failed: {e}")
 
 
 if __name__ == "__main__":
