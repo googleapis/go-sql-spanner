@@ -54,6 +54,12 @@ public class SpannerCommand : DbCommand
         Connection = GaxPreconditions.CheckNotNull(connection, nameof(connection));
     }
 
+    public SpannerCommand(string commandText, SpannerConnection connection)
+    {
+        Connection = GaxPreconditions.CheckNotNull(connection, nameof(connection));
+        _commandText = GaxPreconditions.CheckNotNull(commandText,  nameof(commandText));
+    }
+
     internal SpannerCommand(SpannerConnection connection, Mutation mutation)
     {
         Connection = GaxPreconditions.CheckNotNull(connection, nameof(connection));

@@ -12,11 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-using System.Linq;
+using System.Data;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib;
 using Google.Cloud.SpannerLib.MockServer;
+using Google.Rpc;
 using Grpc.Core;
+using Status = Grpc.Core.Status;
 using TypeCode = Google.Cloud.Spanner.V1.TypeCode;
 
 namespace Google.Cloud.Spanner.DataProvider.Tests;
@@ -172,6 +174,88 @@ public class ConnectionTests : AbstractMockServerTests
         command2.CommandText = sql2;
         var affected = connection.ExecuteBatchDml([command1, command2]);
         Assert.That(affected, Is.EqualTo(new long[] { 2, 3 }));
+    }
+    
+    [Test]
+    public async Task TestBasicLifecycle()
+    {
+        await using var conn = new SpannerConnection();
+        conn.ConnectionString = ConnectionString;
+
+        var eventConnecting = false;
+        var eventOpen = false;
+        var eventClosed = false;
+
+        conn.StateChange += (_, e) =>
+        {
+            if (e is { OriginalState: ConnectionState.Closed, CurrentState: ConnectionState.Connecting })
+                eventConnecting = true;
+            
+            if (e is { OriginalState: ConnectionState.Connecting, CurrentState: ConnectionState.Open })
+                eventOpen = true;
+
+            if (e is { OriginalState: ConnectionState.Open, CurrentState: ConnectionState.Closed })
+                eventClosed = true;
+        };
+
+        Assert.That(conn.State, Is.EqualTo(ConnectionState.Closed));
+        Assert.That(eventConnecting, Is.False);
+        Assert.That(eventOpen, Is.False);
+
+        await conn.OpenAsync();
+
+        Assert.That(conn.State, Is.EqualTo(ConnectionState.Open));
+        Assert.That(eventConnecting, Is.True);
+        Assert.That(eventOpen, Is.True);
+
+        await using (var cmd = new SpannerCommand("SELECT 1", conn))
+        await using (var reader = await cmd.ExecuteReaderAsync())
+        {
+            await reader.ReadAsync();
+            Assert.That(conn.State, Is.EqualTo(ConnectionState.Open));
+        }
+
+        Assert.That(conn.State, Is.EqualTo(ConnectionState.Open));
+
+        await conn.CloseAsync();
+
+        Assert.That(conn.State, Is.EqualTo(ConnectionState.Closed));
+        Assert.That(eventClosed, Is.True);
+    }
+
+    [Test]
+    [Ignore("SpannerLib should support a connect_timeout property to make this test quicker")]
+    public async Task TestInvalidHost()
+    {
+        await using var conn = new SpannerConnection();
+        conn.ConnectionString = $"{Fixture.Host}_invalid:{Fixture.Port}/projects/p1/instances/i1/databases/d1;UsePlainText=true";
+        var exception = Assert.Throws<SpannerException>(() => conn.Open());
+        Assert.That(exception.Code, Is.EqualTo(Code.DeadlineExceeded));
+    }
+    
+    [Test]
+    public async Task TestInvalidDatabase()
+    {
+        // Close all current pools to ensure that we get a fresh pool.
+        SpannerPool.CloseSpannerLib();
+        // TODO: Make this a public property in the mock server.
+        const string detectDialectQuery =
+            "select option_value from information_schema.database_options where option_name='database_dialect'";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(detectDialectQuery, StatementResult.CreateException(new RpcException(new Status(StatusCode.NotFound, "Database not found"))));
+        await using var conn = new SpannerConnection();
+        conn.ConnectionString = ConnectionString;
+        var exception = Assert.Throws<SpannerException>(() => conn.Open());
+        Assert.That(exception.Code, Is.EqualTo(Code.NotFound));
+    }
+
+    [Test]
+    public async Task TestConnectWithConnectionStringBuilder()
+    {
+        var builder = new SpannerConnectionStringBuilder();
+        builder.DataSource = "projects/my-project/instances/my-instance/databases/my-database";
+        builder.Host = Fixture.Host;
+        builder.Port = (uint) Fixture.Port;
+        builder.UsePlainText = true;
     }
     
 }
