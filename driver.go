@@ -996,6 +996,7 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		_ = conn.Close()
 	}()
 
+	tx, err := conn.BeginTx(ctx, opts)
 	// We don't need to keep track of a running checksum for retries when using
 	// this method, so we disable internal retries.
 	// Retries will instead be handled by the loop below.
@@ -1011,13 +1012,12 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 			// It is not a Spanner connection, so just ignore and continue without any special handling.
 			return nil
 		}
-		spannerConn.withTempTransactionOptions(transactionOptions)
+		spannerConn.setReadWriteTransactionOptions(transactionOptions)
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 
-	tx, err := conn.BeginTx(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -1130,8 +1130,6 @@ type ReadWriteTransactionOptions struct {
 	// disabled, and any Aborted error from Spanner is propagated to the
 	// application.
 	DisableInternalRetries bool
-
-	close func()
 }
 
 // BeginReadWriteTransaction begins a read/write transaction on a Spanner database.
@@ -1146,15 +1144,17 @@ func BeginReadWriteTransaction(ctx context.Context, db *sql.DB, options ReadWrit
 	if err != nil {
 		return nil, err
 	}
-	options.close = func() {
+	if err := withTransactionCloseFunc(conn, func() {
 		// Close the connection asynchronously, as the transaction will still
 		// be active when we hit this point.
 		go conn.Close()
-	}
-	if err := withTempReadWriteTransactionOptions(conn, &options); err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+	if err := withTempReadWriteTransactionOptions(conn, &options); err != nil {
+		return nil, err
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1168,7 +1168,7 @@ func withTempReadWriteTransactionOptions(conn *sql.Conn, options *ReadWriteTrans
 			// It is not a Spanner connection.
 			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
 		}
-		spannerConn.withTempTransactionOptions(options)
+		spannerConn.setReadWriteTransactionOptions(options)
 		return nil
 	})
 }
@@ -1178,8 +1178,6 @@ func withTempReadWriteTransactionOptions(conn *sql.Conn, options *ReadWriteTrans
 type ReadOnlyTransactionOptions struct {
 	TimestampBound         spanner.TimestampBound
 	BeginTransactionOption spanner.BeginTransactionOption
-
-	close func()
 }
 
 // BeginReadOnlyTransaction begins a read-only transaction on a Spanner database.
@@ -1192,20 +1190,34 @@ func BeginReadOnlyTransaction(ctx context.Context, db *sql.DB, options ReadOnlyT
 	if err != nil {
 		return nil, err
 	}
-	options.close = func() {
+	if err := withTransactionCloseFunc(conn, func() {
 		// Close the connection asynchronously, as the transaction will still
 		// be active when we hit this point.
 		go conn.Close()
-	}
-	if err := withTempReadOnlyTransactionOptions(conn, &options); err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err := withTempReadOnlyTransactionOptions(conn, &options); err != nil {
+		return nil, err
+	}
 	if err != nil {
 		clearTempReadOnlyTransactionOptions(conn)
 		return nil, err
 	}
 	return tx, nil
+}
+
+func withTransactionCloseFunc(conn *sql.Conn, close func()) error {
+	return conn.Raw(func(driverConn any) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			// It is not a Spanner connection.
+			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
+		}
+		spannerConn.withTransactionCloseFunc(close)
+		return nil
+	})
 }
 
 func withTempReadOnlyTransactionOptions(conn *sql.Conn, options *ReadOnlyTransactionOptions) error {
@@ -1215,7 +1227,7 @@ func withTempReadOnlyTransactionOptions(conn *sql.Conn, options *ReadOnlyTransac
 			// It is not a Spanner connection.
 			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
 		}
-		spannerConn.withTempReadOnlyTransactionOptions(options)
+		spannerConn.setReadOnlyTransactionOptions(options)
 		return nil
 	})
 }

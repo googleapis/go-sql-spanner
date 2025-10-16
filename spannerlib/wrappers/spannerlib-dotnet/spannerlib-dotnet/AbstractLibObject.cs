@@ -13,6 +13,7 @@
 // limitations under the License.
 
 using System;
+using System.Threading.Tasks;
 
 namespace Google.Cloud.SpannerLib;
 
@@ -20,7 +21,7 @@ namespace Google.Cloud.SpannerLib;
 /// This is the base class for all objects that are created by SpannerLib. It implements IDisposable and automatically
 /// closes the object in SpannerLib when the object is either being closed, disposed, or finalized.
 /// </summary>
-public abstract class AbstractLibObject : IDisposable
+public abstract class AbstractLibObject : IDisposable, IAsyncDisposable
 {
     internal ISpannerLib Spanner { get; }
     public long Id { get; }
@@ -56,7 +57,13 @@ public abstract class AbstractLibObject : IDisposable
         Dispose(true);
         GC.SuppressFinalize(this);
     }
-
+    
+    public async ValueTask DisposeAsync()
+    {
+        await DisposeAsyncCore().ConfigureAwait(false);
+        GC.SuppressFinalize(this);
+    }
+    
     public void Close()
     {
         Dispose(true);
@@ -81,10 +88,35 @@ public abstract class AbstractLibObject : IDisposable
             _disposed = true;
         }
     }
+    
+    protected virtual async ValueTask DisposeAsyncCore()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        try
+        {
+            if (Id > 0)
+            {
+                await CloseLibObjectAsync();
+            }
+        }
+        finally
+        {
+            _disposed = true;
+        }
+    }
 
     /// <summary>
     /// CloseLibObject should be implemented by concrete subclasses and call the corresponding Close function in
     /// SpannerLib.
     /// </summary>
     protected abstract void CloseLibObject();
+
+    protected virtual ValueTask CloseLibObjectAsync()
+    {
+        CloseLibObject();
+        return default;
+    }
 }

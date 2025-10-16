@@ -15,6 +15,7 @@
 # frozen_string_literal: true
 
 require_relative "ffi"
+require_relative "rows"
 
 class Connection
   attr_reader :pool_id, :conn_id
@@ -35,8 +36,7 @@ class Connection
                 else
                   mutation_group.to_s
                 end
-
-    SpannerLib.write_mutations(@pool_id, @conn_id, req_bytes)
+    SpannerLib.write_mutations(@pool_id, @conn_id, req_bytes, proto_klass: Google::Cloud::Spanner::V1::CommitResponse)
   end
 
   # Begin a read/write transaction on this connection. Accepts TransactionOptions proto or bytes.
@@ -52,7 +52,7 @@ class Connection
 
   # Commit the current transaction. Returns CommitResponse bytes or nil.
   def commit
-    SpannerLib.commit(@pool_id, @conn_id)
+    SpannerLib.commit(@pool_id, @conn_id, proto_klass: Google::Cloud::Spanner::V1::CommitResponse)
   end
 
   # Rollback the current transaction.
@@ -68,7 +68,8 @@ class Connection
             else
               request.is_a?(String) ? request : request.to_s
             end
-    SpannerLib.execute(@pool_id, @conn_id, bytes)
+    rows_id = SpannerLib.execute(@pool_id, @conn_id, bytes)
+    SpannerLib::Rows.new(self, rows_id)
   end
 
   # Execute batch DML/DDL request. Returns ExecuteBatchDmlResponse bytes (or nil).
@@ -78,24 +79,8 @@ class Connection
             else
               request.is_a?(String) ? request : request.to_s
             end
-    SpannerLib.execute_batch(@pool_id, @conn_id, bytes)
-  end
 
-  # Rows helpers — return raw message bytes (caller should parse them).
-  def metadata(rows_id)
-    SpannerLib.metadata(@pool_id, @conn_id, rows_id)
-  end
-
-  def next_rows(rows_id, num_rows, encoding = 0)
-    SpannerLib.next(@pool_id, @conn_id, rows_id, num_rows, encoding)
-  end
-
-  def result_set_stats(rows_id)
-    SpannerLib.result_set_stats(@pool_id, @conn_id, rows_id)
-  end
-
-  def close_rows(rows_id)
-    SpannerLib.close_rows(@pool_id, @conn_id, rows_id)
+    SpannerLib.execute_batch(@pool_id, @conn_id, bytes, proto_klass: Google::Cloud::Spanner::V1::ExecuteBatchDmlResponse)
   end
 
   # Closes this connection. Any active transaction on the connection is rolled back.

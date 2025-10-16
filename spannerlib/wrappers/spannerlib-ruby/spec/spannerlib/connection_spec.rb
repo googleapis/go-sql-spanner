@@ -29,11 +29,11 @@ RSpec.describe Connection do
   describe "creation" do
     it "is created by a Pool" do
       allow(SpannerLib).to receive(:create_connection).with(1).and_return(2)
-      
+
       # The object under test is the one returned by `pool.create_connection`
       conn = pool.create_connection
 
-      expect(conn).to be_a(Connection)
+      expect(conn).to be_a(described_class)
       expect(conn.conn_id).to eq(2)
       expect(conn.pool_id).to eq(1)
     end

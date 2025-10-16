@@ -14,48 +14,29 @@
 
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib.MockServer;
-using Google.Cloud.SpannerLib.Native.Impl;
 using Google.Rpc;
 using Grpc.Core;
 
 namespace Google.Cloud.SpannerLib.Tests;
 
-public class PoolTests
+public class PoolTests : AbstractMockServerTests
 {
-    private readonly ISpannerLib _spannerLib = new SharedLibSpanner();
-    
-    private SpannerMockServerFixture _fixture;
-        
-    private string ConnectionString =>  $"{_fixture.Host}:{_fixture.Port}/projects/p1/instances/i1/databases/d1;UsePlainText=true";
-        
-    [SetUp]
-    public void Setup()
-    {
-        _fixture = new SpannerMockServerFixture();
-    }
-        
-    [TearDown]
-    public void Teardown()
-    {
-        _fixture.Dispose();
-    }
-
     [Test]
-    public void TestCreatePool()
+    public void TestCreatePool([Values] LibType libType)
     {
-        using var pool = Pool.Create(_spannerLib, ConnectionString);
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         Assert.That(pool, Is.Not.Null);
         Assert.That(pool.Id, Is.GreaterThan(0));
         // Creating a pool should create the underlying client and a multiplexed session.
-        Assert.That(_fixture.SpannerMock.Requests.OfType<CreateSessionRequest>().Count(), Is.EqualTo(1));
+        Assert.That(Fixture.SpannerMock.Requests.OfType<CreateSessionRequest>().Count(), Is.EqualTo(1));
     }
 
     [Test]
-    public void TestCreatePoolFails()
+    public void TestCreatePoolFails([Values] LibType libType)
     {
-        _fixture.SpannerMock.AddOrUpdateExecutionTime(nameof(_fixture.SpannerMock.CreateSession), ExecutionTime.CreateException(StatusCode.PermissionDenied, "Not allowed"));
+        Fixture.SpannerMock.AddOrUpdateExecutionTime(nameof(Fixture.SpannerMock.CreateSession), ExecutionTime.CreateException(StatusCode.PermissionDenied, "Not allowed"));
 
-        SpannerException exception = Assert.Throws<SpannerException>(() => Pool.Create(_spannerLib, ConnectionString));
+        SpannerException exception = Assert.Throws<SpannerException>(() => Pool.Create(SpannerLibDictionary[libType], ConnectionString));
         Assert.That(exception.Code, Is.EqualTo(Code.PermissionDenied));
     }
 

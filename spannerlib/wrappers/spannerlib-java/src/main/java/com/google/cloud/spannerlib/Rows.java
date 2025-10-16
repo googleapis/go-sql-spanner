@@ -16,14 +16,9 @@
 
 package com.google.cloud.spannerlib;
 
-import static com.google.cloud.spannerlib.internal.SpannerLibrary.executeAndRelease;
-
-import com.google.cloud.spannerlib.internal.MessageHandler;
-import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.ListValue;
 import com.google.spanner.v1.ResultSetMetadata;
 import com.google.spanner.v1.ResultSetStats;
-import java.nio.ByteBuffer;
 import java.sql.Statement;
 
 public class Rows extends AbstractLibraryObject {
@@ -38,44 +33,21 @@ public class Rows extends AbstractLibraryObject {
     this.connection = connection;
   }
 
+  public Connection getConnection() {
+    return connection;
+  }
+
   @Override
   public void close() {
-    executeAndRelease(
-        getLibrary(),
-        library -> library.CloseRows(connection.getPool().getId(), connection.getId(), getId()));
+    getLibrary().closeRows(this);
   }
 
   public ResultSetMetadata getMetadata() {
-    try (MessageHandler message =
-        getLibrary()
-            .execute(
-                library ->
-                    library.Metadata(connection.getPool().getId(), connection.getId(), getId()))) {
-      if (message.getLength() == 0) {
-        return ResultSetMetadata.getDefaultInstance();
-      }
-      ByteBuffer buffer = message.getValue().getByteBuffer(0, message.getLength());
-      return ResultSetMetadata.parseFrom(buffer);
-    } catch (InvalidProtocolBufferException decodeException) {
-      throw new RuntimeException(decodeException);
-    }
+    return getLibrary().getMetadata(this);
   }
 
   public ResultSetStats getResultSetStats() {
-    try (MessageHandler message =
-        getLibrary()
-            .execute(
-                library ->
-                    library.ResultSetStats(
-                        connection.getPool().getId(), connection.getId(), getId()))) {
-      if (message.getLength() == 0) {
-        return ResultSetStats.getDefaultInstance();
-      }
-      ByteBuffer buffer = message.getValue().getByteBuffer(0, message.getLength());
-      return ResultSetStats.parseFrom(buffer);
-    } catch (InvalidProtocolBufferException decodeException) {
-      throw new RuntimeException(decodeException);
-    }
+    return getLibrary().getResultSetStats(this);
   }
 
   public long getUpdateCount() {
@@ -90,24 +62,6 @@ public class Rows extends AbstractLibraryObject {
 
   /** Returns the next row in this {@link Rows} instance, or null if there are no more rows. */
   public ListValue next() {
-    try (MessageHandler message =
-        getLibrary()
-            .execute(
-                library ->
-                    library.Next(
-                        connection.getPool().getId(),
-                        connection.getId(),
-                        getId(),
-                        /* numRows= */ 1,
-                        Encoding.PROTOBUF.ordinal()))) {
-      // An empty message means that we have reached the end of the iterator.
-      if (message.getLength() == 0) {
-        return null;
-      }
-      ByteBuffer buffer = message.getValue().getByteBuffer(0, message.getLength());
-      return ListValue.parseFrom(buffer);
-    } catch (InvalidProtocolBufferException decodeException) {
-      throw new RuntimeException(decodeException);
-    }
+    return getLibrary().next(this);
   }
 }

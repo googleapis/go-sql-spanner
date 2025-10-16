@@ -29,8 +29,6 @@ import (
 
 type BatchReadOnlyTransactionOptions struct {
 	TimestampBound spanner.TimestampBound
-
-	close func()
 }
 
 // PartitionedQueryOptions are used for queries that use the AutoPartitionQuery
@@ -183,15 +181,17 @@ func BeginBatchReadOnlyTransaction(ctx context.Context, db *sql.DB, options Batc
 	if err != nil {
 		return nil, err
 	}
-	options.close = func() {
+	if err := withTransactionCloseFunc(conn, func() {
 		// Close the connection asynchronously, as the transaction will still
 		// be active when we hit this point.
 		go conn.Close()
-	}
-	if err := withTempBatchReadOnlyTransactionOptions(conn, &options); err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: WithBatchReadOnly(sql.LevelDefault)})
+	if err := withTempBatchReadOnlyTransactionOptions(conn, &options); err != nil {
+		return nil, err
+	}
 	if err != nil {
 		clearTempBatchReadOnlyTransactionOptions(conn)
 		return nil, err
@@ -206,7 +206,7 @@ func withTempBatchReadOnlyTransactionOptions(conn *sql.Conn, options *BatchReadO
 			// It is not a Spanner connection.
 			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
 		}
-		spannerConn.withTempBatchReadOnlyTransactionOptions(options)
+		spannerConn.setBatchReadOnlyTransactionOptions(options)
 		return nil
 	})
 }
