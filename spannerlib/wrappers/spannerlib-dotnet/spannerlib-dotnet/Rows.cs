@@ -13,6 +13,7 @@
 // limitations under the License.
 
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Google.Cloud.Spanner.V1;
 using Google.Protobuf.WellKnownTypes;
@@ -29,14 +30,14 @@ public class Rows : AbstractLibObject
     
     private ResultSetMetadata? _metadata;
 
-    public ResultSetMetadata? Metadata => _metadata ??= Spanner.Metadata(this);
+    public virtual ResultSetMetadata? Metadata => _metadata ??= Spanner.Metadata(this);
 
     private readonly Lazy<ResultSetStats?> _stats;
 
     /// <summary>
     /// The ResultSetStats of the SQL statement. This is only available once all data rows have been read.
     /// </summary>
-    private ResultSetStats? Stats => _stats.Value;
+    protected virtual ResultSetStats? Stats => _stats.Value;
 
     /// <summary>
     /// The update count of the SQL statement. This is only available once all data rows have been read.
@@ -76,7 +77,7 @@ public class Rows : AbstractLibObject
     /// Returns the next data row from this Rows object.
     /// </summary>
     /// <returns>The next data row or null if there are no more data</returns>
-    public ListValue? Next()
+    public virtual ListValue? Next()
     {
         var res = Spanner.Next(this, 1, ISpannerLib.RowEncoding.Proto);
         if (res == null && !_stats.IsValueCreated)
@@ -91,9 +92,9 @@ public class Rows : AbstractLibObject
     /// Returns the next data row from this Rows object.
     /// </summary>
     /// <returns>The next data row or null if there are no more data</returns>
-    public async Task<ListValue?> NextAsync()
+    public virtual async Task<ListValue?> NextAsync(CancellationToken cancellationToken = default)
     {
-        return await Spanner.NextAsync(this, 1, ISpannerLib.RowEncoding.Proto);
+        return await Spanner.NextAsync(this, 1, ISpannerLib.RowEncoding.Proto, cancellationToken);
     }
 
     /// <summary>
@@ -103,4 +104,10 @@ public class Rows : AbstractLibObject
     {
         Spanner.CloseRows(this);
     }
+
+    protected override async ValueTask CloseLibObjectAsync()
+    {
+        await Spanner.CloseRowsAsync(this);
+    }
+    
 }

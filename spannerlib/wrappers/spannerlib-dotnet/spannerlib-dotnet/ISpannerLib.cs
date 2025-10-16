@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Google.Cloud.Spanner.V1;
 using Google.Protobuf.WellKnownTypes;
@@ -24,7 +26,7 @@ namespace Google.Cloud.SpannerLib;
 /// it as a child process and communicating with it through a gRPC API. The classes in this assembly use this generic
 /// interface to abstract away the underlying communication method.
 /// </summary>
-public interface ISpannerLib
+public interface ISpannerLib : IDisposable
 {
     /// <summary>
     /// RowEncoding is used to specify the format that SpannerLib should use to return row data. 
@@ -66,6 +68,14 @@ public interface ISpannerLib
     /// </summary>
     /// <param name="connection">The connection to close</param>
     public void CloseConnection(Connection connection);
+    
+    /// <summary>
+    /// Closes the given connection. This also closes any open Rows objects of this connection. Any active transaction
+    /// on the connection is rolled back.
+    /// </summary>
+    /// <param name="connection">The connection to close</param>
+    /// <param name="cancellationToken">The cancellation token</param>
+    public Task CloseConnectionAsync(Connection connection, CancellationToken cancellationToken = default) => Task.Run(() => CloseConnection(connection), cancellationToken);
 
     /// <summary>
     /// Writes an array of mutations to Spanner. The mutations are buffered in the current transaction of the given
@@ -97,11 +107,12 @@ public interface ISpannerLib
     /// </summary>
     /// <param name="connection">The connection to use to execute the SQL statement</param>
     /// <param name="statement">The statement to execute</param>
+    /// <param name="cancellationToken">The cancellation token</param>
     /// <returns>
     /// A Rows object with the results of the statement. The contents of the Rows object depends on the type of SQL
     /// statement.
     /// </returns>
-    public Task<Rows> ExecuteAsync(Connection connection, ExecuteSqlRequest statement);
+    public Task<Rows> ExecuteAsync(Connection connection, ExecuteSqlRequest statement, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Executes a batch of DML or DDL statements on Spanner. The batch may not contain a mix of DML and DDL statements.
@@ -116,8 +127,9 @@ public interface ISpannerLib
     /// </summary>
     /// <param name="connection">The connection to use to execute the batch</param>
     /// <param name="statements">The DML or DDL statements to execute</param>
+    /// <param name="cancellationToken">The cancellation token</param>
     /// <returns>The update count per statement. The update count for a DDL statement is -1.</returns>
-    public Task<long[]> ExecuteBatchAsync(Connection connection, ExecuteBatchDmlRequest statements);
+    public Task<long[]> ExecuteBatchAsync(Connection connection, ExecuteBatchDmlRequest statements, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns the ResultSetMetadata of a Rows object. This can be used to inspect the type of data that a Rows object
@@ -132,8 +144,9 @@ public interface ISpannerLib
     /// contains.
     /// </summary>
     /// <param name="rows">The Rows object to get the metadata of</param>
+    /// <param name="cancellationToken">The cancellation token</param>
     /// <returns>The ResultSetMetadata of the given Rows object</returns>
-    public Task<ResultSetMetadata?> MetadataAsync(Rows rows);
+    public Task<ResultSetMetadata?> MetadataAsync(Rows rows, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns the ResultSetStats of a Rows object. This object contains the update count of a DML statement that was
@@ -164,14 +177,22 @@ public interface ISpannerLib
     /// <param name="rows">The Rows object to return data rows for</param>
     /// <param name="numRows">The maximum number of rows to return</param>
     /// <param name="encoding">The encoding that should be used for the data rows</param>
+    /// <param name="cancellationToken">The cancellation token</param>
     /// <returns>A ListValue with the actual row data, or null if there are no more rows</returns>
-    public Task<ListValue?> NextAsync(Rows rows, int numRows, RowEncoding encoding);
+    public Task<ListValue?> NextAsync(Rows rows, int numRows, RowEncoding encoding, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Closes the given Rows object. This releases all resources associated with this statement result.
     /// </summary>
     /// <param name="rows">The Rows object to close</param>
     public void CloseRows(Rows rows);
+
+    /// <summary>
+    /// Closes the given Rows object. This releases all resources associated with this statement result.
+    /// </summary>
+    /// <param name="rows">The Rows object to close</param>
+    /// <param name="cancellationToken">The cancellation token</param>
+    public Task CloseRowsAsync(Rows rows, CancellationToken cancellationToken = default) => Task.Run(() => CloseRows(rows), cancellationToken);
 
     /// <summary>
     /// Starts a new transaction on this connection. A connection can have at most one transaction at any time. All
@@ -190,10 +211,30 @@ public interface ISpannerLib
     /// <param name="connection">The connection that has the transaction that should be committed</param>
     /// <returns>The CommitResponse of the transaction, or null if it was a read-only transaction</returns>
     public CommitResponse? Commit(Connection connection);
+    
+    /// <summary>
+    /// Commits the current transaction on this connection.
+    /// </summary>
+    /// <param name="connection">The connection that has the transaction that should be committed</param>
+    /// <returns>The CommitResponse of the transaction, or null if it was a read-only transaction</returns>
+    /// <param name="cancellationToken">The cancellation token</param>
+    public Task<CommitResponse?> CommitAsync(Connection connection, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Rollbacks the current transaction.
     /// </summary>
     /// <param name="connection">The connection that has the transaction that should be rolled back</param>
     public void Rollback(Connection connection);
+
+    /// <summary>
+    /// Rollbacks the current transaction.
+    /// </summary>
+    /// <param name="connection">The connection that has the transaction that should be rolled back</param>
+    /// <param name="cancellationToken">The cancellation token</param>
+    public Task RollbackAsync(Connection connection, CancellationToken cancellationToken = default);
+
+    void IDisposable.Dispose()
+    {
+        // no-op
+    }
 }

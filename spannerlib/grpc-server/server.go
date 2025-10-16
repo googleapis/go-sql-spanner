@@ -63,6 +63,10 @@ type spannerLibServer struct {
 	pb.UnimplementedSpannerLibServer
 }
 
+func (s *spannerLibServer) Info(_ context.Context, _ *pb.InfoRequest) (*pb.InfoResponse, error) {
+	return &pb.InfoResponse{}, nil
+}
+
 func (s *spannerLibServer) CreatePool(ctx context.Context, request *pb.CreatePoolRequest) (*pb.Pool, error) {
 	id, err := api.CreatePool(ctx, request.ConnectionString)
 	if err != nil {
