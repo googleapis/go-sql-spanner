@@ -49,17 +49,17 @@ public class Rows : AbstractLibObject
             var stats = Stats;
             if (stats == null)
             {
-                return -1;
+                return -1L;
             }
             if (stats.HasRowCountExact)
             {
-                return (int)stats.RowCountExact;
+                return stats.RowCountExact;
             }
             if (stats.HasRowCountLowerBound)
             {
-                return (int)stats.RowCountLowerBound;
+                return stats.RowCountLowerBound;
             }
-            return -1;
+            return -1L;
         }
     }
 
