@@ -65,7 +65,7 @@ func TestStatementExecutor_StartBatchDdl(t *testing.T) {
 	}
 
 	// Starting a DDL batch while the connection is in a transaction is not allowed.
-	c.tx = &readWriteTransaction{}
+	c.tx = &delegatingTransaction{conn: c, ctx: ctx}
 	if _, err := c.ExecContext(ctx, "start batch ddl", []driver.NamedValue{}); spanner.ErrCode(err) != codes.FailedPrecondition {
 		t.Fatalf("error mismatch for starting a DDL batch while in a transaction\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
 	}
@@ -102,13 +102,13 @@ func TestStatementExecutor_StartBatchDml(t *testing.T) {
 	}
 
 	// Starting a DML batch while the connection is in a read-only transaction is not allowed.
-	c.tx = &readOnlyTransaction{logger: noopLogger}
+	c.tx = &delegatingTransaction{conn: c, contextTransaction: &readOnlyTransaction{logger: noopLogger}}
 	if _, err := c.ExecContext(ctx, "start batch dml", []driver.NamedValue{}); spanner.ErrCode(err) != codes.FailedPrecondition {
 		t.Fatalf("error mismatch for starting a DML batch while in a read-only transaction\nGot: %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
 	}
 
 	// Starting a DML batch while the connection is in a read/write transaction is allowed.
-	c.tx = &readWriteTransaction{logger: noopLogger}
+	c.tx = &delegatingTransaction{conn: c, contextTransaction: &readWriteTransaction{logger: noopLogger}}
 	if _, err := c.ExecContext(ctx, "start batch dml", []driver.NamedValue{}); err != nil {
 		t.Fatalf("could not start a DML batch while in a read/write transaction: %v", err)
 	}

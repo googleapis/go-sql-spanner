@@ -23,6 +23,7 @@ require "google/protobuf"
 require "google/rpc/status_pb"
 
 require "ffi"
+require_relative "message_handler"
 
 module SpannerLib
   extend FFI::Library
@@ -128,45 +129,25 @@ module SpannerLib
     end
   end
 
-  def self.handle_object_id_response(message, func_name)
+  def self.handle_object_id_response(message, _func_name)
     ensure_release(message) do
-      if message[:code] != 0
-        error_msg = read_error_message(message)
-        raise "#{func_name} failed with code #{message[:code]}: #{error_msg}"
-      end
-      message[:objectId]
+      MessageHandler.new(message).object_id
     end
   end
 
-  def self.handle_status_response(message, func_name)
+  def self.handle_status_response(message, _func_name)
     ensure_release(message) do
-      if message[:code] != 0
-        error_msg = read_error_message(message)
-        raise "#{func_name} failed with code #{message[:code]}: #{error_msg}"
-      end
+      MessageHandler.new(message).throw_if_error!
     end
     nil
   end
 
-  # rubocop:disable Metrics/MethodLength
-  def self.handle_data_response(message, func_name)
+  def self.handle_data_response(message, _func_name, options = {})
+    proto_klass = options[:proto_klass]
     ensure_release(message) do
-      if message[:code] != 0
-        error_msg = read_error_message(message)
-        raise "#{func_name} failed with code #{message[:code]}: #{error_msg}"
-      end
-
-      len = message[:length]
-      ptr = message[:pointer]
-
-      if len.positive? && !ptr.null?
-        ptr.read_bytes(len)
-      else
-        ""
-      end
+      MessageHandler.new(message).data(proto_klass: proto_klass)
     end
   end
-  # rubocop:enable Metrics/MethodLength
 
   # rubocop:disable Metrics/MethodLength
   def self.read_error_message(message)
@@ -187,10 +168,11 @@ module SpannerLib
   end
   # rubocop:enable Metrics/MethodLength
 
-  def self.write_mutations(pool_id, conn_id, proto_bytes)
+  def self.write_mutations(pool_id, conn_id, proto_bytes, options = {})
+    proto_klass = options[:proto_klass]
     with_gobytes(proto_bytes) do |gobytes|
       message = WriteMutations(pool_id, conn_id, gobytes)
-      handle_data_response(message, "WriteMutations")
+      handle_data_response(message, "WriteMutations", proto_klass: proto_klass)
     end
   end
 
@@ -201,9 +183,10 @@ module SpannerLib
     end
   end
 
-  def self.commit(pool_id, conn_id)
+  def self.commit(pool_id, conn_id, options = {})
+    proto_klass = options[:proto_klass]
     message = Commit(pool_id, conn_id)
-    handle_data_response(message, "Commit")
+    handle_data_response(message, "Commit", proto_klass: proto_klass)
   end
 
   def self.rollback(pool_id, conn_id)
@@ -218,10 +201,11 @@ module SpannerLib
     end
   end
 
-  def self.execute_batch(pool_id, conn_id, proto_bytes)
+  def self.execute_batch(pool_id, conn_id, proto_bytes, options = {})
+    proto_klass = options[:proto_klass]
     with_gobytes(proto_bytes) do |gobytes|
       message = ExecuteBatch(pool_id, conn_id, gobytes)
-      handle_data_response(message, "ExecuteBatch")
+      handle_data_response(message, "ExecuteBatch", proto_klass: proto_klass)
     end
   end
 

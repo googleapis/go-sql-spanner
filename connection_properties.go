@@ -296,6 +296,15 @@ var propertyReturnCommitStats = createConnectionProperty(
 	connectionstate.ContextUser,
 	connectionstate.ConvertBool,
 )
+var propertyTransactionBatchReadOnly = createConnectionProperty(
+	"transaction_batch_read_only",
+	"transaction_batch_read_only indicates whether read-only transactions on this connection should use a batch read-only transaction.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
 
 // ------------------------------------------------------------------------------------------------
 // Statement connection properties.
