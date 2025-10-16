@@ -29,8 +29,8 @@ public class TransactionTests : AbstractMockServerTests
         connection.BeginTransaction(new TransactionOptions());
         connection.Commit();
         
-        Assert.That(_fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>().Count(), Is.EqualTo(0));
-        Assert.That(_fixture.SpannerMock.Requests.OfType<CommitRequest>().Count(), Is.EqualTo(0));
+        Assert.That(Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>().Count(), Is.EqualTo(0));
+        Assert.That(Fixture.SpannerMock.Requests.OfType<CommitRequest>().Count(), Is.EqualTo(0));
     }
 
     [Test]
