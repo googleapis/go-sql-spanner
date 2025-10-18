@@ -22,7 +22,6 @@ import static org.junit.Assert.assertTrue;
 
 import com.google.cloud.spanner.MockSpannerServiceImpl.StatementResult;
 import com.google.cloud.spanner.Statement;
-import com.google.cloud.spanner.connection.AbstractMockServerTest;
 import com.google.cloud.spanner.connection.RandomResultSetGenerator;
 import com.google.common.collect.ImmutableMap;
 import com.google.protobuf.Struct;
@@ -42,13 +41,13 @@ import com.google.spanner.v1.TypeCode;
 import io.grpc.Status.Code;
 import org.junit.Test;
 
-public class TransactionTest extends AbstractMockServerTest {
+public class TransactionTest extends AbstractSpannerLibTest {
   @Test
   public void testBeginAndCommit() {
     String dsn =
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
-    try (Pool pool = Pool.createPool(dsn);
+    try (Pool pool = Pool.createPool(library, dsn);
         Connection connection = pool.createConnection()) {
       connection.beginTransaction(TransactionOptions.getDefaultInstance());
       connection.commit();
@@ -63,7 +62,7 @@ public class TransactionTest extends AbstractMockServerTest {
     String dsn =
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
-    try (Pool pool = Pool.createPool(dsn);
+    try (Pool pool = Pool.createPool(library, dsn);
         Connection connection = pool.createConnection()) {
       connection.beginTransaction(TransactionOptions.getDefaultInstance());
       connection.rollback();
@@ -91,7 +90,7 @@ public class TransactionTest extends AbstractMockServerTest {
     String dsn =
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
-    try (Pool pool = Pool.createPool(dsn);
+    try (Pool pool = Pool.createPool(library, dsn);
         Connection connection = pool.createConnection()) {
       connection.beginTransaction(TransactionOptions.getDefaultInstance());
       connection.execute(
@@ -131,7 +130,7 @@ public class TransactionTest extends AbstractMockServerTest {
     String dsn =
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
-    try (Pool pool = Pool.createPool(dsn);
+    try (Pool pool = Pool.createPool(library, dsn);
         Connection connection = pool.createConnection()) {
       connection.beginTransaction(
           TransactionOptions.newBuilder().setReadOnly(ReadOnly.newBuilder().build()).build());
@@ -163,7 +162,7 @@ public class TransactionTest extends AbstractMockServerTest {
     String dsn =
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
-    try (Pool pool = Pool.createPool(dsn);
+    try (Pool pool = Pool.createPool(library, dsn);
         Connection connection = pool.createConnection()) {
       // Try to start two transactions on a connection.
       connection.beginTransaction(TransactionOptions.getDefaultInstance());

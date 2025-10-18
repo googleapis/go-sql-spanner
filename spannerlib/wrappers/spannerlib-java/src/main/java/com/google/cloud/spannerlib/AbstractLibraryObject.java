@@ -16,8 +16,6 @@
 
 package com.google.cloud.spannerlib;
 
-import com.google.cloud.spannerlib.internal.SpannerLibrary;
-
 /**
  * {@link AbstractLibraryObject} is the base class for all objects that are created by SpannerLib,
  * such as {@link Pool} and {@link Connection}.

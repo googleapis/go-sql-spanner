@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <RootNamespace>Google.Cloud.SpannerLib.Native</RootNamespace>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>default</LangVersion>
+    <PackageId>Google.Cloud.SpannerLib.Native</PackageId>
+    <Title>.NET wrapper for the native SpannerLib shared library</Title>
+    <Authors>Google</Authors>
+  </PropertyGroup>
+  
+  <ItemGroup>
+    <None Include="libraries/any/*" Pack="true" PackagePath="runtimes/any/native/" />
+    <None Include="libraries/linux-x64/*" Pack="true" PackagePath="runtimes/linux-x64/native/" />
+    <None Include="libraries/osx-arm64/*" Pack="true" PackagePath="runtimes/osx-arm64/native/" />
+    <None Include="libraries/win-x64/*" Pack="true" PackagePath="runtimes/win-x64/native/" />
+  </ItemGroup>
+</Project>
