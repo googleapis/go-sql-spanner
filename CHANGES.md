@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.20.0](https://github.com/googleapis/go-sql-spanner/compare/v1.19.0...v1.20.0) (2025-10-18)
+
+
+### Features
+
+* Parse SET TRANSACTION statements ([#549](https://github.com/googleapis/go-sql-spanner/issues/549)) ([6a396d3](https://github.com/googleapis/go-sql-spanner/commit/6a396d35be5b7ccbc5bb0e1cae5ad503ed705e5e))
+* Support transaction options in BEGIN statements ([#550](https://github.com/googleapis/go-sql-spanner/issues/550)) ([49e945e](https://github.com/googleapis/go-sql-spanner/commit/49e945e9a22be07f88168e80cdc842b23daa5a67))
+
+
+### Bug Fixes
+
+* Update all dependencies ([#551](https://github.com/googleapis/go-sql-spanner/issues/551)) ([7457422](https://github.com/googleapis/go-sql-spanner/commit/7457422807a9b2ed83cacc13f251c5826d64165f))
+
 ## [1.19.0](https://github.com/googleapis/go-sql-spanner/compare/v1.18.1...v1.19.0) (2025-10-07)
 
 
