@@ -18,6 +18,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/google/uuid"
 	"math/big"
 	"time"
 
@@ -38,6 +39,7 @@ var createTableStatement = `CREATE TABLE AllTypes (
 			numeric        NUMERIC,
 			date           DATE,
 			timestamp      TIMESTAMP,
+			col_uuid       UUID,
 			boolArray      ARRAY<BOOL>,
 			stringArray    ARRAY<STRING(MAX)>,
 			bytesArray     ARRAY<BYTES(MAX)>,
@@ -47,6 +49,7 @@ var createTableStatement = `CREATE TABLE AllTypes (
 			numericArray   ARRAY<NUMERIC>,
 			dateArray      ARRAY<DATE>,
 			timestampArray ARRAY<TIMESTAMP>,
+			uuidArray      ARRAY<UUID>,
 		) PRIMARY KEY (key)`
 
 // Sample showing how to work with the different data types that are supported by Cloud Spanner:
@@ -68,15 +71,16 @@ func dataTypes(projectId, instanceId, databaseId string) error {
 
 	// Insert a test row with all non-null values using DML and native types.
 	if _, err := db.ExecContext(ctx, `INSERT INTO AllTypes (
-                      key, bool, string, bytes, int64, float32, float64, numeric, date, timestamp,
-                      boolArray, stringArray, bytesArray, int64Array, float32Array, float64Array, numericArray, dateArray, timestampArray)
-                      VALUES (@key, @bool, @string, @bytes, @int64, @float32, @float64, @numeric, @date, @timestamp,
-                              @boolArray, @stringArray, @bytesArray, @int64Array, @float32Array, @float64Array, @numericArray, @dateArray, @timestampArray)`,
-		1, true, "string", []byte("bytes"), 100, float32(3.14), 3.14, *big.NewRat(1, 1), civil.DateOf(time.Now()), time.Now(),
+                      key, bool, string, bytes, int64, float32, float64, numeric, date, timestamp, col_uuid,
+                      boolArray, stringArray, bytesArray, int64Array, float32Array, float64Array, numericArray, dateArray, timestampArray, uuidArray)
+                      VALUES (@key, @bool, @string, @bytes, @int64, @float32, @float64, @numeric, @date, @timestamp, @uuid,
+                              @boolArray, @stringArray, @bytesArray, @int64Array, @float32Array, @float64Array, @numericArray, @dateArray, @timestampArray, @uuidArray)`,
+		1, true, "string", []byte("bytes"), 100, float32(3.14), 3.14, *big.NewRat(1, 1), civil.DateOf(time.Now()), time.Now(), uuid.New(),
 		[]bool{true, false}, []string{"s1", "s2"}, [][]byte{[]byte("b1"), []byte("b2")}, []int64{1, 2},
 		[]float32{1.1, 2.2}, []float64{1.1, 2.2}, []big.Rat{*big.NewRat(1, 2), *big.NewRat(1, 3)},
 		[]civil.Date{{Year: 2021, Month: 10, Day: 12}, {Year: 2021, Month: 10, Day: 13}},
-		[]time.Time{time.Now(), time.Now().Add(24 * time.Hour)}); err != nil {
+		[]time.Time{time.Now(), time.Now().Add(24 * time.Hour)},
+		[]uuid.UUID{uuid.New(), uuid.New()}); err != nil {
 		return fmt.Errorf("failed to insert a record with all non-null values using DML: %v", err)
 	}
 	fmt.Print("Inserted a test record with all non-null values\n")
