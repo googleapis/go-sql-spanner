@@ -2,11 +2,11 @@ module github.com/googleapis/go-sql-spanner
 
 go 1.24.0
 
-toolchain go1.25.2
+toolchain go1.25.3
 
 require (
 	cloud.google.com/go v0.123.0
-	cloud.google.com/go/longrunning v0.6.7
+	cloud.google.com/go/longrunning v0.7.0
 	cloud.google.com/go/spanner v1.86.0
 	github.com/golang/protobuf v1.5.4
 	github.com/google/go-cmp v0.7.0
@@ -14,7 +14,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.15.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	google.golang.org/api v0.252.0
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20251007200510-49b9836ed3ff
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20251014184007-4626949a642f
 	google.golang.org/grpc v1.76.0
 	google.golang.org/protobuf v1.36.10
 )
