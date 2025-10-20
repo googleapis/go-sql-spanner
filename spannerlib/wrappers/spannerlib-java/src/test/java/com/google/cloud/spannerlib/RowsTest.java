@@ -24,7 +24,6 @@ import static org.junit.Assert.assertTrue;
 import com.google.cloud.spanner.Dialect;
 import com.google.cloud.spanner.MockSpannerServiceImpl.StatementResult;
 import com.google.cloud.spanner.Statement;
-import com.google.cloud.spanner.connection.AbstractMockServerTest;
 import com.google.cloud.spanner.connection.RandomResultSetGenerator;
 import com.google.common.collect.ImmutableMap;
 import com.google.longrunning.Operation;
@@ -42,16 +41,17 @@ import com.google.spanner.v1.StructType;
 import com.google.spanner.v1.StructType.Field;
 import com.google.spanner.v1.Type;
 import com.google.spanner.v1.TypeCode;
+import java.util.concurrent.ThreadLocalRandom;
 import org.junit.Test;
 
-public class RowsTest extends AbstractMockServerTest {
+public class RowsTest extends AbstractSpannerLibTest {
 
   @Test
   public void testExecuteSelect1() {
     String dsn =
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
-    try (Pool pool = Pool.createPool(dsn);
+    try (Pool pool = Pool.createPool(library, dsn);
         Connection connection = pool.createConnection()) {
       try (Rows rows =
           connection.execute(ExecuteSqlRequest.newBuilder().setSql("SELECT 1").build())) {
@@ -69,6 +69,26 @@ public class RowsTest extends AbstractMockServerTest {
   }
 
   @Test
+  public void testEmptyResult() {
+    String sql = "SELECT * FROM (SELECT 1) WHERE FALSE";
+    mockSpanner.putStatementResult(
+        StatementResult.query(
+            Statement.of(sql),
+            ResultSet.newBuilder().setMetadata(SELECT1_RESULTSET.getMetadata()).build()));
+
+    String dsn =
+        String.format(
+            "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
+    try (Pool pool = Pool.createPool(library, dsn);
+        Connection connection = pool.createConnection()) {
+      try (Rows rows = connection.execute(ExecuteSqlRequest.newBuilder().setSql(sql).build())) {
+        assertEquals(1, rows.getMetadata().getRowType().getFieldsCount());
+        assertNull(rows.next());
+      }
+    }
+  }
+
+  @Test
   public void testRandomResults() {
     String sql = "select * from random";
     int numRows = 100;
@@ -79,7 +99,7 @@ public class RowsTest extends AbstractMockServerTest {
     String dsn =
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
-    try (Pool pool = Pool.createPool(dsn);
+    try (Pool pool = Pool.createPool(library, dsn);
         Connection connection = pool.createConnection()) {
       try (Rows rows = connection.execute(ExecuteSqlRequest.newBuilder().setSql(sql).build())) {
         ListValue row;
@@ -91,6 +111,44 @@ public class RowsTest extends AbstractMockServerTest {
           assertEquals(numCols, row.getValuesList().size());
         }
         assertEquals(numRows, rowCount);
+      }
+    }
+
+    assertEquals(1, mockSpanner.countRequestsOfType(ExecuteSqlRequest.class));
+    ExecuteSqlRequest request = mockSpanner.getRequestsOfType(ExecuteSqlRequest.class).get(0);
+    assertEquals(sql, request.getSql());
+    assertTrue(request.hasTransaction());
+    assertTrue(request.getTransaction().hasSingleUse());
+    assertTrue(request.getTransaction().getSingleUse().hasReadOnly());
+    assertTrue(request.getTransaction().getSingleUse().getReadOnly().hasStrong());
+  }
+
+  @Test
+  public void testStopHalfway() {
+    String sql = "select * from random";
+    int numRows = 10;
+    RandomResultSetGenerator generator = new RandomResultSetGenerator(numRows);
+    int numCols = RandomResultSetGenerator.generateAllTypes(Dialect.GOOGLE_STANDARD_SQL).length;
+    mockSpanner.putStatementResult(StatementResult.query(Statement.of(sql), generator.generate()));
+
+    int stopAfterRows = ThreadLocalRandom.current().nextInt(1, numRows - 1);
+    String dsn =
+        String.format(
+            "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
+    try (Pool pool = Pool.createPool(library, dsn);
+        Connection connection = pool.createConnection()) {
+      try (Rows rows = connection.execute(ExecuteSqlRequest.newBuilder().setSql(sql).build())) {
+        ListValue row;
+        int rowCount = 0;
+        ResultSetMetadata metadata = rows.getMetadata();
+        assertEquals(numCols, metadata.getRowType().getFieldsCount());
+        while ((row = rows.next()) != null) {
+          rowCount++;
+          assertEquals(numCols, row.getValuesList().size());
+          if (rowCount == stopAfterRows) {
+            break;
+          }
+        }
       }
     }
 
@@ -122,7 +180,7 @@ public class RowsTest extends AbstractMockServerTest {
     String dsn =
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
-    try (Pool pool = Pool.createPool(dsn);
+    try (Pool pool = Pool.createPool(library, dsn);
         Connection connection = pool.createConnection()) {
       // The Execute method is used for all types of statements.
       // The return type is always Rows.
@@ -157,7 +215,7 @@ public class RowsTest extends AbstractMockServerTest {
     String dsn =
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
-    try (Pool pool = Pool.createPool(dsn);
+    try (Pool pool = Pool.createPool(library, dsn);
         Connection connection = pool.createConnection()) {
       // The Execute method is used for all types of statements.
       // The input type is always an ExecuteSqlRequest, even for DDL statements.
@@ -224,7 +282,7 @@ public class RowsTest extends AbstractMockServerTest {
     String dsn =
         String.format(
             "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
-    try (Pool pool = Pool.createPool(dsn);
+    try (Pool pool = Pool.createPool(library, dsn);
         Connection connection = pool.createConnection()) {
       // The Execute method is used for all types of statements.
       // This starts a new transaction on the connection.

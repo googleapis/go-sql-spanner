@@ -132,6 +132,8 @@ func WriteMutations(poolId, connectionId int64, mutationsBytes []byte) (int64, i
 // call the functions Metadata and Next to get respectively the metadata of the result
 // and the next row of results.
 //
+// TODO: This function should also be able to return a ResultSet containing the first N rows, the metadata, and the stats.
+//
 //export Execute
 func Execute(poolId, connectionId int64, statement []byte) (int64, int32, int64, int32, unsafe.Pointer) {
 	ctx := context.Background()

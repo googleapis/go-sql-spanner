@@ -16,12 +16,6 @@
 
 package com.google.cloud.spannerlib;
 
-import static com.google.cloud.spannerlib.internal.SpannerLibrary.executeAndRelease;
-
-import com.google.cloud.spannerlib.internal.GoString;
-import com.google.cloud.spannerlib.internal.MessageHandler;
-import com.google.cloud.spannerlib.internal.SpannerLibrary;
-
 /**
  * A {@link Pool} that has been created by SpannerLib. A {@link Pool} can create any number of
  * {@link Connection} instances. All {@link Connection} instances share the same underlying Spanner
@@ -30,28 +24,21 @@ import com.google.cloud.spannerlib.internal.SpannerLibrary;
 public class Pool extends AbstractLibraryObject {
 
   /** Creates a new {@link Pool} using the given connection string. */
-  public static Pool createPool(String connectionString) {
-    SpannerLibrary library = SpannerLibrary.getInstance();
-    try (MessageHandler message =
-        library.execute(lib -> lib.CreatePool(new GoString(connectionString)))) {
-      return new Pool(library, message.getObjectId());
-    }
+  public static Pool createPool(SpannerLibrary library, String connectionString) {
+    return library.createPool(connectionString);
   }
 
-  private Pool(SpannerLibrary library, long id) {
+  Pool(SpannerLibrary library, long id) {
     super(library, id);
   }
 
   @Override
   public void close() {
-    executeAndRelease(getLibrary(), library -> library.ClosePool(getId()));
+    getLibrary().closePool(this);
   }
 
   /** Creates a new {@link Connection} in this {@link Pool}. */
   public Connection createConnection() {
-    try (MessageHandler message =
-        getLibrary().execute(library -> library.CreateConnection(getId()))) {
-      return new Connection(this, message.getObjectId());
-    }
+    return getLibrary().createConnection(this);
   }
 }
