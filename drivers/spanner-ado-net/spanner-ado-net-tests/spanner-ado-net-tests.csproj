@@ -14,7 +14,10 @@
 
   <ItemGroup>
     <PackageReference Include="Alpha.Google.Cloud.SpannerLib.MockServer" Version="1.0.0-alpha.20251009100446" />
-    <PackageReference Include="coverlet.collector" Version="6.0.0"/>
+    <PackageReference Include="coverlet.collector" Version="6.0.4">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0"/>
     <PackageReference Include="NUnit" Version="3.14.0"/>
     <PackageReference Include="NUnit.Analyzers" Version="3.9.0"/>

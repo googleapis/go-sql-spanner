@@ -20,6 +20,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Google.Api.Gax;
 using Google.Cloud.Spanner.Common.V1;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib;
@@ -31,6 +32,8 @@ public class SpannerConnection : DbConnection
     public bool UseSharedLibrary { get; set; }
     
     private string _connectionString = string.Empty;
+    
+    private SpannerConnectionStringBuilder? _connectionStringBuilder;
         
     [AllowNull]
     public override string ConnectionString {
@@ -38,11 +41,18 @@ public class SpannerConnection : DbConnection
         set
         {
             AssertClosed();
-            if (!IsValidConnectionString(value))
+            if (string.IsNullOrWhiteSpace(value))
             {
-                throw new ArgumentException($"Invalid connection string: {value}");
+                _connectionStringBuilder = null;
+                _connectionString = string.Empty;
             }
-            _connectionString = value ?? string.Empty;
+            else
+            {
+                var builder = new SpannerConnectionStringBuilder(value);
+                builder.CheckValid();
+                _connectionStringBuilder = builder;
+                _connectionString = value;
+            }
         }
     }
 
@@ -50,32 +60,21 @@ public class SpannerConnection : DbConnection
     {
         get
         {
-            // TODO: Move this to SpannerLib.
-            if (String.IsNullOrWhiteSpace(ConnectionString))
+            if (string.IsNullOrWhiteSpace(ConnectionString) || _connectionStringBuilder == null)
             {
                 return "";
             }
-            var startIndex = ConnectionString.IndexOf("projects/", StringComparison.Ordinal);
-            if (startIndex == -1)
+            if (!string.IsNullOrEmpty(_connectionStringBuilder.DataSource))
             {
-                throw new ArgumentException($"Invalid database name in connection string: {ConnectionString}");
+                return _connectionStringBuilder.DataSource;
             }
-                
-            var endIndex = ConnectionString.IndexOf('?');
-            if (endIndex == -1)
+            if (!string.IsNullOrEmpty(_connectionStringBuilder.Project) &&
+                !string.IsNullOrEmpty(_connectionStringBuilder.Instance) &&
+                !string.IsNullOrEmpty(_connectionStringBuilder.Project))
             {
-                endIndex = ConnectionString.IndexOf(';');
+                return $"projects/{_connectionStringBuilder.Project}/instances/{_connectionStringBuilder.Instance}/databases/{_connectionStringBuilder.Database}";
             }
-            if (endIndex == -1)
-            {
-                endIndex = ConnectionString.Length;
-            }
-            var name = ConnectionString.Substring(startIndex, endIndex);
-            if (DatabaseName.TryParse(name, false, out var result))
-            {
-                return result.DatabaseId;
-            }
-            throw new ArgumentException($"Invalid database name in connection string: {ConnectionString}");
+            return "";
         }
     }
         
@@ -92,8 +91,9 @@ public class SpannerConnection : DbConnection
 
     public override ConnectionState State => InternalState;
     protected override DbProviderFactory DbProviderFactory => SpannerFactory.Instance;
+    
+    public override string DataSource => _connectionStringBuilder?.DataSource ?? string.Empty;
 
-    public override string DataSource { get; } = "";
     public override string ServerVersion
     {
         get
@@ -188,15 +188,23 @@ public class SpannerConnection : DbConnection
     public override void Open()
     {
         AssertClosed();
-        if (ConnectionString == string.Empty)
+        if (ConnectionString == string.Empty || _connectionStringBuilder == null)
         {
             throw new InvalidOperationException("Connection string is empty");
         }
-            
-        InternalState = ConnectionState.Connecting;
-        Pool = SpannerPool.GetOrCreate(ConnectionString);
-        _libConnection = Pool.CreateConnection();
-        InternalState = ConnectionState.Open;
+
+        try
+        {
+            InternalState = ConnectionState.Connecting;
+            Pool = SpannerPool.GetOrCreate(_connectionStringBuilder.SpannerLibConnectionString);
+            _libConnection = Pool.CreateConnection();
+            InternalState = ConnectionState.Open;
+        }
+        catch (Exception)
+        {
+            InternalState = ConnectionState.Closed;
+            throw;
+        }
     }
 
     private void EnsureOpen()
@@ -221,12 +229,6 @@ public class SpannerConnection : DbConnection
         {
             throw new InvalidOperationException("Connection is not closed");
         }
-    }
-
-    private bool IsValidConnectionString(string? connectionString)
-    {
-        // TODO: Move to Spanner lib.
-        return string.IsNullOrEmpty(connectionString) || connectionString.Contains("projects/");
     }
 
     public CommitResponse? WriteMutations(BatchWriteRequest.Types.MutationGroup mutations)

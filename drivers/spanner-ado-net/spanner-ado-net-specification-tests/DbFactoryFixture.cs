@@ -34,7 +34,7 @@ public class DbFactoryFixture : IDisposable, ISelectValueFixture, IDeleteFixture
     internal readonly SpannerMockServerFixture MockServerFixture = new ();
     
     public DbProviderFactory Factory => SpannerFactory.Instance;
-    public string ConnectionString => $"{MockServerFixture.Host}:{MockServerFixture.Port}/projects/p1/instances/i1/databases/d1;UsePlainText=true";
+    public string ConnectionString => $"Host={MockServerFixture.Host};Port={MockServerFixture.Port};Data Source=projects/p1/instances/i1/databases/d1;UsePlainText=true";
 
     public IReadOnlyCollection<DbType> SupportedDbTypes { get; } = [
         DbType.Binary,

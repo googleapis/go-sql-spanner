@@ -28,7 +28,7 @@ public abstract class AbstractMockServerTests
     
     protected SpannerMockServerFixture Fixture;
     
-    protected string ConnectionString =>  $"{Fixture.Host}:{Fixture.Port}/projects/p1/instances/i1/databases/d1;UsePlainText=true";
+    protected string ConnectionString =>  $"Host={Fixture.Host};Port={Fixture.Port};Data Source=projects/p1/instances/i1/databases/d1;UsePlainText=true";
     
     [OneTimeSetUp]
     public void Setup()

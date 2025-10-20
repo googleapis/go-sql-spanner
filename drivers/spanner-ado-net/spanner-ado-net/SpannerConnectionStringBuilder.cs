@@ -129,6 +129,20 @@ public class SpannerConnectionStringBuilder : DbConnectionStringBuilder
 	    set => SpannerConnectionStringOption.DefaultIsolationLevel.SetValue(this, value);
     }
 
+    /// <summary>
+    /// The time in seconds to wait for a connection before terminating the attempt and generating an error.
+    /// The default value is 15.
+    /// </summary>
+    [Category("Connection")]
+    [Description("The time in seconds to wait for a connection before terminating the attempt and generating an error.")]
+    [DefaultValue(15u)]
+    [DisplayName("Connection Timeout")]
+    public uint ConnectionTimeout
+    {
+	    get => SpannerConnectionStringOption.ConnectionTimeout.GetValue(this);
+	    set => SpannerConnectionStringOption.ConnectionTimeout.SetValue(this, value);
+    }
+
 	/// <summary>
 	/// Returns an <see cref="ICollection"/> that contains the keys in the <see cref="SpannerConnectionStringBuilder"/>.
 	/// </summary>
@@ -157,14 +171,29 @@ public class SpannerConnectionStringBuilder : DbConnectionStringBuilder
 	[AllowNull]
 	public override object this[string key]
 	{
-		get => SpannerConnectionStringOption.GetOptionForKey(key).GetObject(this);
+		get
+		{
+			var option = SpannerConnectionStringOption.TryGetOptionForKey(key);
+			return option == null ? base[key] : option.GetObject(this);
+		}
 		set
 		{
-			var option = SpannerConnectionStringOption.GetOptionForKey(key);
-			if (value is null)
-				base[option.Key] = null;
+			var option = SpannerConnectionStringOption.TryGetOptionForKey(key);
+			if (option == null)
+			{
+				base[key] = value;
+			}
 			else
-				option.SetObject(this, value);
+			{
+				if (value is null)
+				{
+					base[option.Key] = null;
+				}
+				else
+				{
+					option.SetObject(this, value);
+				}
+			}
 		}
 	}
 
@@ -181,10 +210,26 @@ public class SpannerConnectionStringBuilder : DbConnectionStringBuilder
 	
 	internal SpannerConnectionStringBuilder Clone() => new(ConnectionString);
 
+	internal void CheckValid()
+	{
+		if (string.IsNullOrEmpty(ConnectionString))
+		{
+			throw new ArgumentException("Empty connection string");
+		}
+		if (string.IsNullOrEmpty(DataSource))
+		{
+			if (string.IsNullOrEmpty(Project) || string.IsNullOrEmpty(Instance) || string.IsNullOrEmpty(Database))
+			{
+				throw new ArgumentException("The connection string must either contain a Data Source or a Project, Instance, and Database name");
+			}
+		}
+	}
+
 	internal string SpannerLibConnectionString
 	{
 		get
 		{
+			CheckValid();
 			var builder = new StringBuilder();
 			if (Host != "")
 			{
@@ -210,12 +255,19 @@ public class SpannerConnectionStringBuilder : DbConnectionStringBuilder
 			{
 				throw new ArgumentException("Invalid connection string. Either Data Source or Project, Instance, and Database must be specified.");
 			}
-			foreach (var key in Keys.Cast<string>().Where(key => SpannerConnectionStringOption.SOptions.ContainsKey(key)))
+			foreach (var key in Keys.Cast<string>())
 			{
-				var option = SpannerConnectionStringOption.SOptions[key];
-				if (option.SpannerLibKey != "")
+				if (SpannerConnectionStringOption.SOptions.ContainsKey(key))
 				{
-					builder.Append(';').Append(option.SpannerLibKey).Append('=').Append(this[key]);
+					var option = SpannerConnectionStringOption.SOptions[key];
+					if (option.SpannerLibKey != "")
+					{
+						builder.Append(';').Append(option.SpannerLibKey).Append('=').Append(this[key]);
+					}
+				}
+				else
+				{
+					builder.Append(';').Append(key).Append('=').Append(this[key]);
 				}
 			}
 			return builder.ToString();
@@ -235,6 +287,7 @@ internal abstract class SpannerConnectionStringOption
 	public static readonly SpannerConnectionStringReferenceOption<string> Project;
 	public static readonly SpannerConnectionStringReferenceOption<string> Instance;
 	public static readonly SpannerConnectionStringReferenceOption<string> Database;
+	public static readonly SpannerConnectionStringValueOption<uint> ConnectionTimeout;
 
 	// SSL/TLS Options
 	public static readonly SpannerConnectionStringValueOption<bool> UsePlainText;
@@ -308,6 +361,10 @@ internal abstract class SpannerConnectionStringOption
 			keys: ["Database", "Initial Catalog"],
 			spannerLibKey: "",
 			defaultValue: ""));
+
+		AddOption(options, ConnectionTimeout = new(
+			keys: ["Connection Timeout", "ConnectionTimeout", "Connect Timeout", "connect_timeout"],
+			defaultValue: 15u));
 
 		// SSL/TLS Options
 		AddOption(options, UsePlainText = new(
