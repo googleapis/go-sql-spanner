@@ -3,3 +3,10 @@ spannerlib.so
 spannerlib.dll
 grpc_server
 grpc_server.exe
+vendor/bundle
+shared/
+*.gem
+.DS_Store
+*.swp
+ext/
+Gemfile.lock

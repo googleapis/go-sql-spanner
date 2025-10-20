@@ -48,11 +48,11 @@ public class Server : IDisposable
         {
             throw new InvalidOperationException("The server is already started.");
         }
-        (_host, _process) = StartGrpcServer(addressType);
+        (_host, _process) = StartGrpcServer(addressType, TimeSpan.FromSeconds(5));
         return _host;
     }
     
-    private static Tuple<string, Process> StartGrpcServer(AddressType addressType)
+    private static Tuple<string, Process> StartGrpcServer(AddressType addressType, TimeSpan timeout)
     {
         string arguments;
         if (addressType == AddressType.UnixDomainSocket)
@@ -87,8 +87,13 @@ public class Server : IDisposable
         }
         if (addressType == AddressType.UnixDomainSocket)
         {
+            var watch = new Stopwatch();
             while (!File.Exists(arguments))
             {
+                if (watch.Elapsed > timeout)
+                {
+                    throw new TimeoutException($"Attempt to start gRPC server timed out after {timeout}");
+                }
                 Thread.Sleep(1);
             }
         }

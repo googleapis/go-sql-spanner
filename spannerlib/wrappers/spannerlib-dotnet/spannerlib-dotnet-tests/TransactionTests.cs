@@ -29,9 +29,8 @@ public class TransactionTests : AbstractMockServerTests
         connection.BeginTransaction(new TransactionOptions());
         connection.Commit();
         
-        // TODO: The library should take a shortcut and just skip committing empty transactions.
-        Assert.That(Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>().Count(), Is.EqualTo(1));
-        Assert.That(Fixture.SpannerMock.Requests.OfType<CommitRequest>().Count(), Is.EqualTo(1));
+        Assert.That(Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>().Count(), Is.EqualTo(0));
+        Assert.That(Fixture.SpannerMock.Requests.OfType<CommitRequest>().Count(), Is.EqualTo(0));
     }
 
     [Test]

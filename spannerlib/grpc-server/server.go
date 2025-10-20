@@ -6,6 +6,8 @@ import (
 	"math"
 	"net"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"google.golang.org/grpc"
@@ -24,14 +26,29 @@ func main() {
 	if len(os.Args) > 2 {
 		tp = os.Args[2]
 	}
+	//
 	if tp == "unix" {
 		defer func() { _ = os.Remove(name) }()
+		// Set up a channel to listen for OS signals that terminate the process,
+		// so we can clean up the temp file in those cases as well.
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			// Wait for a signal.
+			<-sigs
+			// Delete the temp file.
+			_ = os.Remove(name)
+			os.Exit(0)
+		}()
 	}
+
 	lis, err := net.Listen(tp, name)
 	if err != nil {
 		log.Fatalf("failed to listen: %v\n", err)
 	}
-	grpcServer := grpc.NewServer(grpc.MaxRecvMsgSize(math.MaxInt32))
+	var opts []grpc.ServerOption
+	opts = append(opts, grpc.MaxRecvMsgSize(math.MaxInt32))
+	grpcServer := grpc.NewServer(opts...)
 
 	server := spannerLibServer{}
 	pb.RegisterSpannerLibServer(grpcServer, &server)

@@ -131,7 +131,10 @@ func (cs *ConnectionState) SetValue(extension, name, value string, context Conte
 	return cs.setValue(extension, name, value, context, false)
 }
 
-func (cs *ConnectionState) SetLocalValue(extension, name, value string) error {
+func (cs *ConnectionState) SetLocalValue(extension, name, value string, isSetTransaction bool) error {
+	if isSetTransaction && !cs.inTransaction {
+		return status.Error(codes.FailedPrecondition, "SET TRANSACTION can only be used in transaction blocks")
+	}
 	return cs.setValue(extension, name, value, ContextUser, true)
 }
 

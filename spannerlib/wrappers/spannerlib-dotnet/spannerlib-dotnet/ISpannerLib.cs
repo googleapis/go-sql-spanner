@@ -90,7 +90,7 @@ public interface ISpannerLib : IDisposable
     /// mutations were buffered in an active transaction on the connection.
     /// </returns>
     public CommitResponse? WriteMutations(Connection connection, BatchWriteRequest.Types.MutationGroup mutations);
-    
+
     /// <summary>
     /// Writes an array of mutations to Spanner. The mutations are buffered in the current transaction of the given
     /// connection (if any). Otherwise, the mutations are written directly to Spanner using a new read/write
