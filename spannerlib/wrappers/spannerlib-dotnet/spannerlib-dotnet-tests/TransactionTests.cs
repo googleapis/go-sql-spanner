@@ -16,6 +16,7 @@ using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib.MockServer;
 using Google.Protobuf.WellKnownTypes;
 using Google.Rpc;
+using Grpc.Core;
 
 namespace Google.Cloud.SpannerLib.Tests;
 
@@ -133,4 +134,16 @@ public class TransactionTests : AbstractMockServerTests
         var exception = Assert.Throws<SpannerException>(() => connection.BeginTransaction(new TransactionOptions()));
         Assert.That(exception.Code, Is.EqualTo(Code.FailedPrecondition));
     }
+
+    [Test]
+    public void TestCommitFailed([Values] LibType libType)
+    {
+        Fixture.SpannerMock.AddOrUpdateExecutionTime(nameof(Fixture.SpannerMock.Commit), ExecutionTime.CreateException(StatusCode.FailedPrecondition, "Invalid mutations"));
+        
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        using var connection = pool.CreateConnection();
+        var exception = Assert.Throws<SpannerException>(() => connection.WriteMutations(new BatchWriteRequest.Types.MutationGroup()));
+        Assert.That(exception.Code, Is.EqualTo(Code.FailedPrecondition));
+    }
+    
 }

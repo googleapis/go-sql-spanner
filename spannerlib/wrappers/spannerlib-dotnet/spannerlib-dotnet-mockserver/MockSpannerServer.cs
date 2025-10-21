@@ -420,6 +420,8 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
         _contexts.Enqueue(context);
         _headers.Enqueue(context.RequestHeaders);
         TryFindSession(request.SessionAsSessionName);
+        _executionTimes.TryGetValue(nameof(Commit), out var executionTime);
+        executionTime?.SimulateExecutionTime();
         if (request.TransactionCase == CommitRequest.TransactionOneofCase.TransactionId)
         {
             TryFindTransaction(request.TransactionId, true);
