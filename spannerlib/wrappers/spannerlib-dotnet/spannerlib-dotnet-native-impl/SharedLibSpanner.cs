@@ -104,6 +104,12 @@ public class SharedLibSpanner : ISpannerLib
         }
         return CommitResponse.Parser.ParseFrom(handler.Value());
     }
+    
+    public Task<CommitResponse?> WriteMutationsAsync(Connection connection,
+        BatchWriteRequest.Types.MutationGroup mutations, CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => WriteMutations(connection, mutations), cancellationToken);
+    }
 
     public Rows Execute(Connection connection, ExecuteSqlRequest statement)
     {
