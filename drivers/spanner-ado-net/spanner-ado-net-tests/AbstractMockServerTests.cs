@@ -53,4 +53,53 @@ public abstract class AbstractMockServerTests
     {
         Fixture.SpannerMock.Reset();
     }
+
+    protected async Task<SpannerConnection> OpenConnectionAsync()
+    {
+        var connection = new SpannerConnection(ConnectionString);
+        await connection.OpenAsync();
+        return connection;
+    }
+
+    protected SpannerDataSource CreateDataSource()
+    {
+        return CreateDataSource(_ => { });
+    }
+    
+    protected SpannerDataSource CreateDataSource(Action<SpannerConnectionStringBuilder> connectionStringBuilderAction)
+    {
+        var connectionStringBuilder = new SpannerConnectionStringBuilder(ConnectionString);
+        connectionStringBuilderAction(connectionStringBuilder);
+        return SpannerDataSource.Create(connectionStringBuilder);
+    }
+
+}
+
+public static class SpannerConnectionExtensions
+{
+    public static int ExecuteNonQuery(this SpannerConnection conn, string sql, SpannerTransaction? tx = null)
+    {
+        using var command = tx == null ? new SpannerCommand(sql, conn) : new SpannerCommand(sql, conn, tx);
+        return command.ExecuteNonQuery();
+    }
+
+    public static object? ExecuteScalar(this SpannerConnection conn, string sql, SpannerTransaction? tx = null)
+    {
+        using var command = tx == null ? new SpannerCommand(sql, conn) : new SpannerCommand(sql, conn, tx);
+        return command.ExecuteScalar();
+    }
+
+    public static async Task<int> ExecuteNonQueryAsync(
+        this SpannerConnection conn, string sql, SpannerTransaction? tx = null, CancellationToken cancellationToken = default)
+    {
+        await using var command = tx == null ? new SpannerCommand(sql, conn) : new SpannerCommand(sql, conn, tx);
+        return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public static async Task<object?> ExecuteScalarAsync(
+        this SpannerConnection conn, string sql, SpannerTransaction? tx = null, CancellationToken cancellationToken = default)
+    {
+        await using var command = tx == null ? new SpannerCommand(sql, conn) : new SpannerCommand(sql, conn, tx);
+        return await command.ExecuteScalarAsync(cancellationToken);
+    }
 }

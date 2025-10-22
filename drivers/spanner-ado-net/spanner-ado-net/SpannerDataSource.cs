@@ -12,22 +12,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-using System;
 using System.Data.Common;
+using System.Diagnostics.CodeAnalysis;
+using Google.Api.Gax;
 
 namespace Google.Cloud.Spanner.DataProvider;
 
 public class SpannerDataSource : DbDataSource
 {
-    public override string ConnectionString { get; }
+    private readonly SpannerConnectionStringBuilder _connectionStringBuilder;
+        
+    [AllowNull]
+    public sealed override string ConnectionString => _connectionStringBuilder.ConnectionString;
+
 
     public static SpannerDataSource Create(string connectionString)
     {
-        throw new NotImplementedException();
+        GaxPreconditions.CheckNotNull(connectionString, nameof(connectionString));
+        return Create(new SpannerConnectionStringBuilder(connectionString));
+    }
+
+    public static SpannerDataSource Create(SpannerConnectionStringBuilder connectionStringBuilder)
+    {
+        return new SpannerDataSource(connectionStringBuilder);
+    }
+
+    private SpannerDataSource(SpannerConnectionStringBuilder connectionStringBuilder)
+    {
+        GaxPreconditions.CheckNotNull(connectionStringBuilder, nameof(connectionStringBuilder));
+        connectionStringBuilder.CheckValid();
+        _connectionStringBuilder = connectionStringBuilder;
     }
     
     protected override DbConnection CreateDbConnection()
     {
-        throw new NotImplementedException();
+        return new SpannerConnection(_connectionStringBuilder);
     }
 }

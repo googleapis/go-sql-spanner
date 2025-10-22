@@ -13,15 +13,10 @@
 // limitations under the License.
 
 using System.Data;
-using Google.Cloud.SpannerLib;
-using Google.Cloud.SpannerLib.MockServer;
-using Google.Rpc;
-using Grpc.Core;
-using Status = Grpc.Core.Status;
 
 namespace Google.Cloud.Spanner.DataProvider.Tests;
 
-public class ConnectionStringBuilderTests : AbstractMockServerTests
+public class ConnectionStringBuilderTests
 {
     [Test]
     public void Basic()
@@ -171,127 +166,6 @@ public class ConnectionStringBuilderTests : AbstractMockServerTests
         };
         Assert.That(builder.ConnectionString, Is.EqualTo("Data Source=projects/project1/instances/instance1/databases/database1;Host=localhost;Port=80;UsePlainText=True;DefaultIsolationLevel=RepeatableRead"));
         Assert.That(builder.SpannerLibConnectionString, Is.EqualTo("localhost:80/projects/project1/instances/instance1/databases/database1;UsePlainText=True;DefaultIsolationLevel=RepeatableRead"));
-    }
-
-    [Test]
-    public void RequiredConnectionStringProperties()
-    {
-        using var connection = new SpannerConnection();
-        Assert.Throws<ArgumentException>(() => connection.ConnectionString = "Host=localhost;Port=80");
-    }
-
-    [Test]
-    public void FailedConnectThenSucceed()
-    {
-        // Close all current pools to ensure that we get a fresh pool.
-        SpannerPool.CloseSpannerLib();
-        // TODO: Make this a public property in the mock server.
-        const string detectDialectQuery =
-            "select option_value from information_schema.database_options where option_name='database_dialect'";
-        Fixture.SpannerMock.AddOrUpdateStatementResult(detectDialectQuery, StatementResult.CreateException(new RpcException(new Status(StatusCode.NotFound, "Database not found"))));
-        using var conn = new SpannerConnection();
-        conn.ConnectionString = ConnectionString;
-        var exception = Assert.Throws<SpannerException>(() => conn.Open());
-        Assert.That(exception.Code, Is.EqualTo(Code.NotFound));
-        Assert.That(conn.State, Is.EqualTo(ConnectionState.Closed));
-        
-        // Remove the error and retry.
-        Fixture.SpannerMock.AddOrUpdateStatementResult(detectDialectQuery, StatementResult.CreateResultSet(new List<Tuple<Google.Cloud.Spanner.V1.TypeCode, string>>
-        {
-            Tuple.Create<Google.Cloud.Spanner.V1.TypeCode, string>(V1.TypeCode.String, "option_value")
-        }, new List<object[]>
-        {
-            new object[] { "GOOGLE_STANDARD_SQL" }
-        }));
-        conn.Open();
-        Assert.That(conn.State, Is.EqualTo(ConnectionState.Open));
-    }
-
-    [Test]
-    [Ignore("Needs connect_timeout property")]
-    public void OpenTimeout()
-    {
-        // TODO: Add connect_timeout property.
-        var builder = new SpannerConnectionStringBuilder
-        {
-            Host = Fixture.Host,
-            Port = (uint) Fixture.Port,
-            UsePlainText = true,
-            DataSource = "projects/project1/instances/instance1/databases/database1",
-            //ConnectTimeout = TimeSpan.FromMicroseconds(1),
-        };
-        using var connection = new SpannerConnection();
-        connection.ConnectionString = builder.ConnectionString;
-        var exception = Assert.Throws<SpannerDbException>(() => connection.Open());
-        Assert.That(exception.ErrorCode, Is.EqualTo((int) Code.DeadlineExceeded));
-    }
-
-    [Test]
-    [Ignore("OpenAsync must be implemented")]
-    public async Task OpenCancel()
-    {
-        // Close all current pools to ensure that we get a fresh pool.
-        SpannerPool.CloseSpannerLib();
-        Fixture.SpannerMock.AddOrUpdateExecutionTime(nameof(Fixture.SpannerMock.CreateSession), ExecutionTime.FromMillis(20, 0));
-        var builder = new SpannerConnectionStringBuilder
-        {
-            Host = Fixture.Host,
-            Port = (uint) Fixture.Port,
-            UsePlainText = true,
-            DataSource = "projects/project1/instances/instance1/databases/database1",
-        };
-        await using var connection = new SpannerConnection();
-        connection.ConnectionString = builder.ConnectionString;
-        var tokenSource = new CancellationTokenSource(5);
-        // TODO: Implement actual async opening of connections
-        Assert.ThrowsAsync<OperationCanceledException>(async () => await connection.OpenAsync(tokenSource.Token));
-        Assert.That(connection.State, Is.EqualTo(ConnectionState.Closed));
-    }
-    
-    [Test]
-    public void DataSourceProperty()
-    {
-        using var conn = new SpannerConnection();
-        Assert.That(conn.DataSource, Is.EqualTo(string.Empty));
-
-        var builder = new SpannerConnectionStringBuilder(ConnectionString);
-
-        conn.ConnectionString = builder.ConnectionString;
-        Assert.That(conn.DataSource, Is.EqualTo("projects/p1/instances/i1/databases/d1"));
-    }
-    
-    [Test]
-    public void SettingConnectionStringWhileOpenThrows()
-    {
-        using var conn = new SpannerConnection();
-        conn.ConnectionString = ConnectionString;
-        conn.Open();
-        Assert.That(() => conn.ConnectionString = "", Throws.Exception.TypeOf<InvalidOperationException>());
-    }
-
-    [Test]
-    public void EmptyConstructor()
-    {
-        var conn = new SpannerConnection();
-        Assert.That(conn.ConnectionTimeout, Is.EqualTo(15));
-        Assert.That(conn.ConnectionString, Is.SameAs(string.Empty));
-        Assert.That(() => conn.Open(), Throws.Exception.TypeOf<InvalidOperationException>());
-    }
-
-    [Test]
-    public void Constructor_with_null_connection_string()
-    {
-        var conn = new SpannerConnection(null);
-        Assert.That(conn.ConnectionString, Is.SameAs(string.Empty));
-        Assert.That(() => conn.Open(), Throws.Exception.TypeOf<InvalidOperationException>());
-    }
-
-    [Test]
-    public void Constructor_with_empty_connection_string()
-    {
-        var conn = new NpgsqlConnection("");
-        Assert.That(conn.ConnectionString, Is.SameAs(string.Empty));
-        Assert.That(() => conn.Open(), Throws.Exception.TypeOf<InvalidOperationException>());
     }
     
 }

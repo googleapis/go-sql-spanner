@@ -13,8 +13,10 @@
 // limitations under the License.
 
 using System;
+using System.Data;
 using System.Data.Common;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Google.Cloud.Spanner.V1;
@@ -167,7 +169,106 @@ public class CommandTests : AbstractMockServerTests
         Assert.That(fields["p23"].ListValue.Values[0].NumberValue, Is.EqualTo(3.14f));
         Assert.That(fields["p23"].ListValue.Values[1].HasNullValue, Is.True);
     }
+    
+    [Test]
+    [TestCase(new[] { true }, TestName = "SingleQuery")]
+    [TestCase(new[] { false }, TestName = "SingleNonQuery")]
+    [TestCase(new[] { true, true }, TestName = "TwoQueries")]
+    [TestCase(new[] { false, false }, TestName = "TwoNonQueries")]
+    [TestCase(new[] { false, true }, TestName = "NonQueryQuery")]
+    [TestCase(new[] { true, false }, TestName = "QueryNonQuery")]
+    [Ignore("Requires support for multi-statements strings in the shared library")]
+    public async Task MultipleStatements(bool[] queries)
+    {
+        const string update = "UPDATE my_table SET name='yo' WHERE 1=0;";
+        const string select = "SELECT 1;";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(update, StatementResult.CreateUpdateCount(0));
+        
+        await using var conn = await OpenConnectionAsync();
+        var sb = new StringBuilder();
+        foreach (var query in queries)
+        {
+            sb.Append(query ? select : update);
+        }
+        var sql = sb.ToString();
+        foreach (var prepare in new[] { false, true })
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            if (prepare)
+            {
+                await cmd.PrepareAsync();
+            }
+            await using var reader = await cmd.ExecuteReaderAsync();
+            var numResultSets = queries.Count(q => q);
+            for (var i = 0; i < numResultSets; i++)
+            {
+                Assert.That(await reader.ReadAsync(), Is.True);
+                Assert.That(reader[0], Is.EqualTo(1));
+                Assert.That(await reader.NextResultAsync(), Is.EqualTo(i != numResultSets - 1));
+            }
+        }
+    }
 
+    [Test]
+    [Ignore("Requires support for multi-statements strings in the shared library")]
+    public async Task MultipleStatementsWithParameters([Values(PrepareOrNot.NotPrepared, PrepareOrNot.Prepared)] PrepareOrNot prepare)
+    {
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT @p1; SELECT @p2";
+        var p1 = new SpannerParameter{ParameterName = "p1"};
+        var p2 = new SpannerParameter{ParameterName = "p2"};
+        cmd.Parameters.Add(p1);
+        cmd.Parameters.Add(p2);
+        if (prepare == PrepareOrNot.Prepared)
+        {
+            await cmd.PrepareAsync();
+        }
+        p1.Value = 8;
+        p2.Value = "foo";
+        await using var reader = await cmd.ExecuteReaderAsync();
+        Assert.That(await reader.ReadAsync(), Is.True);
+        Assert.That(reader.GetInt32(0), Is.EqualTo(8));
+        Assert.That(await reader.NextResultAsync(), Is.True);
+        Assert.That(await reader.ReadAsync(), Is.True);
+        Assert.That(reader.GetString(0), Is.EqualTo("foo"));
+        Assert.That(await reader.NextResultAsync(), Is.False);
+    }
+    
+    [Test]
+    [Ignore("Requires support for multi-statements strings in the shared library")]
+    public async Task SingleRowMultipleStatements([Values(PrepareOrNot.NotPrepared, PrepareOrNot.Prepared)] PrepareOrNot prepare)
+    {
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = new SpannerCommand("SELECT 1; SELECT 2", conn);
+        if (prepare == PrepareOrNot.Prepared)
+        {
+            await cmd.PrepareAsync();
+        }
+        await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SingleRow);
+        Assert.That(await reader.ReadAsync(), Is.True);
+        Assert.That(reader.GetInt32(0), Is.EqualTo(1));
+        Assert.That(await reader.ReadAsync(), Is.False);
+        Assert.That(await reader.NextResultAsync(), Is.False);
+    }
+
+    [Test]
+    [Ignore("Requires support for statement_timeout in the shared library")]
+    public async Task Timeout()
+    {
+        Fixture.SpannerMock.AddOrUpdateExecutionTime(nameof(Fixture.SpannerMock.ExecuteStreamingSql), ExecutionTime.FromMillis(10, 0));
+        
+        await using var dataSource = CreateDataSource(csb => csb.CommandTimeout = 1);
+        await using var conn = await dataSource.OpenConnectionAsync() as SpannerConnection;
+        await using var cmd = new SpannerCommand("SELECT 1", conn!);
+        Assert.That(() => cmd.ExecuteScalar(), Throws.Exception
+            .TypeOf<SpannerDbException>()
+            .With.InnerException.TypeOf<TimeoutException>()
+        );
+        Assert.That(conn!.State, Is.EqualTo(ConnectionState.Open));
+    }
+    
     private void AddParameter(DbCommand command, string name, object? value)
     {
         var parameter = command.CreateParameter();

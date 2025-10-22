@@ -115,9 +115,52 @@ public class SpannerConnectionStringBuilder : DbConnectionStringBuilder
 	    get => SpannerConnectionStringOption.UsePlainText.GetValue(this);
 	    set => SpannerConnectionStringOption.UsePlainText.SetValue(this, value);
     }
+
+    /// <summary>
+    /// The time in milliseconds to wait for a connection before terminating the attempt and generating an error.
+    /// The default value is 15000 (15 seconds).
+    /// </summary>
+    [Category("Timeout")]
+    [Description("The time in milliseconds to wait for a connection before terminating the attempt and generating an error.")]
+    [DefaultValue(15000u)]
+    [DisplayName("Connection Timeout")]
+    public uint ConnectionTimeout
+    {
+	    get => SpannerConnectionStringOption.ConnectionTimeout.GetValue(this);
+	    set => SpannerConnectionStringOption.ConnectionTimeout.SetValue(this, value);
+    }
+
+    /// <summary>
+    /// The time in milliseconds to wait for a command before terminating the attempt and generating an error.
+    /// The default value is 0, which means that the command should use the default timeout set by Spanner.
+    /// </summary>
+    [Category("Timeout")]
+    [Description("The time in milliseconds to wait for a command before terminating the attempt and generating an error.")]
+    [DefaultValue(0u)]
+    [DisplayName("Command Timeout")]
+    public uint CommandTimeout
+    {
+	    get => SpannerConnectionStringOption.CommandTimeout.GetValue(this);
+	    set => SpannerConnectionStringOption.CommandTimeout.SetValue(this, value);
+    }
+
+    /// <summary>
+    /// The maximum time in milliseconds that a read/write transaction may take to execute.
+    /// The default value is 0, which means that there is no transaction timeout.
+    /// </summary>
+    [Category("Timeout")]
+    [Description("The maximum time in milliseconds that a read/write transaction may take to execute.")]
+    [DefaultValue(0u)]
+    [DisplayName("Transaction Timeout")]
+    public uint TransactionTimeout
+    {
+	    get => SpannerConnectionStringOption.TransactionTimeout.GetValue(this);
+	    set => SpannerConnectionStringOption.TransactionTimeout.SetValue(this, value);
+    }
 	
     /// <summary>
-    /// The hostname or IP address of the Spanner server to connect to.
+    /// The default isolation level that should be used for transactions on connections created from this connection
+    /// string.
     /// </summary>
     [Category("Transaction")]
     [Description("The default isolation level to use for transactions on this connection.")]
@@ -128,19 +171,31 @@ public class SpannerConnectionStringBuilder : DbConnectionStringBuilder
 	    get => SpannerConnectionStringOption.DefaultIsolationLevel.GetValue(this);
 	    set => SpannerConnectionStringOption.DefaultIsolationLevel.SetValue(this, value);
     }
+	
+    /// <summary>
+    /// The search_path that should be used by the connection.
+    /// </summary>
+    [Category("Options")]
+    [Description("The search path for this connection.")]
+    [DefaultValue("")]
+    [DisplayName("SearchPath")]
+    public string SearchPath
+    {
+	    get => SpannerConnectionStringOption.SearchPath.GetValue(this);
+	    set => SpannerConnectionStringOption.SearchPath.SetValue(this, value);
+    }
 
     /// <summary>
-    /// The time in seconds to wait for a connection before terminating the attempt and generating an error.
-    /// The default value is 15.
+    /// Any other options that should be set for the connection in the format key1=value1;key2=value2;...
     /// </summary>
-    [Category("Connection")]
-    [Description("The time in seconds to wait for a connection before terminating the attempt and generating an error.")]
-    [DefaultValue(15u)]
-    [DisplayName("Connection Timeout")]
-    public uint ConnectionTimeout
+    [Category("Options")]
+    [Description("Any additional options to set for the connection.")]
+    [DefaultValue("")]
+    [DisplayName("Options")]
+    public string Options
     {
-	    get => SpannerConnectionStringOption.ConnectionTimeout.GetValue(this);
-	    set => SpannerConnectionStringOption.ConnectionTimeout.SetValue(this, value);
+	    get => SpannerConnectionStringOption.Options.GetValue(this);
+	    set => SpannerConnectionStringOption.Options.SetValue(this, value);
     }
 
 	/// <summary>
@@ -264,6 +319,10 @@ public class SpannerConnectionStringBuilder : DbConnectionStringBuilder
 					{
 						builder.Append(';').Append(option.SpannerLibKey).Append('=').Append(this[key]);
 					}
+					else if (key == "Options")
+					{
+						builder.Append(';').Append(this[key]);
+					}
 				}
 				else
 				{
@@ -287,13 +346,21 @@ internal abstract class SpannerConnectionStringOption
 	public static readonly SpannerConnectionStringReferenceOption<string> Project;
 	public static readonly SpannerConnectionStringReferenceOption<string> Instance;
 	public static readonly SpannerConnectionStringReferenceOption<string> Database;
+	
+	// Timeout Options
 	public static readonly SpannerConnectionStringValueOption<uint> ConnectionTimeout;
+	public static readonly SpannerConnectionStringValueOption<uint> CommandTimeout;
+	public static readonly SpannerConnectionStringValueOption<uint> TransactionTimeout;
 
 	// SSL/TLS Options
 	public static readonly SpannerConnectionStringValueOption<bool> UsePlainText;
 	
 	// Transaction Options
 	public static readonly SpannerConnectionStringValueOption<IsolationLevel> DefaultIsolationLevel;
+	
+	// Other options
+	public static readonly SpannerConnectionStringReferenceOption<string> SearchPath;
+	public static readonly SpannerConnectionStringReferenceOption<string> Options;
 
 	public static SpannerConnectionStringOption? TryGetOptionForKey(string key) => SOptions.GetValueOrDefault(key);
 
@@ -362,9 +429,21 @@ internal abstract class SpannerConnectionStringOption
 			spannerLibKey: "",
 			defaultValue: ""));
 
+		// Timeout Options
 		AddOption(options, ConnectionTimeout = new(
 			keys: ["Connection Timeout", "ConnectionTimeout", "Connect Timeout", "connect_timeout"],
-			defaultValue: 15u));
+			spannerLibKey: "connect_timeout",
+			defaultValue: 15000u));
+
+		AddOption(options, CommandTimeout = new(
+			keys: ["Command Timeout", "CommandTimeout", "command_timeout", "statement_timeout"],
+			spannerLibKey: "statement_timeout",
+			defaultValue: 0u));
+
+		AddOption(options, TransactionTimeout = new(
+			keys: ["Transaction Timeout", "TransactionTimeout", "transaction_timeout"],
+			spannerLibKey: "transaction_timeout",
+			defaultValue: 0u));
 
 		// SSL/TLS Options
 		AddOption(options, UsePlainText = new(
@@ -375,6 +454,18 @@ internal abstract class SpannerConnectionStringOption
 		AddOption(options, DefaultIsolationLevel = new(
 			keys: ["DefaultIsolationLevel", "default_isolation_level"],
 			defaultValue: IsolationLevel.Unspecified));
+		
+		// Other options
+		AddOption(options, SearchPath = new(
+			keys: ["SearchPath", "search_path"],
+			spannerLibKey: "search_path",
+			defaultValue: ""));
+		
+		// Other options
+		AddOption(options, Options = new(
+			keys: ["Options"],
+			spannerLibKey: "",
+			defaultValue: ""));
 
 		SOptions = options.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 	}

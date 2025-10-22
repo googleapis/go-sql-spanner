@@ -13,6 +13,8 @@
 // limitations under the License.
 
 using System.Data;
+using System.Diagnostics.CodeAnalysis;
+using System.Transactions;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib;
 using Google.Cloud.SpannerLib.MockServer;
@@ -249,13 +251,330 @@ public class ConnectionTests : AbstractMockServerTests
     }
 
     [Test]
-    public async Task TestConnectWithConnectionStringBuilder()
+    public void TestConnectWithConnectionStringBuilder()
     {
-        var builder = new SpannerConnectionStringBuilder();
-        builder.DataSource = "projects/my-project/instances/my-instance/databases/my-database";
-        builder.Host = Fixture.Host;
-        builder.Port = (uint) Fixture.Port;
-        builder.UsePlainText = true;
+        var builder = new SpannerConnectionStringBuilder
+        {
+            DataSource = "projects/my-project/instances/my-instance/databases/my-database",
+            Host = Fixture.Host,
+            Port = (uint) Fixture.Port,
+            UsePlainText = true
+        };
+        using var connection = new SpannerConnection(builder);
+        Assert.That(connection.ConnectionString, Is.EqualTo(builder.ConnectionString));
+    }
+
+    [Test]
+    public void RequiredConnectionStringProperties()
+    {
+        using var connection = new SpannerConnection();
+        Assert.Throws<ArgumentException>(() => connection.ConnectionString = "Host=localhost;Port=80");
+    }
+
+    [Test]
+    public void FailedConnectThenSucceed()
+    {
+        // Close all current pools to ensure that we get a fresh pool.
+        SpannerPool.CloseSpannerLib();
+        // TODO: Make this a public property in the mock server.
+        const string detectDialectQuery =
+            "select option_value from information_schema.database_options where option_name='database_dialect'";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(detectDialectQuery, StatementResult.CreateException(new RpcException(new Status(StatusCode.NotFound, "Database not found"))));
+        using var conn = new SpannerConnection();
+        conn.ConnectionString = ConnectionString;
+        var exception = Assert.Throws<SpannerException>(() => conn.Open());
+        Assert.That(exception.Code, Is.EqualTo(Code.NotFound));
+        Assert.That(conn.State, Is.EqualTo(ConnectionState.Closed));
+        
+        // Remove the error and retry.
+        Fixture.SpannerMock.AddOrUpdateStatementResult(detectDialectQuery, StatementResult.CreateResultSet(new List<Tuple<TypeCode, string>>
+        {
+            Tuple.Create<TypeCode, string>(TypeCode.String, "option_value")
+        }, new List<object[]>
+        {
+            new object[] { "GOOGLE_STANDARD_SQL" }
+        }));
+        conn.Open();
+        Assert.That(conn.State, Is.EqualTo(ConnectionState.Open));
+    }
+
+    [Test]
+    [Ignore("Needs connect_timeout property")]
+    public void OpenTimeout()
+    {
+        // TODO: Add connect_timeout property.
+        var builder = new SpannerConnectionStringBuilder
+        {
+            Host = Fixture.Host,
+            Port = (uint) Fixture.Port,
+            UsePlainText = true,
+            DataSource = "projects/project1/instances/instance1/databases/database1",
+            //ConnectTimeout = TimeSpan.FromMicroseconds(1),
+        };
+        using var connection = new SpannerConnection();
+        connection.ConnectionString = builder.ConnectionString;
+        var exception = Assert.Throws<SpannerDbException>(() => connection.Open());
+        Assert.That(exception.ErrorCode, Is.EqualTo((int) Code.DeadlineExceeded));
+    }
+
+    [Test]
+    [Ignore("OpenAsync must be implemented")]
+    public async Task OpenCancel()
+    {
+        // Close all current pools to ensure that we get a fresh pool.
+        SpannerPool.CloseSpannerLib();
+        Fixture.SpannerMock.AddOrUpdateExecutionTime(nameof(Fixture.SpannerMock.CreateSession), ExecutionTime.FromMillis(20, 0));
+        var builder = new SpannerConnectionStringBuilder
+        {
+            Host = Fixture.Host,
+            Port = (uint) Fixture.Port,
+            UsePlainText = true,
+            DataSource = "projects/project1/instances/instance1/databases/database1",
+        };
+        await using var connection = new SpannerConnection();
+        connection.ConnectionString = builder.ConnectionString;
+        var tokenSource = new CancellationTokenSource(5);
+        // TODO: Implement actual async opening of connections
+        Assert.ThrowsAsync<OperationCanceledException>(async () => await connection.OpenAsync(tokenSource.Token));
+        Assert.That(connection.State, Is.EqualTo(ConnectionState.Closed));
+    }
+    
+    [Test]
+    public void DataSourceProperty()
+    {
+        using var conn = new SpannerConnection();
+        Assert.That(conn.DataSource, Is.EqualTo(string.Empty));
+
+        var builder = new SpannerConnectionStringBuilder(ConnectionString);
+
+        conn.ConnectionString = builder.ConnectionString;
+        Assert.That(conn.DataSource, Is.EqualTo("projects/p1/instances/i1/databases/d1"));
+    }
+    
+    [Test]
+    public void SettingConnectionStringWhileOpenThrows()
+    {
+        using var conn = new SpannerConnection();
+        conn.ConnectionString = ConnectionString;
+        conn.Open();
+        Assert.That(() => conn.ConnectionString = "", Throws.Exception.TypeOf<InvalidOperationException>());
+    }
+
+    [Test]
+    public void EmptyConstructor()
+    {
+        var conn = new SpannerConnection();
+        Assert.That(conn.ConnectionTimeout, Is.EqualTo(15));
+        Assert.That(conn.ConnectionString, Is.SameAs(string.Empty));
+        Assert.That(() => conn.Open(), Throws.Exception.TypeOf<InvalidOperationException>());
+    }
+
+    [Test]
+    public void ConstructorWithNullConnectionString()
+    {
+        var conn = new SpannerConnection((string?) null);
+        Assert.That(conn.ConnectionString, Is.SameAs(string.Empty));
+        Assert.That(() => conn.Open(), Throws.Exception.TypeOf<InvalidOperationException>());
+    }
+
+    [Test]
+    public void ConstructorWithEmptyConnectionString()
+    {
+        var conn = new SpannerConnection("");
+        Assert.That(conn.ConnectionString, Is.SameAs(string.Empty));
+        Assert.That(() => conn.Open(), Throws.Exception.TypeOf<InvalidOperationException>());
+    }
+
+    [Test]
+    public void SetConnectionStringToNull()
+    {
+        var conn = new SpannerConnection(ConnectionString);
+        conn.ConnectionString = null;
+        Assert.That(conn.ConnectionString, Is.SameAs(string.Empty));
+        Assert.That(() => conn.Open(), Throws.Exception.TypeOf<InvalidOperationException>());
+    }
+
+    [Test]
+    public void SetConnectionStringToEmpty()
+    {
+        var conn = new SpannerConnection(ConnectionString);
+        conn.ConnectionString = "";
+        Assert.That(conn.ConnectionString, Is.SameAs(string.Empty));
+        Assert.That(() => conn.Open(), Throws.Exception.TypeOf<InvalidOperationException>());
+    }
+    
+    [Test]
+    public async Task ChangeDatabase()
+    {
+        await using var conn = await OpenConnectionAsync();
+        Assert.That(conn.Database, Is.EqualTo("projects/p1/instances/i1/databases/d1"));
+        conn.ChangeDatabase("template1");
+        Assert.That(conn.Database, Is.EqualTo("projects/p1/instances/i1/databases/template1"));
+    }
+
+    [Test]
+    public async Task ChangeDatabaseDoesNotAffectOtherConnections()
+    {
+        await using var conn1 = new SpannerConnection(ConnectionString);
+        await using var conn2 = new SpannerConnection(ConnectionString);
+        conn1.Open();
+        conn1.ChangeDatabase("template1");
+        Assert.That(conn1.Database, Is.EqualTo("projects/p1/instances/i1/databases/template1"));
+
+        // Connection 2's database should not changed
+        conn2.Open();
+        Assert.That(conn2.Database, Is.EqualTo("projects/p1/instances/i1/databases/d1"));
+    }
+    
+    [Test]
+    public void ChangeDatabaseOnClosedConnectionWorks()
+    {
+        using var conn = new SpannerConnection(ConnectionString);
+        Assert.That(conn.Database, Is.EqualTo("projects/p1/instances/i1/databases/d1"));
+        conn.ChangeDatabase("template1");
+        Assert.That(conn.Database, Is.EqualTo("projects/p1/instances/i1/databases/template1"));
+    }
+
+    [Test]
+    [Ignore("Must add search_path connection property in shared library first")]
+    public async Task SearchPath()
+    {
+        // TODO: Add search_path connection variable in shared library
+        await using var dataSource = CreateDataSource(csb => csb.SearchPath = "foo");
+        await using var conn = await dataSource.OpenConnectionAsync() as SpannerConnection;
+        Assert.That(await conn!.ExecuteScalarAsync("SHOW VARIABLE search_path"), Contains.Substring("foo"));
+    }
+
+    [Test]
+    public async Task SetOptions()
+    {
+        await using var dataSource = CreateDataSource(csb => csb.Options = "isolation_level=serializable;read_lock_mode=pessimistic");
+        await using var conn = await dataSource.OpenConnectionAsync() as SpannerConnection;
+
+        Assert.That(await conn!.ExecuteScalarAsync("SHOW VARIABLE isolation_level"), Is.EqualTo("Serializable"));
+        Assert.That(await conn!.ExecuteScalarAsync("SHOW VARIABLE read_lock_mode"), Is.EqualTo("PESSIMISTIC"));
+    }
+    
+    [Test]
+    public async Task ConnectorNotInitializedException()
+    {
+        var command = new SpannerCommand();
+        command.CommandText = "SELECT 1";
+
+        for (var i = 0; i < 2; i++)
+        {
+            await using var connection = await OpenConnectionAsync();
+            command.Connection = connection;
+            await using var tx = await connection.BeginTransactionAsync();
+            await command.ExecuteScalarAsync();
+            await tx.CommitAsync();
+        }
+    }
+    
+    [Test]
+    public void ConnectionStateIsClosedWhenDisposed()
+    {
+        var c = new SpannerConnection();
+        c.Dispose();
+        Assert.That(c.State, Is.EqualTo(ConnectionState.Closed));
+    }
+    
+    [Test]
+    public async Task ConcurrentReadersAllowed()
+    {
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = new SpannerCommand("SELECT 1", conn);
+        await using (await cmd.ExecuteReaderAsync())
+        {
+            Assert.That(await conn.ExecuteScalarAsync("SELECT 1"), Is.EqualTo(1));
+        }
+    }
+    [Test]
+    public async Task ManyOpenClose()
+    {
+        await using var dataSource = CreateDataSource();
+        for (var i = 0; i < 256; i++)
+        {
+            await using var conn = await dataSource.OpenConnectionAsync();
+        }
+        await using (var conn = dataSource.CreateConnection())
+        {
+            await conn.OpenAsync();
+        }
+        await using (var conn = dataSource.CreateConnection() as SpannerConnection)
+        {
+            await conn!.OpenAsync();
+            Assert.That(await conn.ExecuteScalarAsync("SELECT 1"), Is.EqualTo(1));
+        }
+    }
+
+    [Test]
+    public async Task ManyOpenCloseWithTransaction()
+    {
+        await using var dataSource = CreateDataSource();
+        for (var i = 0; i < 256; i++)
+        {
+            await using var conn = await dataSource.OpenConnectionAsync();
+            await conn.BeginTransactionAsync();
+        }
+
+        await using (var conn = await dataSource.OpenConnectionAsync() as SpannerConnection)
+        {
+            Assert.That(await conn!.ExecuteScalarAsync("SELECT 1"), Is.EqualTo(1));
+        }
+    }
+    
+    [Test]
+    public async Task RollbackOnClose()
+    {
+        await using var dataSource = CreateDataSource();
+        await using (var conn = await dataSource.OpenConnectionAsync() as SpannerConnection)
+        {
+            await conn!.BeginTransactionAsync();
+            await conn.ExecuteNonQueryAsync("SELECT 1");
+            Assert.That(conn.HasTransaction);
+        }
+        await using (var conn = await dataSource.OpenConnectionAsync() as SpannerConnection)
+        {
+            Assert.False(conn!.HasTransaction);
+        }
+    }
+
+    [Test]
+    // TODO: Enable once https://github.com/googleapis/go-sql-spanner/pull/571 has been merged
+    [Ignore("https://github.com/googleapis/go-sql-spanner/pull/571")]
+    public async Task ReadLargeString()
+    {
+        const string sql = "select large_value from my_table";
+        var value = TestUtils.GenerateRandomString(10_000_000);
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateSingleColumnResultSet(
+            new V1.Type{Code = TypeCode.String}, "large_value", value));
+        
+        await using var dataSource = CreateDataSource();
+        await using var conn = await dataSource.OpenConnectionAsync() as SpannerConnection;
+        var got = await conn!.ExecuteScalarAsync(sql);
+        Assert.That(got, Is.EqualTo(value));
+    }
+    
+    [Test]
+    [SuppressMessage("ReSharper", "MethodHasAsyncOverload")]
+    public async Task CloseDuringRead()
+    {
+        await using var dataSource = CreateDataSource();
+        await using var conn = (await dataSource.OpenConnectionAsync() as SpannerConnection)!;
+        await using (var cmd = new SpannerCommand("SELECT 1", conn))
+        await using (var reader = await cmd.ExecuteReaderAsync())
+        {
+            reader.Read();
+            conn.Close();
+            Assert.That(conn.State, Is.EqualTo(ConnectionState.Closed));
+            // Closing a SpannerConnection does not close the related readers.
+            Assert.False(reader.IsClosed);
+        }
+
+        conn.Open();
+        Assert.That(conn.State, Is.EqualTo(ConnectionState.Open));
+        Assert.That(await conn.ExecuteScalarAsync("SELECT 1"), Is.EqualTo(1));
     }
     
 }

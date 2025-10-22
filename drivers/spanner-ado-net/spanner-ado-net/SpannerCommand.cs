@@ -59,6 +59,10 @@ public class SpannerCommand : DbCommand
         Connection = GaxPreconditions.CheckNotNull(connection, nameof(connection));
         _commandText = GaxPreconditions.CheckNotNull(commandText,  nameof(commandText));
     }
+    
+    public SpannerCommand(string cmdText, SpannerConnection connection, SpannerTransaction? transaction)
+        : this(cmdText, connection)
+        => Transaction = transaction;
 
     internal SpannerCommand(SpannerConnection connection, Mutation mutation)
     {
@@ -181,12 +185,17 @@ public class SpannerCommand : DbCommand
 
     private Task<Rows> ExecuteAsync(CancellationToken cancellationToken)
     {
+        return ExecuteAsync(ExecuteSqlRequest.Types.QueryMode.Normal, cancellationToken);
+    }
+
+    private Task<Rows> ExecuteAsync(ExecuteSqlRequest.Types.QueryMode mode, CancellationToken cancellationToken)
+    {
         CheckCommandStateForExecution();
         if (cancellationToken.IsCancellationRequested)
         {
             return Task.FromCanceled<Rows>(cancellationToken);
         }
-        return TranslateException(() => SpannerConnection.LibConnection!.ExecuteAsync(BuildStatement()));
+        return TranslateException(() => SpannerConnection.LibConnection!.ExecuteAsync(BuildStatement(mode)));
     }
 
     private void CheckCommandStateForExecution()
@@ -235,6 +244,11 @@ public class SpannerCommand : DbCommand
     public override void Prepare()
     {
         Execute(ExecuteSqlRequest.Types.QueryMode.Plan);
+    }
+
+    public override Task PrepareAsync(CancellationToken cancellationToken = default)
+    {
+        return ExecuteAsync(ExecuteSqlRequest.Types.QueryMode.Plan, cancellationToken);
     }
 
     protected override DbParameter CreateDbParameter()

@@ -36,7 +36,7 @@ public class SpannerConnection : DbConnection
     private SpannerConnectionStringBuilder? _connectionStringBuilder;
         
     [AllowNull]
-    public override string ConnectionString {
+    public sealed override string ConnectionString {
         get => _connectionString;
         set
         {
@@ -122,6 +122,23 @@ public class SpannerConnection : DbConnection
         
     private SpannerTransaction? _transaction;
 
+    public SpannerConnection()
+    {
+    }
+
+    public SpannerConnection(string? connectionString)
+    {
+        ConnectionString =  connectionString;
+    }
+
+    public SpannerConnection(SpannerConnectionStringBuilder connectionStringBuilder)
+    {
+        GaxPreconditions.CheckNotNull(connectionStringBuilder, nameof(connectionStringBuilder));
+        connectionStringBuilder.CheckValid();
+        _connectionStringBuilder = connectionStringBuilder;
+        _connectionString = connectionStringBuilder.ConnectionString;
+    }
+
     protected override DbTransaction BeginDbTransaction(IsolationLevel isolationLevel)
     {
         return BeginTransaction(new TransactionOptions
@@ -138,13 +155,16 @@ public class SpannerConnection : DbConnection
         });
     }
 
+    /// <summary>
+    /// Start a new transaction using the given TransactionOptions.
+    /// </summary>
+    /// <param name="transactionOptions">The options to use for the new transaction</param>
+    /// <returns>The new transaction</returns>
+    /// <exception cref="InvalidOperationException">If the connection has an active transaction</exception>
     public DbTransaction BeginTransaction(TransactionOptions transactionOptions)
     {
         EnsureOpen();
-        if (_transaction != null)
-        {
-            throw new InvalidOperationException("This connection has a transaction.");
-        }
+        GaxPreconditions.CheckState(!HasTransaction, "This connection has a transaction.");
         _transaction = new SpannerTransaction(this, transactionOptions);
         return _transaction;
     }
@@ -153,10 +173,42 @@ public class SpannerConnection : DbConnection
     {
         _transaction = null;
     }
+    
+    internal bool HasTransaction => _transaction != null;
 
     public override void ChangeDatabase(string databaseName)
     {
-        throw new NotImplementedException();
+        GaxPreconditions.CheckNotNullOrEmpty(databaseName, nameof(databaseName));
+        GaxPreconditions.CheckState(!HasTransaction, "Cannot change database when a transaction is open");
+        if (_connectionStringBuilder == null)
+        {
+            ConnectionString = $"Data Source={databaseName}";
+            return;
+        }
+        if (DatabaseName.TryParse(databaseName, allowUnparsed: false, out _))
+        {
+            _connectionStringBuilder.DataSource = databaseName;
+        }
+        else
+        {
+            if (DatabaseName.TryParse(_connectionStringBuilder.DataSource, out var currentDatabase))
+            {
+                _connectionStringBuilder.DataSource = $"projects/{currentDatabase.ProjectId}/instances/{currentDatabase.InstanceId}/databases/{databaseName}";
+            }
+            else if (!string.IsNullOrEmpty(_connectionStringBuilder.Project) && !string.IsNullOrEmpty(_connectionStringBuilder.Instance))
+            {
+                _connectionStringBuilder.Database = databaseName;
+            }
+            else
+            {
+                throw new ArgumentException($"Invalid database name: {databaseName}");
+            }
+        }
+        if (_state == ConnectionState.Open)
+        {
+            Close();
+            Open();
+        }
     }
 
     public override void Close()
