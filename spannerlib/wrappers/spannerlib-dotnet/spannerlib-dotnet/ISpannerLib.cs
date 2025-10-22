@@ -92,6 +92,21 @@ public interface ISpannerLib : IDisposable
     public CommitResponse? WriteMutations(Connection connection, BatchWriteRequest.Types.MutationGroup mutations);
 
     /// <summary>
+    /// Writes an array of mutations to Spanner. The mutations are buffered in the current transaction of the given
+    /// connection (if any). Otherwise, the mutations are written directly to Spanner using a new read/write
+    /// transaction and the CommitResponse of that transaction is returned. The returned value is null if the mutations
+    /// were only buffered in an active transaction.
+    /// </summary>
+    /// <param name="connection">The connection to use to write the mutations</param>
+    /// <param name="mutations">The mutations to write</param>
+    /// <param name="cancellationToken">The cancellation token</param>
+    /// <returns>
+    /// The CommitResponse of the read/write transaction that was created to write the mutations, or null if the
+    /// mutations were buffered in an active transaction on the connection.
+    /// </returns>
+    public Task<CommitResponse?> WriteMutationsAsync(Connection connection, BatchWriteRequest.Types.MutationGroup mutations, CancellationToken cancellationToken = default);
+    
+    /// <summary>
     /// Executes a SQL statement of any type on the given connection.
     /// </summary>
     /// <param name="connection">The connection to use to execute the SQL statement</param>

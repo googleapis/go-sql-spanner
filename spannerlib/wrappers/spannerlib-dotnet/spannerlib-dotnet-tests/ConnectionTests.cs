@@ -89,6 +89,50 @@ public class ConnectionTests : AbstractMockServerTests
     }
 
     [Test]
+    public async Task TestWriteMutationsAsync([Values] LibType libType)
+    {
+        await using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        await using var connection = pool.CreateConnection();
+        var insertMutation = new Mutation
+        {
+            Insert = new Mutation.Types.Write
+            {
+                Table = "my_table",
+                Columns = { new[] { "id", "value" } },
+            }
+        };
+        insertMutation.Insert.Values.AddRange([
+            new ListValue{Values = { Value.ForString("1"), Value.ForString("One") }},
+            new ListValue{Values = { Value.ForString("2"), Value.ForString("Two") }}
+        ]);
+        var insertOrUpdateMutation = new Mutation
+        {
+            InsertOrUpdate = new Mutation.Types.Write
+            {
+                Table = "my_table",
+                Columns = { new[] { "id", "value" } },
+            }
+        };
+        insertOrUpdateMutation.InsertOrUpdate.Values.AddRange([
+            new ListValue{Values = { Value.ForString("0"), Value.ForString("Zero") }}
+        ]);
+        
+        var response = await connection.WriteMutationsAsync(new BatchWriteRequest.Types.MutationGroup
+        {
+            Mutations = { new []{insertMutation, insertOrUpdateMutation}}
+        });
+        Assert.That(response, Is.Not.Null);
+        Assert.That(response.CommitTimestamp, Is.Not.Null);
+        Assert.That(Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>().Count(), Is.EqualTo(1));
+        Assert.That(Fixture.SpannerMock.Requests.OfType<CommitRequest>().Count(), Is.EqualTo(1));
+        var commit = Fixture.SpannerMock.Requests.OfType<CommitRequest>().Single();
+        Assert.That(commit, Is.Not.Null);
+        Assert.That(commit.Mutations.Count, Is.EqualTo(2));
+        Assert.That(commit.Mutations[0].Insert.Values.Count, Is.EqualTo(2));
+        Assert.That(commit.Mutations[1].InsertOrUpdate.Values.Count, Is.EqualTo(1));
+    }
+
+    [Test]
     public void TestWriteMutationsInTransaction([Values] LibType libType)
     {
         using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
