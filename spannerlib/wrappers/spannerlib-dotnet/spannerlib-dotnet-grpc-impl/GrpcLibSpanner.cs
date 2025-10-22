@@ -182,7 +182,7 @@ public class GrpcLibSpanner : ISpannerLib
             {
                 Connection = ToProto(connection),
                 Mutations = mutations,
-            });
+            }, cancellationToken: cancellationToken);
             return response.CommitTimestamp == null ? null : response;
         }
         catch (RpcException exception)

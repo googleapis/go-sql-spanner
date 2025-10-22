@@ -47,6 +47,7 @@ func main() {
 		log.Fatalf("failed to listen: %v\n", err)
 	}
 	var opts []grpc.ServerOption
+	// Set a max message size that is essentially no limit.
 	opts = append(opts, grpc.MaxRecvMsgSize(math.MaxInt32))
 	grpcServer := grpc.NewServer(opts...)
 

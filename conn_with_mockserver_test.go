@@ -1501,6 +1501,7 @@ func TestGenericConnectionState_GoogleSQL(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
 func TestGenericConnectionState_PostgreSQL(t *testing.T) {
 	t.Parallel()
 
@@ -1748,6 +1749,40 @@ func TestGenericConnectionState_PostgreSQL(t *testing.T) {
 
 	if err := conn.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDmlBatchReturnsBatchUpdateCountsOutsideTransaction(t *testing.T) {
+	t.Parallel()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(conn)
+
+	if _, err := conn.ExecContext(ctx, "start batch dml"); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
+	_, _ = conn.ExecContext(ctx, testutil.UpdateSingersSetLastName)
+	var res SpannerResult
+	if err := conn.Raw(func(driverConn interface{}) error {
+		spannerConn, _ := driverConn.(SpannerConn)
+		res, err = spannerConn.RunDmlBatch(ctx)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	results, err := res.BatchRowsAffected()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g, w := results, []int64{testutil.UpdateBarSetFooRowCount, testutil.UpdateSingersSetLastNameRowCount}; !reflect.DeepEqual(g, w) {
+		t.Fatalf("batch affected mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 

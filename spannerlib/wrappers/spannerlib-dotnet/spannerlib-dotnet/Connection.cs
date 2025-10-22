@@ -88,7 +88,25 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     {
         return Spanner.WriteMutations(this, mutations);
     }
-
+    
+    /// <summary>
+    /// Writes the given list of mutations to Spanner. If the connection has an active read/write transaction, then the
+    /// mutations will be buffered in the current transaction and sent to Spanner when the transaction is committed.
+    /// If the connection does not have a transaction, then the mutations are sent to Spanner directly in a new
+    /// read/write transaction.
+    /// </summary>
+    /// <param name="mutations">The mutations to write to Spanner</param>
+    /// <param name="cancellationToken">The cancellation token</param>
+    /// <returns>
+    /// The CommitResponse that is returned by Spanner, or null if the mutations were only buffered in the current
+    /// transaction.
+    /// </returns>
+    public Task<CommitResponse?> WriteMutationsAsync(BatchWriteRequest.Types.MutationGroup mutations,
+        CancellationToken cancellationToken = default)
+    {
+        return Spanner.WriteMutationsAsync(this, mutations, cancellationToken);
+    }
+    
     /// <summary>
     /// Writes the given list of mutations to Spanner. If the connection has an active read/write transaction, then the
     /// mutations will be buffered in the current transaction and sent to Spanner when the transaction is committed.
