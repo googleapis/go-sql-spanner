@@ -45,7 +45,8 @@ public class GrpcLibSpanner : ISpannerLib
                         throw;
                     }
                 }
-            }
+            },
+            MaxReceiveMessageSize = null,
         });
     }
 
@@ -56,7 +57,8 @@ public class GrpcLibSpanner : ISpannerLib
             HttpHandler = new SocketsHttpHandler
             {
                 EnableMultipleHttp2Connections = true,
-            }
+            },
+            MaxReceiveMessageSize = null,
         });
     }
     
