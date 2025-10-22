@@ -1,4 +1,20 @@
 
+# Builds the .NET wrapper components that depend on the Go shared library.
+# This script executes the following steps:
+# 1. Determine which binaries should be built (darwin/arm64, linux/x64, win/x64).
+#    The default is to build all. This requires the system that is running the script to be able to
+#    compile for all those operating systems and architectures.
+# 2. Build the binaries for the gRPC server and copy these to the appropriate folders for the .NET wrapper.
+# 3. Build the binaries for the shared library and copy these to the appropriate folders for the .NET wrapper.
+# 4. Generate a 'snapshot' version number based on the current date/time for the .NET gRPC and shared library wrappers.
+# 5. Update all references to the gRPC and shared library wrappers to use the new generated version number.
+# 6. Pack the .NET gRPC and shared library wrappers and register the build directories of these as local nuget sources.
+#    This allows the other projects in the solution to pick up these 'snapshot' versions locally instead of looking for
+#    them in the central nuget repository.
+#    Note that we use package references instead of project references for the .NET wrappers that contain the binary
+#    files of the shared library, because .NET does not support dynamically loading the correct native library version
+#    for project references.
+
 # Determine which builds to skip when the script runs on GitHub Actions.
 if [ "$RUNNER_OS" == "Windows" ]; then
   # Windows does not support any cross-compiling.

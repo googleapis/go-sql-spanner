@@ -1,3 +1,6 @@
+# Publishes all .NET wrapper projects to nuget central.
+# The NUGET_API_KEY variable must contain a valid nuget API key.
+
 # NUGET_API_KEY=secret
 
 # Build all components

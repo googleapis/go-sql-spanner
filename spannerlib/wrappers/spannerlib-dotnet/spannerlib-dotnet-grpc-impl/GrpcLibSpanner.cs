@@ -172,7 +172,7 @@ public class GrpcLibSpanner : ISpannerLib
         }));
         return response.CommitTimestamp == null ? null : response;
     }
-
+    
     public async Task<CommitResponse?> WriteMutationsAsync(Connection connection,
         BatchWriteRequest.Types.MutationGroup mutations, CancellationToken cancellationToken = default)
     {
@@ -190,7 +190,7 @@ public class GrpcLibSpanner : ISpannerLib
             throw SpannerException.ToSpannerException(exception);
         }
     }
-
+    
     public Rows Execute(Connection connection, ExecuteSqlRequest statement)
     {
         if (_useStreamingRows) 

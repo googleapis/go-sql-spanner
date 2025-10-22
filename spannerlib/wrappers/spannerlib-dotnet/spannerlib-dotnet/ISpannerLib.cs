@@ -105,11 +105,7 @@ public interface ISpannerLib : IDisposable
     /// mutations were buffered in an active transaction on the connection.
     /// </returns>
     public Task<CommitResponse?> WriteMutationsAsync(Connection connection, BatchWriteRequest.Types.MutationGroup mutations, CancellationToken cancellationToken = default);
-<<<<<<< HEAD
-
-=======
     
->>>>>>> main
     /// <summary>
     /// Executes a SQL statement of any type on the given connection.
     /// </summary>

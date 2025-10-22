@@ -1,3 +1,6 @@
+# Publishes a new snapshot version of the gRPC .NET wrapper to nuget.
+# The variable NUGET_API_KEY must contain a valid nuget API key.
+
 # NUGET_API_KEY=secret
 
 VERSION=$(date -u +"1.0.0-alpha.%Y%m%d%H%M%S")

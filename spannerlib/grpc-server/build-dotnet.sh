@@ -1,3 +1,5 @@
+# Builds the gRPC server binary for darwin/arm64, linux/x64, and windows/x64
+# and copies the binaries to the appropriate folders of the .NET wrapper.
 mkdir -p ../wrappers/spannerlib-dotnet/spannerlib-dotnet-grpc-server/binaries/any
 rm ../wrappers/spannerlib-dotnet/spannerlib-dotnet-grpc-server/binaries/any/grpc_server
 
