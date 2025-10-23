@@ -66,6 +66,10 @@ func WriteMutations(ctx context.Context, poolId, connId int64, mutations *spanne
 // BeginTransaction starts a new transaction on the given connection.
 // A connection can have at most one transaction at any time. This function therefore returns an error if the
 // connection has an active transaction.
+//
+// NOTE: The context that is passed in to this function is registered as the transaction context. The transaction is
+// invalidated if the context is cancelled. The context that is passed in to this function should therefore not be a
+// context that is cancelled right after calling this function.
 func BeginTransaction(ctx context.Context, poolId, connId int64, txOpts *spannerpb.TransactionOptions) error {
 	conn, err := findConnection(poolId, connId)
 	if err != nil {
@@ -93,11 +97,15 @@ func Rollback(ctx context.Context, poolId, connId int64) error {
 }
 
 func Execute(ctx context.Context, poolId, connId int64, executeSqlRequest *spannerpb.ExecuteSqlRequest) (int64, error) {
+	return ExecuteWithDirectExecuteContext(ctx, nil, poolId, connId, executeSqlRequest)
+}
+
+func ExecuteWithDirectExecuteContext(ctx, directExecuteContext context.Context, poolId, connId int64, executeSqlRequest *spannerpb.ExecuteSqlRequest) (int64, error) {
 	conn, err := findConnection(poolId, connId)
 	if err != nil {
 		return 0, err
 	}
-	return conn.Execute(ctx, executeSqlRequest)
+	return conn.Execute(ctx, directExecuteContext, executeSqlRequest)
 }
 
 func ExecuteBatch(ctx context.Context, poolId, connId int64, statements *spannerpb.ExecuteBatchDmlRequest) (*spannerpb.ExecuteBatchDmlResponse, error) {
@@ -300,16 +308,16 @@ func (conn *Connection) closeResults(ctx context.Context) {
 	})
 }
 
-func (conn *Connection) Execute(ctx context.Context, statement *spannerpb.ExecuteSqlRequest) (int64, error) {
-	return execute(ctx, conn, conn.backend, statement)
+func (conn *Connection) Execute(ctx, directExecuteContext context.Context, statement *spannerpb.ExecuteSqlRequest) (int64, error) {
+	return execute(ctx, directExecuteContext, conn, conn.backend, statement)
 }
 
 func (conn *Connection) ExecuteBatch(ctx context.Context, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
 	return executeBatch(ctx, conn, conn.backend, statements)
 }
 
-func execute(ctx context.Context, conn *Connection, executor queryExecutor, statement *spannerpb.ExecuteSqlRequest) (int64, error) {
-	params := extractParams(statement)
+func execute(ctx, directExecuteContext context.Context, conn *Connection, executor queryExecutor, statement *spannerpb.ExecuteSqlRequest) (int64, error) {
+	params := extractParams(directExecuteContext, statement)
 	it, err := executor.QueryContext(ctx, statement.Sql, params...)
 	if err != nil {
 		return 0, err
@@ -397,7 +405,7 @@ func executeBatchDml(ctx context.Context, conn *Connection, executor queryExecut
 			Params:     statement.Params,
 			ParamTypes: statement.ParamTypes,
 		}
-		params := extractParams(request)
+		params := extractParams(nil, request)
 		_, err := executor.ExecContext(ctx, statement.Sql, params...)
 		if err != nil {
 			return nil, err
@@ -423,7 +431,7 @@ func executeBatchDml(ctx context.Context, conn *Connection, executor queryExecut
 	return &response, nil
 }
 
-func extractParams(statement *spannerpb.ExecuteSqlRequest) []any {
+func extractParams(directExecuteContext context.Context, statement *spannerpb.ExecuteSqlRequest) []any {
 	paramsLen := 1
 	if statement.Params != nil {
 		paramsLen = 1 + len(statement.Params.Fields)
@@ -436,6 +444,7 @@ func extractParams(statement *spannerpb.ExecuteSqlRequest) []any {
 		ReturnResultSetMetadata: true,
 		ReturnResultSetStats:    true,
 		DirectExecuteQuery:      true,
+		DirectExecuteContext:    directExecuteContext,
 	})
 	if statement.Params != nil {
 		if statement.ParamTypes == nil {

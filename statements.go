@@ -282,6 +282,8 @@ func (s *executableBeginStatement) execContext(ctx context.Context, c *conn, opt
 	if len(s.stmt.Identifiers) != len(s.stmt.Literals) {
 		return nil, status.Errorf(codes.InvalidArgument, "statement contains %d identifiers, but %d values given", len(s.stmt.Identifiers), len(s.stmt.Literals))
 	}
+	// Make sure the transaction context is not cancelled when this context is cancelled.
+	ctx = context.WithoutCancel(ctx)
 	_, err := c.BeginTx(ctx, driver.TxOptions{})
 	if err != nil {
 		return nil, err

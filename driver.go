@@ -204,12 +204,16 @@ type ExecOptions struct {
 	// order to move to the result set that contains the spannerpb.ResultSetStats.
 	ReturnResultSetStats bool
 
-	// DirectExecute determines whether a query is executed directly when the
+	// DirectExecuteQuery determines whether a query is executed directly when the
 	// [sql.DB.QueryContext] method is called, or whether the actual query execution
 	// is delayed until the first call to [sql.Rows.Next]. The default is to delay
 	// the execution. Set this flag to true to execute the query directly when
 	// [sql.DB.QueryContext] is called.
 	DirectExecuteQuery bool
+
+	// DirectExecuteContext is the context that is used for the execution of a query
+	// when DirectExecuteQuery is enabled.
+	DirectExecuteContext context.Context
 }
 
 func (dest *ExecOptions) merge(src *ExecOptions) {
@@ -230,6 +234,9 @@ func (dest *ExecOptions) merge(src *ExecOptions) {
 	}
 	if src.DirectExecuteQuery {
 		dest.DirectExecuteQuery = src.DirectExecuteQuery
+	}
+	if src.DirectExecuteContext != nil {
+		dest.DirectExecuteContext = src.DirectExecuteContext
 	}
 	if src.AutocommitDMLMode != Unspecified {
 		dest.AutocommitDMLMode = src.AutocommitDMLMode

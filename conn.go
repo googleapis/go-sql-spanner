@@ -872,6 +872,7 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 		return createDriverResultRows(res, execOptions), nil
 	}
 	var iter rowIterator
+	ctx, cancel := context.WithCancelCause(ctx)
 	if c.tx == nil {
 		if statementInfo.StatementType == parser.StatementTypeDml {
 			// Use a read/write transaction to execute the statement.
@@ -902,14 +903,49 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 	}
 	res := createRows(iter, execOptions)
 	if execOptions.DirectExecuteQuery {
+		if err := c.directExecuteQuery(cancel, res, execOptions); err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (c *conn) directExecuteQuery(cancel context.CancelCauseFunc, res *rows, execOptions *ExecOptions) error {
+	if execOptions.DirectExecuteContext == nil {
 		// This call to res.getColumns() triggers the execution of the statement, as it needs to fetch the metadata.
 		res.getColumns()
 		if res.dirtyErr != nil && !errors.Is(res.dirtyErr, iterator.Done) {
 			_ = res.Close()
-			return nil, res.dirtyErr
+			return res.dirtyErr
 		}
+		return nil
 	}
-	return res, nil
+
+	// Asynchronously fetch the first partial result set from Spanner.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		res.getColumns()
+	}()
+	// Wait until either the done channel is closed or the context is done.
+	select {
+	case <-execOptions.DirectExecuteContext.Done():
+		// Cancel the execution.
+		cancel(execOptions.DirectExecuteContext.Err())
+	case <-done:
+	}
+
+	// Now wait until done channel is closed. This could be because the execution finished
+	// successfully, or because the context was cancelled, which again causes the execution
+	// to (eventually) fail.
+	select {
+	case <-done:
+	}
+	if res.dirtyErr != nil && !errors.Is(res.dirtyErr, iterator.Done) {
+		_ = res.Close()
+		return res.dirtyErr
+	}
+	return nil
 }
 
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
