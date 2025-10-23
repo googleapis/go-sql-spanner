@@ -13,6 +13,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/gax-go/v2 v2.15.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
+	go.uber.org/goleak v1.3.0
 	google.golang.org/api v0.252.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251007200510-49b9836ed3ff
 	google.golang.org/grpc v1.76.0

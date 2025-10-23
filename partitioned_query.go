@@ -227,13 +227,13 @@ func (pq *PartitionedQuery) Execute(ctx context.Context, index int, db *sql.DB) 
 	})
 }
 
-func (pq *PartitionedQuery) execute(ctx context.Context, index int) (*rows, error) {
+func (pq *PartitionedQuery) execute(ctx context.Context, cancel context.CancelFunc, index int) (*rows, error) {
 	if index < 0 || index >= len(pq.Partitions) {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid partition index: %d", index))
 	}
 	spannerIter := pq.tx.Execute(ctx, pq.Partitions[index])
 	iter := &readOnlyRowIterator{spannerIter, parser.StatementTypeQuery}
-	return &rows{it: iter, decodeOption: pq.execOptions.DecodeOption}, nil
+	return &rows{it: iter, cancel: cancel, decodeOption: pq.execOptions.DecodeOption}, nil
 }
 
 func (pq *PartitionedQuery) Close() {

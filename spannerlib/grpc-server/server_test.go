@@ -2,20 +2,26 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"testing"
+	"time"
 
+	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/uuid"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 	pb "spannerlib/grpc-server/google/spannerlib/v1"
 )
@@ -142,6 +148,42 @@ func TestExecute(t *testing.T) {
 	}
 }
 
+func TestExecuteWithTimeout(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	server, teardown := setupMockSpannerServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	client, cleanup := startTestSpannerLibServer(t)
+	defer cleanup()
+
+	pool, err := client.CreatePool(ctx, &pb.CreatePoolRequest{ConnectionString: dsn})
+	if err != nil {
+		t.Fatalf("failed to create pool: %v", err)
+	}
+	connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
+	if err != nil {
+		t.Fatalf("failed to create connection: %v", err)
+	}
+
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: 2 * time.Millisecond})
+	withTimeout, cancel := context.WithTimeout(ctx, time.Millisecond)
+	defer cancel()
+	_, err = client.Execute(withTimeout, &pb.ExecuteRequest{
+		Connection:        connection,
+		ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: testutil.SelectFooFromBar},
+	})
+	if g, w := status.Code(err), codes.DeadlineExceeded; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	if _, err := client.ClosePool(ctx, pool); err != nil {
+		t.Fatalf("failed to close pool: %v", err)
+	}
+}
+
 func TestExecuteStreaming(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -187,6 +229,50 @@ func TestExecuteStreaming(t *testing.T) {
 	}
 	if g, w := numRows, 2; g != w {
 		t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	if _, err := client.ClosePool(ctx, pool); err != nil {
+		t.Fatalf("failed to close pool: %v", err)
+	}
+}
+
+func TestExecuteStreamingWithTimeout(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	server, teardown := setupMockSpannerServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	client, cleanup := startTestSpannerLibServer(t)
+	defer cleanup()
+
+	pool, err := client.CreatePool(ctx, &pb.CreatePoolRequest{ConnectionString: dsn})
+	if err != nil {
+		t.Fatalf("failed to create pool: %v", err)
+	}
+	connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
+	if err != nil {
+		t.Fatalf("failed to create connection: %v", err)
+	}
+
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: 2 * time.Millisecond})
+	withTimeout, cancel := context.WithTimeout(ctx, time.Millisecond)
+	defer cancel()
+	stream, err := client.ExecuteStreaming(withTimeout, &pb.ExecuteRequest{
+		Connection:        connection,
+		ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: testutil.SelectFooFromBar},
+	})
+	// The timeout can happen here or while waiting for the first response.
+	if err != nil {
+		if g, w := spanner.ErrCode(err), codes.DeadlineExceeded; g != w {
+			t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	} else {
+		_, err = stream.Recv()
+		if g, w := spanner.ErrCode(err), codes.DeadlineExceeded; g != w {
+			t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+		}
 	}
 
 	if _, err := client.ClosePool(ctx, pool); err != nil {
@@ -244,6 +330,95 @@ func TestExecuteStreamingClientSideStatement(t *testing.T) {
 		if len(row.Data) == 0 {
 			break
 		}
+	}
+
+	if _, err := client.ClosePool(ctx, pool); err != nil {
+		t.Fatalf("failed to close pool: %v", err)
+	}
+}
+
+func TestExecuteStreamingCustomSql(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	server, teardown := setupMockSpannerServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	client, cleanup := startTestSpannerLibServer(t)
+	defer cleanup()
+
+	pool, err := client.CreatePool(ctx, &pb.CreatePoolRequest{ConnectionString: dsn})
+	if err != nil {
+		t.Fatalf("failed to create pool: %v", err)
+	}
+	connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
+	if err != nil {
+		t.Fatalf("failed to create connection: %v", err)
+	}
+
+	stream, err := client.ExecuteStreaming(ctx, &pb.ExecuteRequest{
+		Connection:        connection,
+		ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: "begin"},
+	})
+	if err != nil {
+		t.Fatalf("failed to execute: %v", err)
+	}
+	row, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive row: %v", err)
+	}
+	if g, w := len(row.Data), 0; g != w {
+		t.Fatalf("row data length mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if _, err := stream.Recv(); !errors.Is(err, io.EOF) {
+		t.Fatalf("expected io.EOF, got: %v", err)
+	}
+
+	stream, err = client.ExecuteStreaming(ctx, &pb.ExecuteRequest{
+		Connection:        connection,
+		ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: testutil.SelectFooFromBar},
+	})
+	if err != nil {
+		t.Fatalf("failed to execute: %v", err)
+	}
+	numRows := 0
+	for {
+		row, err := stream.Recv()
+		if err != nil {
+			t.Fatalf("failed to receive row: %v", err)
+		}
+		if len(row.Data) == 0 {
+			break
+		}
+		if g, w := len(row.Data), 1; g != w {
+			t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if g, w := len(row.Data[0].Values), 1; g != w {
+			t.Fatalf("num values mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		numRows++
+	}
+	if g, w := numRows, 2; g != w {
+		t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	stream, err = client.ExecuteStreaming(ctx, &pb.ExecuteRequest{
+		Connection:        connection,
+		ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: "commit"},
+	})
+	if err != nil {
+		t.Fatalf("failed to execute: %v", err)
+	}
+	row, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive row: %v", err)
+	}
+	if g, w := len(row.Data), 0; g != w {
+		t.Fatalf("row data length mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if _, err := stream.Recv(); !errors.Is(err, io.EOF) {
+		t.Fatalf("expected io.EOF, got: %v", err)
 	}
 
 	if _, err := client.ClosePool(ctx, pool); err != nil {
