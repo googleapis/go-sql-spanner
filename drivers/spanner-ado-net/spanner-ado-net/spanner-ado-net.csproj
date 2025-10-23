@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Google.Cloud.Spanner.DataProvider</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>default</LangVersion>
+    <AssemblyName>Google.Cloud.Spanner.DataProvider</AssemblyName>
+    <PackageId>Alpha.Google.Cloud.Spanner.DataProvider</PackageId>
+    <Title>.NET Data Provider for Spanner</Title>
+    <Authors>Google</Authors>
+    <Version>1.0.0-alpha.20251003170157</Version>
+    <Description>ADO.NET Data Provider.
+
+Alpha version: Not for production use</Description>
+    <Copyright>Apache v2.0</Copyright>
+    <PackageLicenseUrl>https://github.com/googleapis/go-sql-spanner/drivers/spanner-ado-net/LICENSE</PackageLicenseUrl>
+    <RepositoryUrl>https://github.com/googleapis/go-sql-spanner/drivers/spanner-ado-net</RepositoryUrl>
+  </PropertyGroup>
+  
+  <ItemGroup>
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib" Version="1.0.0-alpha.20251009140944" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.GrpcImpl" Version="1.0.0-alpha.20251009140944" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.GrpcServer" Version="1.0.0-alpha.20251009140944" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.NativeImpl" Version="1.0.0-alpha.20251009140944" />
+  </ItemGroup>
+  
+</Project>
