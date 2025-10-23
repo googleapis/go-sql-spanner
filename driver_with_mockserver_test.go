@@ -5555,6 +5555,47 @@ func TestReturnResultSetMetadataAndStats(t *testing.T) {
 	}
 }
 
+func TestConnectTimeout(t *testing.T) {
+	t.Parallel()
+
+	server, _, serverTeardown := setupMockedTestServerWithDialect(t, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+	defer serverTeardown()
+	db, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;connect_timeout=1ms", server.Address))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(db)
+
+	// Make the ExecuteStreamingSql method a bit slow, so the query that is used to detect the dialect responds a bit slowly.
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: time.Millisecond * 10})
+
+	// Try to get/create a connection using a context without a deadline.
+	// This will cause the connect_timeout to be used.
+	c, err := db.Conn(context.Background())
+	if g, w := spanner.ErrCode(err), codes.DeadlineExceeded; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	} else if c != nil {
+		_ = c.Close()
+	}
+}
+
+func TestInvalidConnectTimeout(t *testing.T) {
+	t.Parallel()
+
+	server, _, serverTeardown := setupMockedTestServerWithDialect(t, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+	defer serverTeardown()
+	db, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;connect_timeout='very long'", server.Address))
+	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	} else if db != nil {
+		defer silentClose(db)
+	}
+}
+
 func numeric(v string) big.Rat {
 	res, _ := big.NewRat(1, 1).SetString(v)
 	return *res
