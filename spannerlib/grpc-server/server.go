@@ -102,32 +102,40 @@ func (s *spannerLibServer) CloseConnection(ctx context.Context, connection *pb.C
 	return &emptypb.Empty{}, nil
 }
 
-func contextWithSameDeadline(ctx context.Context) context.Context {
-	newContext := context.Background()
+func contextWithSameDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	// Create a derived context of the original context to preserve any values,
+	// but ensure that it is not cancelled when the parent context is cancelled.
+	// The context.WithoutCancel(ctx) call does this.
 	if deadline, ok := ctx.Deadline(); ok {
-		// Ignore the returned cancel function here, as the context will be closed when the Rows object is closed.
-		//goland:noinspection GoVetLostCancel
-		newContext, _ = context.WithDeadline(newContext, deadline)
+		newContext := context.WithoutCancel(ctx)
+		return context.WithDeadline(newContext, deadline)
+	} else {
+		return context.WithoutCancel(ctx), func() {}
 	}
-	return newContext
 }
 
-func (s *spannerLibServer) Execute(ctx context.Context, request *pb.ExecuteRequest) (*pb.Rows, error) {
+func (s *spannerLibServer) Execute(ctx context.Context, request *pb.ExecuteRequest) (returnedRows *pb.Rows, returnedErr error) {
 	// Create a new context that is used for the query. We need to do this, because the context that is passed in to
 	// this function will be cancelled once the RPC call finishes. That again would cause further calls to Next on the
 	// underlying rows object to fail with a 'Context cancelled' error.
-	queryContext := contextWithSameDeadline(ctx)
+	queryContext, cancel := contextWithSameDeadline(ctx)
 	id, err := api.Execute(queryContext, request.Connection.Pool.Id, request.Connection.Id, request.ExecuteSqlRequest)
 	if err != nil {
+		// The query context is cancelled when the rows are closed. But we need to cancel it here
+		// if there is no Rows object that is being returned.
+		cancel()
 		return nil, err
 	}
 	return &pb.Rows{Connection: request.Connection, Id: id}, nil
 }
 
-func (s *spannerLibServer) ExecuteStreaming(request *pb.ExecuteRequest, stream grpc.ServerStreamingServer[pb.RowData]) error {
-	queryContext := contextWithSameDeadline(stream.Context())
+func (s *spannerLibServer) ExecuteStreaming(request *pb.ExecuteRequest, stream grpc.ServerStreamingServer[pb.RowData]) (returnedErr error) {
+	queryContext, cancel := contextWithSameDeadline(stream.Context())
 	id, err := api.Execute(queryContext, request.Connection.Pool.Id, request.Connection.Id, request.ExecuteSqlRequest)
 	if err != nil {
+		// The query context is cancelled when the rows are closed. But we need to cancel it here
+		// if there is no Rows object that is being returned.
+		cancel()
 		return err
 	}
 	defer func() { _ = api.CloseRows(queryContext, request.Connection.Pool.Id, request.Connection.Id, id) }()

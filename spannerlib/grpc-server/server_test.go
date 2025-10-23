@@ -9,13 +9,17 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
+	"time"
 
+	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/uuid"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 	pb "spannerlib/grpc-server/google/spannerlib/v1"
 )
@@ -142,6 +146,42 @@ func TestExecute(t *testing.T) {
 	}
 }
 
+func TestExecuteWithTimeout(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	server, teardown := setupMockSpannerServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	client, cleanup := startTestSpannerLibServer(t)
+	defer cleanup()
+
+	pool, err := client.CreatePool(ctx, &pb.CreatePoolRequest{ConnectionString: dsn})
+	if err != nil {
+		t.Fatalf("failed to create pool: %v", err)
+	}
+	connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
+	if err != nil {
+		t.Fatalf("failed to create connection: %v", err)
+	}
+
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: 2 * time.Millisecond})
+	withTimeout, cancel := context.WithTimeout(ctx, time.Millisecond)
+	defer cancel()
+	_, err = client.Execute(withTimeout, &pb.ExecuteRequest{
+		Connection:        connection,
+		ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: testutil.SelectFooFromBar},
+	})
+	if g, w := status.Code(err), codes.DeadlineExceeded; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	if _, err := client.ClosePool(ctx, pool); err != nil {
+		t.Fatalf("failed to close pool: %v", err)
+	}
+}
+
 func TestExecuteStreaming(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -187,6 +227,49 @@ func TestExecuteStreaming(t *testing.T) {
 	}
 	if g, w := numRows, 2; g != w {
 		t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	if _, err := client.ClosePool(ctx, pool); err != nil {
+		t.Fatalf("failed to close pool: %v", err)
+	}
+}
+
+func TestExecuteStreamingWithTimeout(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	server, teardown := setupMockSpannerServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	client, cleanup := startTestSpannerLibServer(t)
+	defer cleanup()
+
+	pool, err := client.CreatePool(ctx, &pb.CreatePoolRequest{ConnectionString: dsn})
+	if err != nil {
+		t.Fatalf("failed to create pool: %v", err)
+	}
+	connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
+	if err != nil {
+		t.Fatalf("failed to create connection: %v", err)
+	}
+
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: 2 * time.Millisecond})
+	withTimeout, cancel := context.WithTimeout(ctx, time.Millisecond)
+	defer cancel()
+	stream, err := client.ExecuteStreaming(withTimeout, &pb.ExecuteRequest{
+		Connection:        connection,
+		ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: testutil.SelectFooFromBar},
+	})
+	// The timeout can happen here or while waiting for the first response.
+	if err != nil {
+		if g, w := spanner.ErrCode(err), codes.DeadlineExceeded; g != w {
+			t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+	_, err = stream.Recv()
+	if g, w := spanner.ErrCode(err), codes.DeadlineExceeded; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
 	if _, err := client.ClosePool(ctx, pool); err != nil {
