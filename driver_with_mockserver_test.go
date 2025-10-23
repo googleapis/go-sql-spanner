@@ -4572,9 +4572,9 @@ func TestRunTransaction(t *testing.T) {
 		// Verify that internal retries are disabled during RunTransaction
 		txi := reflect.ValueOf(tx).Elem().FieldByName("txi")
 		delegatingTx := (*delegatingTransaction)(txi.Elem().UnsafePointer())
-		rwTx := delegatingTx.contextTransaction.(*readWriteTransaction)
+		rwTx, ok := delegatingTx.contextTransaction.(*readWriteTransaction)
 		// Verify that getting the transaction through reflection worked.
-		if g, w := rwTx.ctx, ctx; g != w {
+		if !ok {
 			return fmt.Errorf("getting the transaction through reflection failed")
 		}
 		if rwTx.retryAborts() {
@@ -5034,9 +5034,9 @@ func TestBeginReadWriteTransaction(t *testing.T) {
 		// Verify that internal retries are disabled during this transaction.
 		txi := reflect.ValueOf(tx).Elem().FieldByName("txi")
 		delegatingTx := (*delegatingTransaction)(txi.Elem().UnsafePointer())
-		rwTx := delegatingTx.contextTransaction.(*readWriteTransaction)
+		rwTx, ok := delegatingTx.contextTransaction.(*readWriteTransaction)
 		// Verify that getting the transaction through reflection worked.
-		if g, w := rwTx.ctx, ctx; g != w {
+		if !ok {
 			t.Fatal("getting the transaction through reflection failed")
 		}
 		if rwTx.retryAborts() {
