@@ -69,6 +69,7 @@ var _ rowIterator = &readOnlyRowIterator{}
 
 type readOnlyRowIterator struct {
 	*spanner.RowIterator
+	cancel   context.CancelFunc
 	stmtType parser.StatementType
 }
 
@@ -78,6 +79,7 @@ func (ri *readOnlyRowIterator) Next() (*spanner.Row, error) {
 
 func (ri *readOnlyRowIterator) Stop() {
 	ri.RowIterator.Stop()
+	ri.cancel()
 }
 
 func (ri *readOnlyRowIterator) Metadata() (*sppb.ResultSetMetadata, error) {
@@ -284,7 +286,7 @@ func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement
 		}
 		tx.timestampBoundMu.Unlock()
 	}
-	return &readOnlyRowIterator{tx.roTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions), stmtType}, nil
+	return &readOnlyRowIterator{tx.roTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions), func() {}, stmtType}, nil
 }
 
 func (tx *readOnlyTransaction) partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions *ExecOptions) (driver.Rows, error) {
@@ -539,7 +541,7 @@ func (tx *readWriteTransaction) Commit() (err error) {
 	tx.logger.Debug("committing transaction")
 	tx.active = true
 	if err := tx.maybeRunAutoDmlBatch(tx.ctx); err != nil {
-		_ = tx.rollback(tx.ctx)
+		_ = tx.rollback()
 		return err
 	}
 	var commitResponse spanner.CommitResponse
@@ -569,12 +571,12 @@ func (tx *readWriteTransaction) Rollback() error {
 	if tx.batch != nil && tx.batch.automatic {
 		_, _ = tx.AbortBatch()
 	}
-	return tx.rollback(tx.ctx)
+	return tx.rollback()
 }
 
-func (tx *readWriteTransaction) rollback(ctx context.Context) error {
+func (tx *readWriteTransaction) rollback() error {
 	if tx.rwTx != nil {
-		tx.rwTx.Rollback(ctx)
+		tx.rwTx.Rollback(context.Background())
 	}
 	tx.close(txResultRollback, nil, nil)
 	return nil
@@ -589,19 +591,32 @@ func (tx *readWriteTransaction) resetForRetry(ctx context.Context) error {
 	return nil
 }
 
+func (tx *readWriteTransaction) addTransactionContextDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	if txDeadline, ok := tx.ctx.Deadline(); ok {
+		return context.WithDeadline(ctx, txDeadline)
+	}
+	return ctx, func() {}
+}
+
 // Query executes a query using the read/write transaction and returns a
 // rowIterator that will automatically retry the read/write transaction if the
 // transaction is aborted during the query or while iterating the returned rows.
-func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement, stmtType parser.StatementType, execOptions *ExecOptions) (rowIterator, error) {
+func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement, stmtType parser.StatementType, execOptions *ExecOptions) (returnedIterator rowIterator, returnedErr error) {
 	tx.logger.Debug("Query", "stmt", stmt.SQL)
 	tx.active = true
+	ctx, cancel := tx.addTransactionContextDeadline(ctx)
+	defer func() {
+		if returnedErr != nil {
+			cancel()
+		}
+	}()
 	if err := tx.maybeRunAutoDmlBatch(ctx); err != nil {
 		return nil, err
 	}
 	// If internal retries have been disabled, we don't need to keep track of a
 	// running checksum for all results that we have seen.
 	if !tx.retryAborts() {
-		return &readOnlyRowIterator{tx.rwTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions), stmtType}, nil
+		return &readOnlyRowIterator{tx.rwTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions), cancel, stmtType}, nil
 	}
 
 	// If retries are enabled, we need to use a row iterator that will keep
@@ -610,6 +625,7 @@ func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statemen
 	it := &checksumRowIterator{
 		RowIterator: tx.rwTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions),
 		ctx:         ctx,
+		cancel:      cancel,
 		tx:          tx,
 		stmt:        stmt,
 		stmtType:    stmtType,
@@ -639,6 +655,8 @@ func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.St
 		return &result{rowsAffected: updateCount}, nil
 	}
 
+	ctx, cancel := tx.addTransactionContextDeadline(ctx)
+	defer cancel()
 	if !tx.retryAborts() {
 		return execTransactionalDML(ctx, tx.rwTx, stmt, statementInfo, options)
 	}
@@ -741,6 +759,8 @@ func (tx *readWriteTransaction) runDmlBatch(ctx context.Context) (*result, error
 	statements := tx.batch.statements
 	options := tx.batch.options
 	tx.batch = nil
+	ctx, cancel := tx.addTransactionContextDeadline(ctx)
+	defer cancel()
 
 	if !tx.retryAborts() {
 		affected, err := tx.rwTx.BatchUpdateWithOptions(ctx, statements, options.QueryOptions)

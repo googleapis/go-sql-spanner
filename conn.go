@@ -889,7 +889,7 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 			// The statement was either detected as being a query, or potentially not recognized at all.
 			// In that case, just default to using a single-use read-only transaction and let Spanner
 			// return an error if the statement is not suited for that type of transaction.
-			iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt, statementInfo, c.ReadOnlyStaleness(), execOptions), statementInfo.StatementType}
+			iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt, statementInfo, c.ReadOnlyStaleness(), execOptions), func() {}, statementInfo.StatementType}
 		}
 	} else {
 		if execOptions.PartitionedQueryOptions.PartitionQuery {
@@ -1248,6 +1248,14 @@ func (c *conn) beginTx(ctx context.Context, driverOpts driver.TxOptions, closeFu
 	return c.tx, nil
 }
 
+func (c *conn) addTransactionTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	timeout := propertyTransactionTimeout.GetValueOrDefault(c.state)
+	if timeout == time.Duration(0) {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
 func (c *conn) activateTransaction() (contextTransaction, error) {
 	closeFunc := c.tx.close
 	if propertyTransactionReadOnly.GetValueOrDefault(c.state) {
@@ -1283,7 +1291,8 @@ func (c *conn) activateTransaction() (contextTransaction, error) {
 	opts := spanner.TransactionOptions{}
 	opts.BeginTransactionOption = c.convertDefaultBeginTransactionOption(propertyBeginTransactionOption.GetValueOrDefault(c.state))
 
-	tx, err := spanner.NewReadWriteStmtBasedTransactionWithCallbackForOptions(c.tx.ctx, c.client, opts, func() spanner.TransactionOptions {
+	ctx, cancel := c.addTransactionTimeout(c.tx.ctx)
+	tx, err := spanner.NewReadWriteStmtBasedTransactionWithCallbackForOptions(ctx, c.client, opts, func() spanner.TransactionOptions {
 		defer func() {
 			// Reset the transaction_tag after starting the transaction.
 			_ = propertyTransactionTag.ResetValue(c.state, connectionstate.ContextUser)
@@ -1291,11 +1300,12 @@ func (c *conn) activateTransaction() (contextTransaction, error) {
 		return c.effectiveTransactionOptions(spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED, c.options( /*reset=*/ true))
 	})
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	logger := c.logger.With("tx", "rw")
 	return &readWriteTransaction{
-		ctx:    c.tx.ctx,
+		ctx:    ctx,
 		conn:   c,
 		logger: logger,
 		rwTx:   tx,
@@ -1307,6 +1317,7 @@ func (c *conn) activateTransaction() (contextTransaction, error) {
 			} else {
 				closeFunc(txResultRollback)
 			}
+			cancel()
 		},
 		retryAborts: sync.OnceValue(func() bool {
 			return c.RetryAbortsInternally()

@@ -53,6 +53,7 @@ type checksumRowIterator struct {
 	metadata *sppb.ResultSetMetadata
 
 	ctx      context.Context
+	cancel   context.CancelFunc
 	tx       *readWriteTransaction
 	stmt     spanner.Statement
 	stmtType parser.StatementType
@@ -248,6 +249,7 @@ func (it *checksumRowIterator) Stop() {
 		it.RowIterator.Stop()
 		it.RowIterator = nil
 	}
+	it.cancel()
 }
 
 func (it *checksumRowIterator) Metadata() (*sppb.ResultSetMetadata, error) {

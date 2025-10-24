@@ -232,7 +232,7 @@ func (pq *PartitionedQuery) execute(ctx context.Context, index int) (*rows, erro
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid partition index: %d", index))
 	}
 	spannerIter := pq.tx.Execute(ctx, pq.Partitions[index])
-	iter := &readOnlyRowIterator{spannerIter, parser.StatementTypeQuery}
+	iter := &readOnlyRowIterator{spannerIter, func() {}, parser.StatementTypeQuery}
 	return &rows{it: iter, decodeOption: pq.execOptions.DecodeOption}, nil
 }
 

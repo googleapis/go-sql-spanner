@@ -305,6 +305,17 @@ var propertyTransactionBatchReadOnly = createConnectionProperty(
 	connectionstate.ContextUser,
 	connectionstate.ConvertBool,
 )
+var propertyTransactionTimeout = createConnectionProperty(
+	"transaction_timeout",
+	"The timeout to apply to all read/write transactions on this connection. "+
+		"Setting the timeout to zero means no timeout.",
+	15*time.Second,
+	//time.Duration(0),
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertDuration,
+)
 
 // ------------------------------------------------------------------------------------------------
 // Statement connection properties.
