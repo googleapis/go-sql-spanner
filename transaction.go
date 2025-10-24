@@ -42,6 +42,7 @@ type spannerTransaction interface {
 // contextTransaction is the combination of both read/write and read-only
 // transactions.
 type contextTransaction interface {
+	deadline() (time.Time, bool)
 	Commit() error
 	Rollback() error
 	resetForRetry(ctx context.Context) error
@@ -120,6 +121,13 @@ type delegatingTransaction struct {
 	ctx                context.Context
 	close              func(result txResult)
 	contextTransaction contextTransaction
+}
+
+func (d *delegatingTransaction) deadline() (time.Time, bool) {
+	if d.contextTransaction != nil {
+		return d.contextTransaction.deadline()
+	}
+	return d.ctx.Deadline()
 }
 
 func (d *delegatingTransaction) ensureActivated() error {
@@ -228,6 +236,10 @@ type readOnlyTransaction struct {
 	timestampBoundMu       sync.Mutex
 	timestampBoundSet      bool
 	timestampBoundCallback func() spanner.TimestampBound
+}
+
+func (tx *readOnlyTransaction) deadline() (time.Time, bool) {
+	return time.Time{}, false
 }
 
 func (tx *readOnlyTransaction) Commit() error {
@@ -472,6 +484,10 @@ func (ru *retriableBatchUpdate) retry(ctx context.Context, tx *spanner.ReadWrite
 	return nil
 }
 
+func (tx *readWriteTransaction) deadline() (time.Time, bool) {
+	return tx.ctx.Deadline()
+}
+
 // runWithRetry executes a statement on a go/sql read/write transaction and
 // automatically retries the entire transaction if the statement returns an
 // Aborted error. The method will return ErrAbortedDueToConcurrentModification
@@ -539,7 +555,7 @@ func (tx *readWriteTransaction) Commit() (err error) {
 	tx.logger.Debug("committing transaction")
 	tx.active = true
 	if err := tx.maybeRunAutoDmlBatch(tx.ctx); err != nil {
-		_ = tx.rollback(tx.ctx)
+		_ = tx.rollback()
 		return err
 	}
 	var commitResponse spanner.CommitResponse
@@ -569,12 +585,14 @@ func (tx *readWriteTransaction) Rollback() error {
 	if tx.batch != nil && tx.batch.automatic {
 		_, _ = tx.AbortBatch()
 	}
-	return tx.rollback(tx.ctx)
+	return tx.rollback()
 }
 
-func (tx *readWriteTransaction) rollback(ctx context.Context) error {
+func (tx *readWriteTransaction) rollback() error {
 	if tx.rwTx != nil {
-		tx.rwTx.Rollback(ctx)
+		// Always use context.Background() for rollback invocations to allow them
+		// to be executed, even if the transaction has timed out or been cancelled.
+		tx.rwTx.Rollback(context.Background())
 	}
 	tx.close(txResultRollback, nil, nil)
 	return nil
