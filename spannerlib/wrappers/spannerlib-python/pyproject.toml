@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spannerlib"
+version = "0.1.0"
+authors = [
+  { name="Google LLC", email="googleapis-packages@google.com" },
+]
+description = "A Python wrapper for the Go spannerlib"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = [
+    "LICENSE",
+]
+requires-python = ">=3.8"
+classifiers = [
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+    "Programming Language :: Python :: 3.8",
+]
+dependencies = [
+    "google-cloud-spanner",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "nox",
+]
+
+[tool.setuptools]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["google*"]
+
+[project.urls]
+Homepage = "https://github.com/googleapis/go-sql-spanner"
+Repository = "https://github.com/googleapis/go-sql-spanner/tree/main/spannerlib/wrappers/spannerlib-python"
