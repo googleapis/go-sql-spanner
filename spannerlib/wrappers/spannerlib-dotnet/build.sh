@@ -36,6 +36,11 @@ echo "Skip Linux: $SKIP_LINUX"
 echo "Skip Linux cross compile: $SKIP_LINUX_CROSS_COMPILE"
 echo "Skip windows: $SKIP_WINDOWS"
 
+# Remove existing builds
+rm -r ./spannerlib-dotnet-native/libraries 2> /dev/null
+rm -r ./*/bin 2> /dev/null
+rm -r ./*/obj 2> /dev/null
+
 # Build gRPC server
 echo "Building gRPC server..."
 cd ../../grpc-server || exit 1
@@ -50,19 +55,6 @@ cd ../shared || exit 1
 cd ../wrappers/spannerlib-dotnet || exit 1
 
 echo "Building .NET packages..."
-VERSION=$(date -u +"1.0.0-alpha.%Y%m%d%H%M%S")
-
-# Update all package references to the new (generated) version.
-# Note that sed works slightly differently on Mac than on Linux/Windows,
-# which is why we have two different versions below.
-echo "Publishing as version $VERSION"
-if [ "$RUNNER_OS" == "macOS" ]; then
-  find ./ -type f -name "*.csproj" -exec sed -i "" "s|<Version>.*</Version>|<Version>$VERSION</Version>|g" {} \;
-  find ./ -type f -name "*.csproj" -exec sed -i "" "s|<PackageReference Include=\(\"Alpha.Google.Cloud.SpannerLib.*\"\) Version=\".*\" />|<PackageReference Include=\1 Version=\"$VERSION\" />|g" {} \;
-else
-  find ./ -type f -name "*.csproj" -exec sed -i "s|<Version>.*</Version>|<Version>$VERSION</Version>|g" {} \;
-  find ./ -type f -name "*.csproj" -exec sed -i "s|<PackageReference Include=\(\"Alpha.Google.Cloud.SpannerLib.*\"\) Version=\".*\" />|<PackageReference Include=\1 Version=\"$VERSION\" />|g" {} \;
-fi
 
 # Add the build folders as local nuget package sources.
 # This allows the references to these generated versions to be picked up locally.

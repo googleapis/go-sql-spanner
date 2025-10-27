@@ -122,6 +122,7 @@ jobs:
             brew install x86_64-unknown-linux-gnu
             brew install mingw-w64
           else
+            sudo apt-get update
             sudo apt install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
             sudo apt-get install -y gcc-arm-linux-gnueabihf
           fi

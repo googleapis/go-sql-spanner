@@ -6,12 +6,12 @@
     <Nullable>enable</Nullable>
     <LangVersion>default</LangVersion>
     <PackageId>Alpha.Google.Cloud.SpannerLib.GrpcImpl</PackageId>
-    <Version>1.0.0-alpha.20251020160048</Version>
+    <Version>1.0.0-alpha.20251027150914</Version>
     <Authors>Google</Authors>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.GrpcServer" Version="1.0.0-alpha.20251020160048" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.GrpcServer" Version="1.0.0-alpha.20251027150914" />
   </ItemGroup>
 
   <ItemGroup>
