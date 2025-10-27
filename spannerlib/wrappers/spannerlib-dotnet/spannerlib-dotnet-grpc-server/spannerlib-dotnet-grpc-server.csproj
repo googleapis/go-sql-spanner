@@ -5,9 +5,10 @@
     <RootNamespace>Google.Cloud.SpannerLib.Grpc</RootNamespace>
     <Nullable>enable</Nullable>
     <LangVersion>default</LangVersion>
-    <PackageId>Google.Cloud.SpannerLib.GrpcServer</PackageId>
+    <PackageId>Alpha.Google.Cloud.SpannerLib.GrpcServer</PackageId>
     <Title>SpannerLib Grpc Server</Title>
     <Authors>Google</Authors>
+    <Version>1.0.0-alpha.20251027150914</Version>
   </PropertyGroup>
 
   <ItemGroup>
