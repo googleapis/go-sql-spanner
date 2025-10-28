@@ -7,22 +7,24 @@
 #                           This compiler is used when compiling for linux/x64 on MacOS.
 # SKIP_WINDOWS: If set, will skip the windows/x64 build.
 
-mkdir -p ../wrappers/spannerlib-dotnet/spannerlib-dotnet-native/libraries/any
-rm ../wrappers/spannerlib-dotnet/spannerlib-dotnet-native/libraries/any/* 2> /dev/null
+mkdir -p spannerlib-dotnet-native/libraries/any
+rm spannerlib-dotnet-native/libraries/any/* 2> /dev/null
 
+cd ../../shared || exit 1
 ./build-binaries.sh
+cd ../wrappers/spannerlib-dotnet || exit 1
 
 if [ -z "$SKIP_MACOS" ]; then
-  mkdir -p ../wrappers/spannerlib-dotnet/spannerlib-dotnet-native/libraries/osx-arm64
-  cp binaries/osx-arm64/spannerlib.dylib ../wrappers/spannerlib-dotnet/spannerlib-dotnet-native/libraries/osx-arm64/spannerlib.dylib
+  mkdir -p spannerlib-dotnet-native/libraries/osx-arm64
+  cp ../../shared/binaries/osx-arm64/spannerlib.dylib spannerlib-dotnet-native/libraries/osx-arm64/spannerlib.dylib
 fi
 
 if [ -z "$SKIP_LINUX_CROSS_COMPILE" ] || [ -z "$SKIP_LINUX" ]; then
-  mkdir -p ../wrappers/spannerlib-dotnet/spannerlib-dotnet-native/libraries/linux-x64
-  cp binaries/linux-x64/spannerlib.so ../wrappers/spannerlib-dotnet/spannerlib-dotnet-native/libraries/linux-x64/spannerlib.so
+  mkdir -p spannerlib-dotnet-native/libraries/linux-x64
+  cp ../../shared/binaries/linux-x64/spannerlib.so spannerlib-dotnet-native/libraries/linux-x64/spannerlib.so
 fi
 
 if [ -z "$SKIP_WINDOWS" ]; then
-  mkdir -p ../wrappers/spannerlib-dotnet/spannerlib-dotnet-native/libraries/win-x64
-  cp binaries/win-x64/spannerlib.dll ../wrappers/spannerlib-dotnet/spannerlib-dotnet-native/libraries/win-x64/spannerlib.dll
+  mkdir -p spannerlib-dotnet-native/libraries/win-x64
+  cp ../../shared/binaries/win-x64/spannerlib.dll spannerlib-dotnet-native/libraries/win-x64/spannerlib.dll
 fi
