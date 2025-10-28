@@ -77,6 +77,28 @@ public class RowsTests : AbstractMockServerTests
         var request = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().First();
         Assert.That(request.Transaction?.SingleUse?.ReadOnly?.HasStrong ?? false);
     }
+    
+    [Test]
+    public void TestLargeStringValue([Values] LibType libType)
+    {
+        const string sql = "select large_value from my_table";
+        var value = TestUtils.GenerateRandomString(10_000_000);
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateSingleColumnResultSet(
+            new Spanner.V1.Type{Code = TypeCode.String}, "large_value", value));
+        
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        using var connection = pool.CreateConnection();
+        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = sql });
+        var numRows = 0;
+        while (rows.Next() is { } row)
+        {
+            numRows++;
+            Assert.That(row.Values.Count, Is.EqualTo(1));
+            Assert.That(row.Values[0].HasStringValue);
+            Assert.That(row.Values[0].StringValue, Is.EqualTo(value));
+        }
+        Assert.That(numRows, Is.EqualTo(1));
+    }
 
     [Test]
     public void TestStopHalfway([Values] LibType libType)
