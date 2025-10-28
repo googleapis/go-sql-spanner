@@ -43,17 +43,13 @@ rm -r ./*/obj 2> /dev/null
 
 # Build gRPC server
 echo "Building gRPC server..."
-cd ../../grpc-server || exit 1
-./build-dotnet.sh
+./build-grpc-server.sh
 
 # Build shared library
 echo "Building shared library..."
-cd ../shared || exit 1
-./build-dotnet.sh
+./build-shared-lib.sh
 
 # Build nuget packages
-cd ../wrappers/spannerlib-dotnet || exit 1
-
 echo "Building .NET packages..."
 
 # Add the build folders as local nuget package sources.
