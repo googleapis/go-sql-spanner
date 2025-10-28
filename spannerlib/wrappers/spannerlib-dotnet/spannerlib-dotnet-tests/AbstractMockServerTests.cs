@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System.Runtime;
 using Google.Cloud.SpannerLib.Grpc;
 using Google.Cloud.SpannerLib.MockServer;
 using Google.Cloud.SpannerLib.Native.Impl;
@@ -41,6 +42,17 @@ public abstract class AbstractMockServerTests
     [OneTimeSetUp]
     public void Setup()
     {
+        if (GCSettings.LatencyMode != GCLatencyMode.NoGCRegion)
+        {
+            if (GC.TryStartNoGCRegion(200 * 1024 * 1024))
+            {
+                Console.WriteLine("Successfully started no-GC region");
+            }
+            else
+            {
+                Console.WriteLine("Failed to start no-GC region");
+            }
+        }
         Fixture = new SpannerMockServerFixture();
         Fixture.SpannerMock.AddOrUpdateStatementResult("SELECT 1", StatementResult.CreateSelect1ResultSet());
     }
