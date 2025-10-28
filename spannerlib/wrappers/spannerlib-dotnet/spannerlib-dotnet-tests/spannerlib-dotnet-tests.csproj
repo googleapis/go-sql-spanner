@@ -11,11 +11,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="coverlet.collector" Version="6.0.2"/>
-    <PackageReference Include="Google.Cloud.Spanner.Data" Version="5.2.0" />
+    <PackageReference Include="coverlet.collector" Version="6.0.4"/>
+    <PackageReference Include="Google.Cloud.Spanner.Data" Version="5.4.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.0"/>
-    <PackageReference Include="NUnit" Version="4.2.2"/>
-    <PackageReference Include="NUnit.Analyzers" Version="4.4.0"/>
+    <PackageReference Include="NUnit" Version="4.4.0"/>
+    <PackageReference Include="NUnit.Analyzers" Version="4.10.0"/>
     <PackageReference Include="NUnit3TestAdapter" Version="4.6.0"/>
   </ItemGroup>
 
