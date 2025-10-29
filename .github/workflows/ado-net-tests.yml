@@ -14,12 +14,46 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
       - name: Install dotnet
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ matrix.dotnet-version }}
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      # Install compilers for cross-compiling between operating systems.
+      - name: Install compilers
+        run: |
+          echo "$RUNNER_OS"
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            echo "Windows does not yet support cross compiling"
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            brew tap SergioBenitez/osxct
+            brew install x86_64-unknown-linux-gnu
+            brew install mingw-w64
+          else
+            sudo apt-get update
+            sudo apt install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
+            sudo apt-get install -y gcc-arm-linux-gnueabihf
+          fi
+        shell: bash
+      - name: Build the .NET wrapper
+        working-directory: spannerlib/wrappers/spannerlib-dotnet
+        run: |
+          echo "$RUNNER_OS"
+          ./build.sh
+        shell: bash
+      - name: Restore .NET wrapper dependencies
+        run: dotnet restore
+        working-directory: spannerlib/wrappers/spannerlib-dotnet
+        shell: bash
+      - name: Build .NET wrapper
+        run: dotnet build --no-restore -c Release
+        working-directory: spannerlib/wrappers/spannerlib-dotnet
+        shell: bash
       - name: spanner-ado-net-tests
         working-directory: drivers/spanner-ado-net/spanner-ado-net-tests
         run: dotnet test --verbosity normal

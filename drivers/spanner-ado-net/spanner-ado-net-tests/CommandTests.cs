@@ -12,18 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-using System;
 using System.Data;
 using System.Data.Common;
-using System.Linq;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
-using System.Threading.Tasks;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib.MockServer;
 using Google.Protobuf.WellKnownTypes;
-using Google.Rpc;
 using Grpc.Core;
+using Status = Grpc.Core.Status;
+using TypeCode = Google.Cloud.Spanner.V1.TypeCode;
 
 namespace Google.Cloud.Spanner.DataProvider.Tests;
 
@@ -170,6 +169,31 @@ public class CommandTests : AbstractMockServerTests
         Assert.That(fields["p23"].ListValue.Values[0].HasNumberValue, Is.True);
         Assert.That(fields["p23"].ListValue.Values[0].NumberValue, Is.EqualTo(3.14f));
         Assert.That(fields["p23"].ListValue.Values[1].HasNullValue, Is.True);
+    }
+
+    [Test]
+    public async Task TestExecuteNonQueryWithSelect()
+    {
+        const string sql = "select * from my_table";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateSelect1ResultSet());
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = new SpannerCommand(conn);
+        cmd.CommandText = sql;
+        
+        var result = await cmd.ExecuteNonQueryAsync();
+        Assert.That(result, Is.EqualTo(-1));
+    }
+
+    [Test]
+    public async Task TestExecuteNonQueryWithError()
+    {
+        const string sql = "select * from my_table";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateException(new RpcException(new Status(StatusCode.NotFound, "Table not found"))));
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = new SpannerCommand(conn);
+        cmd.CommandText = sql;
+        
+        Assert.ThrowsAsync<SpannerDbException>(async () => await cmd.ExecuteNonQueryAsync());
     }
     
     [Test]
@@ -334,7 +358,528 @@ public class CommandTests : AbstractMockServerTests
             .With.InnerException.Property(nameof(SpannerDbException.ErrorCode)).EqualTo(StatusCode.Cancelled)
         );
     }
+        
+    [Test]
+    [SuppressMessage("ReSharper", "MethodHasAsyncOverload")]
+    public async Task CloseConnection()
+    {
+        await using var conn = await OpenConnectionAsync();
+        await using (var cmd = new SpannerCommand("SELECT 1", conn))
+        await using (var reader = await cmd.ExecuteReaderAsync(CommandBehavior.CloseConnection))
+        {
+            while (reader.Read())
+            {
+            }
+        }
+        Assert.That(conn.State, Is.EqualTo(ConnectionState.Closed));
+    }
     
+    [Test]
+    [SuppressMessage("ReSharper", "MethodHasAsyncOverload")]
+    public async Task CloseDuringRead()
+    {
+        await using var dataSource = CreateDataSource();
+        await using var conn = (await dataSource.OpenConnectionAsync() as SpannerConnection)!;
+        await using (var cmd = new SpannerCommand("SELECT 1", conn))
+        await using (var reader = await cmd.ExecuteReaderAsync())
+        {
+            reader.Read();
+            conn.Close();
+            Assert.That(conn.State, Is.EqualTo(ConnectionState.Closed));
+            // Closing a SpannerConnection does not close the related readers.
+            Assert.False(reader.IsClosed);
+        }
+
+        conn.Open();
+        Assert.That(conn.State, Is.EqualTo(ConnectionState.Open));
+        Assert.That(await conn.ExecuteScalarAsync("SELECT 1"), Is.EqualTo(1));
+    }
+    
+    [Test]
+    public async Task CloseConnectionWithException()
+    {
+        const string sql = "select * from non_existing_table";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateException(new RpcException(new Status(StatusCode.NotFound, "Table not found"))));
+        
+        await using var conn = await OpenConnectionAsync();
+        await using (var cmd = new SpannerCommand(sql, conn))
+        {
+            Assert.That(() => cmd.ExecuteReaderAsync(CommandBehavior.CloseConnection),
+                Throws.Exception.TypeOf<SpannerDbException>());
+        }
+        Assert.That(conn.State, Is.EqualTo(ConnectionState.Closed));
+    }
+    
+    [Test]
+    [SuppressMessage("ReSharper", "MethodHasAsyncOverload")]
+    public async Task SingleRow([Values(PrepareOrNot.NotPrepared, PrepareOrNot.Prepared)] PrepareOrNot prepare)
+    {
+        const string sql = "SELECT 1, 2 UNION SELECT 3, 4";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateResultSet(
+            new List<Tuple<TypeCode, string>>([Tuple.Create(TypeCode.Int64, "c1"), Tuple.Create(TypeCode.Int64, "c2")]),
+            new List<object[]>([[1L, 2L], [3L, 4L]])));
+        
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = new SpannerCommand(sql, conn);
+        if (prepare == PrepareOrNot.Prepared)
+        {
+            cmd.Prepare();
+        }
+
+        await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SingleRow);
+        Assert.That(() => reader.GetInt32(0), Throws.Exception.TypeOf<InvalidOperationException>());
+        Assert.That(reader.Read(), Is.True);
+        Assert.That(reader.GetInt32(0), Is.EqualTo(1));
+        Assert.That(reader.Read(), Is.False);
+    }
+    
+    [Test]
+    public async Task CommandTextNotSet()
+    {
+        await using var conn = await OpenConnectionAsync();
+        await using (var cmd = new SpannerCommand())
+        {
+            cmd.Connection = conn;
+            Assert.That(cmd.ExecuteNonQueryAsync, Throws.Exception.TypeOf<InvalidOperationException>());
+            cmd.CommandText = null;
+            Assert.That(cmd.ExecuteNonQueryAsync, Throws.Exception.TypeOf<InvalidOperationException>());
+            cmd.CommandText = "";
+        }
+
+        await using (var cmd = conn.CreateCommand())
+        {
+            Assert.That(cmd.ExecuteNonQueryAsync, Throws.Exception.TypeOf<InvalidOperationException>());
+        }
+    }
+    
+    [Test]
+    public async Task ExecuteScalar()
+    {
+        const string sql = "select name from my_table";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateResultSet(
+            new List<Tuple<TypeCode, string>>([Tuple.Create(TypeCode.String, "name")]),
+            new List<object[]>([])));
+        
+        await using var conn = await OpenConnectionAsync();
+        await using var command = new SpannerCommand(sql, conn);
+        Assert.That(command.ExecuteScalarAsync, Is.Null);
+
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateResultSet(
+            new List<Tuple<TypeCode, string>>([Tuple.Create(TypeCode.String, "name")]),
+            new List<object[]>([[DBNull.Value]])));
+        Assert.That(command.ExecuteScalarAsync, Is.EqualTo(DBNull.Value));
+
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateResultSet(
+            new List<Tuple<TypeCode, string>>([Tuple.Create(TypeCode.String, "name")]),
+            new List<object[]>([["X1"], ["X2"]])));
+        Assert.That(command.ExecuteScalarAsync, Is.EqualTo("X1"));
+    }
+
+    [Test]
+    public async Task ExecuteNonQuery()
+    {
+        const string insertOneRow = "insert into my_table (name) values ('Test')";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(insertOneRow, StatementResult.CreateUpdateCount(1L));
+        
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = conn.CreateCommand();
+
+        // Insert one row
+        cmd.CommandText = insertOneRow;
+        Assert.That(cmd.ExecuteNonQueryAsync, Is.EqualTo(1));
+
+        // Insert two rows in one batch using a SQL string that contains two statements.
+        // TODO: Enable when SpannerLib supports SQL strings with multiple statements.
+        // cmd.CommandText = $"{insertOneRow}; {insertOneRow}";
+        // Assert.That(cmd.ExecuteNonQueryAsync, Is.EqualTo(2));
+
+        // Execute a large SQL string.
+        var value = TestUtils.GenerateRandomString(10_000_000);
+        cmd.CommandText = $"insert into my_table (name) values ('{value}')";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(cmd.CommandText, StatementResult.CreateUpdateCount(1L));
+        Assert.That(cmd.ExecuteNonQueryAsync, Is.EqualTo(1));
+    }
+    
+    [Test]
+    public async Task Dispose()
+    {
+        await using var conn = await OpenConnectionAsync();
+        var cmd = new SpannerCommand("SELECT 1", conn);
+        cmd.Dispose();
+        Assert.That(() => cmd.ExecuteScalarAsync(), Throws.Exception.TypeOf<ObjectDisposedException>());
+        Assert.That(() => cmd.ExecuteNonQueryAsync(), Throws.Exception.TypeOf<ObjectDisposedException>());
+        Assert.That(() => cmd.ExecuteReaderAsync(), Throws.Exception.TypeOf<ObjectDisposedException>());
+        Assert.That(() => cmd.PrepareAsync(), Throws.Exception.TypeOf<ObjectDisposedException>());
+    }
+    
+    [Test]
+    public async Task DisposeDesNotCloseReader()
+    {
+        await using var conn = await OpenConnectionAsync();
+        var cmd = new SpannerCommand("SELECT 1", conn);
+        await using var reader1 = await cmd.ExecuteReaderAsync();
+        cmd.Dispose();
+        cmd = new SpannerCommand("SELECT 1", conn);
+        await using var reader2 = await cmd.ExecuteReaderAsync();
+        Assert.That(reader2, Is.Not.Null);
+        Assert.That(reader1.IsClosed, Is.False);
+        Assert.That(await reader1.ReadAsync(), Is.True);
+    }
+    
+    [Test]
+    [TestCase(CommandBehavior.Default)]
+    [TestCase(CommandBehavior.SequentialAccess)]
+    public async Task StatementMappedOutputParameters(CommandBehavior behavior)
+    {
+        const string sql = "select 3, 4 as param1, 5 as param2, 6";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateResultSet(
+            new List<Tuple<TypeCode, string>>([
+                Tuple.Create(TypeCode.Int64, "c1"),
+                Tuple.Create(TypeCode.Int64, "param1"),
+                Tuple.Create(TypeCode.Int64, "param2"),
+                Tuple.Create(TypeCode.Int64, "c2")]),
+            new List<object[]>([[3, 4, 5, 6]])));
+        
+        await using var conn = await OpenConnectionAsync();
+        var command = new SpannerCommand(sql, conn);
+
+        var p = new SpannerParameter
+        {
+            ParameterName = "param2",
+            Direction = ParameterDirection.Output,
+            Value = -1,
+            DbType = DbType.Int64,
+        };
+        command.Parameters.Add(p);
+
+        p = new SpannerParameter
+        {
+            ParameterName = "param1",
+            Direction = ParameterDirection.Output,
+            Value = -1,
+            DbType = DbType.Int64,
+        };
+        command.Parameters.Add(p);
+
+        p = new SpannerParameter
+        {
+            ParameterName = "p",
+            Direction = ParameterDirection.Output,
+            Value = -1,
+            DbType = DbType.Int64,
+        };
+        command.Parameters.Add(p);
+
+        await using var reader = await command.ExecuteReaderAsync(behavior);
+
+        // TODO: Enable if we decide to support output parameters in the same way as npgsql.
+        // Assert.That(command.Parameters["param1"].Value, Is.EqualTo(4));
+        // Assert.That(command.Parameters["param2"].Value, Is.EqualTo(5));
+
+        await reader.ReadAsync();
+
+        Assert.That(reader.GetInt32(0), Is.EqualTo(3));
+        Assert.That(reader.GetInt32(1), Is.EqualTo(4));
+        Assert.That(reader.GetInt32(2), Is.EqualTo(5));
+        Assert.That(reader.GetInt32(3), Is.EqualTo(6));
+    }
+
+    [Test]
+    public async Task TableDirect()
+    {
+        const string sql = "select * from my_table";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateResultSet(
+            new List<Tuple<TypeCode, string>>([Tuple.Create(TypeCode.String, "name")]),
+            new List<object[]>([["foo"]])));
+        await using var conn = await OpenConnectionAsync();
+
+        await using var cmd = new SpannerCommand("my_table", conn) { CommandType = CommandType.TableDirect };
+        await using var reader = await cmd.ExecuteReaderAsync();
+        Assert.That(await reader.ReadAsync(), Is.True);
+        Assert.That(reader["name"], Is.EqualTo("foo"));
+    }
+    
+    [Test]
+    public async Task InvalidUtf8()
+    {
+        const string sql = "SELECT 'abc\uD801\uD802d'";
+        Fixture.SpannerMock.AddOrUpdateStatementResult("SELECT 'abc��d'", StatementResult.CreateResultSet(
+            new List<Tuple<TypeCode, string>>([Tuple.Create(TypeCode.String, "c")]),
+            new List<object[]>([["abc��d"]])));
+        
+        await using var dataSource = CreateDataSource();
+        await using var conn = await dataSource.OpenConnectionAsync() as SpannerConnection;
+        var value = await conn!.ExecuteScalarAsync(sql);
+        Assert.That(value, Is.EqualTo("abc��d"));
+    }
+    
+    [Test]
+    public async Task UseAcrossConnectionChange([Values(PrepareOrNot.Prepared, PrepareOrNot.NotPrepared)] PrepareOrNot prepare)
+    {
+        await using var conn1 = await OpenConnectionAsync();
+        await using var conn2 = await OpenConnectionAsync();
+        await using var cmd = new SpannerCommand("SELECT 1", conn1);
+        if (prepare == PrepareOrNot.Prepared)
+        {
+            await cmd.PrepareAsync();
+        }
+        cmd.Connection = conn2;
+        if (prepare == PrepareOrNot.Prepared)
+        {
+            await cmd.PrepareAsync();
+        }
+        Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(1));
+    }
+    
+    [Test]
+    public async Task CreateCommandBeforeConnectionOpen()
+    {
+        await using var conn = new SpannerConnection(ConnectionString);
+        var cmd = new SpannerCommand("SELECT 1", conn);
+        conn.Open();
+        Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(1));
+    }
+    
+    [Test]
+    public void ConnectionNotSetThrows()
+    {
+        var cmd = new SpannerCommand { CommandText = "SELECT 1" };
+        Assert.That(() => cmd.ExecuteScalarAsync(), Throws.Exception.TypeOf<InvalidOperationException>());
+    }
+
+    [Test]
+    public void ConnectionNotOpenTrows()
+    {
+        using var conn = new SpannerConnection(ConnectionString);
+        var cmd = new SpannerCommand("SELECT 1", conn);
+        Assert.That(() => cmd.ExecuteScalarAsync(), Throws.Exception.TypeOf<InvalidOperationException>());
+    }
+    
+    [Test]
+    public async Task ExecuteNonQueryThrowsSpannerDbException([Values] bool async)
+    {
+        const string sql = "insert into my_table (ref) values (1) returning ref";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateException(new RpcException(new Status(StatusCode.FailedPrecondition, "Foreign key constraint violation"))));
+        await using var conn = await OpenConnectionAsync();
+
+        var ex = async
+            ? Assert.ThrowsAsync<SpannerDbException>(async () => await conn.ExecuteNonQueryAsync(sql))
+            : Assert.Throws<SpannerDbException>(() => conn.ExecuteNonQuery(sql));
+        Assert.That(ex!.Status.Code, Is.EqualTo((int) StatusCode.FailedPrecondition));
+    }
+
+    [Test]
+    public async Task ExecuteScalarThrowsSpannerDbException([Values] bool async)
+    {
+        const string sql = "insert into my_table (ref) values (1) returning ref";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateException(new RpcException(new Status(StatusCode.FailedPrecondition, "Foreign key constraint violation"))));
+        await using var conn = await OpenConnectionAsync();
+
+        var ex = async
+            ? Assert.ThrowsAsync<SpannerDbException>(async () => await conn.ExecuteScalarAsync(sql))
+            : Assert.Throws<SpannerDbException>(() => conn.ExecuteScalar(sql));
+        Assert.That(ex!.Status.Code, Is.EqualTo((int) StatusCode.FailedPrecondition));
+    }
+
+    [Test]
+    [SuppressMessage("ReSharper", "MethodHasAsyncOverload")]
+    public async Task ExecuteReaderThrowsSpannerDbException([Values] bool async)
+    {
+        const string sql = "insert into my_table (ref) values (1) returning ref";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateException(new RpcException(new Status(StatusCode.FailedPrecondition, "Foreign key constraint violation"))));
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+
+        var ex = async
+            ? Assert.ThrowsAsync<SpannerDbException>(async () => await cmd.ExecuteReaderAsync())
+            : Assert.Throws<SpannerDbException>(() => cmd.ExecuteReader());
+        Assert.That(ex!.Status.Code, Is.EqualTo((int) StatusCode.FailedPrecondition));
+    }
+    
+    [Test]
+    public void CommandIsNotRecycled()
+    {
+        const string sql = "select @p1";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateSingleColumnResultSet(new V1.Type{Code = TypeCode.Int64}, "p1", 8L));
+        
+        using var conn = new SpannerConnection(ConnectionString);
+        var cmd1 = conn.CreateCommand();
+        cmd1.CommandText = sql;
+        var tx = conn.BeginTransaction();
+        cmd1.Transaction = tx;
+        AddParameter(cmd1, "p1", 8);
+        _ = cmd1.ExecuteScalar();
+        cmd1.Dispose();
+
+        var cmd2 = conn.CreateCommand();
+        Assert.That(cmd2, Is.Not.SameAs(cmd1));
+        Assert.That(cmd2.CommandText, Is.Empty);
+        Assert.That(cmd2.CommandType, Is.EqualTo(CommandType.Text));
+        Assert.That(cmd2.Transaction, Is.Null);
+        Assert.That(cmd2.Parameters, Is.Empty);
+    }
+
+    [Test]
+    public async Task ManyParameters([Values(PrepareOrNot.NotPrepared, PrepareOrNot.Prepared)] PrepareOrNot prepare)
+    {
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = new SpannerCommand(conn);
+        var sb = new StringBuilder($"INSERT INTO my_table (some_column) VALUES ");
+        var numParams = ushort.MaxValue;
+        for (var i = 0; i < numParams; i++)
+        {
+            var paramName = "p" + i;
+            AddParameter(cmd, paramName, i);
+            if (i > 0)
+                sb.Append(", ");
+            sb.Append($"(@{paramName})");
+        }
+        cmd.CommandText = sb.ToString();
+        Fixture.SpannerMock.AddOrUpdateStatementResult(cmd.CommandText, StatementResult.CreateUpdateCount(numParams));
+
+        if (prepare == PrepareOrNot.Prepared)
+        {
+            await cmd.PrepareAsync();
+        }
+        await cmd.ExecuteNonQueryAsync();
+    }
+    
+    [Test]
+    [Ignore("Requires multi-statement support in SpannerLib")]
+    public async Task ManyParametersAcrossStatements()
+    {
+        var result = StatementResult.CreateSelect1ResultSet();
+        // Create a command with 1000 statements which have 70 params each
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = new SpannerCommand(conn);
+        var paramIndex = 0;
+        var sb = new StringBuilder();
+        for (var statementIndex = 0; statementIndex < 1000; statementIndex++)
+        {
+            if (statementIndex > 0)
+                sb.Append("; ");
+            var statement = new StringBuilder();
+            statement.Append("SELECT ");
+            var startIndex = paramIndex;
+            var endIndex = paramIndex + 70;
+            for (; paramIndex < endIndex; paramIndex++)
+            {
+                var paramName = "p" + paramIndex;
+                AddParameter(cmd, paramName, paramIndex);
+                if (paramIndex > startIndex)
+                    statement.Append(", ");
+                statement.Append('@');
+                statement.Append(paramName);
+            }
+            sb.Append(statement);
+            Fixture.SpannerMock.AddOrUpdateStatementResult(statement.ToString(), result);
+        }
+        cmd.CommandText = sb.ToString();
+        await cmd.ExecuteNonQueryAsync();
+    }
+    
+    [Test]
+    public async Task SameCommandDifferentParamValues()
+    {
+        const string sql = "select @p";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateSingleColumnResultSet(new V1.Type{Code = TypeCode.Int64}, "p", 8L));
+        
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = new SpannerCommand(sql, conn);
+        AddParameter(cmd, "p", 8);
+        await cmd.ExecuteNonQueryAsync();
+        var request = Fixture.SpannerMock.Requests.First(r => r is ExecuteSqlRequest { Sql: sql }) as ExecuteSqlRequest;
+        Assert.That(request, Is.Not.Null);
+        Assert.That(request.Params.Fields["p"].StringValue, Is.EqualTo("8"));
+
+        Fixture.SpannerMock.ClearRequests();
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateSingleColumnResultSet(new V1.Type{Code = TypeCode.Int64}, "p", 9L));
+        
+        cmd.Parameters[0].Value = 9;
+        Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(9));
+        request = Fixture.SpannerMock.Requests.First(r => r is ExecuteSqlRequest { Sql: sql }) as ExecuteSqlRequest;
+        Assert.That(request, Is.Not.Null);
+        Assert.That(request.Params.Fields["p"].StringValue, Is.EqualTo("9"));
+    }
+    
+    [Test]
+    public async Task SameCommandDifferentParamInstances()
+    {
+        const string sql = "select @p";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateSingleColumnResultSet(new V1.Type{Code = TypeCode.Int64}, "p", 8L));
+        
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = new SpannerCommand(sql, conn);
+        AddParameter(cmd, "p", 8);
+        await cmd.ExecuteNonQueryAsync();
+        var request = Fixture.SpannerMock.Requests.First(r => r is ExecuteSqlRequest { Sql: sql }) as ExecuteSqlRequest;
+        Assert.That(request, Is.Not.Null);
+        Assert.That(request.Params.Fields["p"].StringValue, Is.EqualTo("8"));
+
+        Fixture.SpannerMock.ClearRequests();
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateSingleColumnResultSet(new V1.Type{Code = TypeCode.Int64}, "p", 9L));
+        
+        cmd.Parameters.RemoveAt(0);
+        AddParameter(cmd, "p", 9);
+        Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(9));
+        request = Fixture.SpannerMock.Requests.First(r => r is ExecuteSqlRequest { Sql: sql }) as ExecuteSqlRequest;
+        Assert.That(request, Is.Not.Null);
+        Assert.That(request.Params.Fields["p"].StringValue, Is.EqualTo("9"));
+    }
+    
+    [Test]
+    public async Task CancelWhileReadingFromLongRunningQuery()
+    {
+        const string sql = "select id from my_table";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateSingleColumnResultSet(
+            new V1.Type{Code = TypeCode.Int64},
+            "id",
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]));
+        await using var conn = await OpenConnectionAsync();
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+
+        using (var cts = new CancellationTokenSource())
+        await using (var reader = await cmd.ExecuteReaderAsync(cts.Token))
+        {
+            Assert.ThrowsAsync<OperationCanceledException>(async () =>
+            {
+                var i = 0;
+                while (await reader.ReadAsync(cts.Token))
+                {
+                    i++;
+                    if (i == 10)
+                    {
+                        await cts.CancelAsync();
+                    }
+                }
+            });
+        }
+
+        cmd.CommandText = "SELECT 1";
+        Assert.That(await cmd.ExecuteScalarAsync(CancellationToken.None), Is.EqualTo(1));
+    }
+    
+    [Test]
+    public async Task CompletedTransactionThrows([Values] bool commit)
+    {
+        await using var conn = await OpenConnectionAsync();
+        await using var tx = await conn.BeginTransactionAsync();
+        await using var cmd = conn.CreateCommand();
+
+        if (commit)
+        {
+            await tx.CommitAsync();
+        }
+        else
+        {
+            await tx.RollbackAsync();
+        }
+        Assert.Throws<InvalidOperationException>(() => cmd.Transaction = tx);
+    }
+
     private void AddParameter(DbCommand command, string name, object? value)
     {
         var parameter = command.CreateParameter();

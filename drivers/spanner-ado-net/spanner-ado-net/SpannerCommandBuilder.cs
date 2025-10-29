@@ -17,6 +17,10 @@ using System.Data.Common;
 
 namespace Google.Cloud.Spanner.DataProvider;
 
+/// <summary>
+/// This class is currently not supported.
+/// All methods in this class throw a NotImplementedException.
+/// </summary>
 public class SpannerCommandBuilder : DbCommandBuilder
 {
     protected override void ApplyParameterInfo(DbParameter parameter, DataRow row, StatementType statementType, bool whereClause)

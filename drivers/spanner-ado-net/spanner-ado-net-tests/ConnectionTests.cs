@@ -556,25 +556,4 @@ public class ConnectionTests : AbstractMockServerTests
         Assert.That(got, Is.EqualTo(value));
     }
     
-    [Test]
-    [SuppressMessage("ReSharper", "MethodHasAsyncOverload")]
-    public async Task CloseDuringRead()
-    {
-        await using var dataSource = CreateDataSource();
-        await using var conn = (await dataSource.OpenConnectionAsync() as SpannerConnection)!;
-        await using (var cmd = new SpannerCommand("SELECT 1", conn))
-        await using (var reader = await cmd.ExecuteReaderAsync())
-        {
-            reader.Read();
-            conn.Close();
-            Assert.That(conn.State, Is.EqualTo(ConnectionState.Closed));
-            // Closing a SpannerConnection does not close the related readers.
-            Assert.False(reader.IsClosed);
-        }
-
-        conn.Open();
-        Assert.That(conn.State, Is.EqualTo(ConnectionState.Open));
-        Assert.That(await conn.ExecuteScalarAsync("SELECT 1"), Is.EqualTo(1));
-    }
-    
 }

@@ -12,8 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
+using System.Threading;
+using System.Threading.Tasks;
 using Google.Api.Gax;
 
 namespace Google.Cloud.Spanner.DataProvider;
@@ -24,7 +27,6 @@ public class SpannerDataSource : DbDataSource
         
     [AllowNull]
     public sealed override string ConnectionString => _connectionStringBuilder.ConnectionString;
-
 
     public static SpannerDataSource Create(string connectionString)
     {
@@ -44,6 +46,25 @@ public class SpannerDataSource : DbDataSource
         _connectionStringBuilder = connectionStringBuilder;
     }
     
+    public new SpannerConnection CreateConnection() => (base.CreateConnection() as SpannerConnection)!;
+    
+    public new SpannerConnection OpenConnection() => (base.OpenDbConnection() as SpannerConnection)!;
+
+    public new async ValueTask<SpannerConnection> OpenConnectionAsync(CancellationToken cancellationToken = default)
+    {
+        var connection = CreateConnection();
+        try
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            return connection;
+        }
+        catch
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
     protected override DbConnection CreateDbConnection()
     {
         return new SpannerConnection(_connectionStringBuilder);

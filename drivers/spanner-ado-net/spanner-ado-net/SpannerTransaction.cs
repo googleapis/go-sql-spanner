@@ -29,6 +29,8 @@ public class SpannerTransaction : DbTransaction
     protected override DbConnection? DbConnection => _spannerConnection;
     public override IsolationLevel IsolationLevel { get; }
     private SpannerLib.Connection LibConnection { get; }
+    
+    internal bool IsCompleted => _spannerConnection == null;
         
     private bool _disposed;
 
@@ -72,7 +74,7 @@ public class SpannerTransaction : DbTransaction
 
     protected override void Dispose(bool disposing)
     {
-        if (_spannerConnection != null)
+        if (!IsCompleted)
         {
             // Do a shoot-and-forget rollback.
             RollbackAsync(CancellationToken.None);
@@ -83,7 +85,7 @@ public class SpannerTransaction : DbTransaction
 
     public override ValueTask DisposeAsync()
     {
-        if (_spannerConnection != null)
+        if (!IsCompleted)
         {
             // Do a shoot-and-forget rollback.
             RollbackAsync(CancellationToken.None);
@@ -120,7 +122,7 @@ public class SpannerTransaction : DbTransaction
     private void EndTransaction(Action endTransactionMethod)
     {
         CheckDisposed();
-        GaxPreconditions.CheckState(_spannerConnection is not null, "This transaction is no longer active");
+        GaxPreconditions.CheckState(!IsCompleted, "This transaction is no longer active");
         try
         {
             endTransactionMethod();
@@ -135,7 +137,7 @@ public class SpannerTransaction : DbTransaction
     private Task EndTransactionAsync(Func<Task> endTransactionMethod)
     {
         CheckDisposed();
-        GaxPreconditions.CheckState(_spannerConnection is not null, "This transaction is no longer active");
+        GaxPreconditions.CheckState(!IsCompleted, "This transaction is no longer active");
         try
         {
             return endTransactionMethod();

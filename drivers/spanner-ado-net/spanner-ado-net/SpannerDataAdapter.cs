@@ -16,6 +16,10 @@ using System.Data.Common;
 
 namespace Google.Cloud.Spanner.DataProvider;
 
+// SpannerDataAdapter does not do anything, as Spanner does not return base table and key column information for simple
+// select statements.
+//
+// One possible way to implement it could be to only support it in combination with a TableDirect command.
 public class SpannerDataAdapter : DbDataAdapter
 {
     

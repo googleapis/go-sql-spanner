@@ -122,12 +122,20 @@ public class SpannerDataReader : DbDataReader
 
     public override async Task<bool> ReadAsync(CancellationToken cancellationToken)
     {
-        if (!InternalRead())
+        try
         {
-            _hasReadData = true;
-            _currentRow = await LibRows.NextAsync();
+            if (!InternalRead())
+            {
+                _hasReadData = true;
+                _currentRow = await LibRows.NextAsync(cancellationToken);
+            }
+
+            return _currentRow != null;
         }
-        return _currentRow != null;
+        catch (SpannerException exception)
+        {
+            throw SpannerDbException.TranslateException(exception);
+        }
     }
 
     private bool InternalRead()

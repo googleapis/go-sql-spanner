@@ -29,7 +29,7 @@ using TypeCode = Google.Cloud.Spanner.V1.TypeCode;
 
 namespace Google.Cloud.Spanner.DataProvider;
 
-public class SpannerParameter : DbParameter
+public class SpannerParameter : DbParameter, ICloneable
 {
     private DbType? _dbType;
 
@@ -64,7 +64,7 @@ public class SpannerParameter : DbParameter
         get => _sourceColumn;
         set => _sourceColumn = value ?? "";
     }
-    public override object? Value { get; set; }
+    public sealed override object? Value { get; set; }
     public override bool SourceColumnNullMapping { get; set; }
     public override int Size { get; set; }
     public override DataRowVersion SourceVersion
@@ -72,16 +72,25 @@ public class SpannerParameter : DbParameter
         get => DataRowVersion.Current;
         set { }
     }
+    
+    public SpannerParameter() { }
+
+    public SpannerParameter(string name, object? value)
+    {
+        GaxPreconditions.CheckNotNull(name, nameof(name));
+        _name = name;
+        Value = value;
+    }
 
     public override void ResetDbType()
     {
         _dbType = null;
     }
 
-    internal Value ConvertToProto()
+    internal Value ConvertToProto(DbParameter dbParameter)
     {
-        GaxPreconditions.CheckState(Value != null, $"Parameter {ParameterName} has no value");
-        return ConvertToProto(Value!);
+        GaxPreconditions.CheckState(dbParameter.Direction != ParameterDirection.Input || Value != null, $"Parameter {ParameterName} has no value");
+        return ConvertToProto(Value);
     }
 
     internal Google.Cloud.Spanner.V1.Type? GetSpannerType()
@@ -89,7 +98,7 @@ public class SpannerParameter : DbParameter
         return SpannerParameterType ?? TypeConversion.GetSpannerType(_dbType);
     }
 
-    private Value ConvertToProto(object value)
+    private Value ConvertToProto(object? value)
     {
         var type = GetSpannerType();
         return ConvertToProto(value, type);
@@ -181,6 +190,21 @@ public class SpannerParameter : DbParameter
                 break;
         }
         return proto;
+    }
+    
+    object ICloneable.Clone() => Clone();
+
+    public SpannerParameter Clone()
+    {
+        var clone = new SpannerParameter(_name, Value)
+        {
+            Direction = Direction,
+            IsNullable = IsNullable,
+            SourceColumn = SourceColumn,
+            SourceVersion = SourceVersion,
+            SourceColumnNullMapping = SourceColumnNullMapping,
+        };
+        return clone;
     }
 
 }

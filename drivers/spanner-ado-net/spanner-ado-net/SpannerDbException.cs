@@ -15,6 +15,7 @@
 using System;
 using System.Data.Common;
 using Google.Cloud.SpannerLib;
+using Google.Rpc;
 
 namespace Google.Cloud.Spanner.DataProvider;
 
@@ -28,13 +29,24 @@ public class SpannerDbException : DbException
         }
         catch (SpannerException exception)
         {
-            throw new SpannerDbException(exception);
+            throw TranslateException(exception);
         }
+    }
+
+    internal static Exception TranslateException(SpannerException exception)
+    {
+        if (exception.Code == Code.Cancelled)
+        {
+            return new OperationCanceledException(exception.Message, exception);
+        }
+        return new SpannerDbException(exception);
     }
     
     private SpannerException SpannerException { get; }
+    
+    public Status Status => SpannerException.Status;
 
-    internal SpannerDbException(SpannerException spannerException) : base(spannerException.Message, spannerException.Status.Code)
+    internal SpannerDbException(SpannerException spannerException) : base(spannerException.Message, spannerException)
     {
         SpannerException = spannerException;
     }

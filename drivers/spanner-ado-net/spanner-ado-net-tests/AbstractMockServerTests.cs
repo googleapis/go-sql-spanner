@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System.Data.Common;
 using Google.Cloud.SpannerLib.MockServer;
 
 namespace Google.Cloud.Spanner.DataProvider.Tests;
@@ -28,17 +29,22 @@ public abstract class AbstractMockServerTests
     
     protected SpannerMockServerFixture Fixture;
     
+    protected SpannerDataSource DataSource { get; private set; }
+
+    
     protected string ConnectionString =>  $"Host={Fixture.Host};Port={Fixture.Port};Data Source=projects/p1/instances/i1/databases/d1;UsePlainText=true";
     
     [OneTimeSetUp]
     public void Setup()
     {
         Fixture = new SpannerMockServerFixture();
+        DataSource = SpannerDataSource.Create(ConnectionString);
     }
     
     [OneTimeTearDown]
     public void Teardown()
     {
+        DataSource.Dispose();
         Fixture.Dispose();
     }
 
@@ -106,5 +112,28 @@ public static class SpannerConnectionExtensions
     {
         await using var command = tx == null ? new SpannerCommand(sql, conn) : new SpannerCommand(sql, conn, tx);
         return await command.ExecuteScalarAsync(cancellationToken);
+    }
+}
+
+public static class SpannerCommandExtensions
+{
+    internal static void AddParameter(this SpannerCommand command, string name, object? value)
+    {
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = name;
+        parameter.Value = value;
+        command.Parameters.Add(parameter);
+    }
+}
+
+public static class BatchExtensions
+{
+    internal static void AddSpannerBatchCommand(this DbBatch batch, string sql)
+    {
+        var command = new SpannerBatchCommand
+        {
+            CommandText = sql
+        };
+        batch.BatchCommands.Add(command);
     }
 }

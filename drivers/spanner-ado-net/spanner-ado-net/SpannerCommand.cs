@@ -26,7 +26,7 @@ using static Google.Cloud.Spanner.DataProvider.SpannerDbException;
 
 namespace Google.Cloud.Spanner.DataProvider;
 
-public class SpannerCommand : DbCommand
+public class SpannerCommand : DbCommand, ICloneable
 {
     private SpannerConnection SpannerConnection => (SpannerConnection)Connection!;
         
@@ -37,15 +37,30 @@ public class SpannerCommand : DbCommand
     
     public override int CommandTimeout
     {
-        get => _timeout ?? (int) SpannerConnection.DefaultCommandTimeout;
+        get => _timeout ?? (int?) SpannerConnection?.DefaultCommandTimeout ?? 0;
         set => _timeout = value;
     }
 
     public override CommandType CommandType { get; set; } = CommandType.Text;
-    public override UpdateRowSource UpdatedRowSource { get; set; }
+
+    public override UpdateRowSource UpdatedRowSource { get; set; } = UpdateRowSource.Both;
     protected override DbConnection? DbConnection { get; set; }
     protected override DbParameterCollection DbParameterCollection { get; } = new SpannerParameterCollection();
-    protected override DbTransaction? DbTransaction { get; set; }
+    
+    SpannerTransaction? _transaction;
+    protected override DbTransaction? DbTransaction
+    {
+        get => _transaction;
+        set
+        {
+            var tx = (SpannerTransaction?)value;
+            
+            if (tx is { IsCompleted: true })
+                throw new InvalidOperationException("Transaction is already completed");
+            _transaction = tx;
+        }
+    }
+    
     public override bool DesignTimeVisible { get; set; }
 
     private bool HasTransaction => DbTransaction is SpannerTransaction;
@@ -53,6 +68,8 @@ public class SpannerCommand : DbCommand
 
     public TransactionOptions.Types.ReadOnly? SingleUseReadOnlyTransactionOptions { get; set; }
     public RequestOptions? RequestOptions { get; set; }
+    
+    private bool _disposed;
         
     public SpannerCommand() {}
 
@@ -77,6 +94,20 @@ public class SpannerCommand : DbCommand
         _mutation = mutation;
     }
 
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        _disposed = true;
+    }
+
+    private void CheckDisposed()
+    {
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(nameof(SpannerCommand));
+        }
+    }
+
     public override void Cancel()
     {
         // TODO: Implement in Spanner lib
@@ -89,9 +120,15 @@ public class SpannerCommand : DbCommand
         var spannerParams = ((SpannerParameterCollection)DbParameterCollection).CreateSpannerParams();
         var queryParams = spannerParams.Item1;
         var paramTypes = spannerParams.Item2;
+        var sql = CommandText;
+        if (CommandType == CommandType.TableDirect)
+        {
+            // TODO: Quote the table name
+            sql = $"select * from {sql}";
+        }
         var statement = new ExecuteSqlRequest
         {
-            Sql = CommandText,
+            Sql = sql,
             Params = queryParams,
             RequestOptions = RequestOptions,
             QueryMode = mode,
@@ -156,7 +193,7 @@ public class SpannerCommand : DbCommand
                     write.Columns.Add(name);
                 }
 
-                values.Values.Add(spannerParameter.ConvertToProto());
+                values.Values.Add(spannerParameter.ConvertToProto(spannerParameter));
             }
             else
             {
@@ -208,13 +245,14 @@ public class SpannerCommand : DbCommand
     private void CheckCommandStateForExecution()
     {
         GaxPreconditions.CheckState(!string.IsNullOrEmpty(_commandText), "Cannot execute empty command");
-        GaxPreconditions.CheckNotNull(SpannerConnection, nameof(SpannerConnection));
+        GaxPreconditions.CheckState(Connection != null, "No connection has been set for the command");
         GaxPreconditions.CheckState(Transaction == null || Transaction.Connection == SpannerConnection,
             "The transaction that has been set for this command is from a different connection");
     }
 
     public override int ExecuteNonQuery()
     {
+        CheckDisposed();
         if (_mutation != null)
         {
             ExecuteMutation();
@@ -234,6 +272,7 @@ public class SpannerCommand : DbCommand
 
     public override object? ExecuteScalar()
     {
+        CheckDisposed();
         GaxPreconditions.CheckState(_mutation == null, "Cannot execute mutations with ExecuteScalar()");
         var rows = Execute();
         using var reader = new SpannerDataReader(SpannerConnection, rows, CommandBehavior.Default);
@@ -250,29 +289,53 @@ public class SpannerCommand : DbCommand
 
     public override void Prepare()
     {
+        CheckDisposed();
         Execute(ExecuteSqlRequest.Types.QueryMode.Plan);
     }
 
     public override Task PrepareAsync(CancellationToken cancellationToken = default)
     {
+        CheckDisposed();
         return ExecuteAsync(ExecuteSqlRequest.Types.QueryMode.Plan, cancellationToken);
     }
 
     protected override DbParameter CreateDbParameter()
     {
+        CheckDisposed();
         return new SpannerParameter();
     }
 
     protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
     {
+        CheckDisposed();
         GaxPreconditions.CheckState(_mutation == null, "Cannot execute mutations with ExecuteDbDataReader()");
-        var rows = Execute();
-        return new SpannerDataReader(SpannerConnection, rows, behavior);
+        try
+        {
+            var rows = Execute();
+            return new SpannerDataReader(SpannerConnection, rows, behavior);
+        }
+        catch (SpannerException exception)
+        {
+            if (behavior.HasFlag(CommandBehavior.CloseConnection))
+            {
+                SpannerConnection.Close();
+            }
+            throw new SpannerDbException(exception);
+        }
+        catch (Exception)
+        {
+            if (behavior.HasFlag(CommandBehavior.CloseConnection))
+            {
+                SpannerConnection.Close();
+            }
+            throw;
+        }
     }
 
     protected override async Task<DbDataReader> ExecuteDbDataReaderAsync(CommandBehavior behavior,
         CancellationToken cancellationToken)
     {
+        CheckDisposed();
         GaxPreconditions.CheckState(_mutation == null, "Cannot execute mutations with ExecuteDbDataReader()");
         try
         {
@@ -281,7 +344,37 @@ public class SpannerCommand : DbCommand
         }
         catch (SpannerException exception)
         {
+            if (behavior.HasFlag(CommandBehavior.CloseConnection))
+            {
+                SpannerConnection.Close();
+            }
             throw new SpannerDbException(exception);
         }
+        catch (Exception)
+        {
+            if (behavior.HasFlag(CommandBehavior.CloseConnection))
+            {
+                await SpannerConnection.CloseAsync();
+            }
+            throw;
+        }
     }
+    
+    object ICloneable.Clone() => Clone();
+    
+    public virtual SpannerCommand Clone()
+    {
+        var clone = new SpannerCommand()
+        {
+            Connection = Connection,
+            _commandText = _commandText,
+            _transaction = _transaction,
+            CommandTimeout = CommandTimeout,
+            CommandType = CommandType,
+            DesignTimeVisible = DesignTimeVisible,
+        };
+        (DbParameterCollection as SpannerParameterCollection)?.CloneTo((clone.Parameters as SpannerParameterCollection)!);
+        return clone;
+    }
+    
 }

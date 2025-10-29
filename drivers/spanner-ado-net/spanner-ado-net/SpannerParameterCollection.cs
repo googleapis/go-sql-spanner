@@ -36,6 +36,10 @@ public class SpannerParameterCollection : DbParameterCollection
         {
             _params.Add(spannerParameter);
         }
+        else if (value is DbParameter)
+        {
+            throw new ArgumentException("value is not a SpannerParameter");
+        }
         else
         {
             _params.Add(new SpannerParameter { ParameterName = "p" + (index + 1), Value = value });
@@ -51,7 +55,7 @@ public class SpannerParameterCollection : DbParameterCollection
 
     public override bool Contains(object value)
     {
-        return _params.Find(p => Equals(p.Value, value)) != null;
+        return IndexOf(value) > -1;
     }
 
     public override int IndexOf(object value)
@@ -69,6 +73,10 @@ public class SpannerParameterCollection : DbParameterCollection
         if (value is SpannerParameter spannerParameter)
         {
             _params.Insert(index, spannerParameter);
+        }
+        else if (value is DbParameter)
+        {
+            throw new ArgumentException("value is not a SpannerParameter");
         }
         else
         {
@@ -93,7 +101,7 @@ public class SpannerParameterCollection : DbParameterCollection
 
     public override void RemoveAt(string parameterName)
     {
-        var index = _params.FindIndex(p => Equals(p.ParameterName, parameterName));
+        var index = IndexOf(parameterName);
         if (index > -1)
         {
             _params.RemoveAt(index);
@@ -118,10 +126,23 @@ public class SpannerParameterCollection : DbParameterCollection
         GaxPreconditions.CheckNotNull(value, nameof(value));
         if (value is SpannerParameter spannerParameter)
         {
-            var index = _params.FindIndex(p => Equals(p.ParameterName, parameterName));
+            if (spannerParameter.ParameterName == "")
+            {
+                spannerParameter.ParameterName = parameterName;
+            }
+            else if (!spannerParameter.ParameterName.Equals(parameterName, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException("Parameter names mismatch");
+            }
+            var index = IndexOf(parameterName);
             if (index > -1)
             {
                 _params[index] = spannerParameter;
+            }
+            else
+            {
+                spannerParameter.ParameterName = parameterName;
+                Add(spannerParameter);
             }
         }
         else
@@ -132,12 +153,17 @@ public class SpannerParameterCollection : DbParameterCollection
 
     public override int IndexOf(string parameterName)
     {
-        return _params.FindIndex(p => Equals(p.ParameterName, parameterName));
+        var result = _params.FindIndex(p => Equals(p.ParameterName, parameterName));
+        if (result > -1)
+        {
+            return result;
+        }
+        return _params.FindIndex(p => p.ParameterName.Equals(parameterName, StringComparison.OrdinalIgnoreCase));
     }
 
     public override bool Contains(string value)
     {
-        return _params.Find(p => Equals(p.Value, value)) != null;
+        return IndexOf(value) > -1;
     }
 
     public override void CopyTo(Array array, int index)
@@ -170,9 +196,12 @@ public class SpannerParameterCollection : DbParameterCollection
         return _params[index];
     }
 
-    protected override DbParameter GetParameter(string parameterName)
+#pragma warning disable CS8764
+    protected override DbParameter? GetParameter(string parameterName)
+#pragma warning restore CS8764
     {
-        return _params.Find(p => Equals(p.ParameterName, parameterName));
+        var index = IndexOf(parameterName);
+        return index > -1 ? _params[index] : null;
     }
 
     public override void AddRange(Array values)
@@ -201,7 +230,11 @@ public class SpannerParameterCollection : DbParameterCollection
                 {
                     name = "p" + name[1..];
                 }
-                queryParams.Fields.Add(name, spannerParameter.ConvertToProto());
+                else if (string.IsNullOrEmpty(name))
+                {
+                    name = "p" + (index + 1);
+                }
+                queryParams.Fields.Add(name, spannerParameter.ConvertToProto(spannerParameter));
                 var paramType = spannerParameter.GetSpannerType();
                 if (paramType != null)
                 {
@@ -215,4 +248,16 @@ public class SpannerParameterCollection : DbParameterCollection
         }
         return Tuple.Create(queryParams, paramTypes);
     }
+    
+    internal void CloneTo(SpannerParameterCollection other)
+    {
+        GaxPreconditions.CheckNotNull(other, nameof(other));
+        other._params.Clear();
+        foreach (var param in _params)
+        {
+            var newParam = param.Clone();
+            other._params.Add(newParam);
+        }
+    }
+    
 }
