@@ -119,6 +119,8 @@ public class SpannerConnection : DbConnection
             return _libConnection;
         }
     }
+
+    internal uint DefaultCommandTimeout => _connectionStringBuilder?.CommandTimeout ?? 0;
         
     private SpannerTransaction? _transaction;
 
@@ -297,7 +299,8 @@ public class SpannerConnection : DbConnection
 
     protected override DbCommand CreateDbCommand()
     {
-        return new SpannerCommand(this);
+        var cmd = new SpannerCommand(this);
+        return cmd;
     }
 
     protected override DbBatch CreateDbBatch()

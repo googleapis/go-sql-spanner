@@ -14,6 +14,7 @@
 
 using System.Collections;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Google.Cloud.Spanner.Admin.Database.V1;
 using Google.Cloud.Spanner.Common.V1;
 using Google.Cloud.Spanner.V1;
@@ -384,6 +385,24 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
     }
 
     public IEnumerable<IMessage> Requests => new List<IMessage>(_requests).AsReadOnly();
+
+    public bool WaitForRequestsToContain(Func<IMessage, bool> predicate)
+    {
+        return WaitForRequestsToContain(predicate, new TimeSpan(5 * TimeSpan.TicksPerSecond));
+    }
+    
+    public bool WaitForRequestsToContain(Func<IMessage, bool> predicate, TimeSpan timeout)
+    {
+        var stopwatch = new Stopwatch();
+        while (stopwatch.Elapsed < timeout)
+        {
+            if (Requests.Any(predicate))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     public IEnumerable<ServerCallContext> Contexts => new List<ServerCallContext>(_contexts).AsReadOnly();
 

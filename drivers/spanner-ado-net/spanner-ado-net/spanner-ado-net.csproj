@@ -19,10 +19,9 @@ Alpha version: Not for production use</Description>
   </PropertyGroup>
   
   <ItemGroup>
-    <PackageReference Include="Alpha.Google.Cloud.SpannerLib" Version="1.0.0-alpha.20251009140944" />
-    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.GrpcImpl" Version="1.0.0-alpha.20251009140944" />
-    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.GrpcServer" Version="1.0.0-alpha.20251009140944" />
-    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.NativeImpl" Version="1.0.0-alpha.20251009140944" />
+    <ProjectReference Include="..\..\..\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-grpc-impl\spannerlib-dotnet-grpc-impl.csproj" />
+    <ProjectReference Include="..\..\..\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-native-impl\spannerlib-dotnet-native-impl.csproj" />
+    <ProjectReference Include="..\..\..\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet\spannerlib-dotnet.csproj" />
   </ItemGroup>
   
 </Project>

@@ -14,7 +14,6 @@
 
 using System.Data;
 using System.Diagnostics.CodeAnalysis;
-using System.Transactions;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib;
 using Google.Cloud.SpannerLib.MockServer;
@@ -302,14 +301,16 @@ public class ConnectionTests : AbstractMockServerTests
     [Ignore("Needs connect_timeout property")]
     public void OpenTimeout()
     {
-        // TODO: Add connect_timeout property.
+        // Close all current pools to ensure that we get a fresh pool.
+        SpannerPool.CloseSpannerLib();
+        Fixture.SpannerMock.AddOrUpdateExecutionTime(nameof(Fixture.SpannerMock.CreateSession), ExecutionTime.FromMillis(20, 0));
         var builder = new SpannerConnectionStringBuilder
         {
             Host = Fixture.Host,
             Port = (uint) Fixture.Port,
             UsePlainText = true,
             DataSource = "projects/project1/instances/instance1/databases/database1",
-            //ConnectTimeout = TimeSpan.FromMicroseconds(1),
+            ConnectionTimeout = 1,
         };
         using var connection = new SpannerConnection();
         connection.ConnectionString = builder.ConnectionString;
@@ -489,6 +490,7 @@ public class ConnectionTests : AbstractMockServerTests
             Assert.That(await conn.ExecuteScalarAsync("SELECT 1"), Is.EqualTo(1));
         }
     }
+    
     [Test]
     public async Task ManyOpenClose()
     {
@@ -541,8 +543,6 @@ public class ConnectionTests : AbstractMockServerTests
     }
 
     [Test]
-    // TODO: Enable once https://github.com/googleapis/go-sql-spanner/pull/571 has been merged
-    [Ignore("https://github.com/googleapis/go-sql-spanner/pull/571")]
     public async Task ReadLargeString()
     {
         const string sql = "select large_value from my_table";

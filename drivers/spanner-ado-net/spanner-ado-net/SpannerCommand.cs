@@ -32,8 +32,15 @@ public class SpannerCommand : DbCommand
         
     private string _commandText = "";
     [AllowNull] public override string CommandText { get => _commandText; set => _commandText = value ?? ""; }
-        
-    public override int CommandTimeout { get; set; }
+
+    private int? _timeout;
+    
+    public override int CommandTimeout
+    {
+        get => _timeout ?? (int) SpannerConnection.DefaultCommandTimeout;
+        set => _timeout = value;
+    }
+
     public override CommandType CommandType { get; set; } = CommandType.Text;
     public override UpdateRowSource UpdatedRowSource { get; set; }
     protected override DbConnection? DbConnection { get; set; }

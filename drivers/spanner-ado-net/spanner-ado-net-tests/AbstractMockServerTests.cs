@@ -65,6 +65,11 @@ public abstract class AbstractMockServerTests
     {
         return CreateDataSource(_ => { });
     }
+
+    protected SpannerDataSource CreateDataSource(string connectionString)
+    {
+        return CreateDataSource(csb => { csb.ConnectionString = connectionString; });
+    }
     
     protected SpannerDataSource CreateDataSource(Action<SpannerConnectionStringBuilder> connectionStringBuilderAction)
     {

@@ -13,7 +13,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.MockServer" Version="1.0.0-alpha.20251009100446" />
     <PackageReference Include="coverlet.collector" Version="6.0.4">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -29,6 +28,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\..\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-mockserver\spannerlib-dotnet-mockserver.csproj" />
     <ProjectReference Include="..\spanner-ado-net\spanner-ado-net.csproj" />
   </ItemGroup>
 

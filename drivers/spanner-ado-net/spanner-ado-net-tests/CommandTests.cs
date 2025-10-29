@@ -22,6 +22,8 @@ using System.Threading.Tasks;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib.MockServer;
 using Google.Protobuf.WellKnownTypes;
+using Google.Rpc;
+using Grpc.Core;
 
 namespace Google.Cloud.Spanner.DataProvider.Tests;
 
@@ -267,6 +269,70 @@ public class CommandTests : AbstractMockServerTests
             .With.InnerException.TypeOf<TimeoutException>()
         );
         Assert.That(conn!.State, Is.EqualTo(ConnectionState.Open));
+    }
+    
+    [Test]
+    [Ignore("Requires support for statement_timeout in the shared library")]
+    public async Task TimeoutAsync()
+    {
+        Fixture.SpannerMock.AddOrUpdateExecutionTime(nameof(Fixture.SpannerMock.ExecuteStreamingSql), ExecutionTime.FromMillis(10, 0));
+        
+        await using var dataSource = CreateDataSource(csb => csb.CommandTimeout = 1);
+        await using var conn = await dataSource.OpenConnectionAsync() as SpannerConnection;
+        await using var cmd = new SpannerCommand("SELECT 1", conn!);
+        Assert.That(async () => await cmd.ExecuteScalarAsync(),
+            Throws.Exception
+                .TypeOf<SpannerDbException>()
+                .With.InnerException.TypeOf<TimeoutException>());
+        Assert.That(conn!.State, Is.EqualTo(ConnectionState.Open));
+    }
+
+    [Test]
+    public async Task TimeoutSwitchConnection()
+    {
+        var csb = new SpannerConnectionStringBuilder(ConnectionString);
+        Assert.That(csb.CommandTimeout, Is.EqualTo(0));
+
+        await using var dataSource1 = CreateDataSource(ConnectionString + ";CommandTimeout=100");
+        await using var c1 = dataSource1.CreateConnection();
+        await using var cmd = c1.CreateCommand();
+        Assert.That(cmd.CommandTimeout, Is.EqualTo(100));
+        await using var dataSource2 = CreateDataSource(ConnectionString + ";CommandTimeout=101");
+        await using (var c2 = dataSource2.CreateConnection())
+        {
+            cmd.Connection = c2;
+            Assert.That(cmd.CommandTimeout, Is.EqualTo(101));
+        }
+        cmd.CommandTimeout = 102;
+        await using (var c2 = dataSource2.CreateConnection())
+        {
+            cmd.Connection = c2;
+            Assert.That(cmd.CommandTimeout, Is.EqualTo(102));
+        }
+    }
+    
+    [Test]
+    [Ignore("Requires support for cancel in the shared library")]
+    public async Task Cancel()
+    {
+        var sql = "insert into my_table (id, value) values (1, 'one')";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateUpdateCount(1L));
+        Fixture.SpannerMock.AddOrUpdateExecutionTime(nameof(Fixture.SpannerMock.ExecuteStreamingSql), ExecutionTime.FromMillis(50, 0));
+        
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+
+        // ReSharper disable once AccessToDisposedClosure
+        var queryTask = Task.Run(() => cmd.ExecuteNonQuery());
+        // Wait until the request is on the mock server.
+        Fixture.SpannerMock.WaitForRequestsToContain(message => message is ExecuteSqlRequest request && request.Sql == sql);
+        cmd.Cancel();
+        Assert.That(async () => await queryTask, Throws
+            .TypeOf<OperationCanceledException>()
+            .With.InnerException.TypeOf<SpannerDbException>()
+            .With.InnerException.Property(nameof(SpannerDbException.ErrorCode)).EqualTo(StatusCode.Cancelled)
+        );
     }
     
     private void AddParameter(DbCommand command, string name, object? value)
