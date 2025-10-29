@@ -113,7 +113,7 @@ func parseTimestamp(re *regexp.Regexp, params string) (time.Time, error) {
 func parseDuration(re *regexp.Regexp, value string) (time.Duration, error) {
 	matches := matchesToMap(re, value)
 	if matches["duration"] == "" && matches["number"] == "" && matches["null"] == "" {
-		return 0, spanner.ToSpannerError(status.Error(codes.InvalidArgument, fmt.Sprintf("No duration found: %v", value)))
+		return 0, spanner.ToSpannerError(status.Error(codes.InvalidArgument, fmt.Sprintf("No or invalid duration found: %v", value)))
 	}
 	if matches["duration"] != "" {
 		d, err := time.ParseDuration(matches["duration"])
