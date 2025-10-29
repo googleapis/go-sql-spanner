@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.21.0](https://github.com/googleapis/go-sql-spanner/compare/v1.20.0...v1.21.0) (2025-10-29)
+
+
+### Features
+
+* Support connect_timeout property ([#577](https://github.com/googleapis/go-sql-spanner/issues/577)) ([6f87624](https://github.com/googleapis/go-sql-spanner/commit/6f87624c06e79401e3916d485b3d74ecc0c6bc05)), refs [#576](https://github.com/googleapis/go-sql-spanner/issues/576)
+
+
+### Bug Fixes
+
+* Remove git submodule from project ([#586](https://github.com/googleapis/go-sql-spanner/issues/586)) ([bb26650](https://github.com/googleapis/go-sql-spanner/commit/bb26650539dda6e744f7db13eb197b55fec1a2da))
+* Update all dependencies ([#584](https://github.com/googleapis/go-sql-spanner/issues/584)) ([19ce82c](https://github.com/googleapis/go-sql-spanner/commit/19ce82c583fccf425d0dff5b3202b82a7d81d8f1))
+
 ## [1.20.0](https://github.com/googleapis/go-sql-spanner/compare/v1.19.0...v1.20.0) (2025-10-28)
 
 
