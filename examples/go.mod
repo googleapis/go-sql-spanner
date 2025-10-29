@@ -13,7 +13,7 @@ require (
 	github.com/docker/go-connections v0.5.0
 	github.com/googleapis/go-sql-spanner v1.16.2
 	github.com/testcontainers/testcontainers-go v0.38.0
-	google.golang.org/api v0.253.0
+	google.golang.org/api v0.254.0
 )
 
 require (
