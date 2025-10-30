@@ -54,5 +54,5 @@ jobs:
         env:
           SPANNER_EMULATOR_HOST: localhost:9010
         run: |
-          bundle exec rake compile
+          bundle exec rake compile:x86_64-linux
           bundle exec rspec spec/integration/
