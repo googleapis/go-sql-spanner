@@ -1,0 +1,124 @@
+name: Build and Publish Native Gem
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-13, windows-latest]
+        include:
+          # Config for Linux
+          - os: ubuntu-latest
+            platform_tasks: "compile:aarch64-linux compile:x86_64-linux"
+            artifact_name: "linux-binaries"
+            artifact_path: "spannerlib/wrappers/spannerlib-ruby/lib/spannerlib/*-linux/"
+
+          # Config for macOS (Apple Silicon + Intel)
+          # Note: macos-13 is an Intel runner (x86_64) but can cross-compile to Apple Silicon (aarch64)
+          - os: macos-13
+            platform_tasks: "compile:aarch64-darwin compile:x86_64-darwin"
+            artifact_name: "darwin-binaries"
+            artifact_path: "spannerlib/wrappers/spannerlib-ruby/lib/spannerlib/*-darwin/"
+
+          # Config for Windows
+          - os: windows-latest
+            platform_tasks: "compile:x64-mingw32"
+            artifact_name: "windows-binaries"
+            artifact_path: "spannerlib/wrappers/spannerlib-ruby/lib/spannerlib/x64-mingw32/"
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.25.x
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: 'spannerlib/wrappers/spannerlib-ruby'
+
+      - name: Install cross-compilers (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          # This installs the C compiler for aarch64-linux
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      # The cross-compiler step for macOS is removed,
+      # as the built-in Clang on macOS runners can handle both Intel and ARM.
+
+      - name: Compile Binaries
+        working-directory: spannerlib/wrappers/spannerlib-ruby
+        run: |
+          # This runs the specific Rake tasks for this OS
+          # e.g., "rake compile:aarch64-linux compile:x86_64-linux"
+          bundle exec rake ${{ matrix.platform_tasks }}
+
+      - name: Upload Binaries as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+
+  publish:
+    name: Package and Publish Gem
+    # This job runs only after all 'build' jobs have succeeded
+    needs: build
+    runs-on: ubuntu-latest
+
+    # This gives the job permission to publish to RubyGems
+    permissions:
+      id-token: write 
+      contents: read  
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: 'spannerlib/wrappers/spannerlib-ruby'
+
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          # No name means it downloads ALL artifacts from this workflow
+          # The binaries will be placed in their original paths
+          path: spannerlib/wrappers/spannerlib-ruby/lib/spannerlib/
+          
+      - name: List downloaded files (for debugging)
+        run: ls -R spannerlib/wrappers/spannerlib-ruby/lib/spannerlib/
+
+      - name: Build Gem
+        working-directory: spannerlib/wrappers/spannerlib-ruby
+        run: gem build spannerlib-ruby.gemspec
+
+      - name: Publish to RubyGems
+        working-directory: spannerlib/wrappers/spannerlib-ruby
+        run: |
+          # Make all built .gem files available to be pushed
+          mkdir -p $HOME/.gem
+          touch $HOME/.gem/credentials
+          chmod 0600 $HOME/.gem/credentials
+
+          # This uses the new "Trusted Publishing" feature.
+          # https://guides.rubygems.org/publishing/#publishing-with-github-actions
+          printf -- "---\n:rubygems_api_key: Bearer ${GEM_HOST_API_KEY}\n" > $HOME/.gem/credentials
+
+          # Push the gem
+          gem push *.gem
+        env:
+          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+
