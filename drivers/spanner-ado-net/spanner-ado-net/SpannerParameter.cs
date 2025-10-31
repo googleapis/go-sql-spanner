@@ -29,7 +29,7 @@ using TypeCode = Google.Cloud.Spanner.V1.TypeCode;
 
 namespace Google.Cloud.Spanner.DataProvider;
 
-public class SpannerParameter : DbParameter, ICloneable
+public class SpannerParameter : DbParameter, IDbDataParameter, ICloneable
 {
     private DbType? _dbType;
 
@@ -48,6 +48,10 @@ public class SpannerParameter : DbParameter, ICloneable
 
     public override ParameterDirection Direction { get; set; } = ParameterDirection.Input;
     public override bool IsNullable { get; set; }
+
+    public new byte Precision { get; set; }
+
+    public new byte Scale { get; set; }
 
     private string _name = "";
     [AllowNull] public override string ParameterName
@@ -198,8 +202,12 @@ public class SpannerParameter : DbParameter, ICloneable
     {
         var clone = new SpannerParameter(_name, Value)
         {
+            _dbType = _dbType,
             Direction = Direction,
             IsNullable = IsNullable,
+            Precision = Precision,
+            Scale = Scale,
+            Size = Size,
             SourceColumn = SourceColumn,
             SourceVersion = SourceVersion,
             SourceColumnNullMapping = SourceColumnNullMapping,

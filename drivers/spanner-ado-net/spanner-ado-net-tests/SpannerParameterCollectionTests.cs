@@ -286,6 +286,20 @@ public class SpannerParameterCollectionTests : AbstractMockServerTests
         Assert.DoesNotThrow(() => command.Clone());
     }
     
+    [Test]
+    public void CleanName()
+    {
+        var param = new SpannerParameter();
+        var command = new SpannerCommand();
+        command.Parameters.Add(param);
+
+        param.ParameterName = null;
+
+        // These should not throw exceptions
+        Assert.That(command.Parameters.IndexOf(param.ParameterName), Is.EqualTo(0));
+        Assert.That(param.ParameterName, Is.EqualTo(""));
+    }
+    
     class SomeOtherDbParameter : DbParameter
     {
         public override void ResetDbType() {}
