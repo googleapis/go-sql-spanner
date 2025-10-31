@@ -1,10 +1,10 @@
-name: Build and Publish Native Gem
+name: Build and Publish Native Ruby Gem
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-shared-library-binaries:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-13, windows-latest]
@@ -54,7 +54,6 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
           # Mingw-w64 cross toolchain for Windows target (x86_64)
           sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
-          # Verify tools exist (helps debugging CI failures)
           echo "=== cross compiler versions ==="
           aarch64-linux-gnu-gcc --version || true
           aarch64-linux-gnu-g++ --version || true
