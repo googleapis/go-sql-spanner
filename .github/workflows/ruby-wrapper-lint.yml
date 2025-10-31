@@ -1,0 +1,31 @@
+# .github/workflows/lint.yml
+
+name: RuboCop Linter
+
+on:
+  push:
+    branches:
+      - main  
+  pull_request:
+    
+jobs:
+  ruby-wrapper-lint:
+    runs-on: ubuntu-latest 
+
+    defaults:
+      run:
+        working-directory: spannerlib/wrappers/spannerlib-ruby
+    
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'       
+          bundler-cache: true 
+          working-directory: spannerlib/wrappers/spannerlib-ruby 
+
+      - name: Run RuboCop
+        run: bundle exec rubocop

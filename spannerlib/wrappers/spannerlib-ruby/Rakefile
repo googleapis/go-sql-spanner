@@ -36,14 +36,15 @@ LIB_DIR = File.expand_path("lib/spannerlib", __dir__)
 # The 'ext' is the file extension for the shared library.
 PLATFORMS = {
   "aarch64-darwin" => { goos: "darwin", goarch: "arm64", ext: "dylib" },
-  "x86_64-darwin"  => { goos: "darwin", goarch: "amd64", ext: "dylib" },
-  "aarch64-linux"  => { goos: "linux",  goarch: "arm64", ext: "so" },
-  "x86_64-linux"   => { goos: "linux",  goarch: "amd64", ext: "so" },
-  "x64-mingw32"    => { goos: "windows", goarch: "amd64", ext: "dll" } # For Windows
+  "x86_64-darwin" => { goos: "darwin", goarch: "amd64", ext: "dylib" },
+  "aarch64-linux" => { goos: "linux",  goarch: "arm64", ext: "so" },
+  "x86_64-linux" => { goos: "linux",  goarch: "amd64", ext: "so" },
+  "x64-mingw32" => { goos: "windows", goarch: "amd64", ext: "dll" } # For Windows
 }.freeze
 
 # --- Rake Tasks for Compilation ---
 
+# rubocop:disable Metrics/BlockLength
 # Create a 'compile' namespace for all build tasks
 namespace :compile do
   desc "Remove all compiled native libraries"
@@ -54,8 +55,10 @@ namespace :compile do
       rm_rf target_dir
     end
   end
+  # rubocop:enable Metrics/BlockLength
 
   # Dynamically create a build task for each platform
+  # rubocop:disable Metrics/BlockLength
   PLATFORMS.each do |arch, config|
     desc "Compile native library for #{arch}"
     task arch do
@@ -93,7 +96,7 @@ namespace :compile do
           env["RANLIB"] = ENV.fetch("RANLIB", "x86_64-w64-mingw32-ranlib")
         end
       when "darwin"
-        # Note: cross-compiling darwin/arm64 on an x86 mac runner is NOT reliably supported
+        # NOTE: cross-compiling darwin/arm64 on an x86 mac runner is NOT reliably supported
         # unless you use osxcross or an ARM mac runner. We try nothing here; rely on runner's clang.
         env["CC"] ||= ENV.fetch("CC", "clang")
       end
@@ -114,6 +117,7 @@ namespace :compile do
       puts "Successfully built #{output_file}"
     end
   end
+  # rubocop:enable Metrics/BlockLength
 
   desc "Compile native libraries for all platforms"
   task all: PLATFORMS.keys

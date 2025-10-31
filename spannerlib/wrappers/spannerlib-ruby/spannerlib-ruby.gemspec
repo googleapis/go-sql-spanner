@@ -29,15 +29,13 @@ Gem::Specification.new do |spec|
   spec.files = Dir.chdir(File.expand_path(__dir__)) do
     files = []
     # prefer git-tracked files when available (local dev), but also pick up built files present on disk (CI)
-    if system('git rev-parse --is-inside-work-tree > /dev/null 2>&1')
-      files += `git ls-files -z`.split("\x0")
-    end
+    files += `git ls-files -z`.split("\x0") if system("git rev-parse --is-inside-work-tree > /dev/null 2>&1")
 
     # include any built native libs (CI places them under lib/spannerlib/)
-    files += Dir.glob('lib/spannerlib/**/*').select { |f| File.file?(f) }
+    files += Dir.glob("lib/spannerlib/**/*").select { |f| File.file?(f) }
 
     # dedupe and reject unwanted entries
-    files.map! { |f| f.sub(%r{\A\./}, '') }.uniq!
+    files.map! { |f| f.sub(%r{\A\./}, "") }.uniq!
     files.reject do |f|
       f.match(%r{^(pkg|Gemfile\.lock|.*\.gem|Rakefile|spec/|.*\.o|.*\.h)$})
     end
