@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.22.0](https://github.com/googleapis/go-sql-spanner/compare/v1.21.0...v1.22.0) (2025-10-31)
+
+
+### Features
+
+* Support statement_timeout and transaction_timeout property ([#578](https://github.com/googleapis/go-sql-spanner/issues/578)) ([b542646](https://github.com/googleapis/go-sql-spanner/commit/b542646528eeff4a11e27b8c4232492392d97aed))
+
 ## [1.21.0](https://github.com/googleapis/go-sql-spanner/compare/v1.20.0...v1.21.0) (2025-10-29)
 
 
