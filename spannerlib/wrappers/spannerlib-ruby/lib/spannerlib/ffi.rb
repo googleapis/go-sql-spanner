@@ -28,7 +28,7 @@ require_relative "message_handler"
 module SpannerLib
   extend FFI::Library
 
-  ENV_OVERRIDE = ENV["SPANNERLIB_PATH"]
+  ENV_OVERRIDE = ENV.fetch("SPANNERLIB_PATH", nil)
 
   def self.platform_dir_from_host
     host_os  = RbConfig::CONFIG["host_os"]
@@ -41,15 +41,15 @@ module SpannerLib
       host_cpu =~ /arm|aarch64/ ? "aarch64-linux" : "x86_64-linux"
     when /mswin|mingw|cygwin/
       "x64-mingw32"
-    else
-      nil
     end
   end
 
   # Build list of candidate paths (ordered): env override, platform-specific, any packaged lib, system library
+  # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/MethodLength, Metrics/PerceivedComplexity
   def self.library_path
     if ENV_OVERRIDE && !ENV_OVERRIDE.empty?
       return ENV_OVERRIDE if File.file?(ENV_OVERRIDE)
+
       warn "SPANNERLIB_PATH set to #{ENV_OVERRIDE} but file not found"
     end
 
@@ -71,7 +71,9 @@ module SpannerLib
       # Attempt to open system lib name; if succeeds, return bare name so ffi_lib can resolve it
       FFI::DynamicLibrary.open("spannerlib", FFI::DynamicLibrary::RTLD_LAZY | FFI::DynamicLibrary::RTLD_GLOBAL)
       return "spannerlib"
-    rescue StandardError
+    rescue LoadError
+      # This is intentional. If the system library fails to load,
+      # we'll proceed to the final LoadError with all search paths.
     end
 
     searched = []
@@ -86,6 +88,7 @@ module SpannerLib
       You can set SPANNERLIB_PATH to the absolute path of the library file, or install a platform-specific native gem.
     ERR
   end
+  # rubocop:enable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/MethodLength, Metrics/PerceivedComplexity
 
   ffi_lib library_path
 

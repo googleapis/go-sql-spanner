@@ -80,7 +80,7 @@ jobs:
   publish:
     name: Package and Publish Gem
     # This job runs only after all 'build' jobs have succeeded
-    needs: build
+    needs: build-shared-library-binaries
     runs-on: ubuntu-latest
 
     # This gives the job permission to publish to RubyGems
