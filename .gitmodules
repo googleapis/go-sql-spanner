@@ -1,3 +1,0 @@
-[submodule "spannerlib/grpc-server/googleapis"]
-	path = spannerlib/grpc-server/googleapis
-	url = git@github.com:googleapis/googleapis.git

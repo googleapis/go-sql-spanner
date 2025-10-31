@@ -481,6 +481,15 @@ var propertyDisableStatementCache = createConnectionProperty(
 	connectionstate.ContextStartup,
 	connectionstate.ConvertBool,
 )
+var propertyConnectTimeout = createConnectionProperty(
+	"connect_timeout",
+	"The amount of time to wait before timing out when creating a new connection.",
+	0,
+	false,
+	nil,
+	connectionstate.ContextStartup,
+	connectionstate.ConvertDuration,
+)
 
 // Generated read-only properties. These cannot be set by the user anywhere.
 var propertyCommitTimestamp = createReadOnlyConnectionProperty(

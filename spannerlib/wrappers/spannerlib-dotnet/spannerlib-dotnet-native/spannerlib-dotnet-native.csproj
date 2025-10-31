@@ -6,9 +6,10 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>default</LangVersion>
-    <PackageId>Google.Cloud.SpannerLib.Native</PackageId>
+    <PackageId>Alpha.Google.Cloud.SpannerLib.Native</PackageId>
     <Title>.NET wrapper for the native SpannerLib shared library</Title>
     <Authors>Google</Authors>
+    <Version>1.0.0-alpha.20251027150914</Version>
   </PropertyGroup>
   
   <ItemGroup>

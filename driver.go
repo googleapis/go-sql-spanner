@@ -51,7 +51,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const userAgent = "go-sql-spanner/1.19.0" // x-release-please-version
+const userAgent = "go-sql-spanner/1.21.0" // x-release-please-version
 
 const gormModule = "github.com/googleapis/go-gorm-spanner"
 const gormUserAgent = "go-gorm-spanner"
@@ -739,6 +739,17 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		c.connectorConfig.Project,
 		c.connectorConfig.Instance,
 		c.connectorConfig.Database)
+	if value, ok := c.initialPropertyValues[propertyConnectTimeout.Key()]; ok {
+		if timeout, err := value.GetValue(); err == nil {
+			if duration, ok := timeout.(time.Duration); ok {
+				var cancel context.CancelFunc
+				// This will set the actual timeout of the context to the lower of the
+				// current context timeout (if any) and the value from the connection property.
+				ctx, cancel = context.WithTimeout(ctx, duration)
+				defer cancel()
+			}
+		}
+	}
 
 	if err := c.increaseConnCount(ctx, databaseName, opts); err != nil {
 		return nil, err
