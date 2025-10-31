@@ -59,6 +59,11 @@ public class StatementResult
         return new StatementResult(exception);
     }
 
+    public static StatementResult CreateSelectZeroResultSet()
+    {
+        return CreateSingleColumnResultSet(new Spanner.V1.Type { Code = Spanner.V1.TypeCode.Int64 }, "COL1", 0);
+    }
+
     public static StatementResult CreateSelect1ResultSet()
     {
         return CreateSingleColumnResultSet(new Spanner.V1.Type { Code = Spanner.V1.TypeCode.Int64 }, "COL1", 1);
@@ -413,7 +418,7 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
     
     public bool WaitForRequestsToContain(Func<IMessage, bool> predicate, TimeSpan timeout)
     {
-        var stopwatch = new Stopwatch();
+        var stopwatch = Stopwatch.StartNew();
         while (stopwatch.Elapsed < timeout)
         {
             if (Requests.Any(predicate))

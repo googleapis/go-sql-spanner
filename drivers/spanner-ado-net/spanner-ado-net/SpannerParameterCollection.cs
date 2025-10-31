@@ -47,6 +47,17 @@ public class SpannerParameterCollection : DbParameterCollection
 
         return index;
     }
+    
+    public SpannerParameter AddWithValue(string parameterName, object? value)
+    {
+        var parameter = new SpannerParameter
+        {
+            ParameterName = parameterName,
+            Value = value,
+        };
+        Add(parameter);
+        return parameter;
+    }
 
     public override void Clear()
     {

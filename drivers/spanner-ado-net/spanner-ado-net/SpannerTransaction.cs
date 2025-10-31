@@ -25,12 +25,25 @@ namespace Google.Cloud.Spanner.DataProvider;
 public class SpannerTransaction : DbTransaction
 {
     private SpannerConnection? _spannerConnection;
-        
-    protected override DbConnection? DbConnection => _spannerConnection;
+
+    protected override DbConnection? DbConnection
+    {
+        get
+        {
+            CheckDisposed();
+            return _spannerConnection;
+        }
+    }
     public override IsolationLevel IsolationLevel { get; }
+
+    // TODO: Implement savepoint support in the shared library.
+    public override bool SupportsSavepoints => false;
+
     private SpannerLib.Connection LibConnection { get; }
     
     internal bool IsCompleted => _spannerConnection == null;
+    
+    internal bool IsDisposed => _disposed;
         
     private bool _disposed;
 
@@ -142,7 +155,7 @@ public class SpannerTransaction : DbTransaction
         {
             return endTransactionMethod();
         }
-        finally 
+        finally
         {
             _spannerConnection?.ClearTransaction();
             _spannerConnection = null;

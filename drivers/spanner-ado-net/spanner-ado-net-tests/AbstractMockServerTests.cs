@@ -60,6 +60,13 @@ public abstract class AbstractMockServerTests
         Fixture.SpannerMock.Reset();
     }
 
+    protected SpannerConnection OpenConnection()
+    {
+        var connection = new SpannerConnection(ConnectionString);
+        connection.Open();
+        return connection;
+    }
+
     protected async Task<SpannerConnection> OpenConnectionAsync()
     {
         var connection = new SpannerConnection(ConnectionString);

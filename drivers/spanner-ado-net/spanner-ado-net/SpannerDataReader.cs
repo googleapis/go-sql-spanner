@@ -19,6 +19,7 @@ using System.Data;
 using System.Data.Common;
 using System.Globalization;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
@@ -76,7 +77,7 @@ public class SpannerDataReader : DbDataReader
             }
             return CheckForRows();
         }
-    } 
+    }
     public override bool IsClosed => _closed;
     public override int Depth => 0;
 
@@ -117,6 +118,7 @@ public class SpannerDataReader : DbDataReader
             _hasReadData = true;
             _currentRow = LibRows.Next();
         }
+        _hasData = _hasData || _currentRow != null;
         return _currentRow != null;
     }
 
@@ -129,7 +131,7 @@ public class SpannerDataReader : DbDataReader
                 _hasReadData = true;
                 _currentRow = await LibRows.NextAsync(cancellationToken);
             }
-
+            _hasData = _hasData || _currentRow != null;
             return _currentRow != null;
         }
         catch (SpannerException exception)
@@ -158,7 +160,7 @@ public class SpannerDataReader : DbDataReader
 
     private bool CheckForRows()
     {
-        _tempRow = LibRows.Next();
+        _tempRow ??= LibRows.Next();
         return _tempRow != null;
     }
 
@@ -290,35 +292,42 @@ public class SpannerDataReader : DbDataReader
     {
         CheckValidPosition();
         CheckValidOrdinal(ordinal);
-        GaxPreconditions.CheckState(LibRows.Metadata!.RowType.Fields[ordinal].Type.Code == TypeCode.Bytes,
-            "Spanner only supports conversion to byte arrays for columns of type BYTES.");
-        GaxPreconditions.CheckArgumentRange(bufferOffset, nameof(bufferOffset), 0, buffer?.Length ?? 0);
-        GaxPreconditions.CheckArgumentRange(length, nameof(length), 0, buffer?.Length ?? int.MaxValue);
+        CheckNotNull(ordinal);
+        var code = LibRows.Metadata!.RowType.Fields[ordinal].Type.Code;
+        GaxPreconditions.CheckState(Array.Exists([TypeCode.Bytes, TypeCode.Json, TypeCode.String], c => c == code),
+            "Spanner only supports conversion to byte arrays for columns of type BYTES or STRING.");
+        Preconditions.CheckIndexRange(bufferOffset, nameof(bufferOffset), 0, buffer?.Length ?? 0);
+        Preconditions.CheckIndexRange(length, nameof(length), 0, buffer?.Length ?? int.MaxValue);
         if (buffer != null)
         {
-            GaxPreconditions.CheckArgumentRange(bufferOffset + length, nameof(length), 0, buffer.Length);
+            Preconditions.CheckIndexRange(bufferOffset + length, nameof(length), 0, buffer.Length);
         }
 
-        var bytes = IsDBNull(ordinal) ? null : GetFieldValue<byte[]>(ordinal);
+        byte[] bytes;
+        if (code == TypeCode.Bytes)
+        {
+            bytes = GetFieldValue<byte[]>(ordinal);
+        }
+        else
+        {
+            var s = GetFieldValue<string>(ordinal);
+            bytes = Encoding.UTF8.GetBytes(s);
+        }
         if (buffer == null)
         {
             // Return the length of the value if `buffer` is null:
             // https://docs.microsoft.com/en-us/dotnet/api/system.data.idatarecord.getbytes?view=netstandard-2.1#remarks
-            return bytes?.Length ?? 0;
+            return bytes.Length;
         }
 
-        var copyLength = Math.Min(length, (bytes?.Length ?? 0) - (int)dataOffset);
+        var copyLength = Math.Min(length, bytes.Length - (int)dataOffset);
         if (copyLength < 0)
         {
             // Read nothing and just return.
             return 0;
         }
-
-        if (bytes != null)
-        {
-            Array.Copy(bytes, (int)dataOffset, buffer, bufferOffset, copyLength);
-        }
-
+        
+        Array.Copy(bytes, (int)dataOffset, buffer, bufferOffset, copyLength);
         return copyLength;
     }
 
@@ -333,10 +342,11 @@ public class SpannerDataReader : DbDataReader
         }
         if (value.HasStringValue)
         {
-            if (value.StringValue.Length == 1)
+            if (value.StringValue.Length == 0)
             {
-                return value.StringValue[0];
+                throw new InvalidCastException("not a valid char value");
             }
+            return value.StringValue[0];
         }
         throw new InvalidCastException("not a valid char value");
     }
@@ -344,13 +354,14 @@ public class SpannerDataReader : DbDataReader
     public override long GetChars(int ordinal, long dataOffset, char[]? buffer, int bufferOffset, int length)
     {
         var value = GetProtoValue(ordinal);
+        var code = GetSpannerType(ordinal).Code;
+        if (!Array.Exists([TypeCode.Bytes, TypeCode.Json, TypeCode.String], c => c == code))
+        {
+            throw new InvalidCastException("not a valid type for getting as chars");
+        }
         if (value.HasNullValue)
         {
             return 0;
-        }
-        if (!value.HasStringValue)
-        {
-            throw new DataException("not a valid type for getting as chars");
         }
         if (buffer == null)
         {
@@ -358,8 +369,8 @@ public class SpannerDataReader : DbDataReader
             // https://docs.microsoft.com/en-us/dotnet/api/system.data.idatarecord.getbytes?view=netstandard-2.1#remarks
             return value.StringValue.ToCharArray().Length;
         }
-        GaxPreconditions.CheckArgumentRange(bufferOffset, nameof(bufferOffset), 0, buffer.Length);
-        GaxPreconditions.CheckArgumentRange(length, nameof(length), 0, buffer.Length - bufferOffset);
+        Preconditions.CheckIndexRange(bufferOffset, nameof(bufferOffset), 0, buffer.Length);
+        Preconditions.CheckIndexRange(length, nameof(length), 0, buffer.Length - bufferOffset);
 
         var intDataOffset = (int)dataOffset;
         var sourceLength = Math.Min(length, value.StringValue.Length - intDataOffset);
@@ -375,14 +386,13 @@ public class SpannerDataReader : DbDataReader
             return 0;
         }
             
-        // TODO: Optimize
-        var chars = value.StringValue.ToCharArray(intDataOffset, sourceLength);
+        var chars = value.StringValue.ToCharArray();
         if (intDataOffset >= chars.Length)
         {
             return 0;
         }
             
-        Array.Copy(chars, 0, buffer, bufferOffset, destLength);
+        Array.Copy(chars, dataOffset, buffer, bufferOffset, destLength);
             
         return destLength;
     }
@@ -619,6 +629,8 @@ public class SpannerDataReader : DbDataReader
         }
         throw new InvalidCastException("not a valid Int64 value");
     }
+    
+    public TimeSpan GetTimeSpan(int ordinal) => GetFieldValue<TimeSpan>(ordinal);
 
     public override string GetName(int ordinal)
     {
@@ -629,9 +641,18 @@ public class SpannerDataReader : DbDataReader
     public override int GetOrdinal(string name)
     {
         CheckNotClosed();
+        // First try with case sensitivity.
         for (var i = 0; i < LibRows.Metadata?.RowType.Fields.Count; i++)
         {
             if (Equals(LibRows.Metadata?.RowType.Fields[i].Name, name))
+            {
+                return i;
+            }
+        }
+        // Nothing found, try with case-insensitive comparison.
+        for (var i = 0; i < LibRows.Metadata?.RowType.Fields.Count; i++)
+        {
+            if (string.Equals(LibRows.Metadata?.RowType.Fields[i].Name, name, StringComparison.InvariantCultureIgnoreCase))
             {
                 return i;
             }
@@ -642,6 +663,7 @@ public class SpannerDataReader : DbDataReader
     public override T GetFieldValue<T>(int ordinal)
     {
         CheckNotClosed();
+        CheckValidPosition();
         CheckValidOrdinal(ordinal);
         if (typeof(T) == typeof(Stream))
         {
@@ -653,32 +675,60 @@ public class SpannerDataReader : DbDataReader
             CheckNotNull(ordinal);
             return (T)(object)GetTextReader(ordinal);
         }
-        if (typeof(T) == typeof(char))
+        if (typeof(T) == typeof(char) || typeof(T) == typeof(char?))
         {
+            if (IsDBNull(ordinal) && typeof(T) == typeof(char?))
+            {
+                return (T)(object)null!;
+            }
             return (T)(object)GetChar(ordinal);
         }
-        if (typeof(T) == typeof(DateTime))
+        if (typeof(T) == typeof(DateTime) || typeof(T) == typeof(DateTime?))
         {
+            if (IsDBNull(ordinal) && typeof(T) == typeof(DateTime?))
+            {
+                return (T)(object)null!;
+            }
             return (T)(object)GetDateTime(ordinal);
         }
-        if (typeof(T) == typeof(double))
+        if (typeof(T) == typeof(double) || typeof(T) == typeof(double?))
         {
+            if (IsDBNull(ordinal) && typeof(T) == typeof(double?))
+            {
+                return (T)(object)null!;
+            }
             return (T)(object)GetDouble(ordinal);
         }
-        if (typeof(T) == typeof(float))
+        if (typeof(T) == typeof(float) || typeof(T) == typeof(float?))
         {
+            if (IsDBNull(ordinal) && typeof(T) == typeof(float?))
+            {
+                return (T)(object)null!;
+            }
             return (T)(object)GetFloat(ordinal);
         }
-        if (typeof(T) == typeof(Int16))
+        if (typeof(T) == typeof(Int16) || typeof(T) == typeof(Int16?))
         {
+            if (IsDBNull(ordinal) && typeof(T) == typeof(Int16?))
+            {
+                return (T)(object)null!;
+            }
             return (T)(object)GetInt16(ordinal);
         }
-        if (typeof(T) == typeof(int))
+        if (typeof(T) == typeof(int) || typeof(T) == typeof(int?))
         {
+            if (IsDBNull(ordinal) && typeof(T) == typeof(int?))
+            {
+                return (T)(object)null!;
+            }
             return (T)(object)GetInt32(ordinal);
         }
-        if (typeof(T) == typeof(long))
+        if (typeof(T) == typeof(long) || typeof(T) == typeof(long?))
         {
+            if (IsDBNull(ordinal) && typeof(T) == typeof(long?))
+            {
+                return (T)(object)null!;
+            }
             return (T)(object)GetInt64(ordinal);
         }
 
@@ -726,7 +776,7 @@ public class SpannerDataReader : DbDataReader
             case TypeCode.Int64:
                 return long.Parse(value.StringValue);
             case TypeCode.Interval:
-                return TimeSpan.Parse(value.StringValue);
+                return XmlConvert.ToTimeSpan(value.StringValue);
             case TypeCode.Json:
                 return value.StringValue;
             case TypeCode.Numeric:

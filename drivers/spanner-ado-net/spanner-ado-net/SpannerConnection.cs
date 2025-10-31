@@ -20,10 +20,13 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Transactions;
 using Google.Api.Gax;
 using Google.Cloud.Spanner.Common.V1;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib;
+using IsolationLevel = System.Data.IsolationLevel;
+using TransactionOptions = Google.Cloud.Spanner.V1.TransactionOptions;
 
 namespace Google.Cloud.Spanner.DataProvider;
 
@@ -99,9 +102,14 @@ public class SpannerConnection : DbConnection
         get
         {
             AssertOpen();
-            return Assembly.GetAssembly(typeof(Connection))?.GetName().Version?.ToString() ?? "";
+            // TODO: Return an actual version number
+            return "1.0.0";
         }
     }
+
+    internal Version ServerVersionNormalized => Version.Parse(ServerVersion);
+    
+    internal string ServerVersionNormalizedString => FormattableString.Invariant($"{ServerVersionNormalized.Major:000}.{ServerVersionNormalized.Minor:000}.{ServerVersionNormalized.Build:0000}");
 
     public override bool CanCreateBatch => true;
 
@@ -123,7 +131,13 @@ public class SpannerConnection : DbConnection
     internal uint DefaultCommandTimeout => _connectionStringBuilder?.CommandTimeout ?? 0;
         
     private SpannerTransaction? _transaction;
-
+    
+    private System.Transactions.Transaction? EnlistedTransaction { get; set; }
+    
+    private SpannerSchemaProvider? _mSchemaProvider;
+    
+    private SpannerSchemaProvider GetSchemaProvider() => _mSchemaProvider ??= new SpannerSchemaProvider(this);
+    
     public SpannerConnection()
     {
     }
@@ -140,6 +154,40 @@ public class SpannerConnection : DbConnection
         _connectionStringBuilder = connectionStringBuilder;
         _connectionString = connectionStringBuilder.ConnectionString;
     }
+    
+    public new ValueTask<SpannerTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
+        => BeginTransactionAsync(IsolationLevel.Unspecified, cancellationToken);
+
+    public new ValueTask<SpannerTransaction> BeginTransactionAsync(IsolationLevel isolationLevel,
+        CancellationToken cancellationToken = default)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return ValueTask.FromCanceled<SpannerTransaction>(cancellationToken);
+        }
+
+        try
+        {
+            return new ValueTask<SpannerTransaction>(BeginTransaction(new TransactionOptions
+            {
+                IsolationLevel = SpannerTransaction.TranslateIsolationLevel(isolationLevel),
+            }));
+        }
+        catch (Exception e)
+        {
+            return ValueTask.FromException<SpannerTransaction>(e);
+        }
+    }
+    
+    public new SpannerTransaction BeginTransaction() => BeginTransaction(IsolationLevel.Unspecified);
+
+    public new SpannerTransaction BeginTransaction(IsolationLevel isolationLevel)
+    {
+        return BeginTransaction(new TransactionOptions
+        {
+            IsolationLevel = SpannerTransaction.TranslateIsolationLevel(isolationLevel),
+        });
+    }
 
     protected override DbTransaction BeginDbTransaction(IsolationLevel isolationLevel)
     {
@@ -149,7 +197,7 @@ public class SpannerConnection : DbConnection
         });
     }
 
-    public DbTransaction BeginReadOnlyTransaction()
+    public SpannerTransaction BeginReadOnlyTransaction()
     {
         return BeginTransaction(new TransactionOptions
         {
@@ -163,7 +211,7 @@ public class SpannerConnection : DbConnection
     /// <param name="transactionOptions">The options to use for the new transaction</param>
     /// <returns>The new transaction</returns>
     /// <exception cref="InvalidOperationException">If the connection has an active transaction</exception>
-    public DbTransaction BeginTransaction(TransactionOptions transactionOptions)
+    public SpannerTransaction BeginTransaction(TransactionOptions transactionOptions)
     {
         EnsureOpen();
         GaxPreconditions.CheckState(!HasTransaction, "This connection has a transaction.");
@@ -296,6 +344,8 @@ public class SpannerConnection : DbConnection
         EnsureOpen();
         return LibConnection!.WriteMutationsAsync(mutations, cancellationToken);
     }
+    
+    public new SpannerCommand CreateCommand() => (SpannerCommand) base.CreateCommand();
 
     protected override DbCommand CreateDbCommand()
     {
@@ -343,5 +393,12 @@ public class SpannerConnection : DbConnection
     {
         return new SpannerCommand(this, new Mutation { Delete = new Mutation.Types.Delete { Table = table } });
     }
+    
+    public override DataTable GetSchema() => GetSchemaProvider().GetSchema();
+    
+    public override DataTable GetSchema(string collectionName)
+        => GetSchema(collectionName, null);
 
+    public override DataTable GetSchema(string collectionName, string?[]? restrictionValues)
+        => GetSchemaProvider().GetSchema(collectionName, restrictionValues);
 }

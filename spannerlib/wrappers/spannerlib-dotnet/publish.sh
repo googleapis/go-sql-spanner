@@ -20,6 +20,9 @@ fi
 # Build all components
 ./build.sh
 
+# Remove existing packages.
+find ./**/bin/Release -type f -name "Alpha*.nupkg" -exec rm {} \;
+
 # Pack and publish to nuget
 dotnet pack
 find ./**/bin/Release -type f -name "Alpha*.nupkg" -exec \

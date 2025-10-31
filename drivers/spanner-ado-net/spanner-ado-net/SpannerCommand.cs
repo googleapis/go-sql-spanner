@@ -45,7 +45,9 @@ public class SpannerCommand : DbCommand, ICloneable
 
     public override UpdateRowSource UpdatedRowSource { get; set; } = UpdateRowSource.Both;
     protected override DbConnection? DbConnection { get; set; }
+    
     protected override DbParameterCollection DbParameterCollection { get; } = new SpannerParameterCollection();
+    public new SpannerParameterCollection Parameters => (SpannerParameterCollection)DbParameterCollection;
     
     SpannerTransaction? _transaction;
     protected override DbTransaction? DbTransaction
@@ -311,7 +313,10 @@ public class SpannerCommand : DbCommand, ICloneable
         GaxPreconditions.CheckState(_mutation == null, "Cannot execute mutations with ExecuteDbDataReader()");
         try
         {
-            var rows = Execute();
+            var mode = behavior.HasFlag(CommandBehavior.SchemaOnly)
+                ? ExecuteSqlRequest.Types.QueryMode.Plan
+                : ExecuteSqlRequest.Types.QueryMode.Normal;
+            var rows = Execute(mode);
             return new SpannerDataReader(SpannerConnection, rows, behavior);
         }
         catch (SpannerException exception)
@@ -339,7 +344,10 @@ public class SpannerCommand : DbCommand, ICloneable
         GaxPreconditions.CheckState(_mutation == null, "Cannot execute mutations with ExecuteDbDataReader()");
         try
         {
-            var rows = await ExecuteAsync(cancellationToken);
+            var mode = behavior.HasFlag(CommandBehavior.SchemaOnly)
+                ? ExecuteSqlRequest.Types.QueryMode.Plan
+                : ExecuteSqlRequest.Types.QueryMode.Normal;
+            var rows = await ExecuteAsync(mode, cancellationToken);
             return new SpannerDataReader(SpannerConnection, rows, behavior);
         }
         catch (SpannerException exception)

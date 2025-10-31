@@ -63,9 +63,11 @@ internal static class TypeConversion
         return dbType == null ? null : SDbTypeToSpannerTypeMapping.GetValueOrDefault(dbType.Value);
     }
 
-    internal static System.Type GetSystemType(V1.Type type)
+    internal static System.Type GetSystemType(V1.Type type) => GetSystemType(type.Code);
+    
+    internal static System.Type GetSystemType(TypeCode code)
     {
-        return type.Code switch
+        return code switch
         {
             TypeCode.Bool => typeof(bool),
             TypeCode.Bytes => typeof(byte[]),
