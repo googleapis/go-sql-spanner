@@ -4572,9 +4572,9 @@ func TestRunTransaction(t *testing.T) {
 		// Verify that internal retries are disabled during RunTransaction
 		txi := reflect.ValueOf(tx).Elem().FieldByName("txi")
 		delegatingTx := (*delegatingTransaction)(txi.Elem().UnsafePointer())
-		rwTx := delegatingTx.contextTransaction.(*readWriteTransaction)
+		rwTx, ok := delegatingTx.contextTransaction.(*readWriteTransaction)
 		// Verify that getting the transaction through reflection worked.
-		if g, w := rwTx.ctx, ctx; g != w {
+		if !ok {
 			return fmt.Errorf("getting the transaction through reflection failed")
 		}
 		if rwTx.retryAborts() {
@@ -5034,9 +5034,9 @@ func TestBeginReadWriteTransaction(t *testing.T) {
 		// Verify that internal retries are disabled during this transaction.
 		txi := reflect.ValueOf(tx).Elem().FieldByName("txi")
 		delegatingTx := (*delegatingTransaction)(txi.Elem().UnsafePointer())
-		rwTx := delegatingTx.contextTransaction.(*readWriteTransaction)
+		rwTx, ok := delegatingTx.contextTransaction.(*readWriteTransaction)
 		// Verify that getting the transaction through reflection worked.
-		if g, w := rwTx.ctx, ctx; g != w {
+		if !ok {
 			t.Fatal("getting the transaction through reflection failed")
 		}
 		if rwTx.retryAborts() {
@@ -5552,6 +5552,47 @@ func TestReturnResultSetMetadataAndStats(t *testing.T) {
 	// There should be no more result sets.
 	if rows.NextResultSet() {
 		t.Fatal("more result sets than expected")
+	}
+}
+
+func TestConnectTimeout(t *testing.T) {
+	t.Parallel()
+
+	server, _, serverTeardown := setupMockedTestServerWithDialect(t, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+	defer serverTeardown()
+	db, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;connect_timeout=1ms", server.Address))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(db)
+
+	// Make the ExecuteStreamingSql method a bit slow, so the query that is used to detect the dialect responds a bit slowly.
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: time.Millisecond * 10})
+
+	// Try to get/create a connection using a context without a deadline.
+	// This will cause the connect_timeout to be used.
+	c, err := db.Conn(context.Background())
+	if g, w := spanner.ErrCode(err), codes.DeadlineExceeded; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	} else if c != nil {
+		_ = c.Close()
+	}
+}
+
+func TestInvalidConnectTimeout(t *testing.T) {
+	t.Parallel()
+
+	server, _, serverTeardown := setupMockedTestServerWithDialect(t, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+	defer serverTeardown()
+	db, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;connect_timeout='very long'", server.Address))
+	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	} else if db != nil {
+		defer silentClose(db)
 	}
 }
 

@@ -24,14 +24,15 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/googleapis/go-sql-spanner/testutil"
+	"go.uber.org/goleak"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 )
 
 func TestNoLeak(t *testing.T) {
-	t.Parallel()
+	// Not parallel, as it checks for leaked goroutines.
 
-	db, server, teardown := setupTestDBConnection(t)
+	db, server, teardown := setupTestDBConnectionWithParams(t, "statement_timeout=10s;transaction_timeout=20s")
 	defer teardown()
 	// Set MaxOpenConns to 1 to force an error if anything leaks a connection.
 	db.SetMaxOpenConns(1)
@@ -39,7 +40,7 @@ func TestNoLeak(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
 
-	for i := 0; i < 2; i++ {
+	runTests := func() {
 		pingContext(ctx, t, db)
 		pingFailed(ctx, t, server, db)
 		simpleQuery(ctx, t, db)
@@ -50,8 +51,28 @@ func TestNoLeak(t *testing.T) {
 		readOnlyTxWithStaleness(ctx, t, db)
 		simpleReadWriteTx(ctx, t, db)
 		runTransactionRetry(ctx, t, server, db)
+		runTransactionRetryAbortedHalfway(ctx, t, server, db)
 		readOnlyTxWithOptions(ctx, t, db)
 	}
+
+	for i := 0; i < 2; i++ {
+		runTests()
+	}
+	ignoreCurrent := goleak.IgnoreCurrent()
+
+	for i := 0; i < 10; i++ {
+		runTests()
+	}
+	goleak.VerifyNone(t, ignoreCurrent,
+		goleak.IgnoreTopFunction("cloud.google.com/go/spanner.(*healthChecker).worker"),
+		goleak.IgnoreTopFunction("cloud.google.com/go/spanner.(*healthChecker).multiplexSessionWorker"),
+		goleak.IgnoreTopFunction("cloud.google.com/go/spanner.(*healthChecker).maintainer"),
+		goleak.IgnoreTopFunction("google.golang.org/grpc/internal/transport.(*controlBuffer).get"),
+		goleak.IgnoreTopFunction("google.golang.org/grpc/internal/transport.(*http2Server).keepalive"),
+		goleak.IgnoreTopFunction("internal/poll.runtime_pollWait"),
+		goleak.IgnoreTopFunction("google.golang.org/grpc/internal/grpcsync.(*CallbackSerializer).run"),
+		goleak.IgnoreTopFunction("cloud.google.com/go/spanner.(*sessionPool).createMultiplexedSession"),
+	)
 }
 
 func pingContext(ctx context.Context, t *testing.T, db *sql.DB) {
@@ -300,6 +321,50 @@ func runTransactionRetry(ctx context.Context, t *testing.T, server *testutil.Moc
 			server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
 				Errors: []error{gstatus.Error(codes.Aborted, "Aborted")},
 			})
+		}
+		return nil
+	}, spanner.TransactionOptions{TransactionTag: "my_transaction_tag"})
+	if err != nil {
+		t.Fatalf("failed to run transaction: %v", err)
+	}
+}
+
+func runTransactionRetryAbortedHalfway(ctx context.Context, t *testing.T, server *testutil.MockedSpannerInMemTestServer, db *sql.DB) {
+	var attempts int
+	err := RunTransactionWithOptions(ctx, db, &sql.TxOptions{}, func(ctx context.Context, tx *sql.Tx) error {
+		attempts++
+		rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_1"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		if attempts == 1 {
+			server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
+				Errors: []error{gstatus.Error(codes.Aborted, "Aborted")},
+			})
+		}
+		if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_2"}}); err != nil {
+			return err
+		}
+
+		if attempts == 2 {
+			server.TestSpanner.PutExecutionTime(testutil.MethodExecuteBatchDml, testutil.SimulatedExecutionTime{
+				Errors: []error{gstatus.Error(codes.Aborted, "Aborted")},
+			})
+		}
+		if _, err := tx.ExecContext(ctx, "start batch dml", ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "tag_3"}}); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "run batch"); err != nil {
+			return err
 		}
 		return nil
 	}, spanner.TransactionOptions{TransactionTag: "my_transaction_tag"})

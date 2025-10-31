@@ -28,10 +28,67 @@ require_relative "message_handler"
 module SpannerLib
   extend FFI::Library
 
-  def self.library_path
-    lib_dir = File.expand_path(__dir__)
-    Dir.glob(File.join(lib_dir, "*/spannerlib.#{FFI::Platform::LIBSUFFIX}")).first
+  ENV_OVERRIDE = ENV.fetch("SPANNERLIB_PATH", nil)
+
+  def self.platform_dir_from_host
+    host_os  = RbConfig::CONFIG["host_os"]
+    host_cpu = RbConfig::CONFIG["host_cpu"]
+
+    case host_os
+    when /darwin/
+      host_cpu =~ /arm|aarch64/ ? "aarch64-darwin" : "x86_64-darwin"
+    when /linux/
+      host_cpu =~ /arm|aarch64/ ? "aarch64-linux" : "x86_64-linux"
+    when /mswin|mingw|cygwin/
+      "x64-mingw32"
+    end
   end
+
+  # Build list of candidate paths (ordered): env override, platform-specific, any packaged lib, system library
+  # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/MethodLength, Metrics/PerceivedComplexity
+  def self.library_path
+    if ENV_OVERRIDE && !ENV_OVERRIDE.empty?
+      return ENV_OVERRIDE if File.file?(ENV_OVERRIDE)
+
+      warn "SPANNERLIB_PATH set to #{ENV_OVERRIDE} but file not found"
+    end
+
+    lib_dir = File.expand_path(__dir__)
+    ext = FFI::Platform::LIBSUFFIX
+
+    platform = platform_dir_from_host
+    if platform
+      candidate = File.join(lib_dir, platform, "spannerlib.#{ext}")
+      return candidate if File.exist?(candidate)
+    end
+
+    # 3) Any matching packaged binary (first match)
+    glob_candidates = Dir.glob(File.join(lib_dir, "*", "spannerlib.#{ext}"))
+    return glob_candidates.first unless glob_candidates.empty?
+
+    # 4) Try loading system-wide library (so users who installed shared lib separately can use it)
+    begin
+      # Attempt to open system lib name; if succeeds, return bare name so ffi_lib can resolve it
+      FFI::DynamicLibrary.open("spannerlib", FFI::DynamicLibrary::RTLD_LAZY | FFI::DynamicLibrary::RTLD_GLOBAL)
+      return "spannerlib"
+    rescue LoadError
+      # This is intentional. If the system library fails to load,
+      # we'll proceed to the final LoadError with all search paths.
+    end
+
+    searched = []
+    searched << "ENV SPANNERLIB_PATH=#{ENV_OVERRIDE}" if ENV_OVERRIDE && !ENV_OVERRIDE.empty?
+    searched << File.join(lib_dir, platform || "<detected-platform?>", "spannerlib.#{ext}")
+    searched << File.join(lib_dir, "*", "spannerlib.#{ext}")
+
+    raise LoadError, <<~ERR
+      Could not locate the spannerlib native library. Tried:
+        - #{searched.join("\n  - ")}
+      If you are using the packaged gem, ensure the gem includes lib/spannerlib/<platform>/spannerlib.#{ext}.
+      You can set SPANNERLIB_PATH to the absolute path of the library file, or install a platform-specific native gem.
+    ERR
+  end
+  # rubocop:enable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/MethodLength, Metrics/PerceivedComplexity
 
   ffi_lib library_path
 

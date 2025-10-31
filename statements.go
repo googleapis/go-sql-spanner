@@ -103,7 +103,7 @@ func (s *executableShowStatement) queryContext(ctx context.Context, c *conn, opt
 	if err != nil {
 		return nil, err
 	}
-	return createRows(it, opts), nil
+	return createRows(it /*cancel=*/, nil, opts), nil
 }
 
 // SET [SESSION | LOCAL] [my_extension.]my_property {=|to} <value>
@@ -282,6 +282,10 @@ func (s *executableBeginStatement) execContext(ctx context.Context, c *conn, opt
 	if len(s.stmt.Identifiers) != len(s.stmt.Literals) {
 		return nil, status.Errorf(codes.InvalidArgument, "statement contains %d identifiers, but %d values given", len(s.stmt.Identifiers), len(s.stmt.Literals))
 	}
+	// The context that is passed in to c.BeginTx(..) becomes the transaction context. The transaction is automatically
+	// rolled back when that context is cancelled. We therefore create a derived context here that is not cancelled when
+	// the parent is cancelled.
+	ctx = context.WithoutCancel(ctx)
 	_, err := c.BeginTx(ctx, driver.TxOptions{})
 	if err != nil {
 		return nil, err

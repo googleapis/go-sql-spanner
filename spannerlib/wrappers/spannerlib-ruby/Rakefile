@@ -17,28 +17,111 @@
 require "bundler/gem_tasks"
 require "rspec/core/rake_task"
 require "rubocop/rake_task"
-require "rbconfig"
+require "fileutils"
 
 RSpec::Core::RakeTask.new(:spec)
-
 RuboCop::RakeTask.new
 
-task :compile do
-  go_source_dir = File.expand_path("../../shared", __dir__)
-  target_dir = File.expand_path("lib/spannerlib/#{RbConfig::CONFIG['arch']}", __dir__)
-  output_file = File.join(target_dir, "spannerlib.#{RbConfig::CONFIG['SOEXT']}")
+# --- Configuration for Native Library Compilation ---
 
-  mkdir_p target_dir
+# The relative path to the Go source code
+GO_SOURCE_DIR = File.expand_path("../../shared", __dir__)
 
-  command = [
-    "go", "build",
-    "-buildmode=c-shared",
-    "-o", output_file,
-    go_source_dir
-  ].join(" ")
+# The base directory where compiled libraries will be stored
+LIB_DIR = File.expand_path("lib/spannerlib", __dir__)
 
-  puts command
-  sh command
+# Define all the platforms we want to build for.
+# The 'key' is the directory name (matches Ruby's `RbConfig::CONFIG['arch']`)
+# The 'goos' and 'goarch' are for Go's cross-compiler.
+# The 'ext' is the file extension for the shared library.
+PLATFORMS = {
+  "aarch64-darwin" => { goos: "darwin", goarch: "arm64", ext: "dylib" },
+  "x86_64-darwin" => { goos: "darwin", goarch: "amd64", ext: "dylib" },
+  "aarch64-linux" => { goos: "linux",  goarch: "arm64", ext: "so" },
+  "x86_64-linux" => { goos: "linux",  goarch: "amd64", ext: "so" },
+  "x64-mingw32" => { goos: "windows", goarch: "amd64", ext: "dll" } # For Windows
+}.freeze
+
+# --- Rake Tasks for Compilation ---
+
+# rubocop:disable Metrics/BlockLength
+# Create a 'compile' namespace for all build tasks
+namespace :compile do
+  desc "Remove all compiled native libraries"
+  task :clean do
+    PLATFORMS.each_key do |arch|
+      target_dir = File.join(LIB_DIR, arch)
+      puts "Cleaning #{target_dir}"
+      rm_rf target_dir
+    end
+  end
+  # rubocop:enable Metrics/BlockLength
+
+  # Dynamically create a build task for each platform
+  # rubocop:disable Metrics/BlockLength
+  PLATFORMS.each do |arch, config|
+    desc "Compile native library for #{arch}"
+    task arch do
+      target_dir = File.join(LIB_DIR, arch)
+      output_file = File.join(target_dir, "spannerlib.#{config[:ext]}")
+
+      mkdir_p target_dir
+
+      # Set environment variables for cross-compilation
+      env = {
+        "GOOS" => config[:goos],
+        "GOARCH" => config[:goarch],
+        "CGO_ENABLED" => "1" # Ensure CGO is enabled for c-shared
+      }
+
+      # Set platform-specific C toolchain environment vars so cgo invokes the correct compiler/assembler/linker.
+      case config[:goos]
+      when "linux"
+        if config[:goarch] == "arm64" || config[:goarch] == "arm" || arch.include?("aarch64")
+          # Use the aarch64 cross-compiler installed via apt (aarch64-linux-gnu-*)
+          env["CC"]     = ENV.fetch("CC", "aarch64-linux-gnu-gcc")
+          env["CXX"]    = ENV.fetch("CXX", "aarch64-linux-gnu-g++")
+          env["AR"]     = ENV.fetch("AR", "aarch64-linux-gnu-ar")
+          env["RANLIB"] = ENV.fetch("RANLIB", "aarch64-linux-gnu-ranlib")
+        else
+          # For x86_64 linux, host gcc should work on linux runners
+          env["CC"] ||= ENV.fetch("CC", "gcc")
+        end
+      when "windows"
+        # Use mingw-w64 cross compiler binaries (installed via apt on linux)
+        if config[:goarch] == "amd64" || arch.include?("mingw") || arch.include?("x64")
+          env["CC"]     = ENV.fetch("CC", "x86_64-w64-mingw32-gcc")
+          env["CXX"]    = ENV.fetch("CXX", "x86_64-w64-mingw32-g++")
+          env["AR"]     = ENV.fetch("AR", "x86_64-w64-mingw32-ar")
+          env["RANLIB"] = ENV.fetch("RANLIB", "x86_64-w64-mingw32-ranlib")
+        end
+      when "darwin"
+        # NOTE: cross-compiling darwin/arm64 on an x86 mac runner is NOT reliably supported
+        # unless you use osxcross or an ARM mac runner. We try nothing here; rely on runner's clang.
+        env["CC"] ||= ENV.fetch("CC", "clang")
+      end
+
+      command = [
+        "go", "build",
+        "-buildmode=c-shared",
+        "-o", output_file,
+        GO_SOURCE_DIR
+      ].join(" ")
+
+      puts "Building for #{arch}..."
+      puts "[#{env.map { |k, v| "#{k}=#{v}" }.join(' ')}] #{command}"
+
+      # Execute the build command with the correct environment
+      sh env, command
+
+      puts "Successfully built #{output_file}"
+    end
+  end
+  # rubocop:enable Metrics/BlockLength
+
+  desc "Compile native libraries for all platforms"
+  task all: PLATFORMS.keys
 end
 
-task default: %i[compile spec rubocop]
+desc "Run all build and test tasks"
+task default: ["compile:all", :spec, :rubocop]

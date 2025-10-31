@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.21.0](https://github.com/googleapis/go-sql-spanner/compare/v1.20.0...v1.21.0) (2025-10-29)
+
+
+### Features
+
+* Support connect_timeout property ([#577](https://github.com/googleapis/go-sql-spanner/issues/577)) ([6f87624](https://github.com/googleapis/go-sql-spanner/commit/6f87624c06e79401e3916d485b3d74ecc0c6bc05)), refs [#576](https://github.com/googleapis/go-sql-spanner/issues/576)
+
+
+### Bug Fixes
+
+* Remove git submodule from project ([#586](https://github.com/googleapis/go-sql-spanner/issues/586)) ([bb26650](https://github.com/googleapis/go-sql-spanner/commit/bb26650539dda6e744f7db13eb197b55fec1a2da))
+* Update all dependencies ([#584](https://github.com/googleapis/go-sql-spanner/issues/584)) ([19ce82c](https://github.com/googleapis/go-sql-spanner/commit/19ce82c583fccf425d0dff5b3202b82a7d81d8f1))
+
+## [1.20.0](https://github.com/googleapis/go-sql-spanner/compare/v1.19.0...v1.20.0) (2025-10-28)
+
+
+### Features
+
+* Parse SET TRANSACTION statements ([#549](https://github.com/googleapis/go-sql-spanner/issues/549)) ([6a396d3](https://github.com/googleapis/go-sql-spanner/commit/6a396d35be5b7ccbc5bb0e1cae5ad503ed705e5e))
+* Support transaction options in BEGIN statements ([#550](https://github.com/googleapis/go-sql-spanner/issues/550)) ([49e945e](https://github.com/googleapis/go-sql-spanner/commit/49e945e9a22be07f88168e80cdc842b23daa5a67))
+
+
+### Bug Fixes
+
+* Return batch update counts also when retries are disabled ([#566](https://github.com/googleapis/go-sql-spanner/issues/566)) ([6f8c1e2](https://github.com/googleapis/go-sql-spanner/commit/6f8c1e2546459ae930ed6faae4127da6c25ceeef))
+* Update all dependencies ([#551](https://github.com/googleapis/go-sql-spanner/issues/551)) ([7457422](https://github.com/googleapis/go-sql-spanner/commit/7457422807a9b2ed83cacc13f251c5826d64165f))
+* Update all dependencies ([#556](https://github.com/googleapis/go-sql-spanner/issues/556)) ([e99a48f](https://github.com/googleapis/go-sql-spanner/commit/e99a48ff51f500640caa19713ef475e5874cfe00))
+* Update dependency io.grpc:grpc-bom to v1.76.0 ([#561](https://github.com/googleapis/go-sql-spanner/issues/561)) ([fdd991b](https://github.com/googleapis/go-sql-spanner/commit/fdd991ba039b9a6409105d29e10d52b2ca041662))
+* Update dependency io.netty:netty-transport-native-epoll to v4.2.7.final ([#559](https://github.com/googleapis/go-sql-spanner/issues/559)) ([5b79883](https://github.com/googleapis/go-sql-spanner/commit/5b7988325b723ac603e5e6812e847283ed5a136c))
+* Update protobuf monorepo ([#562](https://github.com/googleapis/go-sql-spanner/issues/562)) ([32cd9f0](https://github.com/googleapis/go-sql-spanner/commit/32cd9f0567546be05df04455745c140424c588e4))
+
 ## [1.19.0](https://github.com/googleapis/go-sql-spanner/compare/v1.18.1...v1.19.0) (2025-10-07)
 
 

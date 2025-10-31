@@ -51,7 +51,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const userAgent = "go-sql-spanner/1.19.0" // x-release-please-version
+const userAgent = "go-sql-spanner/1.21.0" // x-release-please-version
 
 const gormModule = "github.com/googleapis/go-gorm-spanner"
 const gormUserAgent = "go-gorm-spanner"
@@ -204,12 +204,16 @@ type ExecOptions struct {
 	// order to move to the result set that contains the spannerpb.ResultSetStats.
 	ReturnResultSetStats bool
 
-	// DirectExecute determines whether a query is executed directly when the
+	// DirectExecuteQuery determines whether a query is executed directly when the
 	// [sql.DB.QueryContext] method is called, or whether the actual query execution
 	// is delayed until the first call to [sql.Rows.Next]. The default is to delay
 	// the execution. Set this flag to true to execute the query directly when
 	// [sql.DB.QueryContext] is called.
 	DirectExecuteQuery bool
+
+	// DirectExecuteContext is the context that is used for the execution of a query
+	// when DirectExecuteQuery is enabled.
+	DirectExecuteContext context.Context
 }
 
 func (dest *ExecOptions) merge(src *ExecOptions) {
@@ -230,6 +234,9 @@ func (dest *ExecOptions) merge(src *ExecOptions) {
 	}
 	if src.DirectExecuteQuery {
 		dest.DirectExecuteQuery = src.DirectExecuteQuery
+	}
+	if src.DirectExecuteContext != nil {
+		dest.DirectExecuteContext = src.DirectExecuteContext
 	}
 	if src.AutocommitDMLMode != Unspecified {
 		dest.AutocommitDMLMode = src.AutocommitDMLMode
@@ -732,6 +739,17 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		c.connectorConfig.Project,
 		c.connectorConfig.Instance,
 		c.connectorConfig.Database)
+	if value, ok := c.initialPropertyValues[propertyConnectTimeout.Key()]; ok {
+		if timeout, err := value.GetValue(); err == nil {
+			if duration, ok := timeout.(time.Duration); ok {
+				var cancel context.CancelFunc
+				// This will set the actual timeout of the context to the lower of the
+				// current context timeout (if any) and the value from the connection property.
+				ctx, cancel = context.WithTimeout(ctx, duration)
+				defer cancel()
+			}
+		}
+	}
 
 	if err := c.increaseConnCount(ctx, databaseName, opts); err != nil {
 		return nil, err

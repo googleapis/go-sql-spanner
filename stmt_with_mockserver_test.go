@@ -20,12 +20,15 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/googleapis/go-sql-spanner/testdata/protos/concertspb"
 	"github.com/googleapis/go-sql-spanner/testutil"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -177,5 +180,92 @@ func TestPrepareWithValuerScanner(t *testing.T) {
 	}
 	if g, w := params.Fields["p1"], wantParamValue; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(structpb.Value{})) {
 		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestStatementTimeout(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnectionWithParams(t, "statement_timeout=1ms")
+	defer teardown()
+	ctx := context.Background()
+
+	// The database/sql driver uses ExecuteStreamingSql for all statements.
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: 10 * time.Millisecond})
+
+	_, err := db.ExecContext(ctx, testutil.UpdateBarSetFoo)
+	if g, w := spanner.ErrCode(err), codes.DeadlineExceeded; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if !strings.Contains(err.Error(), "requestID =") {
+		t.Fatalf("missing requestID in error: %v", err)
+	}
+	_, err = db.QueryContext(ctx, testutil.SelectFooFromBar, ExecOptions{DirectExecuteQuery: true})
+	if g, w := spanner.ErrCode(err), codes.DeadlineExceeded; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if !strings.Contains(err.Error(), "requestID =") {
+		t.Fatalf("missing requestID in error: %v", err)
+	}
+
+	// Get a connection and remove the timeout and verify that the statements work.
+	c, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ExecContext(ctx, "set statement_timeout = null"); err != nil {
+		t.Fatalf("failed to remove statement_timeout: %v", err)
+	}
+	_, err = c.ExecContext(ctx, testutil.UpdateBarSetFoo)
+	if g, w := spanner.ErrCode(err), codes.OK; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	r, err := c.QueryContext(ctx, testutil.SelectFooFromBar, ExecOptions{DirectExecuteQuery: true})
+	if r != nil {
+		_ = r.Close()
+	}
+	if g, w := spanner.ErrCode(err), codes.OK; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Add the timeout again on the connection and verify that the statements time out again.
+	if _, err := c.ExecContext(ctx, "set statement_timeout = 1ms"); err != nil {
+		t.Fatalf("failed to set statement_timeout: %v", err)
+	}
+	_, err = c.ExecContext(ctx, testutil.UpdateBarSetFoo)
+	if g, w := spanner.ErrCode(err), codes.DeadlineExceeded; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if !strings.Contains(err.Error(), "requestID =") {
+		t.Fatalf("missing requestID in error: %v", err)
+	}
+	_, err = c.QueryContext(ctx, testutil.SelectFooFromBar, ExecOptions{DirectExecuteQuery: true})
+	if g, w := spanner.ErrCode(err), codes.DeadlineExceeded; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if !strings.Contains(err.Error(), "requestID =") {
+		t.Fatalf("missing requestID in error: %v", err)
+	}
+
+	// Set a longer timeout and verify that executing a query and iterating its results works.
+	if _, err := c.ExecContext(ctx, "set statement_timeout = 1s"); err != nil {
+		t.Fatalf("failed to set statement_timeout: %v", err)
+	}
+	r, err = c.QueryContext(ctx, testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for r.Next() {
+		var val int64
+		if err := r.Scan(&val); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
 	}
 }

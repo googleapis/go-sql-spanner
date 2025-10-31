@@ -15,6 +15,7 @@
 package spannerdriver
 
 import (
+	"context"
 	"database/sql/driver"
 	"errors"
 	"fmt"
@@ -41,9 +42,10 @@ const (
 
 var _ driver.RowsNextResultSet = &rows{}
 
-func createRows(it rowIterator, opts *ExecOptions) *rows {
+func createRows(it rowIterator, cancel context.CancelFunc, opts *ExecOptions) *rows {
 	return &rows{
 		it:                      it,
+		cancel:                  cancel,
 		decodeOption:            opts.DecodeOption,
 		decodeToNativeArrays:    opts.DecodeToNativeArrays,
 		returnResultSetMetadata: opts.ReturnResultSetMetadata,
@@ -52,8 +54,9 @@ func createRows(it rowIterator, opts *ExecOptions) *rows {
 }
 
 type rows struct {
-	it    rowIterator
-	close func() error
+	it     rowIterator
+	close  func() error
+	cancel context.CancelFunc
 
 	colsOnce sync.Once
 	dirtyErr error
@@ -118,6 +121,9 @@ func (r *rows) Close() error {
 		if err := r.close(); err != nil {
 			return err
 		}
+	}
+	if r.cancel != nil {
+		r.cancel()
 	}
 	return nil
 }
@@ -487,6 +493,7 @@ var emptyRowsMetadata = &sppb.ResultSetMetadata{
 var emptyRowsStats = &sppb.ResultSetStats{}
 
 type emptyRows struct {
+	cancel                  context.CancelFunc
 	currentResultSetType    resultSetType
 	returnResultSetMetadata bool
 	returnResultSetStats    bool
@@ -495,8 +502,9 @@ type emptyRows struct {
 	hasReturnedResultSetStats    bool
 }
 
-func createDriverResultRows(_ driver.Result, opts *ExecOptions) *emptyRows {
+func createDriverResultRows(_ driver.Result, cancel context.CancelFunc, opts *ExecOptions) *emptyRows {
 	res := &emptyRows{
+		cancel:                  cancel,
 		returnResultSetMetadata: opts.ReturnResultSetMetadata,
 		returnResultSetStats:    opts.ReturnResultSetStats,
 	}
@@ -539,6 +547,9 @@ func (e *emptyRows) Columns() []string {
 }
 
 func (e *emptyRows) Close() error {
+	if e.cancel != nil {
+		e.cancel()
+	}
 	return nil
 }
 

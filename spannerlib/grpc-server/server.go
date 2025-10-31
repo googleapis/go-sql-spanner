@@ -111,22 +111,10 @@ func (s *spannerLibServer) CloseConnection(ctx context.Context, connection *pb.C
 	return &emptypb.Empty{}, nil
 }
 
-func contextWithSameDeadline(ctx context.Context) context.Context {
-	newContext := context.Background()
-	if deadline, ok := ctx.Deadline(); ok {
-		// Ignore the returned cancel function here, as the context will be closed when the Rows object is closed.
-		//goland:noinspection GoVetLostCancel
-		newContext, _ = context.WithDeadline(newContext, deadline)
-	}
-	return newContext
-}
-
-func (s *spannerLibServer) Execute(ctx context.Context, request *pb.ExecuteRequest) (*pb.Rows, error) {
-	// Create a new context that is used for the query. We need to do this, because the context that is passed in to
-	// this function will be cancelled once the RPC call finishes. That again would cause further calls to Next on the
-	// underlying rows object to fail with a 'Context cancelled' error.
-	queryContext := contextWithSameDeadline(ctx)
-	id, err := api.Execute(queryContext, request.Connection.Pool.Id, request.Connection.Id, request.ExecuteSqlRequest)
+func (s *spannerLibServer) Execute(ctx context.Context, request *pb.ExecuteRequest) (returnedRows *pb.Rows, returnedErr error) {
+	// Only use the context of the gRPC invocation for the DirectExecute option. That is: It is only used
+	// for fetching the first results, and can be cancelled after that.
+	id, err := api.ExecuteWithDirectExecuteContext(context.Background(), ctx, request.Connection.Pool.Id, request.Connection.Id, request.ExecuteSqlRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -134,12 +122,12 @@ func (s *spannerLibServer) Execute(ctx context.Context, request *pb.ExecuteReque
 }
 
 func (s *spannerLibServer) ExecuteStreaming(request *pb.ExecuteRequest, stream grpc.ServerStreamingServer[pb.RowData]) error {
-	queryContext := contextWithSameDeadline(stream.Context())
+	queryContext := stream.Context()
 	id, err := api.Execute(queryContext, request.Connection.Pool.Id, request.Connection.Id, request.ExecuteSqlRequest)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = api.CloseRows(queryContext, request.Connection.Pool.Id, request.Connection.Id, id) }()
+	defer func() { _ = api.CloseRows(context.Background(), request.Connection.Pool.Id, request.Connection.Id, id) }()
 	rows := &pb.Rows{Connection: request.Connection, Id: id}
 	metadata, err := api.Metadata(queryContext, request.Connection.Pool.Id, request.Connection.Id, id)
 	if err != nil {
@@ -223,12 +211,7 @@ func (s *spannerLibServer) BeginTransaction(ctx context.Context, request *pb.Beg
 	// Create a new context that is used for the transaction. We need to do this, because the context that is passed in
 	// to this function will be cancelled once the RPC call finishes. That again would cause further calls on
 	// the underlying transaction to fail with a 'Context cancelled' error.
-	txContext := context.Background()
-	if deadline, ok := ctx.Deadline(); ok {
-		// Ignore the returned cancel function here, as the context will be closed when the transaction is closed.
-		//goland:noinspection GoVetLostCancel
-		txContext, _ = context.WithDeadline(txContext, deadline)
-	}
+	txContext := context.WithoutCancel(ctx)
 	err := api.BeginTransaction(txContext, request.Connection.Pool.Id, request.Connection.Id, request.TransactionOptions)
 	if err != nil {
 		return nil, err
