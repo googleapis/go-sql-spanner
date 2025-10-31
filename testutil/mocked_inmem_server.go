@@ -17,6 +17,7 @@ package testutil
 import (
 	"encoding/base64"
 	"fmt"
+	"math"
 	"net"
 	"strconv"
 	"testing"
@@ -111,7 +112,10 @@ func (s *MockedSpannerInMemTestServer) setupMockedServerWithAddr(t *testing.T, a
 	s.setupSelect1Result()
 	s.setupFooResults()
 	s.setupSingersResults()
-	s.server = grpc.NewServer()
+	var serverOpts []grpc.ServerOption
+	// Set a max message size that is essentially no limit.
+	serverOpts = append(serverOpts, grpc.MaxRecvMsgSize(math.MaxInt32))
+	s.server = grpc.NewServer(serverOpts...)
 	spannerpb.RegisterSpannerServer(s.server, s.TestSpanner)
 	instancepb.RegisterInstanceAdminServer(s.server, s.TestInstanceAdmin)
 	databasepb.RegisterDatabaseAdminServer(s.server, s.TestDatabaseAdmin)

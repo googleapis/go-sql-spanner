@@ -38,8 +38,10 @@ echo "Skip windows: $SKIP_WINDOWS"
 
 # Remove existing builds
 rm -r ./spannerlib-dotnet-native/libraries 2> /dev/null
+rm -r ./spannerlib-dotnet-grpc-server/binaries 2> /dev/null
 rm -r ./*/bin 2> /dev/null
 rm -r ./*/obj 2> /dev/null
+dotnet nuget locals global-packages --clear
 
 # Build gRPC server
 echo "Building gRPC server..."

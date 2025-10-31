@@ -46,6 +46,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to listen: %v\n", err)
 	}
+	grpcServer, err := createServer()
+	if err != nil {
+		log.Fatalf("failed to create server: %v\n", err)
+	}
+	log.Printf("Starting gRPC server on %s\n", lis.Addr().String())
+	err = grpcServer.Serve(lis)
+	if err != nil {
+		log.Printf("failed to serve: %v\n", err)
+	}
+}
+
+func createServer() (*grpc.Server, error) {
 	var opts []grpc.ServerOption
 	// Set a max message size that is essentially no limit.
 	opts = append(opts, grpc.MaxRecvMsgSize(math.MaxInt32))
@@ -53,11 +65,8 @@ func main() {
 
 	server := spannerLibServer{}
 	pb.RegisterSpannerLibServer(grpcServer, &server)
-	log.Printf("Starting gRPC server on %s\n", lis.Addr().String())
-	err = grpcServer.Serve(lis)
-	if err != nil {
-		log.Printf("failed to serve: %v\n", err)
-	}
+
+	return grpcServer, nil
 }
 
 var _ pb.SpannerLibServer = &spannerLibServer{}

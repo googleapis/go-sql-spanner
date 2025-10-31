@@ -708,6 +708,23 @@ const (
 	StatementTypeClientSide
 )
 
+func (st StatementType) String() string {
+	switch st {
+	case StatementTypeQuery:
+		return "Query"
+	case StatementTypeDml:
+		return "DML"
+	case StatementTypeDdl:
+		return "DDL"
+	case StatementTypeClientSide:
+		return "ClientSide"
+	case StatementTypeUnknown:
+	default:
+		return "Unknown"
+	}
+	return "Unknown"
+}
+
 // DmlType designates the type of modification that a DML statement will execute.
 type DmlType int
 

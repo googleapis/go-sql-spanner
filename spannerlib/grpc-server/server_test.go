@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -228,6 +230,74 @@ func TestExecuteStreaming(t *testing.T) {
 		numRows++
 	}
 	if g, w := numRows, 2; g != w {
+		t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	if _, err := client.ClosePool(ctx, pool); err != nil {
+		t.Fatalf("failed to close pool: %v", err)
+	}
+}
+
+func TestLargeMessage(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	server, teardown := setupMockSpannerServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	client, cleanup := startTestSpannerLibServer(t)
+	defer cleanup()
+
+	pool, err := client.CreatePool(ctx, &pb.CreatePoolRequest{ConnectionString: dsn})
+	if err != nil {
+		t.Fatalf("failed to create pool: %v", err)
+	}
+	connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
+	if err != nil {
+		t.Fatalf("failed to create connection: %v", err)
+	}
+
+	query := "insert into foo (value) values (@value)"
+	b := make([]byte, 10_000_000)
+	n, err := cryptorand.Read(b)
+	if err != nil {
+		t.Fatalf("failed to read value: %v", err)
+	}
+	if g, w := n, len(b); g != w {
+		t.Fatalf("length mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	value := base64.StdEncoding.EncodeToString(b)
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	stream, err := client.ExecuteStreaming(ctx, &pb.ExecuteRequest{
+		Connection: connection,
+		ExecuteSqlRequest: &sppb.ExecuteSqlRequest{
+			Sql: query,
+			Params: &structpb.Struct{
+				Fields: map[string]*structpb.Value{
+					"value": {Kind: &structpb.Value_StringValue{StringValue: value}},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to execute: %v", err)
+	}
+	numRows := 0
+	for {
+		row, err := stream.Recv()
+		if err != nil {
+			t.Fatalf("failed to receive row: %v", err)
+		}
+		if len(row.Data) == 0 {
+			break
+		}
+		numRows++
+	}
+	if g, w := numRows, 0; g != w {
 		t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
@@ -660,11 +730,10 @@ func startTestSpannerLibServer(t *testing.T) (client pb.SpannerLibClient, cleanu
 		t.Fatalf("failed to listen: %v\n", err)
 	}
 	addr := lis.Addr().String()
-	var opts []grpc.ServerOption
-	grpcServer := grpc.NewServer(opts...)
-
-	server := spannerLibServer{}
-	pb.RegisterSpannerLibServer(grpcServer, &server)
+	grpcServer, err := createServer()
+	if err != nil {
+		t.Fatalf("failed to create server: %v\n", err)
+	}
 	go func() { _ = grpcServer.Serve(lis) }()
 
 	conn, err := grpc.NewClient(
