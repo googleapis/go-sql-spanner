@@ -19,7 +19,6 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
-	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
@@ -1028,7 +1027,7 @@ func (c *conn) directExecuteQuery(ctx context.Context, cancelQuery context.Cance
 			// one error. This will preserve the DeadlineExceeded error code from statementErr, and include the request
 			// ID from the Spanner error.
 			s := status.FromContextError(statementErr)
-			return fmt.Errorf("%w: %w", s.Err(), res.dirtyErr)
+			return errors.Join(s.Err(), res.dirtyErr)
 		}
 		return res.dirtyErr
 	}
