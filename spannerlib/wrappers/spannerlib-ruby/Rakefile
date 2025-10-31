@@ -71,6 +71,33 @@ namespace :compile do
         "CGO_ENABLED" => "1" # Ensure CGO is enabled for c-shared
       }
 
+      # Set platform-specific C toolchain environment vars so cgo invokes the correct compiler/assembler/linker.
+      case config[:goos]
+      when "linux"
+        if config[:goarch] == "arm64" || config[:goarch] == "arm" || arch.include?("aarch64")
+          # Use the aarch64 cross-compiler installed via apt (aarch64-linux-gnu-*)
+          env["CC"]     = ENV.fetch("CC", "aarch64-linux-gnu-gcc")
+          env["CXX"]    = ENV.fetch("CXX", "aarch64-linux-gnu-g++")
+          env["AR"]     = ENV.fetch("AR", "aarch64-linux-gnu-ar")
+          env["RANLIB"] = ENV.fetch("RANLIB", "aarch64-linux-gnu-ranlib")
+        else
+          # For x86_64 linux, host gcc should work on linux runners
+          env["CC"] ||= ENV.fetch("CC", "gcc")
+        end
+      when "windows"
+        # Use mingw-w64 cross compiler binaries (installed via apt on linux)
+        if config[:goarch] == "amd64" || arch.include?("mingw") || arch.include?("x64")
+          env["CC"]     = ENV.fetch("CC", "x86_64-w64-mingw32-gcc")
+          env["CXX"]    = ENV.fetch("CXX", "x86_64-w64-mingw32-g++")
+          env["AR"]     = ENV.fetch("AR", "x86_64-w64-mingw32-ar")
+          env["RANLIB"] = ENV.fetch("RANLIB", "x86_64-w64-mingw32-ranlib")
+        end
+      when "darwin"
+        # Note: cross-compiling darwin/arm64 on an x86 mac runner is NOT reliably supported
+        # unless you use osxcross or an ARM mac runner. We try nothing here; rely on runner's clang.
+        env["CC"] ||= ENV.fetch("CC", "clang")
+      end
+
       command = [
         "go", "build",
         "-buildmode=c-shared",
