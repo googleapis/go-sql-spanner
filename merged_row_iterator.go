@@ -125,7 +125,7 @@ func (m *mergedRowIterator) nextIndex() int {
 
 func (m *mergedRowIterator) produceRowsFromPartition(ctx context.Context, index int) {
 	m.logger.DebugContext(ctx, "merged row iterator producing rows from partition", "index", index)
-	r, err := m.partitionedQuery.execute(ctx, index)
+	r, err := m.partitionedQuery.execute(ctx /*cancel=*/, nil, index)
 	if err != nil {
 		m.registerErr(err)
 		return
