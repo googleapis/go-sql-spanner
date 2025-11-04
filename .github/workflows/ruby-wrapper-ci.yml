@@ -1,0 +1,84 @@
+name: Ruby Wrapper CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    # Run CI on PRs targeting the main branch
+    branches: [ main ]
+
+jobs:
+  test:
+    strategy:
+      # Run this job for all 3 major operating systems
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    services:
+      spanner-emulator:
+        image: gcr.io/cloud-spanner-emulator/emulator
+        ports:
+          - 9010:9010
+    
+    # The Spanner emulator is now started manually in the steps below
+    # instead of using the services block, which requires Docker.
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21' # Or your project's Go version
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3' # Or your project's Ruby version
+          bundler-cache: true
+          working-directory: 'spannerlib/wrappers/spannerlib-ruby'
+
+      - name: Wait for Emulator
+        # This step is crucial to ensure the emulator is ready
+        # before the tests try to connect to it.
+        run: |
+          timeout=60
+          while ! curl -s http://localhost:9010; do
+            sleep 1
+            timeout=$((timeout - 1))
+            if [ $timeout -le 0 ]; then
+              echo "Emulator failed to start"
+              # Print the log file for debugging if it exists
+              if [ -f spanner-emulator.log ]; then
+                echo "--- Emulator Log ---"
+                cat spanner-emulator.log
+                echo "--------------------"
+              fi
+              exit 1
+            fi
+          done
+        shell: bash
+
+      # This step automatically figures out the Ruby arch string
+      # e.g., "x86_64-linux" or "aarch64-darwin"
+      - name: Get Ruby Arch
+        id: ruby_arch
+        run: echo "arch=$(ruby -r rbconfig -e "puts RbConfig::CONFIG['arch']")" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Compile Local Native Binary
+        working-directory: spannerlib/wrappers/spannerlib-ruby
+        run: |
+          # Runs the specific compile task for the OS this job is on
+          # e.g., bundle exec rake compile:x86_64-linux
+          bundle exec rake compile:${{ steps.ruby_arch.outputs.arch }}
+
+      - name: Run RSpec
+        working-directory: spannerlib/wrappers/spannerlib-ruby
+        env:
+          # This tells the tests where to find the emulator
+          SPANNER_EMULATOR_HOST: localhost:9010
+        run: bundle exec rake spec
+
