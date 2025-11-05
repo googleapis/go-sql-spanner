@@ -269,3 +269,50 @@ func TestStatementTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestStatementScopedPropertyValues(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	_, err := db.ExecContext(ctx, testutil.UpdateBarSetFoo, &ExecOptions{PropertyValues: []PropertyValue{
+		CreatePropertyValue("statement_tag", "my_update_tag"),
+		CreatePropertyValue("rpc_priority", "low"),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	it, err := db.QueryContext(ctx, testutil.SelectFooFromBar, ExecOptions{DirectExecuteQuery: true, PropertyValues: []PropertyValue{
+		CreatePropertyValue("statement_tag", "my_query_tag"),
+		CreatePropertyValue("rpc_priority", "medium"),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = it.Close()
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 2; g != w {
+		t.Fatalf("number of execute requests mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	update := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+	if g, w := update.RequestOptions.RequestTag, "my_update_tag"; g != w {
+		t.Fatalf("request tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := update.RequestOptions.Priority, spannerpb.RequestOptions_PRIORITY_LOW; g != w {
+		t.Fatalf("request priority mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	query := executeRequests[1].(*spannerpb.ExecuteSqlRequest)
+	if g, w := query.RequestOptions.RequestTag, "my_query_tag"; g != w {
+		t.Fatalf("request tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := query.RequestOptions.Priority, spannerpb.RequestOptions_PRIORITY_MEDIUM; g != w {
+		t.Fatalf("request priority mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
