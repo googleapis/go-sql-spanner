@@ -279,7 +279,11 @@ func (p *StatementParser) ParseParameters(sql string) (string, []string, error) 
 // Skips all whitespaces from the given position and returns the
 // position of the next non-whitespace character or len(sql) if
 // the string does not contain any whitespaces after pos.
-func (p *StatementParser) skipWhitespacesAndComments(sql []byte, pos int) int {
+//
+// PostgreSQL hints are encoded as comments in the following form:
+// /*@ hint_key=hint_value[, hint_key2=hint_value2[,...]] */
+// The skipPgHints argument indicates whether those comments should also be skipped or not.
+func (p *StatementParser) skipWhitespacesAndComments(sql []byte, pos int, skipPgHints bool) int {
 	for pos < len(sql) {
 		c := sql[pos]
 		if isMultibyte(c) {
@@ -293,6 +297,10 @@ func (p *StatementParser) skipWhitespacesAndComments(sql []byte, pos int) int {
 			pos = p.skipSingleLineComment(sql, pos+1)
 		} else if c == '/' && len(sql) > pos+1 && sql[pos+1] == '*' {
 			// This is a multi line comment starting with '/*'.
+			if !skipPgHints && len(sql) > pos+2 && sql[pos+2] == '@' {
+				// This is a PostgreSQL hint, and we should not skip it.
+				break
+			}
 			pos = p.skipMultiLineComment(sql, pos)
 		} else if !isSpace(c) {
 			break
@@ -745,7 +753,7 @@ func (p *StatementParser) DetectStatementType(sql string) *StatementInfo {
 
 func (p *StatementParser) calculateDetectStatementType(sql string) *StatementInfo {
 	parser := &simpleParser{sql: []byte(sql), statementParser: p}
-	_ = parser.skipStatementHint()
+	_, _ = parser.skipStatementHint()
 	keyword := strings.ToUpper(parser.readKeyword())
 	if isQueryKeyword(keyword) {
 		return &StatementInfo{StatementType: StatementTypeQuery}
@@ -769,4 +777,63 @@ func detectDmlKeyword(keyword string) DmlType {
 		return DmlTypeDelete
 	}
 	return DmlTypeUnknown
+}
+
+func (p *StatementParser) extractSetStatementsFromHints(sql string) (*ParsedSetStatement, error) {
+	sp := &simpleParser{sql: []byte(sql), statementParser: p}
+	if ok, startPos := sp.skipStatementHint(); ok {
+		// Mark the start and end of the statement hint and extract the values in the hint.
+		endPos := sp.pos
+		sp.pos = startPos
+		if p.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+			// eatTokensOnly will only look for the following character sequence: '/*@'
+			// It will not interpret it as a comment.
+			sp.eatTokensOnly(postgreSqlStatementHintPrefix)
+		} else {
+			sp.eatTokens(googleSqlStatementHintPrefix)
+		}
+		// The default is that the hint ends with a single '}'.
+		endIndex := endPos - 1
+		if p.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+			// The hint ends with '*/'
+			endIndex = endPos - 2
+		}
+		if endIndex > sp.pos && endIndex < len(sql) {
+			return p.extractConnectionVariables(sql[sp.pos:endIndex])
+		}
+	}
+	return nil, nil
+}
+
+func (p *StatementParser) extractConnectionVariables(sql string) (*ParsedSetStatement, error) {
+	sp := &simpleParser{sql: []byte(sql), statementParser: p}
+	statement := &ParsedSetStatement{
+		Identifiers: make([]Identifier, 0, 2),
+		Literals:    make([]Literal, 0, 2),
+	}
+	for {
+		if !sp.hasMoreTokens() {
+			break
+		}
+		identifier, err := sp.eatIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		if !sp.eatToken('=') {
+			return nil, status.Errorf(codes.InvalidArgument, "missing '=' token after %s in hint", identifier)
+		}
+		literal, err := sp.eatLiteral()
+		if err != nil {
+			return nil, err
+		}
+		statement.Identifiers = append(statement.Identifiers, identifier)
+		statement.Literals = append(statement.Literals, literal)
+		if !sp.eatToken(',') {
+			break
+		}
+	}
+	if sp.hasMoreTokens() {
+		return nil, status.Errorf(codes.InvalidArgument, "unexpected tokens: %s", string(sp.sql[sp.pos:]))
+	}
+	return statement, nil
 }

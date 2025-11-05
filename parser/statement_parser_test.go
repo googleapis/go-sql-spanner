@@ -21,6 +21,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -1744,7 +1745,7 @@ func TestSkipWhitespaces(t *testing.T) {
 		}
 		for _, test := range tests {
 			t.Run(fmt.Sprintf("%s: %s", dialect, test.name), func(t *testing.T) {
-				pos := p.skipWhitespacesAndComments([]byte(test.input), 0)
+				pos := p.skipWhitespacesAndComments([]byte(test.input), 0 /*skipPgHints=*/, true)
 				if g, w := test.input[:pos], test.want; g != w {
 					t.Errorf("skip whitespace mismatch\n Got: %q\nWant: %q", g, w)
 				}
@@ -2631,6 +2632,262 @@ func TestEatIdentifier(t *testing.T) {
 				t.Fatalf("%s\n%d: identifier part mismatch\n Got: %v\nWant: %v", test.input, i, g, w)
 			}
 		}
+	}
+}
+
+func TestExtractSetStatementsFromHints(t *testing.T) {
+	t.Parallel()
+
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		input   string
+		want    *ParsedSetStatement
+		wantErr bool
+	}{
+		{
+			input: "@{foo='bar'} select * from my_table",
+			want: &ParsedSetStatement{
+				Identifiers: []Identifier{{Parts: []string{"foo"}}},
+				Literals:    []Literal{{"bar"}},
+			},
+		},
+		{
+			input: "/* comment */ @{foo='bar'} select * from my_table",
+			want: &ParsedSetStatement{
+				Identifiers: []Identifier{{Parts: []string{"foo"}}},
+				Literals:    []Literal{{"bar"}},
+			},
+		},
+		{
+			input: "-- comment \n @{foo='bar'} select * from my_table",
+			want: &ParsedSetStatement{
+				Identifiers: []Identifier{{Parts: []string{"foo"}}},
+				Literals:    []Literal{{"bar"}},
+			},
+		},
+		{
+			input: "@{key1='value1', key2='value2'} select * from my_table",
+			want: &ParsedSetStatement{
+				Identifiers: []Identifier{{Parts: []string{"key1"}}, {Parts: []string{"key2"}}},
+				Literals:    []Literal{{"value1"}, {"value2"}},
+			},
+		},
+		{
+			input: "@{ int_key= 5, string_key =\n 'test'} select * from my_table",
+			want: &ParsedSetStatement{
+				Identifiers: []Identifier{{Parts: []string{"int_key"}}, {Parts: []string{"string_key"}}},
+				Literals:    []Literal{{"5"}, {"test"}},
+			},
+		},
+		{
+			input: "@{ foo = 'bar', } select * from my_table",
+			want: &ParsedSetStatement{
+				Identifiers: []Identifier{{Parts: []string{"foo"}}},
+				Literals:    []Literal{{"bar"}},
+			},
+		},
+		{
+			input: "@{ } select * from my_table",
+			want: &ParsedSetStatement{
+				Identifiers: []Identifier{},
+				Literals:    []Literal{},
+			},
+		},
+		{
+			input: "select * from my_table",
+			want:  nil,
+		},
+		{
+			input:   "@{ foo is 'bar' } select * from my_table",
+			wantErr: true,
+		},
+		{
+			input:   "@{ foo == 'bar' } select * from my_table",
+			wantErr: true,
+		},
+		{
+			input:   "@{ foo 'bar' } select * from my_table",
+			wantErr: true,
+		},
+		{
+			input:   "@{ 'bar' } select * from my_table",
+			wantErr: true,
+		},
+		{
+			input:   "@{, foo='bar'} select * from my_table",
+			wantErr: true,
+		},
+		{
+			input:   "@{foo1='bar1' foo2='bar2'} select * from my_table",
+			wantErr: true,
+		},
+		{
+			input:   "@{'foo'='bar'} select * from my_table",
+			wantErr: true,
+		},
+		{
+			// Quoted tokens are not really supported in normal statement hints,
+			// but the local parser accepts it for connection variables.
+			input: "@{`foo`='bar'} select * from my_table",
+			want: &ParsedSetStatement{
+				Identifiers: []Identifier{{Parts: []string{"foo"}}},
+				Literals:    []Literal{{"bar"}},
+			},
+		},
+		{
+			// Note the misplaced backtick AFTER the '='.
+			input:   "@{`foo=`'bar'} select * from my_table",
+			wantErr: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			statement, err := parser.extractSetStatementsFromHints(test.input)
+			if test.wantErr {
+				if err == nil {
+					t.Fatal("missing expected error")
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				opts := cmpopts.IgnoreUnexported(ParsedSetStatement{})
+				if !cmp.Equal(statement, test.want, opts) {
+					t.Fatalf("mismatch (-want +got):\n%s", cmp.Diff(test.want, statement, opts))
+				}
+			}
+		})
+	}
+}
+
+func TestExtractSetStatementsFromHintsPostgreSQL(t *testing.T) {
+	t.Parallel()
+
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		input   string
+		want    *ParsedSetStatement
+		wantErr bool
+	}{
+		{
+			input: "/*@foo='bar'*/ select * from my_table",
+			want: &ParsedSetStatement{
+				Identifiers: []Identifier{{Parts: []string{"foo"}}},
+				Literals:    []Literal{{"bar"}},
+			},
+		},
+		{
+			input: "/* comment */ /*@foo='bar'*/ select * from my_table",
+			want: &ParsedSetStatement{
+				Identifiers: []Identifier{{Parts: []string{"foo"}}},
+				Literals:    []Literal{{"bar"}},
+			},
+		},
+		{
+			input: "-- comment \n /*@foo='bar'*/ select * from my_table",
+			want: &ParsedSetStatement{
+				Identifiers: []Identifier{{Parts: []string{"foo"}}},
+				Literals:    []Literal{{"bar"}},
+			},
+		},
+		{
+			input: "/*@key1='value1', key2='value2'*/ select * from my_table",
+			want: &ParsedSetStatement{
+				Identifiers: []Identifier{{Parts: []string{"key1"}}, {Parts: []string{"key2"}}},
+				Literals:    []Literal{{"value1"}, {"value2"}},
+			},
+		},
+		{
+			input: "/*@ int_key= 5, string_key =\n 'test'*/ select * from my_table",
+			want: &ParsedSetStatement{
+				Identifiers: []Identifier{{Parts: []string{"int_key"}}, {Parts: []string{"string_key"}}},
+				Literals:    []Literal{{"5"}, {"test"}},
+			},
+		},
+		{
+			input: "/*@ foo = 'bar', */ select * from my_table",
+			want: &ParsedSetStatement{
+				Identifiers: []Identifier{{Parts: []string{"foo"}}},
+				Literals:    []Literal{{"bar"}},
+			},
+		},
+		{
+			input: "/*@ */ select * from my_table",
+			want: &ParsedSetStatement{
+				Identifiers: []Identifier{},
+				Literals:    []Literal{},
+			},
+		},
+		{
+			input: "select * from my_table",
+			want:  nil,
+		},
+		{
+			input:   "/*@ foo is 'bar' */ select * from my_table",
+			wantErr: true,
+		},
+		{
+			input:   "/*@ foo == 'bar' */ select * from my_table",
+			wantErr: true,
+		},
+		{
+			input:   "/*@ foo 'bar' */ select * from my_table",
+			wantErr: true,
+		},
+		{
+			input:   "/*@ 'bar' */ select * from my_table",
+			wantErr: true,
+		},
+		{
+			input:   "/*@, foo='bar'*/ select * from my_table",
+			wantErr: true,
+		},
+		{
+			input:   "/*@foo1='bar1' foo2='bar2'*/ select * from my_table",
+			wantErr: true,
+		},
+		{
+			input:   "/*@'foo'='bar'/* select * from my_table",
+			wantErr: true,
+		},
+		{
+			// Quoted tokens are not really supported in normal statement hints,
+			// but the local parser accepts it for connection variables.
+			input: `/*@"foo"='bar'*/ select * from my_table`,
+			want: &ParsedSetStatement{
+				Identifiers: []Identifier{{Parts: []string{"foo"}}},
+				Literals:    []Literal{{"bar"}},
+			},
+		},
+		{
+			// Note the misplaced backtick AFTER the '='.
+			input:   "/*@`foo=`'bar'*/ select * from my_table",
+			wantErr: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			statement, err := parser.extractSetStatementsFromHints(test.input)
+			if test.wantErr {
+				if err == nil {
+					t.Fatal("missing expected error")
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				opts := cmpopts.IgnoreUnexported(ParsedSetStatement{})
+				if !cmp.Equal(statement, test.want, opts) {
+					t.Fatalf("mismatch (-want +got):\n%s", cmp.Diff(test.want, statement, opts))
+				}
+			}
+		})
 	}
 }
 
