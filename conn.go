@@ -332,15 +332,21 @@ func (c *conn) showConnectionVariable(identifier parser.Identifier) (any, bool, 
 	return c.state.GetValue(extension, name)
 }
 
-func (c *conn) setConnectionVariable(identifier parser.Identifier, value string, local bool, transaction bool) error {
+func (c *conn) setConnectionVariable(identifier parser.Identifier, value string, local bool, transaction bool, statementScoped bool) error {
 	if transaction && !local {
 		// When transaction == true, then local must also be true.
 		// We should never hit this condition, as this is an indication of a bug in the driver code.
 		return status.Errorf(codes.FailedPrecondition, "transaction properties must be set as a local value")
 	}
+	if statementScoped && local {
+		return status.Errorf(codes.FailedPrecondition, "cannot specify both statementScoped and local")
+	}
 	extension, name, err := toExtensionAndName(identifier)
 	if err != nil {
 		return err
+	}
+	if statementScoped {
+		return c.state.SetStatementScopedValue(extension, name, value)
 	}
 	if local {
 		return c.state.SetLocalValue(extension, name, value, transaction)
@@ -568,7 +574,10 @@ func (c *conn) startBatchDDL() (driver.Result, error) {
 }
 
 func (c *conn) startBatchDML(automatic bool) (driver.Result, error) {
-	execOptions := c.options( /*reset = */ true)
+	execOptions, err := c.options( /*reset = */ true)
+	if err != nil {
+		return nil, err
+	}
 
 	if c.inTransaction() {
 		return c.tx.StartBatchDML(execOptions.QueryOptions, automatic)
@@ -779,6 +788,10 @@ func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
 		c.tempExecOptions = &execOptions
 		return driver.ErrRemoveArgument
 	}
+	if execOptions, ok := value.Value.(*ExecOptions); ok {
+		c.tempExecOptions = execOptions
+		return driver.ErrRemoveArgument
+	}
 
 	if checkIsValidType(value.Value) {
 		return nil
@@ -823,7 +836,10 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 }
 
 func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, error) {
-	execOptions := c.options( /* reset = */ true)
+	execOptions, err := c.options( /* reset = */ true)
+	if err != nil {
+		return nil, err
+	}
 	parsedSQL, args, err := c.parser.ParseParameters(query)
 	if err != nil {
 		return nil, err
@@ -894,13 +910,37 @@ func (c *conn) transactionDeadline() (time.Time, bool, error) {
 	return deadline, hasDeadline, nil
 }
 
+func (c *conn) applyStatementScopedValues(execOptions *ExecOptions) (cleanup func(), returnedErr error) {
+	if execOptions == nil {
+		return func() {}, nil
+	}
+
+	defer func() {
+		if returnedErr != nil {
+			// Clear any statement values that might have been set if we return an error, as that also means that we
+			// are not returning a cleanup function.
+			c.state.ClearStatementScopedValues()
+		}
+	}()
+	values := execOptions.PropertyValues
+	for _, value := range values {
+		if err := c.setConnectionVariable(value.Identifier, value.Value /*local=*/, false /*transaction=*/, false /*statementScoped=*/, true); err != nil {
+			return func() {}, err
+		}
+	}
+	return c.state.ClearStatementScopedValues, nil
+}
+
 func (c *conn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	// Execute client side statement if it is one.
 	clientStmt, err := c.parser.ParseClientSideStatement(query)
 	if err != nil {
 		return nil, err
 	}
-	execOptions := c.options( /* reset = */ clientStmt == nil)
+	execOptions, err := c.options( /* reset = */ clientStmt == nil)
+	if err != nil {
+		return nil, err
+	}
 	if clientStmt != nil {
 		execStmt, err := createExecutableStatement(clientStmt)
 		if err != nil {
@@ -924,6 +964,7 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 	}()
 	// Clear the commit timestamp of this connection before we execute the query.
 	c.clearCommitResponse()
+
 	// Check if the execution options contains an instruction to execute
 	// a specific partition of a PartitionedQuery.
 	if pq := execOptions.PartitionedQueryOptions.ExecutePartition.PartitionedQuery; pq != nil {
@@ -1040,7 +1081,10 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 	if err != nil {
 		return nil, err
 	}
-	execOptions := c.options( /*reset = */ stmt == nil)
+	execOptions, err := c.options( /*reset = */ stmt == nil)
+	if err != nil {
+		return nil, err
+	}
 	if stmt != nil {
 		execStmt, err := createExecutableStatement(stmt)
 		if err != nil {
@@ -1119,7 +1163,7 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions *ExecO
 }
 
 // options returns and optionally resets the ExecOptions for the next statement.
-func (c *conn) options(reset bool) *ExecOptions {
+func (c *conn) options(reset bool) (*ExecOptions, error) {
 	if reset {
 		defer func() {
 			// Only reset the transaction tag if there is no active transaction on the connection.
@@ -1130,11 +1174,24 @@ func (c *conn) options(reset bool) *ExecOptions {
 			c.tempExecOptions = nil
 		}()
 	}
+	// TODO: Refactor this to only use connection state as the (temporary) storage, and remove the tempExecOptions field
+	if c.tempExecOptions != nil {
+		cleanup, err := c.applyStatementScopedValues(c.tempExecOptions)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+	}
+
+	// TODO: Refactor this to work 'the other way around'. That is:
+	//       The ExecOptions that are given for a statement should update the connection state.
+	//       The statement execution should read the state from the connection state.
 	effectiveOptions := &ExecOptions{
 		AutocommitDMLMode:    c.AutocommitDMLMode(),
 		DecodeToNativeArrays: c.DecodeToNativeArrays(),
 		QueryOptions: spanner.QueryOptions{
 			RequestTag: c.StatementTag(),
+			Priority:   propertyRpcPriority.GetValueOrDefault(c.state),
 		},
 		TransactionOptions: spanner.TransactionOptions{
 			ExcludeTxnFromChangeStreams: c.ExcludeTxnFromChangeStreams(),
@@ -1152,7 +1209,7 @@ func (c *conn) options(reset bool) *ExecOptions {
 	if c.tempExecOptions != nil {
 		effectiveOptions.merge(c.tempExecOptions)
 	}
-	return effectiveOptions
+	return effectiveOptions, nil
 }
 
 func (c *conn) Close() error {
@@ -1442,7 +1499,11 @@ func (c *conn) activateTransaction() (contextTransaction, error) {
 			// Reset the transaction_tag after starting the transaction.
 			_ = propertyTransactionTag.ResetValue(c.state, connectionstate.ContextUser)
 		}()
-		return c.effectiveTransactionOptions(spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED, c.options( /*reset=*/ true))
+		execOptions, err := c.options( /*reset=*/ true)
+		if err != nil {
+			execOptions = &ExecOptions{}
+		}
+		return c.effectiveTransactionOptions(spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED, execOptions)
 	})
 	if err != nil {
 		cancel()

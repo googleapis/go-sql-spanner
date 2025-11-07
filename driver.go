@@ -214,6 +214,11 @@ type ExecOptions struct {
 	// DirectExecuteContext is the context that is used for the execution of a query
 	// when DirectExecuteQuery is enabled.
 	DirectExecuteContext context.Context
+
+	// PropertyValues contains a list of connection state property values that
+	// should be used while executing the statement. These values will only be used for
+	// this statement, and will not be persisted on the connection.
+	PropertyValues []PropertyValue
 }
 
 func (dest *ExecOptions) merge(src *ExecOptions) {
@@ -240,6 +245,9 @@ func (dest *ExecOptions) merge(src *ExecOptions) {
 	}
 	if src.AutocommitDMLMode != Unspecified {
 		dest.AutocommitDMLMode = src.AutocommitDMLMode
+	}
+	if src.PropertyValues != nil {
+		dest.PropertyValues = append(dest.PropertyValues, src.PropertyValues...)
 	}
 	(&dest.PartitionedQueryOptions).merge(&src.PartitionedQueryOptions)
 	mergeQueryOptions(&dest.QueryOptions, &src.QueryOptions)

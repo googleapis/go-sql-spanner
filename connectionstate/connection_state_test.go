@@ -262,6 +262,32 @@ func TestSetLocalValue(t *testing.T) {
 	}
 }
 
+func TestSetStatementValue(t *testing.T) {
+	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", false, nil, ContextUser, noop)
+	properties := map[string]ConnectionProperty{
+		"my_property": prop,
+	}
+
+	for _, tp := range []Type{TypeTransactional, TypeNonTransactional} {
+		state, _ := NewConnectionState(tp, properties, map[string]ConnectionPropertyValue{})
+		if g, w := prop.GetValueOrDefault(state), prop.defaultValue; g != w {
+			t.Fatalf("initial value mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if err := prop.SetStatementScopedValue(state, "new-value"); err != nil {
+			t.Fatal(err)
+		}
+		if g, w := prop.GetValueOrDefault(state), "new-value"; g != w {
+			t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+		}
+
+		// Verify that the change is no longer visible after the statement values have been cleared.
+		state.ClearStatementScopedValues()
+		if g, w := prop.GetValueOrDefault(state), prop.defaultValue; g != w {
+			t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+}
+
 func TestSetLocalValueOutsideTransaction(t *testing.T) {
 	prop := CreateConnectionProperty("my_property", "Test property", "initial-value", false, nil, ContextUser, noop)
 	properties := map[string]ConnectionProperty{
