@@ -28,10 +28,9 @@ require_relative "message_handler"
 module SpannerLib
   extend FFI::Library
 
-  ENV_OVERRIDE = ENV.fetch("SPANNERLIB_PATH", nil)
-
+  # rubocop:disable Metrics/MethodLength
   def self.platform_dir_from_host
-    host_os  = RbConfig::CONFIG["host_os"]
+    host_os = RbConfig::CONFIG["host_os"]
     host_cpu = RbConfig::CONFIG["host_cpu"]
 
     case host_os
@@ -41,16 +40,19 @@ module SpannerLib
       host_cpu =~ /arm|aarch64/ ? "aarch64-linux" : "x86_64-linux"
     when /mswin|mingw|cygwin/
       "x64-mingw32"
+    else
+      raise "Unknown OS: #{host_os}"
     end
   end
+  # rubocop:enable Metrics/MethodLength
 
-  # Build list of candidate paths (ordered): env override, platform-specific, any packaged lib, system library
-  # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/MethodLength, Metrics/PerceivedComplexity
+  # rubocop:disable Metrics/MethodLength, Metrics/AbcSize, Metrics/CyclomaticComplexity
   def self.library_path
-    if ENV_OVERRIDE && !ENV_OVERRIDE.empty?
-      return ENV_OVERRIDE if File.file?(ENV_OVERRIDE)
+    env_path = ENV.fetch("SPANNERLIB_PATH", nil)
+    if env_path && !env_path.empty?
+      return env_path if File.file?(env_path)
 
-      warn "SPANNERLIB_PATH set to #{ENV_OVERRIDE} but file not found"
+      warn "SPANNERLIB_PATH set to #{env_path} but file not found"
     end
 
     lib_dir = File.expand_path(__dir__)
@@ -62,53 +64,38 @@ module SpannerLib
       return candidate if File.exist?(candidate)
     end
 
-    # 3) Any matching packaged binary (first match)
     glob_candidates = Dir.glob(File.join(lib_dir, "*", "spannerlib.#{ext}"))
     return glob_candidates.first unless glob_candidates.empty?
 
-    # 4) Try loading system-wide library (so users who installed shared lib separately can use it)
     begin
-      # Attempt to open system lib name; if succeeds, return bare name so ffi_lib can resolve it
       FFI::DynamicLibrary.open("spannerlib", FFI::DynamicLibrary::RTLD_LAZY | FFI::DynamicLibrary::RTLD_GLOBAL)
       return "spannerlib"
     rescue LoadError
-      # This is intentional. If the system library fails to load,
-      # we'll proceed to the final LoadError with all search paths.
+      # Ignore
     end
 
-    searched = []
-    searched << "ENV SPANNERLIB_PATH=#{ENV_OVERRIDE}" if ENV_OVERRIDE && !ENV_OVERRIDE.empty?
-    searched << File.join(lib_dir, platform || "<detected-platform?>", "spannerlib.#{ext}")
-    searched << File.join(lib_dir, "*", "spannerlib.#{ext}")
-
-    raise LoadError, <<~ERR
-      Could not locate the spannerlib native library. Tried:
-        - #{searched.join("\n  - ")}
-      If you are using the packaged gem, ensure the gem includes lib/spannerlib/<platform>/spannerlib.#{ext}.
-      You can set SPANNERLIB_PATH to the absolute path of the library file, or install a platform-specific native gem.
-    ERR
+    raise LoadError, "Could not locate native library. Checked: #{File.join(lib_dir, platform.to_s)}"
   end
-  # rubocop:enable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/MethodLength, Metrics/PerceivedComplexity
-
+  # rubocop:enable Metrics/MethodLength, Metrics/AbcSize, Metrics/CyclomaticComplexity
   ffi_lib library_path
 
   class GoString < FFI::Struct
     layout :p,   :pointer,
-           :len, :long
+           :len, :long_long
   end
 
   # GoBytes is the Ruby representation of a Go byte slice
   class GoBytes < FFI::Struct
     layout :p,   :pointer,
-           :len, :long,
-           :cap, :long
+           :len, :long_long,
+           :cap, :long_long
   end
 
   # Message is the common return type for all native functions.
   class Message < FFI::Struct
     layout :pinner,   :long_long,
            :code,     :int,
-           :objectId, :long_long,
+           :remote_id, :long_long,
            :length,   :int,
            :pointer,  :pointer
   end
@@ -188,7 +175,7 @@ module SpannerLib
 
   def self.handle_object_id_response(message, _func_name)
     ensure_release(message) do
-      MessageHandler.new(message).object_id
+      MessageHandler.new(message).remote_id
     end
   end
 

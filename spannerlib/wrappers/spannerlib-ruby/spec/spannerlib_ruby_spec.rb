@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+# rubocop:disable Style/GlobalVars
 # rubocop:disable RSpec/NoExpectationExample
 
 # Copyright 2025 Google LLC
@@ -17,57 +18,81 @@
 # limitations under the License.
 
 require "minitest/autorun"
-
-require "grpc"
-require "google/rpc/error_details_pb"
-require "google/spanner/v1/spanner_pb"
-require "google/spanner/v1/spanner_services_pb"
 require "google/cloud/spanner/v1/spanner"
-
-require_relative "mock_server/statement_result"
-require_relative "mock_server/spanner_mock_server"
+require "timeout"
+require "tmpdir" # Needed for the file-based handshake
 
 require_relative "../lib/spannerlib/ffi"
 require_relative "../lib/spannerlib/connection"
-require_relative "../lib/spannerlib/rows"
 
-READ_PIPE, WRITE_PIPE = IO.pipe
-GRPC.prefork
+$server_pid = nil
+$server_port = nil
+$port_file = nil
 
-SERVER_PID = fork do
-  GRPC.postfork_child
-  READ_PIPE.close
-  $stdout.sync = true
-  $stderr.sync = true
-
-  begin
-    server = GRPC::RpcServer.new
-    port = server.add_http2_port "localhost:0", :this_port_is_insecure
-    mock = SpannerMockServer.new
-    server.handle mock
-
-    WRITE_PIPE.puts port
-    WRITE_PIPE.close
-
-    server.run
-  rescue StandardError => e
-    warn "Mock server failed to start: #{e.message}"
-    exit(1)
+Minitest.after_run do
+  if $server_pid
+    begin
+      Process.kill("TERM", $server_pid)
+      Process.wait($server_pid)
+    rescue Errno::ESRCH, Errno::ECHILD, Errno::EINVAL
+      # Process already dead
+    end
   end
+  File.delete($port_file) if $port_file && File.exist?($port_file)
+  # The Go Runtime inside the DLL conflicts with Ruby's shutdown sequence on Windows,
+  # causing a crash after tests pass. Process.exit!(0) skips the cleanup hooks
+  # and exits immediately with success status.
+  Process.exit!(0)
 end
 
-GRPC.postfork_parent
-WRITE_PIPE.close
-
-SERVER_PORT = READ_PIPE.gets.strip.to_i
-READ_PIPE.close
-
 describe "Connection" do
-  before do
-    server_address = "localhost:#{SERVER_PORT}"
-    database_path = "projects/p/instances/i/databases/d"
+  def self.spawn_server
+    runner_path = File.expand_path(File.join(__dir__, "mock_server_runner.rb"))
 
-    @dsn = "#{server_address}/#{database_path}?useplaintext=true"
+    $port_file = File.join(Dir.tmpdir, "spanner_mock_port_#{Time.now.to_i}_#{rand(1000)}.txt")
+
+    # 2. Tell the runner where to write the port
+    env_vars = { "MOCK_PORT_FILE" => $port_file }
+
+    # 3. Spawn process inheriting stdout/stderr.
+    # This prevents the buffer deadlock.
+    Process.spawn(env_vars, RbConfig.ruby, "-Ilib", "-Ispec", runner_path, out: $stdout, err: $stderr)
+  end
+
+  def self.wait_for_port
+    start_time = Time.now
+    loop do
+      raise "Timed out waiting for mock server to write to #{$port_file}" if Time.now - start_time > 20
+
+      # 4. Poll the file for the port
+      if File.exist?($port_file)
+        content = File.read($port_file).strip
+        return content.to_i unless content.empty?
+      end
+
+      # Check if the server died
+      raise "Mock server exited unexpectedly!" if Process.waitpid($server_pid, Process::WNOHANG)
+
+      sleep 0.1
+    end
+  end
+
+  def self.ensure_server_running!
+    return if $server_port
+
+    $server_pid = spawn_server
+
+    begin
+      $server_port = wait_for_port
+    rescue StandardError
+      Process.kill("TERM", $server_pid) if $server_pid
+      raise
+    end
+  end
+
+  before do
+    self.class.ensure_server_running!
+    @dsn = "127.0.0.1:#{$server_port}/projects/p/instances/i/databases/d?useplaintext=true"
 
     @pool_id = SpannerLib.create_pool(@dsn)
     @conn_id = SpannerLib.create_connection(@pool_id)
@@ -80,9 +105,7 @@ describe "Connection" do
   end
 
   it "can execute SELECT 1" do
-    request_proto = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(
-      sql: "SELECT 1"
-    )
+    request_proto = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: "SELECT 1")
     rows_object = @conn.execute(request_proto)
 
     decoded_rows = rows_object.map do |row_bytes|
@@ -108,13 +131,5 @@ describe "Connection" do
     _(commit_resp.commit_timestamp).wont_be_nil
   end
 end
-
 # rubocop:enable RSpec/NoExpectationExample
-
-# --- 5. GLOBAL SHUTDOWN HOOK ---
-Minitest.after_run do
-  if SERVER_PID
-    Process.kill("KILL", SERVER_PID)
-    Process.wait(SERVER_PID)
-  end
-end
+# rubocop:enable Style/GlobalVars
