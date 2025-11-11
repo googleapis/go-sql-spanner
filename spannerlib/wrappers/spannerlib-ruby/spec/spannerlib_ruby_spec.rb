@@ -28,6 +28,7 @@ require_relative "../lib/spannerlib/connection"
 $server_pid = nil
 $server_port = nil
 $port_file = nil
+$any_failure = false
 
 Minitest.after_run do
   if $server_pid
@@ -39,10 +40,15 @@ Minitest.after_run do
     end
   end
   File.delete($port_file) if $port_file && File.exist?($port_file)
-  # The Go Runtime inside the DLL conflicts with Ruby's shutdown sequence on Windows,
-  # causing a crash after tests pass. Process.exit!(0) skips the cleanup hooks
-  # and exits immediately with success status.
-  Process.exit!(0)
+  if $any_failure
+    puts "Tests Failed! Exiting with code 1"
+    $stdout.flush
+    Process.exit!(1)
+  else
+    puts "Tests Passed! Exiting with code 0"
+    $stdout.flush
+    Process.exit!(0)
+  end
 end
 
 describe "Connection" do
@@ -102,6 +108,7 @@ describe "Connection" do
   after do
     @conn&.close
     SpannerLib.close_pool(@pool_id) if @pool_id
+    $any_failure = true unless failures.empty?
   end
 
   it "can execute SELECT 1" do
