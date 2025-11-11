@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spannerlib"
-version = "0.1.0"
+dynamic = ["version"]
 authors = [
   { name="Google LLC", email="googleapis-packages@google.com" },
 ]
@@ -16,9 +16,17 @@ license-files = [
 ]
 requires-python = ">=3.8"
 classifiers = [
+    "Development Status :: 1 - Planning",
     "Intended Audience :: Developers",
     "Topic :: Software Development :: Libraries",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
     "google-cloud-spanner",
@@ -31,6 +39,7 @@ dev = [
 ]
 
 [tool.setuptools]
+dynamic = {"version" = {attr = "google.cloud.spannerlib.__version__"}}
 
 [tool.setuptools.packages.find]
 where = ["."]
