@@ -152,8 +152,8 @@ def get_spannerlib_artifacts_binary(session):
         session.error(f"Unsupported platform: {system}")
     return (lib, folder, header)
 
-def build_spannerlib_artifacts(session):
 
+def build_spannerlib_artifacts(session):
     """
     Build SpannerLib artifacts.
     """
@@ -179,11 +179,14 @@ def copy_artifacts(session):
     os.makedirs(LIB_DIR)
     lib, folder, header = get_spannerlib_artifacts_binary(session)
     shutil.copy(
-        os.path.join(artifact_dir_path, folder, lib), os.path.join(lib_dir_path, lib)
+        os.path.join(artifact_dir_path, folder, lib),
+        os.path.join(lib_dir_path, lib),
     )
     shutil.copy(
-        os.path.join(artifact_dir_path, folder, header), os.path.join(lib_dir_path, header)
+        os.path.join(artifact_dir_path, folder, header),
+        os.path.join(lib_dir_path, header),
     )
+
 
 @nox.session
 def prepare_artifacts(session):
