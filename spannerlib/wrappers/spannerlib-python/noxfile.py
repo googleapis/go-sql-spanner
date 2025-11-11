@@ -140,49 +140,27 @@ def get_spannerlib_artifacts_binary(session):
     Returns spannerlib lib and header files.
     """
     header = "spannerlib.h"
-    lib = "spannerlib.so"
 
     system = platform.system()
     if system == "Darwin":
-        lib = "spannerlib.dylib"
+        lib, folder = "spannerlib.dylib", "osx-arm64"
     elif system == "Windows":
-        lib = "spannerlib.dll"
+        lib, folder = "spannerlib.dll", "win-x64"
     elif system == "Linux":
-        lib = "spannerlib.so"
+        lib, folder = "spannerlib.so", "linux-x64"
     else:
         session.error(f"Unsupported platform: {system}")
-    return (lib, header)
-
+    return (lib, folder, header)
 
 def build_spannerlib_artifacts(session):
+
     """
     Build SpannerLib artifacts.
     """
-    session.log("Copy spannerlib artifacts to local repo")
-    # ToDo: build plaform specific shared lib
-    shared_artifact_dir_path = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)),
-        "../../shared",
-    )
+    session.log("Building spannerlib artifacts...")
 
-    if os.path.exists(ARTIFACT_DIR):
-        shutil.rmtree(ARTIFACT_DIR)
-    os.makedirs(ARTIFACT_DIR)
-    target_artifact_dir_path = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)), ARTIFACT_DIR
-    )
-    session.log("Spanner lib shared artifacts dir: " + shared_artifact_dir_path)
-    session.log("Local artifacts dir: " + target_artifact_dir_path)
-
-    lib, header = get_spannerlib_artifacts_binary(session)
-    shutil.copy(
-        os.path.join(shared_artifact_dir_path, lib),
-        os.path.join(target_artifact_dir_path, lib),
-    )
-    shutil.copy(
-        os.path.join(shared_artifact_dir_path, header),
-        os.path.join(target_artifact_dir_path, header),
-    )
+    # Run the build script
+    session.run("bash", "./build-shared-lib.sh", external=True)
 
 
 def copy_artifacts(session):
@@ -199,11 +177,13 @@ def copy_artifacts(session):
     if os.path.exists(LIB_DIR):
         shutil.rmtree(LIB_DIR)
     os.makedirs(LIB_DIR)
-    lib, _ = get_spannerlib_artifacts_binary(session)
+    lib, folder, header = get_spannerlib_artifacts_binary(session)
     shutil.copy(
-        os.path.join(artifact_dir_path, lib), os.path.join(lib_dir_path, lib)
+        os.path.join(artifact_dir_path, folder, lib), os.path.join(lib_dir_path, lib)
     )
-
+    shutil.copy(
+        os.path.join(artifact_dir_path, folder, header), os.path.join(lib_dir_path, header)
+    )
 
 @nox.session
 def prepare_artifacts(session):
@@ -211,7 +191,7 @@ def prepare_artifacts(session):
     Cleans the lib dir and copies the correct
     platform-specific binary into it.
     """
-    build_spannerlib_artifacts(session)
+    # build_spannerlib_artifacts(session)
     copy_artifacts(session)
 
 
