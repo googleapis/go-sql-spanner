@@ -445,6 +445,9 @@ func extractParams(directExecuteContext context.Context, statement *spannerpb.Ex
 		ReturnResultSetStats:    true,
 		DirectExecuteQuery:      true,
 		DirectExecuteContext:    directExecuteContext,
+		QueryOptions: spanner.QueryOptions{
+			Mode: &statement.QueryMode,
+		},
 	})
 	if statement.Params != nil {
 		if statement.ParamTypes == nil {
