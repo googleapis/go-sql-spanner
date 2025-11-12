@@ -483,7 +483,7 @@ func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDm
 		} else if firstStatementType == parser.StatementTypeDdl {
 			batchType = parser.BatchTypeDdl
 		} else {
-			return status.Errorf(codes.InvalidArgument, "unsupported statement type for batching: %v", firstStatementType)
+			return status.Errorf(codes.InvalidArgument, "unsupported statement for batching: %v", statements[0].Sql)
 		}
 		for i, statement := range statements {
 			if i > 0 {
