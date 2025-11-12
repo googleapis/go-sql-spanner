@@ -20,7 +20,7 @@ fi
 # Build all components
 ./build.sh
 
-# Remove existing packages.
+# Remove existing packages to ensure that only the packages that are built in the next step will be pushed to nuget.
 find ./**/bin/Release -type f -name "Alpha*.nupkg" -exec rm {} \;
 
 # Pack and publish to nuget

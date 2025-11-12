@@ -216,6 +216,13 @@ func (p *StatementParser) supportsBackslashEscape() bool {
 	return p.Dialect != databasepb.DatabaseDialect_POSTGRESQL
 }
 
+// supportsEscapeStrings returns true if the dialect supports enabling escaping using backslashes
+// by prepending an e or E to the string. Example:
+// e'It\'s a valid string' => This is the string "It's a valid string".
+func (p *StatementParser) supportsEscapeStrings() bool {
+	return p.Dialect == databasepb.DatabaseDialect_POSTGRESQL
+}
+
 // supportsEscapeQuoteWithQuote returns true if the dialect supports escaping a quote within a quoted
 // literal by repeating the quote twice. Example (note that the way that two single quotes are written in the following
 // examples is something that is enforced by gofmt):
@@ -403,7 +410,7 @@ func (p *StatementParser) skipMultiLineComment(sql []byte, pos int) int {
 // The quote length is either 1 for normal quoted strings, and 3 for triple-quoted string.
 func (p *StatementParser) skipQuoted(sql []byte, pos int, quote byte) (int, int, error) {
 	isEscapeString := false
-	if !p.supportsBackslashEscape() && pos > 0 {
+	if p.supportsEscapeStrings() && pos > 0 {
 		// TODO: Also implement support for the standard_conforming_strings property in PostgreSQL.
 		//       See https://www.postgresql.org/docs/current/runtime-config-compatible.html#GUC-STANDARD-CONFORMING-STRINGS
 		// Check if it is an escape-string. This enables the use of a backslash to start an escape sequence, even if
