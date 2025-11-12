@@ -153,7 +153,7 @@ public class SpannerTransaction : DbTransaction
         GaxPreconditions.CheckState(!IsCompleted, "This transaction is no longer active");
         try
         {
-            return endTransactionMethod();
+            return SpannerDbException.TranslateException(endTransactionMethod());
         }
         finally
         {

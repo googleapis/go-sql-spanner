@@ -40,34 +40,57 @@ public class SpannerDataReader : DbDataReader
     private bool _closed;
     private bool _hasReadData;
     private bool _hasData;
+    
+    private ResultSetMetadata? _metadata;
+
+    private ResultSetMetadata? Metadata
+    {
+        get
+        {
+            if (_metadata == null)
+            {
+                CheckNotClosed();
+                _metadata = LibRows.Metadata;
+            }
+            return _metadata;
+        }
+    }
 
     public override int FieldCount
     {
         get
         {
             CheckNotClosed();
-            return LibRows.Metadata?.RowType.Fields.Count ?? 0;
+            return Metadata?.RowType.Fields.Count ?? 0;
         }
     }
 
     public override object this[int ordinal] => GetFieldValue<object>(ordinal);
     public override object this[string name] => this[GetOrdinal(name)];
 
-    public override int RecordsAffected
+    private long? _stats;
+
+    private long? Stats
     {
         get
         {
-            CheckNotClosed();
-            return (int)LibRows.UpdateCount;
+            if (_stats == null)
+            {
+                CheckNotClosed();
+                _stats = LibRows.UpdateCount;
+            }
+            return _stats;
         }
     }
+
+    public override int RecordsAffected => (int) (Stats ?? 0);
 
     public override bool HasRows
     {
         get
         {
             CheckNotClosed();
-            if (LibRows.Metadata?.RowType.Fields.Count == 0)
+            if (Metadata?.RowType.Fields.Count == 0)
             {
                 return false;
             }
@@ -167,7 +190,7 @@ public class SpannerDataReader : DbDataReader
     public override DataTable? GetSchemaTable()
     {
         CheckNotClosed();
-        var metadata = LibRows.Metadata;
+        var metadata = Metadata;
         if (metadata?.RowType == null || metadata.RowType.Fields.Count == 0)
         {
             return null;
@@ -293,7 +316,7 @@ public class SpannerDataReader : DbDataReader
         CheckValidPosition();
         CheckValidOrdinal(ordinal);
         CheckNotNull(ordinal);
-        var code = LibRows.Metadata!.RowType.Fields[ordinal].Type.Code;
+        var code = Metadata!.RowType.Fields[ordinal].Type.Code;
         GaxPreconditions.CheckState(Array.Exists([TypeCode.Bytes, TypeCode.Json, TypeCode.String], c => c == code),
             "Spanner only supports conversion to byte arrays for columns of type BYTES or STRING.");
         Preconditions.CheckIndexRange(bufferOffset, nameof(bufferOffset), 0, buffer?.Length ?? 0);
@@ -400,7 +423,7 @@ public class SpannerDataReader : DbDataReader
     public override string GetDataTypeName(int ordinal)
     {
         CheckValidOrdinal(ordinal);
-        return GetTypeName(LibRows.Metadata!.RowType.Fields[ordinal].Type);
+        return GetTypeName(Metadata!.RowType.Fields[ordinal].Type);
     }
 
     private static string GetTypeName(Google.Cloud.Spanner.V1.Type type)
@@ -481,7 +504,7 @@ public class SpannerDataReader : DbDataReader
     public override System.Type GetFieldType(int ordinal)
     {
         CheckValidOrdinal(ordinal);
-        return GetClrType(LibRows.Metadata!.RowType.Fields[ordinal].Type);
+        return GetClrType(Metadata!.RowType.Fields[ordinal].Type);
     }
 
     private static System.Type GetClrType(Google.Cloud.Spanner.V1.Type type)
@@ -635,24 +658,24 @@ public class SpannerDataReader : DbDataReader
     public override string GetName(int ordinal)
     {
         CheckValidOrdinal(ordinal);
-        return LibRows.Metadata!.RowType.Fields[ordinal].Name;
+        return Metadata!.RowType.Fields[ordinal].Name;
     }
 
     public override int GetOrdinal(string name)
     {
         CheckNotClosed();
         // First try with case sensitivity.
-        for (var i = 0; i < LibRows.Metadata?.RowType.Fields.Count; i++)
+        for (var i = 0; i < Metadata?.RowType.Fields.Count; i++)
         {
-            if (Equals(LibRows.Metadata?.RowType.Fields[i].Name, name))
+            if (Equals(Metadata?.RowType.Fields[i].Name, name))
             {
                 return i;
             }
         }
         // Nothing found, try with case-insensitive comparison.
-        for (var i = 0; i < LibRows.Metadata?.RowType.Fields.Count; i++)
+        for (var i = 0; i < Metadata?.RowType.Fields.Count; i++)
         {
-            if (string.Equals(LibRows.Metadata?.RowType.Fields[i].Name, name, StringComparison.InvariantCultureIgnoreCase))
+            if (string.Equals(Metadata?.RowType.Fields[i].Name, name, StringComparison.InvariantCultureIgnoreCase))
             {
                 return i;
             }
@@ -739,7 +762,7 @@ public class SpannerDataReader : DbDataReader
     {
         CheckValidOrdinal(ordinal);
         CheckValidPosition();
-        var type = LibRows.Metadata!.RowType.Fields[ordinal].Type;
+        var type = Metadata!.RowType.Fields[ordinal].Type;
         var value = _currentRow!.Values[ordinal];
         return GetUnderlyingValue(type, value);
     }
@@ -815,7 +838,7 @@ public class SpannerDataReader : DbDataReader
     private V1.Type GetSpannerType(int ordinal)
     {
         CheckValidOrdinal(ordinal);
-        return LibRows.Metadata?.RowType.Fields[ordinal].Type ?? throw new DataException("metadata not found");
+        return Metadata?.RowType.Fields[ordinal].Type ?? throw new DataException("metadata not found");
     }
 
     public override int GetValues(object[] values)
@@ -862,7 +885,7 @@ public class SpannerDataReader : DbDataReader
     private void CheckValidOrdinal(int ordinal)
     {
         CheckNotClosed();
-        var metadata = LibRows.Metadata;
+        var metadata = Metadata;
         GaxPreconditions.CheckState(metadata != null && metadata.RowType.Fields.Count > 0, "This reader does not contain any rows");
             
         // Check that the ordinal is within the range of the columns in the query.            

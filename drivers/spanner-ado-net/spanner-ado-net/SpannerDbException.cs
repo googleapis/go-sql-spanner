@@ -14,6 +14,7 @@
 
 using System;
 using System.Data.Common;
+using System.Threading.Tasks;
 using Google.Cloud.SpannerLib;
 using Google.Rpc;
 
@@ -31,6 +32,31 @@ public class SpannerDbException : DbException
         {
             throw TranslateException(exception);
         }
+    }
+    
+    internal static Task TranslateException(Task task)
+    {
+        return task.ContinueWith( t => 
+            {
+                if (t.IsFaulted && t.Exception.InnerException is SpannerException spannerException)
+                {
+                    throw TranslateException(spannerException);
+                }
+            },
+            TaskContinuationOptions.ExecuteSynchronously);
+    }
+
+    internal static Task<T> TranslateException<T>(Task<T> task)
+    {
+        return task.ContinueWith( t => 
+            {
+                if (t.IsFaulted && t.Exception.InnerException is SpannerException spannerException)
+                {
+                    throw TranslateException(spannerException);
+                }
+                return t.Result;
+            },
+            TaskContinuationOptions.ExecuteSynchronously);
     }
 
     internal static Exception TranslateException(SpannerException exception)

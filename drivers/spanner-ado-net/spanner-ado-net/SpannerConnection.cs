@@ -17,16 +17,15 @@ using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Transactions;
 using Google.Api.Gax;
 using Google.Cloud.Spanner.Common.V1;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib;
 using IsolationLevel = System.Data.IsolationLevel;
 using TransactionOptions = Google.Cloud.Spanner.V1.TransactionOptions;
+using static Google.Cloud.Spanner.DataProvider.SpannerDbException;
 
 namespace Google.Cloud.Spanner.DataProvider;
 
@@ -336,7 +335,7 @@ public class SpannerConnection : DbConnection
     public CommitResponse? WriteMutations(BatchWriteRequest.Types.MutationGroup mutations)
     {
         EnsureOpen();
-        return LibConnection!.WriteMutations(mutations);
+        return TranslateException(() => LibConnection!.WriteMutations(mutations));
     }
 
     public Task<CommitResponse?> WriteMutationsAsync(BatchWriteRequest.Types.MutationGroup mutations, CancellationToken cancellationToken = default)
@@ -376,7 +375,7 @@ public class SpannerConnection : DbConnection
                 statements.Add(batchStatement);
             }
         }
-        return LibConnection!.ExecuteBatch(statements);
+        return TranslateException(() => LibConnection!.ExecuteBatch(statements));
     }
 
     public DbCommand CreateInsertCommand(string table)
