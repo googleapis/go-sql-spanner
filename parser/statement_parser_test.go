@@ -897,6 +897,32 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 		?it\'?s'?`)),
 			},
 		},
+		"e-string": {
+			input: `SELECT e'ab\'c?'`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `SELECT e'ab\'c?'`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `SELECT e'ab\'c?'`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {},
+				databasepb.DatabaseDialect_POSTGRESQL:          {},
+			},
+		},
+		"not an e-string": {
+			input: `SELECT * from my_table WHERE'ab\'c?' = col1`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `SELECT * from my_table WHERE'ab\'c?' = col1`,
+				databasepb.DatabaseDialect_POSTGRESQL:          ``,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {},
+				databasepb.DatabaseDialect_POSTGRESQL:          nil,
+			},
+			wantErr: map[databasepb.DatabaseDialect]error{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: nil,
+				databasepb.DatabaseDialect_POSTGRESQL:          spanner.ToSpannerError(status.Error(codes.InvalidArgument, "SQL statement contains an unclosed literal: SELECT * from my_table WHERE'ab\\'c?' = col1")),
+			},
+		},
 	}
 	for _, dialect := range []databasepb.DatabaseDialect{databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, databasepb.DatabaseDialect_POSTGRESQL} {
 		parser, err := NewStatementParser(dialect, 1000)
