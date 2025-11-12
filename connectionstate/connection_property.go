@@ -65,6 +65,10 @@ type ConnectionProperty interface {
 	// SetLocalUntypedValue sets a new local value for the property without knowing the type in advance.
 	// This is a synonym for SetLocalValue.
 	SetLocalUntypedValue(state *ConnectionState, value any) error
+	// SetStatementScopedUntypedValue sets a new statement-scoped value for the property without
+	// knowing the type in advance.
+	// This is a synonym for SetStatementScopedValue.
+	SetStatementScopedUntypedValue(state *ConnectionState, value any) error
 	// SetDefaultValue sets the value of the property to the default value.
 	// This is different from resetting the value, which sets it to the value that the property had when the connection
 	// was created.
@@ -73,10 +77,14 @@ type ConnectionProperty interface {
 	// This is different from resetting the value, which sets it to the value that the property had when the connection
 	// was created.
 	SetLocalDefaultValue(state *ConnectionState) error
+	// SetStatementScopedDefaultValue sets the statement value of the property to the default value.
+	SetStatementScopedDefaultValue(state *ConnectionState) error
 	// ResetValue sets the value of the property to its initial value.
 	ResetValue(state *ConnectionState, context Context) error
 	// ResetLocalValue sets the local value of the property to its initial value.
 	ResetLocalValue(state *ConnectionState) error
+	// ResetStatementScopedValue sets the statement value of the property to its initial value.
+	ResetStatementScopedValue(state *ConnectionState) error
 	// Convert converts a string to the corresponding value type of the connection property.
 	Convert(value string) (any, error)
 }
@@ -309,23 +317,54 @@ func (p *TypedConnectionProperty[T]) SetLocalUntypedValue(state *ConnectionState
 	return p.SetLocalValue(state, valueT)
 }
 
+// SetStatementScopedUntypedValue implements ConnectionProperty.SetStatementScopedUntypedValue.
+func (p *TypedConnectionProperty[T]) SetStatementScopedUntypedValue(state *ConnectionState, value any) error {
+	valueT, ok := value.(T)
+	if !ok {
+		return status.Errorf(codes.InvalidArgument, "invalid type for value: %T", value)
+	}
+	return p.SetStatementScopedValue(state, valueT)
+}
+
 // SetLocalDefaultValue implements ConnectionProperty.SetLocalDefaultValue.
 func (p *TypedConnectionProperty[T]) SetLocalDefaultValue(state *ConnectionState) error {
 	return p.setLocalValue(state, p.defaultValue, setValueCommandDefault)
 }
 
+// SetStatementScopedDefaultValue implements ConnectionProperty.SetStatementScopedDefaultValue.
+func (p *TypedConnectionProperty[T]) SetStatementScopedDefaultValue(state *ConnectionState) error {
+	return p.setStatementScopedValue(state, p.defaultValue, setValueCommandDefault)
+}
+
 // ResetLocalValue resets the local value of the property in the given ConnectionState to its original value.
 func (p *TypedConnectionProperty[T]) ResetLocalValue(state *ConnectionState) error {
-	value, err := state.value(p /*returnErrForUnknownProperty=*/, true)
+	typedResetValue, err := p.getResetValue(state)
 	if err != nil {
 		return err
+	}
+	return p.setLocalValue(state, typedResetValue, setValueCommandReset)
+}
+
+// ResetStatementScopedValue resets the statement value of the property in the given ConnectionState to its original value.
+func (p *TypedConnectionProperty[T]) ResetStatementScopedValue(state *ConnectionState) error {
+	typedResetValue, err := p.getResetValue(state)
+	if err != nil {
+		return err
+	}
+	return p.setStatementScopedValue(state, typedResetValue, setValueCommandReset)
+}
+
+func (p *TypedConnectionProperty[T]) getResetValue(state *ConnectionState) (T, error) {
+	value, err := state.value(p /*returnErrForUnknownProperty=*/, true)
+	if err != nil {
+		return p.defaultValue, err
 	}
 	resetValue := value.GetResetValue()
 	typedResetValue, ok := resetValue.(T)
 	if !ok {
-		return status.Errorf(codes.InvalidArgument, "value has wrong type: %T", resetValue)
+		return p.defaultValue, status.Errorf(codes.InvalidArgument, "value has wrong type: %T", resetValue)
 	}
-	return p.setLocalValue(state, typedResetValue, setValueCommandReset)
+	return typedResetValue, nil
 }
 
 // SetLocalValue sets the local value of the property in the given ConnectionState. A local value is only visible
@@ -349,6 +388,22 @@ func (p *TypedConnectionProperty[T]) setLocalValue(state *ConnectionState, value
 		state.localProperties = make(map[string]ConnectionPropertyValue)
 	}
 	return p.setValue(state, state.localProperties, value, setValueCommand, ContextUser)
+}
+
+// SetStatementScopedValue sets the value of the property in the given ConnectionState for a single statement.
+// A statement value is only visible during the execution of the current statement.
+func (p *TypedConnectionProperty[T]) SetStatementScopedValue(state *ConnectionState, value T) error {
+	return p.setStatementScopedValue(state, value, setValueCommandSet)
+}
+
+func (p *TypedConnectionProperty[T]) setStatementScopedValue(state *ConnectionState, value T, setValueCommand setValueCommand) error {
+	if p.context < ContextUser {
+		return status.Error(codes.FailedPrecondition, "SetStatementScopedValue is only supported for properties with context USER or higher")
+	}
+	if state.statementScopedProperties == nil {
+		state.statementScopedProperties = make(map[string]ConnectionPropertyValue)
+	}
+	return p.setValue(state, state.statementScopedProperties, value, setValueCommand, ContextUser)
 }
 
 func (p *TypedConnectionProperty[T]) setValue(state *ConnectionState, currentProperties map[string]ConnectionPropertyValue, value T, setValueCommand setValueCommand, context Context) error {
