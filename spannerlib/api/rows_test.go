@@ -126,3 +126,40 @@ func TestCloseRowsTwice(t *testing.T) {
 		t.Fatalf("ClosePool returned unexpected error: %v", err)
 	}
 }
+
+func TestAnalyze(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolId, err := CreatePool(ctx, dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	// Execute a SQL statement in PLAN mode. This only returns the query plan and no results.
+	_, err = Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{
+		Sql:       testutil.SelectFooFromBar,
+		QueryMode: spannerpb.ExecuteSqlRequest_PLAN,
+	})
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("num ExecuteSql requests mismatch\n Got: %d\nWant: %d", g, w)
+	}
+	request := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+	if g, w := request.QueryMode, spannerpb.ExecuteSqlRequest_PLAN; g != w {
+		t.Fatalf("query Mode mismatch\n Got: %d\nWant: %d", g, w)
+	}
+
+	if err := ClosePool(ctx, poolId); err != nil {
+		t.Fatalf("ClosePool returned unexpected error: %v", err)
+	}
+}
