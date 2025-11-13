@@ -570,7 +570,7 @@ func TestReadOnlyTransactionWithOptions(t *testing.T) {
 	requests = server.TestSpanner.DrainRequestsFromServer()
 	beginReadOnlyRequests = filterBeginReadOnlyRequests(testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
 	if g, w := len(beginReadOnlyRequests), 0; g != w {
-		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
+		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	executeRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), 1; g != w {
@@ -2723,6 +2723,9 @@ func TestShowAndSetVariableRetryAbortsInternally(t *testing.T) {
 
 		// Check that the behavior matches the setting.
 		tx, _ := c.BeginTx(ctx, nil)
+		if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+			t.Fatal(err)
+		}
 		server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
 			Errors: []error{gstatus.Error(codes.Aborted, "Aborted")},
 		})
@@ -3242,6 +3245,9 @@ func TestCommitResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to start transaction: %v", err)
 	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit failed: %v", err)
 	}
@@ -3410,6 +3416,9 @@ func TestShowVariableCommitTimestamp(t *testing.T) {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
 	tx, err := conn.BeginTx(ctx, nil)
+	if _, err := conn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
 	if err != nil {
 		t.Fatalf("failed to start transaction: %v", err)
 	}
@@ -4562,9 +4571,10 @@ func TestRunTransaction(t *testing.T) {
 		defer silentClose(rows)
 		// Verify that internal retries are disabled during RunTransaction
 		txi := reflect.ValueOf(tx).Elem().FieldByName("txi")
-		rwTx := (*readWriteTransaction)(txi.Elem().UnsafePointer())
+		delegatingTx := (*delegatingTransaction)(txi.Elem().UnsafePointer())
+		rwTx, ok := delegatingTx.contextTransaction.(*readWriteTransaction)
 		// Verify that getting the transaction through reflection worked.
-		if g, w := rwTx.ctx, ctx; g != w {
+		if !ok {
 			return fmt.Errorf("getting the transaction through reflection failed")
 		}
 		if rwTx.retryAborts() {
@@ -5023,9 +5033,10 @@ func TestBeginReadWriteTransaction(t *testing.T) {
 		}
 		// Verify that internal retries are disabled during this transaction.
 		txi := reflect.ValueOf(tx).Elem().FieldByName("txi")
-		rwTx := (*readWriteTransaction)(txi.Elem().UnsafePointer())
+		delegatingTx := (*delegatingTransaction)(txi.Elem().UnsafePointer())
+		rwTx, ok := delegatingTx.contextTransaction.(*readWriteTransaction)
 		// Verify that getting the transaction through reflection worked.
-		if g, w := rwTx.ctx, ctx; g != w {
+		if !ok {
 			t.Fatal("getting the transaction through reflection failed")
 		}
 		if rwTx.retryAborts() {
@@ -5076,7 +5087,7 @@ func TestBeginReadWriteTransaction(t *testing.T) {
 			t.Fatalf("missing transaction for ExecuteSqlRequest")
 		}
 		if req.Transaction.GetId() == nil {
-			t.Fatalf("missing begin selector for ExecuteSqlRequest")
+			t.Fatalf("missing ID selector for ExecuteSqlRequest")
 		}
 		if g, w := req.RequestOptions.TransactionTag, tag; g != w {
 			t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
@@ -5384,6 +5395,73 @@ func TestReturnResultSetStats(t *testing.T) {
 	}
 }
 
+func TestReturnResultSetStatsForQuery(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	query := "select id from singers where id=42598"
+	resultSet := testutil.CreateSingleColumnInt64ResultSet([]int64{42598}, "id")
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type:      testutil.StatementResultResultSet,
+		ResultSet: resultSet,
+	})
+
+	rows, err := db.QueryContext(context.Background(), query, ExecOptions{ReturnResultSetStats: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	// The first result set should contain the data.
+	for want := int64(42598); rows.Next(); want++ {
+		cols, err := rows.Columns()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !cmp.Equal(cols, []string{"id"}) {
+			t.Fatalf("cols mismatch\nGot: %v\nWant: %v", cols, []string{"id"})
+		}
+		var got int64
+		err = rows.Scan(&got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("value mismatch\nGot: %v\nWant: %v", got, want)
+		}
+	}
+	if rows.Err() != nil {
+		t.Fatal(rows.Err())
+	}
+
+	// The next result set should contain the stats.
+	if !rows.NextResultSet() {
+		t.Fatal("missing stats result set")
+	}
+
+	// Get the stats.
+	if !rows.Next() {
+		t.Fatal("no stats rows")
+	}
+	var stats *sppb.ResultSetStats
+	if err := rows.Scan(&stats); err != nil {
+		t.Fatalf("failed to scan stats: %v", err)
+	}
+	// The stats should not contain any update count.
+	if stats.GetRowCount() != nil {
+		t.Fatalf("got update count for query")
+	}
+	if rows.Next() {
+		t.Fatal("more rows than expected")
+	}
+
+	// There should be no more result sets.
+	if rows.NextResultSet() {
+		t.Fatal("more result sets than expected")
+	}
+}
+
 func TestReturnResultSetMetadataAndStats(t *testing.T) {
 	t.Parallel()
 
@@ -5474,6 +5552,47 @@ func TestReturnResultSetMetadataAndStats(t *testing.T) {
 	// There should be no more result sets.
 	if rows.NextResultSet() {
 		t.Fatal("more result sets than expected")
+	}
+}
+
+func TestConnectTimeout(t *testing.T) {
+	t.Parallel()
+
+	server, _, serverTeardown := setupMockedTestServerWithDialect(t, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+	defer serverTeardown()
+	db, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;connect_timeout=1ms", server.Address))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(db)
+
+	// Make the ExecuteStreamingSql method a bit slow, so the query that is used to detect the dialect responds a bit slowly.
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: time.Millisecond * 10})
+
+	// Try to get/create a connection using a context without a deadline.
+	// This will cause the connect_timeout to be used.
+	c, err := db.Conn(context.Background())
+	if g, w := spanner.ErrCode(err), codes.DeadlineExceeded; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	} else if c != nil {
+		_ = c.Close()
+	}
+}
+
+func TestInvalidConnectTimeout(t *testing.T) {
+	t.Parallel()
+
+	server, _, serverTeardown := setupMockedTestServerWithDialect(t, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+	defer serverTeardown()
+	db, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;connect_timeout='very long'", server.Address))
+	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	} else if db != nil {
+		defer silentClose(db)
 	}
 }
 

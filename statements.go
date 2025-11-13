@@ -103,7 +103,7 @@ func (s *executableShowStatement) queryContext(ctx context.Context, c *conn, opt
 	if err != nil {
 		return nil, err
 	}
-	return createRows(it, opts), nil
+	return createRows(it /*cancel=*/, nil, opts), nil
 }
 
 // SET [SESSION | LOCAL] [my_extension.]my_property {=|to} <value>
@@ -112,17 +112,29 @@ type executableSetStatement struct {
 }
 
 func (s *executableSetStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
-	if err := c.setConnectionVariable(s.stmt.Identifier, s.stmt.Literal.Value, s.stmt.IsLocal); err != nil {
+	if err := s.execute(c); err != nil {
 		return nil, err
 	}
 	return driver.ResultNoRows, nil
 }
 
 func (s *executableSetStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
-	if err := c.setConnectionVariable(s.stmt.Identifier, s.stmt.Literal.Value, s.stmt.IsLocal); err != nil {
+	if err := s.execute(c); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
+}
+
+func (s *executableSetStatement) execute(c *conn) error {
+	if len(s.stmt.Identifiers) != len(s.stmt.Literals) {
+		return status.Errorf(codes.InvalidArgument, "statement contains %d identifiers, but %d values given", len(s.stmt.Identifiers), len(s.stmt.Literals))
+	}
+	for index := range s.stmt.Identifiers {
+		if err := c.setConnectionVariable(s.stmt.Identifiers[index], s.stmt.Literals[index].Value, s.stmt.IsLocal, s.stmt.IsTransaction /*statementScoped=*/, false); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RESET [my_extension.]my_property
@@ -131,14 +143,14 @@ type executableResetStatement struct {
 }
 
 func (s *executableResetStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
-	if err := c.setConnectionVariable(s.stmt.Identifier, "default", false); err != nil {
+	if err := c.setConnectionVariable(s.stmt.Identifier, "default", false, false, false); err != nil {
 		return nil, err
 	}
 	return driver.ResultNoRows, nil
 }
 
 func (s *executableResetStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
-	if err := c.setConnectionVariable(s.stmt.Identifier, "default", false); err != nil {
+	if err := c.setConnectionVariable(s.stmt.Identifier, "default", false, false, false); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
@@ -267,10 +279,23 @@ type executableBeginStatement struct {
 }
 
 func (s *executableBeginStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+	if len(s.stmt.Identifiers) != len(s.stmt.Literals) {
+		return nil, status.Errorf(codes.InvalidArgument, "statement contains %d identifiers, but %d values given", len(s.stmt.Identifiers), len(s.stmt.Literals))
+	}
+	// The context that is passed in to c.BeginTx(..) becomes the transaction context. The transaction is automatically
+	// rolled back when that context is cancelled. We therefore create a derived context here that is not cancelled when
+	// the parent is cancelled.
+	ctx = context.WithoutCancel(ctx)
 	_, err := c.BeginTx(ctx, driver.TxOptions{})
 	if err != nil {
 		return nil, err
 	}
+	for index := range s.stmt.Identifiers {
+		if err := c.setConnectionVariable(s.stmt.Identifiers[index], s.stmt.Literals[index].Value /*IsLocal=*/, true /*IsTransaction=*/, true /*statementScoped=*/, false); err != nil {
+			return nil, err
+		}
+	}
+
 	return driver.ResultNoRows, nil
 }
 
@@ -286,7 +311,7 @@ type executableCommitStatement struct {
 }
 
 func (s *executableCommitStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
-	_, err := c.commit(ctx)
+	_, err := c.Commit(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +330,7 @@ type executableRollbackStatement struct {
 }
 
 func (s *executableRollbackStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
-	if err := c.rollback(ctx); err != nil {
+	if err := c.Rollback(ctx); err != nil {
 		return nil, err
 	}
 	return driver.ResultNoRows, nil

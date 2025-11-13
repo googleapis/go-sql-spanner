@@ -1,0 +1,60 @@
+name: Ruby Wrapper Tests
+
+on:
+  push:
+    branches:
+        - main
+  pull_request:
+
+jobs:
+  test:
+    name: Test ${{ matrix.os }} (Ruby ${{ matrix.ruby-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        ruby-version: ['3.3']
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./spannerlib/wrappers/spannerlib-ruby
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.x'
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby-version }}
+          bundler-cache: true
+          working-directory: ./spannerlib/wrappers/spannerlib-ruby
+
+      - name: Build shared library (Linux)
+        if: runner.os == 'Linux'
+        run: bundle exec rake compile:x86_64-linux
+
+      - name: Build shared library (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          ARCH=$(uname -m)
+          if [ "$ARCH" == "arm64" ]; then
+            bundle exec rake compile:aarch64-darwin
+          else
+            bundle exec rake compile:x86_64-darwin
+          fi
+      - name: Build shared library (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          CC=gcc CXX=g++ AR=ar RANLIB=ranlib bundle exec rake compile:x64-mingw32
+
+      - name: Run Tests
+        run: |
+          bundle exec ruby -Ilib -Ispec spec/spannerlib_ruby_spec.rb

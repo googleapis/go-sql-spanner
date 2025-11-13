@@ -83,6 +83,99 @@ func TestTwoTransactionsOnOneConn(t *testing.T) {
 	}
 }
 
+func TestEmptyTransaction(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	db.SetMaxOpenConns(1)
+
+	c, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(c)
+	// Run twice to ensure that there is no connection leak.
+	for range 2 {
+		tx, err := c.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+
+		// An empty transaction should be a no-op and not lead to any requests being sent to Spanner.
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+		if g, w := len(beginRequests), 0; g != w {
+			t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+		if g, w := len(commitRequests), 0; g != w {
+			t.Fatalf("commit requests count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+}
+
+func TestEmptyTransactionUsingSql(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	db.SetMaxOpenConns(1)
+
+	c, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(c)
+	// Run twice to ensure that there is no connection leak.
+	for range 2 {
+		if _, err := c.ExecContext(ctx, "begin"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.ExecContext(ctx, "commit"); err != nil {
+			t.Fatal(err)
+		}
+
+		// An empty transaction should be a no-op and not lead to any requests being sent to Spanner.
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+		if g, w := len(beginRequests), 0; g != w {
+			t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+		if g, w := len(commitRequests), 0; g != w {
+			t.Fatalf("commit requests count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+}
+
+func TestTwoQueriesOnOneConn(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	c, _ := db.Conn(ctx)
+	defer silentClose(c)
+
+	for range 2 {
+		r, err := c.QueryContext(context.Background(), testutil.SelectFooFromBar)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = r.Next()
+		defer silentClose(r)
+	}
+}
+
 func TestExplicitBeginTx(t *testing.T) {
 	t.Parallel()
 
@@ -1436,6 +1529,7 @@ func TestGenericConnectionState_GoogleSQL(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
 func TestGenericConnectionState_PostgreSQL(t *testing.T) {
 	t.Parallel()
 
@@ -1683,6 +1777,40 @@ func TestGenericConnectionState_PostgreSQL(t *testing.T) {
 
 	if err := conn.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDmlBatchReturnsBatchUpdateCountsOutsideTransaction(t *testing.T) {
+	t.Parallel()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(conn)
+
+	if _, err := conn.ExecContext(ctx, "start batch dml"); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
+	_, _ = conn.ExecContext(ctx, testutil.UpdateSingersSetLastName)
+	var res SpannerResult
+	if err := conn.Raw(func(driverConn interface{}) error {
+		spannerConn, _ := driverConn.(SpannerConn)
+		res, err = spannerConn.RunDmlBatch(ctx)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	results, err := res.BatchRowsAffected()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g, w := results, []int64{testutil.UpdateBarSetFooRowCount, testutil.UpdateSingersSetLastNameRowCount}; !reflect.DeepEqual(g, w) {
+		t.Fatalf("batch affected mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 

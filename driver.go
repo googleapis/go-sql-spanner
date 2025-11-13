@@ -51,7 +51,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const userAgent = "go-sql-spanner/1.17.0" // x-release-please-version
+const userAgent = "go-sql-spanner/1.21.0" // x-release-please-version
 
 const gormModule = "github.com/googleapis/go-gorm-spanner"
 const gormUserAgent = "go-gorm-spanner"
@@ -208,12 +208,21 @@ type ExecOptions struct {
 	// order to move to the result set that contains the spannerpb.ResultSetStats.
 	ReturnResultSetStats bool
 
-	// DirectExecute determines whether a query is executed directly when the
+	// DirectExecuteQuery determines whether a query is executed directly when the
 	// [sql.DB.QueryContext] method is called, or whether the actual query execution
 	// is delayed until the first call to [sql.Rows.Next]. The default is to delay
 	// the execution. Set this flag to true to execute the query directly when
 	// [sql.DB.QueryContext] is called.
 	DirectExecuteQuery bool
+
+	// DirectExecuteContext is the context that is used for the execution of a query
+	// when DirectExecuteQuery is enabled.
+	DirectExecuteContext context.Context
+
+	// PropertyValues contains a list of connection state property values that
+	// should be used while executing the statement. These values will only be used for
+	// this statement, and will not be persisted on the connection.
+	PropertyValues []PropertyValue
 }
 
 func (dest *ExecOptions) merge(src *ExecOptions) {
@@ -235,11 +244,17 @@ func (dest *ExecOptions) merge(src *ExecOptions) {
 	if src.DirectExecuteQuery {
 		dest.DirectExecuteQuery = src.DirectExecuteQuery
 	}
+	if src.DirectExecuteContext != nil {
+		dest.DirectExecuteContext = src.DirectExecuteContext
+	}
 	if src.AutocommitDMLMode != Unspecified {
 		dest.AutocommitDMLMode = src.AutocommitDMLMode
 	}
 	if src.TimestampBound != nil {
 		dest.TimestampBound = src.TimestampBound
+	}
+	if src.PropertyValues != nil {
+		dest.PropertyValues = append(dest.PropertyValues, src.PropertyValues...)
 	}
 	(&dest.PartitionedQueryOptions).merge(&src.PartitionedQueryOptions)
 	mergeQueryOptions(&dest.QueryOptions, &src.QueryOptions)
@@ -378,6 +393,10 @@ type ConnectorConfig struct {
 	// Host is the Spanner host that the connector should connect to.
 	// Leave this empty to use the standard Spanner API endpoint.
 	Host string
+
+	// The expected server name in the TLS handshake.
+	// Leave this empty to use the endpoint hostname.
+	Authority string
 
 	// Project, Instance, and Database identify the database that the connector
 	// should create connections for.
@@ -575,6 +594,10 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	if connectorConfig.Host != "" {
 		opts = append(opts, option.WithEndpoint(connectorConfig.Host))
 	}
+	assignPropertyValueIfExists(state, propertyAuthority, &connectorConfig.Authority)
+	if connectorConfig.Authority != "" {
+		opts = append(opts, option.WithGRPCDialOption(grpc.WithAuthority(connectorConfig.Authority)))
+	}
 	if val := propertyCredentials.GetValueOrDefault(state); val != "" {
 		opts = append(opts, option.WithCredentialsFile(val))
 	}
@@ -731,6 +754,17 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		c.connectorConfig.Project,
 		c.connectorConfig.Instance,
 		c.connectorConfig.Database)
+	if value, ok := c.initialPropertyValues[propertyConnectTimeout.Key()]; ok {
+		if timeout, err := value.GetValue(); err == nil {
+			if duration, ok := timeout.(time.Duration); ok {
+				var cancel context.CancelFunc
+				// This will set the actual timeout of the context to the lower of the
+				// current context timeout (if any) and the value from the connection property.
+				ctx, cancel = context.WithTimeout(ctx, duration)
+				defer cancel()
+			}
+		}
+	}
 
 	if err := c.increaseConnCount(ctx, databaseName, opts); err != nil {
 		return nil, err
@@ -995,6 +1029,7 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		_ = conn.Close()
 	}()
 
+	tx, err := conn.BeginTx(ctx, opts)
 	// We don't need to keep track of a running checksum for retries when using
 	// this method, so we disable internal retries.
 	// Retries will instead be handled by the loop below.
@@ -1010,13 +1045,12 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 			// It is not a Spanner connection, so just ignore and continue without any special handling.
 			return nil
 		}
-		spannerConn.withTempTransactionOptions(transactionOptions)
+		spannerConn.setReadWriteTransactionOptions(transactionOptions)
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 
-	tx, err := conn.BeginTx(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -1129,8 +1163,6 @@ type ReadWriteTransactionOptions struct {
 	// disabled, and any Aborted error from Spanner is propagated to the
 	// application.
 	DisableInternalRetries bool
-
-	close func()
 }
 
 // BeginReadWriteTransaction begins a read/write transaction on a Spanner database.
@@ -1145,17 +1177,18 @@ func BeginReadWriteTransaction(ctx context.Context, db *sql.DB, options ReadWrit
 	if err != nil {
 		return nil, err
 	}
-	options.close = func() {
+	if err := withTransactionCloseFunc(conn, func() {
 		// Close the connection asynchronously, as the transaction will still
 		// be active when we hit this point.
 		go conn.Close()
-	}
-	if err := withTempReadWriteTransactionOptions(conn, &options); err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+	if err := withTempReadWriteTransactionOptions(conn, &options); err != nil {
+		return nil, err
+	}
 	if err != nil {
-		clearTempReadWriteTransactionOptions(conn)
 		return nil, err
 	}
 	return tx, nil
@@ -1168,14 +1201,9 @@ func withTempReadWriteTransactionOptions(conn *sql.Conn, options *ReadWriteTrans
 			// It is not a Spanner connection.
 			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
 		}
-		spannerConn.withTempTransactionOptions(options)
+		spannerConn.setReadWriteTransactionOptions(options)
 		return nil
 	})
-}
-
-func clearTempReadWriteTransactionOptions(conn *sql.Conn) {
-	_ = withTempReadWriteTransactionOptions(conn, nil)
-	_ = conn.Close()
 }
 
 // ReadOnlyTransactionOptions can be used to create a read-only transaction
@@ -1183,8 +1211,6 @@ func clearTempReadWriteTransactionOptions(conn *sql.Conn) {
 type ReadOnlyTransactionOptions struct {
 	TimestampBound         spanner.TimestampBound
 	BeginTransactionOption spanner.BeginTransactionOption
-
-	close func()
 }
 
 // BeginReadOnlyTransaction begins a read-only transaction on a Spanner database.
@@ -1197,20 +1223,34 @@ func BeginReadOnlyTransaction(ctx context.Context, db *sql.DB, options ReadOnlyT
 	if err != nil {
 		return nil, err
 	}
-	options.close = func() {
+	if err := withTransactionCloseFunc(conn, func() {
 		// Close the connection asynchronously, as the transaction will still
 		// be active when we hit this point.
 		go conn.Close()
-	}
-	if err := withTempReadOnlyTransactionOptions(conn, &options); err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err := withTempReadOnlyTransactionOptions(conn, &options); err != nil {
+		return nil, err
+	}
 	if err != nil {
 		clearTempReadOnlyTransactionOptions(conn)
 		return nil, err
 	}
 	return tx, nil
+}
+
+func withTransactionCloseFunc(conn *sql.Conn, close func()) error {
+	return conn.Raw(func(driverConn any) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			// It is not a Spanner connection.
+			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
+		}
+		spannerConn.withTransactionCloseFunc(close)
+		return nil
+	})
 }
 
 func withTempReadOnlyTransactionOptions(conn *sql.Conn, options *ReadOnlyTransactionOptions) error {
@@ -1220,7 +1260,7 @@ func withTempReadOnlyTransactionOptions(conn *sql.Conn, options *ReadOnlyTransac
 			// It is not a Spanner connection.
 			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
 		}
-		spannerConn.withTempReadOnlyTransactionOptions(options)
+		spannerConn.setReadOnlyTransactionOptions(options)
 		return nil
 	})
 }
@@ -1533,6 +1573,24 @@ func toProtoIsolationLevel(level sql.IsolationLevel) (spannerpb.TransactionOptio
 
 func toProtoIsolationLevelOrDefault(level sql.IsolationLevel) spannerpb.TransactionOptions_IsolationLevel {
 	res, _ := toProtoIsolationLevel(level)
+	return res
+}
+
+func toSqlIsolationLevel(level spannerpb.TransactionOptions_IsolationLevel) (sql.IsolationLevel, error) {
+	switch level {
+	case spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED:
+		return sql.LevelDefault, nil
+	case spannerpb.TransactionOptions_SERIALIZABLE:
+		return sql.LevelSerializable, nil
+	case spannerpb.TransactionOptions_REPEATABLE_READ:
+		return sql.LevelRepeatableRead, nil
+	default:
+	}
+	return sql.LevelDefault, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid or unsupported isolation level: %v", level))
+}
+
+func toSqlIsolationLevelOrDefault(level spannerpb.TransactionOptions_IsolationLevel) sql.IsolationLevel {
+	res, _ := toSqlIsolationLevel(level)
 	return res
 }
 

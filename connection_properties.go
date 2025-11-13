@@ -23,9 +23,26 @@ import (
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+// PropertyValue is an untyped property value for a connection property.
+// These can be set on an ExecOptions instance to set statement-scoped connection property values for a
+// single statement execution.
+type PropertyValue struct {
+	Identifier parser.Identifier
+	Value      string
+}
+
+// CreatePropertyValue creates an untyped property value for a connection variable.
+func CreatePropertyValue(name, value string) PropertyValue {
+	return PropertyValue{
+		Identifier: parser.Identifier{Parts: []string{name}},
+		Value:      value,
+	}
+}
 
 // connectionProperties contains all supported connection properties for Spanner.
 // These properties are added to all connectionstate.ConnectionState instances that are created for Spanner connections.
@@ -228,6 +245,24 @@ var propertyDecodeToNativeArrays = createConnectionProperty(
 // Transaction connection properties.
 // ------------------------------------------------------------------------------------------------
 
+var propertyTransactionReadOnly = createConnectionProperty(
+	"transaction_read_only",
+	"transaction_read_only is the default read-only mode for transactions on this connection.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
+var propertyTransactionDeferrable = createConnectionProperty(
+	"transaction_deferrable",
+	"transaction_deferrable is a no-op on Spanner. It is defined in this driver for compatibility with PostgreSQL.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
 var propertyExcludeTxnFromChangeStreams = createConnectionProperty(
 	"exclude_txn_from_change_streams",
 	"exclude_txn_from_change_streams determines whether transactions on this connection should be excluded from "+
@@ -257,6 +292,46 @@ var propertyMaxCommitDelay = createConnectionProperty(
 	connectionstate.ContextUser,
 	connectionstate.ConvertDuration,
 )
+var propertyCommitPriority = createConnectionProperty(
+	"commit_priority",
+	"Sets the priority for commit RPC invocations from this connection (HIGH/MEDIUM/LOW/UNSPECIFIED). "+
+		"The default is UNSPECIFIED.",
+	spannerpb.RequestOptions_PRIORITY_UNSPECIFIED,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	func(value string) (spannerpb.RequestOptions_Priority, error) {
+		return parseRpcPriority(value)
+	},
+)
+var propertyReturnCommitStats = createConnectionProperty(
+	"return_commit_stats",
+	"return_commit_stats determines whether transactions should request Spanner to return commit statistics.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
+var propertyTransactionBatchReadOnly = createConnectionProperty(
+	"transaction_batch_read_only",
+	"transaction_batch_read_only indicates whether read-only transactions on this connection should use a batch read-only transaction.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
+var propertyTransactionTimeout = createConnectionProperty(
+	"transaction_timeout",
+	"The timeout to apply to all read/write transactions on this connection. "+
+		"Setting the timeout to zero means no timeout.",
+	time.Duration(0),
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertDuration,
+)
 
 // ------------------------------------------------------------------------------------------------
 // Statement connection properties.
@@ -270,6 +345,16 @@ var propertyStatementTag = createConnectionProperty(
 	connectionstate.ContextUser,
 	connectionstate.ConvertString,
 )
+var propertyStatementTimeout = createConnectionProperty(
+	"statement_timeout",
+	"The timeout to apply to all statements on this connection. "+
+		"Setting the timeout to zero means no timeout.",
+	time.Duration(0),
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertDuration,
+)
 
 // ------------------------------------------------------------------------------------------------
 // Startup connection properties.
@@ -280,6 +365,17 @@ var propertyEndpoint = createConnectionProperty(
 		"when auto_config_emulator=false, and the default Spanner emulator endpoint (localhost:9010) when "+
 		"auto_config_emulator=true. This property takes precedence over any host name at the start of the "+
 		"connection string.",
+	"",
+	false,
+	nil,
+	connectionstate.ContextStartup,
+	connectionstate.ConvertString,
+)
+var propertyAuthority = createConnectionProperty(
+	"authority",
+	"The expected server name in the TLS handshake. By default, the endpoint hostname is used. This option "+
+		"is useful when connecting to Spanner via Google Private Connect or other custom endpoints where the "+
+		"endpoint hostname does not match the server’s TLS certificate.",
 	"",
 	false,
 	nil,
@@ -401,6 +497,15 @@ var propertyDisableStatementCache = createConnectionProperty(
 	nil,
 	connectionstate.ContextStartup,
 	connectionstate.ConvertBool,
+)
+var propertyConnectTimeout = createConnectionProperty(
+	"connect_timeout",
+	"The amount of time to wait before timing out when creating a new connection.",
+	0,
+	false,
+	nil,
+	connectionstate.ContextStartup,
+	connectionstate.ConvertDuration,
 )
 
 // Generated read-only properties. These cannot be set by the user anywhere.

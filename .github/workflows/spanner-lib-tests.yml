@@ -1,0 +1,149 @@
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+permissions:
+  contents: read
+  pull-requests: write
+name: Spanner Lib Tests
+jobs:
+  test:
+    strategy:
+      matrix:
+        go-version: [1.25.x]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: Checkout code
+        uses: actions/checkout@v5
+      - name: Run unit tests
+        working-directory: spannerlib
+        run: go test ./... -race -short
+
+  java-wrapper:
+    strategy:
+      matrix:
+        go-version: [1.25.x]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Install Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Checkout code
+        uses: actions/checkout@v5
+      - name: Check Java formatting
+        run: mvn com.spotify.fmt:fmt-maven-plugin:check
+        working-directory: spannerlib/wrappers/spannerlib-java
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: Build shared library
+        working-directory: spannerlib/shared
+        run: go build -o spannerlib.so -buildmode=c-shared shared_lib.go
+      - name: Build gRPC server
+        working-directory: spannerlib/grpc-server
+        run: |
+          go build -o grpc_server server.go
+          chmod +x grpc_server
+      - name: Copy to Java wrapper
+        working-directory: spannerlib
+        run: |
+          echo "$RUNNER_OS"
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            mkdir -p wrappers/spannerlib-java/src/main/resources/win32-x86-64
+            cp shared/spannerlib.so wrappers/spannerlib-java/src/main/resources/win32-x86-64/spanner.dll
+            cp grpc-server/grpc_server wrappers/spannerlib-java/src/main/resources/win32-x86-64/grpc_server
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            mkdir -p wrappers/spannerlib-java/src/main/resources/darwin-aarch64
+            cp shared/spannerlib.so wrappers/spannerlib-java/src/main/resources/darwin-aarch64/libspanner.dylib
+            cp grpc-server/grpc_server wrappers/spannerlib-java/src/main/resources/darwin-aarch64/grpc_server
+          else
+            mkdir -p wrappers/spannerlib-java/src/main/resources/linux-x86-64
+            cp shared/spannerlib.so wrappers/spannerlib-java/src/main/resources/linux-x86-64/libspanner.so
+            cp grpc-server/grpc_server wrappers/spannerlib-java/src/main/resources/linux-x86-64/grpc_server
+          fi
+        shell: bash
+      - name: ls spannerlib.so
+        working-directory: spannerlib/wrappers/spannerlib-java/src/main/resources
+        run: ls -lha
+        shell: bash
+      - name: Run Java tests
+        run: mvn -Djna.debug_load=true test
+        working-directory: spannerlib/wrappers/spannerlib-java
+        shell: bash
+
+  dotnet-wrapper:
+    strategy:
+      matrix:
+        go-version: [1.25.x]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          submodules: 'true'
+      - name: Install dotnet
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+      - name: Create temporary global.json
+        # Force the use of .NET 8.0.x by writing that version to a global.json file.
+        # Otherwise, .NET will default to the latest version on the host.
+        # .NET 8 has a much smaller chance of crashing when using a native library written in Go
+        # than .NET 9 has, so using .NET 8 allows us to run the tests using the native library as well.
+        run: |
+          echo '{"sdk":{"version": "8.0.0", "rollForward": "latestFeature"}}' > ./global.json
+        shell: bash
+      - name: .NET Version check
+        working-directory: spannerlib/wrappers/spannerlib-dotnet
+        run: dotnet --version
+        shell: bash
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+      # Install compilers for cross-compiling between operating systems.
+      - name: Install compilers
+        run: |
+          echo "$RUNNER_OS"
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            echo "Windows does not yet support cross compiling"
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            brew tap SergioBenitez/osxct
+            brew install x86_64-unknown-linux-gnu
+            brew install mingw-w64
+          else
+            sudo apt-get update
+            sudo apt install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
+            sudo apt-get install -y gcc-arm-linux-gnueabihf
+          fi
+        shell: bash
+      - name: Build the .NET wrapper using the build script
+        working-directory: spannerlib/wrappers/spannerlib-dotnet
+        run: |
+          echo "$RUNNER_OS"
+          ./build.sh
+        shell: bash
+      - name: Restore dependencies
+        run: dotnet restore
+        working-directory: spannerlib/wrappers/spannerlib-dotnet
+        shell: bash
+      - name: Build
+        run: dotnet build --no-restore -c Release
+        working-directory: spannerlib/wrappers/spannerlib-dotnet
+        shell: bash
+      - name: .NET Unit Tests
+        working-directory: spannerlib/wrappers/spannerlib-dotnet/spannerlib-dotnet-tests
+        run: |
+          dotnet --version
+          dotnet test --no-build --verbosity normal -c Release
+        shell: bash

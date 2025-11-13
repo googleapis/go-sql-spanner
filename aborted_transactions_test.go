@@ -41,6 +41,9 @@ func TestCommitAborted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
 	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
 	server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
 		Errors: []error{status.Error(codes.Aborted, "Aborted")},
 	})
@@ -51,7 +54,7 @@ func TestCommitAborted(t *testing.T) {
 	reqs := server.TestSpanner.DrainRequestsFromServer()
 	commitReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitReqs), 2; g != w {
-		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
+		t.Fatalf("commit request count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
 	// Verify that the db is still usable.
@@ -116,6 +119,9 @@ func TestCommitAbortedWithInternalRetriesDisabled(t *testing.T) {
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
 	}
 	server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
 		Errors: []error{status.Error(codes.Aborted, "Aborted")},

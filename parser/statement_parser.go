@@ -216,6 +216,13 @@ func (p *StatementParser) supportsBackslashEscape() bool {
 	return p.Dialect != databasepb.DatabaseDialect_POSTGRESQL
 }
 
+// supportsEscapeStrings returns true if the dialect supports enabling escaping using backslashes
+// by prepending an e or E to the string. Example:
+// e'It\'s a valid string' => This is the string "It's a valid string".
+func (p *StatementParser) supportsEscapeStrings() bool {
+	return p.Dialect == databasepb.DatabaseDialect_POSTGRESQL
+}
+
 // supportsEscapeQuoteWithQuote returns true if the dialect supports escaping a quote within a quoted
 // literal by repeating the quote twice. Example (note that the way that two single quotes are written in the following
 // examples is something that is enforced by gofmt):
@@ -402,6 +409,17 @@ func (p *StatementParser) skipMultiLineComment(sql []byte, pos int) int {
 // could not be read.
 // The quote length is either 1 for normal quoted strings, and 3 for triple-quoted string.
 func (p *StatementParser) skipQuoted(sql []byte, pos int, quote byte) (int, int, error) {
+	isEscapeString := false
+	if p.supportsEscapeStrings() && pos > 0 {
+		// TODO: Also implement support for the standard_conforming_strings property in PostgreSQL.
+		//       See https://www.postgresql.org/docs/current/runtime-config-compatible.html#GUC-STANDARD-CONFORMING-STRINGS
+		// Check if it is an escape-string. This enables the use of a backslash to start an escape sequence, even if
+		// the dialect normally does not support that. Escape strings start with an e or E, e.g. "e'It\'s valid'".
+		// The second part of the check is to verify that the e or E is not part of a keyword, e.g. WHERE.
+		// The following is valid SQL, but does not designate an escape-string:
+		// SELECT * FROM my_table WHERE'test'=col1;
+		isEscapeString = (sql[pos-1] == 'e' || sql[pos-1] == 'E') && (pos == 1 || !isLatinLetter(sql[pos-2]))
+	}
 	isTripleQuoted := p.supportsTripleQuotedLiterals() && len(sql) > pos+2 && sql[pos+1] == quote && sql[pos+2] == quote
 	if isTripleQuoted && (isMultibyte(sql[pos+1]) || isMultibyte(sql[pos+2])) {
 		isTripleQuoted = false
@@ -434,7 +452,7 @@ func (p *StatementParser) skipQuoted(sql []byte, pos int, quote byte) (int, int,
 				// This was the end quote.
 				return pos + 1, quoteLength, nil
 			}
-		} else if p.supportsBackslashEscape() && len(sql) > pos+1 && c == '\\' && sql[pos+1] == quote {
+		} else if (p.supportsBackslashEscape() || isEscapeString) && len(sql) > pos+1 && c == '\\' && sql[pos+1] == quote {
 			// This is an escaped quote (e.g. 'foo\'bar').
 			// Note that in raw strings, the \ officially does not start an
 			// escape sequence, but the result is still the same, as in a raw

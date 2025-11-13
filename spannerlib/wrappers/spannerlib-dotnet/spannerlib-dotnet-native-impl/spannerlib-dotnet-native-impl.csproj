@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <RootNamespace>Google.Cloud.SpannerLib.Native.Impl</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>default</LangVersion>
+    <PackageId>Alpha.Google.Cloud.SpannerLib.NativeImpl</PackageId>
+    <Version>1.0.0-alpha.20251027150914</Version>
+    <Authors>Google</Authors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\spannerlib-dotnet\spannerlib-dotnet.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.Native" Version="1.0.0-alpha.20251027150914" />
+  </ItemGroup>
+
+</Project>

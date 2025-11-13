@@ -138,7 +138,7 @@ func (p *simpleParser) eatDollarTag() (string, bool) {
 				return "", false
 			}
 		} else {
-			if p.eatToken('$') {
+			if p.eatTokenWithWhitespaceOption('$' /*eatWhiteSpaces=*/, false) {
 				return string(p.sql[startPos : p.pos-1]), true
 			}
 			if !p.isValidIdentifierChar() {
@@ -290,6 +290,16 @@ func (p *simpleParser) eatKeywords(keywords []string) bool {
 	return true
 }
 
+// peekKeyword checks if the next keyword is the given keyword.
+// The position of the parser is not updated.
+func (p *simpleParser) peekKeyword(keyword string) bool {
+	pos := p.pos
+	defer func() {
+		p.pos = pos
+	}()
+	return p.eatKeyword(keyword)
+}
+
 // eatKeyword eats the given keyword at the current position of the parser if it exists
 // and returns true if the keyword was found. Otherwise, it returns false.
 func (p *simpleParser) eatKeyword(keyword string) bool {
@@ -323,8 +333,8 @@ func (p *simpleParser) readKeyword() string {
 		if isSpace(p.sql[p.pos]) {
 			break
 		}
-		// Only upper/lower-case letters are allowed in keywords.
-		if !((p.sql[p.pos] >= 'A' && p.sql[p.pos] <= 'Z') || (p.sql[p.pos] >= 'a' && p.sql[p.pos] <= 'z')) {
+		// Only upper/lower-case letters and underscores are allowed in keywords.
+		if !((p.sql[p.pos] >= 'A' && p.sql[p.pos] <= 'Z') || (p.sql[p.pos] >= 'a' && p.sql[p.pos] <= 'z')) && p.sql[p.pos] != '_' {
 			break
 		}
 	}
@@ -383,12 +393,18 @@ func (p *simpleParser) skipStatementHint() bool {
 // isMultibyte returns true if the character at the current position
 // is a multibyte utf8 character.
 func (p *simpleParser) isMultibyte() bool {
+	if p.pos >= len(p.sql) {
+		return false
+	}
 	return isMultibyte(p.sql[p.pos])
 }
 
 // nextChar moves the parser to the next character. This takes into
 // account that some characters could be multibyte characters.
 func (p *simpleParser) nextChar() {
+	if p.pos >= len(p.sql) {
+		return
+	}
 	if !p.isMultibyte() {
 		p.pos++
 		return

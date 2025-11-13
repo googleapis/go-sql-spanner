@@ -80,6 +80,10 @@ func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
 		s.execOptions = &execOptions
 		return driver.ErrRemoveArgument
 	}
+	if execOptions, ok := value.Value.(*ExecOptions); ok {
+		s.execOptions = execOptions
+		return driver.ErrRemoveArgument
+	}
 	return s.conn.CheckNamedValue(value)
 }
 
