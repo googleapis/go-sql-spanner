@@ -153,13 +153,15 @@ def get_spannerlib_artifacts_binary(session):
     return (lib, folder, header)
 
 
-def build_spannerlib_artifacts(session):
+@nox.session
+def build_spannerlib(session):
     """
     Build SpannerLib artifacts.
     """
     session.log("Building spannerlib artifacts...")
 
     # Run the build script
+    session.env["RUNNER_OS"] = platform.system()
     session.run("bash", "./build-shared-lib.sh", external=True)
 
 
@@ -189,22 +191,10 @@ def copy_artifacts(session):
 
 
 @nox.session
-def prepare_artifacts(session):
-    """
-    Cleans the lib dir and copies the correct
-    platform-specific binary into it.
-    """
-    # build_spannerlib_artifacts(session)
-    copy_artifacts(session)
-
-
-@nox.session
 def build(session):
     """
     Prepares the platform-specific artifacts and builds the wheel.
     """
-    prepare_artifacts(session)
-
     if os.path.exists(DIST_DIR):
         shutil.rmtree(DIST_DIR)
 
@@ -212,7 +202,7 @@ def build(session):
     session.install("build", "twine")
 
     # Run the preparation step
-    prepare_artifacts(session)
+    copy_artifacts(session)
 
     # Build the wheel
     session.log("Building...")
@@ -230,6 +220,6 @@ def build(session):
 @nox.session
 def install(session):
     """
-    Build and Install locally
+    Install locally
     """
     session.install("-e", ".")

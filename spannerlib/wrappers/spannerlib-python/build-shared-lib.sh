@@ -18,9 +18,23 @@
 # Fail execution if any command errors out
 echo -e "Build Spannerlib Shared Lib"
 
-export SKIP_MACOS=true
-export SKIP_WINDOWS=true
-export SKIP_LINUX_CROSS_COMPILE=true
+echo -e "RUNNER_OS DIR: $RUNNER_OS"
+# Determine which builds to skip when the script runs on GitHub Actions.
+if [ "$RUNNER_OS" == "Windows" ]; then
+    # Windows does not support any cross-compiling.
+    export SKIP_MACOS=true
+    export SKIP_LINUX=true
+    export SKIP_LINUX_CROSS_COMPILE=true
+elif [ "$RUNNER_OS" == "macOS" ]; then
+    # When running on macOS, cross-compiling is supported.
+    # We skip the 'normal' Linux build (the one that does not explicitly set a C compiler).
+    export SKIP_LINUX=true
+elif [ "$RUNNER_OS" == "Linux" ]; then
+    # Linux does not (yet) support cross-compiling to MacOS.
+    # In addition, we use the 'normal' Linux build when we are already running on Linux.
+    export SKIP_MACOS=true
+    export SKIP_LINUX_CROSS_COMPILE=true
+fi
 
 TARGET_WRAPPER_DIR="../wrappers/spannerlib-python" 
 ARTIFACTS_DIR="spannerlib-artifacts"
