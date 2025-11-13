@@ -225,6 +225,9 @@ type SpannerConn interface {
 	// DetectStatementType returns the type of SQL statement.
 	DetectStatementType(query string) parser.StatementType
 
+	// Parser returns the parser.StatementParser that is used for this connection.
+	Parser() *parser.StatementParser
+
 	// resetTransactionForRetry resets the current transaction after it has
 	// been aborted by Spanner. Calling this function on a transaction that
 	// has not been aborted is not supported and will cause an error to be
@@ -265,6 +268,7 @@ type conn struct {
 	tx            *delegatingTransaction
 	prevTx        *delegatingTransaction
 	resetForRetry bool
+	instance      string
 	database      string
 
 	execSingleQuery              func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, bound spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator
@@ -292,6 +296,10 @@ func (c *conn) UnderlyingClient() (*spanner.Client, error) {
 func (c *conn) DetectStatementType(query string) parser.StatementType {
 	info := c.parser.DetectStatementType(query)
 	return info.StatementType
+}
+
+func (c *conn) Parser() *parser.StatementParser {
+	return c.parser
 }
 
 func (c *conn) CommitTimestamp() (time.Time, error) {
@@ -418,6 +426,16 @@ func (c *conn) setReadOnlyStaleness(staleness spanner.TimestampBound) (driver.Re
 		return nil, err
 	}
 	return driver.ResultNoRows, nil
+}
+
+func (c *conn) readOnlyStalenessPointer() *spanner.TimestampBound {
+	val := propertyReadOnlyStaleness.GetConnectionPropertyValue(c.state)
+	if val == nil || !val.HasValue() {
+		return nil
+	}
+	staleness, _ := val.GetValue()
+	timestampBound := staleness.(spanner.TimestampBound)
+	return &timestampBound
 }
 
 func (c *conn) IsolationLevel() sql.IsolationLevel {
@@ -650,6 +668,22 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 		for i, s := range statements {
 			ddlStatements[i] = s.SQL
 		}
+		if c.parser.IsCreateDatabaseStatement(ddlStatements[0]) {
+			op, err := c.adminClient.CreateDatabase(ctx, &adminpb.CreateDatabaseRequest{
+				CreateStatement: ddlStatements[0],
+				DatabaseDialect: c.parser.Dialect,
+				Parent:          c.instance,
+				ExtraStatements: ddlStatements[1:],
+			})
+			if err != nil {
+				return nil, err
+			}
+			if _, err := op.Wait(ctx); err != nil {
+				return nil, err
+			}
+			return driver.ResultNoRows, nil
+		}
+
 		op, err := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
 			Database:   c.database,
 			Statements: ddlStatements,
@@ -1205,6 +1239,7 @@ func (c *conn) options(reset bool) (*ExecOptions, error) {
 			},
 		},
 		PartitionedQueryOptions: PartitionedQueryOptions{},
+		TimestampBound:          c.readOnlyStalenessPointer(),
 	}
 	if c.tempExecOptions != nil {
 		effectiveOptions.merge(c.tempExecOptions)
@@ -1585,6 +1620,9 @@ func (c *conn) Rollback(ctx context.Context) error {
 }
 
 func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
+	if options.TimestampBound != nil {
+		tb = *options.TimestampBound
+	}
 	return c.Single().WithTimestampBound(tb).QueryWithOptions(ctx, statement, options.QueryOptions)
 }
 

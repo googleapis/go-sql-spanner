@@ -14,8 +14,10 @@
 
 using System.Data.Common;
 using System.Text.Json;
+using Google.Cloud.Spanner.Admin.Database.V1;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib.MockServer;
+using Google.Protobuf.WellKnownTypes;
 
 namespace Google.Cloud.Spanner.DataProvider.Tests;
 
@@ -66,6 +68,34 @@ public class BasicTests : AbstractMockServerTests
             Assert.That(reader.GetInt64(0), Is.EqualTo(1));
         }
     }
+    
+    [Test]
+    public void TestExecuteStaleQuery()
+    {
+        using var connection = new SpannerConnection();
+        connection.ConnectionString = ConnectionString;
+        connection.Open();
+        
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT 1";
+        cmd.SingleUseReadOnlyTransactionOptions = new TransactionOptions.Types.ReadOnly
+        {
+            ExactStaleness = Duration.FromTimeSpan(TimeSpan.FromSeconds(10)),
+        };
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            Assert.That(reader.GetInt64(0), Is.EqualTo(1));
+        }
+
+        var request = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().First();
+        Assert.That(request, Is.Not.Null);
+        Assert.That(request.Transaction, Is.Not.Null);
+        Assert.That(request.Transaction.SingleUse, Is.Not.Null);
+        Assert.That(request.Transaction.SingleUse.ReadOnly, Is.Not.Null);
+        Assert.That(request.Transaction.SingleUse.ReadOnly.ExactStaleness, Is.Not.Null);
+        Assert.That(request.Transaction.SingleUse.ReadOnly.ExactStaleness.Seconds, Is.EqualTo(10));
+    }
 
     [Test]
     public void TestInsertAllDataTypes()
@@ -112,7 +142,78 @@ public class BasicTests : AbstractMockServerTests
         
         Assert.That(request.ParamTypes.Count, Is.EqualTo(0));
     }
+        
+    [Test]
+    public void TestExecuteDdl()
+    {
+        using var connection = new SpannerConnection();
+        connection.ConnectionString = ConnectionString;
+        connection.Open();
+        
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "create table my_table (id int64 primary key, value string(max))";
+        Assert.That(cmd.ExecuteNonQuery(), Is.EqualTo(-1));
 
+        var requests = Fixture.DatabaseAdminMock.Requests.OfType<UpdateDatabaseDdlRequest>().ToList();
+        Assert.That(requests, Has.Count.EqualTo(1));
+        var request = requests.First();
+        Assert.That(request.Statements, Has.Count.EqualTo(1));
+        var statement = request.Statements.First();
+        Assert.That(statement, Is.EqualTo(cmd.CommandText));
+    }
+    
+    [Test]
+    public void TestExecuteCreateDatabase()
+    {
+        using var connection = new SpannerConnection();
+        connection.ConnectionString = ConnectionString;
+        connection.Open();
+        
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "create database my_database";
+        Assert.That(cmd.ExecuteNonQuery(), Is.EqualTo(-1));
+
+        var updateDatabaseDdlRequests = Fixture.DatabaseAdminMock.Requests.OfType<UpdateDatabaseDdlRequest>().ToList();
+        Assert.That(updateDatabaseDdlRequests, Has.Count.EqualTo(0));
+        
+        var requests = Fixture.DatabaseAdminMock.Requests.OfType<CreateDatabaseRequest>().ToList();
+        Assert.That(requests, Has.Count.EqualTo(1));
+        var request = requests.First();
+        Assert.That(request.CreateStatement, Is.EqualTo(cmd.CommandText));
+        Assert.That(request.Parent, Is.EqualTo("projects/p1/instances/i1"));
+    }
+    
+    [Test]
+    public void TestExecuteCreateDatabaseWithExtraStatements()
+    {
+        using var connection = new SpannerConnection();
+        connection.ConnectionString = ConnectionString;
+        connection.Open();
+        
+        using var batch = connection.CreateBatch();
+        var cmd = batch.CreateBatchCommand();
+        cmd.CommandText = "create database my_database";
+        batch.BatchCommands.Add(cmd);
+        cmd = batch.CreateBatchCommand();
+        cmd.CommandText = "create table my_table (id int64 primary key, value string)";
+        batch.BatchCommands.Add(cmd);
+        cmd = batch.CreateBatchCommand();
+        cmd.CommandText = "create index my_index on my_table (value)";
+        batch.BatchCommands.Add(cmd);
+        
+        // TODO: Check with other drivers what they return when a batch contains multiple statements that return -1.
+        Assert.That(batch.ExecuteNonQuery(), Is.EqualTo(-3));
+
+        var updateDatabaseDdlRequests = Fixture.DatabaseAdminMock.Requests.OfType<UpdateDatabaseDdlRequest>().ToList();
+        Assert.That(updateDatabaseDdlRequests, Has.Count.EqualTo(0));
+        
+        var requests = Fixture.DatabaseAdminMock.Requests.OfType<CreateDatabaseRequest>().ToList();
+        Assert.That(requests, Has.Count.EqualTo(1));
+        var request = requests.First();
+        Assert.That(request.CreateStatement, Is.EqualTo("create database my_database"));
+        Assert.That(request.Parent, Is.EqualTo("projects/p1/instances/i1"));
+    }
+    
     private void AddParameter(DbCommand command, string name, object value)
     {
         var param = command.CreateParameter();

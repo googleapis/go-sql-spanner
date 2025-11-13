@@ -306,8 +306,29 @@ public class SpannerDataReader : DbDataReader
 
     public override byte GetByte(int ordinal)
     {
-        CheckValidPosition();
+        var value = GetProtoValue(ordinal);
         CheckNotNull(ordinal);
+        if (value.HasStringValue)
+        {
+            try
+            {
+                return byte.Parse(value.StringValue,
+                    NumberStyles.AllowDecimalPoint | NumberStyles.AllowLeadingSign | NumberStyles.AllowExponent,
+                    CultureInfo.InvariantCulture);
+            }
+            catch (OverflowException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidCastException(exception.Message, exception);
+            }
+        }
+        if (value.HasNumberValue)
+        {
+            return checked((byte)value.NumberValue);
+        }
         throw new InvalidCastException("not a valid byte value");
     }
 
@@ -596,7 +617,7 @@ public class SpannerDataReader : DbDataReader
         }
         if (value.HasNumberValue)
         {
-            return (short)value.NumberValue;
+            return checked((short)value.NumberValue);
         }
         throw new InvalidCastException("not a valid Int16 value");
     }
@@ -624,7 +645,7 @@ public class SpannerDataReader : DbDataReader
         }
         if (value.HasNumberValue)
         {
-            return (int)value.NumberValue;
+            return checked((int)value.NumberValue);
         }
         throw new InvalidCastException("not a valid Int32 value");
     }
@@ -648,7 +669,7 @@ public class SpannerDataReader : DbDataReader
         }
         if (value.HasNumberValue)
         {
-            return (long)value.NumberValue;
+            return checked((long)value.NumberValue);
         }
         throw new InvalidCastException("not a valid Int64 value");
     }

@@ -173,6 +173,10 @@ type ExecOptions struct {
 	TransactionOptions spanner.TransactionOptions
 	// QueryOptions are the query options that will be used for the statement.
 	QueryOptions spanner.QueryOptions
+	// TimestampBound is the timestamp bound that will be used for the statement
+	// if it is a query outside a transaction. Setting this option will override
+	// the default TimestampBound that is set on the connection.
+	TimestampBound *spanner.TimestampBound
 
 	// PartitionedQueryOptions are used for partitioned queries, and ignored
 	// for all other statements.
@@ -245,6 +249,9 @@ func (dest *ExecOptions) merge(src *ExecOptions) {
 	}
 	if src.AutocommitDMLMode != Unspecified {
 		dest.AutocommitDMLMode = src.AutocommitDMLMode
+	}
+	if src.TimestampBound != nil {
+		dest.TimestampBound = src.TimestampBound
 	}
 	if src.PropertyValues != nil {
 		dest.PropertyValues = append(dest.PropertyValues, src.PropertyValues...)
@@ -742,6 +749,10 @@ func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
 func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 	opts := c.options
 	c.logger.Log(ctx, LevelNotice, "opening connection")
+	instanceName := fmt.Sprintf(
+		"projects/%s/instances/%s",
+		c.connectorConfig.Project,
+		c.connectorConfig.Instance)
 	databaseName := fmt.Sprintf(
 		"projects/%s/instances/%s/databases/%s",
 		c.connectorConfig.Project,
@@ -780,6 +791,7 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		adminClient:                  c.adminClient,
 		connId:                       connId,
 		logger:                       logger,
+		instance:                     instanceName,
 		database:                     databaseName,
 		state:                        createInitialConnectionState(connectionStateType, c.initialPropertyValues),
 		execSingleQuery:              queryInSingleUse,

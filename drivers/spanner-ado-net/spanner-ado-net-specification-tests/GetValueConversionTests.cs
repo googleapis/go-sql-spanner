@@ -135,4 +135,41 @@ public class GetValueConversionTests(DbFactoryFixture fixture) : GetValueConvers
 
     public override async Task GetInt64_throws_for_one_String_with_GetFieldValueAsync() => await TestGetValueAsync(DbType.String, ValueKind.One, async x => await x.GetFieldValueAsync<long>(0), 1L);
 
+    // GetByte throws OverflowException instead of InvalidCastException if the value is out of range.
+    public override void GetByte_throws_for_maximum_Decimal() => TestException(DbType.Decimal, ValueKind.Maximum, x => x.GetByte(0), typeof(OverflowException));
+
+    public override void GetByte_throws_for_maximum_Double() => TestException(DbType.Double, ValueKind.Maximum, x => x.GetByte(0), typeof(OverflowException));
+    
+    public override void GetByte_throws_for_maximum_Int64() => TestException(DbType.Int64, ValueKind.Maximum, x => x.GetByte(0), typeof(OverflowException));
+    
+    public override void GetByte_throws_for_maximum_Single() => TestException(DbType.Single, ValueKind.Maximum, x => x.GetByte(0), typeof(OverflowException));
+    
+    public override void GetByte_throws_for_minimum_Decimal() => TestException(DbType.Decimal, ValueKind.Minimum, x => x.GetByte(0), typeof(OverflowException));
+    
+    public override void GetByte_throws_for_minimum_Double() => TestGetValue(DbType.Double, ValueKind.Minimum, x => x.GetByte(0), (byte)0);
+    
+    public override void GetByte_throws_for_minimum_Int64() => TestException(DbType.Int64, ValueKind.Minimum, x => x.GetByte(0), typeof(OverflowException));
+    
+    public override void GetByte_throws_for_minimum_Single() => TestGetValue(DbType.Single, ValueKind.Minimum, x => x.GetByte(0), (byte)0);
+    
+    public override void GetByte_throws_for_one_Decimal() => TestGetValue(DbType.Decimal, ValueKind.One, x => x.GetByte(0), (byte)1);
+    
+    public override void GetByte_throws_for_one_Double() => TestGetValue(DbType.Double, ValueKind.One, x => x.GetByte(0), (byte)1);
+
+    public override void GetByte_throws_for_one_Int64() => TestGetValue(DbType.Int64, ValueKind.One, x => x.GetByte(0), (byte)1);
+
+    public override void GetByte_throws_for_one_Single() => TestGetValue(DbType.Single, ValueKind.One, x => x.GetByte(0), (byte)1);
+    
+    public override void GetByte_throws_for_one_String() => TestGetValue(DbType.String, ValueKind.One, x => x.GetByte(0), (byte)1);
+
+    public override void GetByte_throws_for_zero_Decimal() => TestGetValue(DbType.Decimal, ValueKind.Zero, x => x.GetByte(0), (byte)0);
+
+    public override void GetByte_throws_for_zero_Double() => TestGetValue(DbType.Double, ValueKind.Zero, x => x.GetByte(0), (byte)0);
+    
+    public override void GetByte_throws_for_zero_Int64() => TestGetValue(DbType.Int64, ValueKind.Zero, x => x.GetByte(0), (byte)0);
+    
+    public override void GetByte_throws_for_zero_Single() => TestGetValue(DbType.Single, ValueKind.Zero, x => x.GetByte(0), (byte)0);
+    
+    public override void GetByte_throws_for_zero_String() => TestGetValue(DbType.String, ValueKind.Zero, x => x.GetByte(0), (byte)0);
+
 }

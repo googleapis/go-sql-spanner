@@ -805,3 +805,11 @@ func detectDmlKeyword(keyword string) DmlType {
 	}
 	return DmlTypeUnknown
 }
+
+func (p *StatementParser) IsCreateDatabaseStatement(sql string) bool {
+	return isCreateDatabase(p, sql)
+}
+
+func (p *StatementParser) IsDropDatabaseStatement(sql string) bool {
+	return isDropDatabase(p, sql)
+}
