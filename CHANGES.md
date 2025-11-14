@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.22.0](https://github.com/googleapis/go-sql-spanner/compare/v1.21.0...v1.22.0) (2025-11-14)
+
+
+### Features
+
+* Add support for statement-scoped connection state ([#599](https://github.com/googleapis/go-sql-spanner/issues/599)) ([5a158c3](https://github.com/googleapis/go-sql-spanner/commit/5a158c3c650103718fcd496dc06868ec04339e1e))
+* Support statement_timeout and transaction_timeout property ([#578](https://github.com/googleapis/go-sql-spanner/issues/578)) ([b542646](https://github.com/googleapis/go-sql-spanner/commit/b542646528eeff4a11e27b8c4232492392d97aed))
+
+
+### Bug Fixes
+
+* Dollar-quote tags may not contain whitespaces ([#606](https://github.com/googleapis/go-sql-spanner/issues/606)) ([db609ec](https://github.com/googleapis/go-sql-spanner/commit/db609ec8dc1d8427dfd1f76fd1bc85ca782be034))
+* Support e-strings for PostgreSQL ([#607](https://github.com/googleapis/go-sql-spanner/issues/607)) ([d050b1c](https://github.com/googleapis/go-sql-spanner/commit/d050b1c37f021b6eb94ff9112d104674360b14a8))
+* Update all dependencies ([#588](https://github.com/googleapis/go-sql-spanner/issues/588)) ([2e97f4c](https://github.com/googleapis/go-sql-spanner/commit/2e97f4c8aaeca2deec5fb669f3b47644e9eac4d8))
+* Update module github.com/testcontainers/testcontainers-go to v0.40.0 ([#602](https://github.com/googleapis/go-sql-spanner/issues/602)) ([822b5a4](https://github.com/googleapis/go-sql-spanner/commit/822b5a4286e78e82b7e7de6de0237b231636851c))
+
 ## [1.21.0](https://github.com/googleapis/go-sql-spanner/compare/v1.20.0...v1.21.0) (2025-10-29)
 
 
