@@ -15,4 +15,24 @@
 """Internal module for the spannerlib package."""
 from __future__ import absolute_import
 
-__all__ = []
+from google.cloud.spannerlib.internal.errors import (
+    SpannerError,
+    SpannerLibError,
+)
+from google.cloud.spannerlib.internal.message import Message
+from google.cloud.spannerlib.internal.spannerlib import SpannerLib
+from google.cloud.spannerlib.internal.types import (
+    GoSlice,
+    GoString,
+    to_go_string,
+)
+
+__all__ = [
+    "GoSlice",
+    "GoString",
+    "Message",
+    "SpannerLib",
+    "SpannerError",
+    "SpannerLibError",
+    "to_go_string",
+]

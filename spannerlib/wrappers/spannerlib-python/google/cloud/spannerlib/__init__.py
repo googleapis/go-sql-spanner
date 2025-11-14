@@ -11,10 +11,20 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-
 """Python wrapper for the Spanner Go library."""
 from __future__ import absolute_import
 
+import logging
+
 __version__ = "0.1.0"
 
-__all__ = []
+from google.cloud.spannerlib.internal import Message, SpannerLibError
+from google.cloud.spannerlib.pool import Pool
+
+logging.basicConfig(level=logging.INFO)
+
+__all__ = [
+    "Pool",
+    "Message",
+    "SpannerLibError",
+]
