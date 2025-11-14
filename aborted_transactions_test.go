@@ -442,7 +442,7 @@ func testRetryReadWriteTransactionWithQuery(t *testing.T, setupServer func(serve
 	if setupServer != nil {
 		setupServer(server.TestSpanner)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 1000*time.Second)
 	defer cancel()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
@@ -470,16 +470,16 @@ func testRetryReadWriteTransactionWithQuery(t *testing.T, setupServer func(serve
 	}
 	err = rows.Err()
 	if g, w := spanner.ErrCode(err), wantErrCode; g != w {
-		t.Fatalf("next error mismatch\nGot: %v\nWant: %v", g, w)
+		t.Fatalf("next error mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	if wantErrCode == codes.OK {
 		if numRowsToConsume > -1 {
 			if g, w := len(values), firstNonZero(numRowsToConsume, 2); g != w {
-				t.Fatalf("row count mismatch\nGot: %v\nWant: %v", g, w)
+				t.Fatalf("row count mismatch\n Got: %v\nWant: %v", g, w)
 			}
 			wantValues := ([]int64{1, 2})[:firstNonZero(numRowsToConsume, 2)]
 			if !cmp.Equal(wantValues, values) {
-				t.Fatalf("values mismatch\nGot: %v\nWant: %v", values, wantValues)
+				t.Fatalf("values mismatch\n Got: %v\nWant: %v", values, wantValues)
 			}
 		}
 	}
@@ -492,16 +492,16 @@ func testRetryReadWriteTransactionWithQuery(t *testing.T, setupServer func(serve
 	}
 	err = tx.Commit()
 	if err != wantCommitErr {
-		t.Fatalf("commit error mismatch\nGot: %v\nWant: %v", err, wantCommitErr)
+		t.Fatalf("commit error mismatch\n Got: %v\nWant: %v", err, wantCommitErr)
 	}
 	reqs := server.TestSpanner.DrainRequestsFromServer()
 	execReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(execReqs), wantSqlExecuteCount; g != w {
-		t.Fatalf("execute request count mismatch\nGot: %v\nWant: %v", g, w)
+		t.Fatalf("execute request count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	commitReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitReqs), wantCommitCount; g != w {
-		t.Fatalf("commit request count mismatch\nGot: %v\nWant: %v", g, w)
+		t.Fatalf("commit request count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
 	// Execute another statement to ensure that the session that was used

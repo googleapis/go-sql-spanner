@@ -135,7 +135,7 @@ type PartialResultSetExecutionTime struct {
 // ToPartialResultSets converts a ResultSet to a PartialResultSet. This method
 // is used to convert a mocked result to a PartialResultSet when one of the
 // streaming methods are called.
-func (s *StatementResult) ToPartialResultSets(resumeToken []byte) (result []*spannerpb.PartialResultSet, err error) {
+func (s *StatementResult) ToPartialResultSets(resumeToken []byte, metadata *spannerpb.ResultSetMetadata) (result []*spannerpb.PartialResultSet, err error) {
 	var startIndex uint64
 	if len(resumeToken) > 0 {
 		if startIndex, err = DecodeResumeToken(resumeToken); err != nil {
@@ -164,9 +164,12 @@ func (s *StatementResult) ToPartialResultSets(resumeToken []byte) (result []*spa
 				rt = s.ResumeTokens[startIndex]
 			}
 			partial := &spannerpb.PartialResultSet{
-				Metadata:    s.ResultSet.Metadata,
 				Values:      values,
 				ResumeToken: rt,
+			}
+			// Only include the metadata in the first PartialResultSet
+			if len(result) == 0 {
+				partial.Metadata = metadata
 			}
 			result = append(result, partial)
 
@@ -179,7 +182,7 @@ func (s *StatementResult) ToPartialResultSets(resumeToken []byte) (result []*spa
 	} else {
 		result = append(result, &spannerpb.PartialResultSet{
 			Last:     true,
-			Metadata: s.ResultSet.Metadata,
+			Metadata: metadata,
 		})
 	}
 	if s.UpdateCount > 0 {
@@ -238,7 +241,7 @@ func (s *StatementResult) convertUpdateCountToResultSet(exact bool) *spannerpb.R
 	return rs
 }
 
-func (s StatementResult) getResultSetWithTransactionSet(selector *spannerpb.TransactionSelector, tx []byte) *StatementResult {
+func (s *StatementResult) getResultSetWithTransactionSet(selector *spannerpb.TransactionSelector, tx []byte) *StatementResult {
 	res := &StatementResult{
 		Type:         s.Type,
 		Err:          s.Err,
@@ -247,10 +250,16 @@ func (s StatementResult) getResultSetWithTransactionSet(selector *spannerpb.Tran
 	}
 	if s.ResultSet != nil {
 		res.ResultSet = &spannerpb.ResultSet{
-			Metadata: s.ResultSet.Metadata,
-			Rows:     s.ResultSet.Rows,
-			Stats:    s.ResultSet.Stats,
+			// Only copy the static fields of the ResultSetMetadata from the stored result to the one that will be
+			// returned for the current query. This prevents potential data races on the Transaction field.
+			Metadata: &spannerpb.ResultSetMetadata{
+				RowType:              s.ResultSet.Metadata.RowType,
+				UndeclaredParameters: s.ResultSet.Metadata.UndeclaredParameters,
+			},
+			Rows:  s.ResultSet.Rows,
+			Stats: s.ResultSet.Stats,
 		}
+
 	}
 	if _, ok := selector.GetSelector().(*spannerpb.TransactionSelector_Begin); ok {
 		if res.ResultSet == nil {
@@ -943,7 +952,7 @@ func (s *inMemSpannerServer) executeStreamingSQL(req *spannerpb.ExecuteSqlReques
 	case StatementResultError:
 		return statementResult.Err
 	case StatementResultResultSet:
-		parts, err := statementResult.ToPartialResultSets(req.ResumeToken)
+		parts, err := statementResult.ToPartialResultSets(req.ResumeToken, resWithTx.ResultSet.Metadata)
 		if err != nil {
 			return err
 		}
