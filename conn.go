@@ -265,6 +265,7 @@ type conn struct {
 	tx            *delegatingTransaction
 	prevTx        *delegatingTransaction
 	resetForRetry bool
+	instance      string
 	database      string
 
 	execSingleQuery              func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, bound spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator
@@ -650,6 +651,28 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 		for i, s := range statements {
 			ddlStatements[i] = s.SQL
 		}
+		if c.parser.IsCreateDatabaseStatement(ddlStatements[0]) {
+			op, err := c.adminClient.CreateDatabase(ctx, &adminpb.CreateDatabaseRequest{
+				CreateStatement: ddlStatements[0],
+				DatabaseDialect: c.parser.Dialect,
+				Parent:          c.instance,
+				ExtraStatements: ddlStatements[1:],
+			})
+			if err != nil {
+				return nil, err
+			}
+			if _, err := op.Wait(ctx); err != nil {
+				return nil, err
+			}
+			return driver.ResultNoRows, nil
+		} else if c.parser.IsDropDatabaseStatement(ddlStatements[0]) {
+			stmt := &parser.ParsedDropDatabaseStatement{}
+			if err := stmt.Parse(c.parser, ddlStatements[0]); err != nil {
+				return nil, err
+			}
+			return (&executableDropDatabaseStatement{stmt}).execContext(ctx, c, nil)
+		}
+
 		op, err := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
 			Database:   c.database,
 			Statements: ddlStatements,

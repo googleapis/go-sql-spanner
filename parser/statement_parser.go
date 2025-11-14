@@ -44,11 +44,7 @@ var clientSideKeywords = map[string]bool{
 	"BEGIN":    true,
 	"COMMIT":   true,
 	"ROLLBACK": true,
-	"CREATE":   true, // CREATE DATABASE is handled as a client-side statement
-	"DROP":     true, // DROP DATABASE is handled as a client-side statement
 }
-var createStatements = map[string]bool{"CREATE": true}
-var dropStatements = map[string]bool{"DROP": true}
 var showStatements = map[string]bool{"SHOW": true}
 var setStatements = map[string]bool{"SET": true}
 var resetStatements = map[string]bool{"RESET": true}
@@ -648,14 +644,6 @@ func (p *StatementParser) isQuery(query string) bool {
 	return info.StatementType == StatementTypeQuery
 }
 
-func isCreateKeyword(keyword string) bool {
-	return isStatementKeyword(keyword, createStatements)
-}
-
-func isDropKeyword(keyword string) bool {
-	return isStatementKeyword(keyword, dropStatements)
-}
-
 func isQueryKeyword(keyword string) bool {
 	return isStatementKeyword(keyword, selectStatements)
 }
@@ -787,4 +775,12 @@ func detectDmlKeyword(keyword string) DmlType {
 		return DmlTypeDelete
 	}
 	return DmlTypeUnknown
+}
+
+func (p *StatementParser) IsCreateDatabaseStatement(sql string) bool {
+	return isCreateDatabase(p, sql)
+}
+
+func (p *StatementParser) IsDropDatabaseStatement(sql string) bool {
+	return isDropDatabase(p, sql)
 }

@@ -742,6 +742,10 @@ func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
 func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 	opts := c.options
 	c.logger.Log(ctx, LevelNotice, "opening connection")
+	instanceName := fmt.Sprintf(
+		"projects/%s/instances/%s",
+		c.connectorConfig.Project,
+		c.connectorConfig.Instance)
 	databaseName := fmt.Sprintf(
 		"projects/%s/instances/%s/databases/%s",
 		c.connectorConfig.Project,
@@ -780,6 +784,7 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		adminClient:                  c.adminClient,
 		connId:                       connId,
 		logger:                       logger,
+		instance:                     instanceName,
 		database:                     databaseName,
 		state:                        createInitialConnectionState(connectionStateType, c.initialPropertyValues),
 		execSingleQuery:              queryInSingleUse,

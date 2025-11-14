@@ -721,6 +721,61 @@ func TestCreateDatabase(t *testing.T) {
 	}
 }
 
+func TestCreateDatabaseWithExtraStatements(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	var expectedResponse = &databasepb.Database{}
+	anyMsg, _ := anypb.New(expectedResponse)
+	server.TestDatabaseAdmin.SetResps([]proto.Message{
+		&longrunningpb.Operation{
+			Done:   true,
+			Result: &longrunningpb.Operation_Response{Response: anyMsg},
+			Name:   "test-operation",
+		},
+	})
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(conn)
+
+	if _, err = conn.ExecContext(ctx, "start batch ddl"); err != nil {
+		t.Fatalf("failed to start ddl batch: %v", err)
+	}
+	if _, err = conn.ExecContext(ctx, "create database `foo`"); err != nil {
+		t.Fatalf("failed to execute CREATE DATABASE: %v", err)
+	}
+	if _, err = conn.ExecContext(ctx, "create table my_table (id int64 primary key, value string(max))"); err != nil {
+		t.Fatalf("failed to execute CREATE TABLE: %v", err)
+	}
+	if _, err = conn.ExecContext(ctx, "create index my_index on my_table (value)"); err != nil {
+		t.Fatalf("failed to execute CREATE INDEX: %v", err)
+	}
+	if _, err = conn.ExecContext(ctx, "run batch"); err != nil {
+		t.Fatalf("failed to run ddl batch: %v", err)
+	}
+
+	requests := server.TestDatabaseAdmin.Reqs()
+	if g, w := len(requests), 1; g != w {
+		t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	if req, ok := requests[0].(*databasepb.CreateDatabaseRequest); ok {
+		if g, w := req.Parent, "projects/p/instances/i"; g != w {
+			t.Fatalf("parent mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if g, w := len(req.ExtraStatements), 2; g != w {
+			t.Fatalf("extra statements count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	} else {
+		t.Fatalf("request type mismatch, got %v", requests[0])
+	}
+}
+
 func TestDropDatabase(t *testing.T) {
 	t.Parallel()
 
