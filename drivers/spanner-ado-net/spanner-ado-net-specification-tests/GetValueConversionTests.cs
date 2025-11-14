@@ -172,4 +172,29 @@ public class GetValueConversionTests(DbFactoryFixture fixture) : GetValueConvers
     
     public override void GetByte_throws_for_zero_String() => TestGetValue(DbType.String, ValueKind.Zero, x => x.GetByte(0), (byte)0);
 
+    // Spanner allows calling GetFloat for float64 values.
+    public override void GetFloat_throws_for_maximum_Double() => TestGetValue(DbType.Double, ValueKind.Maximum, x => x.GetFloat(0), float.PositiveInfinity);
+    
+    public override void GetFloat_throws_for_maximum_Double_with_GetFieldValue() => TestGetValue(DbType.Double, ValueKind.Maximum, x => x.GetFieldValue<float>(0), float.PositiveInfinity);
+    
+    public override async Task GetFloat_throws_for_maximum_Double_with_GetFieldValueAsync() => await TestGetValueAsync(DbType.Double, ValueKind.Maximum, async x => await x.GetFieldValueAsync<float>(0), float.PositiveInfinity);
+    
+    public override void GetFloat_throws_for_minimum_Double() => TestGetValue(DbType.Double, ValueKind.Minimum, x => x.GetFloat(0), 0.0f);
+    
+    public override void GetFloat_throws_for_minimum_Double_with_GetFieldValue() => TestGetValue(DbType.Double, ValueKind.Minimum, x => x.GetFieldValue<float>(0), 0.0f);
+    
+    public override async Task GetFloat_throws_for_minimum_Double_with_GetFieldValueAsync() => await TestGetValueAsync(DbType.Double, ValueKind.Minimum, async x => await x.GetFieldValueAsync<float>(0), 0.0f);
+
+    public override void GetFloat_throws_for_one_Double() => TestGetValue(DbType.Double, ValueKind.One, x => x.GetFloat(0), 1.0f);
+
+    public override void GetFloat_throws_for_one_Double_with_GetFieldValue() => TestGetValue(DbType.Double, ValueKind.One, x => x.GetFieldValue<float>(0), 1.0f);
+
+    public override async Task GetFloat_throws_for_one_Double_with_GetFieldValueAsync() => await TestGetValueAsync(DbType.Double, ValueKind.One, async x => await x.GetFieldValueAsync<float>(0), 1.0f);
+
+    public override void GetFloat_throws_for_zero_Double() => TestGetValue(DbType.Double, ValueKind.Zero, x => x.GetFloat(0), 0.0f);
+
+    public override void GetFloat_throws_for_zero_Double_with_GetFieldValue() => TestGetValue(DbType.Double, ValueKind.Zero, x => x.GetFieldValue<float>(0), 0.0f);
+
+    public override async Task GetFloat_throws_for_zero_Double_with_GetFieldValueAsync() => await TestGetValueAsync(DbType.Double, ValueKind.Zero, async x => await x.GetFieldValueAsync<float>(0), 0.0f);
+
 }

@@ -682,6 +682,12 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 				return nil, err
 			}
 			return driver.ResultNoRows, nil
+		} else if c.parser.IsDropDatabaseStatement(ddlStatements[0]) {
+			stmt := &parser.ParsedDropDatabaseStatement{}
+			if err := stmt.Parse(c.parser, ddlStatements[0]); err != nil {
+				return nil, err
+			}
+			return (&executableDropDatabaseStatement{stmt}).execContext(ctx, c, nil)
 		}
 
 		op, err := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{

@@ -58,6 +58,7 @@ public abstract class AbstractMockServerTests
     public void Reset()
     {
         Fixture.SpannerMock.Reset();
+        Fixture.DatabaseAdminMock.Reset();
     }
 
     protected SpannerConnection OpenConnection()

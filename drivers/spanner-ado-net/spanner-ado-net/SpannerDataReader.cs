@@ -568,8 +568,7 @@ public class SpannerDataReader : DbDataReader
                 throw new InvalidCastException(exception.Message, exception);
             }
         }
-        var type = GetSpannerType(ordinal);
-        if (type.Code == TypeCode.Float32)
+        if (value.HasNumberValue)
         {
             return (float)value.NumberValue;
         }
