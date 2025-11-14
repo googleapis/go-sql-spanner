@@ -78,11 +78,24 @@ internal static class SpannerConverter
                     StringValue = XmlConvert.ToString(Convert.ToDateTime(value, InvariantCulture), XmlDateTimeSerializationMode.Utc)
                 };
             case TypeCode.Date:
+                if (value is DateOnly dateOnly)
+                {
+                    return new Value
+                    {
+                        StringValue = dateOnly.ToString("yyyy-MM-dd"),
+                    };
+                }
                 return new Value
                 {
                     StringValue = StripTimePart(
                         XmlConvert.ToString(Convert.ToDateTime(value, InvariantCulture), XmlDateTimeSerializationMode.Utc))
                 };
+            case TypeCode.Interval:
+                if (value is TimeSpan timeSpan)
+                {
+                    return Value.ForString(XmlConvert.ToString(timeSpan));
+                }
+                return Value.ForString(value.ToString());            
             case TypeCode.Json:
                 if (value is string stringValue)
                 {
