@@ -21,7 +21,9 @@ import (
 	"io"
 	"os"
 	"testing"
+	"time"
 
+	"cloud.google.com/go/spanner"
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	adminpb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
@@ -30,6 +32,7 @@ import (
 	"github.com/googleapis/go-sql-spanner/examples/samples"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+	"google.golang.org/grpc/codes"
 )
 
 func TestSamples(t *testing.T) {
@@ -41,11 +44,11 @@ func TestSamples(t *testing.T) {
 	emulator, err := startEmulator(projectID, instanceID, databaseID, adminpb.DatabaseDialect_GOOGLE_STANDARD_SQL)
 	if err != nil {
 		if emulator != nil {
-			emulator.Terminate(context.Background())
+			_ = emulator.Terminate(context.Background())
 		}
 		t.Fatalf("failed to start emulator: %v", err)
 	}
-	defer emulator.Terminate(context.Background())
+	defer func() { _ = emulator.Terminate(context.Background()) }()
 
 	ctx := context.Background()
 	var b bytes.Buffer
@@ -78,11 +81,11 @@ func TestPostgreSQLSamples(t *testing.T) {
 	emulator, err := startEmulator(projectID, instanceID, databaseID, adminpb.DatabaseDialect_POSTGRESQL)
 	if err != nil {
 		if emulator != nil {
-			emulator.Terminate(context.Background())
+			_ = emulator.Terminate(context.Background())
 		}
 		t.Fatalf("failed to start emulator: %v", err)
 	}
-	defer emulator.Terminate(context.Background())
+	defer func() { _ = emulator.Terminate(context.Background()) }()
 
 	ctx := context.Background()
 	var b bytes.Buffer
@@ -147,13 +150,33 @@ func startEmulator(projectID, instanceID, databaseID string, dialect adminpb.Dat
 	if err := os.Setenv("SPANNER_EMULATOR_HOST", fmt.Sprintf("%s:%v", host, port)); err != nil {
 		return emulator, fmt.Errorf("failed to set env var for emulator: %v", err)
 	}
-	if err := createInstance(projectID, instanceID); err != nil {
+	if err := retryOnUnavailable(10, func() error {
+		return createInstance(projectID, instanceID)
+	}); err != nil {
 		return emulator, fmt.Errorf("failed to create instance: %v", err)
 	}
-	if err := createDatabase(projectID, instanceID, databaseID, dialect); err != nil {
+	if err := retryOnUnavailable(10, func() error {
+		return createDatabase(projectID, instanceID, databaseID, dialect)
+	}); err != nil {
 		return emulator, fmt.Errorf("failed to create database: %v", err)
 	}
 	return emulator, nil
+}
+
+func retryOnUnavailable(maxAttempts int, f func() error) error {
+	var err error
+	for i := 0; i < maxAttempts; i++ {
+		err = f()
+		if err == nil {
+			return nil
+		}
+		if spanner.ErrCode(err) == codes.Unavailable {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		return err
+	}
+	return err
 }
 
 func createInstance(projectID, instanceID string) error {
@@ -162,7 +185,7 @@ func createInstance(projectID, instanceID string) error {
 	if err != nil {
 		return err
 	}
-	defer instanceAdmin.Close()
+	defer func() { _ = instanceAdmin.Close() }()
 
 	op, err := instanceAdmin.CreateInstance(ctx, &instancepb.CreateInstanceRequest{
 		Parent:     fmt.Sprintf("projects/%s", projectID),
