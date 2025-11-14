@@ -160,7 +160,7 @@ func TestBeginTransactionReadOnly(t *testing.T) {
 	}
 	defer silentClose(conn)
 
-	if _, err := conn.ExecContext(ctx, "begin transaction read write"); err != nil {
+	if _, err := conn.ExecContext(ctx, "begin transaction read only"); err != nil {
 		t.Fatal(err)
 	}
 	row := conn.QueryRowContext(ctx, testutil.SelectFooFromBar, ExecOptions{DirectExecuteQuery: true})
@@ -183,11 +183,10 @@ func TestBeginTransactionReadOnly(t *testing.T) {
 	if request.GetTransaction() == nil || request.GetTransaction().GetBegin() == nil {
 		t.Fatal("missing begin transaction on ExecuteSqlRequest")
 	}
-	// TODO: Enable once transaction_read_only is picked up by the driver.
-	//readOnly := request.GetTransaction().GetBegin().GetReadOnly()
-	//if readOnly == nil {
-	//	t.Fatal("missing readOnly on ExecuteSqlRequest")
-	//}
+	readOnly := request.GetTransaction().GetBegin().GetReadOnly()
+	if readOnly == nil {
+		t.Fatal("missing readOnly on ExecuteSqlRequest")
+	}
 }
 
 func TestBeginTransactionDeferrable(t *testing.T) {
