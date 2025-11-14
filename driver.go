@@ -1527,11 +1527,19 @@ func parseIsolationLevel(val string) (sql.IsolationLevel, error) {
 		return sql.LevelDefault, nil
 	case "read_uncommitted":
 		return sql.LevelReadUncommitted, nil
+	case "readuncommitted":
+		return sql.LevelReadUncommitted, nil
 	case "read_committed":
+		return sql.LevelReadCommitted, nil
+	case "readcommitted":
 		return sql.LevelReadCommitted, nil
 	case "write_committed":
 		return sql.LevelWriteCommitted, nil
+	case "writecommitted":
+		return sql.LevelWriteCommitted, nil
 	case "repeatable_read":
+		return sql.LevelRepeatableRead, nil
+	case "repeatableread":
 		return sql.LevelRepeatableRead, nil
 	case "snapshot":
 		return sql.LevelSnapshot, nil
