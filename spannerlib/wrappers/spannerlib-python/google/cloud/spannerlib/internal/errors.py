@@ -24,17 +24,14 @@ class SpannerError(Exception):
 
 class SpannerLibError(SpannerError):
     """Error related to an underlying Go library call.
-
-    Attributes:
-        error_code: The error code returned by the Go library, if available.
-    """
+    """
 
     def __init__(self, message: str, error_code: int | None = None) -> None:
         """Initializes a SpannerLibraryError.
 
         Args:
-            message: The error message.
-            error_code: The optional error code from the Go library.
+            message (str): The error message.
+            error_code (int | None): The optional error code from the Go library.
         """
         super().__init__(message)
         self.error_code = error_code

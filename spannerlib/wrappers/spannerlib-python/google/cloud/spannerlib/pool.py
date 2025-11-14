@@ -48,8 +48,7 @@ class Pool(AbstractLibraryObject):
 
     @classmethod
     def create_pool(cls, connection_string: str) -> "Pool":
-        """
-        Creates a new connection pool.
+        """Creates a new connection pool.
 
         Args:
             connection_string (str): The connection string for the database.

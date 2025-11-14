@@ -24,9 +24,9 @@ logger = logging.getLogger(__name__)
 class GoString(ctypes.Structure):
     """Represents a Go string for C interop.
 
-    Fields:
-        p: Pointer to the first byte of the string data.
-        n: Length of the string.
+    Attributes:
+        p (ctypes.c_char_p): Pointer to the first byte of the string data.
+        n (ctypes.c_ssize_t): Length of the string.
     """
 
     _fields_ = [("p", ctypes.c_char_p), ("n", ctypes.c_ssize_t)]
@@ -34,10 +34,11 @@ class GoString(ctypes.Structure):
 
 class GoSlice(ctypes.Structure):
     """Represents a Go slice for C interop.
-    Fields:
-        data: Pointer to the first element of the slice.
-        len: Length of the slice.
-        cap: Capacity of the slice.
+
+    Attributes:
+        data (ctypes.c_void_p): Pointer to the first element of the slice.
+        len (ctypes.c_longlong): Length of the slice.
+        cap (ctypes.c_longlong): Capacity of the slice.
     """
 
     _fields_ = [
@@ -51,9 +52,10 @@ def to_go_string(s: str) -> GoString:
     """Converts a Python string to a GoString.
 
     Args:
-        s: The Python string to convert.
+        s (str): The Python string to convert.
 
     Returns:
-        GoString: A GoString instance."""
+        GoString: A GoString instance.
+    """
     encoded_s = s.encode("utf-8")
     return GoString(encoded_s, len(encoded_s))

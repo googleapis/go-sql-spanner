@@ -43,7 +43,9 @@ class SpannerLib:
                     f"Failed to load shared library from {_lib_path}: {e}"
                 )
                 self._lib = None  # Ensure _lib is None if loading failed
-                raise SpannerLibError(f"Failed to load shared library: {e}")
+                raise SpannerLibError(
+                    f"Failed to load shared library: {e}"
+                ) from e
 
     def _setup_functions(self) -> None:
         if self._lib is None:
@@ -66,10 +68,20 @@ class SpannerLib:
 
     @classmethod
     def get_lib_name(cls) -> str:
+        """Gets the platform-specific library name.
+
+        Returns:
+            str: The name of the shared library file.
+        """
         return "spannerlib.so"
 
     @classmethod
     def get_lib_path(cls) -> str:
+        """Gets the absolute path to the shared library.
+
+        Returns:
+            str: The absolute file path to the shared library.
+        """
         _lib_path = os.path.abspath(
             os.path.join(
                 os.path.dirname(__file__),

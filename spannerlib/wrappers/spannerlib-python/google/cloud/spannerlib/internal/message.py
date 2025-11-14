@@ -23,12 +23,12 @@ logger = logging.getLogger(__name__)
 class Message(ctypes.Structure):
     """Represents the common return structure from SpannerLib.
 
-    Fields:
-        pinner_id: ID for managing memory in Go (r0).
-        error_code: Error code, 0 for success (r1).
-        object_id: ID of the created object in Go, if any (r2).
-        msg_len: Length of the error message (r3).
-        msg: Pointer to the error message string, if any (r4).
+    Attributes:
+        pinner_id (ctypes.c_longlong): ID for managing memory in Go (r0).
+        error_code (ctypes.c_int32): Error code, 0 for success (r1).
+        object_id (ctypes.c_longlong): ID of the created object in Go, if any (r2).
+        msg_len (ctypes.c_int32): Length of the error message (r3).
+        msg (ctypes.c_void_p): Pointer to the error message string, if any (r4).
     """
 
     _fields_ = [

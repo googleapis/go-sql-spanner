@@ -30,7 +30,8 @@ class AbstractLibraryObject:
         """Initializes the AbstractLibraryObject.
 
         Args:
-            id: The ID for this library object in the Go library.
+            id (int): The ID for this library object in the Go library.
+            lib (SpannerLib): The SpannerLib instance.
         """
         self._id = id
         self._lib = lib
@@ -38,17 +39,17 @@ class AbstractLibraryObject:
 
     @property
     def id(self) -> int:
-        """Returns the ID for this library object in the Go library."""
+        """int: The ID for this library object in the Go library."""
         return self._id
 
     @property
     def lib(self) -> SpannerLib:
-        """Returns the library object."""
+        """SpannerLib: The SpannerLib instance."""
         return self._lib
 
     @property
     def closed(self) -> bool:
-        """Returns True if the library object is closed, False otherwise."""
+        """bool: True if the library object is closed, False otherwise."""
         return self._closed
 
     @closed.setter
@@ -60,8 +61,8 @@ class AbstractLibraryObject:
         """Releases the object in the Go library.
 
         This method calls the Release function in the Go library to free the resources
+        associated with this object.
         """
-
         if self._id == 0:
             return
         try:
