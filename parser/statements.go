@@ -36,10 +36,6 @@ func parseStatement(parser *StatementParser, keyword, query string) (ParsedState
 		stmt = &ParsedSetStatement{}
 	} else if isResetStatementKeyword(keyword) {
 		stmt = &ParsedResetStatement{}
-	} else if isCreateKeyword(keyword) && isCreateDatabase(parser, query) {
-		stmt = &ParsedCreateDatabaseStatement{}
-	} else if isDropKeyword(keyword) && isDropDatabase(parser, query) {
-		stmt = &ParsedDropDatabaseStatement{}
 	} else if isStartStatementKeyword(keyword) {
 		if parser.Dialect == databasepb.DatabaseDialect_POSTGRESQL && isStartTransaction(parser, query) {
 			stmt = &ParsedBeginStatement{}
@@ -395,6 +391,10 @@ func (s *ParsedDropDatabaseStatement) Name() string {
 
 func (s *ParsedDropDatabaseStatement) Query() string {
 	return s.query
+}
+
+func (s *ParsedDropDatabaseStatement) Parse(parser *StatementParser, query string) error {
+	return s.parse(parser, query)
 }
 
 func (s *ParsedDropDatabaseStatement) parse(parser *StatementParser, query string) error {

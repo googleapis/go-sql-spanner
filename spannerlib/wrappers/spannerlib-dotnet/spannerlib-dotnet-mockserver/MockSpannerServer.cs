@@ -14,6 +14,8 @@
 
 using System.Collections;
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Reflection;
 using Google.Cloud.Spanner.Admin.Database.V1;
 using Google.Cloud.Spanner.Common.V1;
 using Google.Cloud.Spanner.V1;
@@ -22,6 +24,7 @@ using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Google.Rpc;
 using Grpc.Core;
+using Enum = System.Enum;
 using Status = Google.Rpc.Status;
 using GrpcCore = Grpc.Core;
 
@@ -54,6 +57,11 @@ public class StatementResult
     public static StatementResult CreateException(Exception exception)
     {
         return new StatementResult(exception);
+    }
+
+    public static StatementResult CreateSelectZeroResultSet()
+    {
+        return CreateSingleColumnResultSet(new Spanner.V1.Type { Code = Spanner.V1.TypeCode.Int64 }, "COL1", 0);
     }
 
     public static StatementResult CreateSelect1ResultSet()
@@ -356,7 +364,7 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
         );
     }
 
-    private void AddDialectResult()
+    public void AddDialectResult(DatabaseDialect dialect = DatabaseDialect.GoogleStandardSql)
     {
         AddOrUpdateStatementResult(SDialectQuery, 
             StatementResult.CreateResultSet(
@@ -366,10 +374,23 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
                 },
                 new List<object[]>
                 {
-                    new object[] { "GOOGLE_STANDARD_SQL" },
+                    new object[] { GetEnumOriginalName(dialect) },
                 }));
     }
-
+    
+    string GetEnumOriginalName(Enum enumValue)
+    {
+        var enumType = enumValue.GetType();
+        var enumValueName = enumValue.ToString();
+        var enumValueInfo = enumType.GetMember(enumValueName).Single();
+        var attribute = enumValueInfo.GetCustomAttribute<Protobuf.Reflection.OriginalNameAttribute>();
+        if (attribute is null)
+        {
+            throw new InvalidOperationException($"Attribute '{nameof(Protobuf.Reflection.OriginalNameAttribute)}' not found on enum '{enumType}'.");
+        }
+        return attribute.Name;
+    }
+    
     internal void AbortTransaction(string transactionId)
     {
         _abortedTransactions.TryAdd(ByteString.FromBase64(transactionId), true);
@@ -383,7 +404,30 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
         }
     }
 
+    public void ClearRequests()
+    {
+        _requests.Clear();
+    }
+
     public IEnumerable<IMessage> Requests => new List<IMessage>(_requests).AsReadOnly();
+
+    public bool WaitForRequestsToContain(Func<IMessage, bool> predicate)
+    {
+        return WaitForRequestsToContain(predicate, new TimeSpan(5 * TimeSpan.TicksPerSecond));
+    }
+    
+    public bool WaitForRequestsToContain(Func<IMessage, bool> predicate, TimeSpan timeout)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        while (stopwatch.Elapsed < timeout)
+        {
+            if (Requests.Any(predicate))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     public IEnumerable<ServerCallContext> Contexts => new List<ServerCallContext>(_contexts).AsReadOnly();
 
@@ -713,7 +757,7 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
         }
         else
         {
-            throw new RpcException(new GrpcCore.Status(StatusCode.InvalidArgument, $"No result found for {request.Sql}"));
+            throw new RpcException(new GrpcCore.Status(StatusCode.InvalidArgument, $"No result found for {request.Sql[0..Math.Min(request.Sql.Length, 5000)]}"));
         }
     }
 
