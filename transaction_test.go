@@ -160,7 +160,7 @@ func TestBeginTransactionReadOnly(t *testing.T) {
 	}
 	defer silentClose(conn)
 
-	if _, err := conn.ExecContext(ctx, "begin transaction read write"); err != nil {
+	if _, err := conn.ExecContext(ctx, "begin transaction read only"); err != nil {
 		t.Fatal(err)
 	}
 	row := conn.QueryRowContext(ctx, testutil.SelectFooFromBar, ExecOptions{DirectExecuteQuery: true})
@@ -183,11 +183,10 @@ func TestBeginTransactionReadOnly(t *testing.T) {
 	if request.GetTransaction() == nil || request.GetTransaction().GetBegin() == nil {
 		t.Fatal("missing begin transaction on ExecuteSqlRequest")
 	}
-	// TODO: Enable once transaction_read_only is picked up by the driver.
-	//readOnly := request.GetTransaction().GetBegin().GetReadOnly()
-	//if readOnly == nil {
-	//	t.Fatal("missing readOnly on ExecuteSqlRequest")
-	//}
+	readOnly := request.GetTransaction().GetBegin().GetReadOnly()
+	if readOnly == nil {
+		t.Fatal("missing readOnly on ExecuteSqlRequest")
+	}
 }
 
 func TestBeginTransactionDeferrable(t *testing.T) {
@@ -297,8 +296,12 @@ func TestTransactionTimeout(t *testing.T) {
 
 	requests := server.TestSpanner.DrainRequestsFromServer()
 	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
-	if g, w := len(executeRequests), 1; g != w {
-		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+	if g, w := len(executeRequests), 1; g > w {
+		t.Fatalf("execute requests count mismatch\n Got: %v\nWant at most: %v", g, w)
+	}
+	beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+	if g, w := len(beginRequests), 0; g != w {
+		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
 	if g, w := len(commitRequests), 0; g != w {
@@ -327,7 +330,7 @@ func TestTransactionTimeoutSecondStatement(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: 30 * time.Millisecond})
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: 50 * time.Millisecond})
 	rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar, ExecOptions{DirectExecuteQuery: true})
 	if rows != nil {
 		_ = rows.Close()

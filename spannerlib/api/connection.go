@@ -324,14 +324,17 @@ func execute(ctx, directExecuteContext context.Context, conn *Connection, execut
 	}
 	// The first result set should contain the metadata.
 	if !it.Next() {
+		_ = it.Close()
 		return 0, fmt.Errorf("query returned no metadata")
 	}
 	metadata := &spannerpb.ResultSetMetadata{}
 	if err := it.Scan(&metadata); err != nil {
+		_ = it.Close()
 		return 0, err
 	}
 	// Move to the next result set, which contains the normal data.
 	if !it.NextResultSet() {
+		_ = it.Close()
 		return 0, fmt.Errorf("no results found after metadata")
 	}
 	id := conn.resultsIdx.Add(1)
@@ -341,7 +344,7 @@ func execute(ctx, directExecuteContext context.Context, conn *Connection, execut
 	}
 	if len(metadata.RowType.Fields) == 0 {
 		// No rows returned. Read the stats now.
-		res.readStats(ctx)
+		_ = res.readStats(ctx)
 	}
 	conn.results.Store(id, res)
 	return id, nil
