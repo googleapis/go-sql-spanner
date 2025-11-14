@@ -330,7 +330,7 @@ func TestTransactionTimeoutSecondStatement(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: 30 * time.Millisecond})
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: 50 * time.Millisecond})
 	rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar, ExecOptions{DirectExecuteQuery: true})
 	if rows != nil {
 		_ = rows.Close()
