@@ -190,6 +190,9 @@ func TestExecuteMixedBatch(t *testing.T) {
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
 	}
+	if g, w := err.Error(), "rpc error: code = InvalidArgument desc = Batches may not contain different types of statements. The first statement is of type DDL. The statement on position 2 is of type DML."; g != w {
+		t.Fatalf("error message mismatch\n Got: %v\nWant: %v", g, w)
+	}
 
 	if err := CloseConnection(ctx, poolId, connId); err != nil {
 		t.Fatalf("CloseConnection returned unexpected error: %v", err)
