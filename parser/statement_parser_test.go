@@ -25,6 +25,24 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+func TestStatementTypeString(t *testing.T) {
+	if g, w := StatementTypeDdl.String(), "DDL"; g != w {
+		t.Errorf("DDL string mismatch\n Got: %q\nWant: %q", g, w)
+	}
+	if g, w := StatementTypeClientSide.String(), "ClientSide"; g != w {
+		t.Errorf("ClientSide string mismatch\n Got: %q\nWant: %q", g, w)
+	}
+	if g, w := StatementTypeQuery.String(), "Query"; g != w {
+		t.Errorf("Query string mismatch\n Got: %q\nWant: %q", g, w)
+	}
+	if g, w := StatementTypeDml.String(), "DML"; g != w {
+		t.Errorf("DML string mismatch\n Got: %q\nWant: %q", g, w)
+	}
+	if g, w := StatementTypeUnknown.String(), "Unknown"; g != w {
+		t.Errorf("Unknown string mismatch\n Got: %q\nWant: %q", g, w)
+	}
+}
+
 func TestReadKeywordWithComments(t *testing.T) {
 	tests := []struct {
 		input   string
