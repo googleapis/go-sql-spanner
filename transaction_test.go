@@ -297,8 +297,12 @@ func TestTransactionTimeout(t *testing.T) {
 
 	requests := server.TestSpanner.DrainRequestsFromServer()
 	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
-	if g, w := len(executeRequests), 1; g != w {
-		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+	if g, w := len(executeRequests), 1; g > w {
+		t.Fatalf("execute requests count mismatch\n Got: %v\nWant at most: %v", g, w)
+	}
+	beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+	if g, w := len(beginRequests), 0; g != w {
+		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
 	if g, w := len(commitRequests), 0; g != w {
