@@ -27,11 +27,11 @@ LIB_DIR = "lib"
 
 
 class SpannerLib:
-    def __init__(self):
+    def __init__(self) -> None:
         self._lib = None
         self._load()
 
-    def _load(self):
+    def _load(self) -> None:
         if self._lib is None:
             _lib_path = SpannerLib.get_lib_path()
             logger.info(f"Loading shared library from {_lib_path}")
@@ -45,7 +45,7 @@ class SpannerLib:
                 self._lib = None  # Ensure _lib is None if loading failed
                 raise SpannerLibError(f"Failed to load shared library: {e}")
 
-    def _setup_functions(self):
+    def _setup_functions(self) -> None:
         if self._lib is None:
             return
 
@@ -65,11 +65,11 @@ class SpannerLib:
         self._lib.ClosePool.restype = Message
 
     @classmethod
-    def get_lib_name(self):
+    def get_lib_name(cls) -> str:
         return "spannerlib.so"
 
     @classmethod
-    def get_lib_path(self):
+    def get_lib_path(cls) -> str:
         _lib_path = os.path.abspath(
             os.path.join(
                 os.path.dirname(__file__),

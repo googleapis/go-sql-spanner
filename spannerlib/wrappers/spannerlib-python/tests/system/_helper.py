@@ -34,7 +34,7 @@ TEST_CONNECTION_STRING = (
 )
 
 
-def setup_test_env():
+def setup_test_env() -> None:
     if not TEST_ON_PROD:
         # Set environment variable for Spanner Emulator
         os.environ["SPANNER_EMULATOR_HOST"] = "localhost:9010"
@@ -44,7 +44,7 @@ def setup_test_env():
     print(f"Using Connection String: {get_test_connection_string()}")
 
 
-def get_test_connection_string():
+def get_test_connection_string() -> str:
     return (
         PROD_TEST_CONNECTION_STRING
         if TEST_ON_PROD

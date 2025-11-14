@@ -29,7 +29,7 @@ class SpannerLibError(SpannerError):
         error_code: The error code returned by the Go library, if available.
     """
 
-    def __init__(self, message, error_code=None):
+    def __init__(self, message: str, error_code: int | None = None) -> None:
         """Initializes a SpannerLibraryError.
 
         Args:

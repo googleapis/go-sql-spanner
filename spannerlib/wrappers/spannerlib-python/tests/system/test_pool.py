@@ -41,11 +41,11 @@ from google.cloud.spannerlib import Pool  # noqa: E402
 
 class TestPoolE2E(unittest.TestCase):
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         setup_test_env()
         print(f"Using Connection String: {get_test_connection_string()}")
 
-    def test_pool_creation_and_close(self):
+    def test_pool_creation_and_close(self) -> None:
         """Test basic pool creation and explicit close."""
         pool = Pool.create_pool(get_test_connection_string())
         self.assertIsNotNone(pool.id, "Pool ID should not be None")
@@ -56,7 +56,7 @@ class TestPoolE2E(unittest.TestCase):
         pool.close()
         self.assertTrue(pool.closed, "Pool should remain closed")
 
-    def test_pool_context_manager(self):
+    def test_pool_context_manager(self) -> None:
         """Test pool creation and closure using a context manager."""
         with Pool.create_pool(get_test_connection_string()) as pool:
             self.assertIsNotNone(pool.id)

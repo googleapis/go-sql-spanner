@@ -33,7 +33,7 @@ class Pool(AbstractLibraryObject):
     providing methods to create connections and manage the pool lifecycle.
     """
 
-    def close(self):
+    def close(self) -> None:
         """Closes the connection pool and releases resources in the Go library.
 
         If the pool is already closed, this method does nothing.
@@ -47,7 +47,7 @@ class Pool(AbstractLibraryObject):
             logger.info(f"Pool ID: {self.id} closed")
 
     @classmethod
-    def create_pool(cls, connection_string: str):
+    def create_pool(cls, connection_string: str) -> "Pool":
         """
         Creates a new connection pool.
 

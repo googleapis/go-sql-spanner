@@ -37,31 +37,31 @@ class AbstractLibraryObject:
         self._closed = False
 
     @property
-    def id(self):
+    def id(self) -> int:
         """Returns the ID for this library object in the Go library."""
         return self._id
 
     @property
-    def lib(self):
+    def lib(self) -> SpannerLib:
         """Returns the library object."""
         return self._lib
 
     @property
-    def closed(self):
+    def closed(self) -> bool:
         """Returns True if the library object is closed, False otherwise."""
         return self._closed
 
     @closed.setter
-    def closed(self, value):
+    def closed(self, value: bool) -> None:
         """Sets the closed state of the library object."""
         self._closed = value
 
-    def release(self):
+    def release(self) -> None:
         """Releases the object in the Go library.
 
         This method calls the Release function in the Go library to free the resources
-        associated with this object.
         """
+
         if self._id == 0:
             return
         try:
