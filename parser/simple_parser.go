@@ -152,7 +152,7 @@ func (p *simpleParser) eatDollarTag() (string, bool) {
 				return "", false
 			}
 		} else {
-			if p.eatToken('$') {
+			if p.eatTokenWithWhitespaceOption('$' /*eatWhiteSpaces=*/, false) {
 				return string(p.sql[startPos : p.pos-1]), true
 			}
 			if !p.isValidIdentifierChar() {
@@ -430,12 +430,18 @@ func (p *simpleParser) skipStatementHint() (bool, int) {
 // isMultibyte returns true if the character at the current position
 // is a multibyte utf8 character.
 func (p *simpleParser) isMultibyte() bool {
+	if p.pos >= len(p.sql) {
+		return false
+	}
 	return isMultibyte(p.sql[p.pos])
 }
 
 // nextChar moves the parser to the next character. This takes into
 // account that some characters could be multibyte characters.
 func (p *simpleParser) nextChar() {
+	if p.pos >= len(p.sql) {
+		return
+	}
 	if !p.isMultibyte() {
 		p.pos++
 		return

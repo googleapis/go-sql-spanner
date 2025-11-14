@@ -23,9 +23,26 @@ import (
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+// PropertyValue is an untyped property value for a connection property.
+// These can be set on an ExecOptions instance to set statement-scoped connection property values for a
+// single statement execution.
+type PropertyValue struct {
+	Identifier parser.Identifier
+	Value      string
+}
+
+// CreatePropertyValue creates an untyped property value for a connection variable.
+func CreatePropertyValue(name, value string) PropertyValue {
+	return PropertyValue{
+		Identifier: parser.Identifier{Parts: []string{name}},
+		Value:      value,
+	}
+}
 
 // connectionProperties contains all supported connection properties for Spanner.
 // These properties are added to all connectionstate.ConnectionState instances that are created for Spanner connections.

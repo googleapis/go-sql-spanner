@@ -24,9 +24,9 @@ module SpannerLib
       @message = message
     end
 
-    def object_id
+    def remote_id
       throw_if_error!
-      @message[:objectId]
+      @message[:remote_id]
     end
 
     # Returns the data payload from the message.

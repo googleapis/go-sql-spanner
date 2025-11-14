@@ -236,3 +236,41 @@ func TestExecuteDdlBatchInTransaction(t *testing.T) {
 		t.Fatalf("ClosePool returned unexpected error: %v", err)
 	}
 }
+
+func TestExecuteQueryInBatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolId, err := CreatePool(ctx, dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+
+	// Try to execute a batch with queries. This should fail.
+	request := &spannerpb.ExecuteBatchDmlRequest{Statements: []*spannerpb.ExecuteBatchDmlRequest_Statement{
+		{Sql: "select 1"},
+		{Sql: "select 2"},
+	}}
+	_, err = ExecuteBatch(ctx, poolId, connId, request)
+	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := err.Error(), "rpc error: code = InvalidArgument desc = unsupported statement for batching: select 1"; g != w {
+		t.Fatalf("error message mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	if err := CloseConnection(ctx, poolId, connId); err != nil {
+		t.Fatalf("CloseConnection returned unexpected error: %v", err)
+	}
+	if err := ClosePool(ctx, poolId); err != nil {
+		t.Fatalf("ClosePool returned unexpected error: %v", err)
+	}
+}

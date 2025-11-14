@@ -898,6 +898,32 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 		?it\'?s'?`)),
 			},
 		},
+		"e-string": {
+			input: `SELECT e'ab\'c?'`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `SELECT e'ab\'c?'`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `SELECT e'ab\'c?'`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {},
+				databasepb.DatabaseDialect_POSTGRESQL:          {},
+			},
+		},
+		"not an e-string": {
+			input: `SELECT * from my_table WHERE'ab\'c?' = col1`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `SELECT * from my_table WHERE'ab\'c?' = col1`,
+				databasepb.DatabaseDialect_POSTGRESQL:          ``,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {},
+				databasepb.DatabaseDialect_POSTGRESQL:          nil,
+			},
+			wantErr: map[databasepb.DatabaseDialect]error{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: nil,
+				databasepb.DatabaseDialect_POSTGRESQL:          spanner.ToSpannerError(status.Error(codes.InvalidArgument, "SQL statement contains an unclosed literal: SELECT * from my_table WHERE'ab\\'c?' = col1")),
+			},
+		},
 	}
 	for _, dialect := range []databasepb.DatabaseDialect{databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, databasepb.DatabaseDialect_POSTGRESQL} {
 		parser, err := NewStatementParser(dialect, 1000)
@@ -1141,6 +1167,11 @@ SELECT * FROM PersonsTable WHERE id=$1`,
 			wantSQL: `select foo from bar where id=$tag$this is a string$tag$ and value=$1 order by value`,
 			want:    []string{"p1"},
 		},
+		"dollar-quoted string with tag with unicode chars": {
+			input:   `SELECT $ÿabc0$literal string ? ?$ÿabc0 $ÿabc0$`,
+			wantSQL: `SELECT $ÿabc0$literal string ? ?$ÿabc0 $ÿabc0$`,
+			want:    []string{},
+		},
 		"invalid dollar-quoted string": {
 			input: "select foo from bar where id=$tag$this is an invalid string and value=? order by value",
 			wantErr: spanner.ToSpannerError(
@@ -1228,6 +1259,16 @@ func TestFindParamsWithCommentsPostgreSQL(t *testing.T) {
 		"dollar-quoted string with tag": {
 			input:   `?$tag$?it$?s$tag$%s?`,
 			wantSQL: `$1$tag$?it$?s$tag$%s$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"dollar-quoted string with tag similar tag inside": {
+			input:   `$tag$ $tag $tag$`,
+			wantSQL: `$tag$ $tag $tag$`,
+			want:    []string{},
+		},
+		"dollar-quoted string with nested dollar-quoted string": {
+			input:   ` ? $tag$ $tag2$ test ? $tag2$ $tag$ ? `,
+			wantSQL: ` $1 $tag$ $tag2$ test ? $tag2$ $tag$ $2 `,
 			want:    []string{"p1", "p2"},
 		},
 		"dollar-quoted string with linefeed": {
@@ -2268,6 +2309,26 @@ func TestEatDollarQuotedString(t *testing.T) {
 			input:   "$outer$ outer string $inner$ mismatched tag $outer$ second part of outer string $inner$",
 			want:    "",
 			wantErr: true,
+		},
+		{
+			input:   "$outer$ outer string $outer $outer$",
+			want:    " outer string $outer ",
+			wantErr: false,
+		},
+		{
+			input:   "$tag$value $tag#$tag$",
+			want:    "value $tag#",
+			wantErr: false,
+		},
+		{
+			input:   "$tag$value $tag--not a comment$tag$",
+			want:    "value $tag--not a comment",
+			wantErr: false,
+		},
+		{
+			input:   "$tag$value $tag/*not a comment*/$tag$",
+			want:    "value $tag/*not a comment*/",
+			wantErr: false,
 		},
 	}
 	statementParser, err := NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)

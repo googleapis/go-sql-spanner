@@ -47,11 +47,12 @@ const (
 
 // ConnectionState contains connection the state of a connection in a map.
 type ConnectionState struct {
-	connectionStateType   Type
-	inTransaction         bool
-	properties            map[string]ConnectionPropertyValue
-	transactionProperties map[string]ConnectionPropertyValue
-	localProperties       map[string]ConnectionPropertyValue
+	connectionStateType       Type
+	inTransaction             bool
+	properties                map[string]ConnectionPropertyValue
+	transactionProperties     map[string]ConnectionPropertyValue
+	localProperties           map[string]ConnectionPropertyValue
+	statementScopedProperties map[string]ConnectionPropertyValue
 }
 
 // ExtractValues extracts a map of ConnectionPropertyValue from a map of strings.
@@ -94,10 +95,11 @@ func NewConnectionState(connectionStateType Type, properties map[string]Connecti
 		return nil, status.Error(codes.InvalidArgument, "connection state type cannot be TypeDefault")
 	}
 	state := &ConnectionState{
-		connectionStateType:   connectionStateType,
-		properties:            make(map[string]ConnectionPropertyValue),
-		transactionProperties: nil,
-		localProperties:       nil,
+		connectionStateType:       connectionStateType,
+		properties:                make(map[string]ConnectionPropertyValue),
+		transactionProperties:     nil,
+		localProperties:           nil,
+		statementScopedProperties: nil,
 	}
 	for key, value := range initialValues {
 		state.properties[key] = value.Copy()
@@ -128,17 +130,31 @@ func (cs *ConnectionState) GetValue(extension, name string) (any, bool, error) {
 }
 
 func (cs *ConnectionState) SetValue(extension, name, value string, context Context) error {
-	return cs.setValue(extension, name, value, context, false)
+	return cs.setValue(extension, name, value, context, valueTypeSession)
 }
 
 func (cs *ConnectionState) SetLocalValue(extension, name, value string, isSetTransaction bool) error {
 	if isSetTransaction && !cs.inTransaction {
 		return status.Error(codes.FailedPrecondition, "SET TRANSACTION can only be used in transaction blocks")
 	}
-	return cs.setValue(extension, name, value, ContextUser, true)
+	return cs.setValue(extension, name, value, ContextUser, valueTypeLocal)
 }
 
-func (cs *ConnectionState) setValue(extension, name, value string, context Context, local bool) error {
+func (cs *ConnectionState) SetStatementScopedValue(extension, name, value string) error {
+	return cs.setValue(extension, name, value, ContextUser, valueTypeStatementScoped)
+}
+
+type valueType int
+
+const (
+	valueTypeSession = valueType(iota)
+	valueTypeLocal
+	valueTypeStatementScoped
+)
+
+var errInvalidValueType = status.Error(codes.InvalidArgument, "invalid value type")
+
+func (cs *ConnectionState) setValue(extension, name, value string, context Context, valueType valueType) error {
 	prop, err := cs.findProperty(extension, name)
 	if err != nil {
 		return err
@@ -148,27 +164,46 @@ func (cs *ConnectionState) setValue(extension, name, value string, context Conte
 	// This is different from RESET, which will set the connection property to the value that it had when the
 	// connection was created.
 	if strings.EqualFold(strings.TrimSpace(value), "null") {
-		if local {
+		switch valueType {
+		case valueTypeSession:
+			return prop.SetDefaultValue(cs, context)
+		case valueTypeLocal:
 			return prop.SetLocalDefaultValue(cs)
+		case valueTypeStatementScoped:
+			return prop.SetStatementScopedDefaultValue(cs)
+		default:
+			return errInvalidValueType
 		}
-		return prop.SetDefaultValue(cs, context)
 	}
 
 	// The special value default (or DEFAULT) is used to reset a connection property to its original value.
 	if strings.EqualFold(strings.TrimSpace(value), "default") {
-		if local {
+		switch valueType {
+		case valueTypeSession:
+			return prop.ResetValue(cs, context)
+		case valueTypeLocal:
 			return prop.ResetLocalValue(cs)
+		case valueTypeStatementScoped:
+			return prop.ResetStatementScopedValue(cs)
+		default:
+			return errInvalidValueType
 		}
-		return prop.ResetValue(cs, context)
 	}
 	convertedValue, err := prop.Convert(value)
 	if err != nil {
 		return err
 	}
-	if local {
+	switch valueType {
+	case valueTypeSession:
+		return prop.SetUntypedValue(cs, convertedValue, context)
+	case valueTypeLocal:
 		return prop.SetLocalUntypedValue(cs, convertedValue)
+	case valueTypeStatementScoped:
+		return prop.SetStatementScopedUntypedValue(cs, convertedValue)
+	default:
+		return errInvalidValueType
 	}
-	return prop.SetUntypedValue(cs, convertedValue, context)
+
 }
 
 func (cs *ConnectionState) findProperty(extension, name string) (ConnectionProperty, error) {
@@ -222,6 +257,7 @@ func (cs *ConnectionState) Commit() error {
 	}
 	cs.transactionProperties = nil
 	cs.localProperties = nil
+	cs.statementScopedProperties = nil
 	for key, value := range cs.properties {
 		if value.isRemoved() {
 			delete(cs.properties, key)
@@ -242,7 +278,14 @@ func (cs *ConnectionState) Rollback() error {
 	cs.inTransaction = false
 	cs.transactionProperties = nil
 	cs.localProperties = nil
+	cs.statementScopedProperties = nil
 	return nil
+}
+
+// ClearStatementScopedValues clears all values that have been set for the current statement.
+// This function must be called after the execution of a statement that set statement values has finished.
+func (cs *ConnectionState) ClearStatementScopedValues() {
+	cs.statementScopedProperties = nil
 }
 
 // Reset the state to the initial values. Only the properties with a Context equal to or higher
@@ -251,6 +294,7 @@ func (cs *ConnectionState) Rollback() error {
 func (cs *ConnectionState) Reset(context Context) error {
 	cs.transactionProperties = nil
 	cs.localProperties = nil
+	cs.statementScopedProperties = nil
 	for _, value := range cs.properties {
 		if value.ConnectionProperty().Context() >= context {
 			if value.RemoveAtReset() {
@@ -266,6 +310,9 @@ func (cs *ConnectionState) Reset(context Context) error {
 }
 
 func (cs *ConnectionState) value(property ConnectionProperty, returnErrForUnknownProperty bool) (ConnectionPropertyValue, error) {
+	if val, ok := cs.statementScopedProperties[property.Key()]; ok {
+		return valOrError(property, returnErrForUnknownProperty, val)
+	}
 	if val, ok := cs.localProperties[property.Key()]; ok {
 		return valOrError(property, returnErrForUnknownProperty, val)
 	}

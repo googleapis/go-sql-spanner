@@ -30,3 +30,25 @@ RSpec/DescribeClass:
 
 Style/StringLiterals:
   EnforcedStyle: double_quotes
+
+Style/FormatStringToken:
+  EnforcedStyle: template
+Metrics/ClassLength:
+  Exclude:
+    - 'spec/mock_server/**/*'
+
+Metrics/MethodLength:
+  Exclude:
+    - 'spec/mock_server/**/*'
+
+Metrics/AbcSize:
+  Exclude:
+    - 'spec/mock_server/**/*'
+
+Metrics/CyclomaticComplexity:
+  Exclude:
+    - 'spec/mock_server/**/*'
+
+Metrics/PerceivedComplexity:
+  Exclude:
+    - 'spec/mock_server/**/*'
