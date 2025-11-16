@@ -788,3 +788,75 @@ func detectDmlKeyword(keyword string) DmlType {
 	}
 	return DmlTypeUnknown
 }
+
+// Split splits a SQL string that potentially contains multiple statements separated by
+// semicolons into individual statements.
+//
+// Returns false if the SQL string only contains a single statement (including when the SQL string
+// contains a single statement that is terminated by a semicolon). Whitespaces and comments after
+// the last semicolon in the SQL string are ignored.
+//
+// Returns true and a slice containing the individual statements if the SQL string contains more
+// than one statement. The slice always contains more than one element.
+func (p *StatementParser) Split(sql string) (bool, []string, error) {
+	return p.split(sql, ';')
+}
+
+func (p *StatementParser) split(sql string, sep byte) (bool, []string, error) {
+	// Return early if the string does not contain the separator.
+	firstIndex := strings.IndexByte(sql, sep)
+	if firstIndex == -1 {
+		return false, nil, nil
+	}
+	tokens := []byte(sql)
+	// Also return early if it is a single statement that is just terminated by a semicolon.
+	if firstIndex == len(tokens)-1 {
+		return false, nil, nil
+	}
+
+	res := make([]string, 0)
+	parser := &simpleParser{sql: tokens, statementParser: p}
+	startPos := 0
+	for parser.pos < len(parser.sql) {
+		parser.skipWhitespacesAndComments()
+		if parser.pos >= len(parser.sql) {
+			break
+		}
+		if parser.isMultibyte() {
+			parser.nextChar()
+			continue
+		}
+		c := parser.sql[parser.pos]
+		if c == sep {
+			res = append(res, sql[startPos:parser.pos])
+			parser.nextChar()
+			startPos = parser.pos
+			// Skip whitespaces / comments etc. and check if we are at the end of the SQL string.
+			// This prevents that an empty statement is added to the end of the slice if there are only whitespaces
+			// after the last semicolon.
+			parser.skipWhitespacesAndComments()
+			if parser.pos >= len(parser.sql) {
+				if len(res) == 1 {
+					return false, nil, nil
+				}
+				return true, res, nil
+			}
+			continue
+		}
+		newPos, err := p.skip(parser.sql, parser.pos)
+		if err != nil {
+			return false, nil, err
+		}
+		parser.pos = newPos
+	}
+	if len(res) == 0 {
+		// This means that the SQL string contains one or more semicolons, but that all of them
+		// are inside quoted literals, quoted identifiers or comments. This again means that there
+		// is only one statement in the string.
+		return false, nil, nil
+	}
+
+	// The last statement does not need to be terminated by a semicolon, so we add it here.
+	res = append(res, sql[startPos:])
+	return true, res, nil
+}
