@@ -23,8 +23,7 @@ class SpannerError(Exception):
 
 
 class SpannerLibError(SpannerError):
-    """Error related to an underlying Go library call.
-    """
+    """Error related to an underlying Go library call."""
 
     def __init__(self, message: str, error_code: int | None = None) -> None:
         """Initializes a SpannerLibraryError.

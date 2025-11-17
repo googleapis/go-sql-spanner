@@ -20,6 +20,7 @@ import logging
 from google.cloud.spannerlib.abstract_library_object import (
     AbstractLibraryObject,
 )
+from google.cloud.spannerlib.internal.message_handler import MessageHandler
 from google.cloud.spannerlib.internal.spannerlib import SpannerLib
 from google.cloud.spannerlib.internal.types import to_go_string
 
@@ -62,6 +63,12 @@ class Pool(AbstractLibraryObject):
         # Call the Go library function to create a pool.
         lib = SpannerLib()
         msg = lib.CreatePool(to_go_string(connection_string))
+        handler = MessageHandler(msg, lib)
+        if handler.has_error:
+            handler = MessageHandler(msg, lib)
+            error_message = handler.error_message()
+            handler.dispose()
+            raise Exception(f"Failed to create pool: {error_message}")
         pool = cls(msg.object_id, lib)
         logger.info(f"Pool created with ID: {pool.id}")
         return pool
