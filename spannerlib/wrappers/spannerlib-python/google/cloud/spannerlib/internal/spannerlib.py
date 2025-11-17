@@ -16,6 +16,7 @@ from __future__ import absolute_import
 import ctypes
 import logging
 import os
+import platform
 
 from google.cloud.spannerlib.internal.errors import SpannerLibError
 from google.cloud.spannerlib.internal.message import Message
@@ -73,7 +74,15 @@ class SpannerLib:
         Returns:
             str: The name of the shared library file.
         """
-        return "spannerlib.so"
+        system = platform.system()
+        if system == "Windows":
+            return "spannerlib.dll"
+        elif system == "Darwin":
+            return "spannerlib.dylib"
+        elif system == "Linux":
+            return "spannerlib.so"
+        else:
+            raise SpannerLibError(f"Unsupported operating system: {system}")
 
     @classmethod
     def get_lib_path(cls) -> str:
