@@ -1,6 +1,5 @@
 google-cloud-spanner
 
 # Dev & Test Tools
-virtualenv
 nox
 

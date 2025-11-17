@@ -23,20 +23,25 @@ pyproject.toml - Project config for packaging
 
 ## NOX Setup
 
-1. Create virtual environment
+**Create virtual environment**
 
-**Mac/Linux**
+* **Mac/Linux**
 ```bash
 pip install virtualenv
 virtualenv <your-env>
 source <your-env>/bin/activate
 ```
 
-**Windows**
+* **Windows**
 ```bash
 pip install virtualenv
 virtualenv <your-env>
 <your-env>\Scripts\activate
+```
+
+**Install dependencies**
+```bash
+pip install -r requirements.txt
 ```
 
 To run the nox tests, navigate to the root directory of this wrapper (`spannerlib-python`) and run:
