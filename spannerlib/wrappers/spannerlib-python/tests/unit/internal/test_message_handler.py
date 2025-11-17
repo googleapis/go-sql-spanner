@@ -14,9 +14,9 @@
 
 """Unit tests for the MessageHandler class."""
 
+import ctypes
 import unittest
 from unittest import mock
-import ctypes
 
 from google.cloud.spannerlib.internal.message import Message
 from google.cloud.spannerlib.internal.message_handler import MessageHandler
@@ -91,6 +91,7 @@ class TestMessageHandler(unittest.TestCase):
         handler = MessageHandler(msg, self.mock_lib)
         handler.release()
         self.mock_lib.Release.assert_called_once_with(0)
+
 
 if __name__ == "__main__":
     unittest.main()

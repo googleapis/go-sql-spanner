@@ -49,9 +49,14 @@ class Pool(AbstractLibraryObject):
                 # Release the object in the Go library.
                 self.release()
                 logger.info(f"Pool ID: {self.id} closed")
+            except SpannerLibError:
+                logger.exception(f"SpannerLib error closing pool ID: {self.id}")
+                raise
             except Exception as e:
-                logger.exception(f"Error closing pool ID: {self.id}")
-                raise e
+                logger.exception(f"Unexpected error closing pool ID: {self.id}")
+                raise SpannerLibError(
+                    f"Unexpected error during close: {e}"
+                ) from e
 
     @classmethod
     def create_pool(cls, connection_string: str) -> "Pool":

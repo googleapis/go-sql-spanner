@@ -12,13 +12,13 @@
 #  See the License for the specific language governing permissions and
 """Unit tests for the Pool class."""
 
+import ctypes
 import unittest
 from unittest import mock
-import ctypes
 
+from google.cloud.spannerlib.internal.errors import SpannerLibError
 from google.cloud.spannerlib.internal.message import Message
 from google.cloud.spannerlib.pool import Pool
-from google.cloud.spannerlib.internal.errors import SpannerLibError
 
 
 class TestPool(unittest.TestCase):
@@ -44,7 +44,6 @@ class TestPool(unittest.TestCase):
         # Check that to_go_string was called on the connection string
         args, _ = mock_lib_instance.CreatePool.call_args
         self.assertEqual(args[0].p, connection_string.encode("utf-8"))
-
 
     @mock.patch("google.cloud.spannerlib.pool.SpannerLib")
     def test_create_pool_failure(self, MockSpannerLib):
