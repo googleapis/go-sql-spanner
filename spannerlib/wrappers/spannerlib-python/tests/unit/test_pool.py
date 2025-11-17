@@ -121,11 +121,12 @@ class TestPool(unittest.TestCase):
 
         with self.assertRaises(SpannerLibError) as context:
             pool.close()
+            self.assertIn("Close failed", str(context.exception))
             # Assert that Release was not called with the pool ID
             for call in mock_lib_instance.Release.mock_calls:
                 args, _ = call
                 self.assertNotEqual(args[0], 101)
-            
-            
+
+
 if __name__ == "__main__":
     unittest.main()
