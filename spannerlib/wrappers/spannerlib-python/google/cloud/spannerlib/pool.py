@@ -10,8 +10,6 @@
 #  distributed under the License is distributed on an "AS IS" BASIS,
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
-#  limitations under the License.
-
 """Module for the Pool class, representing a connection pool to Spanner."""
 from __future__ import absolute_import
 
@@ -20,6 +18,7 @@ import logging
 from google.cloud.spannerlib.abstract_library_object import (
     AbstractLibraryObject,
 )
+from google.cloud.spannerlib.internal.errors import SpannerLibError
 from google.cloud.spannerlib.internal.message_handler import MessageHandler
 from google.cloud.spannerlib.internal.spannerlib import SpannerLib
 from google.cloud.spannerlib.internal.types import to_go_string
@@ -40,12 +39,19 @@ class Pool(AbstractLibraryObject):
         If the pool is already closed, this method does nothing.
         """
         if not self.closed:
-            logger.info(f"Closing pool ID: {self.id}")
-            # Call the Go library function to close the pool.
-            _ = self.lib.ClosePool(self.id)
-            # Release the object in the Go library.
-            self.release()
-            logger.info(f"Pool ID: {self.id} closed")
+            try:
+                logger.info(f"Closing pool ID: {self.id}")
+                # Call the Go library function to close the pool.
+                msg = self.lib.ClosePool(self.id)
+                err = MessageHandler.decode_error(msg, self.lib)
+                if err:
+                    raise err
+                # Release the object in the Go library.
+                self.release()
+                logger.info(f"Pool ID: {self.id} closed")
+            except Exception as e:
+                logger.exception(f"Error closing pool ID: {self.id}")
+                raise e
 
     @classmethod
     def create_pool(cls, connection_string: str) -> "Pool":
@@ -60,15 +66,19 @@ class Pool(AbstractLibraryObject):
         logger.info(
             f"Creating pool with connection string: {connection_string}"
         )
-        # Call the Go library function to create a pool.
-        lib = SpannerLib()
-        msg = lib.CreatePool(to_go_string(connection_string))
-        handler = MessageHandler(msg, lib)
-        if handler.has_error:
-            handler = MessageHandler(msg, lib)
-            error_message = handler.error_message()
-            handler.dispose()
-            raise Exception(f"Failed to create pool: {error_message}")
-        pool = cls(msg.object_id, lib)
-        logger.info(f"Pool created with ID: {pool.id}")
+        try:
+            lib = SpannerLib()
+            # Call the Go library function to create a pool.
+            msg = lib.CreatePool(to_go_string(connection_string))
+            err_msg = MessageHandler.decode_error(msg, lib)
+            if err_msg:
+                raise SpannerLibError(err_msg)
+            pool = cls(msg.object_id, lib)
+            logger.info(f"Pool created with ID: {pool.id}")
+        except SpannerLibError:
+            logger.exception("Failed to create pool")
+            raise
+        except Exception as e:
+            logger.exception("Unexpected error interacting with Go library")
+            raise SpannerLibError(f"Unexpected error: {e}") from e
         return pool

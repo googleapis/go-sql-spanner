@@ -13,6 +13,7 @@
 #  limitations under the License.
 from __future__ import absolute_import
 
+from abc import ABC, abstractmethod
 import logging
 
 from google.cloud.spannerlib.internal.spannerlib import SpannerLib
@@ -20,7 +21,7 @@ from google.cloud.spannerlib.internal.spannerlib import SpannerLib
 logger = logging.getLogger(__name__)
 
 
-class AbstractLibraryObject:
+class AbstractLibraryObject(ABC):
     """Abstract base class for objects that are managed by the Go library.
 
     This class provides a common interface for releasing resources in the Go library.
@@ -37,6 +38,26 @@ class AbstractLibraryObject:
         self._lib = lib
         self._closed = False
 
+    def __del__(self):
+        if not self._closed:
+            logger.warning(
+                f"Resource {self.__class__.__name__} with ID {self._id} was not explicitly closed. "
+                "This may lead to resource leaks in the Go runtime."
+            )
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, etype, value, traceback):
+        self.close()
+        if not self.closed:
+            self.release()
+
+    @abstractmethod
+    def close(self):
+        """An abstract method that must be implemented by subclasses."""
+        pass
+
     @property
     def id(self) -> int:
         """int: The ID for this library object in the Go library."""
@@ -51,11 +72,6 @@ class AbstractLibraryObject:
     def closed(self) -> bool:
         """bool: True if the library object is closed, False otherwise."""
         return self._closed
-
-    @closed.setter
-    def closed(self, value: bool) -> None:
-        """Sets the closed state of the library object."""
-        self._closed = value
 
     def release(self) -> None:
         """Releases the object in the Go library.

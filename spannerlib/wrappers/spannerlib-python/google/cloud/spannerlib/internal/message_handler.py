@@ -28,6 +28,12 @@ class MessageHandler:
         self._message = message
         self._lib = lib
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, etype, value, traceback):
+        self.release()
+
     @property
     def message(self) -> Message:
         return self._message
@@ -55,5 +61,14 @@ class MessageHandler:
 
         return error_msg
 
-    def dispose(self) -> None:
+    def release(self) -> None:
         self._lib.Release(self._message.pinner_id)
+
+    @classmethod
+    def decode_error(cls, message: Message, lib: SpannerLib) -> str:
+        handler = cls(message, lib)
+        if handler.has_error():
+            error_message = handler.error_message()
+            handler.release()
+            return f"Failed to create pool: {error_message}"
+        return None
