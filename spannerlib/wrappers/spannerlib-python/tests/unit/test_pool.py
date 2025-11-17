@@ -10,15 +10,15 @@
 #  distributed under the License is distributed on an "AS IS" BASIS,
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
-#  limitations under the License.
-
 """Unit tests for the Pool class."""
 
 import unittest
 from unittest import mock
+import ctypes
 
 from google.cloud.spannerlib.internal.message import Message
 from google.cloud.spannerlib.pool import Pool
+from google.cloud.spannerlib.internal.errors import SpannerLibError
 
 
 class TestPool(unittest.TestCase):
@@ -44,6 +44,25 @@ class TestPool(unittest.TestCase):
         # Check that to_go_string was called on the connection string
         args, _ = mock_lib_instance.CreatePool.call_args
         self.assertEqual(args[0].p, connection_string.encode("utf-8"))
+
+
+    @mock.patch("google.cloud.spannerlib.pool.SpannerLib")
+    def test_create_pool_failure(self, MockSpannerLib):
+        """Test that create_pool raises SpannerLibError on failure."""
+        mock_lib_instance = MockSpannerLib.return_value
+        error_msg = b"Pool creation failed"
+        msg_ptr = ctypes.cast(ctypes.c_char_p(error_msg), ctypes.c_void_p)
+        mock_lib_instance.CreatePool.return_value = Message(
+            object_id=0, error_code=1, msg=msg_ptr
+        )
+
+        connection_string = "invalid_connection_string"
+        with self.assertRaises(SpannerLibError) as context:
+            Pool.create_pool(connection_string)
+
+        self.assertIn("Failed to create pool", str(context.exception))
+        MockSpannerLib.assert_called_once()
+        mock_lib_instance.CreatePool.assert_called_once()
 
     @mock.patch("google.cloud.spannerlib.internal.spannerlib.SpannerLib")
     def test_close_pool(self, MockSpannerLib):

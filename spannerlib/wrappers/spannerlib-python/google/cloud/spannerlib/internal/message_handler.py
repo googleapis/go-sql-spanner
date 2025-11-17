@@ -50,7 +50,7 @@ class MessageHandler:
             go_error_msg = ctypes.cast(self._message.msg, ctypes.c_char_p).value
             if go_error_msg:
                 error_msg = (
-                    f": {go_error_msg.decode('utf-8', errors='replace')}"
+                    f"{go_error_msg.decode('utf-8', errors='replace')}"
                 )
             logger.error(
                 f"SpannerLib Error {self._message.error_code}: {error_msg}"
