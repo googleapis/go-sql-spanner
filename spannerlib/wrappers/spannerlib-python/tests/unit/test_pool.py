@@ -106,6 +106,26 @@ class TestPool(unittest.TestCase):
         mock_lib_instance.ClosePool.assert_not_called()
         mock_lib_instance.Release.assert_not_called()
 
+    @mock.patch("google.cloud.spannerlib.internal.spannerlib.SpannerLib")
+    def test_close_pool_failure(self, MockSpannerLib):
+        """Test that close raises SpannerLibError on failure."""
+        mock_lib_instance = MockSpannerLib.return_value
+        error_msg = b"Close failed"
+        msg_ptr = ctypes.cast(ctypes.c_char_p(error_msg), ctypes.c_void_p)
+        mock_lib_instance.ClosePool.return_value = Message(
+            object_id=0, error_code=2, msg=msg_ptr
+        )
 
+        pool = Pool(101, mock_lib_instance)
+        self.assertFalse(pool.closed)
+
+        with self.assertRaises(SpannerLibError) as context:
+            pool.close()
+            # Assert that Release was not called with the pool ID
+            for call in mock_lib_instance.Release.mock_calls:
+                args, _ = call
+                self.assertNotEqual(args[0], 101)
+            
+            
 if __name__ == "__main__":
     unittest.main()

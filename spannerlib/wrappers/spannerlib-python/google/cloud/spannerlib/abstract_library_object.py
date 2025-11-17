@@ -50,8 +50,6 @@ class AbstractLibraryObject(ABC):
 
     def __exit__(self, etype, value, traceback):
         self.close()
-        if not self.closed:
-            self.release()
 
     @abstractmethod
     def close(self):
