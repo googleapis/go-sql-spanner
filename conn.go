@@ -574,7 +574,7 @@ func (c *conn) startBatchDDL() (driver.Result, error) {
 }
 
 func (c *conn) startBatchDML(automatic bool) (driver.Result, error) {
-	execOptions, err := c.options( /*reset = */ true)
+	execOptions, err := c.options( /* reset = */ true)
 	if err != nil {
 		return nil, err
 	}
@@ -932,6 +932,16 @@ func (c *conn) applyStatementScopedValues(execOptions *ExecOptions) (cleanup fun
 }
 
 func (c *conn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	// Remove the ExecOptions once all statements in the SQL string have been executed.
+	defer func() { c.tempExecOptions = nil }()
+
+	if ok, statements, _ := c.parser.Split(query); ok {
+		return queryMultiple(ctx, c, statements, args)
+	}
+	return c.querySingle(ctx, query /* isPartOfMultiStatementString = */, false, args)
+}
+
+func (c *conn) querySingle(ctx context.Context, query string, isPartOfMultiStatementString bool, args []driver.NamedValue) (driver.Rows, error) {
 	// Execute client side statement if it is one.
 	clientStmt, err := c.parser.ParseClientSideStatement(query)
 	if err != nil {
@@ -940,6 +950,11 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 	execOptions, err := c.options( /* reset = */ clientStmt == nil)
 	if err != nil {
 		return nil, err
+	}
+	if isPartOfMultiStatementString {
+		// Statements in a multi-statement SQL string must always be executed directly to ensure that the effects of the
+		// statement is visible to the next statement in the SQL string.
+		execOptions.DirectExecuteQuery = true
 	}
 	if clientStmt != nil {
 		execStmt, err := createExecutableStatement(clientStmt)
@@ -1076,6 +1091,8 @@ func (c *conn) directExecuteQuery(ctx context.Context, cancelQuery context.Cance
 }
 
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	// TODO: Implement support for multi-statement SQL strings.
+	defer func() { c.tempExecOptions = nil }()
 	// Execute client side statement if it is one.
 	stmt, err := c.parser.ParseClientSideStatement(query)
 	if err != nil {
@@ -1163,15 +1180,14 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions *ExecO
 }
 
 // options returns and optionally resets the ExecOptions for the next statement.
-func (c *conn) options(reset bool) (*ExecOptions, error) {
-	if reset {
+func (c *conn) options(resetTags bool) (*ExecOptions, error) {
+	if resetTags {
 		defer func() {
 			// Only reset the transaction tag if there is no active transaction on the connection.
 			if !c.inTransaction() {
 				_ = propertyTransactionTag.ResetValue(c.state, connectionstate.ContextUser)
 			}
 			_ = propertyStatementTag.ResetValue(c.state, connectionstate.ContextUser)
-			c.tempExecOptions = nil
 		}()
 	}
 	// TODO: Refactor this to only use connection state as the (temporary) storage, and remove the tempExecOptions field
