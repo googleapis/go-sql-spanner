@@ -104,6 +104,12 @@ public interface SpannerLibrary extends Library {
   /** Returns the {@link com.google.spanner.v1.ResultSetStats} of the given Rows object. */
   Message ResultSetStats(long poolId, long connectionId, long rowsId);
 
+  /**
+   * Returns the {@link com.google.spanner.v1.ResultSetMetadata} of the next result set in the given
+   * Rows object, or null if there is no next result set.
+   */
+  Message NextResultSet(long poolId, long connectionId, long rowsId);
+
   /** Closes the given Rows object. */
   Message CloseRows(long poolId, long connectionId, long rowsId);
 }

@@ -17,6 +17,7 @@ package lib
 import (
 	"context"
 
+	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"google.golang.org/protobuf/proto"
 	"spannerlib/api"
 )
@@ -26,6 +27,10 @@ func Metadata(ctx context.Context, poolId, connId, rowsId int64) *Message {
 	if err != nil {
 		return errMessage(err)
 	}
+	return encodeMetadata(metadata)
+}
+
+func encodeMetadata(metadata *spannerpb.ResultSetMetadata) *Message {
 	metadataBytes, err := proto.Marshal(metadata)
 	if err != nil {
 		return errMessage(err)
@@ -43,6 +48,17 @@ func ResultSetStats(ctx context.Context, poolId, connId, rowsId int64) *Message 
 		return errMessage(err)
 	}
 	return &Message{Res: statsBytes}
+}
+
+func NextResultSet(ctx context.Context, poolId, connId, rowsId int64) *Message {
+	metadata, err := api.NextResultSet(ctx, poolId, connId, rowsId)
+	if err != nil {
+		return errMessage(err)
+	}
+	if metadata == nil {
+		return &Message{}
+	}
+	return encodeMetadata(metadata)
 }
 
 func Next(ctx context.Context, poolId, connId, rowsId int64) *Message {

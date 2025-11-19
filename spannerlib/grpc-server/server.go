@@ -133,6 +133,7 @@ func (s *spannerLibServer) ExecuteStreaming(request *pb.ExecuteRequest, stream g
 	if err != nil {
 		return err
 	}
+
 	first := true
 	for {
 		if row, err := api.Next(queryContext, request.Connection.Pool.Id, request.Connection.Id, id); err != nil {
@@ -143,13 +144,22 @@ func (s *spannerLibServer) ExecuteStreaming(request *pb.ExecuteRequest, stream g
 				if err != nil {
 					return err
 				}
-				res := &pb.RowData{Rows: rows, Stats: stats}
+				nextMetadata, err := api.NextResultSet(queryContext, request.Connection.Pool.Id, request.Connection.Id, id)
+				if err != nil {
+					return err
+				}
+				res := &pb.RowData{Rows: rows, Stats: stats, HasMoreResults: nextMetadata != nil}
 				if first {
 					res.Metadata = metadata
 					first = false
 				}
 				if err := stream.Send(res); err != nil {
 					return err
+				}
+				if res.HasMoreResults {
+					metadata = nextMetadata
+					first = true
+					continue
 				}
 				break
 			}
@@ -197,6 +207,14 @@ func (s *spannerLibServer) ResultSetStats(ctx context.Context, rows *pb.Rows) (*
 		return nil, err
 	}
 	return stats, nil
+}
+
+func (s *spannerLibServer) NextResultSet(ctx context.Context, rows *pb.Rows) (*spannerpb.ResultSetMetadata, error) {
+	metadata, err := api.NextResultSet(ctx, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id)
+	if err != nil {
+		return nil, err
+	}
+	return metadata, nil
 }
 
 func (s *spannerLibServer) CloseRows(ctx context.Context, rows *pb.Rows) (*emptypb.Empty, error) {
