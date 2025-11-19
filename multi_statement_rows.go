@@ -61,7 +61,11 @@ func queryMultiple(ctx context.Context, conn *conn, statements []string, args []
 		results:    make([]driver.RowsNextResultSet, 0, len(statements)),
 	}
 	for index, statement := range statements {
-		// Create a derived context for each query to prevent the main context from being cancelled after each query.
+		// Create a derived context for each query to prevent the main context from being linked to each query.
+		// The underlying Spanner RowIterator cancels the context that it is given when it is closed. The RowIterator
+		// is automatically closed when all data has been read, meaning that if we were to use the same context for
+		// each query, the context will be cancelled once all the data of the first result set have been read. That
+		// again can cause reading data from the following result sets to fail.
 		queryCtx := context.WithValue(ctx, statementKey{index: index}, statement)
 		// TODO: Implement a look-ahead to see if we can use DML/DDL batching.
 		// TODO: Implement a look-ahead to see if the following statements are all queries, and whether we can execute
