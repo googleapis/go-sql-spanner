@@ -116,7 +116,6 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
 
   # @private
   def do_execute_sql(request, streaming)
-    @requests << request
     validate_session request.session
     created_transaction = do_create_transaction request.session if request.transaction&.begin
     transaction_id = created_transaction&.id || request.transaction&.id

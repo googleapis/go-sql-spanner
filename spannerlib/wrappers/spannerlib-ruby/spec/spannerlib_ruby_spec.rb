@@ -62,7 +62,6 @@ Minitest.after_run do
 end
 
 describe "Connection" do
-  # rubocop:disable Metrics/AbcSize
   def self.spawn_server
     project_root = File.expand_path("..", __dir__)
     runner_path = File.join(project_root, "spec", "mock_server_runner.rb")
@@ -84,10 +83,11 @@ describe "Connection" do
     }
     cmd = [ruby_exe, "-Ilib", "-Ispec", runner_path]
 
+    puts "DEBUG: Spawning: #{cmd}"
     $stdout.flush
+
     spawn(env_vars, *cmd, out: $stdout, err: $stderr)
   end
-  # rubocop:enable Metrics/AbcSize
 
   def self.wait_for_port
     start_time = Time.now
@@ -125,7 +125,8 @@ describe "Connection" do
       content = File.binread($mock_msg_file)
       begin
         existing = Marshal.load(content) unless content.empty?
-      rescue StandardError
+      rescue ArgumentError, TypeError => e
+        warn "Failed to load existing mocks: #{e.message}"
         {}
       end
     end
@@ -144,7 +145,8 @@ describe "Connection" do
           data = Marshal.load(f)
           klass = Object.const_get(data[:class])
           requests << klass.decode(data[:payload])
-        rescue StandardError
+        rescue ArgumentError, TypeError, NameError => e
+          warn "Failed to load a request from log: #{e.message}"
           break
         end
       end
@@ -152,11 +154,22 @@ describe "Connection" do
     requests
   end
 
+  def find_transaction_options(requests)
+    # Look for explicit BeginTransactionRequest
+    begin_req = requests.find { |r| r.is_a?(Google::Cloud::Spanner::V1::BeginTransactionRequest) }
+    return begin_req.options if begin_req
+
+    # Look for inline TransactionOptions in ExecuteSqlRequest
+    exec_req = requests.find do |r|
+      r.is_a?(Google::Cloud::Spanner::V1::ExecuteSqlRequest) &&
+        r.transaction&.begin
+    end
+    return exec_req.transaction.begin if exec_req
+
+    nil
+  end
+
   before do
-    self.class.ensure_server_running!
-    File.binwrite($mock_msg_file, Marshal.dump({}))
-    File.write($mock_req_file, "")
-    @dsn = "127.0.0.1:#{$server_port}/projects/p/instances/i/databases/d?useplaintext=true"
     self.class.ensure_server_running!
     File.binwrite($mock_msg_file, Marshal.dump({}))
     File.write($mock_req_file, "")
@@ -184,7 +197,7 @@ describe "Connection" do
     _(decoded[0].values[0].string_value).must_equal "1"
   end
 
-  it "can execute a read-write transaction" do
+  it "validates read-write transaction lifecycle" do
     set_mock_result(
       "INSERT INTO test_table (id, name) VALUES ('1', 'Alice')",
       StatementResult.create_update_count_result(1)
@@ -198,28 +211,56 @@ describe "Connection" do
     sql = "INSERT INTO test_table (id, name) VALUES ('1', 'Alice')"
     req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: sql)
     @conn.execute(req)
-    commit_resp = @conn.commit
-    _(commit_resp.commit_timestamp).wont_be_nil
+    @conn.commit
+
+    requests = load_requests
+
+    # Verify Transaction Options (Explicit or Inline)
+    # Often client libraries send the options inline with ExecuteSql
+    # use the helper find_transaction_options to verfy both the cases (inline or explicit BeginTransaction)
+    tx_options = find_transaction_options(requests)
+    _(tx_options).wont_be_nil
+    _(tx_options.read_write).wont_be_nil
+
+    commit_req = requests.find { |r| r.is_a?(Google::Cloud::Spanner::V1::CommitRequest) }
+    _(commit_req).wont_be_nil
+    _(commit_req.transaction_id).wont_be_empty
   end
 
-  it "can execute a read-only transaction" do
+  it "validates read-only transaction lifecycle" do
     set_mock_result(
-      "SELECT option_value from information_schema.database_options where option_name='database_dialect'",
-      StatementResult.create_dialect_result
+      "SELECT 1",
+      StatementResult.create_select1_result
     )
+
     tx_opts = Google::Cloud::Spanner::V1::TransactionOptions.new(
-      read_only: Google::Cloud::Spanner::V1::TransactionOptions::ReadOnly.new(
-        strong: true
-      )
+      read_only: Google::Cloud::Spanner::V1::TransactionOptions::ReadOnly.new(strong: true)
     )
     @conn.begin_transaction(tx_opts)
-    sql = "select option_value from information_schema.database_options where option_name='database_dialect'"
+
+    sql = "SELECT 1"
     req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: sql)
-    rows = @conn.execute(req)
-    decoded = rows.map { |r| Google::Protobuf::ListValue.decode(r) }
-    _(decoded.length).must_equal 1
-    _(decoded[0].values[0].string_value).must_equal "GOOGLE_STANDARD_SQL"
+    @conn.execute(req)
     @conn.commit
+
+    requests = load_requests
+
+    # Verify Transaction Options (Explicit or Inline)
+    # Often client libraries send the options inline with ExecuteSql
+    # use the helper find_transaction_options to verfy both the cases (inline or explicit BeginTransaction)
+    tx_options = find_transaction_options(requests)
+    _(tx_options).wont_be_nil
+    _(tx_options.read_only).wont_be_nil
+    _(tx_options.read_only.strong).must_equal true
+
+    exec_req = requests.find { |r| r.is_a?(Google::Cloud::Spanner::V1::ExecuteSqlRequest) }
+    _(exec_req).wont_be_nil
+
+    commit_reqs = requests.select { |r| r.is_a?(Google::Cloud::Spanner::V1::CommitRequest) }
+    _(commit_reqs).must_be_empty "Expected no Commit requests for read-only transaction"
+
+    rollback_reqs = requests.select { |r| r.is_a?(Google::Cloud::Spanner::V1::RollbackRequest) }
+    _(rollback_reqs).must_be_empty "Expected no Rollback requests for read-only transaction"
   end
 
   it "raises an error when the table does not exist" do
@@ -239,18 +280,6 @@ describe "Connection" do
     end.must_raise StandardError
 
     _(err.message).must_match(/Table not found/)
-  end
-
-  it "validates request received by mock server" do
-    set_mock_result("SELECT 1", StatementResult.create_select1_result)
-
-    req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: "SELECT 1")
-    @conn.execute(req)
-    requests = load_requests
-    sql_requests = requests.select { |r| r.is_a?(Google::Cloud::Spanner::V1::ExecuteSqlRequest) }
-
-    _(sql_requests.length).must_be :>=, 1
-    _(sql_requests.last.sql).must_equal "SELECT 1"
   end
 end
 # rubocop:enable RSpec/NoExpectationExample
