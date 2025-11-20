@@ -20,8 +20,9 @@
 require "minitest/autorun"
 require "google/cloud/spanner/v1/spanner"
 require "timeout"
-require "tmpdir" # Needed for the file-based handshake
+require "tmpdir"
 
+require_relative "mock_server/statement_result"
 require_relative "../lib/spannerlib/ffi"
 require_relative "../lib/spannerlib/connection"
 
@@ -29,17 +30,26 @@ $server_pid = nil
 $server_port = nil
 $port_file = nil
 $any_failure = false
+$mock_msg_file = nil
+$mock_req_file = nil
 
 Minitest.after_run do
   if $server_pid
     begin
-      Process.kill("TERM", $server_pid)
+      if Gem.win_platform?
+        Process.kill("KILL", $server_pid)
+      else
+        Process.kill("TERM", $server_pid)
+      end
       Process.wait($server_pid)
     rescue Errno::ESRCH, Errno::ECHILD, Errno::EINVAL
       # Process already dead
     end
   end
-  File.delete($port_file) if $port_file && File.exist?($port_file)
+  [$port_file, $mock_msg_file, $mock_req_file].each do |f|
+    File.delete(f) if f && File.exist?(f)
+  end
+
   if $any_failure
     puts "Tests Failed! Exiting with code 1"
     $stdout.flush
@@ -52,31 +62,43 @@ Minitest.after_run do
 end
 
 describe "Connection" do
+  # rubocop:disable Metrics/AbcSize
   def self.spawn_server
-    runner_path = File.expand_path(File.join(__dir__, "mock_server_runner.rb"))
+    project_root = File.expand_path("..", __dir__)
+    runner_path = File.join(project_root, "spec", "mock_server_runner.rb")
+    ruby_exe = Gem.ruby
+
+    if Gem.win_platform?
+      runner_path = runner_path.tr("/", "\\")
+      ruby_exe = ruby_exe.tr("/", "\\")
+    end
 
     $port_file = File.join(Dir.tmpdir, "spanner_mock_port_#{Time.now.to_i}_#{rand(1000)}.txt")
+    $mock_msg_file = File.join(Dir.tmpdir, "spanner_mock_msgs_#{Time.now.to_i}_#{rand(1000)}.bin")
+    $mock_req_file = File.join(Dir.tmpdir, "spanner_mock_reqs_#{Time.now.to_i}_#{rand(1000)}.bin")
 
-    # 2. Tell the runner where to write the port
-    env_vars = { "MOCK_PORT_FILE" => $port_file }
+    env_vars = {
+      "MOCK_PORT_FILE" => $port_file,
+      "MOCK_MSG_FILE" => $mock_msg_file,
+      "MOCK_REQ_FILE" => $mock_req_file
+    }
+    cmd = [ruby_exe, "-Ilib", "-Ispec", runner_path]
 
-    # 3. Spawn process inheriting stdout/stderr.
-    # This prevents the buffer deadlock.
-    Process.spawn(env_vars, RbConfig.ruby, "-Ilib", "-Ispec", runner_path, out: $stdout, err: $stderr)
+    $stdout.flush
+    spawn(env_vars, *cmd, out: $stdout, err: $stderr)
   end
+  # rubocop:enable Metrics/AbcSize
 
   def self.wait_for_port
     start_time = Time.now
     loop do
-      raise "Timed out waiting for mock server to write to #{$port_file}" if Time.now - start_time > 20
+      raise "Timed out waiting for mock server port file." if Time.now - start_time > 20
 
-      # 4. Poll the file for the port
       if File.exist?($port_file)
         content = File.read($port_file).strip
         return content.to_i unless content.empty?
       end
 
-      # Check if the server died
       raise "Mock server exited unexpectedly!" if Process.waitpid($server_pid, Process::WNOHANG)
 
       sleep 0.1
@@ -96,8 +118,48 @@ describe "Connection" do
     end
   end
 
+  # Helper to set the mock server's response for a given SQL statement
+  def set_mock_result(sql, result)
+    existing = {}
+    if File.exist?($mock_msg_file)
+      content = File.binread($mock_msg_file)
+      begin
+        existing = Marshal.load(content) unless content.empty?
+      rescue StandardError
+        {}
+      end
+    end
+    existing[sql] = result
+    File.binwrite($mock_msg_file, Marshal.dump(existing))
+  end
+
+  # Helper to get the requests received by the mock server
+  def load_requests
+    return [] unless File.exist?($mock_req_file)
+
+    requests = []
+    File.open($mock_req_file, "rb") do |f|
+      until f.eof?
+        begin
+          data = Marshal.load(f)
+          klass = Object.const_get(data[:class])
+          requests << klass.decode(data[:payload])
+        rescue StandardError
+          break
+        end
+      end
+    end
+    requests
+  end
+
   before do
     self.class.ensure_server_running!
+    File.binwrite($mock_msg_file, Marshal.dump({}))
+    File.write($mock_req_file, "")
+    @dsn = "127.0.0.1:#{$server_port}/projects/p/instances/i/databases/d?useplaintext=true"
+    self.class.ensure_server_running!
+    File.binwrite($mock_msg_file, Marshal.dump({}))
+    File.write($mock_req_file, "")
     @dsn = "127.0.0.1:#{$server_port}/projects/p/instances/i/databases/d?useplaintext=true"
 
     @pool_id = SpannerLib.create_pool(@dsn)
@@ -112,18 +174,22 @@ describe "Connection" do
   end
 
   it "can execute SELECT 1" do
-    request_proto = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: "SELECT 1")
-    rows_object = @conn.execute(request_proto)
+    set_mock_result("SELECT 1", StatementResult.create_select1_result)
 
-    decoded_rows = rows_object.map do |row_bytes|
-      Google::Protobuf::ListValue.decode(row_bytes)
-    end
+    req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: "SELECT 1")
+    rows = @conn.execute(req)
 
-    _(decoded_rows.length).must_equal 1
-    _(decoded_rows[0].values[0].string_value).must_equal "1"
+    decoded = rows.map { |r| Google::Protobuf::ListValue.decode(r) }
+    _(decoded.length).must_equal 1
+    _(decoded[0].values[0].string_value).must_equal "1"
   end
 
-  it "can execute a read-write transaction (Begin/Insert/Commit)" do
+  it "can execute a read-write transaction" do
+    set_mock_result(
+      "INSERT INTO test_table (id, name) VALUES ('1', 'Alice')",
+      StatementResult.create_update_count_result(1)
+    )
+
     tx_opts = Google::Cloud::Spanner::V1::TransactionOptions.new(
       read_write: Google::Cloud::Spanner::V1::TransactionOptions::ReadWrite.new
     )
@@ -131,11 +197,60 @@ describe "Connection" do
 
     sql = "INSERT INTO test_table (id, name) VALUES ('1', 'Alice')"
     req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: sql)
-
     @conn.execute(req)
     commit_resp = @conn.commit
-
     _(commit_resp.commit_timestamp).wont_be_nil
+  end
+
+  it "can execute a read-only transaction" do
+    set_mock_result(
+      "SELECT option_value from information_schema.database_options where option_name='database_dialect'",
+      StatementResult.create_dialect_result
+    )
+    tx_opts = Google::Cloud::Spanner::V1::TransactionOptions.new(
+      read_only: Google::Cloud::Spanner::V1::TransactionOptions::ReadOnly.new(
+        strong: true
+      )
+    )
+    @conn.begin_transaction(tx_opts)
+    sql = "select option_value from information_schema.database_options where option_name='database_dialect'"
+    req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: sql)
+    rows = @conn.execute(req)
+    decoded = rows.map { |r| Google::Protobuf::ListValue.decode(r) }
+    _(decoded.length).must_equal 1
+    _(decoded[0].values[0].string_value).must_equal "GOOGLE_STANDARD_SQL"
+    @conn.commit
+  end
+
+  it "raises an error when the table does not exist" do
+    sql = "SELECT * FROM non_existent_table"
+
+    error_status = Google::Rpc::Status.new(
+      code: GRPC::Core::StatusCodes::NOT_FOUND,
+      message: "Table not found: non_existent_table"
+    )
+
+    mock_result = StatementResult.create_exception_result(error_status)
+    set_mock_result(sql, mock_result)
+
+    err = _ do
+      req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: sql)
+      @conn.execute(req)
+    end.must_raise StandardError
+
+    _(err.message).must_match(/Table not found/)
+  end
+
+  it "validates request received by mock server" do
+    set_mock_result("SELECT 1", StatementResult.create_select1_result)
+
+    req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: "SELECT 1")
+    @conn.execute(req)
+    requests = load_requests
+    sql_requests = requests.select { |r| r.is_a?(Google::Cloud::Spanner::V1::ExecuteSqlRequest) }
+
+    _(sql_requests.length).must_be :>=, 1
+    _(sql_requests.last.sql).must_equal "SELECT 1"
   end
 end
 # rubocop:enable RSpec/NoExpectationExample

@@ -38,13 +38,25 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
     @errors = {}
     @session_counter = 0
 
-    put_statement_result "SELECT 1", StatementResult.create_select1_result
-    put_statement_result "INSERT INTO test_table (id, name) VALUES ('1', 'Alice')", StatementResult.create_update_count_result(1)
+    @mock_file_path = ENV.fetch("MOCK_MSG_FILE", nil)
+    @req_file_path = ENV.fetch("MOCK_REQ_FILE", nil)
 
-    dialect_sql = "select option_value from information_schema.database_options where option_name='database_dialect'"
-    dialect_result = StatementResult.create_dialect_result
+    add_default_results
+  end
 
-    put_statement_result dialect_sql, dialect_result
+  def log_request(request)
+    @requests << request
+    return unless @req_file_path
+
+    data = {
+      class: request.class.name,
+      payload: request.class.encode(request)
+    }
+    File.open(@req_file_path, "ab") do |f|
+      Marshal.dump(data, f)
+    end
+  rescue StandardError => e
+    warn "Failed to log request: #{e.message}"
   end
 
   def put_statement_result(sql, result)
@@ -57,12 +69,12 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
   end
 
   def create_session(request, _unused_call)
-    @requests << request
+    log_request(request)
     do_create_session(request.database, request.session)
   end
 
   def batch_create_sessions(request, _unused_call)
-    @requests << request
+    log_request(request)
     num_created = 0
     response = Google::Cloud::Spanner::V1::BatchCreateSessionsResponse.new
     while num_created < request.session_count
@@ -73,12 +85,12 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
   end
 
   def get_session(request, _unused_call)
-    @requests << request
+    log_request(request)
     @sessions[request.name]
   end
 
   def list_sessions(request, _unused_call)
-    @requests << request
+    log_request(request)
     response = Google::Cloud::Spanner::V1::ListSessionsResponse.new
     @sessions.each_value do |s|
       response.sessions << s
@@ -87,16 +99,18 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
   end
 
   def delete_session(request, _unused_call)
-    @requests << request
+    log_request(request)
     @sessions.delete request.name
     Google::Protobuf::Empty.new
   end
 
   def execute_sql(request, _unused_call)
+    log_request(request)
     do_execute_sql request, false
   end
 
   def execute_streaming_sql(request, _unused_call)
+    log_request(request)
     do_execute_sql request, true
   end
 
@@ -111,7 +125,13 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
     raise @errors[request.sql].pop if @errors[request.sql] && !@errors[request.sql].empty?
 
     result = get_statement_result(request.sql).clone
-    raise result.result if result.result_type == StatementResult::EXCEPTION
+
+    if result.result_type == StatementResult::EXCEPTION
+      raise GRPC::BadStatus.new(result.result.code, result.result.message) if result.result.is_a?(Google::Rpc::Status)
+
+      raise result.result
+
+    end
 
     if streaming
       result.each created_transaction
@@ -121,7 +141,7 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
   end
 
   def execute_batch_dml(request, _unused_call)
-    @requests << request
+    log_request(request)
     validate_session request.session
     created_transaction = do_create_transaction request.session if request.transaction&.begin
     transaction_id = created_transaction&.id || request.transaction&.id
@@ -133,8 +153,14 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
     request.statements.each do |stmt|
       result = get_statement_result(stmt.sql).clone
       if result.result_type == StatementResult::EXCEPTION
-        status.code = result.result.code
-        status.message = result.result.message
+        err_proto = result.result
+        if err_proto.is_a?(Google::Rpc::Status)
+          status.code = err_proto.code
+          status.message = err_proto.message
+        else
+          status.code = GRPC::Core::StatusCodes::UNKNOWN
+          status.message = err_proto.to_s
+        end
         break
       end
       if first
@@ -149,17 +175,17 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
   end
 
   def read(request, _unused_call)
-    @requests << request
+    log_request(request)
     raise GRPC::BadStatus.new GRPC::Core::StatusCodes::UNIMPLEMENTED, "Not yet implemented"
   end
 
   def streaming_read(request, _unused_call)
-    @requests << request
+    log_request(request)
     raise GRPC::BadStatus.new GRPC::Core::StatusCodes::UNIMPLEMENTED, "Not yet implemented"
   end
 
   def begin_transaction(request, _unused_call)
-    @requests << request
+    log_request(request)
     raise @errors[__method__.to_s].pop if @errors[__method__.to_s] && !@errors[__method__.to_s].empty?
 
     validate_session request.session
@@ -167,14 +193,14 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
   end
 
   def commit(request, _unused_call)
-    @requests << request
+    log_request(request)
     validate_session request.session
     validate_transaction request.session, request.transaction_id
     Google::Cloud::Spanner::V1::CommitResponse.new commit_timestamp: Google::Protobuf::Timestamp.new(seconds: Time.now.to_i)
   end
 
   def rollback(request, _unused_call)
-    @requests << request
+    log_request(request)
     validate_session request.session
     name = "#{request.session}/transactions/#{request.transaction_id}"
     @transactions.delete name
@@ -182,17 +208,17 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
   end
 
   def partition_query(request, _unused_call)
-    @requests << request
+    log_request(request)
     raise GRPC::BadStatus.new GRPC::Core::StatusCodes::UNIMPLEMENTED, "Not yet implemented"
   end
 
   def partition_read(request, _unused_call)
-    @requests << request
+    log_request(request)
     raise GRPC::BadStatus.new GRPC::Core::StatusCodes::UNIMPLEMENTED, "Not yet implemented"
   end
 
   def get_database(request, _unused_call)
-    @requests << request
+    log_request(request)
     raise GRPC::BadStatus.new GRPC::Core::StatusCodes::UNIMPLEMENTED, "Not yet implemented"
   end
 
@@ -208,16 +234,41 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
   end
 
   def get_statement_result(sql)
+    load_dynamic_mocks!
+
     unless @statement_results.key? sql
       @statement_results.each do |key, value|
         return value if key.end_with?("%") && sql.start_with?(key.chop)
       end
+      available_keys = @statement_results.keys.join(", ")
       raise GRPC::BadStatus.new(
         GRPC::Core::StatusCodes::INVALID_ARGUMENT,
-        "There's no result registered for #{sql}"
+        "No result registered for '#{sql}'. Available: [#{available_keys}]"
       )
     end
     @statement_results[sql]
+  end
+
+  def load_dynamic_mocks!
+    return unless @mock_file_path && File.exist?(@mock_file_path)
+
+    begin
+      content = File.binread(@mock_file_path)
+      return if content.empty?
+
+      new_mocks = Marshal.load(content)
+      @statement_results.merge!(new_mocks)
+    rescue StandardError => e
+      warn "Failed to load mocks: #{e.message}"
+    end
+  end
+
+  def add_default_results
+    put_statement_result "SELECT 1", StatementResult.create_select1_result
+    put_statement_result "INSERT INTO test_table (id, name) VALUES ('1', 'Alice')", StatementResult.create_update_count_result(1)
+
+    dialect_sql = "select option_value from information_schema.database_options where option_name='database_dialect'"
+    put_statement_result dialect_sql, StatementResult.create_dialect_result
   end
 
   def delete_all_sessions
