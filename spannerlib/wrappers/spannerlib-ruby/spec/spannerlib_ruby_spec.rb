@@ -62,6 +62,7 @@ Minitest.after_run do
 end
 
 describe "Connection" do
+  # rubocop:disable Metrics/AbcSize
   def self.spawn_server
     project_root = File.expand_path("..", __dir__)
     runner_path = File.join(project_root, "spec", "mock_server_runner.rb")
@@ -73,8 +74,8 @@ describe "Connection" do
     end
 
     $port_file = File.join(Dir.tmpdir, "spanner_mock_port_#{Time.now.to_i}_#{rand(1000)}.txt")
-    $mock_msg_file = File.join(Dir.tmpdir, "spanner_mock_msgs_#{Time.now.to_i}_#{rand(1000)}.bin")
-    $mock_req_file = File.join(Dir.tmpdir, "spanner_mock_reqs_#{Time.now.to_i}_#{rand(1000)}.bin")
+    $mock_msg_file = File.join(Dir.tmpdir, "spanner_mock_msgs_#{Process.pid}_#{SecureRandom.hex(4)}.bin")
+    $mock_req_file = File.join(Dir.tmpdir, "spanner_mock_reqs_#{Process.pid}_#{SecureRandom.hex(4)}.bin")
 
     env_vars = {
       "MOCK_PORT_FILE" => $port_file,
@@ -88,6 +89,7 @@ describe "Connection" do
 
     spawn(env_vars, *cmd, out: $stdout, err: $stderr)
   end
+  # rubocop:enable Metrics/AbcSize
 
   def self.wait_for_port
     start_time = Time.now
@@ -215,9 +217,6 @@ describe "Connection" do
 
     requests = load_requests
 
-    # Verify Transaction Options (Explicit or Inline)
-    # Often client libraries send the options inline with ExecuteSql
-    # use the helper find_transaction_options to verfy both the cases (inline or explicit BeginTransaction)
     tx_options = find_transaction_options(requests)
     _(tx_options).wont_be_nil
     _(tx_options.read_write).wont_be_nil
@@ -245,9 +244,6 @@ describe "Connection" do
 
     requests = load_requests
 
-    # Verify Transaction Options (Explicit or Inline)
-    # Often client libraries send the options inline with ExecuteSql
-    # use the helper find_transaction_options to verfy both the cases (inline or explicit BeginTransaction)
     tx_options = find_transaction_options(requests)
     _(tx_options).wont_be_nil
     _(tx_options.read_only).wont_be_nil
@@ -280,6 +276,83 @@ describe "Connection" do
     end.must_raise StandardError
 
     _(err.message).must_match(/Table not found/)
+  end
+
+  it "can write mutations" do
+    mutation = Google::Cloud::Spanner::V1::Mutation.new(
+      insert: Google::Cloud::Spanner::V1::Mutation::Write.new(
+        table: "users",
+        columns: %w[id name],
+        values: [
+          Google::Protobuf::ListValue.new(values: [
+                                            Google::Protobuf::Value.new(string_value: "1"),
+                                            Google::Protobuf::Value.new(string_value: "Alice")
+                                          ])
+        ]
+      )
+    )
+    mutation_group = Google::Cloud::Spanner::V1::BatchWriteRequest::MutationGroup.new(
+      mutations: [mutation]
+    )
+    @conn.write_mutations(mutation_group)
+
+    requests = load_requests
+    commit_req = requests.find { |r| r.is_a?(Google::Cloud::Spanner::V1::CommitRequest) }
+
+    _(commit_req).wont_be_nil
+    _(commit_req.mutations.length).must_equal 1
+    _(commit_req.mutations[0].insert.table).must_equal "users"
+  end
+
+  it "can execute a batch of DML statements" do
+    sql1 = "UPDATE users SET active = true WHERE id = 1"
+    sql2 = "UPDATE users SET active = true WHERE id = 2"
+
+    set_mock_result(sql1, StatementResult.create_update_count_result(1))
+    set_mock_result(sql2, StatementResult.create_update_count_result(1))
+
+    batch_req = Google::Cloud::Spanner::V1::ExecuteBatchDmlRequest.new(
+      statements: [
+        Google::Cloud::Spanner::V1::ExecuteBatchDmlRequest::Statement.new(sql: sql1),
+        Google::Cloud::Spanner::V1::ExecuteBatchDmlRequest::Statement.new(sql: sql2)
+      ]
+    )
+
+    resp = @conn.execute_batch(batch_req)
+
+    _(resp.result_sets.length).must_equal 2
+    _(resp.result_sets[0].stats.row_count_exact).must_equal 1
+    _(resp.result_sets[1].stats.row_count_exact).must_equal 1
+
+    requests = load_requests
+    captured_batch = requests.find { |r| r.is_a?(Google::Cloud::Spanner::V1::ExecuteBatchDmlRequest) }
+
+    _(captured_batch).wont_be_nil
+    _(captured_batch.statements.length).must_equal 2
+    _(captured_batch.statements[0].sql).must_equal sql1
+  end
+
+  it "handles Batch DML errors correctly" do
+    sql_success = "UPDATE users SET active = true WHERE id = 1"
+    sql_fail = "UPDATE users SET active = true WHERE id = 999"
+
+    set_mock_result(sql_success, StatementResult.create_update_count_result(1))
+
+    error_status = Google::Rpc::Status.new(
+      code: GRPC::Core::StatusCodes::PERMISSION_DENIED,
+      message: "Permission denied for user"
+    )
+    set_mock_result(sql_fail, StatementResult.create_exception_result(error_status))
+
+    batch_req = Google::Cloud::Spanner::V1::ExecuteBatchDmlRequest.new(
+      statements: [
+        Google::Cloud::Spanner::V1::ExecuteBatchDmlRequest::Statement.new(sql: sql_success),
+        Google::Cloud::Spanner::V1::ExecuteBatchDmlRequest::Statement.new(sql: sql_fail)
+      ]
+    )
+
+    err = _ { @conn.execute_batch(batch_req) }.must_raise StandardError
+    _(err.message).must_match(/Permission denied/)
   end
 end
 # rubocop:enable RSpec/NoExpectationExample
