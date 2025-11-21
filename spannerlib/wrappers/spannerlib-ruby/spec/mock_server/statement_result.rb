@@ -22,6 +22,37 @@ class StatementResult
   UPDATE_COUNT = 2
   EXCEPTION = 3
 
+  # Custom serialization implementation
+  # This method is called by Marshal.dump
+  def marshal_dump
+    payload = @result
+    class_name = nil
+
+    if defined?(Google::Protobuf::MessageExts) && @result.is_a?(Google::Protobuf::MessageExts)
+      payload = @result.class.encode(@result)
+      class_name = @result.class.name
+    end
+    [@result_type, payload, class_name]
+  end
+
+  # This method is called by Marshal.load
+  def marshal_load(array)
+    type, payload, class_name = array
+    @result_type = type
+
+    if class_name
+      klass = Object.const_get(class_name)
+      @result = klass.decode(payload)
+    else
+      @result = payload
+    end
+  end
+
+  def self.create_exception_result(error_proto)
+    # error_proto should be a Google::Rpc::Status object
+    new(error_proto, EXCEPTION)
+  end
+
   def self.create_select1_result
     create_single_int_result_set "Col1", 1
   end
@@ -132,7 +163,12 @@ class StatementResult
 
   attr_reader :result_type
 
-  def initialize(result)
+  def initialize(result, explicit_type = nil)
+    if explicit_type
+      @result = result
+      @result_type = explicit_type
+      return
+    end
     case result
     when Google::Cloud::Spanner::V1::ResultSet
       @result_type = QUERY

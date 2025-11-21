@@ -26,7 +26,7 @@ RSpec/BeforeAfterAll:
   Enabled: false
 RSpec/DescribeClass:
   Exclude:
-    - 'spec/integration/**/*'
+    - 'spec/**/*'
 
 Style/StringLiterals:
   EnforcedStyle: double_quotes
@@ -35,20 +35,24 @@ Style/FormatStringToken:
   EnforcedStyle: template
 Metrics/ClassLength:
   Exclude:
-    - 'spec/mock_server/**/*'
+   - 'spec/**/*'
 
 Metrics/MethodLength:
   Exclude:
-    - 'spec/mock_server/**/*'
+  - 'spec/**/*'
 
 Metrics/AbcSize:
   Exclude:
-    - 'spec/mock_server/**/*'
+    - 'spec/**/*'
 
 Metrics/CyclomaticComplexity:
   Exclude:
-    - 'spec/mock_server/**/*'
+    - 'spec/**/*'
 
 Metrics/PerceivedComplexity:
   Exclude:
-    - 'spec/mock_server/**/*'
+    - 'spec/**/*'
+
+Security/MarshalLoad:
+  Exclude:
+    - 'spec/**/*'
