@@ -120,6 +120,7 @@ type delegatingTransaction struct {
 	conn               *conn
 	ctx                context.Context
 	close              func(result txResult)
+	implicit           bool
 	contextTransaction contextTransaction
 }
 
