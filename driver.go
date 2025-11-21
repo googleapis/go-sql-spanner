@@ -1141,7 +1141,15 @@ func getCommitResponse(conn *sql.Conn) (resp *spanner.CommitResponse, err error)
 	return resp, nil
 }
 
+type baseTransactionOptions struct {
+	// implicit indicates whether the transaction should be marked as an implicit
+	// transaction block.
+	implicit bool
+}
+
 type ReadWriteTransactionOptions struct {
+	baseTransactionOptions
+
 	// TransactionOptions are passed through to the Spanner client to use for
 	// the read/write transaction.
 	TransactionOptions spanner.TransactionOptions
@@ -1202,6 +1210,8 @@ func withTempReadWriteTransactionOptions(conn *sql.Conn, options *ReadWriteTrans
 // ReadOnlyTransactionOptions can be used to create a read-only transaction
 // on a Spanner connection.
 type ReadOnlyTransactionOptions struct {
+	baseTransactionOptions
+
 	TimestampBound         spanner.TimestampBound
 	BeginTransactionOption spanner.BeginTransactionOption
 }

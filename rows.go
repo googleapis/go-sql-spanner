@@ -500,6 +500,7 @@ type emptyRows struct {
 
 	hasReturnedResultSetMetadata bool
 	hasReturnedResultSetStats    bool
+	rowsAffected                 int64
 }
 
 func createDriverResultRows(_ driver.Result, cancel context.CancelFunc, opts *ExecOptions) *emptyRows {

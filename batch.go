@@ -26,3 +26,16 @@ type batch struct {
 	options      *ExecOptions
 	automatic    bool
 }
+
+type BatchError struct {
+	BatchUpdateCounts []int64
+	Err               error
+}
+
+func (be *BatchError) Error() string {
+	return be.Err.Error()
+}
+
+func (be *BatchError) Unwrap() error {
+	return be.Err
+}
