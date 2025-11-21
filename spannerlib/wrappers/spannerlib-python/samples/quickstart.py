@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+"""Quickstart sample for spannerlib."""
 
 #  Copyright 2025 Google LLC
 #

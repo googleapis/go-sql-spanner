@@ -1,3 +1,4 @@
+"""Setup script for spannerlib."""
 from setuptools import setup
 from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
 

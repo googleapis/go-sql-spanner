@@ -12,6 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+"""Module for handling messages from the Go library."""
 from __future__ import absolute_import
 
 import ctypes

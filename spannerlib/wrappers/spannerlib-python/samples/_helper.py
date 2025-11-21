@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+"""Helper functions for samples."""
 
 #  Copyright 2025 Google LLC
 #
