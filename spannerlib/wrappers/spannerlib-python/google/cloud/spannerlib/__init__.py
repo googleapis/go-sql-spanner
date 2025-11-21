@@ -11,10 +11,12 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-
 """Python wrapper for the Spanner Go library."""
-from __future__ import absolute_import
+import logging
+from typing import Final
 
-__version__ = "0.1.0"
+__version__: Final[str] = "0.1.0"
 
-__all__ = []
+logging.basicConfig(level=logging.INFO)
+
+__all__: list[str] = []

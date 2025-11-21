@@ -99,6 +99,7 @@ def lint(session):
 def unit(session):
     """Run unit tests."""
 
+    session.install("-e", ".")
     session.install(*STANDARD_DEPENDENCIES, *UNIT_TEST_STANDARD_DEPENDENCIES)
 
     # Run py.test against the unit tests.
