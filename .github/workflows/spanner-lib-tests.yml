@@ -19,7 +19,7 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Run unit tests
         working-directory: spannerlib
         run: go test ./... -race -short
@@ -37,7 +37,7 @@ jobs:
           distribution: temurin
           java-version: 21
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Check Java formatting
         run: mvn com.spotify.fmt:fmt-maven-plugin:check
         working-directory: spannerlib/wrappers/spannerlib-java
@@ -88,7 +88,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           submodules: 'true'
       - name: Install dotnet
