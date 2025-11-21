@@ -372,6 +372,30 @@ func (p *simpleParser) skipWhitespacesAndComments() {
 	p.pos = p.statementParser.skipWhitespacesAndComments(p.sql, p.pos)
 }
 
+func (p *simpleParser) skipExpressionInBrackets() error {
+	if p.sql[p.pos] != '(' {
+		return nil
+	}
+	p.pos++
+	level := 1
+	var err error
+	for p.pos < len(p.sql) && level > 0 {
+		p.pos, err = p.statementParser.skip(p.sql, p.pos)
+		if err != nil {
+			return err
+		}
+		if p.pos >= len(p.sql) {
+			break
+		}
+		if p.sql[p.pos] == ')' {
+			level--
+		} else if p.sql[p.pos] == '(' {
+			level++
+		}
+	}
+	return nil
+}
+
 var statementHintPrefix = []byte{'@', '{'}
 
 // skipStatementHint skips any statement hint at the start of the statement.
