@@ -210,6 +210,25 @@ public class NativeSpannerLibraryImpl implements SpannerLibrary {
   }
 
   @Override
+  public ResultSetMetadata nextResultSet(Rows rows) {
+    try (MessageHandler message =
+        library.execute(
+            library ->
+                library.NextResultSet(
+                    rows.getConnection().getPool().getId(),
+                    rows.getConnection().getId(),
+                    rows.getId()))) {
+      if (message.getLength() == 0) {
+        return null;
+      }
+      ByteBuffer buffer = message.getValue().getByteBuffer(0, message.getLength());
+      return ResultSetMetadata.parseFrom(buffer);
+    } catch (InvalidProtocolBufferException decodeException) {
+      throw new RuntimeException(decodeException);
+    }
+  }
+
+  @Override
   public void closeRows(Rows rows) {
     executeAndRelease(
         library,

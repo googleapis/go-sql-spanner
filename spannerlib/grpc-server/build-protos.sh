@@ -26,5 +26,5 @@ protoc \
   google/spannerlib/v1/spannerlib.proto
 cd .. || exit 1
 rm googleapis/google/spannerlib
-git rm googleapis
+git rm googleapis -f
 rm ../../.gitmodules

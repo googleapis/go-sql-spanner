@@ -82,6 +82,142 @@ func TestExecute(t *testing.T) {
 	}
 }
 
+func TestExecuteMultiStatement(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolId, err := CreatePool(ctx, dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{
+		Sql: fmt.Sprintf("%s;%s", testutil.SelectFooFromBar, testutil.SelectFooFromBar),
+	})
+	if rowsId == 0 {
+		t.Fatal("Execute returned unexpected zero id")
+	}
+
+	totalRowCount := 0
+	for {
+		rowCount := 0
+		for {
+			row, err := Next(ctx, poolId, connId, rowsId)
+			if err != nil {
+				t.Fatalf("Next returned unexpected error: %v", err)
+			}
+			if row == nil {
+				break
+			}
+			rowCount++
+			totalRowCount++
+		}
+		if g, w := rowCount, 2; g != w {
+			t.Fatalf("row count mismatch\n Got: %d\nWant: %d", g, w)
+		}
+		metadata, err := NextResultSet(ctx, poolId, connId, rowsId)
+		if err != nil {
+			t.Fatalf("NextResultSet returned unexpected error: %v", err)
+		}
+		if metadata == nil {
+			break
+		}
+	}
+	if g, w := totalRowCount, 4; g != w {
+		t.Fatalf("total row count mismatch\n Got: %d\nWant: %d", g, w)
+	}
+
+	if err := CloseRows(ctx, poolId, connId, rowsId); err != nil {
+		t.Fatalf("CloseRows returned unexpected error: %v", err)
+	}
+	if err := CloseConnection(ctx, poolId, connId); err != nil {
+		t.Fatalf("CloseConnection returned unexpected error: %v", err)
+	}
+	if err := ClosePool(ctx, poolId); err != nil {
+		t.Fatalf("ClosePool returned unexpected error: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 2; g != w {
+		t.Fatalf("num ExecuteSql requests mismatch\n Got: %d\nWant: %d", g, w)
+	}
+}
+
+func TestExecuteMultiStatement_MoveToNextResultSetHalfway(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolId, err := CreatePool(ctx, dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{
+		Sql: fmt.Sprintf("%s;%s", testutil.SelectFooFromBar, testutil.SelectFooFromBar),
+	})
+	if rowsId == 0 {
+		t.Fatal("Execute returned unexpected zero id")
+	}
+
+	// Read one row from the first result set.
+	row, err := Next(ctx, poolId, connId, rowsId)
+	if err != nil {
+		t.Fatalf("Next returned unexpected error: %v", err)
+	}
+	if row == nil {
+		t.Fatal("Next returned unexpected nil row")
+	}
+	// Then move to the next result set.
+	metadata, err := NextResultSet(ctx, poolId, connId, rowsId)
+	if err != nil {
+		t.Fatalf("NextResultSet returned unexpected error: %v", err)
+	}
+	if metadata == nil {
+		t.Fatal("NextResultSet returned unexpected nil metadata")
+	}
+	// Try to read two rows from the second result set.
+	for range 2 {
+		row, err := Next(ctx, poolId, connId, rowsId)
+		if err != nil {
+			t.Fatalf("Next returned unexpected error: %v", err)
+		}
+		if row == nil {
+			t.Fatal("Next returned unexpected nil row")
+		}
+	}
+
+	if err := CloseRows(ctx, poolId, connId, rowsId); err != nil {
+		t.Fatalf("CloseRows returned unexpected error: %v", err)
+	}
+	if err := CloseConnection(ctx, poolId, connId); err != nil {
+		t.Fatalf("CloseConnection returned unexpected error: %v", err)
+	}
+	if err := ClosePool(ctx, poolId); err != nil {
+		t.Fatalf("ClosePool returned unexpected error: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 2; g != w {
+		t.Fatalf("num ExecuteSql requests mismatch\n Got: %d\nWant: %d", g, w)
+	}
+}
+
 func TestExecuteUnknownConnection(t *testing.T) {
 	t.Parallel()
 

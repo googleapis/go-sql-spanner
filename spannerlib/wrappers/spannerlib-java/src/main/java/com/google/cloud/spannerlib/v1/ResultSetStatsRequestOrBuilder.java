@@ -6,25 +6,22 @@
 package com.google.cloud.spannerlib.v1;
 
 @com.google.protobuf.Generated
-public interface ResultSetStatsRequestOrBuilder
-    extends
+public interface ResultSetStatsRequestOrBuilder extends
     // @@protoc_insertion_point(interface_extends:google.spannerlib.v1.ResultSetStatsRequest)
     com.google.protobuf.MessageOrBuilder {
 
   /**
    * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-   *
    * @return Whether the rows field is set.
    */
   boolean hasRows();
-
   /**
    * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-   *
    * @return The rows.
    */
   com.google.cloud.spannerlib.v1.Rows getRows();
-
-  /** <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code> */
+  /**
+   * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
+   */
   com.google.cloud.spannerlib.v1.RowsOrBuilder getRowsOrBuilder();
 }

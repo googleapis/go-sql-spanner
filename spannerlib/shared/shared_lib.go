@@ -173,6 +173,16 @@ func ResultSetStats(poolId, connId, rowsId int64) (int64, int32, int64, int32, u
 	return pin(msg)
 }
 
+// NextResultSet returns the metadata of the next result set of the given Rows object, or an empty message
+// if the Rows object does not contain more result sets.
+//
+//export NextResultSet
+func NextResultSet(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+	ctx := context.Background()
+	msg := lib.NextResultSet(ctx, poolId, connId, rowsId)
+	return pin(msg)
+}
+
 // Next returns the next row in a Rows object. The returned message contains a protobuf
 // ListValue that contains all the columns of the row. The message is empty if there are
 // no more rows in the Rows object.

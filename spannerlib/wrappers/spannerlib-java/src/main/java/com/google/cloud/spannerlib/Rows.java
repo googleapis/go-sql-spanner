@@ -27,6 +27,7 @@ public class Rows extends AbstractLibraryObject {
   }
 
   private final Connection connection;
+  private ResultSetMetadata metadata;
 
   Rows(Connection connection, long id) {
     super(connection.getLibrary(), id);
@@ -43,7 +44,10 @@ public class Rows extends AbstractLibraryObject {
   }
 
   public ResultSetMetadata getMetadata() {
-    return getLibrary().getMetadata(this);
+    if (metadata == null) {
+      this.metadata = getLibrary().getMetadata(this);
+    }
+    return this.metadata;
   }
 
   public ResultSetStats getResultSetStats() {
@@ -63,5 +67,18 @@ public class Rows extends AbstractLibraryObject {
   /** Returns the next row in this {@link Rows} instance, or null if there are no more rows. */
   public ListValue next() {
     return getLibrary().next(this);
+  }
+
+  /**
+   * Moves the cursor to point to the next result set in this {@link Rows} object. Returns true if
+   * there was another result set, and false otherwise.
+   */
+  public boolean nextResultSet() {
+    ResultSetMetadata metadata = getLibrary().nextResultSet(this);
+    if (metadata == null) {
+      return false;
+    }
+    this.metadata = metadata;
+    return true;
   }
 }

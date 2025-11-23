@@ -264,6 +264,7 @@ func TestExecuteStreamingMultiStatement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to execute: %v", err)
 	}
+	numResultSets := 1
 	numRows := 0
 	for {
 		row, err := stream.Recv()
@@ -271,6 +272,10 @@ func TestExecuteStreamingMultiStatement(t *testing.T) {
 			t.Fatalf("failed to receive row: %v", err)
 		}
 		if len(row.Data) == 0 {
+			if row.HasMoreResults {
+				numResultSets++
+				continue
+			}
 			break
 		}
 		if g, w := len(row.Data), 1; g != w {
@@ -281,8 +286,11 @@ func TestExecuteStreamingMultiStatement(t *testing.T) {
 		}
 		numRows++
 	}
-	if g, w := numRows, 2; g != w {
+	if g, w := numRows, 4; g != w {
 		t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := numResultSets, 2; g != w {
+		t.Fatalf("num result sets mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
 	if _, err := client.ClosePool(ctx, pool); err != nil {

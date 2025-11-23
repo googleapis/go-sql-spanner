@@ -32,6 +32,7 @@ service SpannerLib {
   rpc Metadata(Rows) returns (google.spanner.v1.ResultSetMetadata) {}
   rpc Next(NextRequest) returns (google.protobuf.ListValue) {}
   rpc ResultSetStats(Rows) returns (google.spanner.v1.ResultSetStats) {}
+  rpc NextResultSet(Rows) returns (google.spanner.v1.ResultSetMetadata) {}
   rpc CloseRows(Rows) returns (google.protobuf.Empty) {}
 
   rpc BeginTransaction(BeginTransactionRequest) returns (google.protobuf.Empty) {}
@@ -143,6 +144,7 @@ message RowData {
     (google.api.field_behavior) = REQUIRED
   ];
   google.spanner.v1.ResultSetStats stats = 4;
+  bool has_more_results = 5;
 }
 
 message MetadataRequest {

@@ -33,6 +33,7 @@ public class StreamingRows extends Rows {
   private ListValue pendingRow;
   private ResultSetMetadata metadata;
   private ResultSetStats stats;
+  private boolean pendingNextResultSetCall;
 
   StreamingRows(Connection connection, BlockingClientCall<?, RowData> stream) {
     super(connection, 0L);
@@ -60,6 +61,9 @@ public class StreamingRows extends Rows {
 
   @Override
   public ListValue next() {
+    if (this.pendingNextResultSetCall) {
+      return null;
+    }
     if (this.pendingRow != null) {
       ListValue row = pendingRow;
       this.pendingRow = null;
@@ -78,7 +82,11 @@ public class StreamingRows extends Rows {
         this.stats = rowData.getStats();
       }
       if (rowData.getDataCount() == 0) {
-        markDone();
+        if (rowData.getHasMoreResults()) {
+          pendingNextResultSetCall = true;
+        } else {
+          markDone();
+        }
         return null;
       }
       return rowData.getData(0);
@@ -102,5 +110,20 @@ public class StreamingRows extends Rows {
           Code.FAILED_PRECONDITION, "stats can only be fetched once all data has been fetched");
     }
     return this.stats;
+  }
+
+  @Override
+  public boolean nextResultSet() {
+    if (this.done) {
+      return false;
+    }
+    // Read data until we reach the next result set.
+    //noinspection StatementWithEmptyBody
+    while (!this.pendingNextResultSetCall && next() != null) {}
+    if (this.pendingNextResultSetCall) {
+      this.pendingNextResultSetCall = false;
+      return true;
+    }
+    return false;
   }
 }

@@ -286,6 +286,15 @@ public class GrpcSpannerLibraryImpl implements SpannerLibrary {
   }
 
   @Override
+  public ResultSetMetadata nextResultSet(Rows rows) {
+    try {
+      return stub.nextResultSet(toProto(rows));
+    } catch (StatusException exception) {
+      throw toSpannerLibException(exception);
+    }
+  }
+
+  @Override
   public void closeRows(Rows rows) {
     try {
       //noinspection ResultOfMethodCallIgnored

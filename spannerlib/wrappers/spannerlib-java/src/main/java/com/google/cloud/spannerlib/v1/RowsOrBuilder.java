@@ -6,39 +6,27 @@
 package com.google.cloud.spannerlib.v1;
 
 @com.google.protobuf.Generated
-public interface RowsOrBuilder
-    extends
+public interface RowsOrBuilder extends
     // @@protoc_insertion_point(interface_extends:google.spannerlib.v1.Rows)
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>
-   * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
-   *
+   * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
    * @return Whether the connection field is set.
    */
   boolean hasConnection();
-
   /**
-   * <code>
-   * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
-   *
+   * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
    * @return The connection.
    */
   com.google.cloud.spannerlib.v1.Connection getConnection();
-
   /**
-   * <code>
-   * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
+   * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   com.google.cloud.spannerlib.v1.ConnectionOrBuilder getConnectionOrBuilder();
 
   /**
    * <code>int64 id = 2 [(.google.api.field_behavior) = REQUIRED];</code>
-   *
    * @return The id.
    */
   long getId();

@@ -33,6 +33,7 @@ const (
 	SpannerLib_Metadata_FullMethodName         = "/google.spannerlib.v1.SpannerLib/Metadata"
 	SpannerLib_Next_FullMethodName             = "/google.spannerlib.v1.SpannerLib/Next"
 	SpannerLib_ResultSetStats_FullMethodName   = "/google.spannerlib.v1.SpannerLib/ResultSetStats"
+	SpannerLib_NextResultSet_FullMethodName    = "/google.spannerlib.v1.SpannerLib/NextResultSet"
 	SpannerLib_CloseRows_FullMethodName        = "/google.spannerlib.v1.SpannerLib/CloseRows"
 	SpannerLib_BeginTransaction_FullMethodName = "/google.spannerlib.v1.SpannerLib/BeginTransaction"
 	SpannerLib_Commit_FullMethodName           = "/google.spannerlib.v1.SpannerLib/Commit"
@@ -56,6 +57,7 @@ type SpannerLibClient interface {
 	Metadata(ctx context.Context, in *Rows, opts ...grpc.CallOption) (*spannerpb.ResultSetMetadata, error)
 	Next(ctx context.Context, in *NextRequest, opts ...grpc.CallOption) (*structpb.ListValue, error)
 	ResultSetStats(ctx context.Context, in *Rows, opts ...grpc.CallOption) (*spannerpb.ResultSetStats, error)
+	NextResultSet(ctx context.Context, in *Rows, opts ...grpc.CallOption) (*spannerpb.ResultSetMetadata, error)
 	CloseRows(ctx context.Context, in *Rows, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	BeginTransaction(ctx context.Context, in *BeginTransactionRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	Commit(ctx context.Context, in *Connection, opts ...grpc.CallOption) (*spannerpb.CommitResponse, error)
@@ -191,6 +193,16 @@ func (c *spannerLibClient) ResultSetStats(ctx context.Context, in *Rows, opts ..
 	return out, nil
 }
 
+func (c *spannerLibClient) NextResultSet(ctx context.Context, in *Rows, opts ...grpc.CallOption) (*spannerpb.ResultSetMetadata, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(spannerpb.ResultSetMetadata)
+	err := c.cc.Invoke(ctx, SpannerLib_NextResultSet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *spannerLibClient) CloseRows(ctx context.Context, in *Rows, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
@@ -269,6 +281,7 @@ type SpannerLibServer interface {
 	Metadata(context.Context, *Rows) (*spannerpb.ResultSetMetadata, error)
 	Next(context.Context, *NextRequest) (*structpb.ListValue, error)
 	ResultSetStats(context.Context, *Rows) (*spannerpb.ResultSetStats, error)
+	NextResultSet(context.Context, *Rows) (*spannerpb.ResultSetMetadata, error)
 	CloseRows(context.Context, *Rows) (*emptypb.Empty, error)
 	BeginTransaction(context.Context, *BeginTransactionRequest) (*emptypb.Empty, error)
 	Commit(context.Context, *Connection) (*spannerpb.CommitResponse, error)
@@ -317,6 +330,9 @@ func (UnimplementedSpannerLibServer) Next(context.Context, *NextRequest) (*struc
 }
 func (UnimplementedSpannerLibServer) ResultSetStats(context.Context, *Rows) (*spannerpb.ResultSetStats, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResultSetStats not implemented")
+}
+func (UnimplementedSpannerLibServer) NextResultSet(context.Context, *Rows) (*spannerpb.ResultSetMetadata, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method NextResultSet not implemented")
 }
 func (UnimplementedSpannerLibServer) CloseRows(context.Context, *Rows) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CloseRows not implemented")
@@ -548,6 +564,24 @@ func _SpannerLib_ResultSetStats_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SpannerLib_NextResultSet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Rows)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SpannerLibServer).NextResultSet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SpannerLib_NextResultSet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SpannerLibServer).NextResultSet(ctx, req.(*Rows))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _SpannerLib_CloseRows_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Rows)
 	if err := dec(in); err != nil {
@@ -691,6 +725,10 @@ var SpannerLib_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResultSetStats",
 			Handler:    _SpannerLib_ResultSetStats_Handler,
+		},
+		{
+			MethodName: "NextResultSet",
+			Handler:    _SpannerLib_NextResultSet_Handler,
 		},
 		{
 			MethodName: "CloseRows",

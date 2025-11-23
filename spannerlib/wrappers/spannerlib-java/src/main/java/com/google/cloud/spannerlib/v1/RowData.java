@@ -5,73 +5,67 @@
 
 package com.google.cloud.spannerlib.v1;
 
-/** Protobuf type {@code google.spannerlib.v1.RowData} */
+/**
+ * Protobuf type {@code google.spannerlib.v1.RowData}
+ */
 @com.google.protobuf.Generated
-public final class RowData extends com.google.protobuf.GeneratedMessage
-    implements
+public final class RowData extends
+    com.google.protobuf.GeneratedMessage implements
     // @@protoc_insertion_point(message_implements:google.spannerlib.v1.RowData)
     RowDataOrBuilder {
-  private static final long serialVersionUID = 0L;
-
+private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
-        com.google.protobuf.RuntimeVersion.RuntimeDomain.PUBLIC,
-        /* major= */ 4,
-        /* minor= */ 32,
-        /* patch= */ 1,
-        /* suffix= */ "",
-        RowData.class.getName());
+      com.google.protobuf.RuntimeVersion.RuntimeDomain.PUBLIC,
+      /* major= */ 4,
+      /* minor= */ 32,
+      /* patch= */ 1,
+      /* suffix= */ "",
+      RowData.class.getName());
   }
-
   // Use RowData.newBuilder() to construct.
   private RowData(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
-
   private RowData() {
     data_ = java.util.Collections.emptyList();
   }
 
-  public static final com.google.protobuf.Descriptors.Descriptor getDescriptor() {
-    return com.google.cloud.spannerlib.v1.SpannerLibProto
-        .internal_static_google_spannerlib_v1_RowData_descriptor;
+  public static final com.google.protobuf.Descriptors.Descriptor
+      getDescriptor() {
+    return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_RowData_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return com.google.cloud.spannerlib.v1.SpannerLibProto
-        .internal_static_google_spannerlib_v1_RowData_fieldAccessorTable
+    return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_RowData_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            com.google.cloud.spannerlib.v1.RowData.class,
-            com.google.cloud.spannerlib.v1.RowData.Builder.class);
+            com.google.cloud.spannerlib.v1.RowData.class, com.google.cloud.spannerlib.v1.RowData.Builder.class);
   }
 
   private int bitField0_;
   public static final int ROWS_FIELD_NUMBER = 1;
   private com.google.cloud.spannerlib.v1.Rows rows_;
-
   /**
    * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-   *
    * @return Whether the rows field is set.
    */
   @java.lang.Override
   public boolean hasRows() {
     return ((bitField0_ & 0x00000001) != 0);
   }
-
   /**
    * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-   *
    * @return The rows.
    */
   @java.lang.Override
   public com.google.cloud.spannerlib.v1.Rows getRows() {
     return rows_ == null ? com.google.cloud.spannerlib.v1.Rows.getDefaultInstance() : rows_;
   }
-
-  /** <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code> */
+  /**
+   * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
+   */
   @java.lang.Override
   public com.google.cloud.spannerlib.v1.RowsOrBuilder getRowsOrBuilder() {
     return rows_ == null ? com.google.cloud.spannerlib.v1.Rows.getDefaultInstance() : rows_;
@@ -79,118 +73,109 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
 
   public static final int METADATA_FIELD_NUMBER = 2;
   private com.google.spanner.v1.ResultSetMetadata metadata_;
-
   /**
    * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
-   *
    * @return Whether the metadata field is set.
    */
   @java.lang.Override
   public boolean hasMetadata() {
     return ((bitField0_ & 0x00000002) != 0);
   }
-
   /**
    * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
-   *
    * @return The metadata.
    */
   @java.lang.Override
   public com.google.spanner.v1.ResultSetMetadata getMetadata() {
-    return metadata_ == null
-        ? com.google.spanner.v1.ResultSetMetadata.getDefaultInstance()
-        : metadata_;
+    return metadata_ == null ? com.google.spanner.v1.ResultSetMetadata.getDefaultInstance() : metadata_;
   }
-
-  /** <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code> */
+  /**
+   * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
+   */
   @java.lang.Override
   public com.google.spanner.v1.ResultSetMetadataOrBuilder getMetadataOrBuilder() {
-    return metadata_ == null
-        ? com.google.spanner.v1.ResultSetMetadata.getDefaultInstance()
-        : metadata_;
+    return metadata_ == null ? com.google.spanner.v1.ResultSetMetadata.getDefaultInstance() : metadata_;
   }
 
   public static final int DATA_FIELD_NUMBER = 3;
-
   @SuppressWarnings("serial")
   private java.util.List<com.google.protobuf.ListValue> data_;
-
   /**
-   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
+   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   @java.lang.Override
   public java.util.List<com.google.protobuf.ListValue> getDataList() {
     return data_;
   }
-
   /**
-   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
+   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   @java.lang.Override
-  public java.util.List<? extends com.google.protobuf.ListValueOrBuilder> getDataOrBuilderList() {
+  public java.util.List<? extends com.google.protobuf.ListValueOrBuilder> 
+      getDataOrBuilderList() {
     return data_;
   }
-
   /**
-   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
+   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   @java.lang.Override
   public int getDataCount() {
     return data_.size();
   }
-
   /**
-   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
+   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   @java.lang.Override
   public com.google.protobuf.ListValue getData(int index) {
     return data_.get(index);
   }
-
   /**
-   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
+   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   @java.lang.Override
-  public com.google.protobuf.ListValueOrBuilder getDataOrBuilder(int index) {
+  public com.google.protobuf.ListValueOrBuilder getDataOrBuilder(
+      int index) {
     return data_.get(index);
   }
 
   public static final int STATS_FIELD_NUMBER = 4;
   private com.google.spanner.v1.ResultSetStats stats_;
-
   /**
    * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
-   *
    * @return Whether the stats field is set.
    */
   @java.lang.Override
   public boolean hasStats() {
     return ((bitField0_ & 0x00000004) != 0);
   }
-
   /**
    * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
-   *
    * @return The stats.
    */
   @java.lang.Override
   public com.google.spanner.v1.ResultSetStats getStats() {
     return stats_ == null ? com.google.spanner.v1.ResultSetStats.getDefaultInstance() : stats_;
   }
-
-  /** <code>.google.spanner.v1.ResultSetStats stats = 4;</code> */
+  /**
+   * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
+   */
   @java.lang.Override
   public com.google.spanner.v1.ResultSetStatsOrBuilder getStatsOrBuilder() {
     return stats_ == null ? com.google.spanner.v1.ResultSetStats.getDefaultInstance() : stats_;
   }
 
-  private byte memoizedIsInitialized = -1;
+  public static final int HAS_MORE_RESULTS_FIELD_NUMBER = 5;
+  private boolean hasMoreResults_ = false;
+  /**
+   * <code>bool has_more_results = 5;</code>
+   * @return The hasMoreResults.
+   */
+  @java.lang.Override
+  public boolean getHasMoreResults() {
+    return hasMoreResults_;
+  }
 
+  private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
     byte isInitialized = memoizedIsInitialized;
@@ -202,7 +187,8 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
   }
 
   @java.lang.Override
-  public void writeTo(com.google.protobuf.CodedOutputStream output) throws java.io.IOException {
+  public void writeTo(com.google.protobuf.CodedOutputStream output)
+                      throws java.io.IOException {
     if (((bitField0_ & 0x00000001) != 0)) {
       output.writeMessage(1, getRows());
     }
@@ -215,6 +201,9 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
     if (((bitField0_ & 0x00000004) != 0)) {
       output.writeMessage(4, getStats());
     }
+    if (hasMoreResults_ != false) {
+      output.writeBool(5, hasMoreResults_);
+    }
     getUnknownFields().writeTo(output);
   }
 
@@ -225,16 +214,24 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
 
     size = 0;
     if (((bitField0_ & 0x00000001) != 0)) {
-      size += com.google.protobuf.CodedOutputStream.computeMessageSize(1, getRows());
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(1, getRows());
     }
     if (((bitField0_ & 0x00000002) != 0)) {
-      size += com.google.protobuf.CodedOutputStream.computeMessageSize(2, getMetadata());
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(2, getMetadata());
     }
     for (int i = 0; i < data_.size(); i++) {
-      size += com.google.protobuf.CodedOutputStream.computeMessageSize(3, data_.get(i));
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(3, data_.get(i));
     }
     if (((bitField0_ & 0x00000004) != 0)) {
-      size += com.google.protobuf.CodedOutputStream.computeMessageSize(4, getStats());
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(4, getStats());
+    }
+    if (hasMoreResults_ != false) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeBoolSize(5, hasMoreResults_);
     }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
@@ -244,7 +241,7 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
   @java.lang.Override
   public boolean equals(final java.lang.Object obj) {
     if (obj == this) {
-      return true;
+     return true;
     }
     if (!(obj instanceof com.google.cloud.spannerlib.v1.RowData)) {
       return super.equals(obj);
@@ -253,17 +250,23 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
 
     if (hasRows() != other.hasRows()) return false;
     if (hasRows()) {
-      if (!getRows().equals(other.getRows())) return false;
+      if (!getRows()
+          .equals(other.getRows())) return false;
     }
     if (hasMetadata() != other.hasMetadata()) return false;
     if (hasMetadata()) {
-      if (!getMetadata().equals(other.getMetadata())) return false;
+      if (!getMetadata()
+          .equals(other.getMetadata())) return false;
     }
-    if (!getDataList().equals(other.getDataList())) return false;
+    if (!getDataList()
+        .equals(other.getDataList())) return false;
     if (hasStats() != other.hasStats()) return false;
     if (hasStats()) {
-      if (!getStats().equals(other.getStats())) return false;
+      if (!getStats()
+          .equals(other.getStats())) return false;
     }
+    if (getHasMoreResults()
+        != other.getHasMoreResults()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -291,125 +294,124 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       hash = (37 * hash) + STATS_FIELD_NUMBER;
       hash = (53 * hash) + getStats().hashCode();
     }
+    hash = (37 * hash) + HAS_MORE_RESULTS_FIELD_NUMBER;
+    hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
+        getHasMoreResults());
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
   }
 
-  public static com.google.cloud.spannerlib.v1.RowData parseFrom(java.nio.ByteBuffer data)
+  public static com.google.cloud.spannerlib.v1.RowData parseFrom(
+      java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-
   public static com.google.cloud.spannerlib.v1.RowData parseFrom(
-      java.nio.ByteBuffer data, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      java.nio.ByteBuffer data,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-
   public static com.google.cloud.spannerlib.v1.RowData parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-
   public static com.google.cloud.spannerlib.v1.RowData parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-
   public static com.google.cloud.spannerlib.v1.RowData parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-
   public static com.google.cloud.spannerlib.v1.RowData parseFrom(
-      byte[] data, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      byte[] data,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-
   public static com.google.cloud.spannerlib.v1.RowData parseFrom(java.io.InputStream input)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(PARSER, input);
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input);
   }
-
   public static com.google.cloud.spannerlib.v1.RowData parseFrom(
-      java.io.InputStream input, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      java.io.InputStream input,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(
-        PARSER, input, extensionRegistry);
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
   public static com.google.cloud.spannerlib.v1.RowData parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseDelimitedWithIOException(PARSER, input);
+    return com.google.protobuf.GeneratedMessage
+        .parseDelimitedWithIOException(PARSER, input);
   }
 
   public static com.google.cloud.spannerlib.v1.RowData parseDelimitedFrom(
-      java.io.InputStream input, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      java.io.InputStream input,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseDelimitedWithIOException(
-        PARSER, input, extensionRegistry);
+    return com.google.protobuf.GeneratedMessage
+        .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-
   public static com.google.cloud.spannerlib.v1.RowData parseFrom(
-      com.google.protobuf.CodedInputStream input) throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(PARSER, input);
+      com.google.protobuf.CodedInputStream input)
+      throws java.io.IOException {
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input);
   }
-
   public static com.google.cloud.spannerlib.v1.RowData parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(
-        PARSER, input, extensionRegistry);
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
   @java.lang.Override
-  public Builder newBuilderForType() {
-    return newBuilder();
-  }
-
+  public Builder newBuilderForType() { return newBuilder(); }
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-
   public static Builder newBuilder(com.google.cloud.spannerlib.v1.RowData prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
-
   @java.lang.Override
   public Builder toBuilder() {
-    return this == DEFAULT_INSTANCE ? new Builder() : new Builder().mergeFrom(this);
+    return this == DEFAULT_INSTANCE
+        ? new Builder() : new Builder().mergeFrom(this);
   }
 
   @java.lang.Override
-  protected Builder newBuilderForType(com.google.protobuf.GeneratedMessage.BuilderParent parent) {
+  protected Builder newBuilderForType(
+      com.google.protobuf.GeneratedMessage.BuilderParent parent) {
     Builder builder = new Builder(parent);
     return builder;
   }
-
-  /** Protobuf type {@code google.spannerlib.v1.RowData} */
-  public static final class Builder extends com.google.protobuf.GeneratedMessage.Builder<Builder>
-      implements
+  /**
+   * Protobuf type {@code google.spannerlib.v1.RowData}
+   */
+  public static final class Builder extends
+      com.google.protobuf.GeneratedMessage.Builder<Builder> implements
       // @@protoc_insertion_point(builder_implements:google.spannerlib.v1.RowData)
       com.google.cloud.spannerlib.v1.RowDataOrBuilder {
-    public static final com.google.protobuf.Descriptors.Descriptor getDescriptor() {
-      return com.google.cloud.spannerlib.v1.SpannerLibProto
-          .internal_static_google_spannerlib_v1_RowData_descriptor;
+    public static final com.google.protobuf.Descriptors.Descriptor
+        getDescriptor() {
+      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_RowData_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return com.google.cloud.spannerlib.v1.SpannerLibProto
-          .internal_static_google_spannerlib_v1_RowData_fieldAccessorTable
+      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_RowData_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              com.google.cloud.spannerlib.v1.RowData.class,
-              com.google.cloud.spannerlib.v1.RowData.Builder.class);
+              com.google.cloud.spannerlib.v1.RowData.class, com.google.cloud.spannerlib.v1.RowData.Builder.class);
     }
 
     // Construct using com.google.cloud.spannerlib.v1.RowData.newBuilder()
@@ -417,20 +419,20 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       maybeForceBuilderInitialization();
     }
 
-    private Builder(com.google.protobuf.GeneratedMessage.BuilderParent parent) {
+    private Builder(
+        com.google.protobuf.GeneratedMessage.BuilderParent parent) {
       super(parent);
       maybeForceBuilderInitialization();
     }
-
     private void maybeForceBuilderInitialization() {
-      if (com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders) {
+      if (com.google.protobuf.GeneratedMessage
+              .alwaysUseFieldBuilders) {
         internalGetRowsFieldBuilder();
         internalGetMetadataFieldBuilder();
         internalGetDataFieldBuilder();
         internalGetStatsFieldBuilder();
       }
     }
-
     @java.lang.Override
     public Builder clear() {
       super.clear();
@@ -457,13 +459,14 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
         statsBuilder_.dispose();
         statsBuilder_ = null;
       }
+      hasMoreResults_ = false;
       return this;
     }
 
     @java.lang.Override
-    public com.google.protobuf.Descriptors.Descriptor getDescriptorForType() {
-      return com.google.cloud.spannerlib.v1.SpannerLibProto
-          .internal_static_google_spannerlib_v1_RowData_descriptor;
+    public com.google.protobuf.Descriptors.Descriptor
+        getDescriptorForType() {
+      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_RowData_descriptor;
     }
 
     @java.lang.Override
@@ -482,12 +485,9 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
 
     @java.lang.Override
     public com.google.cloud.spannerlib.v1.RowData buildPartial() {
-      com.google.cloud.spannerlib.v1.RowData result =
-          new com.google.cloud.spannerlib.v1.RowData(this);
+      com.google.cloud.spannerlib.v1.RowData result = new com.google.cloud.spannerlib.v1.RowData(this);
       buildPartialRepeatedFields(result);
-      if (bitField0_ != 0) {
-        buildPartial0(result);
-      }
+      if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
@@ -508,16 +508,25 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       int from_bitField0_ = bitField0_;
       int to_bitField0_ = 0;
       if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.rows_ = rowsBuilder_ == null ? rows_ : rowsBuilder_.build();
+        result.rows_ = rowsBuilder_ == null
+            ? rows_
+            : rowsBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
       if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.metadata_ = metadataBuilder_ == null ? metadata_ : metadataBuilder_.build();
+        result.metadata_ = metadataBuilder_ == null
+            ? metadata_
+            : metadataBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
       if (((from_bitField0_ & 0x00000008) != 0)) {
-        result.stats_ = statsBuilder_ == null ? stats_ : statsBuilder_.build();
+        result.stats_ = statsBuilder_ == null
+            ? stats_
+            : statsBuilder_.build();
         to_bitField0_ |= 0x00000004;
+      }
+      if (((from_bitField0_ & 0x00000010) != 0)) {
+        result.hasMoreResults_ = hasMoreResults_;
       }
       result.bitField0_ |= to_bitField0_;
     }
@@ -525,7 +534,7 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
       if (other instanceof com.google.cloud.spannerlib.v1.RowData) {
-        return mergeFrom((com.google.cloud.spannerlib.v1.RowData) other);
+        return mergeFrom((com.google.cloud.spannerlib.v1.RowData)other);
       } else {
         super.mergeFrom(other);
         return this;
@@ -558,10 +567,9 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
             dataBuilder_ = null;
             data_ = other.data_;
             bitField0_ = (bitField0_ & ~0x00000004);
-            dataBuilder_ =
-                com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders
-                    ? internalGetDataFieldBuilder()
-                    : null;
+            dataBuilder_ = 
+              com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
+                 internalGetDataFieldBuilder() : null;
           } else {
             dataBuilder_.addAllMessages(other.data_);
           }
@@ -569,6 +577,9 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       }
       if (other.hasStats()) {
         mergeStats(other.getStats());
+      }
+      if (other.getHasMoreResults() != false) {
+        setHasMoreResults(other.getHasMoreResults());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -596,44 +607,51 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
             case 0:
               done = true;
               break;
-            case 10:
-              {
-                input.readMessage(internalGetRowsFieldBuilder().getBuilder(), extensionRegistry);
-                bitField0_ |= 0x00000001;
-                break;
-              } // case 10
-            case 18:
-              {
-                input.readMessage(
-                    internalGetMetadataFieldBuilder().getBuilder(), extensionRegistry);
-                bitField0_ |= 0x00000002;
-                break;
-              } // case 18
-            case 26:
-              {
-                com.google.protobuf.ListValue m =
-                    input.readMessage(com.google.protobuf.ListValue.parser(), extensionRegistry);
-                if (dataBuilder_ == null) {
-                  ensureDataIsMutable();
-                  data_.add(m);
-                } else {
-                  dataBuilder_.addMessage(m);
-                }
-                break;
-              } // case 26
-            case 34:
-              {
-                input.readMessage(internalGetStatsFieldBuilder().getBuilder(), extensionRegistry);
-                bitField0_ |= 0x00000008;
-                break;
-              } // case 34
-            default:
-              {
-                if (!super.parseUnknownField(input, extensionRegistry, tag)) {
-                  done = true; // was an endgroup tag
-                }
-                break;
-              } // default:
+            case 10: {
+              input.readMessage(
+                  internalGetRowsFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000001;
+              break;
+            } // case 10
+            case 18: {
+              input.readMessage(
+                  internalGetMetadataFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000002;
+              break;
+            } // case 18
+            case 26: {
+              com.google.protobuf.ListValue m =
+                  input.readMessage(
+                      com.google.protobuf.ListValue.parser(),
+                      extensionRegistry);
+              if (dataBuilder_ == null) {
+                ensureDataIsMutable();
+                data_.add(m);
+              } else {
+                dataBuilder_.addMessage(m);
+              }
+              break;
+            } // case 26
+            case 34: {
+              input.readMessage(
+                  internalGetStatsFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000008;
+              break;
+            } // case 34
+            case 40: {
+              hasMoreResults_ = input.readBool();
+              bitField0_ |= 0x00000010;
+              break;
+            } // case 40
+            default: {
+              if (!super.parseUnknownField(input, extensionRegistry, tag)) {
+                done = true; // was an endgroup tag
+              }
+              break;
+            } // default:
           } // switch (tag)
         } // while (!done)
       } catch (com.google.protobuf.InvalidProtocolBufferException e) {
@@ -643,28 +661,20 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       } // finally
       return this;
     }
-
     private int bitField0_;
 
     private com.google.cloud.spannerlib.v1.Rows rows_;
     private com.google.protobuf.SingleFieldBuilder<
-            com.google.cloud.spannerlib.v1.Rows,
-            com.google.cloud.spannerlib.v1.Rows.Builder,
-            com.google.cloud.spannerlib.v1.RowsOrBuilder>
-        rowsBuilder_;
-
+        com.google.cloud.spannerlib.v1.Rows, com.google.cloud.spannerlib.v1.Rows.Builder, com.google.cloud.spannerlib.v1.RowsOrBuilder> rowsBuilder_;
     /**
      * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-     *
      * @return Whether the rows field is set.
      */
     public boolean hasRows() {
       return ((bitField0_ & 0x00000001) != 0);
     }
-
     /**
      * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-     *
      * @return The rows.
      */
     public com.google.cloud.spannerlib.v1.Rows getRows() {
@@ -674,7 +684,6 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
         return rowsBuilder_.getMessage();
       }
     }
-
     /**
      * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
@@ -691,11 +700,11 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       onChanged();
       return this;
     }
-
     /**
      * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
-    public Builder setRows(com.google.cloud.spannerlib.v1.Rows.Builder builderForValue) {
+    public Builder setRows(
+        com.google.cloud.spannerlib.v1.Rows.Builder builderForValue) {
       if (rowsBuilder_ == null) {
         rows_ = builderForValue.build();
       } else {
@@ -705,15 +714,14 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       onChanged();
       return this;
     }
-
     /**
      * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder mergeRows(com.google.cloud.spannerlib.v1.Rows value) {
       if (rowsBuilder_ == null) {
-        if (((bitField0_ & 0x00000001) != 0)
-            && rows_ != null
-            && rows_ != com.google.cloud.spannerlib.v1.Rows.getDefaultInstance()) {
+        if (((bitField0_ & 0x00000001) != 0) &&
+          rows_ != null &&
+          rows_ != com.google.cloud.spannerlib.v1.Rows.getDefaultInstance()) {
           getRowsBuilder().mergeFrom(value);
         } else {
           rows_ = value;
@@ -727,7 +735,6 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       }
       return this;
     }
-
     /**
      * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
@@ -741,7 +748,6 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       onChanged();
       return this;
     }
-
     /**
      * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
@@ -750,7 +756,6 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       onChanged();
       return internalGetRowsFieldBuilder().getBuilder();
     }
-
     /**
      * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
@@ -758,25 +763,22 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       if (rowsBuilder_ != null) {
         return rowsBuilder_.getMessageOrBuilder();
       } else {
-        return rows_ == null ? com.google.cloud.spannerlib.v1.Rows.getDefaultInstance() : rows_;
+        return rows_ == null ?
+            com.google.cloud.spannerlib.v1.Rows.getDefaultInstance() : rows_;
       }
     }
-
     /**
      * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-            com.google.cloud.spannerlib.v1.Rows,
-            com.google.cloud.spannerlib.v1.Rows.Builder,
-            com.google.cloud.spannerlib.v1.RowsOrBuilder>
+        com.google.cloud.spannerlib.v1.Rows, com.google.cloud.spannerlib.v1.Rows.Builder, com.google.cloud.spannerlib.v1.RowsOrBuilder> 
         internalGetRowsFieldBuilder() {
       if (rowsBuilder_ == null) {
-        rowsBuilder_ =
-            new com.google.protobuf.SingleFieldBuilder<
-                com.google.cloud.spannerlib.v1.Rows,
-                com.google.cloud.spannerlib.v1.Rows.Builder,
-                com.google.cloud.spannerlib.v1.RowsOrBuilder>(
-                getRows(), getParentForChildren(), isClean());
+        rowsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.cloud.spannerlib.v1.Rows, com.google.cloud.spannerlib.v1.Rows.Builder, com.google.cloud.spannerlib.v1.RowsOrBuilder>(
+                getRows(),
+                getParentForChildren(),
+                isClean());
         rows_ = null;
       }
       return rowsBuilder_;
@@ -784,36 +786,28 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
 
     private com.google.spanner.v1.ResultSetMetadata metadata_;
     private com.google.protobuf.SingleFieldBuilder<
-            com.google.spanner.v1.ResultSetMetadata,
-            com.google.spanner.v1.ResultSetMetadata.Builder,
-            com.google.spanner.v1.ResultSetMetadataOrBuilder>
-        metadataBuilder_;
-
+        com.google.spanner.v1.ResultSetMetadata, com.google.spanner.v1.ResultSetMetadata.Builder, com.google.spanner.v1.ResultSetMetadataOrBuilder> metadataBuilder_;
     /**
      * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
-     *
      * @return Whether the metadata field is set.
      */
     public boolean hasMetadata() {
       return ((bitField0_ & 0x00000002) != 0);
     }
-
     /**
      * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
-     *
      * @return The metadata.
      */
     public com.google.spanner.v1.ResultSetMetadata getMetadata() {
       if (metadataBuilder_ == null) {
-        return metadata_ == null
-            ? com.google.spanner.v1.ResultSetMetadata.getDefaultInstance()
-            : metadata_;
+        return metadata_ == null ? com.google.spanner.v1.ResultSetMetadata.getDefaultInstance() : metadata_;
       } else {
         return metadataBuilder_.getMessage();
       }
     }
-
-    /** <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code> */
+    /**
+     * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
+     */
     public Builder setMetadata(com.google.spanner.v1.ResultSetMetadata value) {
       if (metadataBuilder_ == null) {
         if (value == null) {
@@ -827,9 +821,11 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       onChanged();
       return this;
     }
-
-    /** <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code> */
-    public Builder setMetadata(com.google.spanner.v1.ResultSetMetadata.Builder builderForValue) {
+    /**
+     * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
+     */
+    public Builder setMetadata(
+        com.google.spanner.v1.ResultSetMetadata.Builder builderForValue) {
       if (metadataBuilder_ == null) {
         metadata_ = builderForValue.build();
       } else {
@@ -839,13 +835,14 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       onChanged();
       return this;
     }
-
-    /** <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code> */
+    /**
+     * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
+     */
     public Builder mergeMetadata(com.google.spanner.v1.ResultSetMetadata value) {
       if (metadataBuilder_ == null) {
-        if (((bitField0_ & 0x00000002) != 0)
-            && metadata_ != null
-            && metadata_ != com.google.spanner.v1.ResultSetMetadata.getDefaultInstance()) {
+        if (((bitField0_ & 0x00000002) != 0) &&
+          metadata_ != null &&
+          metadata_ != com.google.spanner.v1.ResultSetMetadata.getDefaultInstance()) {
           getMetadataBuilder().mergeFrom(value);
         } else {
           metadata_ = value;
@@ -859,8 +856,9 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       }
       return this;
     }
-
-    /** <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code> */
+    /**
+     * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
+     */
     public Builder clearMetadata() {
       bitField0_ = (bitField0_ & ~0x00000002);
       metadata_ = null;
@@ -871,61 +869,56 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       onChanged();
       return this;
     }
-
-    /** <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code> */
+    /**
+     * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
+     */
     public com.google.spanner.v1.ResultSetMetadata.Builder getMetadataBuilder() {
       bitField0_ |= 0x00000002;
       onChanged();
       return internalGetMetadataFieldBuilder().getBuilder();
     }
-
-    /** <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code> */
+    /**
+     * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
+     */
     public com.google.spanner.v1.ResultSetMetadataOrBuilder getMetadataOrBuilder() {
       if (metadataBuilder_ != null) {
         return metadataBuilder_.getMessageOrBuilder();
       } else {
-        return metadata_ == null
-            ? com.google.spanner.v1.ResultSetMetadata.getDefaultInstance()
-            : metadata_;
+        return metadata_ == null ?
+            com.google.spanner.v1.ResultSetMetadata.getDefaultInstance() : metadata_;
       }
     }
-
-    /** <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code> */
+    /**
+     * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
+     */
     private com.google.protobuf.SingleFieldBuilder<
-            com.google.spanner.v1.ResultSetMetadata,
-            com.google.spanner.v1.ResultSetMetadata.Builder,
-            com.google.spanner.v1.ResultSetMetadataOrBuilder>
+        com.google.spanner.v1.ResultSetMetadata, com.google.spanner.v1.ResultSetMetadata.Builder, com.google.spanner.v1.ResultSetMetadataOrBuilder> 
         internalGetMetadataFieldBuilder() {
       if (metadataBuilder_ == null) {
-        metadataBuilder_ =
-            new com.google.protobuf.SingleFieldBuilder<
-                com.google.spanner.v1.ResultSetMetadata,
-                com.google.spanner.v1.ResultSetMetadata.Builder,
-                com.google.spanner.v1.ResultSetMetadataOrBuilder>(
-                getMetadata(), getParentForChildren(), isClean());
+        metadataBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.spanner.v1.ResultSetMetadata, com.google.spanner.v1.ResultSetMetadata.Builder, com.google.spanner.v1.ResultSetMetadataOrBuilder>(
+                getMetadata(),
+                getParentForChildren(),
+                isClean());
         metadata_ = null;
       }
       return metadataBuilder_;
     }
 
-    private java.util.List<com.google.protobuf.ListValue> data_ = java.util.Collections.emptyList();
-
+    private java.util.List<com.google.protobuf.ListValue> data_ =
+      java.util.Collections.emptyList();
     private void ensureDataIsMutable() {
       if (!((bitField0_ & 0x00000004) != 0)) {
         data_ = new java.util.ArrayList<com.google.protobuf.ListValue>(data_);
         bitField0_ |= 0x00000004;
-      }
+       }
     }
 
     private com.google.protobuf.RepeatedFieldBuilder<
-            com.google.protobuf.ListValue,
-            com.google.protobuf.ListValue.Builder,
-            com.google.protobuf.ListValueOrBuilder>
-        dataBuilder_;
+        com.google.protobuf.ListValue, com.google.protobuf.ListValue.Builder, com.google.protobuf.ListValueOrBuilder> dataBuilder_;
 
     /**
-     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public java.util.List<com.google.protobuf.ListValue> getDataList() {
       if (dataBuilder_ == null) {
@@ -934,10 +927,8 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
         return dataBuilder_.getMessageList();
       }
     }
-
     /**
-     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public int getDataCount() {
       if (dataBuilder_ == null) {
@@ -946,10 +937,8 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
         return dataBuilder_.getCount();
       }
     }
-
     /**
-     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public com.google.protobuf.ListValue getData(int index) {
       if (dataBuilder_ == null) {
@@ -958,12 +947,11 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
         return dataBuilder_.getMessage(index);
       }
     }
-
     /**
-     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
-    public Builder setData(int index, com.google.protobuf.ListValue value) {
+    public Builder setData(
+        int index, com.google.protobuf.ListValue value) {
       if (dataBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
@@ -976,12 +964,11 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       }
       return this;
     }
-
     /**
-     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
-    public Builder setData(int index, com.google.protobuf.ListValue.Builder builderForValue) {
+    public Builder setData(
+        int index, com.google.protobuf.ListValue.Builder builderForValue) {
       if (dataBuilder_ == null) {
         ensureDataIsMutable();
         data_.set(index, builderForValue.build());
@@ -991,10 +978,8 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       }
       return this;
     }
-
     /**
-     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder addData(com.google.protobuf.ListValue value) {
       if (dataBuilder_ == null) {
@@ -1009,12 +994,11 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       }
       return this;
     }
-
     /**
-     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
-    public Builder addData(int index, com.google.protobuf.ListValue value) {
+    public Builder addData(
+        int index, com.google.protobuf.ListValue value) {
       if (dataBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
@@ -1027,12 +1011,11 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       }
       return this;
     }
-
     /**
-     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
-    public Builder addData(com.google.protobuf.ListValue.Builder builderForValue) {
+    public Builder addData(
+        com.google.protobuf.ListValue.Builder builderForValue) {
       if (dataBuilder_ == null) {
         ensureDataIsMutable();
         data_.add(builderForValue.build());
@@ -1042,12 +1025,11 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       }
       return this;
     }
-
     /**
-     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
-    public Builder addData(int index, com.google.protobuf.ListValue.Builder builderForValue) {
+    public Builder addData(
+        int index, com.google.protobuf.ListValue.Builder builderForValue) {
       if (dataBuilder_ == null) {
         ensureDataIsMutable();
         data_.add(index, builderForValue.build());
@@ -1057,25 +1039,23 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       }
       return this;
     }
-
     /**
-     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
-    public Builder addAllData(java.lang.Iterable<? extends com.google.protobuf.ListValue> values) {
+    public Builder addAllData(
+        java.lang.Iterable<? extends com.google.protobuf.ListValue> values) {
       if (dataBuilder_ == null) {
         ensureDataIsMutable();
-        com.google.protobuf.AbstractMessageLite.Builder.addAll(values, data_);
+        com.google.protobuf.AbstractMessageLite.Builder.addAll(
+            values, data_);
         onChanged();
       } else {
         dataBuilder_.addAllMessages(values);
       }
       return this;
     }
-
     /**
-     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder clearData() {
       if (dataBuilder_ == null) {
@@ -1087,10 +1067,8 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       }
       return this;
     }
-
     /**
-     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder removeData(int index) {
       if (dataBuilder_ == null) {
@@ -1102,77 +1080,66 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       }
       return this;
     }
-
     /**
-     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
-    public com.google.protobuf.ListValue.Builder getDataBuilder(int index) {
+    public com.google.protobuf.ListValue.Builder getDataBuilder(
+        int index) {
       return internalGetDataFieldBuilder().getBuilder(index);
     }
-
     /**
-     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
-    public com.google.protobuf.ListValueOrBuilder getDataOrBuilder(int index) {
+    public com.google.protobuf.ListValueOrBuilder getDataOrBuilder(
+        int index) {
       if (dataBuilder_ == null) {
-        return data_.get(index);
-      } else {
+        return data_.get(index);  } else {
         return dataBuilder_.getMessageOrBuilder(index);
       }
     }
-
     /**
-     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
-    public java.util.List<? extends com.google.protobuf.ListValueOrBuilder> getDataOrBuilderList() {
+    public java.util.List<? extends com.google.protobuf.ListValueOrBuilder> 
+         getDataOrBuilderList() {
       if (dataBuilder_ != null) {
         return dataBuilder_.getMessageOrBuilderList();
       } else {
         return java.util.Collections.unmodifiableList(data_);
       }
     }
-
     /**
-     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public com.google.protobuf.ListValue.Builder addDataBuilder() {
-      return internalGetDataFieldBuilder()
-          .addBuilder(com.google.protobuf.ListValue.getDefaultInstance());
+      return internalGetDataFieldBuilder().addBuilder(
+          com.google.protobuf.ListValue.getDefaultInstance());
     }
-
     /**
-     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
-    public com.google.protobuf.ListValue.Builder addDataBuilder(int index) {
-      return internalGetDataFieldBuilder()
-          .addBuilder(index, com.google.protobuf.ListValue.getDefaultInstance());
+    public com.google.protobuf.ListValue.Builder addDataBuilder(
+        int index) {
+      return internalGetDataFieldBuilder().addBuilder(
+          index, com.google.protobuf.ListValue.getDefaultInstance());
     }
-
     /**
-     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
-    public java.util.List<com.google.protobuf.ListValue.Builder> getDataBuilderList() {
+    public java.util.List<com.google.protobuf.ListValue.Builder> 
+         getDataBuilderList() {
       return internalGetDataFieldBuilder().getBuilderList();
     }
-
     private com.google.protobuf.RepeatedFieldBuilder<
-            com.google.protobuf.ListValue,
-            com.google.protobuf.ListValue.Builder,
-            com.google.protobuf.ListValueOrBuilder>
+        com.google.protobuf.ListValue, com.google.protobuf.ListValue.Builder, com.google.protobuf.ListValueOrBuilder> 
         internalGetDataFieldBuilder() {
       if (dataBuilder_ == null) {
-        dataBuilder_ =
-            new com.google.protobuf.RepeatedFieldBuilder<
-                com.google.protobuf.ListValue,
-                com.google.protobuf.ListValue.Builder,
-                com.google.protobuf.ListValueOrBuilder>(
-                data_, ((bitField0_ & 0x00000004) != 0), getParentForChildren(), isClean());
+        dataBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+            com.google.protobuf.ListValue, com.google.protobuf.ListValue.Builder, com.google.protobuf.ListValueOrBuilder>(
+                data_,
+                ((bitField0_ & 0x00000004) != 0),
+                getParentForChildren(),
+                isClean());
         data_ = null;
       }
       return dataBuilder_;
@@ -1180,23 +1147,16 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
 
     private com.google.spanner.v1.ResultSetStats stats_;
     private com.google.protobuf.SingleFieldBuilder<
-            com.google.spanner.v1.ResultSetStats,
-            com.google.spanner.v1.ResultSetStats.Builder,
-            com.google.spanner.v1.ResultSetStatsOrBuilder>
-        statsBuilder_;
-
+        com.google.spanner.v1.ResultSetStats, com.google.spanner.v1.ResultSetStats.Builder, com.google.spanner.v1.ResultSetStatsOrBuilder> statsBuilder_;
     /**
      * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
-     *
      * @return Whether the stats field is set.
      */
     public boolean hasStats() {
       return ((bitField0_ & 0x00000008) != 0);
     }
-
     /**
      * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
-     *
      * @return The stats.
      */
     public com.google.spanner.v1.ResultSetStats getStats() {
@@ -1206,8 +1166,9 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
         return statsBuilder_.getMessage();
       }
     }
-
-    /** <code>.google.spanner.v1.ResultSetStats stats = 4;</code> */
+    /**
+     * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
+     */
     public Builder setStats(com.google.spanner.v1.ResultSetStats value) {
       if (statsBuilder_ == null) {
         if (value == null) {
@@ -1221,9 +1182,11 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       onChanged();
       return this;
     }
-
-    /** <code>.google.spanner.v1.ResultSetStats stats = 4;</code> */
-    public Builder setStats(com.google.spanner.v1.ResultSetStats.Builder builderForValue) {
+    /**
+     * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
+     */
+    public Builder setStats(
+        com.google.spanner.v1.ResultSetStats.Builder builderForValue) {
       if (statsBuilder_ == null) {
         stats_ = builderForValue.build();
       } else {
@@ -1233,13 +1196,14 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       onChanged();
       return this;
     }
-
-    /** <code>.google.spanner.v1.ResultSetStats stats = 4;</code> */
+    /**
+     * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
+     */
     public Builder mergeStats(com.google.spanner.v1.ResultSetStats value) {
       if (statsBuilder_ == null) {
-        if (((bitField0_ & 0x00000008) != 0)
-            && stats_ != null
-            && stats_ != com.google.spanner.v1.ResultSetStats.getDefaultInstance()) {
+        if (((bitField0_ & 0x00000008) != 0) &&
+          stats_ != null &&
+          stats_ != com.google.spanner.v1.ResultSetStats.getDefaultInstance()) {
           getStatsBuilder().mergeFrom(value);
         } else {
           stats_ = value;
@@ -1253,8 +1217,9 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       }
       return this;
     }
-
-    /** <code>.google.spanner.v1.ResultSetStats stats = 4;</code> */
+    /**
+     * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
+     */
     public Builder clearStats() {
       bitField0_ = (bitField0_ & ~0x00000008);
       stats_ = null;
@@ -1265,39 +1230,72 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
       onChanged();
       return this;
     }
-
-    /** <code>.google.spanner.v1.ResultSetStats stats = 4;</code> */
+    /**
+     * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
+     */
     public com.google.spanner.v1.ResultSetStats.Builder getStatsBuilder() {
       bitField0_ |= 0x00000008;
       onChanged();
       return internalGetStatsFieldBuilder().getBuilder();
     }
-
-    /** <code>.google.spanner.v1.ResultSetStats stats = 4;</code> */
+    /**
+     * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
+     */
     public com.google.spanner.v1.ResultSetStatsOrBuilder getStatsOrBuilder() {
       if (statsBuilder_ != null) {
         return statsBuilder_.getMessageOrBuilder();
       } else {
-        return stats_ == null ? com.google.spanner.v1.ResultSetStats.getDefaultInstance() : stats_;
+        return stats_ == null ?
+            com.google.spanner.v1.ResultSetStats.getDefaultInstance() : stats_;
       }
     }
-
-    /** <code>.google.spanner.v1.ResultSetStats stats = 4;</code> */
+    /**
+     * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
+     */
     private com.google.protobuf.SingleFieldBuilder<
-            com.google.spanner.v1.ResultSetStats,
-            com.google.spanner.v1.ResultSetStats.Builder,
-            com.google.spanner.v1.ResultSetStatsOrBuilder>
+        com.google.spanner.v1.ResultSetStats, com.google.spanner.v1.ResultSetStats.Builder, com.google.spanner.v1.ResultSetStatsOrBuilder> 
         internalGetStatsFieldBuilder() {
       if (statsBuilder_ == null) {
-        statsBuilder_ =
-            new com.google.protobuf.SingleFieldBuilder<
-                com.google.spanner.v1.ResultSetStats,
-                com.google.spanner.v1.ResultSetStats.Builder,
-                com.google.spanner.v1.ResultSetStatsOrBuilder>(
-                getStats(), getParentForChildren(), isClean());
+        statsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.spanner.v1.ResultSetStats, com.google.spanner.v1.ResultSetStats.Builder, com.google.spanner.v1.ResultSetStatsOrBuilder>(
+                getStats(),
+                getParentForChildren(),
+                isClean());
         stats_ = null;
       }
       return statsBuilder_;
+    }
+
+    private boolean hasMoreResults_ ;
+    /**
+     * <code>bool has_more_results = 5;</code>
+     * @return The hasMoreResults.
+     */
+    @java.lang.Override
+    public boolean getHasMoreResults() {
+      return hasMoreResults_;
+    }
+    /**
+     * <code>bool has_more_results = 5;</code>
+     * @param value The hasMoreResults to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHasMoreResults(boolean value) {
+
+      hasMoreResults_ = value;
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>bool has_more_results = 5;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHasMoreResults() {
+      bitField0_ = (bitField0_ & ~0x00000010);
+      hasMoreResults_ = false;
+      onChanged();
+      return this;
     }
 
     // @@protoc_insertion_point(builder_scope:google.spannerlib.v1.RowData)
@@ -1305,7 +1303,6 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
 
   // @@protoc_insertion_point(class_scope:google.spannerlib.v1.RowData)
   private static final com.google.cloud.spannerlib.v1.RowData DEFAULT_INSTANCE;
-
   static {
     DEFAULT_INSTANCE = new com.google.cloud.spannerlib.v1.RowData();
   }
@@ -1314,27 +1311,27 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<RowData> PARSER =
-      new com.google.protobuf.AbstractParser<RowData>() {
-        @java.lang.Override
-        public RowData parsePartialFrom(
-            com.google.protobuf.CodedInputStream input,
-            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
-            throws com.google.protobuf.InvalidProtocolBufferException {
-          Builder builder = newBuilder();
-          try {
-            builder.mergeFrom(input, extensionRegistry);
-          } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-            throw e.setUnfinishedMessage(builder.buildPartial());
-          } catch (com.google.protobuf.UninitializedMessageException e) {
-            throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
-          } catch (java.io.IOException e) {
-            throw new com.google.protobuf.InvalidProtocolBufferException(e)
-                .setUnfinishedMessage(builder.buildPartial());
-          }
-          return builder.buildPartial();
-        }
-      };
+  private static final com.google.protobuf.Parser<RowData>
+      PARSER = new com.google.protobuf.AbstractParser<RowData>() {
+    @java.lang.Override
+    public RowData parsePartialFrom(
+        com.google.protobuf.CodedInputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      Builder builder = newBuilder();
+      try {
+        builder.mergeFrom(input, extensionRegistry);
+      } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+        throw e.setUnfinishedMessage(builder.buildPartial());
+      } catch (com.google.protobuf.UninitializedMessageException e) {
+        throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
+      } catch (java.io.IOException e) {
+        throw new com.google.protobuf.InvalidProtocolBufferException(e)
+            .setUnfinishedMessage(builder.buildPartial());
+      }
+      return builder.buildPartial();
+    }
+  };
 
   public static com.google.protobuf.Parser<RowData> parser() {
     return PARSER;
@@ -1349,4 +1346,6 @@ public final class RowData extends com.google.protobuf.GeneratedMessage
   public com.google.cloud.spannerlib.v1.RowData getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
+
 }
+

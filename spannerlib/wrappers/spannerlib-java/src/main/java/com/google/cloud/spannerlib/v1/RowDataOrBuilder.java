@@ -6,89 +6,82 @@
 package com.google.cloud.spannerlib.v1;
 
 @com.google.protobuf.Generated
-public interface RowDataOrBuilder
-    extends
+public interface RowDataOrBuilder extends
     // @@protoc_insertion_point(interface_extends:google.spannerlib.v1.RowData)
     com.google.protobuf.MessageOrBuilder {
 
   /**
    * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-   *
    * @return Whether the rows field is set.
    */
   boolean hasRows();
-
   /**
    * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-   *
    * @return The rows.
    */
   com.google.cloud.spannerlib.v1.Rows getRows();
-
-  /** <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code> */
+  /**
+   * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
+   */
   com.google.cloud.spannerlib.v1.RowsOrBuilder getRowsOrBuilder();
 
   /**
    * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
-   *
    * @return Whether the metadata field is set.
    */
   boolean hasMetadata();
-
   /**
    * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
-   *
    * @return The metadata.
    */
   com.google.spanner.v1.ResultSetMetadata getMetadata();
-
-  /** <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code> */
+  /**
+   * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
+   */
   com.google.spanner.v1.ResultSetMetadataOrBuilder getMetadataOrBuilder();
 
   /**
-   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
+   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
    */
-  java.util.List<com.google.protobuf.ListValue> getDataList();
-
+  java.util.List<com.google.protobuf.ListValue> 
+      getDataList();
   /**
-   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
+   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   com.google.protobuf.ListValue getData(int index);
-
   /**
-   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
+   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   int getDataCount();
-
   /**
-   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
+   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
    */
-  java.util.List<? extends com.google.protobuf.ListValueOrBuilder> getDataOrBuilderList();
-
+  java.util.List<? extends com.google.protobuf.ListValueOrBuilder> 
+      getDataOrBuilderList();
   /**
-   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
+   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
    */
-  com.google.protobuf.ListValueOrBuilder getDataOrBuilder(int index);
+  com.google.protobuf.ListValueOrBuilder getDataOrBuilder(
+      int index);
 
   /**
    * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
-   *
    * @return Whether the stats field is set.
    */
   boolean hasStats();
-
   /**
    * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
-   *
    * @return The stats.
    */
   com.google.spanner.v1.ResultSetStats getStats();
-
-  /** <code>.google.spanner.v1.ResultSetStats stats = 4;</code> */
+  /**
+   * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
+   */
   com.google.spanner.v1.ResultSetStatsOrBuilder getStatsOrBuilder();
+
+  /**
+   * <code>bool has_more_results = 5;</code>
+   * @return The hasMoreResults.
+   */
+  boolean getHasMoreResults();
 }

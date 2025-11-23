@@ -6,58 +6,37 @@
 package com.google.cloud.spannerlib.v1;
 
 @com.google.protobuf.Generated
-public interface BeginTransactionRequestOrBuilder
-    extends
+public interface BeginTransactionRequestOrBuilder extends
     // @@protoc_insertion_point(interface_extends:google.spannerlib.v1.BeginTransactionRequest)
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>
-   * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
-   *
+   * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
    * @return Whether the connection field is set.
    */
   boolean hasConnection();
-
   /**
-   * <code>
-   * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
-   *
+   * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
    * @return The connection.
    */
   com.google.cloud.spannerlib.v1.Connection getConnection();
-
   /**
-   * <code>
-   * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
+   * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   com.google.cloud.spannerlib.v1.ConnectionOrBuilder getConnectionOrBuilder();
 
   /**
-   * <code>
-   * .google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
-   *
+   * <code>.google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
    * @return Whether the transactionOptions field is set.
    */
   boolean hasTransactionOptions();
-
   /**
-   * <code>
-   * .google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
-   *
+   * <code>.google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
    * @return The transactionOptions.
    */
   com.google.spanner.v1.TransactionOptions getTransactionOptions();
-
   /**
-   * <code>
-   * .google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
+   * <code>.google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   com.google.spanner.v1.TransactionOptionsOrBuilder getTransactionOptionsOrBuilder();
 }

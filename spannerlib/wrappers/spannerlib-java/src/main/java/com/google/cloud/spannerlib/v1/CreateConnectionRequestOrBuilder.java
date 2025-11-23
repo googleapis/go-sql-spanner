@@ -6,25 +6,22 @@
 package com.google.cloud.spannerlib.v1;
 
 @com.google.protobuf.Generated
-public interface CreateConnectionRequestOrBuilder
-    extends
+public interface CreateConnectionRequestOrBuilder extends
     // @@protoc_insertion_point(interface_extends:google.spannerlib.v1.CreateConnectionRequest)
     com.google.protobuf.MessageOrBuilder {
 
   /**
    * <code>.google.spannerlib.v1.Pool pool = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-   *
    * @return Whether the pool field is set.
    */
   boolean hasPool();
-
   /**
    * <code>.google.spannerlib.v1.Pool pool = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-   *
    * @return The pool.
    */
   com.google.cloud.spannerlib.v1.Pool getPool();
-
-  /** <code>.google.spannerlib.v1.Pool pool = 1 [(.google.api.field_behavior) = REQUIRED];</code> */
+  /**
+   * <code>.google.spannerlib.v1.Pool pool = 1 [(.google.api.field_behavior) = REQUIRED];</code>
+   */
   com.google.cloud.spannerlib.v1.PoolOrBuilder getPoolOrBuilder();
 }

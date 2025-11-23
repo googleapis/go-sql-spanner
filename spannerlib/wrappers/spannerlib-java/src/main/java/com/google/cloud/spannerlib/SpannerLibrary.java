@@ -57,6 +57,8 @@ public interface SpannerLibrary extends Closeable {
 
   ResultSetStats getResultSetStats(Rows rows);
 
+  ResultSetMetadata nextResultSet(Rows rows);
+
   void closeRows(Rows rows);
 
   ExecuteBatchDmlResponse executeBatch(Connection connection, ExecuteBatchDmlRequest request);

@@ -5,63 +5,56 @@
 
 package com.google.cloud.spannerlib.v1;
 
-/** Protobuf type {@code google.spannerlib.v1.ConnectionStreamResponse} */
+/**
+ * Protobuf type {@code google.spannerlib.v1.ConnectionStreamResponse}
+ */
 @com.google.protobuf.Generated
-public final class ConnectionStreamResponse extends com.google.protobuf.GeneratedMessage
-    implements
+public final class ConnectionStreamResponse extends
+    com.google.protobuf.GeneratedMessage implements
     // @@protoc_insertion_point(message_implements:google.spannerlib.v1.ConnectionStreamResponse)
     ConnectionStreamResponseOrBuilder {
-  private static final long serialVersionUID = 0L;
-
+private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
-        com.google.protobuf.RuntimeVersion.RuntimeDomain.PUBLIC,
-        /* major= */ 4,
-        /* minor= */ 32,
-        /* patch= */ 1,
-        /* suffix= */ "",
-        ConnectionStreamResponse.class.getName());
+      com.google.protobuf.RuntimeVersion.RuntimeDomain.PUBLIC,
+      /* major= */ 4,
+      /* minor= */ 32,
+      /* patch= */ 1,
+      /* suffix= */ "",
+      ConnectionStreamResponse.class.getName());
   }
-
   // Use ConnectionStreamResponse.newBuilder() to construct.
   private ConnectionStreamResponse(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
+  private ConnectionStreamResponse() {
+  }
 
-  private ConnectionStreamResponse() {}
-
-  public static final com.google.protobuf.Descriptors.Descriptor getDescriptor() {
-    return com.google.cloud.spannerlib.v1.SpannerLibProto
-        .internal_static_google_spannerlib_v1_ConnectionStreamResponse_descriptor;
+  public static final com.google.protobuf.Descriptors.Descriptor
+      getDescriptor() {
+    return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ConnectionStreamResponse_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return com.google.cloud.spannerlib.v1.SpannerLibProto
-        .internal_static_google_spannerlib_v1_ConnectionStreamResponse_fieldAccessorTable
+    return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ConnectionStreamResponse_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            com.google.cloud.spannerlib.v1.ConnectionStreamResponse.class,
-            com.google.cloud.spannerlib.v1.ConnectionStreamResponse.Builder.class);
+            com.google.cloud.spannerlib.v1.ConnectionStreamResponse.class, com.google.cloud.spannerlib.v1.ConnectionStreamResponse.Builder.class);
   }
 
   private int responseCase_ = 0;
-
   @SuppressWarnings("serial")
   private java.lang.Object response_;
-
   public enum ResponseCase
-      implements
-          com.google.protobuf.Internal.EnumLite,
+      implements com.google.protobuf.Internal.EnumLite,
           com.google.protobuf.AbstractMessage.InternalOneOfEnum {
     ROW(1),
     RESPONSE_NOT_SET(0);
     private final int value;
-
     private ResponseCase(int value) {
       this.value = value;
     }
-
     /**
      * @param value The number of the enum to look for.
      * @return The enum associated with the given number.
@@ -74,60 +67,54 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
 
     public static ResponseCase forNumber(int value) {
       switch (value) {
-        case 1:
-          return ROW;
-        case 0:
-          return RESPONSE_NOT_SET;
-        default:
-          return null;
+        case 1: return ROW;
+        case 0: return RESPONSE_NOT_SET;
+        default: return null;
       }
     }
-
     public int getNumber() {
       return this.value;
     }
   };
 
-  public ResponseCase getResponseCase() {
-    return ResponseCase.forNumber(responseCase_);
+  public ResponseCase
+  getResponseCase() {
+    return ResponseCase.forNumber(
+        responseCase_);
   }
 
   public static final int ROW_FIELD_NUMBER = 1;
-
   /**
    * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
-   *
    * @return Whether the row field is set.
    */
   @java.lang.Override
   public boolean hasRow() {
     return responseCase_ == 1;
   }
-
   /**
    * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
-   *
    * @return The row.
    */
   @java.lang.Override
   public com.google.spanner.v1.PartialResultSet getRow() {
     if (responseCase_ == 1) {
-      return (com.google.spanner.v1.PartialResultSet) response_;
+       return (com.google.spanner.v1.PartialResultSet) response_;
     }
     return com.google.spanner.v1.PartialResultSet.getDefaultInstance();
   }
-
-  /** <code>.google.spanner.v1.PartialResultSet row = 1;</code> */
+  /**
+   * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+   */
   @java.lang.Override
   public com.google.spanner.v1.PartialResultSetOrBuilder getRowOrBuilder() {
     if (responseCase_ == 1) {
-      return (com.google.spanner.v1.PartialResultSet) response_;
+       return (com.google.spanner.v1.PartialResultSet) response_;
     }
     return com.google.spanner.v1.PartialResultSet.getDefaultInstance();
   }
 
   private byte memoizedIsInitialized = -1;
-
   @java.lang.Override
   public final boolean isInitialized() {
     byte isInitialized = memoizedIsInitialized;
@@ -139,7 +126,8 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
   }
 
   @java.lang.Override
-  public void writeTo(com.google.protobuf.CodedOutputStream output) throws java.io.IOException {
+  public void writeTo(com.google.protobuf.CodedOutputStream output)
+                      throws java.io.IOException {
     if (responseCase_ == 1) {
       output.writeMessage(1, (com.google.spanner.v1.PartialResultSet) response_);
     }
@@ -153,9 +141,8 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
 
     size = 0;
     if (responseCase_ == 1) {
-      size +=
-          com.google.protobuf.CodedOutputStream.computeMessageSize(
-              1, (com.google.spanner.v1.PartialResultSet) response_);
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(1, (com.google.spanner.v1.PartialResultSet) response_);
     }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
@@ -165,18 +152,18 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
   @java.lang.Override
   public boolean equals(final java.lang.Object obj) {
     if (obj == this) {
-      return true;
+     return true;
     }
     if (!(obj instanceof com.google.cloud.spannerlib.v1.ConnectionStreamResponse)) {
       return super.equals(obj);
     }
-    com.google.cloud.spannerlib.v1.ConnectionStreamResponse other =
-        (com.google.cloud.spannerlib.v1.ConnectionStreamResponse) obj;
+    com.google.cloud.spannerlib.v1.ConnectionStreamResponse other = (com.google.cloud.spannerlib.v1.ConnectionStreamResponse) obj;
 
     if (!getResponseCase().equals(other.getResponseCase())) return false;
     switch (responseCase_) {
       case 1:
-        if (!getRow().equals(other.getRow())) return false;
+        if (!getRow()
+            .equals(other.getRow())) return false;
         break;
       case 0:
       default:
@@ -206,129 +193,127 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
   }
 
   public static com.google.cloud.spannerlib.v1.ConnectionStreamResponse parseFrom(
-      java.nio.ByteBuffer data) throws com.google.protobuf.InvalidProtocolBufferException {
+      java.nio.ByteBuffer data)
+      throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-
   public static com.google.cloud.spannerlib.v1.ConnectionStreamResponse parseFrom(
-      java.nio.ByteBuffer data, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      java.nio.ByteBuffer data,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-
   public static com.google.cloud.spannerlib.v1.ConnectionStreamResponse parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-
   public static com.google.cloud.spannerlib.v1.ConnectionStreamResponse parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-
   public static com.google.cloud.spannerlib.v1.ConnectionStreamResponse parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-
   public static com.google.cloud.spannerlib.v1.ConnectionStreamResponse parseFrom(
-      byte[] data, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      byte[] data,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-
+  public static com.google.cloud.spannerlib.v1.ConnectionStreamResponse parseFrom(java.io.InputStream input)
+      throws java.io.IOException {
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input);
+  }
   public static com.google.cloud.spannerlib.v1.ConnectionStreamResponse parseFrom(
-      java.io.InputStream input) throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(PARSER, input);
+      java.io.InputStream input,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      throws java.io.IOException {
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static com.google.cloud.spannerlib.v1.ConnectionStreamResponse parseFrom(
-      java.io.InputStream input, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+  public static com.google.cloud.spannerlib.v1.ConnectionStreamResponse parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(
-        PARSER, input, extensionRegistry);
+    return com.google.protobuf.GeneratedMessage
+        .parseDelimitedWithIOException(PARSER, input);
   }
 
   public static com.google.cloud.spannerlib.v1.ConnectionStreamResponse parseDelimitedFrom(
-      java.io.InputStream input) throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseDelimitedWithIOException(PARSER, input);
-  }
-
-  public static com.google.cloud.spannerlib.v1.ConnectionStreamResponse parseDelimitedFrom(
-      java.io.InputStream input, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      java.io.InputStream input,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseDelimitedWithIOException(
-        PARSER, input, extensionRegistry);
+    return com.google.protobuf.GeneratedMessage
+        .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-
   public static com.google.cloud.spannerlib.v1.ConnectionStreamResponse parseFrom(
-      com.google.protobuf.CodedInputStream input) throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(PARSER, input);
+      com.google.protobuf.CodedInputStream input)
+      throws java.io.IOException {
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input);
   }
-
   public static com.google.cloud.spannerlib.v1.ConnectionStreamResponse parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(
-        PARSER, input, extensionRegistry);
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
   @java.lang.Override
-  public Builder newBuilderForType() {
-    return newBuilder();
-  }
-
+  public Builder newBuilderForType() { return newBuilder(); }
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-
-  public static Builder newBuilder(
-      com.google.cloud.spannerlib.v1.ConnectionStreamResponse prototype) {
+  public static Builder newBuilder(com.google.cloud.spannerlib.v1.ConnectionStreamResponse prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
-
   @java.lang.Override
   public Builder toBuilder() {
-    return this == DEFAULT_INSTANCE ? new Builder() : new Builder().mergeFrom(this);
+    return this == DEFAULT_INSTANCE
+        ? new Builder() : new Builder().mergeFrom(this);
   }
 
   @java.lang.Override
-  protected Builder newBuilderForType(com.google.protobuf.GeneratedMessage.BuilderParent parent) {
+  protected Builder newBuilderForType(
+      com.google.protobuf.GeneratedMessage.BuilderParent parent) {
     Builder builder = new Builder(parent);
     return builder;
   }
-
-  /** Protobuf type {@code google.spannerlib.v1.ConnectionStreamResponse} */
-  public static final class Builder extends com.google.protobuf.GeneratedMessage.Builder<Builder>
-      implements
+  /**
+   * Protobuf type {@code google.spannerlib.v1.ConnectionStreamResponse}
+   */
+  public static final class Builder extends
+      com.google.protobuf.GeneratedMessage.Builder<Builder> implements
       // @@protoc_insertion_point(builder_implements:google.spannerlib.v1.ConnectionStreamResponse)
       com.google.cloud.spannerlib.v1.ConnectionStreamResponseOrBuilder {
-    public static final com.google.protobuf.Descriptors.Descriptor getDescriptor() {
-      return com.google.cloud.spannerlib.v1.SpannerLibProto
-          .internal_static_google_spannerlib_v1_ConnectionStreamResponse_descriptor;
+    public static final com.google.protobuf.Descriptors.Descriptor
+        getDescriptor() {
+      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ConnectionStreamResponse_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return com.google.cloud.spannerlib.v1.SpannerLibProto
-          .internal_static_google_spannerlib_v1_ConnectionStreamResponse_fieldAccessorTable
+      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ConnectionStreamResponse_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              com.google.cloud.spannerlib.v1.ConnectionStreamResponse.class,
-              com.google.cloud.spannerlib.v1.ConnectionStreamResponse.Builder.class);
+              com.google.cloud.spannerlib.v1.ConnectionStreamResponse.class, com.google.cloud.spannerlib.v1.ConnectionStreamResponse.Builder.class);
     }
 
     // Construct using com.google.cloud.spannerlib.v1.ConnectionStreamResponse.newBuilder()
-    private Builder() {}
+    private Builder() {
 
-    private Builder(com.google.protobuf.GeneratedMessage.BuilderParent parent) {
-      super(parent);
     }
 
+    private Builder(
+        com.google.protobuf.GeneratedMessage.BuilderParent parent) {
+      super(parent);
+
+    }
     @java.lang.Override
     public Builder clear() {
       super.clear();
@@ -342,9 +327,9 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
     }
 
     @java.lang.Override
-    public com.google.protobuf.Descriptors.Descriptor getDescriptorForType() {
-      return com.google.cloud.spannerlib.v1.SpannerLibProto
-          .internal_static_google_spannerlib_v1_ConnectionStreamResponse_descriptor;
+    public com.google.protobuf.Descriptors.Descriptor
+        getDescriptorForType() {
+      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ConnectionStreamResponse_descriptor;
     }
 
     @java.lang.Override
@@ -363,11 +348,8 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
 
     @java.lang.Override
     public com.google.cloud.spannerlib.v1.ConnectionStreamResponse buildPartial() {
-      com.google.cloud.spannerlib.v1.ConnectionStreamResponse result =
-          new com.google.cloud.spannerlib.v1.ConnectionStreamResponse(this);
-      if (bitField0_ != 0) {
-        buildPartial0(result);
-      }
+      com.google.cloud.spannerlib.v1.ConnectionStreamResponse result = new com.google.cloud.spannerlib.v1.ConnectionStreamResponse(this);
+      if (bitField0_ != 0) { buildPartial0(result); }
       buildPartialOneofs(result);
       onBuilt();
       return result;
@@ -377,11 +359,11 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
       int from_bitField0_ = bitField0_;
     }
 
-    private void buildPartialOneofs(
-        com.google.cloud.spannerlib.v1.ConnectionStreamResponse result) {
+    private void buildPartialOneofs(com.google.cloud.spannerlib.v1.ConnectionStreamResponse result) {
       result.responseCase_ = responseCase_;
       result.response_ = this.response_;
-      if (responseCase_ == 1 && rowBuilder_ != null) {
+      if (responseCase_ == 1 &&
+          rowBuilder_ != null) {
         result.response_ = rowBuilder_.build();
       }
     }
@@ -389,7 +371,7 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
       if (other instanceof com.google.cloud.spannerlib.v1.ConnectionStreamResponse) {
-        return mergeFrom((com.google.cloud.spannerlib.v1.ConnectionStreamResponse) other);
+        return mergeFrom((com.google.cloud.spannerlib.v1.ConnectionStreamResponse)other);
       } else {
         super.mergeFrom(other);
         return this;
@@ -397,18 +379,15 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
     }
 
     public Builder mergeFrom(com.google.cloud.spannerlib.v1.ConnectionStreamResponse other) {
-      if (other == com.google.cloud.spannerlib.v1.ConnectionStreamResponse.getDefaultInstance())
-        return this;
+      if (other == com.google.cloud.spannerlib.v1.ConnectionStreamResponse.getDefaultInstance()) return this;
       switch (other.getResponseCase()) {
-        case ROW:
-          {
-            mergeRow(other.getRow());
-            break;
-          }
-        case RESPONSE_NOT_SET:
-          {
-            break;
-          }
+        case ROW: {
+          mergeRow(other.getRow());
+          break;
+        }
+        case RESPONSE_NOT_SET: {
+          break;
+        }
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -436,19 +415,19 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
             case 0:
               done = true;
               break;
-            case 10:
-              {
-                input.readMessage(internalGetRowFieldBuilder().getBuilder(), extensionRegistry);
-                responseCase_ = 1;
-                break;
-              } // case 10
-            default:
-              {
-                if (!super.parseUnknownField(input, extensionRegistry, tag)) {
-                  done = true; // was an endgroup tag
-                }
-                break;
-              } // default:
+            case 10: {
+              input.readMessage(
+                  internalGetRowFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              responseCase_ = 1;
+              break;
+            } // case 10
+            default: {
+              if (!super.parseUnknownField(input, extensionRegistry, tag)) {
+                done = true; // was an endgroup tag
+              }
+              break;
+            } // default:
           } // switch (tag)
         } // while (!done)
       } catch (com.google.protobuf.InvalidProtocolBufferException e) {
@@ -458,12 +437,12 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
       } // finally
       return this;
     }
-
     private int responseCase_ = 0;
     private java.lang.Object response_;
-
-    public ResponseCase getResponseCase() {
-      return ResponseCase.forNumber(responseCase_);
+    public ResponseCase
+        getResponseCase() {
+      return ResponseCase.forNumber(
+          responseCase_);
     }
 
     public Builder clearResponse() {
@@ -476,24 +455,17 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
     private int bitField0_;
 
     private com.google.protobuf.SingleFieldBuilder<
-            com.google.spanner.v1.PartialResultSet,
-            com.google.spanner.v1.PartialResultSet.Builder,
-            com.google.spanner.v1.PartialResultSetOrBuilder>
-        rowBuilder_;
-
+        com.google.spanner.v1.PartialResultSet, com.google.spanner.v1.PartialResultSet.Builder, com.google.spanner.v1.PartialResultSetOrBuilder> rowBuilder_;
     /**
      * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
-     *
      * @return Whether the row field is set.
      */
     @java.lang.Override
     public boolean hasRow() {
       return responseCase_ == 1;
     }
-
     /**
      * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
-     *
      * @return The row.
      */
     @java.lang.Override
@@ -510,8 +482,9 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
         return com.google.spanner.v1.PartialResultSet.getDefaultInstance();
       }
     }
-
-    /** <code>.google.spanner.v1.PartialResultSet row = 1;</code> */
+    /**
+     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     */
     public Builder setRow(com.google.spanner.v1.PartialResultSet value) {
       if (rowBuilder_ == null) {
         if (value == null) {
@@ -525,9 +498,11 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
       responseCase_ = 1;
       return this;
     }
-
-    /** <code>.google.spanner.v1.PartialResultSet row = 1;</code> */
-    public Builder setRow(com.google.spanner.v1.PartialResultSet.Builder builderForValue) {
+    /**
+     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     */
+    public Builder setRow(
+        com.google.spanner.v1.PartialResultSet.Builder builderForValue) {
       if (rowBuilder_ == null) {
         response_ = builderForValue.build();
         onChanged();
@@ -537,17 +512,15 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
       responseCase_ = 1;
       return this;
     }
-
-    /** <code>.google.spanner.v1.PartialResultSet row = 1;</code> */
+    /**
+     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     */
     public Builder mergeRow(com.google.spanner.v1.PartialResultSet value) {
       if (rowBuilder_ == null) {
-        if (responseCase_ == 1
-            && response_ != com.google.spanner.v1.PartialResultSet.getDefaultInstance()) {
-          response_ =
-              com.google.spanner.v1.PartialResultSet.newBuilder(
-                      (com.google.spanner.v1.PartialResultSet) response_)
-                  .mergeFrom(value)
-                  .buildPartial();
+        if (responseCase_ == 1 &&
+            response_ != com.google.spanner.v1.PartialResultSet.getDefaultInstance()) {
+          response_ = com.google.spanner.v1.PartialResultSet.newBuilder((com.google.spanner.v1.PartialResultSet) response_)
+              .mergeFrom(value).buildPartial();
         } else {
           response_ = value;
         }
@@ -562,8 +535,9 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
       responseCase_ = 1;
       return this;
     }
-
-    /** <code>.google.spanner.v1.PartialResultSet row = 1;</code> */
+    /**
+     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     */
     public Builder clearRow() {
       if (rowBuilder_ == null) {
         if (responseCase_ == 1) {
@@ -580,13 +554,15 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
       }
       return this;
     }
-
-    /** <code>.google.spanner.v1.PartialResultSet row = 1;</code> */
+    /**
+     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     */
     public com.google.spanner.v1.PartialResultSet.Builder getRowBuilder() {
       return internalGetRowFieldBuilder().getBuilder();
     }
-
-    /** <code>.google.spanner.v1.PartialResultSet row = 1;</code> */
+    /**
+     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     */
     @java.lang.Override
     public com.google.spanner.v1.PartialResultSetOrBuilder getRowOrBuilder() {
       if ((responseCase_ == 1) && (rowBuilder_ != null)) {
@@ -598,22 +574,18 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
         return com.google.spanner.v1.PartialResultSet.getDefaultInstance();
       }
     }
-
-    /** <code>.google.spanner.v1.PartialResultSet row = 1;</code> */
+    /**
+     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     */
     private com.google.protobuf.SingleFieldBuilder<
-            com.google.spanner.v1.PartialResultSet,
-            com.google.spanner.v1.PartialResultSet.Builder,
-            com.google.spanner.v1.PartialResultSetOrBuilder>
+        com.google.spanner.v1.PartialResultSet, com.google.spanner.v1.PartialResultSet.Builder, com.google.spanner.v1.PartialResultSetOrBuilder> 
         internalGetRowFieldBuilder() {
       if (rowBuilder_ == null) {
         if (!(responseCase_ == 1)) {
           response_ = com.google.spanner.v1.PartialResultSet.getDefaultInstance();
         }
-        rowBuilder_ =
-            new com.google.protobuf.SingleFieldBuilder<
-                com.google.spanner.v1.PartialResultSet,
-                com.google.spanner.v1.PartialResultSet.Builder,
-                com.google.spanner.v1.PartialResultSetOrBuilder>(
+        rowBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.spanner.v1.PartialResultSet, com.google.spanner.v1.PartialResultSet.Builder, com.google.spanner.v1.PartialResultSetOrBuilder>(
                 (com.google.spanner.v1.PartialResultSet) response_,
                 getParentForChildren(),
                 isClean());
@@ -629,7 +601,6 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
 
   // @@protoc_insertion_point(class_scope:google.spannerlib.v1.ConnectionStreamResponse)
   private static final com.google.cloud.spannerlib.v1.ConnectionStreamResponse DEFAULT_INSTANCE;
-
   static {
     DEFAULT_INSTANCE = new com.google.cloud.spannerlib.v1.ConnectionStreamResponse();
   }
@@ -638,27 +609,27 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<ConnectionStreamResponse> PARSER =
-      new com.google.protobuf.AbstractParser<ConnectionStreamResponse>() {
-        @java.lang.Override
-        public ConnectionStreamResponse parsePartialFrom(
-            com.google.protobuf.CodedInputStream input,
-            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
-            throws com.google.protobuf.InvalidProtocolBufferException {
-          Builder builder = newBuilder();
-          try {
-            builder.mergeFrom(input, extensionRegistry);
-          } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-            throw e.setUnfinishedMessage(builder.buildPartial());
-          } catch (com.google.protobuf.UninitializedMessageException e) {
-            throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
-          } catch (java.io.IOException e) {
-            throw new com.google.protobuf.InvalidProtocolBufferException(e)
-                .setUnfinishedMessage(builder.buildPartial());
-          }
-          return builder.buildPartial();
-        }
-      };
+  private static final com.google.protobuf.Parser<ConnectionStreamResponse>
+      PARSER = new com.google.protobuf.AbstractParser<ConnectionStreamResponse>() {
+    @java.lang.Override
+    public ConnectionStreamResponse parsePartialFrom(
+        com.google.protobuf.CodedInputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      Builder builder = newBuilder();
+      try {
+        builder.mergeFrom(input, extensionRegistry);
+      } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+        throw e.setUnfinishedMessage(builder.buildPartial());
+      } catch (com.google.protobuf.UninitializedMessageException e) {
+        throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
+      } catch (java.io.IOException e) {
+        throw new com.google.protobuf.InvalidProtocolBufferException(e)
+            .setUnfinishedMessage(builder.buildPartial());
+      }
+      return builder.buildPartial();
+    }
+  };
 
   public static com.google.protobuf.Parser<ConnectionStreamResponse> parser() {
     return PARSER;
@@ -673,4 +644,6 @@ public final class ConnectionStreamResponse extends com.google.protobuf.Generate
   public com.google.cloud.spannerlib.v1.ConnectionStreamResponse getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
+
 }
+

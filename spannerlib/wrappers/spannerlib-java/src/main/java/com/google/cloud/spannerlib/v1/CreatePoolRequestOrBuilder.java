@@ -6,22 +6,19 @@
 package com.google.cloud.spannerlib.v1;
 
 @com.google.protobuf.Generated
-public interface CreatePoolRequestOrBuilder
-    extends
+public interface CreatePoolRequestOrBuilder extends
     // @@protoc_insertion_point(interface_extends:google.spannerlib.v1.CreatePoolRequest)
     com.google.protobuf.MessageOrBuilder {
 
   /**
    * <code>string connection_string = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-   *
    * @return The connectionString.
    */
   java.lang.String getConnectionString();
-
   /**
    * <code>string connection_string = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-   *
    * @return The bytes for connectionString.
    */
-  com.google.protobuf.ByteString getConnectionStringBytes();
+  com.google.protobuf.ByteString
+      getConnectionStringBytes();
 }

@@ -177,6 +177,14 @@ namespace Google.Cloud.SpannerLib.V1 {
         __Marshaller_google_spanner_v1_ResultSetStats);
 
     [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]
+    static readonly grpc::Method<global::Google.Cloud.SpannerLib.V1.Rows, global::Google.Cloud.Spanner.V1.ResultSetMetadata> __Method_NextResultSet = new grpc::Method<global::Google.Cloud.SpannerLib.V1.Rows, global::Google.Cloud.Spanner.V1.ResultSetMetadata>(
+        grpc::MethodType.Unary,
+        __ServiceName,
+        "NextResultSet",
+        __Marshaller_google_spannerlib_v1_Rows,
+        __Marshaller_google_spanner_v1_ResultSetMetadata);
+
+    [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]
     static readonly grpc::Method<global::Google.Cloud.SpannerLib.V1.Rows, global::Google.Protobuf.WellKnownTypes.Empty> __Method_CloseRows = new grpc::Method<global::Google.Cloud.SpannerLib.V1.Rows, global::Google.Protobuf.WellKnownTypes.Empty>(
         grpc::MethodType.Unary,
         __ServiceName,
@@ -466,6 +474,26 @@ namespace Google.Cloud.SpannerLib.V1 {
       public virtual grpc::AsyncUnaryCall<global::Google.Cloud.Spanner.V1.ResultSetStats> ResultSetStatsAsync(global::Google.Cloud.SpannerLib.V1.Rows request, grpc::CallOptions options)
       {
         return CallInvoker.AsyncUnaryCall(__Method_ResultSetStats, null, options, request);
+      }
+      [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]
+      public virtual global::Google.Cloud.Spanner.V1.ResultSetMetadata NextResultSet(global::Google.Cloud.SpannerLib.V1.Rows request, grpc::Metadata headers = null, global::System.DateTime? deadline = null, global::System.Threading.CancellationToken cancellationToken = default(global::System.Threading.CancellationToken))
+      {
+        return NextResultSet(request, new grpc::CallOptions(headers, deadline, cancellationToken));
+      }
+      [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]
+      public virtual global::Google.Cloud.Spanner.V1.ResultSetMetadata NextResultSet(global::Google.Cloud.SpannerLib.V1.Rows request, grpc::CallOptions options)
+      {
+        return CallInvoker.BlockingUnaryCall(__Method_NextResultSet, null, options, request);
+      }
+      [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]
+      public virtual grpc::AsyncUnaryCall<global::Google.Cloud.Spanner.V1.ResultSetMetadata> NextResultSetAsync(global::Google.Cloud.SpannerLib.V1.Rows request, grpc::Metadata headers = null, global::System.DateTime? deadline = null, global::System.Threading.CancellationToken cancellationToken = default(global::System.Threading.CancellationToken))
+      {
+        return NextResultSetAsync(request, new grpc::CallOptions(headers, deadline, cancellationToken));
+      }
+      [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]
+      public virtual grpc::AsyncUnaryCall<global::Google.Cloud.Spanner.V1.ResultSetMetadata> NextResultSetAsync(global::Google.Cloud.SpannerLib.V1.Rows request, grpc::CallOptions options)
+      {
+        return CallInvoker.AsyncUnaryCall(__Method_NextResultSet, null, options, request);
       }
       [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]
       public virtual global::Google.Protobuf.WellKnownTypes.Empty CloseRows(global::Google.Cloud.SpannerLib.V1.Rows request, grpc::Metadata headers = null, global::System.DateTime? deadline = null, global::System.Threading.CancellationToken cancellationToken = default(global::System.Threading.CancellationToken))

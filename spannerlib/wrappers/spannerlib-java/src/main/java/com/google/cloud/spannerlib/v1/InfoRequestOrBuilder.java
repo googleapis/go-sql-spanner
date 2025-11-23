@@ -6,7 +6,7 @@
 package com.google.cloud.spannerlib.v1;
 
 @com.google.protobuf.Generated
-public interface InfoRequestOrBuilder
-    extends
+public interface InfoRequestOrBuilder extends
     // @@protoc_insertion_point(interface_extends:google.spannerlib.v1.InfoRequest)
-    com.google.protobuf.MessageOrBuilder {}
+    com.google.protobuf.MessageOrBuilder {
+}

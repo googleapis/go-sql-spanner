@@ -5,131 +5,98 @@
 
 package com.google.cloud.spannerlib.v1;
 
-/** Protobuf type {@code google.spannerlib.v1.BeginTransactionRequest} */
+/**
+ * Protobuf type {@code google.spannerlib.v1.BeginTransactionRequest}
+ */
 @com.google.protobuf.Generated
-public final class BeginTransactionRequest extends com.google.protobuf.GeneratedMessage
-    implements
+public final class BeginTransactionRequest extends
+    com.google.protobuf.GeneratedMessage implements
     // @@protoc_insertion_point(message_implements:google.spannerlib.v1.BeginTransactionRequest)
     BeginTransactionRequestOrBuilder {
-  private static final long serialVersionUID = 0L;
-
+private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
-        com.google.protobuf.RuntimeVersion.RuntimeDomain.PUBLIC,
-        /* major= */ 4,
-        /* minor= */ 32,
-        /* patch= */ 1,
-        /* suffix= */ "",
-        BeginTransactionRequest.class.getName());
+      com.google.protobuf.RuntimeVersion.RuntimeDomain.PUBLIC,
+      /* major= */ 4,
+      /* minor= */ 32,
+      /* patch= */ 1,
+      /* suffix= */ "",
+      BeginTransactionRequest.class.getName());
   }
-
   // Use BeginTransactionRequest.newBuilder() to construct.
   private BeginTransactionRequest(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
+  private BeginTransactionRequest() {
+  }
 
-  private BeginTransactionRequest() {}
-
-  public static final com.google.protobuf.Descriptors.Descriptor getDescriptor() {
-    return com.google.cloud.spannerlib.v1.SpannerLibProto
-        .internal_static_google_spannerlib_v1_BeginTransactionRequest_descriptor;
+  public static final com.google.protobuf.Descriptors.Descriptor
+      getDescriptor() {
+    return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_BeginTransactionRequest_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return com.google.cloud.spannerlib.v1.SpannerLibProto
-        .internal_static_google_spannerlib_v1_BeginTransactionRequest_fieldAccessorTable
+    return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_BeginTransactionRequest_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            com.google.cloud.spannerlib.v1.BeginTransactionRequest.class,
-            com.google.cloud.spannerlib.v1.BeginTransactionRequest.Builder.class);
+            com.google.cloud.spannerlib.v1.BeginTransactionRequest.class, com.google.cloud.spannerlib.v1.BeginTransactionRequest.Builder.class);
   }
 
   private int bitField0_;
   public static final int CONNECTION_FIELD_NUMBER = 1;
   private com.google.cloud.spannerlib.v1.Connection connection_;
-
   /**
-   * <code>
-   * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
-   *
+   * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
    * @return Whether the connection field is set.
    */
   @java.lang.Override
   public boolean hasConnection() {
     return ((bitField0_ & 0x00000001) != 0);
   }
-
   /**
-   * <code>
-   * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
-   *
+   * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
    * @return The connection.
    */
   @java.lang.Override
   public com.google.cloud.spannerlib.v1.Connection getConnection() {
-    return connection_ == null
-        ? com.google.cloud.spannerlib.v1.Connection.getDefaultInstance()
-        : connection_;
+    return connection_ == null ? com.google.cloud.spannerlib.v1.Connection.getDefaultInstance() : connection_;
   }
-
   /**
-   * <code>
-   * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
+   * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   @java.lang.Override
   public com.google.cloud.spannerlib.v1.ConnectionOrBuilder getConnectionOrBuilder() {
-    return connection_ == null
-        ? com.google.cloud.spannerlib.v1.Connection.getDefaultInstance()
-        : connection_;
+    return connection_ == null ? com.google.cloud.spannerlib.v1.Connection.getDefaultInstance() : connection_;
   }
 
   public static final int TRANSACTION_OPTIONS_FIELD_NUMBER = 2;
   private com.google.spanner.v1.TransactionOptions transactionOptions_;
-
   /**
-   * <code>
-   * .google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
-   *
+   * <code>.google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
    * @return Whether the transactionOptions field is set.
    */
   @java.lang.Override
   public boolean hasTransactionOptions() {
     return ((bitField0_ & 0x00000002) != 0);
   }
-
   /**
-   * <code>
-   * .google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
-   *
+   * <code>.google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
    * @return The transactionOptions.
    */
   @java.lang.Override
   public com.google.spanner.v1.TransactionOptions getTransactionOptions() {
-    return transactionOptions_ == null
-        ? com.google.spanner.v1.TransactionOptions.getDefaultInstance()
-        : transactionOptions_;
+    return transactionOptions_ == null ? com.google.spanner.v1.TransactionOptions.getDefaultInstance() : transactionOptions_;
   }
-
   /**
-   * <code>
-   * .google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
+   * <code>.google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   @java.lang.Override
   public com.google.spanner.v1.TransactionOptionsOrBuilder getTransactionOptionsOrBuilder() {
-    return transactionOptions_ == null
-        ? com.google.spanner.v1.TransactionOptions.getDefaultInstance()
-        : transactionOptions_;
+    return transactionOptions_ == null ? com.google.spanner.v1.TransactionOptions.getDefaultInstance() : transactionOptions_;
   }
 
   private byte memoizedIsInitialized = -1;
-
   @java.lang.Override
   public final boolean isInitialized() {
     byte isInitialized = memoizedIsInitialized;
@@ -141,7 +108,8 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
   }
 
   @java.lang.Override
-  public void writeTo(com.google.protobuf.CodedOutputStream output) throws java.io.IOException {
+  public void writeTo(com.google.protobuf.CodedOutputStream output)
+                      throws java.io.IOException {
     if (((bitField0_ & 0x00000001) != 0)) {
       output.writeMessage(1, getConnection());
     }
@@ -158,10 +126,12 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
 
     size = 0;
     if (((bitField0_ & 0x00000001) != 0)) {
-      size += com.google.protobuf.CodedOutputStream.computeMessageSize(1, getConnection());
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(1, getConnection());
     }
     if (((bitField0_ & 0x00000002) != 0)) {
-      size += com.google.protobuf.CodedOutputStream.computeMessageSize(2, getTransactionOptions());
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(2, getTransactionOptions());
     }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
@@ -171,21 +141,22 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
   @java.lang.Override
   public boolean equals(final java.lang.Object obj) {
     if (obj == this) {
-      return true;
+     return true;
     }
     if (!(obj instanceof com.google.cloud.spannerlib.v1.BeginTransactionRequest)) {
       return super.equals(obj);
     }
-    com.google.cloud.spannerlib.v1.BeginTransactionRequest other =
-        (com.google.cloud.spannerlib.v1.BeginTransactionRequest) obj;
+    com.google.cloud.spannerlib.v1.BeginTransactionRequest other = (com.google.cloud.spannerlib.v1.BeginTransactionRequest) obj;
 
     if (hasConnection() != other.hasConnection()) return false;
     if (hasConnection()) {
-      if (!getConnection().equals(other.getConnection())) return false;
+      if (!getConnection()
+          .equals(other.getConnection())) return false;
     }
     if (hasTransactionOptions() != other.hasTransactionOptions()) return false;
     if (hasTransactionOptions()) {
-      if (!getTransactionOptions().equals(other.getTransactionOptions())) return false;
+      if (!getTransactionOptions()
+          .equals(other.getTransactionOptions())) return false;
     }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
@@ -212,120 +183,115 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
   }
 
   public static com.google.cloud.spannerlib.v1.BeginTransactionRequest parseFrom(
-      java.nio.ByteBuffer data) throws com.google.protobuf.InvalidProtocolBufferException {
+      java.nio.ByteBuffer data)
+      throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-
   public static com.google.cloud.spannerlib.v1.BeginTransactionRequest parseFrom(
-      java.nio.ByteBuffer data, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      java.nio.ByteBuffer data,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-
   public static com.google.cloud.spannerlib.v1.BeginTransactionRequest parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-
   public static com.google.cloud.spannerlib.v1.BeginTransactionRequest parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-
   public static com.google.cloud.spannerlib.v1.BeginTransactionRequest parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-
   public static com.google.cloud.spannerlib.v1.BeginTransactionRequest parseFrom(
-      byte[] data, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      byte[] data,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-
+  public static com.google.cloud.spannerlib.v1.BeginTransactionRequest parseFrom(java.io.InputStream input)
+      throws java.io.IOException {
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input);
+  }
   public static com.google.cloud.spannerlib.v1.BeginTransactionRequest parseFrom(
-      java.io.InputStream input) throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(PARSER, input);
+      java.io.InputStream input,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      throws java.io.IOException {
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static com.google.cloud.spannerlib.v1.BeginTransactionRequest parseFrom(
-      java.io.InputStream input, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+  public static com.google.cloud.spannerlib.v1.BeginTransactionRequest parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(
-        PARSER, input, extensionRegistry);
+    return com.google.protobuf.GeneratedMessage
+        .parseDelimitedWithIOException(PARSER, input);
   }
 
   public static com.google.cloud.spannerlib.v1.BeginTransactionRequest parseDelimitedFrom(
-      java.io.InputStream input) throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseDelimitedWithIOException(PARSER, input);
-  }
-
-  public static com.google.cloud.spannerlib.v1.BeginTransactionRequest parseDelimitedFrom(
-      java.io.InputStream input, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      java.io.InputStream input,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseDelimitedWithIOException(
-        PARSER, input, extensionRegistry);
+    return com.google.protobuf.GeneratedMessage
+        .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-
   public static com.google.cloud.spannerlib.v1.BeginTransactionRequest parseFrom(
-      com.google.protobuf.CodedInputStream input) throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(PARSER, input);
+      com.google.protobuf.CodedInputStream input)
+      throws java.io.IOException {
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input);
   }
-
   public static com.google.cloud.spannerlib.v1.BeginTransactionRequest parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(
-        PARSER, input, extensionRegistry);
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
   @java.lang.Override
-  public Builder newBuilderForType() {
-    return newBuilder();
-  }
-
+  public Builder newBuilderForType() { return newBuilder(); }
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-
-  public static Builder newBuilder(
-      com.google.cloud.spannerlib.v1.BeginTransactionRequest prototype) {
+  public static Builder newBuilder(com.google.cloud.spannerlib.v1.BeginTransactionRequest prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
-
   @java.lang.Override
   public Builder toBuilder() {
-    return this == DEFAULT_INSTANCE ? new Builder() : new Builder().mergeFrom(this);
+    return this == DEFAULT_INSTANCE
+        ? new Builder() : new Builder().mergeFrom(this);
   }
 
   @java.lang.Override
-  protected Builder newBuilderForType(com.google.protobuf.GeneratedMessage.BuilderParent parent) {
+  protected Builder newBuilderForType(
+      com.google.protobuf.GeneratedMessage.BuilderParent parent) {
     Builder builder = new Builder(parent);
     return builder;
   }
-
-  /** Protobuf type {@code google.spannerlib.v1.BeginTransactionRequest} */
-  public static final class Builder extends com.google.protobuf.GeneratedMessage.Builder<Builder>
-      implements
+  /**
+   * Protobuf type {@code google.spannerlib.v1.BeginTransactionRequest}
+   */
+  public static final class Builder extends
+      com.google.protobuf.GeneratedMessage.Builder<Builder> implements
       // @@protoc_insertion_point(builder_implements:google.spannerlib.v1.BeginTransactionRequest)
       com.google.cloud.spannerlib.v1.BeginTransactionRequestOrBuilder {
-    public static final com.google.protobuf.Descriptors.Descriptor getDescriptor() {
-      return com.google.cloud.spannerlib.v1.SpannerLibProto
-          .internal_static_google_spannerlib_v1_BeginTransactionRequest_descriptor;
+    public static final com.google.protobuf.Descriptors.Descriptor
+        getDescriptor() {
+      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_BeginTransactionRequest_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return com.google.cloud.spannerlib.v1.SpannerLibProto
-          .internal_static_google_spannerlib_v1_BeginTransactionRequest_fieldAccessorTable
+      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_BeginTransactionRequest_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              com.google.cloud.spannerlib.v1.BeginTransactionRequest.class,
-              com.google.cloud.spannerlib.v1.BeginTransactionRequest.Builder.class);
+              com.google.cloud.spannerlib.v1.BeginTransactionRequest.class, com.google.cloud.spannerlib.v1.BeginTransactionRequest.Builder.class);
     }
 
     // Construct using com.google.cloud.spannerlib.v1.BeginTransactionRequest.newBuilder()
@@ -333,18 +299,18 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
       maybeForceBuilderInitialization();
     }
 
-    private Builder(com.google.protobuf.GeneratedMessage.BuilderParent parent) {
+    private Builder(
+        com.google.protobuf.GeneratedMessage.BuilderParent parent) {
       super(parent);
       maybeForceBuilderInitialization();
     }
-
     private void maybeForceBuilderInitialization() {
-      if (com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders) {
+      if (com.google.protobuf.GeneratedMessage
+              .alwaysUseFieldBuilders) {
         internalGetConnectionFieldBuilder();
         internalGetTransactionOptionsFieldBuilder();
       }
     }
-
     @java.lang.Override
     public Builder clear() {
       super.clear();
@@ -363,9 +329,9 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
     }
 
     @java.lang.Override
-    public com.google.protobuf.Descriptors.Descriptor getDescriptorForType() {
-      return com.google.cloud.spannerlib.v1.SpannerLibProto
-          .internal_static_google_spannerlib_v1_BeginTransactionRequest_descriptor;
+    public com.google.protobuf.Descriptors.Descriptor
+        getDescriptorForType() {
+      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_BeginTransactionRequest_descriptor;
     }
 
     @java.lang.Override
@@ -384,11 +350,8 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
 
     @java.lang.Override
     public com.google.cloud.spannerlib.v1.BeginTransactionRequest buildPartial() {
-      com.google.cloud.spannerlib.v1.BeginTransactionRequest result =
-          new com.google.cloud.spannerlib.v1.BeginTransactionRequest(this);
-      if (bitField0_ != 0) {
-        buildPartial0(result);
-      }
+      com.google.cloud.spannerlib.v1.BeginTransactionRequest result = new com.google.cloud.spannerlib.v1.BeginTransactionRequest(this);
+      if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
@@ -397,14 +360,15 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
       int from_bitField0_ = bitField0_;
       int to_bitField0_ = 0;
       if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.connection_ = connectionBuilder_ == null ? connection_ : connectionBuilder_.build();
+        result.connection_ = connectionBuilder_ == null
+            ? connection_
+            : connectionBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
       if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.transactionOptions_ =
-            transactionOptionsBuilder_ == null
-                ? transactionOptions_
-                : transactionOptionsBuilder_.build();
+        result.transactionOptions_ = transactionOptionsBuilder_ == null
+            ? transactionOptions_
+            : transactionOptionsBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
       result.bitField0_ |= to_bitField0_;
@@ -413,7 +377,7 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
       if (other instanceof com.google.cloud.spannerlib.v1.BeginTransactionRequest) {
-        return mergeFrom((com.google.cloud.spannerlib.v1.BeginTransactionRequest) other);
+        return mergeFrom((com.google.cloud.spannerlib.v1.BeginTransactionRequest)other);
       } else {
         super.mergeFrom(other);
         return this;
@@ -421,8 +385,7 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
     }
 
     public Builder mergeFrom(com.google.cloud.spannerlib.v1.BeginTransactionRequest other) {
-      if (other == com.google.cloud.spannerlib.v1.BeginTransactionRequest.getDefaultInstance())
-        return this;
+      if (other == com.google.cloud.spannerlib.v1.BeginTransactionRequest.getDefaultInstance()) return this;
       if (other.hasConnection()) {
         mergeConnection(other.getConnection());
       }
@@ -455,27 +418,26 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
             case 0:
               done = true;
               break;
-            case 10:
-              {
-                input.readMessage(
-                    internalGetConnectionFieldBuilder().getBuilder(), extensionRegistry);
-                bitField0_ |= 0x00000001;
-                break;
-              } // case 10
-            case 18:
-              {
-                input.readMessage(
-                    internalGetTransactionOptionsFieldBuilder().getBuilder(), extensionRegistry);
-                bitField0_ |= 0x00000002;
-                break;
-              } // case 18
-            default:
-              {
-                if (!super.parseUnknownField(input, extensionRegistry, tag)) {
-                  done = true; // was an endgroup tag
-                }
-                break;
-              } // default:
+            case 10: {
+              input.readMessage(
+                  internalGetConnectionFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000001;
+              break;
+            } // case 10
+            case 18: {
+              input.readMessage(
+                  internalGetTransactionOptionsFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000002;
+              break;
+            } // case 18
+            default: {
+              if (!super.parseUnknownField(input, extensionRegistry, tag)) {
+                done = true; // was an endgroup tag
+              }
+              break;
+            } // default:
           } // switch (tag)
         } // while (!done)
       } catch (com.google.protobuf.InvalidProtocolBufferException e) {
@@ -485,48 +447,31 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
       } // finally
       return this;
     }
-
     private int bitField0_;
 
     private com.google.cloud.spannerlib.v1.Connection connection_;
     private com.google.protobuf.SingleFieldBuilder<
-            com.google.cloud.spannerlib.v1.Connection,
-            com.google.cloud.spannerlib.v1.Connection.Builder,
-            com.google.cloud.spannerlib.v1.ConnectionOrBuilder>
-        connectionBuilder_;
-
+        com.google.cloud.spannerlib.v1.Connection, com.google.cloud.spannerlib.v1.Connection.Builder, com.google.cloud.spannerlib.v1.ConnectionOrBuilder> connectionBuilder_;
     /**
-     * <code>
-     * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
-     *
+     * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      * @return Whether the connection field is set.
      */
     public boolean hasConnection() {
       return ((bitField0_ & 0x00000001) != 0);
     }
-
     /**
-     * <code>
-     * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
-     *
+     * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      * @return The connection.
      */
     public com.google.cloud.spannerlib.v1.Connection getConnection() {
       if (connectionBuilder_ == null) {
-        return connection_ == null
-            ? com.google.cloud.spannerlib.v1.Connection.getDefaultInstance()
-            : connection_;
+        return connection_ == null ? com.google.cloud.spannerlib.v1.Connection.getDefaultInstance() : connection_;
       } else {
         return connectionBuilder_.getMessage();
       }
     }
-
     /**
-     * <code>
-     * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder setConnection(com.google.cloud.spannerlib.v1.Connection value) {
       if (connectionBuilder_ == null) {
@@ -541,11 +486,8 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
       onChanged();
       return this;
     }
-
     /**
-     * <code>
-     * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder setConnection(
         com.google.cloud.spannerlib.v1.Connection.Builder builderForValue) {
@@ -558,17 +500,14 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
       onChanged();
       return this;
     }
-
     /**
-     * <code>
-     * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder mergeConnection(com.google.cloud.spannerlib.v1.Connection value) {
       if (connectionBuilder_ == null) {
-        if (((bitField0_ & 0x00000001) != 0)
-            && connection_ != null
-            && connection_ != com.google.cloud.spannerlib.v1.Connection.getDefaultInstance()) {
+        if (((bitField0_ & 0x00000001) != 0) &&
+          connection_ != null &&
+          connection_ != com.google.cloud.spannerlib.v1.Connection.getDefaultInstance()) {
           getConnectionBuilder().mergeFrom(value);
         } else {
           connection_ = value;
@@ -582,11 +521,8 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
       }
       return this;
     }
-
     /**
-     * <code>
-     * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder clearConnection() {
       bitField0_ = (bitField0_ & ~0x00000001);
@@ -598,50 +534,37 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
       onChanged();
       return this;
     }
-
     /**
-     * <code>
-     * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public com.google.cloud.spannerlib.v1.Connection.Builder getConnectionBuilder() {
       bitField0_ |= 0x00000001;
       onChanged();
       return internalGetConnectionFieldBuilder().getBuilder();
     }
-
     /**
-     * <code>
-     * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public com.google.cloud.spannerlib.v1.ConnectionOrBuilder getConnectionOrBuilder() {
       if (connectionBuilder_ != null) {
         return connectionBuilder_.getMessageOrBuilder();
       } else {
-        return connection_ == null
-            ? com.google.cloud.spannerlib.v1.Connection.getDefaultInstance()
-            : connection_;
+        return connection_ == null ?
+            com.google.cloud.spannerlib.v1.Connection.getDefaultInstance() : connection_;
       }
     }
-
     /**
-     * <code>
-     * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-            com.google.cloud.spannerlib.v1.Connection,
-            com.google.cloud.spannerlib.v1.Connection.Builder,
-            com.google.cloud.spannerlib.v1.ConnectionOrBuilder>
+        com.google.cloud.spannerlib.v1.Connection, com.google.cloud.spannerlib.v1.Connection.Builder, com.google.cloud.spannerlib.v1.ConnectionOrBuilder> 
         internalGetConnectionFieldBuilder() {
       if (connectionBuilder_ == null) {
-        connectionBuilder_ =
-            new com.google.protobuf.SingleFieldBuilder<
-                com.google.cloud.spannerlib.v1.Connection,
-                com.google.cloud.spannerlib.v1.Connection.Builder,
-                com.google.cloud.spannerlib.v1.ConnectionOrBuilder>(
-                getConnection(), getParentForChildren(), isClean());
+        connectionBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.cloud.spannerlib.v1.Connection, com.google.cloud.spannerlib.v1.Connection.Builder, com.google.cloud.spannerlib.v1.ConnectionOrBuilder>(
+                getConnection(),
+                getParentForChildren(),
+                isClean());
         connection_ = null;
       }
       return connectionBuilder_;
@@ -649,43 +572,27 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
 
     private com.google.spanner.v1.TransactionOptions transactionOptions_;
     private com.google.protobuf.SingleFieldBuilder<
-            com.google.spanner.v1.TransactionOptions,
-            com.google.spanner.v1.TransactionOptions.Builder,
-            com.google.spanner.v1.TransactionOptionsOrBuilder>
-        transactionOptionsBuilder_;
-
+        com.google.spanner.v1.TransactionOptions, com.google.spanner.v1.TransactionOptions.Builder, com.google.spanner.v1.TransactionOptionsOrBuilder> transactionOptionsBuilder_;
     /**
-     * <code>
-     * .google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
-     *
+     * <code>.google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      * @return Whether the transactionOptions field is set.
      */
     public boolean hasTransactionOptions() {
       return ((bitField0_ & 0x00000002) != 0);
     }
-
     /**
-     * <code>
-     * .google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
-     *
+     * <code>.google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      * @return The transactionOptions.
      */
     public com.google.spanner.v1.TransactionOptions getTransactionOptions() {
       if (transactionOptionsBuilder_ == null) {
-        return transactionOptions_ == null
-            ? com.google.spanner.v1.TransactionOptions.getDefaultInstance()
-            : transactionOptions_;
+        return transactionOptions_ == null ? com.google.spanner.v1.TransactionOptions.getDefaultInstance() : transactionOptions_;
       } else {
         return transactionOptionsBuilder_.getMessage();
       }
     }
-
     /**
-     * <code>
-     * .google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder setTransactionOptions(com.google.spanner.v1.TransactionOptions value) {
       if (transactionOptionsBuilder_ == null) {
@@ -700,11 +607,8 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
       onChanged();
       return this;
     }
-
     /**
-     * <code>
-     * .google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder setTransactionOptions(
         com.google.spanner.v1.TransactionOptions.Builder builderForValue) {
@@ -717,18 +621,14 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
       onChanged();
       return this;
     }
-
     /**
-     * <code>
-     * .google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder mergeTransactionOptions(com.google.spanner.v1.TransactionOptions value) {
       if (transactionOptionsBuilder_ == null) {
-        if (((bitField0_ & 0x00000002) != 0)
-            && transactionOptions_ != null
-            && transactionOptions_
-                != com.google.spanner.v1.TransactionOptions.getDefaultInstance()) {
+        if (((bitField0_ & 0x00000002) != 0) &&
+          transactionOptions_ != null &&
+          transactionOptions_ != com.google.spanner.v1.TransactionOptions.getDefaultInstance()) {
           getTransactionOptionsBuilder().mergeFrom(value);
         } else {
           transactionOptions_ = value;
@@ -742,11 +642,8 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
       }
       return this;
     }
-
     /**
-     * <code>
-     * .google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder clearTransactionOptions() {
       bitField0_ = (bitField0_ & ~0x00000002);
@@ -758,50 +655,37 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
       onChanged();
       return this;
     }
-
     /**
-     * <code>
-     * .google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public com.google.spanner.v1.TransactionOptions.Builder getTransactionOptionsBuilder() {
       bitField0_ |= 0x00000002;
       onChanged();
       return internalGetTransactionOptionsFieldBuilder().getBuilder();
     }
-
     /**
-     * <code>
-     * .google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public com.google.spanner.v1.TransactionOptionsOrBuilder getTransactionOptionsOrBuilder() {
       if (transactionOptionsBuilder_ != null) {
         return transactionOptionsBuilder_.getMessageOrBuilder();
       } else {
-        return transactionOptions_ == null
-            ? com.google.spanner.v1.TransactionOptions.getDefaultInstance()
-            : transactionOptions_;
+        return transactionOptions_ == null ?
+            com.google.spanner.v1.TransactionOptions.getDefaultInstance() : transactionOptions_;
       }
     }
-
     /**
-     * <code>
-     * .google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spanner.v1.TransactionOptions transaction_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-            com.google.spanner.v1.TransactionOptions,
-            com.google.spanner.v1.TransactionOptions.Builder,
-            com.google.spanner.v1.TransactionOptionsOrBuilder>
+        com.google.spanner.v1.TransactionOptions, com.google.spanner.v1.TransactionOptions.Builder, com.google.spanner.v1.TransactionOptionsOrBuilder> 
         internalGetTransactionOptionsFieldBuilder() {
       if (transactionOptionsBuilder_ == null) {
-        transactionOptionsBuilder_ =
-            new com.google.protobuf.SingleFieldBuilder<
-                com.google.spanner.v1.TransactionOptions,
-                com.google.spanner.v1.TransactionOptions.Builder,
-                com.google.spanner.v1.TransactionOptionsOrBuilder>(
-                getTransactionOptions(), getParentForChildren(), isClean());
+        transactionOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.spanner.v1.TransactionOptions, com.google.spanner.v1.TransactionOptions.Builder, com.google.spanner.v1.TransactionOptionsOrBuilder>(
+                getTransactionOptions(),
+                getParentForChildren(),
+                isClean());
         transactionOptions_ = null;
       }
       return transactionOptionsBuilder_;
@@ -812,7 +696,6 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
 
   // @@protoc_insertion_point(class_scope:google.spannerlib.v1.BeginTransactionRequest)
   private static final com.google.cloud.spannerlib.v1.BeginTransactionRequest DEFAULT_INSTANCE;
-
   static {
     DEFAULT_INSTANCE = new com.google.cloud.spannerlib.v1.BeginTransactionRequest();
   }
@@ -821,27 +704,27 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<BeginTransactionRequest> PARSER =
-      new com.google.protobuf.AbstractParser<BeginTransactionRequest>() {
-        @java.lang.Override
-        public BeginTransactionRequest parsePartialFrom(
-            com.google.protobuf.CodedInputStream input,
-            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
-            throws com.google.protobuf.InvalidProtocolBufferException {
-          Builder builder = newBuilder();
-          try {
-            builder.mergeFrom(input, extensionRegistry);
-          } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-            throw e.setUnfinishedMessage(builder.buildPartial());
-          } catch (com.google.protobuf.UninitializedMessageException e) {
-            throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
-          } catch (java.io.IOException e) {
-            throw new com.google.protobuf.InvalidProtocolBufferException(e)
-                .setUnfinishedMessage(builder.buildPartial());
-          }
-          return builder.buildPartial();
-        }
-      };
+  private static final com.google.protobuf.Parser<BeginTransactionRequest>
+      PARSER = new com.google.protobuf.AbstractParser<BeginTransactionRequest>() {
+    @java.lang.Override
+    public BeginTransactionRequest parsePartialFrom(
+        com.google.protobuf.CodedInputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      Builder builder = newBuilder();
+      try {
+        builder.mergeFrom(input, extensionRegistry);
+      } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+        throw e.setUnfinishedMessage(builder.buildPartial());
+      } catch (com.google.protobuf.UninitializedMessageException e) {
+        throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
+      } catch (java.io.IOException e) {
+        throw new com.google.protobuf.InvalidProtocolBufferException(e)
+            .setUnfinishedMessage(builder.buildPartial());
+      }
+      return builder.buildPartial();
+    }
+  };
 
   public static com.google.protobuf.Parser<BeginTransactionRequest> parser() {
     return PARSER;
@@ -856,4 +739,6 @@ public final class BeginTransactionRequest extends com.google.protobuf.Generated
   public com.google.cloud.spannerlib.v1.BeginTransactionRequest getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
+
 }
+
