@@ -816,7 +816,7 @@ func (p *StatementParser) extractSetStatementsFromHints(sql string) (*ParsedSetS
 			// The hint ends with '*/'
 			endIndex = endPos - 2
 		}
-		if endIndex > sp.pos && endIndex < len(sql) {
+		if endIndex > sp.pos {
 			return p.extractConnectionVariables(sql[sp.pos:endIndex])
 		}
 	}

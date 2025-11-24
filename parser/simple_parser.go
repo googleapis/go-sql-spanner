@@ -15,6 +15,7 @@
 package parser
 
 import (
+	"bytes"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -402,7 +403,7 @@ func (p *simpleParser) skipStatementHint() (bool, int) {
 		// Skip all other whitespaces and comments, but not comments that contain a PG hint.
 		p.skipWhitespacesAndCommentsWithPgHintOption( /*skipPgHints=*/ false)
 		// Check if the next tokens are a PG hint.
-		if len(p.sql) > p.pos+2 && p.sql[p.pos] == '/' && p.sql[p.pos+1] == '*' && p.sql[p.pos+2] == '@' {
+		if bytes.HasPrefix(p.sql[p.pos:], postgreSqlStatementHintPrefix) {
 			startPos := p.pos
 			// Move to the end of this comment.
 			p.pos = p.statementParser.skipMultiLineComment(p.sql, p.pos)

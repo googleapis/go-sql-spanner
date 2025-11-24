@@ -2704,11 +2704,7 @@ func TestEatIdentifier(t *testing.T) {
 func TestExtractSetStatementsFromHints(t *testing.T) {
 	t.Parallel()
 
-	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tests := []struct {
+	googleSQLTests := []struct {
 		input   string
 		want    *ParsedSetStatement
 		wantErr bool
@@ -2767,6 +2763,10 @@ func TestExtractSetStatementsFromHints(t *testing.T) {
 			want:  nil,
 		},
 		{
+			input: "@{} select * from my_table",
+			want:  nil,
+		},
+		{
 			input:   "@{ foo is 'bar' } select * from my_table",
 			wantErr: true,
 		},
@@ -2809,34 +2809,7 @@ func TestExtractSetStatementsFromHints(t *testing.T) {
 			wantErr: true,
 		},
 	}
-	for _, test := range tests {
-		t.Run(test.input, func(t *testing.T) {
-			statement, err := parser.extractSetStatementsFromHints(test.input)
-			if test.wantErr {
-				if err == nil {
-					t.Fatal("missing expected error")
-				}
-			} else {
-				if err != nil {
-					t.Fatal(err)
-				}
-				opts := cmpopts.IgnoreUnexported(ParsedSetStatement{})
-				if !cmp.Equal(statement, test.want, opts) {
-					t.Fatalf("mismatch (-want +got):\n%s", cmp.Diff(test.want, statement, opts))
-				}
-			}
-		})
-	}
-}
-
-func TestExtractSetStatementsFromHintsPostgreSQL(t *testing.T) {
-	t.Parallel()
-
-	parser, err := NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tests := []struct {
+	pgTests := []struct {
 		input   string
 		want    *ParsedSetStatement
 		wantErr bool
@@ -2895,6 +2868,10 @@ func TestExtractSetStatementsFromHintsPostgreSQL(t *testing.T) {
 			want:  nil,
 		},
 		{
+			input: "/*@*/select * from my_table",
+			want:  nil,
+		},
+		{
 			input:   "/*@ foo is 'bar' */ select * from my_table",
 			wantErr: true,
 		},
@@ -2937,24 +2914,44 @@ func TestExtractSetStatementsFromHintsPostgreSQL(t *testing.T) {
 			wantErr: true,
 		},
 	}
-	for _, test := range tests {
-		t.Run(test.input, func(t *testing.T) {
-			statement, err := parser.extractSetStatementsFromHints(test.input)
-			if test.wantErr {
-				if err == nil {
-					t.Fatal("missing expected error")
+
+	runHintTests := func(t *testing.T, dialect databasepb.DatabaseDialect, tests []struct {
+		input   string
+		want    *ParsedSetStatement
+		wantErr bool
+	}) {
+		parser, err := NewStatementParser(dialect, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, test := range tests {
+			t.Run(test.input, func(t *testing.T) {
+				statement, err := parser.extractSetStatementsFromHints(test.input)
+				if test.wantErr {
+					if err == nil {
+						t.Fatal("missing expected error")
+					}
+				} else {
+					if err != nil {
+						t.Fatal(err)
+					}
+					opts := cmpopts.IgnoreUnexported(ParsedSetStatement{})
+					if !cmp.Equal(statement, test.want, opts) {
+						t.Fatalf("mismatch (-want +got):\n%s", cmp.Diff(test.want, statement, opts))
+					}
 				}
-			} else {
-				if err != nil {
-					t.Fatal(err)
-				}
-				opts := cmpopts.IgnoreUnexported(ParsedSetStatement{})
-				if !cmp.Equal(statement, test.want, opts) {
-					t.Fatalf("mismatch (-want +got):\n%s", cmp.Diff(test.want, statement, opts))
-				}
-			}
-		})
+			})
+		}
 	}
+
+	t.Run("GoogleSQL", func(t *testing.T) {
+		t.Parallel()
+		runHintTests(t, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, googleSQLTests)
+	})
+	t.Run("PostgreSQL", func(t *testing.T) {
+		t.Parallel()
+		runHintTests(t, databasepb.DatabaseDialect_POSTGRESQL, pgTests)
+	})
 }
 
 func TestSplit(t *testing.T) {
