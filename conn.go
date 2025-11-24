@@ -420,6 +420,16 @@ func (c *conn) setReadOnlyStaleness(staleness spanner.TimestampBound) (driver.Re
 	return driver.ResultNoRows, nil
 }
 
+func (c *conn) readOnlyStalenessPointer() *spanner.TimestampBound {
+	val := propertyReadOnlyStaleness.GetConnectionPropertyValue(c.state)
+	if val == nil || !val.HasValue() {
+		return nil
+	}
+	staleness, _ := val.GetValue()
+	timestampBound := staleness.(spanner.TimestampBound)
+	return &timestampBound
+}
+
 func (c *conn) IsolationLevel() sql.IsolationLevel {
 	return propertyIsolationLevel.GetValueOrDefault(c.state)
 }
@@ -1205,6 +1215,7 @@ func (c *conn) options(reset bool) (*ExecOptions, error) {
 			},
 		},
 		PartitionedQueryOptions: PartitionedQueryOptions{},
+		TimestampBound:          c.readOnlyStalenessPointer(),
 	}
 	if c.tempExecOptions != nil {
 		effectiveOptions.merge(c.tempExecOptions)
@@ -1585,6 +1596,9 @@ func (c *conn) Rollback(ctx context.Context) error {
 }
 
 func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
+	if options.TimestampBound != nil {
+		tb = *options.TimestampBound
+	}
 	return c.Single().WithTimestampBound(tb).QueryWithOptions(ctx, statement, options.QueryOptions)
 }
 
