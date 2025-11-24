@@ -26,20 +26,23 @@ import (
 )
 
 func TestStatementTypeString(t *testing.T) {
-	if g, w := StatementTypeDdl.String(), "DDL"; g != w {
-		t.Errorf("DDL string mismatch\n Got: %q\nWant: %q", g, w)
+	testCases := []struct {
+		st   StatementType
+		want string
+	}{
+		{StatementTypeDdl, "DDL"},
+		{StatementTypeClientSide, "ClientSide"},
+		{StatementTypeQuery, "Query"},
+		{StatementTypeDml, "DML"},
+		{StatementTypeUnknown, "Unknown"},
+		{StatementType(999), "Unknown"}, // Also test an undefined value.
 	}
-	if g, w := StatementTypeClientSide.String(), "ClientSide"; g != w {
-		t.Errorf("ClientSide string mismatch\n Got: %q\nWant: %q", g, w)
-	}
-	if g, w := StatementTypeQuery.String(), "Query"; g != w {
-		t.Errorf("Query string mismatch\n Got: %q\nWant: %q", g, w)
-	}
-	if g, w := StatementTypeDml.String(), "DML"; g != w {
-		t.Errorf("DML string mismatch\n Got: %q\nWant: %q", g, w)
-	}
-	if g, w := StatementTypeUnknown.String(), "Unknown"; g != w {
-		t.Errorf("Unknown string mismatch\n Got: %q\nWant: %q", g, w)
+	for _, tc := range testCases {
+		t.Run(tc.want, func(t *testing.T) {
+			if got := tc.st.String(); got != tc.want {
+				t.Errorf("String() = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
