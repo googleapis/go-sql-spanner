@@ -1,0 +1,1 @@
+recursive-include google/cloud/spannerlib/internal/lib *
