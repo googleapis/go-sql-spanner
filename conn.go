@@ -1619,6 +1619,10 @@ func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement s
 	var result *wrappedRowIterator
 	options.QueryOptions.LastStatement = true
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
+		if result != nil {
+			// in case of a retry
+			result.Stop()
+		}
 		it := tx.QueryWithOptions(ctx, statement, options.QueryOptions)
 		row, err := it.Next()
 		if err == iterator.Done {
@@ -1641,6 +1645,9 @@ func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement s
 	}
 	resp, err := c.ReadWriteTransactionWithOptions(ctx, fn, options.TransactionOptions)
 	if err != nil {
+		if result != nil {
+			result.Stop()
+		}
 		return nil, nil, err
 	}
 	return result, &resp, nil

@@ -123,10 +123,10 @@ func (p *simpleParser) eatDollarQuotedString(tag string) (string, bool) {
 			if potentialTag == tag {
 				return string(p.sql[startPos:posBeforeTag]), true
 			}
-			// This is a nested dollar-tag. Nested dollar-quoted strings are allowed.
-			if _, ok = p.eatDollarQuotedString(potentialTag); !ok {
-				return "", false
-			}
+			// This looks like a nested dollar-tag. Nested dollar-quoted strings are allowed.
+			// These should just be ignored, as we don't know if it is actually a nested
+			// dollar-quoted string, or just a random dollar sign inside the current string.
+			p.pos = posBeforeTag
 		}
 	}
 	return "", false

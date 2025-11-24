@@ -16,6 +16,7 @@ package parser
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 
 	"cloud.google.com/go/spanner"
@@ -2307,8 +2308,8 @@ func TestEatDollarQuotedString(t *testing.T) {
 		},
 		{
 			input:   "$outer$ outer string $inner$ mismatched tag $outer$ second part of outer string $inner$",
-			want:    "",
-			wantErr: true,
+			want:    " outer string $inner$ mismatched tag ",
+			wantErr: false,
 		},
 		{
 			input:   "$outer$ outer string $outer $outer$",
@@ -2329,6 +2330,10 @@ func TestEatDollarQuotedString(t *testing.T) {
 			input:   "$tag$value $tag/*not a comment*/$tag$",
 			want:    "value $tag/*not a comment*/",
 			wantErr: false,
+		},
+		{
+			input: "$bar$Hello$$;World!$bar$",
+			want:  "Hello$$;World!",
 		},
 	}
 	statementParser, err := NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
@@ -2949,6 +2954,257 @@ func TestExtractSetStatementsFromHintsPostgreSQL(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSplit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input   string
+		dialect databasepb.DatabaseDialect
+		want    bool
+		wantRes []string
+		wantErr bool
+	}{
+		{
+			input: "",
+		},
+		{
+			input: ";",
+		},
+		{
+			input:   ";;",
+			want:    true,
+			wantRes: []string{"", ""},
+		},
+		{
+			input: "select * from my_table",
+		},
+		{
+			input: "select * from my_table;",
+		},
+		{
+			input: "select * from my_table\n;\n",
+		},
+		{
+			input:   "begin; select * from my_table",
+			want:    true,
+			wantRes: []string{"begin", " select * from my_table"},
+		},
+		{
+			input:   "begin; select * from my_table;",
+			want:    true,
+			wantRes: []string{"begin", " select * from my_table"},
+		},
+		{
+			input: "begin;\n" +
+				"insert into my_table (id, value) values (1, 'One');\n" +
+				"select * from my_table;\n" +
+				"commit;",
+			want: true,
+			wantRes: []string{
+				"begin",
+				"\ninsert into my_table (id, value) values (1, 'One')",
+				"\nselect * from my_table",
+				"\ncommit",
+			},
+		},
+		{
+			input: "select 'begin;' from my_table;",
+		},
+		{
+			input: "select * from my_table where value = 'test;'",
+		},
+		{
+			input: "@{hint=';value;'} select * from my_table where value = 'test;'",
+		},
+		{
+			input: "-- Comment;\nselect * from my_table",
+		},
+		{
+			input:   "-- Comment;\nbegin; select * from my_table",
+			want:    true,
+			wantRes: []string{"-- Comment;\nbegin", " select * from my_table"},
+		},
+		{
+			input:   "-- Comment1;\nbegin--Comment2;\n; select * from my_table;--Comment3",
+			want:    true,
+			wantRes: []string{"-- Comment1;\nbegin--Comment2;\n", " select * from my_table"},
+		},
+		{
+			input:   "; begin; commit;",
+			want:    true,
+			wantRes: []string{"", " begin", " commit"},
+		},
+		{
+			input:   "begin; commit;;",
+			want:    true,
+			wantRes: []string{"begin", " commit", ""},
+		},
+		{
+			input:   "select 1 --; select 2\n;select 3",
+			want:    true,
+			wantRes: []string{"select 1 --; select 2\n", "select 3"},
+		},
+		{
+			input:   "-- select 1;\nselect 2;select 3",
+			want:    true,
+			wantRes: []string{"-- select 1;\nselect 2", "select 3"},
+		},
+		{
+			input: "select 1 /* Comment */",
+		},
+		{
+			input: " /* Comment */ select 1",
+		},
+		{
+			input:   "select 1 /*; select 2 */;select 3",
+			want:    true,
+			wantRes: []string{"select 1 /*; select 2 */", "select 3"},
+		},
+		{
+			input:   "/* select 1; */select 2;select 3",
+			want:    true,
+			wantRes: []string{"/* select 1; */select 2", "select 3"},
+		},
+		{
+			input: "select 'Hello World!'",
+		},
+		{
+			input: "select 'Hello;World!'",
+		},
+		{
+			input: "select 'Hello;World!';",
+		},
+		{
+			input:   "select 'Hello;World!'; select 1",
+			want:    true,
+			wantRes: []string{"select 'Hello;World!'", " select 1"},
+		},
+		{
+			// Semicolons inside brackets are not treated in any special way.
+			input:   "select (select 1;); select 2;",
+			want:    true,
+			wantRes: []string{"select (select 1", ")", " select 2"},
+		},
+		{
+			input:   "select 'Hello''World!'",
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+		},
+		{
+			input:   "select 'Hello'';World!'",
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+		},
+		{
+			input:   "select 'Hello\"World!'",
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+		},
+		{
+			input:   "select 'Hello\";World!'",
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+		},
+		{
+			input:   `select * from "my""table"`,
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+		},
+		{
+			input:   `select * from "my"";table"`,
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+		},
+		{
+			input:   `select * from "my';table"; select 1`,
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+			want:    true,
+			wantRes: []string{`select * from "my';table"`, ` select 1`},
+		},
+		{
+			input: "/* This block comment surrounds a query which itself has a block comment...\n" +
+				"SELECT /* embedded single line */ 'embedded' AS x2;\n" +
+				"*/\n" +
+				"SELECT 1;",
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+		},
+		{
+			input: "/* This block comment surrounds a query which itself has a block comment...\n" +
+				"SELECT /* embedded single line */ 'embedded' AS x2;\n" +
+				"*/\n" +
+				"SELECT 1; SELECT 2;",
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+			want:    true,
+			wantRes: []string{"/* This block comment surrounds a query which itself has a block comment...\n" +
+				"SELECT /* embedded single line */ 'embedded' AS x2;\n" +
+				"*/\n" +
+				"SELECT 1", " SELECT 2"},
+		},
+		{
+			input:   "select $$Hello World!$$",
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+		},
+		{
+			input:   "select $$Hello;World!$$",
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+		},
+		{
+			input:   "select $$Hello;World!$$;",
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+		},
+		{
+			input:   "select $$Hello;World!$$; select 1",
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+			want:    true,
+			wantRes: []string{"select $$Hello;World!$$", " select 1"},
+		},
+		{
+			input:   "select $$Hello$;World!$$; select 1",
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+			want:    true,
+			wantRes: []string{"select $$Hello$;World!$$", " select 1"},
+		},
+		{
+			input:   "select $bar$Hello$;World!$bar$; select 1",
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+			want:    true,
+			wantRes: []string{"select $bar$Hello$;World!$bar$", " select 1"},
+		},
+		{
+			input:   "select $bar$Hello$$;World!$bar$; select 1",
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+			want:    true,
+			wantRes: []string{"select $bar$Hello$$;World!$bar$", " select 1"},
+		},
+		{
+			input:   "select $bar$Hello$baz$;World!$bar$; select 1",
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+			want:    true,
+			wantRes: []string{"select $bar$Hello$baz$;World!$bar$", " select 1"},
+		},
+	}
+	for _, dialect := range []databasepb.DatabaseDialect{
+		databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+		databasepb.DatabaseDialect_POSTGRESQL,
+	} {
+		parser, err := NewStatementParser(dialect, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, test := range tests {
+			if test.dialect == databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED || test.dialect == dialect {
+				t.Run(fmt.Sprintf("%v: %v", dialect, test.input), func(t *testing.T) {
+					got, res, err := parser.Split(test.input)
+					if g, w := got, test.want; g != w {
+						t.Errorf("result mismatch\n Got: %v\nWant: %v", g, w)
+					}
+					if test.want {
+						if g, w := res, test.wantRes; !reflect.DeepEqual(g, w) {
+							t.Errorf("result mismatch\n Got: %v\nWant: %v", g, w)
+						}
+					} else if test.wantErr && err == nil {
+						t.Error("missing expected error")
+					}
+				})
+			}
+		}
 	}
 }
 

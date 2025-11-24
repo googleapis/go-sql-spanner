@@ -20,8 +20,9 @@
 require "minitest/autorun"
 require "google/cloud/spanner/v1/spanner"
 require "timeout"
-require "tmpdir" # Needed for the file-based handshake
+require "tmpdir"
 
+require_relative "mock_server/statement_result"
 require_relative "../lib/spannerlib/ffi"
 require_relative "../lib/spannerlib/connection"
 
@@ -29,17 +30,26 @@ $server_pid = nil
 $server_port = nil
 $port_file = nil
 $any_failure = false
+$mock_msg_file = nil
+$mock_req_file = nil
 
 Minitest.after_run do
   if $server_pid
     begin
-      Process.kill("TERM", $server_pid)
+      if Gem.win_platform?
+        Process.kill("KILL", $server_pid)
+      else
+        Process.kill("TERM", $server_pid)
+      end
       Process.wait($server_pid)
     rescue Errno::ESRCH, Errno::ECHILD, Errno::EINVAL
       # Process already dead
     end
   end
-  File.delete($port_file) if $port_file && File.exist?($port_file)
+  [$port_file, $mock_msg_file, $mock_req_file].each do |f|
+    File.delete(f) if f && File.exist?(f)
+  end
+
   if $any_failure
     puts "Tests Failed! Exiting with code 1"
     $stdout.flush
@@ -52,31 +62,43 @@ Minitest.after_run do
 end
 
 describe "Connection" do
+  # rubocop:disable Metrics/AbcSize
   def self.spawn_server
-    runner_path = File.expand_path(File.join(__dir__, "mock_server_runner.rb"))
+    project_root = File.expand_path("..", __dir__)
+    runner_path = File.join(project_root, "spec", "mock_server_runner.rb")
+    ruby_exe = Gem.ruby
+
+    if Gem.win_platform?
+      runner_path = runner_path.tr("/", "\\")
+      ruby_exe = ruby_exe.tr("/", "\\")
+    end
 
     $port_file = File.join(Dir.tmpdir, "spanner_mock_port_#{Time.now.to_i}_#{rand(1000)}.txt")
+    $mock_msg_file = File.join(Dir.tmpdir, "spanner_mock_msgs_#{Process.pid}_#{SecureRandom.hex(4)}.bin")
+    $mock_req_file = File.join(Dir.tmpdir, "spanner_mock_reqs_#{Process.pid}_#{SecureRandom.hex(4)}.bin")
 
-    # 2. Tell the runner where to write the port
-    env_vars = { "MOCK_PORT_FILE" => $port_file }
+    env_vars = {
+      "MOCK_PORT_FILE" => $port_file,
+      "MOCK_MSG_FILE" => $mock_msg_file,
+      "MOCK_REQ_FILE" => $mock_req_file
+    }
+    cmd = [ruby_exe, "-Ilib", "-Ispec", runner_path]
+    $stdout.flush
 
-    # 3. Spawn process inheriting stdout/stderr.
-    # This prevents the buffer deadlock.
-    Process.spawn(env_vars, RbConfig.ruby, "-Ilib", "-Ispec", runner_path, out: $stdout, err: $stderr)
+    spawn(env_vars, *cmd, out: $stdout, err: $stderr)
   end
+  # rubocop:enable Metrics/AbcSize
 
   def self.wait_for_port
     start_time = Time.now
     loop do
-      raise "Timed out waiting for mock server to write to #{$port_file}" if Time.now - start_time > 20
+      raise "Timed out waiting for mock server port file." if Time.now - start_time > 20
 
-      # 4. Poll the file for the port
       if File.exist?($port_file)
         content = File.read($port_file).strip
         return content.to_i unless content.empty?
       end
 
-      # Check if the server died
       raise "Mock server exited unexpectedly!" if Process.waitpid($server_pid, Process::WNOHANG)
 
       sleep 0.1
@@ -96,8 +118,61 @@ describe "Connection" do
     end
   end
 
+  # Helper to set the mock server's response for a given SQL statement
+  def set_mock_result(sql, result)
+    existing = {}
+    if File.exist?($mock_msg_file)
+      content = File.binread($mock_msg_file)
+      begin
+        existing = Marshal.load(content) unless content.empty?
+      rescue ArgumentError, TypeError => e
+        warn "Failed to load existing mocks: #{e.message}"
+        existing = {}
+      end
+    end
+    existing[sql] = result
+    File.binwrite($mock_msg_file, Marshal.dump(existing))
+  end
+
+  # Helper to get the requests received by the mock server
+  def load_requests
+    return [] unless File.exist?($mock_req_file)
+
+    requests = []
+    File.open($mock_req_file, "rb") do |f|
+      until f.eof?
+        begin
+          data = Marshal.load(f)
+          klass = Object.const_get(data[:class])
+          requests << klass.decode(data[:payload])
+        rescue ArgumentError, TypeError, NameError => e
+          warn "Failed to load a request from log: #{e.message}"
+          break
+        end
+      end
+    end
+    requests
+  end
+
+  def find_transaction_options(requests)
+    # Look for explicit BeginTransactionRequest
+    begin_req = requests.find { |r| r.is_a?(Google::Cloud::Spanner::V1::BeginTransactionRequest) }
+    return begin_req.options if begin_req
+
+    # Look for inline TransactionOptions in ExecuteSqlRequest
+    exec_req = requests.find do |r|
+      r.is_a?(Google::Cloud::Spanner::V1::ExecuteSqlRequest) &&
+        r.transaction&.begin
+    end
+    return exec_req.transaction.begin if exec_req
+
+    nil
+  end
+
   before do
     self.class.ensure_server_running!
+    File.binwrite($mock_msg_file, Marshal.dump({}))
+    File.write($mock_req_file, "")
     @dsn = "127.0.0.1:#{$server_port}/projects/p/instances/i/databases/d?useplaintext=true"
 
     @pool_id = SpannerLib.create_pool(@dsn)
@@ -112,18 +187,22 @@ describe "Connection" do
   end
 
   it "can execute SELECT 1" do
-    request_proto = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: "SELECT 1")
-    rows_object = @conn.execute(request_proto)
+    set_mock_result("SELECT 1", StatementResult.create_select1_result)
 
-    decoded_rows = rows_object.map do |row_bytes|
-      Google::Protobuf::ListValue.decode(row_bytes)
-    end
+    req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: "SELECT 1")
+    rows = @conn.execute(req)
 
-    _(decoded_rows.length).must_equal 1
-    _(decoded_rows[0].values[0].string_value).must_equal "1"
+    decoded = rows.map { |r| Google::Protobuf::ListValue.decode(r) }
+    _(decoded.length).must_equal 1
+    _(decoded[0].values[0].string_value).must_equal "1"
   end
 
-  it "can execute a read-write transaction (Begin/Insert/Commit)" do
+  it "validates read-write transaction lifecycle" do
+    set_mock_result(
+      "INSERT INTO test_table (id, name) VALUES ('1', 'Alice')",
+      StatementResult.create_update_count_result(1)
+    )
+
     tx_opts = Google::Cloud::Spanner::V1::TransactionOptions.new(
       read_write: Google::Cloud::Spanner::V1::TransactionOptions::ReadWrite.new
     )
@@ -131,11 +210,147 @@ describe "Connection" do
 
     sql = "INSERT INTO test_table (id, name) VALUES ('1', 'Alice')"
     req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: sql)
-
     @conn.execute(req)
-    commit_resp = @conn.commit
+    @conn.commit
 
-    _(commit_resp.commit_timestamp).wont_be_nil
+    requests = load_requests
+
+    tx_options = find_transaction_options(requests)
+    _(tx_options).wont_be_nil
+    _(tx_options.read_write).wont_be_nil
+
+    commit_req = requests.find { |r| r.is_a?(Google::Cloud::Spanner::V1::CommitRequest) }
+    _(commit_req).wont_be_nil
+    _(commit_req.transaction_id).wont_be_empty
+  end
+
+  it "validates read-only transaction lifecycle" do
+    set_mock_result(
+      "SELECT 1",
+      StatementResult.create_select1_result
+    )
+
+    tx_opts = Google::Cloud::Spanner::V1::TransactionOptions.new(
+      read_only: Google::Cloud::Spanner::V1::TransactionOptions::ReadOnly.new(strong: true)
+    )
+    @conn.begin_transaction(tx_opts)
+
+    sql = "SELECT 1"
+    req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: sql)
+    @conn.execute(req)
+    @conn.commit
+
+    requests = load_requests
+
+    tx_options = find_transaction_options(requests)
+    _(tx_options).wont_be_nil
+    _(tx_options.read_only).wont_be_nil
+    _(tx_options.read_only.strong).must_equal true
+
+    exec_req = requests.find { |r| r.is_a?(Google::Cloud::Spanner::V1::ExecuteSqlRequest) }
+    _(exec_req).wont_be_nil
+
+    commit_reqs = requests.select { |r| r.is_a?(Google::Cloud::Spanner::V1::CommitRequest) }
+    _(commit_reqs).must_be_empty "Expected no Commit requests for read-only transaction"
+
+    rollback_reqs = requests.select { |r| r.is_a?(Google::Cloud::Spanner::V1::RollbackRequest) }
+    _(rollback_reqs).must_be_empty "Expected no Rollback requests for read-only transaction"
+  end
+
+  it "raises an error when the table does not exist" do
+    sql = "SELECT * FROM non_existent_table"
+
+    error_status = Google::Rpc::Status.new(
+      code: GRPC::Core::StatusCodes::NOT_FOUND,
+      message: "Table not found: non_existent_table"
+    )
+
+    mock_result = StatementResult.create_exception_result(error_status)
+    set_mock_result(sql, mock_result)
+
+    err = _ do
+      req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: sql)
+      @conn.execute(req)
+    end.must_raise StandardError
+
+    _(err.message).must_match(/Table not found/)
+  end
+
+  it "can write mutations" do
+    mutation = Google::Cloud::Spanner::V1::Mutation.new(
+      insert: Google::Cloud::Spanner::V1::Mutation::Write.new(
+        table: "users",
+        columns: %w[id name],
+        values: [
+          Google::Protobuf::ListValue.new(values: [
+                                            Google::Protobuf::Value.new(string_value: "1"),
+                                            Google::Protobuf::Value.new(string_value: "Alice")
+                                          ])
+        ]
+      )
+    )
+    mutation_group = Google::Cloud::Spanner::V1::BatchWriteRequest::MutationGroup.new(
+      mutations: [mutation]
+    )
+    @conn.write_mutations(mutation_group)
+
+    requests = load_requests
+    commit_req = requests.find { |r| r.is_a?(Google::Cloud::Spanner::V1::CommitRequest) }
+
+    _(commit_req).wont_be_nil
+    _(commit_req.mutations.length).must_equal 1
+    _(commit_req.mutations[0].insert.table).must_equal "users"
+  end
+
+  it "can execute a batch of DML statements" do
+    sql1 = "UPDATE users SET active = true WHERE id = 1"
+    sql2 = "UPDATE users SET active = true WHERE id = 2"
+
+    set_mock_result(sql1, StatementResult.create_update_count_result(1))
+    set_mock_result(sql2, StatementResult.create_update_count_result(1))
+
+    batch_req = Google::Cloud::Spanner::V1::ExecuteBatchDmlRequest.new(
+      statements: [
+        Google::Cloud::Spanner::V1::ExecuteBatchDmlRequest::Statement.new(sql: sql1),
+        Google::Cloud::Spanner::V1::ExecuteBatchDmlRequest::Statement.new(sql: sql2)
+      ]
+    )
+
+    resp = @conn.execute_batch(batch_req)
+
+    _(resp.result_sets.length).must_equal 2
+    _(resp.result_sets[0].stats.row_count_exact).must_equal 1
+    _(resp.result_sets[1].stats.row_count_exact).must_equal 1
+
+    requests = load_requests
+    captured_batch = requests.find { |r| r.is_a?(Google::Cloud::Spanner::V1::ExecuteBatchDmlRequest) }
+
+    _(captured_batch).wont_be_nil
+    _(captured_batch.statements.length).must_equal 2
+    _(captured_batch.statements[0].sql).must_equal sql1
+  end
+
+  it "handles Batch DML errors correctly" do
+    sql_success = "UPDATE users SET active = true WHERE id = 1"
+    sql_fail = "UPDATE users SET active = true WHERE id = 999"
+
+    set_mock_result(sql_success, StatementResult.create_update_count_result(1))
+
+    error_status = Google::Rpc::Status.new(
+      code: GRPC::Core::StatusCodes::PERMISSION_DENIED,
+      message: "Permission denied for user"
+    )
+    set_mock_result(sql_fail, StatementResult.create_exception_result(error_status))
+
+    batch_req = Google::Cloud::Spanner::V1::ExecuteBatchDmlRequest.new(
+      statements: [
+        Google::Cloud::Spanner::V1::ExecuteBatchDmlRequest::Statement.new(sql: sql_success),
+        Google::Cloud::Spanner::V1::ExecuteBatchDmlRequest::Statement.new(sql: sql_fail)
+      ]
+    )
+
+    err = _ { @conn.execute_batch(batch_req) }.must_raise StandardError
+    _(err.message).must_match(/Permission denied/)
   end
 end
 # rubocop:enable RSpec/NoExpectationExample
