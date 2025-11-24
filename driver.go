@@ -1534,23 +1534,18 @@ func parseRpcPriority(val string) (spannerpb.RequestOptions_Priority, error) {
 }
 
 func parseIsolationLevel(val string) (sql.IsolationLevel, error) {
-	switch strings.Replace(strings.ToLower(strings.TrimSpace(val)), " ", "_", 1) {
+	s := strings.ToLower(strings.TrimSpace(val))
+	s = strings.ReplaceAll(s, " ", "")
+	s = strings.ReplaceAll(s, "_", "")
+	switch s {
 	case "default":
 		return sql.LevelDefault, nil
-	case "read_uncommitted":
-		return sql.LevelReadUncommitted, nil
 	case "readuncommitted":
 		return sql.LevelReadUncommitted, nil
-	case "read_committed":
-		return sql.LevelReadCommitted, nil
 	case "readcommitted":
 		return sql.LevelReadCommitted, nil
-	case "write_committed":
-		return sql.LevelWriteCommitted, nil
 	case "writecommitted":
 		return sql.LevelWriteCommitted, nil
-	case "repeatable_read":
-		return sql.LevelRepeatableRead, nil
 	case "repeatableread":
 		return sql.LevelRepeatableRead, nil
 	case "snapshot":

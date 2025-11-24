@@ -408,6 +408,14 @@ func TestParseIsolationLevel(t *testing.T) {
 			want:  sql.LevelReadUncommitted,
 		},
 		{
+			input: "readuncommitted",
+			want:  sql.LevelReadUncommitted,
+		},
+		{
+			input: "read_uncommitted",
+			want:  sql.LevelReadUncommitted,
+		},
+		{
 			input: "  read_uncommitted\n",
 			want:  sql.LevelReadUncommitted,
 		},
@@ -416,11 +424,47 @@ func TestParseIsolationLevel(t *testing.T) {
 			want:  sql.LevelReadCommitted,
 		},
 		{
+			input: "readcommitted",
+			want:  sql.LevelReadCommitted,
+		},
+		{
+			input: "read_committed",
+			want:  sql.LevelReadCommitted,
+		},
+		{
 			input: "write committed",
 			want:  sql.LevelWriteCommitted,
 		},
 		{
+			input: "writecommitted",
+			want:  sql.LevelWriteCommitted,
+		},
+		{
+			input: "write_committed",
+			want:  sql.LevelWriteCommitted,
+		},
+		{
 			input: "repeatable read",
+			want:  sql.LevelRepeatableRead,
+		},
+		{
+			input: "repeatableread",
+			want:  sql.LevelRepeatableRead,
+		},
+		{
+			input: "repeatable_read",
+			want:  sql.LevelRepeatableRead,
+		},
+		{
+			input: "  \n repeatable read \t",
+			want:  sql.LevelRepeatableRead,
+		},
+		{
+			input: "  repeatableread    ",
+			want:  sql.LevelRepeatableRead,
+		},
+		{
+			input: "   repeatable_read  ",
 			want:  sql.LevelRepeatableRead,
 		},
 		{

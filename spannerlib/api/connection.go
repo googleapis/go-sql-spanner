@@ -522,7 +522,7 @@ func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDm
 			if i > 0 {
 				tp := spannerConn.DetectStatementType(statement.Sql)
 				if tp != firstStatementType {
-					return status.Errorf(codes.InvalidArgument, "Batches may not contain different types of statements. The first statement is of type %v. The statement on position %d is of type %v.", firstStatementType, i, tp)
+					return status.Errorf(codes.InvalidArgument, "Batches may not contain different types of statements. The first statement is of type %v. The statement on position %d is of type %v.", firstStatementType, i+1, tp)
 				}
 			}
 		}

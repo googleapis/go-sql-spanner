@@ -24,6 +24,8 @@ namespace Google.Cloud.SpannerLib.MockServer;
 
 public class SpannerMockServerFixture : IDisposable
 {
+    private const int MaxRequestBodySize = 100_000_000;
+    
     private readonly Random _random = new ();
 
     private readonly IWebHost _host;
@@ -63,9 +65,9 @@ public class SpannerMockServerFixture : IDisposable
         });
         builder.ConfigureKestrel(options =>
         {
-            // Setup a HTTP/2 endpoint without TLS.
+            // Set up an HTTP/2 endpoint without TLS.
             options.Listen(endpoint, o => o.Protocols = HttpProtocols.Http2);
-            options.Limits.MaxRequestBodySize = 100_000_000;
+            options.Limits.MaxRequestBodySize = MaxRequestBodySize;
         });
         _host = builder.Build();
         _host.Start();
