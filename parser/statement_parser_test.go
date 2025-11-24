@@ -27,18 +27,19 @@ import (
 
 func TestStatementTypeString(t *testing.T) {
 	testCases := []struct {
+		name string
 		st   StatementType
 		want string
 	}{
-		{StatementTypeDdl, "DDL"},
-		{StatementTypeClientSide, "ClientSide"},
-		{StatementTypeQuery, "Query"},
-		{StatementTypeDml, "DML"},
-		{StatementTypeUnknown, "Unknown"},
-		{StatementType(999), "Unknown"}, // Also test an undefined value.
+		{name: "Ddl", st: StatementTypeDdl, want: "DDL"},
+		{name: "ClientSide", st: StatementTypeClientSide, want: "ClientSide"},
+		{name: "Query", st: StatementTypeQuery, want: "Query"},
+		{name: "Dml", st: StatementTypeDml, want: "DML"},
+		{name: "Unknown", st: StatementTypeUnknown, want: "Unknown"},
+		{name: "Invalid", st: StatementType(999), want: "Unknown"}, // Also test an undefined value.
 	}
 	for _, tc := range testCases {
-		t.Run(tc.want, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			if got := tc.st.String(); got != tc.want {
 				t.Errorf("String() = %q, want %q", got, tc.want)
 			}
