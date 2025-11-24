@@ -373,24 +373,24 @@ func (p *simpleParser) skipWhitespacesAndComments() {
 }
 
 func (p *simpleParser) skipExpressionInBrackets() error {
-	if p.sql[p.pos] != '(' {
+	if p.pos >= len(p.sql) || p.sql[p.pos] != '(' {
 		return nil
 	}
 	p.pos++
 	level := 1
-	var err error
 	for p.pos < len(p.sql) && level > 0 {
-		p.pos, err = p.statementParser.skip(p.sql, p.pos)
-		if err != nil {
-			return err
-		}
-		if p.pos >= len(p.sql) {
-			break
-		}
-		if p.sql[p.pos] == ')' {
+		if !p.isMultibyte() && p.sql[p.pos] == ')' {
 			level--
-		} else if p.sql[p.pos] == '(' {
+			p.pos++
+		} else if !p.isMultibyte() && p.sql[p.pos] == '(' {
 			level++
+			p.pos++
+		} else {
+			newPos, err := p.statementParser.skip(p.sql, p.pos)
+			if err != nil {
+				return err
+			}
+			p.pos = newPos
 		}
 	}
 	return nil
