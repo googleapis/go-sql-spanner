@@ -666,6 +666,9 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 			}
 			return driver.ResultNoRows, nil
 		} else if c.parser.IsDropDatabaseStatement(ddlStatements[0]) {
+			if len(ddlStatements) > 1 {
+				return nil, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "DROP DATABASE cannot be used in a batch with other statements"))
+			}
 			stmt := &parser.ParsedDropDatabaseStatement{}
 			if err := stmt.Parse(c.parser, ddlStatements[0]); err != nil {
 				return nil, err

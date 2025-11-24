@@ -744,20 +744,17 @@ func TestCreateDatabaseWithExtraStatements(t *testing.T) {
 	}
 	defer silentClose(conn)
 
-	if _, err = conn.ExecContext(ctx, "start batch ddl"); err != nil {
-		t.Fatalf("failed to start ddl batch: %v", err)
+	statements := []string{
+		"start batch ddl",
+		"create database `foo`",
+		"create table my_table (id int64 primary key, value string(max))",
+		"create index my_index on my_table (value)",
+		"run batch",
 	}
-	if _, err = conn.ExecContext(ctx, "create database `foo`"); err != nil {
-		t.Fatalf("failed to execute CREATE DATABASE: %v", err)
-	}
-	if _, err = conn.ExecContext(ctx, "create table my_table (id int64 primary key, value string(max))"); err != nil {
-		t.Fatalf("failed to execute CREATE TABLE: %v", err)
-	}
-	if _, err = conn.ExecContext(ctx, "create index my_index on my_table (value)"); err != nil {
-		t.Fatalf("failed to execute CREATE INDEX: %v", err)
-	}
-	if _, err = conn.ExecContext(ctx, "run batch"); err != nil {
-		t.Fatalf("failed to run ddl batch: %v", err)
+	for _, stmt := range statements {
+		if _, err := conn.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("failed to execute %q: %v", stmt, err)
+		}
 	}
 
 	requests := server.TestDatabaseAdmin.Reqs()
