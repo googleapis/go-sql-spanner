@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
@@ -666,8 +667,10 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 					Err:               err,
 					BatchUpdateCounts: []int64{},
 				}
-				metadata, _ := op.Metadata()
-				if metadata != nil {
+				metadata, err := op.Metadata()
+				if err != nil {
+					c.logger.WarnContext(ctx, fmt.Sprintf("Error getting metadata for UpdateDatabaseDdl: %v", err))
+				} else if metadata != nil {
 					for _, ts := range metadata.CommitTimestamps {
 						if ts != nil {
 							be.BatchUpdateCounts = append(be.BatchUpdateCounts, int64(-1))
