@@ -191,7 +191,7 @@ func TestExecuteCreateDatabaseInBatch(t *testing.T) {
 	}{
 		{
 			name:            "without extra statements",
-			extraStatements: []string{},
+			extraStatements: nil,
 		},
 		{
 			name: "with extra statements",
@@ -263,6 +263,8 @@ func TestExecuteCreateDatabaseInBatch(t *testing.T) {
 			}
 			if g, w := len(createRequest.ExtraStatements), len(tc.extraStatements); g != w {
 				t.Fatalf("DDL statement count mismatch\n Got: %v\nWant: %v", g, w)
+			} else if !cmp.Equal(createRequest.ExtraStatements, tc.extraStatements) {
+				t.Fatalf("extra statements mismatch\n Got: %v\nWant: %v", createRequest.ExtraStatements, tc.extraStatements)
 			}
 		})
 	}

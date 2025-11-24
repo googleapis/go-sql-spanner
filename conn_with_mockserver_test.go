@@ -767,6 +767,14 @@ func TestCreateDatabaseWithExtraStatements(t *testing.T) {
 		}
 		if g, w := len(req.ExtraStatements), 2; g != w {
 			t.Fatalf("extra statements count mismatch\n Got: %v\nWant: %v", g, w)
+		} else {
+			wantExtraStatements := []string{
+				"create table my_table (id int64 primary key, value string(max))",
+				"create index my_index on my_table (value)",
+			}
+			if !reflect.DeepEqual(req.ExtraStatements, wantExtraStatements) {
+				t.Fatalf("extra statements mismatch\n Got: %v\nWant: %v", req.ExtraStatements, wantExtraStatements)
+			}
 		}
 	} else {
 		t.Fatalf("request type mismatch, got %v", requests[0])
