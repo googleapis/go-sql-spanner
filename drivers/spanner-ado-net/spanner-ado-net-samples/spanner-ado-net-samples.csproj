@@ -14,4 +14,8 @@
     <ProjectReference Include="..\spanner-ado-net\spanner-ado-net.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Docker.DotNet" Version="3.125.15" />
+  </ItemGroup>
+
 </Project>

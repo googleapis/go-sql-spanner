@@ -104,6 +104,24 @@ public class SpannerConnectionStringBuilder : DbConnectionStringBuilder
     }
 
     /// <summary>
+    /// Whether to automatically try to connect to the Spanner Emulator, and automatically create the Spanner
+    /// instance and database on the Emulator if these do not already exist. Setting this option to true will
+    /// instruct the driver to:
+    /// 1. Try to connect to localhost:9010 (unless a different Host/Port has been set in the connection string)
+    /// 2. Use plain text communication instead of SSL.
+    /// 3. Create the Spanner Instance and Database on the Emulator if these do not already exist.
+    /// </summary>
+    [Category("Connection")]
+    [DefaultValue(false)]
+    [Description("Whether to automatically try to connect to the Spanner Emulator and create the Instance and Database on the Emulator.")]
+    [DisplayName("AutoConfigEmulator")]
+    public bool AutoConfigEmulator
+    {
+	    get => SpannerConnectionStringOption.AutoConfigEmulator.GetValue(this);
+	    set => SpannerConnectionStringOption.AutoConfigEmulator.SetValue(this, value);
+    }
+
+    /// <summary>
     /// Whether to use plain text communication with the server. The default is SSL.
     /// </summary>
     [Category("Connection")]
@@ -352,6 +370,9 @@ internal abstract class SpannerConnectionStringOption
 	public static readonly SpannerConnectionStringValueOption<uint> CommandTimeout;
 	public static readonly SpannerConnectionStringValueOption<uint> TransactionTimeout;
 
+	// Emulator Options
+	public static readonly SpannerConnectionStringValueOption<bool> AutoConfigEmulator;
+	
 	// SSL/TLS Options
 	public static readonly SpannerConnectionStringValueOption<bool> UsePlainText;
 	
@@ -444,6 +465,11 @@ internal abstract class SpannerConnectionStringOption
 			keys: ["Transaction Timeout", "TransactionTimeout", "transaction_timeout"],
 			spannerLibKey: "transaction_timeout",
 			defaultValue: 0u));
+
+		// Emulator Options
+		AddOption(options, AutoConfigEmulator = new(
+			keys: ["AutoConfigEmulator", "Auto Config Emulator", "UseEmulator", "Use Emulator", "auto_config_emulator"],
+			defaultValue: false));
 
 		// SSL/TLS Options
 		AddOption(options, UsePlainText = new(
