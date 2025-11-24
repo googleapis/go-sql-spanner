@@ -14,18 +14,24 @@
 
 namespace Google.Cloud.Spanner.DataProvider.Samples.Snippets;
 
-public class HelloWorldSample
+public class QueryParametersSample
 {
     public static async Task Run(string connectionString)
     {
         await using var connection = new SpannerConnection(connectionString);
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT 'Hello World' as Message";
+        command.CommandText = "SELECT SingerId, FullName " +
+                              "FROM Singers " +
+                              "WHERE LastName LIKE @lastName " +
+                              "   OR FirstName LIKE @firstName " +
+                              "ORDER BY LastName, FirstName";
+        command.Parameters.AddWithValue("lastName", "R%");
+        command.Parameters.AddWithValue("firstName", "A%");
         await using var reader = await command.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
-            Console.WriteLine($"Greeting from Spanner: {reader.GetString(0)}");
+            Console.WriteLine($"Found singer: {reader.GetString(1)}");
         }
     }
 }

@@ -15,7 +15,6 @@
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Reflection;
 using Google.Apis.Util;
 using Google.Cloud.Spanner.Admin.Database.V1;
 using Google.Cloud.Spanner.Common.V1;
@@ -58,11 +57,6 @@ public class StatementResult
     public static StatementResult CreateException(Exception exception)
     {
         return new StatementResult(exception);
-    }
-
-    public static StatementResult CreateSelectZeroResultSet()
-    {
-        return CreateSingleColumnResultSet(new Spanner.V1.Type { Code = Spanner.V1.TypeCode.Int64 }, "COL1", 0);
     }
 
     public static StatementResult CreateSelect1ResultSet()

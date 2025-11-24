@@ -1,3 +1,17 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 using System.Reflection;
 using Google.Api.Gax;
 using Google.Cloud.Spanner.Common.V1;
@@ -102,7 +116,9 @@ public static class SampleRunner
                 DataSource = databaseName.ToString(),
                 AutoConfigEmulator = true,
             };
-
+            
+            await ExecuteScript(connectionStringBuilder.ConnectionString, "create_sample_tables.sql");
+            await ExecuteScript(connectionStringBuilder.ConnectionString, "insert_sample_data.sql");
             await sampleMethod.Invoke(connectionStringBuilder.ConnectionString);
         }
         catch (Exception e)
@@ -150,39 +166,27 @@ public static class SampleRunner
         }
     }
 
-    private static async Task CreateSampleDataModel(string connectionString)
+    private static async Task ExecuteScript(string connectionString, string file)
     {
         var codeBaseUrl = new Uri(Assembly.GetExecutingAssembly().Location);
         var codeBasePath = Uri.UnescapeDataString(codeBaseUrl.AbsolutePath);
         var dirPath = Path.GetDirectoryName(codeBasePath);
-        var fileName = Path.Combine(dirPath, "SampleModel/SampleDataModel.sql");
-        var script = await File.ReadAllTextAsync(fileName);
-        var statements = script.Split(";");
-        for (var i = 0; i < statements.Length; i++)
+        if (dirPath == null)
         {
-            // Remove license header from script
-            if (statements[i].IndexOf("/*", StringComparison.Ordinal) >= 0 && statements[i].IndexOf("*/", StringComparison.Ordinal) >= 0)
-            {
-                int startIndex = statements[i].IndexOf("/*", StringComparison.Ordinal);
-                int endIndex = statements[i].IndexOf("*/", startIndex, StringComparison.Ordinal) + "*/".Length;
-                statements[i] = statements[i].Remove(startIndex, endIndex - startIndex);
-            }
-            statements[i] = statements[i].Trim(new char[] { '\r', '\n' });
+            throw new DirectoryNotFoundException("Could not find the sample directory");
         }
-        int length = statements.Length;
-        if (statements[length - 1] == "")
-        {
-            length--;
-        }
-        await ExecuteDdlAsync(connectionString, statements, length);
+        var filePath = Path.Combine(dirPath, file);
+        var script = await File.ReadAllTextAsync(filePath);
+        var statements = script.Split(";").Where(statement => !string.IsNullOrWhiteSpace(statement));
+        await ExecuteBatchAsync(connectionString, statements);
     }
 
-    private static async Task ExecuteDdlAsync(string connectionString, string[] ddl, int length)
+    private static async Task ExecuteBatchAsync(string connectionString, IEnumerable<string> statements)
     {
         await using var connection = new SpannerConnection(connectionString);
         await connection.OpenAsync();
         var batch = connection.CreateBatch();
-        foreach (var statement in ddl)
+        foreach (var statement in statements)
         {
             var cmd = batch.CreateBatchCommand();
             cmd.CommandText = statement;
