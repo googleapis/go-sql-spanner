@@ -83,8 +83,6 @@ describe "Connection" do
       "MOCK_REQ_FILE" => $mock_req_file
     }
     cmd = [ruby_exe, "-Ilib", "-Ispec", runner_path]
-
-    puts "DEBUG: Spawning: #{cmd}"
     $stdout.flush
 
     spawn(env_vars, *cmd, out: $stdout, err: $stderr)
@@ -129,7 +127,7 @@ describe "Connection" do
         existing = Marshal.load(content) unless content.empty?
       rescue ArgumentError, TypeError => e
         warn "Failed to load existing mocks: #{e.message}"
-        {}
+        existing = {}
       end
     end
     existing[sql] = result

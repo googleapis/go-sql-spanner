@@ -33,13 +33,14 @@ Style/StringLiterals:
 
 Style/FormatStringToken:
   EnforcedStyle: template
+
 Metrics/ClassLength:
   Exclude:
-   - 'spec/**/*'
+    - 'spec/**/*'
 
 Metrics/MethodLength:
   Exclude:
-  - 'spec/**/*'
+    - 'spec/**/*'
 
 Metrics/AbcSize:
   Exclude:

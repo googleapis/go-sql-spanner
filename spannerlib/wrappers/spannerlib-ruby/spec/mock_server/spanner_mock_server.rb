@@ -126,9 +126,10 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
     result = get_statement_result(request.sql).clone
 
     if result.result_type == StatementResult::EXCEPTION
-      raise GRPC::BadStatus.new(result.result.code, result.result.message) if result.result.is_a?(Google::Rpc::Status)
+      err_proto = result.result
+      raise GRPC::BadStatus.new(err_proto.code, err_proto.message) if err_proto.is_a?(Google::Rpc::Status)
 
-      raise result.result
+      raise err_proto
 
     end
 
