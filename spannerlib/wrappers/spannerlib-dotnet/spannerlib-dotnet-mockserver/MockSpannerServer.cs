@@ -437,7 +437,7 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
         var stopwatch = Stopwatch.StartNew();
         while (stopwatch.Elapsed < timeout)
         {
-            if (Requests.Any(predicate))
+            if (_requests.Any(predicate))
             {
                 return true;
             }
