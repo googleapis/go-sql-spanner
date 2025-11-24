@@ -36,6 +36,7 @@ type InMemDatabaseAdminServer interface {
 	Reqs() []proto.Message
 	SetReqs([]proto.Message)
 	SetErr(error)
+	AddDdlResponse(key string, result *longrunningpb.Operation)
 }
 
 // inMemDatabaseAdminServer implements InMemDatabaseAdminServer interface. Note that
@@ -48,11 +49,17 @@ type inMemDatabaseAdminServer struct {
 	err error
 	// responses to return if err == nil
 	resps []proto.Message
+
+	// Specific results for UpdateDatabaseDdl calls.
+	// These results are returned if an UpdateDatabaseDdlRequest corresponds exactly to the key in this map.
+	// The key is calculated by concatenating all statements in the UpdateDatabaseDdlRequest into one string separated
+	// by semicolons.
+	ddlResults map[string]*longrunningpb.Operation
 }
 
 // NewInMemDatabaseAdminServer creates a new in-mem test server.
 func NewInMemDatabaseAdminServer() InMemDatabaseAdminServer {
-	res := &inMemDatabaseAdminServer{}
+	res := &inMemDatabaseAdminServer{ddlResults: make(map[string]*longrunningpb.Operation)}
 	return res
 }
 
@@ -89,7 +96,22 @@ func (s *inMemDatabaseAdminServer) UpdateDatabaseDdl(ctx context.Context, req *d
 	if s.err != nil {
 		return nil, s.err
 	}
+	key := toKey(req)
+	if resp, ok := s.ddlResults[key]; ok {
+		return resp, nil
+	}
 	return s.resps[0].(*longrunningpb.Operation), nil
+}
+
+func toKey(req *databasepb.UpdateDatabaseDdlRequest) string {
+	result := ""
+	for i, s := range req.Statements {
+		if i > 0 {
+			result += ";"
+		}
+		result += s
+	}
+	return result
 }
 
 func (s *inMemDatabaseAdminServer) Stop() {
@@ -114,4 +136,8 @@ func (s *inMemDatabaseAdminServer) SetReqs(reqs []proto.Message) {
 
 func (s *inMemDatabaseAdminServer) SetErr(err error) {
 	s.err = err
+}
+
+func (s *inMemDatabaseAdminServer) AddDdlResponse(key string, result *longrunningpb.Operation) {
+	s.ddlResults[key] = result
 }

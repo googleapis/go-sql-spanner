@@ -26,3 +26,32 @@ type batch struct {
 	options      *ExecOptions
 	automatic    bool
 }
+
+func toBatchError(res *result, err error) error {
+	if err == nil {
+		return err
+	}
+	if res == nil {
+		return &BatchError{
+			Err:               err,
+			BatchUpdateCounts: []int64{},
+		}
+	}
+	return &BatchError{
+		BatchUpdateCounts: res.batchUpdateCounts,
+		Err:               err,
+	}
+}
+
+type BatchError struct {
+	BatchUpdateCounts []int64
+	Err               error
+}
+
+func (be *BatchError) Error() string {
+	return be.Err.Error()
+}
+
+func (be *BatchError) Unwrap() error {
+	return be.Err
+}
