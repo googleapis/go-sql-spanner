@@ -15,7 +15,7 @@ import os
 import subprocess
 import sys
 
-from google.cloud.spanner_v1 import ExecuteSqlRequest, Type, TypeCode
+from google.cloud.spanner_v1 import ExecuteSqlRequest, TypeCode
 import pytest
 
 from google.cloud.spannerlib import Pool
@@ -68,7 +68,7 @@ class TestRowsE2E:
         sql = "SELECT 1 AS num"
         request = ExecuteSqlRequest(sql=sql)
         rows = connection.execute(request)
-        
+
         try:
             metadata = rows.metadata()
             assert metadata is not None
