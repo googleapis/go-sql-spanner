@@ -41,12 +41,12 @@ class Connection(AbstractLibraryObject):
                 created.
         """
         super().__init__(pool.spannerlib, oid)
-        self._pool_id = pool.oid
+        self._pool = pool
 
     @property
-    def pool_id(self) -> int:
-        """Returns the pool ID associated with this connection."""
-        return self._pool_id
+    def pool(self) -> "Pool":
+        """Returns the pool associated with this connection."""
+        return self._pool
 
     def _close_lib_object(self) -> None:
         """Internal method to close the pool in the Go library."""
@@ -54,7 +54,7 @@ class Connection(AbstractLibraryObject):
             logger.info("Closing connection ID: %d", self.oid)
             # Call the Go library function to close the connection.
             with self.spannerlib.close_connection(
-                self.pool_id, self.oid
+                self.pool.oid, self.oid
             ) as msg:
                 msg.bind_library(self.spannerlib)
                 msg.raise_if_error()

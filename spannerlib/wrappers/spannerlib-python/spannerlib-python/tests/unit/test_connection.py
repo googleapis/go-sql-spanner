@@ -92,14 +92,14 @@ class TestConnection:
         assert conn.oid == 50
 
         # Verify specific connection attributes
-        assert conn.pool_id == 999
+        assert conn.pool.oid == 999
 
-    def test_pool_id_property_is_read_only(self, connection):
-        """Ensure pool_id cannot be overwritten accidentally."""
-        assert connection.pool_id == 999
+    def test_pool_property_is_read_only(self, connection):
+        """Ensure pool cannot be overwritten accidentally."""
+        assert connection.pool.oid == 999
 
         with pytest.raises(AttributeError):
-            connection.pool_id = 888
+            connection.pool = None
 
     # -------------------------------------------------------------------------
     # Test Methods: Lifecycle & Cleanup

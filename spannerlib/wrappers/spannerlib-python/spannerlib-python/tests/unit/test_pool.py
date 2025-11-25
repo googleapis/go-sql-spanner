@@ -209,7 +209,7 @@ class TestPool:
         mock_lib_instance.create_connection.assert_called_once_with(100)
         assert isinstance(conn, Connection)
         assert conn.oid == 200
-        assert conn.pool_id == 100
+        assert conn.pool.oid == 100
         assert conn.spannerlib == mock_lib_instance
 
     def test_create_connection_pool_closed(self, mock_lib_instance):
