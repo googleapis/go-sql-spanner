@@ -53,8 +53,10 @@ def setup_env():
 def teardown():
     if TEST_ON_PROD:
         return
+
     client = spanner.Client(project=PROJECT_ID)
     instance = client.instance(INSTANCE_ID)
+
     if not instance.exists():
         return
 
