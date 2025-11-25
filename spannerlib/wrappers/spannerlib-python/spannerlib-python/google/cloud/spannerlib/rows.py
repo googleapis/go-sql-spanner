@@ -24,11 +24,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class Row(AbstractLibraryObject):
-    """Represents a single row from the Spanner database."""
+class Rows(AbstractLibraryObject):
+    """Represents a result set from the Spanner database."""
 
     def __init__(self, oid: int, pool: "Pool", conn: "Connection") -> None:
-        """Initializes a Row object.
+        """Initializes a Rows object.
 
         Args:
             oid (int): The object ID (handle) of the row in the Go library.
@@ -40,24 +40,24 @@ class Row(AbstractLibraryObject):
 
     @property
     def pool(self) -> "Pool":
-        """Returns the pool associated with this row."""
+        """Returns the pool associated with this rows."""
         return self._pool
 
     @property
     def conn(self) -> "Connection":
-        """Returns the connection associated with this row."""
+        """Returns the connection associated with this rows."""
         return self._conn
 
     def _close_lib_object(self) -> None:
-        """Internal method to close the row in the Go library."""
+        """Internal method to close the rows in the Go library."""
         try:
-            logger.info("Closing row ID: %d", self.oid)
-            # Call the Go library function to close the row.
+            logger.info("Closing rows ID: %d", self.oid)
+            # Call the Go library function to close the rows.
             with self.spannerlib.close_rows(
                 self.pool.oid, self.conn.oid, self.oid
             ) as msg:
                 msg.raise_if_error()
-            logger.info("Row ID: %d closed", self.oid)
+            logger.info("Rows ID: %d closed", self.oid)
         except Exception as e:
-            logger.exception("Error closing row ID: %d", self.oid)
+            logger.exception("Error closing rows ID: %d", self.oid)
             raise e

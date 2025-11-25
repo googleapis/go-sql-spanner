@@ -18,6 +18,7 @@ from typing import Final
 
 from google.cloud.spannerlib.connection import Connection
 from google.cloud.spannerlib.pool import Pool
+from google.cloud.spannerlib.rows import Rows
 
 __version__: Final[str] = "0.1.0"
 
@@ -26,4 +27,5 @@ logging.basicConfig(level=logging.INFO)
 __all__: list[str] = [
     "Pool",
     "Connection",
+    "Rows",
 ]

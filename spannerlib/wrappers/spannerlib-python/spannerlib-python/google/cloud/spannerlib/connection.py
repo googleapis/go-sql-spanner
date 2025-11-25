@@ -95,12 +95,12 @@ class Connection(AbstractLibraryObject):
 
         # Call the Go library function to execute the SQL statement.
         with self.spannerlib.execute(
-            self.pool.oid, self.id, request_bytes
+            self.pool.oid, self.oid, request_bytes
         ) as msg:
             msg.raise_if_error()
             logger.info(
                 "SQL execution successful on connection ID: %d. Got Rows ID: %d",
-                self.id,
+                self.oid,
                 msg.object_id,
             )
             return Rows(msg.object_id, self.pool, self)
@@ -121,7 +121,7 @@ class Connection(AbstractLibraryObject):
 
         logger.info(
             "Executing batch DML on connection ID: %d for pool ID: %d",
-            self.id,
+            self.oid,
             self.pool.oid,
         )
 
@@ -129,14 +129,14 @@ class Connection(AbstractLibraryObject):
 
         # Call the Go library function to execute the batch DML statement.
         with self.spannerlib.execute_batch(
-            self.pool.id,
-            self.id,
+            self.pool.oid,
+            self.oid,
             request_bytes,
         ) as msg:
             msg.raise_if_error()
             logger.info(
                 "Batch DML execution successful on connection ID: %d.",
-                self.id,
+                self.oid,
             )
             response_bytes = to_bytes(msg.msg, msg.msg_len)
             return ExecuteBatchDmlResponse.deserialize(response_bytes)

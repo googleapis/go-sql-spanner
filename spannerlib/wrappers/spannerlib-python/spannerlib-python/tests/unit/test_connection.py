@@ -92,14 +92,14 @@ class TestConnection:
         assert conn.oid == 50
 
         # Verify specific connection attributes
-        assert conn.pool_id == 999
+        assert conn.pool.oid == 999
 
     def test_pool_id_property_is_read_only(self, connection):
         """Ensure pool_id cannot be overwritten accidentally."""
-        assert connection.pool_id == 999
+        assert connection.pool.oid == 999
 
         with pytest.raises(AttributeError):
-            connection.pool_id = 888
+            connection.pool.oid = 888
 
     # -------------------------------------------------------------------------
     # Test Methods: Lifecycle & Cleanup
@@ -169,3 +169,145 @@ class TestConnection:
                 connection.close()
 
             mock_logger.exception.assert_called_once()
+
+    # -------------------------------------------------------------------------
+    # Test Methods: Execution
+    # -------------------------------------------------------------------------
+
+    def test_execute_success(self, connection, mock_spanner_lib, mock_msg):
+        """Test successful SQL execution."""
+        # Setup
+        mock_request = MagicMock()
+        mock_rows = MagicMock()
+
+        # Mock the context manager for execute
+        ctx_manager = MagicMock()
+        ctx_manager.__enter__.return_value = mock_msg
+        mock_spanner_lib.execute.return_value = ctx_manager
+
+        # Mock Rows class
+        with patch(
+            "google.cloud.spannerlib.connection.Rows"
+        ) as MockRows, patch(
+            "google.cloud.spannerlib.connection.ExecuteSqlRequest"
+        ) as MockExecuteSqlRequest:
+
+            MockExecuteSqlRequest.serialize.return_value = b"serialized_request"
+            MockRows.return_value = mock_rows
+
+            # Execute
+            result = connection.execute(mock_request)
+
+            # Verify
+            MockExecuteSqlRequest.serialize.assert_called_once_with(
+                mock_request
+            )
+            mock_spanner_lib.execute.assert_called_once_with(
+                999, 123, b"serialized_request"
+            )
+            mock_msg.raise_if_error.assert_called_once()
+            assert result == mock_rows
+            MockRows.assert_called_once_with(
+                msg_object_id=mock_msg.object_id,
+                pool=connection.pool,
+                connection=connection,
+            )
+
+    def test_execute_closed(self, connection):
+        """Test execute raises error if connection is closed."""
+        connection.close()
+        with pytest.raises(RuntimeError, match="Connection is closed"):
+            connection.execute(MagicMock())
+
+    def test_execute_batch_success(
+        self, connection, mock_spanner_lib, mock_msg
+    ):
+        """Test successful batch DML execution."""
+        mock_request = MagicMock()
+        mock_response = MagicMock()
+
+        ctx_manager = MagicMock()
+        ctx_manager.__enter__.return_value = mock_msg
+        mock_spanner_lib.execute_batch.return_value = ctx_manager
+
+        mock_msg.msg = 12345  # pointer
+        mock_msg.msg_len = 10
+
+        with patch(
+            "google.cloud.spannerlib.connection.ExecuteBatchDmlRequest"
+        ) as MockRequest, patch(
+            "google.cloud.spannerlib.connection.ExecuteBatchDmlResponse"
+        ) as MockResponse, patch(
+            "google.cloud.spannerlib.connection.to_bytes"
+        ) as mock_to_bytes:
+
+            MockRequest.serialize.return_value = b"serialized_batch"
+            mock_to_bytes.return_value = b"serialized_response"
+            MockResponse.deserialize.return_value = mock_response
+
+            result = connection.execute_batch(mock_request)
+
+            MockRequest.serialize.assert_called_once_with(mock_request)
+            mock_spanner_lib.execute_batch.assert_called_once_with(
+                999, 123, b"serialized_batch"
+            )
+            mock_to_bytes.assert_called_once_with(12345, 10)
+            MockResponse.deserialize.assert_called_once_with(
+                b"serialized_response"
+            )
+            assert result == mock_response
+
+    def test_execute_batch_closed(self, connection):
+        """Test execute_batch raises error if connection is closed."""
+        connection.close()
+        with pytest.raises(RuntimeError, match="Connection is closed"):
+            connection.execute_batch(MagicMock())
+
+    def test_write_mutations_success(
+        self, connection, mock_spanner_lib, mock_msg
+    ):
+        """Test successful mutation write."""
+        mock_request = MagicMock()
+        mock_response = MagicMock()
+
+        ctx_manager = MagicMock()
+        ctx_manager.__enter__.return_value = mock_msg
+        mock_spanner_lib.write_mutations.return_value = ctx_manager
+
+        mock_msg.msg = 67890
+        mock_msg.msg_len = 20
+
+        with patch(
+            "google.cloud.spannerlib.connection.BatchWriteRequest"
+        ) as MockBatchWriteRequest, patch(
+            "google.cloud.spannerlib.connection.CommitResponse"
+        ) as MockCommitResponse, patch(
+            "google.cloud.spannerlib.connection.to_bytes"
+        ) as mock_to_bytes:
+
+            # Note: BatchWriteRequest.MutationGroup is nested
+            MockBatchWriteRequest.MutationGroup.serialize.return_value = (
+                b"serialized_mutation"
+            )
+            mock_to_bytes.return_value = b"serialized_commit_response"
+            MockCommitResponse.deserialize.return_value = mock_response
+
+            result = connection.write_mutations(mock_request)
+
+            MockBatchWriteRequest.MutationGroup.serialize.assert_called_once_with(
+                mock_request
+            )
+            mock_spanner_lib.write_mutations.assert_called_once_with(
+                999, 123, b"serialized_mutation"
+            )
+            mock_to_bytes.assert_called_once_with(67890, 20)
+            MockCommitResponse.deserialize.assert_called_once_with(
+                b"serialized_commit_response"
+            )
+            assert result == mock_response
+
+    def test_write_mutations_closed(self, connection):
+        """Test write_mutations raises error if connection is closed."""
+        connection.close()
+        with pytest.raises(RuntimeError, match="Connection is closed"):
+            connection.write_mutations(MagicMock())
