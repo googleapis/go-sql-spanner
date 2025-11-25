@@ -34,7 +34,6 @@ class Pool(AbstractLibraryObject):
             logger.info("Closing pool ID: %d", self.oid)
             # Call the Go library function to close the pool.
             with self.spannerlib.close_pool(self.oid) as msg:
-                msg.bind_library(self.spannerlib)
                 msg.raise_if_error()
             logger.info("Pool ID: %d closed", self.oid)
         except SpannerLibError:
