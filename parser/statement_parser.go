@@ -45,7 +45,6 @@ var clientSideKeywords = map[string]bool{
 	"COMMIT":   true,
 	"ROLLBACK": true,
 }
-
 var showStatements = map[string]bool{"SHOW": true}
 var setStatements = map[string]bool{"SET": true}
 var resetStatements = map[string]bool{"RESET": true}
