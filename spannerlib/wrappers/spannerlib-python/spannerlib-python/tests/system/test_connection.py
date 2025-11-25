@@ -128,3 +128,52 @@ class TestConnectionE2E:
         response = connection.write_mutations(mutation_group)
         assert response is not None
         assert response.commit_timestamp is not None
+
+    def test_transaction_commit(self, connection, setup_env):
+        """Tests a successful transaction commit."""
+        connection.begin_transaction()
+
+        # Insert data within transaction
+        sql = (
+            "INSERT INTO Singers (SingerId, FirstName, LastName) "
+            "VALUES (10, 'Transaction', 'Commit')"
+        )
+        request = ExecuteSqlRequest(sql=sql)
+        rows = connection.execute(request)
+        rows.close()
+
+        commit_resp = connection.commit()
+        assert commit_resp is not None
+        assert commit_resp.commit_timestamp is not None
+
+        # Verify data was committed
+        verify_sql = "SELECT FirstName FROM Singers WHERE SingerId = 10"
+        verify_req = ExecuteSqlRequest(sql=verify_sql)
+        verify_rows = connection.execute(verify_req)
+        row = verify_rows.next()
+        assert row is not None
+        assert row.values[0].string_value == "Transaction"
+        verify_rows.close()
+
+    def test_transaction_rollback(self, connection, setup_env):
+        """Tests a successful transaction rollback."""
+        connection.begin_transaction()
+
+        # Insert data within transaction
+        sql = (
+            "INSERT INTO Singers (SingerId, FirstName, LastName) "
+            "VALUES (20, 'Transaction', 'Rollback')"
+        )
+        request = ExecuteSqlRequest(sql=sql)
+        rows = connection.execute(request)
+        rows.close()
+
+        connection.rollback()
+
+        # Verify data was NOT committed
+        verify_sql = "SELECT FirstName FROM Singers WHERE SingerId = 20"
+        verify_req = ExecuteSqlRequest(sql=verify_sql)
+        verify_rows = connection.execute(verify_req)
+        row = verify_rows.next()
+        assert row is None
+        verify_rows.close()
