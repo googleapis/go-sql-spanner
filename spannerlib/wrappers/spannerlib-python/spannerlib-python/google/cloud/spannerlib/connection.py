@@ -16,6 +16,14 @@ representing a single connection to Spanner."""
 import logging
 from typing import TYPE_CHECKING
 
+from google.cloud.spanner_v1 import (
+    BatchWriteRequest,
+    CommitResponse,
+    ExecuteBatchDmlRequest,
+    ExecuteBatchDmlResponse,
+    ExecuteSqlRequest,
+)
+
 from .abstract_library_object import AbstractLibraryObject
 from .internal.errors import SpannerLibError
 
