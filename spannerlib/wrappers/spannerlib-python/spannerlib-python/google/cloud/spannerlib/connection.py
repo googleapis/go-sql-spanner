@@ -22,6 +22,7 @@ from google.cloud.spanner_v1 import (
     ExecuteBatchDmlRequest,
     ExecuteBatchDmlResponse,
     ExecuteSqlRequest,
+    TransactionOptions,
 )
 
 from .abstract_library_object import AbstractLibraryObject
@@ -184,3 +185,68 @@ class Connection(AbstractLibraryObject):
             )
             response_bytes = to_bytes(msg.msg, msg.msg_len)
             return CommitResponse.deserialize(response_bytes)
+
+    def begin_transaction(self, options: TransactionOptions = None):
+        """Begins a new transaction on the connection.
+
+        Args:
+            options: Optional transaction options from google.cloud.spanner_v1.
+
+        Raises:
+            RuntimeError: If the connection is closed.
+            SpannerLibraryError: If the Go library call fails.
+        """
+        if self.closed:
+            raise RuntimeError("Connection is closed.")
+
+        logger.info(
+            "Beginning transaction on connection ID: %d for pool ID: %d",
+            self.oid,
+            self.pool.oid,
+        )
+
+        if options is None:
+            options = TransactionOptions()
+
+        options_bytes = TransactionOptions.serialize(options)
+
+        with self.spannerlib.begin_transaction(
+            self.pool.oid, self.oid, options_bytes
+        ) as msg:
+            msg.raise_if_error()
+            logger.info("Transaction started on connection ID: %d", self.oid)
+
+    def commit(self) -> CommitResponse:
+        """Commits the transaction.
+
+        Raises:
+            RuntimeError: If the connection is closed.
+            SpannerLibraryError: If the Go library call fails.
+
+        Returns:
+            A CommitResponse object.
+        """
+        if self.closed:
+            raise RuntimeError("Connection is closed.")
+
+        logger.info("Committing on connection ID: %d", self.oid)
+        with self.spannerlib.commit(self.pool.oid, self.oid) as msg:
+            msg.raise_if_error()
+            logger.info("Committed")
+            response_bytes = to_bytes(msg.msg, msg.msg_len)
+            return CommitResponse.deserialize(response_bytes)
+
+    def rollback(self):
+        """Rolls back the transaction.
+
+        Raises:
+            RuntimeError: If the connection is closed.
+            SpannerLibraryError: If the Go library call fails.
+        """
+        if self.closed:
+            raise RuntimeError("Connection is closed.")
+
+        logger.info("Rolling back on connection ID: %d", self.oid)
+        with self.spannerlib.rollback(self.pool.oid, self.oid) as msg:
+            msg.raise_if_error()
+            logger.info("Rolled back")
