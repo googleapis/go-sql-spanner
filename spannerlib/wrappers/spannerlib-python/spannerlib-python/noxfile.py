@@ -59,11 +59,11 @@ ARTIFACT_DIR = "spannerlib-artifacts"
 # Error if a python version is missing
 nox.options.error_on_missing_interpreters = True
 
-nox.options.sessions = ["format_code", "lint", "unit", "system"]
+nox.options.sessions = ["format", "lint", "unit", "system"]
 
 
 @nox.session(python=DEFAULT_PYTHON_VERSION)
-def format_code(session):
+def format(session):
     """
     Run isort to sort imports. Then run black
     to format code to uniform standard.
