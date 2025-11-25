@@ -129,7 +129,7 @@ def system(session):
     session.install(*STANDARD_DEPENDENCIES, *SYSTEM_TEST_STANDARD_DEPENDENCIES)
 
     test_paths = (
-        session.posargs if session.posargs else [os.path.join("tests", "unit")]
+        session.posargs if session.posargs else [os.path.join("tests", "system")]
     )
     session.run(
         "py.test",
