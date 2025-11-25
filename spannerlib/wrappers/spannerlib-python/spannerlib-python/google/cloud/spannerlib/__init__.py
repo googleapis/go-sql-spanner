@@ -13,6 +13,15 @@
 #  limitations under the License.
 
 """Python wrapper for the Spanner Go library."""
-__version__ = "0.1.0"
+import logging
+from typing import Final
 
-__all__: list[str] = []
+from google.cloud.spannerlib.pool import Pool
+
+__version__: Final[str] = "0.1.0"
+
+logging.basicConfig(level=logging.INFO)
+
+__all__: list[str] = [
+    "Pool",
+]
