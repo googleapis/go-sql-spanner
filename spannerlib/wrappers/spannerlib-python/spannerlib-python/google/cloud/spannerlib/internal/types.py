@@ -20,6 +20,11 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+def to_bytes(msg: ctypes.c_void_p, len: ctypes.c_int32) -> bytes:
+    """Converts shared lib msg to a bytes."""
+    return ctypes.string_at(msg, len)
+
+
 class GoString(ctypes.Structure):
     """Represents a Go string for C interop.
 

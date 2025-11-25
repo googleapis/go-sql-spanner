@@ -16,7 +16,17 @@ representing a single connection to Spanner."""
 import logging
 from typing import TYPE_CHECKING
 
+from google.cloud.spanner_v1 import (
+    BatchWriteRequest,
+    CommitResponse,
+    ExecuteBatchDmlRequest,
+    ExecuteBatchDmlResponse,
+    ExecuteSqlRequest,
+)
+
 from .abstract_library_object import AbstractLibraryObject
+from .internal.types import to_bytes
+from .rows import Rows
 
 if TYPE_CHECKING:
     from .pool import Pool
@@ -41,12 +51,12 @@ class Connection(AbstractLibraryObject):
                 created.
         """
         super().__init__(pool.spannerlib, oid)
-        self._pool_id = pool.oid
+        self._pool = pool
 
     @property
-    def pool_id(self) -> int:
-        """Returns the pool ID associated with this connection."""
-        return self._pool_id
+    def pool(self) -> "Pool":
+        """Returns the pool associated with this connection."""
+        return self._pool
 
     def _close_lib_object(self) -> None:
         """Internal method to close the pool in the Go library."""
@@ -54,7 +64,7 @@ class Connection(AbstractLibraryObject):
             logger.info("Closing connection ID: %d", self.oid)
             # Call the Go library function to close the connection.
             with self.spannerlib.close_connection(
-                self.pool_id, self.oid
+                self.pool.oid, self.oid
             ) as msg:
                 msg.bind_library(self.spannerlib)
                 msg.raise_if_error()
@@ -62,3 +72,106 @@ class Connection(AbstractLibraryObject):
         except Exception as e:
             logger.exception("Error closing connection ID: %d", self.oid)
             raise e
+
+    def execute(self, request: ExecuteSqlRequest) -> Rows:
+        """Executes a SQL statement on the connection.
+
+        Args:
+            sql: The SQL statement to execute.
+
+        Returns:
+            A Rows object representing the result of the execution.
+        """
+        if self.closed:
+            raise RuntimeError("Connection is closed.")
+
+        logger.info(
+            "Executing SQL on connection ID: %d for pool ID: %d",
+            self.oid,
+            self.pool.oid,
+        )
+
+        request_bytes = ExecuteSqlRequest.serialize(request)
+
+        # Call the Go library function to execute the SQL statement.
+        with self.spannerlib.execute(
+            self.pool.oid, self.id, request_bytes
+        ) as msg:
+            msg.raise_if_error()
+            logger.info(
+                "SQL execution successful on connection ID: %d. Got Rows ID: %d",
+                self.id,
+                msg.object_id,
+            )
+            return Rows(msg.object_id, self.pool, self)
+
+    def execute_batch(
+        self, request: ExecuteBatchDmlRequest
+    ) -> ExecuteBatchDmlResponse:
+        """Executes a batch of DML statements on the connection.
+
+        Args:
+            request: The ExecuteBatchDmlRequest object.
+
+        Returns:
+            An ExecuteBatchDmlResponse object representing the result of the execution.
+        """
+        if self.closed:
+            raise RuntimeError("Connection is closed.")
+
+        logger.info(
+            "Executing batch DML on connection ID: %d for pool ID: %d",
+            self.id,
+            self.pool.oid,
+        )
+
+        request_bytes = ExecuteBatchDmlRequest.serialize(request)
+
+        # Call the Go library function to execute the batch DML statement.
+        with self.spannerlib.execute_batch(
+            self.pool.id,
+            self.id,
+            request_bytes,
+        ) as msg:
+            msg.raise_if_error()
+            logger.info(
+                "Batch DML execution successful on connection ID: %d.",
+                self.id,
+            )
+            response_bytes = to_bytes(msg.msg, msg.msg_len)
+            return ExecuteBatchDmlResponse.deserialize(response_bytes)
+
+    def write_mutations(
+        self, request: BatchWriteRequest.MutationGroup
+    ) -> CommitResponse:
+        """Writes a mutation to the connection.
+
+        Args:
+            request: The BatchWriteRequest_MutationGroup object.
+
+        Returns:
+            A CommitResponse object.
+        """
+        if self.closed:
+            raise RuntimeError("Connection is closed.")
+
+        logger.info(
+            "Writing mutation on connection ID: %d for pool ID: %d",
+            self.oid,
+            self.pool.oid,
+        )
+
+        request_bytes = BatchWriteRequest.MutationGroup.serialize(request)
+
+        # Call the Go library function to write the mutation.
+        with self.spannerlib.write_mutations(
+            self.pool.oid,
+            self.oid,
+            request_bytes,
+        ) as msg:
+            msg.raise_if_error()
+            logger.info(
+                "Mutation write successful on connection ID: %d.", self.oid
+            )
+            response_bytes = to_bytes(msg.msg, msg.msg_len)
+            return CommitResponse.deserialize(response_bytes)
