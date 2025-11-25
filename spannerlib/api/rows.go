@@ -158,11 +158,17 @@ func (rows *rows) ResultSetStats(ctx context.Context) (*spannerpb.ResultSetStats
 }
 
 func (rows *rows) NextResultSet(ctx context.Context) (*spannerpb.ResultSetMetadata, error) {
-	if !rows.done {
+	if !rows.done && rows.stats == nil {
 		// The current result set has not been read to the end.
-		// We therefore need to move the cursor to the next result set contains the stats for the current result set,
-		// so we can skip those.
-		rows.backend.NextResultSet()
+		// We therefore need to move the cursor to the next result set which contains
+		// the stats for the current result set, so we can skip those.
+		if !rows.backend.NextResultSet() {
+			if err := rows.backend.Err(); err != nil {
+				return nil, err
+			}
+			// This is unexpected, as we should at least have a stats result set.
+			return nil, status.Error(codes.Internal, "missing ResultSetStats for the current ResultSet")
+		}
 	}
 	if rows.backend.NextResultSet() {
 		rows.done = false
