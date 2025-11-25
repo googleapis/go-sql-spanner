@@ -15,6 +15,7 @@
 import logging
 
 from .abstract_library_object import AbstractLibraryObject
+from .connection import Connection
 from .internal.errors import SpannerLibError
 from .internal.spannerlib import SpannerLib
 
@@ -71,3 +72,29 @@ class Pool(AbstractLibraryObject):
             logger.exception("Unexpected error interacting with Go library")
             raise SpannerLibError(f"Unexpected error: {e}") from e
         return pool
+
+    def create_connection(self) -> Connection:
+        """
+        Creates a new connection from the pool.
+
+        Returns:
+            Connection: A new Connection object.
+
+        Raises:
+            SpannerLibError: If the pool is closed.
+        """
+        if self.closed:
+            logger.error("Attempted to create connection from a closed pool")
+            raise SpannerLibError("Pool is closed")
+        logger.info("Creating connection from pool ID: %d", self.oid)
+        # Call the Go library function to create a connection.
+        with self.spannerlib.create_connection(self.oid) as msg:
+            msg.bind_library(self.spannerlib)
+            msg.raise_if_error()
+
+            logger.info(
+                "Connection created with ID: %d from pool ID: %d",
+                msg.object_id,
+                self.oid,
+            )
+            return Connection(msg.object_id, self)
