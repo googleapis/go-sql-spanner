@@ -20,6 +20,7 @@ import (
 	"errors"
 	"io"
 
+	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -212,7 +213,7 @@ func queryDmlBatch(ctx context.Context, conn *conn, index int, result *multiStat
 	}
 	for i, m := range modified {
 		if noRows, ok := result.results[startIndex+i].(*emptyRows); ok {
-			noRows.rowsAffected = m
+			noRows.stats = &sppb.ResultSetStats{RowCount: &sppb.ResultSetStats_RowCountExact{RowCountExact: m}}
 		}
 	}
 	return endIndex - startIndex, nil

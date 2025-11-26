@@ -176,7 +176,7 @@ func (rows *rows) NextResultSet(ctx context.Context) (*spannerpb.ResultSetMetada
 		if err := rows.readMetadata(ctx); err != nil {
 			return nil, err
 		}
-		if len(rows.metadata.RowType.Fields) == 0 {
+		if !hasFields(rows.metadata) {
 			if err := rows.readStats(ctx); err != nil {
 				return nil, err
 			}
@@ -203,7 +203,7 @@ func (gv *genericValue) Scan(src any) error {
 
 func (rows *rows) Next(ctx context.Context) (*structpb.ListValue, error) {
 	// No columns means no rows, so just return nil to indicate that there are no (more) rows.
-	if len(rows.metadata.RowType.Fields) == 0 || rows.done {
+	if !hasFields(rows.metadata) || rows.done {
 		return nil, nil
 	}
 	if rows.stats != nil {
@@ -224,7 +224,11 @@ func (rows *rows) Next(ctx context.Context) (*structpb.ListValue, error) {
 	}
 
 	if rows.buffer == nil {
-		rows.buffer = make([]any, len(rows.metadata.RowType.Fields))
+		numFields := 0
+		if hasFields(rows.metadata) {
+			numFields = len(rows.metadata.RowType.Fields)
+		}
+		rows.buffer = make([]any, numFields)
 		for i := range rows.buffer {
 			rows.buffer[i] = &genericValue{}
 		}
