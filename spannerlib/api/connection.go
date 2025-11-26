@@ -328,12 +328,16 @@ func execute(ctx, directExecuteContext context.Context, conn *Connection, execut
 		return 0, err
 	}
 	id := conn.resultsIdx.Add(1)
-	if len(res.metadata.RowType.Fields) == 0 {
+	if !hasFields(res.metadata) {
 		// No rows returned. Read the stats now.
 		_ = res.readStats(ctx)
 	}
 	conn.results.Store(id, res)
 	return id, nil
+}
+
+func hasFields(metadata *spannerpb.ResultSetMetadata) bool {
+	return metadata != nil && metadata.RowType != nil && metadata.RowType.Fields != nil && len(metadata.RowType.Fields) > 0
 }
 
 func executeBatch(ctx context.Context, conn *Connection, executor queryExecutor, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
