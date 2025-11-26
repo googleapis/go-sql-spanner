@@ -31,6 +31,7 @@ namespace Google.Cloud.Spanner.DataProvider;
 public class SpannerBatch : DbBatch
 {
     private SpannerConnection SpannerConnection => (SpannerConnection)Connection!;
+    public new SpannerBatchCommandCollection BatchCommands => (SpannerBatchCommandCollection)base.BatchCommands;
     protected override SpannerBatchCommandCollection DbBatchCommands { get; } = new();
     public override int Timeout { get; set; }
     protected override DbConnection? DbConnection { get; set; }

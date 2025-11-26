@@ -37,6 +37,21 @@ public class SpannerBatchCommandCollection : DbBatchCommandCollection
         return _commands.GetEnumerator();
     }
 
+    /// <summary>
+    /// Adds a new command to the batch with the given command text.
+    /// </summary>
+    /// <param name="commandText">The command text for the batch command</param>
+    /// <returns>The new batch command</returns>
+    public SpannerBatchCommand Add(string commandText)
+    {
+        var cmd = new SpannerBatchCommand
+        {
+            CommandText = commandText
+        };
+        _commands.Add(cmd);
+        return cmd;
+    }
+
     public override void Add(DbBatchCommand item)
     {
         GaxPreconditions.CheckNotNull(item, nameof(item));

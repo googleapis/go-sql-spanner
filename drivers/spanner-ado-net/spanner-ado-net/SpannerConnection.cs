@@ -343,6 +343,18 @@ public class SpannerConnection : DbConnection
         EnsureOpen();
         return LibConnection!.WriteMutationsAsync(mutations, cancellationToken);
     }
+
+    /// <summary>
+    /// Create a new command for this connection with the given command text.
+    /// </summary>
+    /// <param name="commandText">The command text to set for the command</param>
+    /// <returns>A new command with the given command text</returns>
+    public SpannerCommand CreateCommand(string commandText)
+    {
+        var cmd = CreateCommand();
+        cmd.CommandText = commandText;
+        return cmd;
+    }
     
     public new SpannerCommand CreateCommand() => (SpannerCommand) base.CreateCommand();
 
@@ -351,6 +363,8 @@ public class SpannerConnection : DbConnection
         var cmd = new SpannerCommand(this);
         return cmd;
     }
+    
+    public new SpannerBatch CreateBatch() => (SpannerBatch) base.CreateBatch();
 
     protected override DbBatch CreateDbBatch()
     {
@@ -378,17 +392,47 @@ public class SpannerConnection : DbConnection
         return TranslateException(() => LibConnection!.ExecuteBatch(statements));
     }
 
-    public DbCommand CreateInsertCommand(string table)
+    /// <summary>
+    /// Creates a command to insert data into Spanner using mutations.
+    /// </summary>
+    /// <param name="table">The table to insert data into</param>
+    public SpannerCommand CreateInsertCommand(string table)
     {
         return new SpannerCommand(this, new Mutation { Insert = new Mutation.Types.Write { Table = table } });
     }
 
-    public DbCommand CreateUpdateCommand(string table)
+    /// <summary>
+    /// Creates a command to insert-or-update data into Spanner using mutations.
+    /// </summary>
+    /// <param name="table">The table to insert-or-update data into</param>
+    public SpannerCommand CreateInsertOrUpdateCommand(string table)
+    {
+        return new SpannerCommand(this, new Mutation { InsertOrUpdate = new Mutation.Types.Write { Table = table } });
+    }
+
+    /// <summary>
+    /// Creates a command to update data in Spanner using mutations.
+    /// </summary>
+    /// <param name="table">The table that contains the data that should be updated</param>
+    public SpannerCommand CreateUpdateCommand(string table)
     {
         return new SpannerCommand(this, new Mutation { Update = new Mutation.Types.Write { Table = table } });
     }
 
-    public DbCommand CreateDeleteCommand(string table)
+    /// <summary>
+    /// Creates a command to replace data in Spanner using mutations.
+    /// </summary>
+    /// <param name="table">The table that contains the data that should be replaced</param>
+    public SpannerCommand CreateReplaceCommand(string table)
+    {
+        return new SpannerCommand(this, new Mutation { Replace = new Mutation.Types.Write { Table = table } });
+    }
+
+    /// <summary>
+    /// Creates a command to delete data in Spanner using mutations.
+    /// </summary>
+    /// <param name="table">The table that contains the data that should be deleted</param>
+    public SpannerCommand CreateDeleteCommand(string table)
     {
         return new SpannerCommand(this, new Mutation { Delete = new Mutation.Types.Delete { Table = table } });
     }

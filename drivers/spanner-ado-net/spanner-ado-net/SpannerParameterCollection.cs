@@ -15,6 +15,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Data;
 using System.Data.Common;
 using Google.Api.Gax;
 using Google.Protobuf.Collections;
@@ -48,13 +49,17 @@ public class SpannerParameterCollection : DbParameterCollection
         return index;
     }
     
-    public SpannerParameter AddWithValue(string parameterName, object? value)
+    public SpannerParameter AddWithValue(string parameterName, object? value, DbType? type = null)
     {
         var parameter = new SpannerParameter
         {
             ParameterName = parameterName,
             Value = value,
         };
+        if (type != null)
+        {
+            parameter.DbType = type.Value;
+        }
         Add(parameter);
         return parameter;
     }

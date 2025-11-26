@@ -19,7 +19,6 @@ CREATE TABLE IF NOT EXISTS Singers (
   LastName  STRING(200) NOT NULL,
   BirthDate DATE,
   Picture   BYTES(MAX),
-  Version   INT64 NOT NULL,
   FullName  STRING(400) NOT NULL AS (COALESCE(FirstName || ' ', '') || LastName) STORED,
 ) PRIMARY KEY (SingerId);
 
@@ -30,7 +29,6 @@ CREATE TABLE IF NOT EXISTS Albums (
   Title       STRING(100) NOT NULL,
   ReleaseDate DATE,
   SingerId    INT64 NOT NULL,
-  Version     INT64 NOT NULL,
   CONSTRAINT FK_Albums_Singers FOREIGN KEY (SingerId) REFERENCES Singers (SingerId),
 ) PRIMARY KEY (AlbumId);
 
@@ -42,7 +40,6 @@ CREATE TABLE IF NOT EXISTS Tracks (
   RecordedAt      TIMESTAMP DEFAULT (CURRENT_TIMESTAMP),
   LyricsLanguages ARRAY<STRING(2)>,
   Lyrics          ARRAY<STRING(MAX)>,
-  Version         INT64 NOT NULL,
 ) PRIMARY KEY (AlbumId, TrackId), INTERLEAVE IN PARENT Albums ON DELETE CASCADE;
 
 CREATE UNIQUE INDEX IF NOT EXISTS Idx_Tracks_AlbumId_Title ON Tracks (AlbumId, Title);
@@ -53,7 +50,6 @@ CREATE TABLE IF NOT EXISTS Venues (
   Description  JSON,
   Active       BOOL NOT NULL,
   Descriptions JSON,
-  Version      INT64 NOT NULL,
 ) PRIMARY KEY (Code);
 
 CREATE TABLE IF NOT EXISTS Concerts (
@@ -61,7 +57,6 @@ CREATE TABLE IF NOT EXISTS Concerts (
   StartTime TIMESTAMP NOT NULL,
   SingerId  INT64 NOT NULL,
   Title     STRING(200),
-  Version   INT64 NOT NULL,
   CONSTRAINT FK_Concerts_Venues FOREIGN KEY (VenueCode) REFERENCES Venues (Code),
   CONSTRAINT FK_Concerts_Singers FOREIGN KEY (SingerId) REFERENCES Singers (SingerId),
 ) PRIMARY KEY (VenueCode, StartTime, SingerId);
@@ -76,7 +71,6 @@ CREATE TABLE IF NOT EXISTS Performances (
   Rating           FLOAT64,
   CreatedAt        TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
   LastUpdatedAt    TIMESTAMP OPTIONS (allow_commit_timestamp=true),
-  Version          INT64 NOT NULL,
   CONSTRAINT FK_Performances_Concerts FOREIGN KEY (VenueCode, ConcertStartTime, SingerId) REFERENCES Concerts (VenueCode, StartTime, SingerId),
   CONSTRAINT FK_Performances_Singers FOREIGN KEY (SingerId) REFERENCES Singers (SingerId),
   CONSTRAINT FK_Performances_Tracks FOREIGN KEY (AlbumId, TrackId) REFERENCES Tracks (AlbumId, TrackId),
@@ -96,7 +90,6 @@ CREATE TABLE IF NOT EXISTS TicketSales (
   VenueCode        STRING(10) NOT NULL,
   ConcertStartTime TIMESTAMP NOT NULL,
   SingerId         INT64 NOT NULL,
-  Version          INT64 NOT NULL,
   CONSTRAINT FK_TicketSales_Concerts FOREIGN KEY (VenueCode, ConcertStartTime, SingerId) REFERENCES Concerts (VenueCode, StartTime, SingerId),
 ) PRIMARY KEY (Id);
 

@@ -13,7 +13,7 @@
 * limitations under the License.
 */
 
-INSERT OR UPDATE INTO Singers (SingerId, FirstName, LastName, BirthDate, Picture, Version) VALUES 
-  (1, 'Mark', 'Richards', DATE '1990-11-09', NULL, 1),
-  (2, 'Catalina', 'Smith', DATE '1998-04-29', NULL, 1),
-  (3, 'Alice', 'Trentor', DATE '1979-10-15', NULL, 1);
+INSERT OR UPDATE INTO Singers (SingerId, FirstName, LastName, BirthDate, Picture) VALUES 
+  (1, 'Mark', 'Richards', DATE '1990-11-09', NULL),
+  (2, 'Catalina', 'Smith', DATE '1998-04-29', NULL),
+  (3, 'Alice', 'Trentor', DATE '1979-10-15', NULL);
