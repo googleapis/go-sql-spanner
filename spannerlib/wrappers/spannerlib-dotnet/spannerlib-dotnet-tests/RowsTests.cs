@@ -309,8 +309,7 @@ public class RowsTests : AbstractMockServerTests
         // The query is executed 2 times.
         Assert.That(totalRows, Is.EqualTo(numRows * 2));
         // The DML statement is executed 3 times.
-        // TODO: Enable when https://github.com/googleapis/go-sql-spanner/issues/648 has been fixed
-        // Assert.That(totalUpdateCount, Is.EqualTo(updateCount * 3));
+        Assert.That(totalUpdateCount, Is.EqualTo(updateCount * 3));
         // There are 5 statements in the SQL string.
         Assert.That(numResultSets, Is.EqualTo(5));
     }
