@@ -5,131 +5,98 @@
 
 package com.google.cloud.spannerlib.v1;
 
-/** Protobuf type {@code google.spannerlib.v1.ExecuteRequest} */
+/**
+ * Protobuf type {@code google.spannerlib.v1.ExecuteRequest}
+ */
 @com.google.protobuf.Generated
-public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
-    implements
+public final class ExecuteRequest extends
+    com.google.protobuf.GeneratedMessage implements
     // @@protoc_insertion_point(message_implements:google.spannerlib.v1.ExecuteRequest)
     ExecuteRequestOrBuilder {
-  private static final long serialVersionUID = 0L;
-
+private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
-        com.google.protobuf.RuntimeVersion.RuntimeDomain.PUBLIC,
-        /* major= */ 4,
-        /* minor= */ 32,
-        /* patch= */ 1,
-        /* suffix= */ "",
-        ExecuteRequest.class.getName());
+      com.google.protobuf.RuntimeVersion.RuntimeDomain.PUBLIC,
+      /* major= */ 4,
+      /* minor= */ 32,
+      /* patch= */ 1,
+      /* suffix= */ "",
+      ExecuteRequest.class.getName());
   }
-
   // Use ExecuteRequest.newBuilder() to construct.
   private ExecuteRequest(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
+  private ExecuteRequest() {
+  }
 
-  private ExecuteRequest() {}
-
-  public static final com.google.protobuf.Descriptors.Descriptor getDescriptor() {
-    return com.google.cloud.spannerlib.v1.SpannerLibProto
-        .internal_static_google_spannerlib_v1_ExecuteRequest_descriptor;
+  public static final com.google.protobuf.Descriptors.Descriptor
+      getDescriptor() {
+    return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ExecuteRequest_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return com.google.cloud.spannerlib.v1.SpannerLibProto
-        .internal_static_google_spannerlib_v1_ExecuteRequest_fieldAccessorTable
+    return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ExecuteRequest_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            com.google.cloud.spannerlib.v1.ExecuteRequest.class,
-            com.google.cloud.spannerlib.v1.ExecuteRequest.Builder.class);
+            com.google.cloud.spannerlib.v1.ExecuteRequest.class, com.google.cloud.spannerlib.v1.ExecuteRequest.Builder.class);
   }
 
   private int bitField0_;
   public static final int CONNECTION_FIELD_NUMBER = 1;
   private com.google.cloud.spannerlib.v1.Connection connection_;
-
   /**
-   * <code>
-   * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
-   *
+   * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
    * @return Whether the connection field is set.
    */
   @java.lang.Override
   public boolean hasConnection() {
     return ((bitField0_ & 0x00000001) != 0);
   }
-
   /**
-   * <code>
-   * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
-   *
+   * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
    * @return The connection.
    */
   @java.lang.Override
   public com.google.cloud.spannerlib.v1.Connection getConnection() {
-    return connection_ == null
-        ? com.google.cloud.spannerlib.v1.Connection.getDefaultInstance()
-        : connection_;
+    return connection_ == null ? com.google.cloud.spannerlib.v1.Connection.getDefaultInstance() : connection_;
   }
-
   /**
-   * <code>
-   * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
+   * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   @java.lang.Override
   public com.google.cloud.spannerlib.v1.ConnectionOrBuilder getConnectionOrBuilder() {
-    return connection_ == null
-        ? com.google.cloud.spannerlib.v1.Connection.getDefaultInstance()
-        : connection_;
+    return connection_ == null ? com.google.cloud.spannerlib.v1.Connection.getDefaultInstance() : connection_;
   }
 
   public static final int EXECUTE_SQL_REQUEST_FIELD_NUMBER = 2;
   private com.google.spanner.v1.ExecuteSqlRequest executeSqlRequest_;
-
   /**
-   * <code>
-   * .google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
-   *
+   * <code>.google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];</code>
    * @return Whether the executeSqlRequest field is set.
    */
   @java.lang.Override
   public boolean hasExecuteSqlRequest() {
     return ((bitField0_ & 0x00000002) != 0);
   }
-
   /**
-   * <code>
-   * .google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
-   *
+   * <code>.google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];</code>
    * @return The executeSqlRequest.
    */
   @java.lang.Override
   public com.google.spanner.v1.ExecuteSqlRequest getExecuteSqlRequest() {
-    return executeSqlRequest_ == null
-        ? com.google.spanner.v1.ExecuteSqlRequest.getDefaultInstance()
-        : executeSqlRequest_;
+    return executeSqlRequest_ == null ? com.google.spanner.v1.ExecuteSqlRequest.getDefaultInstance() : executeSqlRequest_;
   }
-
   /**
-   * <code>
-   * .google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];
-   * </code>
+   * <code>.google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   @java.lang.Override
   public com.google.spanner.v1.ExecuteSqlRequestOrBuilder getExecuteSqlRequestOrBuilder() {
-    return executeSqlRequest_ == null
-        ? com.google.spanner.v1.ExecuteSqlRequest.getDefaultInstance()
-        : executeSqlRequest_;
+    return executeSqlRequest_ == null ? com.google.spanner.v1.ExecuteSqlRequest.getDefaultInstance() : executeSqlRequest_;
   }
 
   private byte memoizedIsInitialized = -1;
-
   @java.lang.Override
   public final boolean isInitialized() {
     byte isInitialized = memoizedIsInitialized;
@@ -141,7 +108,8 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
   }
 
   @java.lang.Override
-  public void writeTo(com.google.protobuf.CodedOutputStream output) throws java.io.IOException {
+  public void writeTo(com.google.protobuf.CodedOutputStream output)
+                      throws java.io.IOException {
     if (((bitField0_ & 0x00000001) != 0)) {
       output.writeMessage(1, getConnection());
     }
@@ -158,10 +126,12 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
 
     size = 0;
     if (((bitField0_ & 0x00000001) != 0)) {
-      size += com.google.protobuf.CodedOutputStream.computeMessageSize(1, getConnection());
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(1, getConnection());
     }
     if (((bitField0_ & 0x00000002) != 0)) {
-      size += com.google.protobuf.CodedOutputStream.computeMessageSize(2, getExecuteSqlRequest());
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(2, getExecuteSqlRequest());
     }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
@@ -171,21 +141,22 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
   @java.lang.Override
   public boolean equals(final java.lang.Object obj) {
     if (obj == this) {
-      return true;
+     return true;
     }
     if (!(obj instanceof com.google.cloud.spannerlib.v1.ExecuteRequest)) {
       return super.equals(obj);
     }
-    com.google.cloud.spannerlib.v1.ExecuteRequest other =
-        (com.google.cloud.spannerlib.v1.ExecuteRequest) obj;
+    com.google.cloud.spannerlib.v1.ExecuteRequest other = (com.google.cloud.spannerlib.v1.ExecuteRequest) obj;
 
     if (hasConnection() != other.hasConnection()) return false;
     if (hasConnection()) {
-      if (!getConnection().equals(other.getConnection())) return false;
+      if (!getConnection()
+          .equals(other.getConnection())) return false;
     }
     if (hasExecuteSqlRequest() != other.hasExecuteSqlRequest()) return false;
     if (hasExecuteSqlRequest()) {
-      if (!getExecuteSqlRequest().equals(other.getExecuteSqlRequest())) return false;
+      if (!getExecuteSqlRequest()
+          .equals(other.getExecuteSqlRequest())) return false;
     }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
@@ -211,120 +182,116 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
     return hash;
   }
 
-  public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(java.nio.ByteBuffer data)
+  public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(
+      java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-
   public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(
-      java.nio.ByteBuffer data, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      java.nio.ByteBuffer data,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-
   public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-
   public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-
   public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-
   public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(
-      byte[] data, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      byte[] data,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-
   public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(java.io.InputStream input)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(PARSER, input);
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input);
+  }
+  public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(
+      java.io.InputStream input,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      throws java.io.IOException {
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(
-      java.io.InputStream input, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+  public static com.google.cloud.spannerlib.v1.ExecuteRequest parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(
-        PARSER, input, extensionRegistry);
+    return com.google.protobuf.GeneratedMessage
+        .parseDelimitedWithIOException(PARSER, input);
   }
 
   public static com.google.cloud.spannerlib.v1.ExecuteRequest parseDelimitedFrom(
-      java.io.InputStream input) throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseDelimitedWithIOException(PARSER, input);
-  }
-
-  public static com.google.cloud.spannerlib.v1.ExecuteRequest parseDelimitedFrom(
-      java.io.InputStream input, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      java.io.InputStream input,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseDelimitedWithIOException(
-        PARSER, input, extensionRegistry);
+    return com.google.protobuf.GeneratedMessage
+        .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-
   public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(
-      com.google.protobuf.CodedInputStream input) throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(PARSER, input);
+      com.google.protobuf.CodedInputStream input)
+      throws java.io.IOException {
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input);
   }
-
   public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(
-        PARSER, input, extensionRegistry);
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
   @java.lang.Override
-  public Builder newBuilderForType() {
-    return newBuilder();
-  }
-
+  public Builder newBuilderForType() { return newBuilder(); }
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-
   public static Builder newBuilder(com.google.cloud.spannerlib.v1.ExecuteRequest prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
-
   @java.lang.Override
   public Builder toBuilder() {
-    return this == DEFAULT_INSTANCE ? new Builder() : new Builder().mergeFrom(this);
+    return this == DEFAULT_INSTANCE
+        ? new Builder() : new Builder().mergeFrom(this);
   }
 
   @java.lang.Override
-  protected Builder newBuilderForType(com.google.protobuf.GeneratedMessage.BuilderParent parent) {
+  protected Builder newBuilderForType(
+      com.google.protobuf.GeneratedMessage.BuilderParent parent) {
     Builder builder = new Builder(parent);
     return builder;
   }
-
-  /** Protobuf type {@code google.spannerlib.v1.ExecuteRequest} */
-  public static final class Builder extends com.google.protobuf.GeneratedMessage.Builder<Builder>
-      implements
+  /**
+   * Protobuf type {@code google.spannerlib.v1.ExecuteRequest}
+   */
+  public static final class Builder extends
+      com.google.protobuf.GeneratedMessage.Builder<Builder> implements
       // @@protoc_insertion_point(builder_implements:google.spannerlib.v1.ExecuteRequest)
       com.google.cloud.spannerlib.v1.ExecuteRequestOrBuilder {
-    public static final com.google.protobuf.Descriptors.Descriptor getDescriptor() {
-      return com.google.cloud.spannerlib.v1.SpannerLibProto
-          .internal_static_google_spannerlib_v1_ExecuteRequest_descriptor;
+    public static final com.google.protobuf.Descriptors.Descriptor
+        getDescriptor() {
+      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ExecuteRequest_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return com.google.cloud.spannerlib.v1.SpannerLibProto
-          .internal_static_google_spannerlib_v1_ExecuteRequest_fieldAccessorTable
+      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ExecuteRequest_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              com.google.cloud.spannerlib.v1.ExecuteRequest.class,
-              com.google.cloud.spannerlib.v1.ExecuteRequest.Builder.class);
+              com.google.cloud.spannerlib.v1.ExecuteRequest.class, com.google.cloud.spannerlib.v1.ExecuteRequest.Builder.class);
     }
 
     // Construct using com.google.cloud.spannerlib.v1.ExecuteRequest.newBuilder()
@@ -332,18 +299,18 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
       maybeForceBuilderInitialization();
     }
 
-    private Builder(com.google.protobuf.GeneratedMessage.BuilderParent parent) {
+    private Builder(
+        com.google.protobuf.GeneratedMessage.BuilderParent parent) {
       super(parent);
       maybeForceBuilderInitialization();
     }
-
     private void maybeForceBuilderInitialization() {
-      if (com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders) {
+      if (com.google.protobuf.GeneratedMessage
+              .alwaysUseFieldBuilders) {
         internalGetConnectionFieldBuilder();
         internalGetExecuteSqlRequestFieldBuilder();
       }
     }
-
     @java.lang.Override
     public Builder clear() {
       super.clear();
@@ -362,9 +329,9 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
     }
 
     @java.lang.Override
-    public com.google.protobuf.Descriptors.Descriptor getDescriptorForType() {
-      return com.google.cloud.spannerlib.v1.SpannerLibProto
-          .internal_static_google_spannerlib_v1_ExecuteRequest_descriptor;
+    public com.google.protobuf.Descriptors.Descriptor
+        getDescriptorForType() {
+      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ExecuteRequest_descriptor;
     }
 
     @java.lang.Override
@@ -383,11 +350,8 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
 
     @java.lang.Override
     public com.google.cloud.spannerlib.v1.ExecuteRequest buildPartial() {
-      com.google.cloud.spannerlib.v1.ExecuteRequest result =
-          new com.google.cloud.spannerlib.v1.ExecuteRequest(this);
-      if (bitField0_ != 0) {
-        buildPartial0(result);
-      }
+      com.google.cloud.spannerlib.v1.ExecuteRequest result = new com.google.cloud.spannerlib.v1.ExecuteRequest(this);
+      if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
@@ -396,14 +360,15 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
       int from_bitField0_ = bitField0_;
       int to_bitField0_ = 0;
       if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.connection_ = connectionBuilder_ == null ? connection_ : connectionBuilder_.build();
+        result.connection_ = connectionBuilder_ == null
+            ? connection_
+            : connectionBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
       if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.executeSqlRequest_ =
-            executeSqlRequestBuilder_ == null
-                ? executeSqlRequest_
-                : executeSqlRequestBuilder_.build();
+        result.executeSqlRequest_ = executeSqlRequestBuilder_ == null
+            ? executeSqlRequest_
+            : executeSqlRequestBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
       result.bitField0_ |= to_bitField0_;
@@ -412,7 +377,7 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
       if (other instanceof com.google.cloud.spannerlib.v1.ExecuteRequest) {
-        return mergeFrom((com.google.cloud.spannerlib.v1.ExecuteRequest) other);
+        return mergeFrom((com.google.cloud.spannerlib.v1.ExecuteRequest)other);
       } else {
         super.mergeFrom(other);
         return this;
@@ -453,27 +418,26 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
             case 0:
               done = true;
               break;
-            case 10:
-              {
-                input.readMessage(
-                    internalGetConnectionFieldBuilder().getBuilder(), extensionRegistry);
-                bitField0_ |= 0x00000001;
-                break;
-              } // case 10
-            case 18:
-              {
-                input.readMessage(
-                    internalGetExecuteSqlRequestFieldBuilder().getBuilder(), extensionRegistry);
-                bitField0_ |= 0x00000002;
-                break;
-              } // case 18
-            default:
-              {
-                if (!super.parseUnknownField(input, extensionRegistry, tag)) {
-                  done = true; // was an endgroup tag
-                }
-                break;
-              } // default:
+            case 10: {
+              input.readMessage(
+                  internalGetConnectionFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000001;
+              break;
+            } // case 10
+            case 18: {
+              input.readMessage(
+                  internalGetExecuteSqlRequestFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000002;
+              break;
+            } // case 18
+            default: {
+              if (!super.parseUnknownField(input, extensionRegistry, tag)) {
+                done = true; // was an endgroup tag
+              }
+              break;
+            } // default:
           } // switch (tag)
         } // while (!done)
       } catch (com.google.protobuf.InvalidProtocolBufferException e) {
@@ -483,48 +447,31 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
       } // finally
       return this;
     }
-
     private int bitField0_;
 
     private com.google.cloud.spannerlib.v1.Connection connection_;
     private com.google.protobuf.SingleFieldBuilder<
-            com.google.cloud.spannerlib.v1.Connection,
-            com.google.cloud.spannerlib.v1.Connection.Builder,
-            com.google.cloud.spannerlib.v1.ConnectionOrBuilder>
-        connectionBuilder_;
-
+        com.google.cloud.spannerlib.v1.Connection, com.google.cloud.spannerlib.v1.Connection.Builder, com.google.cloud.spannerlib.v1.ConnectionOrBuilder> connectionBuilder_;
     /**
-     * <code>
-     * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
-     *
+     * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      * @return Whether the connection field is set.
      */
     public boolean hasConnection() {
       return ((bitField0_ & 0x00000001) != 0);
     }
-
     /**
-     * <code>
-     * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
-     *
+     * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      * @return The connection.
      */
     public com.google.cloud.spannerlib.v1.Connection getConnection() {
       if (connectionBuilder_ == null) {
-        return connection_ == null
-            ? com.google.cloud.spannerlib.v1.Connection.getDefaultInstance()
-            : connection_;
+        return connection_ == null ? com.google.cloud.spannerlib.v1.Connection.getDefaultInstance() : connection_;
       } else {
         return connectionBuilder_.getMessage();
       }
     }
-
     /**
-     * <code>
-     * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder setConnection(com.google.cloud.spannerlib.v1.Connection value) {
       if (connectionBuilder_ == null) {
@@ -539,11 +486,8 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
       onChanged();
       return this;
     }
-
     /**
-     * <code>
-     * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder setConnection(
         com.google.cloud.spannerlib.v1.Connection.Builder builderForValue) {
@@ -556,17 +500,14 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
       onChanged();
       return this;
     }
-
     /**
-     * <code>
-     * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder mergeConnection(com.google.cloud.spannerlib.v1.Connection value) {
       if (connectionBuilder_ == null) {
-        if (((bitField0_ & 0x00000001) != 0)
-            && connection_ != null
-            && connection_ != com.google.cloud.spannerlib.v1.Connection.getDefaultInstance()) {
+        if (((bitField0_ & 0x00000001) != 0) &&
+          connection_ != null &&
+          connection_ != com.google.cloud.spannerlib.v1.Connection.getDefaultInstance()) {
           getConnectionBuilder().mergeFrom(value);
         } else {
           connection_ = value;
@@ -580,11 +521,8 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
       }
       return this;
     }
-
     /**
-     * <code>
-     * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder clearConnection() {
       bitField0_ = (bitField0_ & ~0x00000001);
@@ -596,50 +534,37 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
       onChanged();
       return this;
     }
-
     /**
-     * <code>
-     * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public com.google.cloud.spannerlib.v1.Connection.Builder getConnectionBuilder() {
       bitField0_ |= 0x00000001;
       onChanged();
       return internalGetConnectionFieldBuilder().getBuilder();
     }
-
     /**
-     * <code>
-     * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public com.google.cloud.spannerlib.v1.ConnectionOrBuilder getConnectionOrBuilder() {
       if (connectionBuilder_ != null) {
         return connectionBuilder_.getMessageOrBuilder();
       } else {
-        return connection_ == null
-            ? com.google.cloud.spannerlib.v1.Connection.getDefaultInstance()
-            : connection_;
+        return connection_ == null ?
+            com.google.cloud.spannerlib.v1.Connection.getDefaultInstance() : connection_;
       }
     }
-
     /**
-     * <code>
-     * .google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spannerlib.v1.Connection connection = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-            com.google.cloud.spannerlib.v1.Connection,
-            com.google.cloud.spannerlib.v1.Connection.Builder,
-            com.google.cloud.spannerlib.v1.ConnectionOrBuilder>
+        com.google.cloud.spannerlib.v1.Connection, com.google.cloud.spannerlib.v1.Connection.Builder, com.google.cloud.spannerlib.v1.ConnectionOrBuilder> 
         internalGetConnectionFieldBuilder() {
       if (connectionBuilder_ == null) {
-        connectionBuilder_ =
-            new com.google.protobuf.SingleFieldBuilder<
-                com.google.cloud.spannerlib.v1.Connection,
-                com.google.cloud.spannerlib.v1.Connection.Builder,
-                com.google.cloud.spannerlib.v1.ConnectionOrBuilder>(
-                getConnection(), getParentForChildren(), isClean());
+        connectionBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.cloud.spannerlib.v1.Connection, com.google.cloud.spannerlib.v1.Connection.Builder, com.google.cloud.spannerlib.v1.ConnectionOrBuilder>(
+                getConnection(),
+                getParentForChildren(),
+                isClean());
         connection_ = null;
       }
       return connectionBuilder_;
@@ -647,43 +572,27 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
 
     private com.google.spanner.v1.ExecuteSqlRequest executeSqlRequest_;
     private com.google.protobuf.SingleFieldBuilder<
-            com.google.spanner.v1.ExecuteSqlRequest,
-            com.google.spanner.v1.ExecuteSqlRequest.Builder,
-            com.google.spanner.v1.ExecuteSqlRequestOrBuilder>
-        executeSqlRequestBuilder_;
-
+        com.google.spanner.v1.ExecuteSqlRequest, com.google.spanner.v1.ExecuteSqlRequest.Builder, com.google.spanner.v1.ExecuteSqlRequestOrBuilder> executeSqlRequestBuilder_;
     /**
-     * <code>
-     * .google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
-     *
+     * <code>.google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      * @return Whether the executeSqlRequest field is set.
      */
     public boolean hasExecuteSqlRequest() {
       return ((bitField0_ & 0x00000002) != 0);
     }
-
     /**
-     * <code>
-     * .google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
-     *
+     * <code>.google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      * @return The executeSqlRequest.
      */
     public com.google.spanner.v1.ExecuteSqlRequest getExecuteSqlRequest() {
       if (executeSqlRequestBuilder_ == null) {
-        return executeSqlRequest_ == null
-            ? com.google.spanner.v1.ExecuteSqlRequest.getDefaultInstance()
-            : executeSqlRequest_;
+        return executeSqlRequest_ == null ? com.google.spanner.v1.ExecuteSqlRequest.getDefaultInstance() : executeSqlRequest_;
       } else {
         return executeSqlRequestBuilder_.getMessage();
       }
     }
-
     /**
-     * <code>
-     * .google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder setExecuteSqlRequest(com.google.spanner.v1.ExecuteSqlRequest value) {
       if (executeSqlRequestBuilder_ == null) {
@@ -698,11 +607,8 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
       onChanged();
       return this;
     }
-
     /**
-     * <code>
-     * .google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder setExecuteSqlRequest(
         com.google.spanner.v1.ExecuteSqlRequest.Builder builderForValue) {
@@ -715,17 +621,14 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
       onChanged();
       return this;
     }
-
     /**
-     * <code>
-     * .google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder mergeExecuteSqlRequest(com.google.spanner.v1.ExecuteSqlRequest value) {
       if (executeSqlRequestBuilder_ == null) {
-        if (((bitField0_ & 0x00000002) != 0)
-            && executeSqlRequest_ != null
-            && executeSqlRequest_ != com.google.spanner.v1.ExecuteSqlRequest.getDefaultInstance()) {
+        if (((bitField0_ & 0x00000002) != 0) &&
+          executeSqlRequest_ != null &&
+          executeSqlRequest_ != com.google.spanner.v1.ExecuteSqlRequest.getDefaultInstance()) {
           getExecuteSqlRequestBuilder().mergeFrom(value);
         } else {
           executeSqlRequest_ = value;
@@ -739,11 +642,8 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
       }
       return this;
     }
-
     /**
-     * <code>
-     * .google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder clearExecuteSqlRequest() {
       bitField0_ = (bitField0_ & ~0x00000002);
@@ -755,50 +655,37 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
       onChanged();
       return this;
     }
-
     /**
-     * <code>
-     * .google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public com.google.spanner.v1.ExecuteSqlRequest.Builder getExecuteSqlRequestBuilder() {
       bitField0_ |= 0x00000002;
       onChanged();
       return internalGetExecuteSqlRequestFieldBuilder().getBuilder();
     }
-
     /**
-     * <code>
-     * .google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public com.google.spanner.v1.ExecuteSqlRequestOrBuilder getExecuteSqlRequestOrBuilder() {
       if (executeSqlRequestBuilder_ != null) {
         return executeSqlRequestBuilder_.getMessageOrBuilder();
       } else {
-        return executeSqlRequest_ == null
-            ? com.google.spanner.v1.ExecuteSqlRequest.getDefaultInstance()
-            : executeSqlRequest_;
+        return executeSqlRequest_ == null ?
+            com.google.spanner.v1.ExecuteSqlRequest.getDefaultInstance() : executeSqlRequest_;
       }
     }
-
     /**
-     * <code>
-     * .google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];
-     * </code>
+     * <code>.google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-            com.google.spanner.v1.ExecuteSqlRequest,
-            com.google.spanner.v1.ExecuteSqlRequest.Builder,
-            com.google.spanner.v1.ExecuteSqlRequestOrBuilder>
+        com.google.spanner.v1.ExecuteSqlRequest, com.google.spanner.v1.ExecuteSqlRequest.Builder, com.google.spanner.v1.ExecuteSqlRequestOrBuilder> 
         internalGetExecuteSqlRequestFieldBuilder() {
       if (executeSqlRequestBuilder_ == null) {
-        executeSqlRequestBuilder_ =
-            new com.google.protobuf.SingleFieldBuilder<
-                com.google.spanner.v1.ExecuteSqlRequest,
-                com.google.spanner.v1.ExecuteSqlRequest.Builder,
-                com.google.spanner.v1.ExecuteSqlRequestOrBuilder>(
-                getExecuteSqlRequest(), getParentForChildren(), isClean());
+        executeSqlRequestBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.spanner.v1.ExecuteSqlRequest, com.google.spanner.v1.ExecuteSqlRequest.Builder, com.google.spanner.v1.ExecuteSqlRequestOrBuilder>(
+                getExecuteSqlRequest(),
+                getParentForChildren(),
+                isClean());
         executeSqlRequest_ = null;
       }
       return executeSqlRequestBuilder_;
@@ -809,7 +696,6 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
 
   // @@protoc_insertion_point(class_scope:google.spannerlib.v1.ExecuteRequest)
   private static final com.google.cloud.spannerlib.v1.ExecuteRequest DEFAULT_INSTANCE;
-
   static {
     DEFAULT_INSTANCE = new com.google.cloud.spannerlib.v1.ExecuteRequest();
   }
@@ -818,27 +704,27 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<ExecuteRequest> PARSER =
-      new com.google.protobuf.AbstractParser<ExecuteRequest>() {
-        @java.lang.Override
-        public ExecuteRequest parsePartialFrom(
-            com.google.protobuf.CodedInputStream input,
-            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
-            throws com.google.protobuf.InvalidProtocolBufferException {
-          Builder builder = newBuilder();
-          try {
-            builder.mergeFrom(input, extensionRegistry);
-          } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-            throw e.setUnfinishedMessage(builder.buildPartial());
-          } catch (com.google.protobuf.UninitializedMessageException e) {
-            throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
-          } catch (java.io.IOException e) {
-            throw new com.google.protobuf.InvalidProtocolBufferException(e)
-                .setUnfinishedMessage(builder.buildPartial());
-          }
-          return builder.buildPartial();
-        }
-      };
+  private static final com.google.protobuf.Parser<ExecuteRequest>
+      PARSER = new com.google.protobuf.AbstractParser<ExecuteRequest>() {
+    @java.lang.Override
+    public ExecuteRequest parsePartialFrom(
+        com.google.protobuf.CodedInputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      Builder builder = newBuilder();
+      try {
+        builder.mergeFrom(input, extensionRegistry);
+      } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+        throw e.setUnfinishedMessage(builder.buildPartial());
+      } catch (com.google.protobuf.UninitializedMessageException e) {
+        throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
+      } catch (java.io.IOException e) {
+        throw new com.google.protobuf.InvalidProtocolBufferException(e)
+            .setUnfinishedMessage(builder.buildPartial());
+      }
+      return builder.buildPartial();
+    }
+  };
 
   public static com.google.protobuf.Parser<ExecuteRequest> parser() {
     return PARSER;
@@ -853,4 +739,6 @@ public final class ExecuteRequest extends com.google.protobuf.GeneratedMessage
   public com.google.cloud.spannerlib.v1.ExecuteRequest getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
+
 }
+

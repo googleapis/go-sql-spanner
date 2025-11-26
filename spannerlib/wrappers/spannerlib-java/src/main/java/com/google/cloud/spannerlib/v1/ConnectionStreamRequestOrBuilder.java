@@ -6,26 +6,23 @@
 package com.google.cloud.spannerlib.v1;
 
 @com.google.protobuf.Generated
-public interface ConnectionStreamRequestOrBuilder
-    extends
+public interface ConnectionStreamRequestOrBuilder extends
     // @@protoc_insertion_point(interface_extends:google.spannerlib.v1.ConnectionStreamRequest)
     com.google.protobuf.MessageOrBuilder {
 
   /**
    * <code>.google.spannerlib.v1.ExecuteRequest execute_request = 1;</code>
-   *
    * @return Whether the executeRequest field is set.
    */
   boolean hasExecuteRequest();
-
   /**
    * <code>.google.spannerlib.v1.ExecuteRequest execute_request = 1;</code>
-   *
    * @return The executeRequest.
    */
   com.google.cloud.spannerlib.v1.ExecuteRequest getExecuteRequest();
-
-  /** <code>.google.spannerlib.v1.ExecuteRequest execute_request = 1;</code> */
+  /**
+   * <code>.google.spannerlib.v1.ExecuteRequest execute_request = 1;</code>
+   */
   com.google.cloud.spannerlib.v1.ExecuteRequestOrBuilder getExecuteRequestOrBuilder();
 
   com.google.cloud.spannerlib.v1.ConnectionStreamRequest.RequestCase getRequestCase();

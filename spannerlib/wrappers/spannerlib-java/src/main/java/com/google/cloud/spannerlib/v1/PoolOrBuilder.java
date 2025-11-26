@@ -6,14 +6,12 @@
 package com.google.cloud.spannerlib.v1;
 
 @com.google.protobuf.Generated
-public interface PoolOrBuilder
-    extends
+public interface PoolOrBuilder extends
     // @@protoc_insertion_point(interface_extends:google.spannerlib.v1.Pool)
     com.google.protobuf.MessageOrBuilder {
 
   /**
    * <code>int64 id = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-   *
    * @return The id.
    */
   long getId();

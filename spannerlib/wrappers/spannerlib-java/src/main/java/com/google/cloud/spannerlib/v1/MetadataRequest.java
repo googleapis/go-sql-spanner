@@ -5,78 +5,72 @@
 
 package com.google.cloud.spannerlib.v1;
 
-/** Protobuf type {@code google.spannerlib.v1.MetadataRequest} */
+/**
+ * Protobuf type {@code google.spannerlib.v1.MetadataRequest}
+ */
 @com.google.protobuf.Generated
-public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
-    implements
+public final class MetadataRequest extends
+    com.google.protobuf.GeneratedMessage implements
     // @@protoc_insertion_point(message_implements:google.spannerlib.v1.MetadataRequest)
     MetadataRequestOrBuilder {
-  private static final long serialVersionUID = 0L;
-
+private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
-        com.google.protobuf.RuntimeVersion.RuntimeDomain.PUBLIC,
-        /* major= */ 4,
-        /* minor= */ 32,
-        /* patch= */ 1,
-        /* suffix= */ "",
-        MetadataRequest.class.getName());
+      com.google.protobuf.RuntimeVersion.RuntimeDomain.PUBLIC,
+      /* major= */ 4,
+      /* minor= */ 32,
+      /* patch= */ 1,
+      /* suffix= */ "",
+      MetadataRequest.class.getName());
   }
-
   // Use MetadataRequest.newBuilder() to construct.
   private MetadataRequest(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
+  private MetadataRequest() {
+  }
 
-  private MetadataRequest() {}
-
-  public static final com.google.protobuf.Descriptors.Descriptor getDescriptor() {
-    return com.google.cloud.spannerlib.v1.SpannerLibProto
-        .internal_static_google_spannerlib_v1_MetadataRequest_descriptor;
+  public static final com.google.protobuf.Descriptors.Descriptor
+      getDescriptor() {
+    return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_MetadataRequest_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return com.google.cloud.spannerlib.v1.SpannerLibProto
-        .internal_static_google_spannerlib_v1_MetadataRequest_fieldAccessorTable
+    return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_MetadataRequest_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            com.google.cloud.spannerlib.v1.MetadataRequest.class,
-            com.google.cloud.spannerlib.v1.MetadataRequest.Builder.class);
+            com.google.cloud.spannerlib.v1.MetadataRequest.class, com.google.cloud.spannerlib.v1.MetadataRequest.Builder.class);
   }
 
   private int bitField0_;
   public static final int ROWS_FIELD_NUMBER = 1;
   private com.google.cloud.spannerlib.v1.Rows rows_;
-
   /**
    * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-   *
    * @return Whether the rows field is set.
    */
   @java.lang.Override
   public boolean hasRows() {
     return ((bitField0_ & 0x00000001) != 0);
   }
-
   /**
    * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-   *
    * @return The rows.
    */
   @java.lang.Override
   public com.google.cloud.spannerlib.v1.Rows getRows() {
     return rows_ == null ? com.google.cloud.spannerlib.v1.Rows.getDefaultInstance() : rows_;
   }
-
-  /** <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code> */
+  /**
+   * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
+   */
   @java.lang.Override
   public com.google.cloud.spannerlib.v1.RowsOrBuilder getRowsOrBuilder() {
     return rows_ == null ? com.google.cloud.spannerlib.v1.Rows.getDefaultInstance() : rows_;
   }
 
   private byte memoizedIsInitialized = -1;
-
   @java.lang.Override
   public final boolean isInitialized() {
     byte isInitialized = memoizedIsInitialized;
@@ -88,7 +82,8 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
   }
 
   @java.lang.Override
-  public void writeTo(com.google.protobuf.CodedOutputStream output) throws java.io.IOException {
+  public void writeTo(com.google.protobuf.CodedOutputStream output)
+                      throws java.io.IOException {
     if (((bitField0_ & 0x00000001) != 0)) {
       output.writeMessage(1, getRows());
     }
@@ -102,7 +97,8 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
 
     size = 0;
     if (((bitField0_ & 0x00000001) != 0)) {
-      size += com.google.protobuf.CodedOutputStream.computeMessageSize(1, getRows());
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(1, getRows());
     }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
@@ -112,17 +108,17 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
   @java.lang.Override
   public boolean equals(final java.lang.Object obj) {
     if (obj == this) {
-      return true;
+     return true;
     }
     if (!(obj instanceof com.google.cloud.spannerlib.v1.MetadataRequest)) {
       return super.equals(obj);
     }
-    com.google.cloud.spannerlib.v1.MetadataRequest other =
-        (com.google.cloud.spannerlib.v1.MetadataRequest) obj;
+    com.google.cloud.spannerlib.v1.MetadataRequest other = (com.google.cloud.spannerlib.v1.MetadataRequest) obj;
 
     if (hasRows() != other.hasRows()) return false;
     if (hasRows()) {
-      if (!getRows().equals(other.getRows())) return false;
+      if (!getRows()
+          .equals(other.getRows())) return false;
     }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
@@ -144,120 +140,116 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
     return hash;
   }
 
-  public static com.google.cloud.spannerlib.v1.MetadataRequest parseFrom(java.nio.ByteBuffer data)
+  public static com.google.cloud.spannerlib.v1.MetadataRequest parseFrom(
+      java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-
   public static com.google.cloud.spannerlib.v1.MetadataRequest parseFrom(
-      java.nio.ByteBuffer data, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      java.nio.ByteBuffer data,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-
   public static com.google.cloud.spannerlib.v1.MetadataRequest parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-
   public static com.google.cloud.spannerlib.v1.MetadataRequest parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-
   public static com.google.cloud.spannerlib.v1.MetadataRequest parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-
   public static com.google.cloud.spannerlib.v1.MetadataRequest parseFrom(
-      byte[] data, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      byte[] data,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-
   public static com.google.cloud.spannerlib.v1.MetadataRequest parseFrom(java.io.InputStream input)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(PARSER, input);
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input);
+  }
+  public static com.google.cloud.spannerlib.v1.MetadataRequest parseFrom(
+      java.io.InputStream input,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      throws java.io.IOException {
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static com.google.cloud.spannerlib.v1.MetadataRequest parseFrom(
-      java.io.InputStream input, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+  public static com.google.cloud.spannerlib.v1.MetadataRequest parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(
-        PARSER, input, extensionRegistry);
+    return com.google.protobuf.GeneratedMessage
+        .parseDelimitedWithIOException(PARSER, input);
   }
 
   public static com.google.cloud.spannerlib.v1.MetadataRequest parseDelimitedFrom(
-      java.io.InputStream input) throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseDelimitedWithIOException(PARSER, input);
-  }
-
-  public static com.google.cloud.spannerlib.v1.MetadataRequest parseDelimitedFrom(
-      java.io.InputStream input, com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+      java.io.InputStream input,
+      com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseDelimitedWithIOException(
-        PARSER, input, extensionRegistry);
+    return com.google.protobuf.GeneratedMessage
+        .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-
   public static com.google.cloud.spannerlib.v1.MetadataRequest parseFrom(
-      com.google.protobuf.CodedInputStream input) throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(PARSER, input);
+      com.google.protobuf.CodedInputStream input)
+      throws java.io.IOException {
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input);
   }
-
   public static com.google.cloud.spannerlib.v1.MetadataRequest parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
-    return com.google.protobuf.GeneratedMessage.parseWithIOException(
-        PARSER, input, extensionRegistry);
+    return com.google.protobuf.GeneratedMessage
+        .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
   @java.lang.Override
-  public Builder newBuilderForType() {
-    return newBuilder();
-  }
-
+  public Builder newBuilderForType() { return newBuilder(); }
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-
   public static Builder newBuilder(com.google.cloud.spannerlib.v1.MetadataRequest prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
-
   @java.lang.Override
   public Builder toBuilder() {
-    return this == DEFAULT_INSTANCE ? new Builder() : new Builder().mergeFrom(this);
+    return this == DEFAULT_INSTANCE
+        ? new Builder() : new Builder().mergeFrom(this);
   }
 
   @java.lang.Override
-  protected Builder newBuilderForType(com.google.protobuf.GeneratedMessage.BuilderParent parent) {
+  protected Builder newBuilderForType(
+      com.google.protobuf.GeneratedMessage.BuilderParent parent) {
     Builder builder = new Builder(parent);
     return builder;
   }
-
-  /** Protobuf type {@code google.spannerlib.v1.MetadataRequest} */
-  public static final class Builder extends com.google.protobuf.GeneratedMessage.Builder<Builder>
-      implements
+  /**
+   * Protobuf type {@code google.spannerlib.v1.MetadataRequest}
+   */
+  public static final class Builder extends
+      com.google.protobuf.GeneratedMessage.Builder<Builder> implements
       // @@protoc_insertion_point(builder_implements:google.spannerlib.v1.MetadataRequest)
       com.google.cloud.spannerlib.v1.MetadataRequestOrBuilder {
-    public static final com.google.protobuf.Descriptors.Descriptor getDescriptor() {
-      return com.google.cloud.spannerlib.v1.SpannerLibProto
-          .internal_static_google_spannerlib_v1_MetadataRequest_descriptor;
+    public static final com.google.protobuf.Descriptors.Descriptor
+        getDescriptor() {
+      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_MetadataRequest_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return com.google.cloud.spannerlib.v1.SpannerLibProto
-          .internal_static_google_spannerlib_v1_MetadataRequest_fieldAccessorTable
+      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_MetadataRequest_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              com.google.cloud.spannerlib.v1.MetadataRequest.class,
-              com.google.cloud.spannerlib.v1.MetadataRequest.Builder.class);
+              com.google.cloud.spannerlib.v1.MetadataRequest.class, com.google.cloud.spannerlib.v1.MetadataRequest.Builder.class);
     }
 
     // Construct using com.google.cloud.spannerlib.v1.MetadataRequest.newBuilder()
@@ -265,17 +257,17 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
       maybeForceBuilderInitialization();
     }
 
-    private Builder(com.google.protobuf.GeneratedMessage.BuilderParent parent) {
+    private Builder(
+        com.google.protobuf.GeneratedMessage.BuilderParent parent) {
       super(parent);
       maybeForceBuilderInitialization();
     }
-
     private void maybeForceBuilderInitialization() {
-      if (com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders) {
+      if (com.google.protobuf.GeneratedMessage
+              .alwaysUseFieldBuilders) {
         internalGetRowsFieldBuilder();
       }
     }
-
     @java.lang.Override
     public Builder clear() {
       super.clear();
@@ -289,9 +281,9 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
     }
 
     @java.lang.Override
-    public com.google.protobuf.Descriptors.Descriptor getDescriptorForType() {
-      return com.google.cloud.spannerlib.v1.SpannerLibProto
-          .internal_static_google_spannerlib_v1_MetadataRequest_descriptor;
+    public com.google.protobuf.Descriptors.Descriptor
+        getDescriptorForType() {
+      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_MetadataRequest_descriptor;
     }
 
     @java.lang.Override
@@ -310,11 +302,8 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
 
     @java.lang.Override
     public com.google.cloud.spannerlib.v1.MetadataRequest buildPartial() {
-      com.google.cloud.spannerlib.v1.MetadataRequest result =
-          new com.google.cloud.spannerlib.v1.MetadataRequest(this);
-      if (bitField0_ != 0) {
-        buildPartial0(result);
-      }
+      com.google.cloud.spannerlib.v1.MetadataRequest result = new com.google.cloud.spannerlib.v1.MetadataRequest(this);
+      if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
@@ -323,7 +312,9 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
       int from_bitField0_ = bitField0_;
       int to_bitField0_ = 0;
       if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.rows_ = rowsBuilder_ == null ? rows_ : rowsBuilder_.build();
+        result.rows_ = rowsBuilder_ == null
+            ? rows_
+            : rowsBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
       result.bitField0_ |= to_bitField0_;
@@ -332,7 +323,7 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
       if (other instanceof com.google.cloud.spannerlib.v1.MetadataRequest) {
-        return mergeFrom((com.google.cloud.spannerlib.v1.MetadataRequest) other);
+        return mergeFrom((com.google.cloud.spannerlib.v1.MetadataRequest)other);
       } else {
         super.mergeFrom(other);
         return this;
@@ -370,19 +361,19 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
             case 0:
               done = true;
               break;
-            case 10:
-              {
-                input.readMessage(internalGetRowsFieldBuilder().getBuilder(), extensionRegistry);
-                bitField0_ |= 0x00000001;
-                break;
-              } // case 10
-            default:
-              {
-                if (!super.parseUnknownField(input, extensionRegistry, tag)) {
-                  done = true; // was an endgroup tag
-                }
-                break;
-              } // default:
+            case 10: {
+              input.readMessage(
+                  internalGetRowsFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000001;
+              break;
+            } // case 10
+            default: {
+              if (!super.parseUnknownField(input, extensionRegistry, tag)) {
+                done = true; // was an endgroup tag
+              }
+              break;
+            } // default:
           } // switch (tag)
         } // while (!done)
       } catch (com.google.protobuf.InvalidProtocolBufferException e) {
@@ -392,28 +383,20 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
       } // finally
       return this;
     }
-
     private int bitField0_;
 
     private com.google.cloud.spannerlib.v1.Rows rows_;
     private com.google.protobuf.SingleFieldBuilder<
-            com.google.cloud.spannerlib.v1.Rows,
-            com.google.cloud.spannerlib.v1.Rows.Builder,
-            com.google.cloud.spannerlib.v1.RowsOrBuilder>
-        rowsBuilder_;
-
+        com.google.cloud.spannerlib.v1.Rows, com.google.cloud.spannerlib.v1.Rows.Builder, com.google.cloud.spannerlib.v1.RowsOrBuilder> rowsBuilder_;
     /**
      * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-     *
      * @return Whether the rows field is set.
      */
     public boolean hasRows() {
       return ((bitField0_ & 0x00000001) != 0);
     }
-
     /**
      * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-     *
      * @return The rows.
      */
     public com.google.cloud.spannerlib.v1.Rows getRows() {
@@ -423,7 +406,6 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
         return rowsBuilder_.getMessage();
       }
     }
-
     /**
      * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
@@ -440,11 +422,11 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
       onChanged();
       return this;
     }
-
     /**
      * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
-    public Builder setRows(com.google.cloud.spannerlib.v1.Rows.Builder builderForValue) {
+    public Builder setRows(
+        com.google.cloud.spannerlib.v1.Rows.Builder builderForValue) {
       if (rowsBuilder_ == null) {
         rows_ = builderForValue.build();
       } else {
@@ -454,15 +436,14 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
       onChanged();
       return this;
     }
-
     /**
      * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder mergeRows(com.google.cloud.spannerlib.v1.Rows value) {
       if (rowsBuilder_ == null) {
-        if (((bitField0_ & 0x00000001) != 0)
-            && rows_ != null
-            && rows_ != com.google.cloud.spannerlib.v1.Rows.getDefaultInstance()) {
+        if (((bitField0_ & 0x00000001) != 0) &&
+          rows_ != null &&
+          rows_ != com.google.cloud.spannerlib.v1.Rows.getDefaultInstance()) {
           getRowsBuilder().mergeFrom(value);
         } else {
           rows_ = value;
@@ -476,7 +457,6 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
       }
       return this;
     }
-
     /**
      * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
@@ -490,7 +470,6 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
       onChanged();
       return this;
     }
-
     /**
      * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
@@ -499,7 +478,6 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
       onChanged();
       return internalGetRowsFieldBuilder().getBuilder();
     }
-
     /**
      * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
@@ -507,25 +485,22 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
       if (rowsBuilder_ != null) {
         return rowsBuilder_.getMessageOrBuilder();
       } else {
-        return rows_ == null ? com.google.cloud.spannerlib.v1.Rows.getDefaultInstance() : rows_;
+        return rows_ == null ?
+            com.google.cloud.spannerlib.v1.Rows.getDefaultInstance() : rows_;
       }
     }
-
     /**
      * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-            com.google.cloud.spannerlib.v1.Rows,
-            com.google.cloud.spannerlib.v1.Rows.Builder,
-            com.google.cloud.spannerlib.v1.RowsOrBuilder>
+        com.google.cloud.spannerlib.v1.Rows, com.google.cloud.spannerlib.v1.Rows.Builder, com.google.cloud.spannerlib.v1.RowsOrBuilder> 
         internalGetRowsFieldBuilder() {
       if (rowsBuilder_ == null) {
-        rowsBuilder_ =
-            new com.google.protobuf.SingleFieldBuilder<
-                com.google.cloud.spannerlib.v1.Rows,
-                com.google.cloud.spannerlib.v1.Rows.Builder,
-                com.google.cloud.spannerlib.v1.RowsOrBuilder>(
-                getRows(), getParentForChildren(), isClean());
+        rowsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.cloud.spannerlib.v1.Rows, com.google.cloud.spannerlib.v1.Rows.Builder, com.google.cloud.spannerlib.v1.RowsOrBuilder>(
+                getRows(),
+                getParentForChildren(),
+                isClean());
         rows_ = null;
       }
       return rowsBuilder_;
@@ -536,7 +511,6 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
 
   // @@protoc_insertion_point(class_scope:google.spannerlib.v1.MetadataRequest)
   private static final com.google.cloud.spannerlib.v1.MetadataRequest DEFAULT_INSTANCE;
-
   static {
     DEFAULT_INSTANCE = new com.google.cloud.spannerlib.v1.MetadataRequest();
   }
@@ -545,27 +519,27 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<MetadataRequest> PARSER =
-      new com.google.protobuf.AbstractParser<MetadataRequest>() {
-        @java.lang.Override
-        public MetadataRequest parsePartialFrom(
-            com.google.protobuf.CodedInputStream input,
-            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
-            throws com.google.protobuf.InvalidProtocolBufferException {
-          Builder builder = newBuilder();
-          try {
-            builder.mergeFrom(input, extensionRegistry);
-          } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-            throw e.setUnfinishedMessage(builder.buildPartial());
-          } catch (com.google.protobuf.UninitializedMessageException e) {
-            throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
-          } catch (java.io.IOException e) {
-            throw new com.google.protobuf.InvalidProtocolBufferException(e)
-                .setUnfinishedMessage(builder.buildPartial());
-          }
-          return builder.buildPartial();
-        }
-      };
+  private static final com.google.protobuf.Parser<MetadataRequest>
+      PARSER = new com.google.protobuf.AbstractParser<MetadataRequest>() {
+    @java.lang.Override
+    public MetadataRequest parsePartialFrom(
+        com.google.protobuf.CodedInputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      Builder builder = newBuilder();
+      try {
+        builder.mergeFrom(input, extensionRegistry);
+      } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+        throw e.setUnfinishedMessage(builder.buildPartial());
+      } catch (com.google.protobuf.UninitializedMessageException e) {
+        throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
+      } catch (java.io.IOException e) {
+        throw new com.google.protobuf.InvalidProtocolBufferException(e)
+            .setUnfinishedMessage(builder.buildPartial());
+      }
+      return builder.buildPartial();
+    }
+  };
 
   public static com.google.protobuf.Parser<MetadataRequest> parser() {
     return PARSER;
@@ -580,4 +554,6 @@ public final class MetadataRequest extends com.google.protobuf.GeneratedMessage
   public com.google.cloud.spannerlib.v1.MetadataRequest getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
+
 }
+
