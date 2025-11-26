@@ -230,5 +230,89 @@ public class RowsTests : AbstractMockServerTests
             Assert.That(rows.Next(), Is.Null);
         }
     }
+    
+    [Test]
+    public async Task TestMultipleQueries([Values] LibType libType, [Values] bool async)
+    {
+        await using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        await using var connection = pool.CreateConnection();
+        var sql = "SELECT 1;SELECT 1";
+        await using var rows = async
+            ? await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = sql })
+            // ReSharper disable once MethodHasAsyncOverload
+            : connection.Execute(new ExecuteSqlRequest { Sql = sql });
+
+        var numResultSets = 0;
+        var totalRows = 0;
+        do
+        {
+            var numRows = 0;
+            // ReSharper disable once MethodHasAsyncOverload
+            while ((async ? await rows.NextAsync() : rows.Next()) is { } row)
+            {
+                numRows++;
+                totalRows++;
+                Assert.That(row.Values.Count, Is.EqualTo(1));
+                Assert.That(row.Values[0].HasStringValue);
+                Assert.That(row.Values[0].StringValue, Is.EqualTo("1"));
+            }
+            Assert.That(numRows, Is.EqualTo(1));
+            numResultSets++;
+            // ReSharper disable once MethodHasAsyncOverload
+        } while (async ? await rows.NextResultSetAsync() : rows.NextResultSet());
+        
+        Assert.That(totalRows, Is.EqualTo(2));
+        Assert.That(numResultSets, Is.EqualTo(2));
+    }
+    
+    [Test]
+    public async Task TestMultipleMixedStatements([Values] LibType libType, [Values] bool async)
+    {
+        var updateCount = 3L;
+        var dml = "update my_table set value=1 where id in (1,2,3)";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(dml, StatementResult.CreateUpdateCount(updateCount));
+        
+        var numRows = 10;
+        var rowType = RandomResultSetGenerator.GenerateAllTypesRowType();
+        var results = RandomResultSetGenerator.Generate(rowType, numRows);
+        var query = "select * from random";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(query, StatementResult.CreateQuery(results));
+
+        // Create a SQL string containing a mix of DML and queries.
+        var sql = $"{dml};{dml};{query};{dml};{query}";
+
+        await using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        await using var connection = pool.CreateConnection();
+        await using var rows = async
+            ? await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = sql })
+            // ReSharper disable once MethodHasAsyncOverload
+            : connection.Execute(new ExecuteSqlRequest { Sql = sql });
+
+        var numResultSets = 0;
+        var totalRows = 0;
+        var totalUpdateCount = 0L;
+        do
+        {
+            // ReSharper disable once MethodHasAsyncOverload
+            while ((async ? await rows.NextAsync() : rows.Next()) is { } row)
+            {
+                totalRows++;
+            }
+            numResultSets++;
+            if (rows.UpdateCount > -1)
+            {
+                totalUpdateCount += rows.UpdateCount;
+            }
+            // ReSharper disable once MethodHasAsyncOverload
+        } while (async ? await rows.NextResultSetAsync() : rows.NextResultSet());
+        
+        // The query is executed 2 times.
+        Assert.That(totalRows, Is.EqualTo(numRows * 2));
+        // The DML statement is executed 3 times.
+        // TODO: Enable when https://github.com/googleapis/go-sql-spanner/issues/648 has been fixed
+        // Assert.That(totalUpdateCount, Is.EqualTo(updateCount * 3));
+        // There are 5 statements in the SQL string.
+        Assert.That(numResultSets, Is.EqualTo(5));
+    }
 
 }
