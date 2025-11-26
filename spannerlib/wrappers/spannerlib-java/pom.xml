@@ -122,6 +122,14 @@
           <excludes>**/v1/**/*</excludes>
         </configuration>
       </plugin>
+      <plugin>
+        <groupId>com.spotify.fmt</groupId>
+        <artifactId>fmt-maven-plugin</artifactId>
+        <configuration>
+          <!-- Ignore all files in the /v1/ folder -->
+          <filesPathPattern>^((?!/v1/|\\v1\\).)*$</filesPathPattern>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
 </project>

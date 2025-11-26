@@ -6,22 +6,19 @@
 package com.google.cloud.spannerlib.v1;
 
 @com.google.protobuf.Generated
-public interface InfoResponseOrBuilder
-    extends
+public interface InfoResponseOrBuilder extends
     // @@protoc_insertion_point(interface_extends:google.spannerlib.v1.InfoResponse)
     com.google.protobuf.MessageOrBuilder {
 
   /**
    * <code>string version = 1;</code>
-   *
    * @return The version.
    */
   java.lang.String getVersion();
-
   /**
    * <code>string version = 1;</code>
-   *
    * @return The bytes for version.
    */
-  com.google.protobuf.ByteString getVersionBytes();
+  com.google.protobuf.ByteString
+      getVersionBytes();
 }

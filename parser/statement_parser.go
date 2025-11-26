@@ -228,6 +228,16 @@ func (p *StatementParser) supportsEscapeQuoteWithQuote() bool {
 	return p.Dialect == databasepb.DatabaseDialect_POSTGRESQL
 }
 
+var googleSqlReturningKeywords = []string{"then", "return"}
+var postgreSqlReturningKeywords = []string{"returning"}
+
+func (p *StatementParser) returningKeywords() []string {
+	if p.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		return postgreSqlReturningKeywords
+	}
+	return googleSqlReturningKeywords
+}
+
 // supportsLinefeedInString returns true if the dialect allows linefeeds in standard string literals.
 func (p *StatementParser) supportsLinefeedInString() bool {
 	return p.Dialect == databasepb.DatabaseDialect_POSTGRESQL
@@ -582,9 +592,12 @@ func (p *StatementParser) ParseClientSideStatement(query string) (ParsedStatemen
 	if p.useCache {
 		if val, ok := p.statementsCache.Get(query); ok {
 			if val.info.StatementType == StatementTypeClientSide {
-				return val.parsedStatement, nil
+				if val.parsedStatement != nil {
+					return val.parsedStatement, nil
+				}
+			} else {
+				return nil, nil
 			}
-			return nil, nil
 		}
 	}
 	// Determine whether it could be a valid client-side statement by looking at the first keyword.
@@ -610,6 +623,10 @@ func (p *StatementParser) ParseClientSideStatement(query string) (ParsedStatemen
 		return stmt, nil
 	}
 	return nil, nil
+}
+
+func isClientSideKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, clientSideKeywords)
 }
 
 // isDDL returns true if the given sql string is a DDL statement.
@@ -744,6 +761,8 @@ const (
 type StatementInfo struct {
 	StatementType StatementType
 	DmlType       DmlType
+	// TODO: Implement parsing of THEN RETURN / RETURNING clauses
+	HasThenReturn bool
 }
 
 // DetectStatementType returns the type of SQL statement based on the first
@@ -774,9 +793,12 @@ func (p *StatementParser) calculateDetectStatementType(sql string) *StatementInf
 		return &StatementInfo{
 			StatementType: StatementTypeDml,
 			DmlType:       detectDmlKeyword(keyword),
+			HasThenReturn: p.detectHasThenReturnClause(sql),
 		}
 	} else if isDDLKeyword(keyword) {
 		return &StatementInfo{StatementType: StatementTypeDdl}
+	} else if isClientSideKeyword(keyword) {
+		return &StatementInfo{StatementType: StatementTypeClientSide}
 	}
 	return &StatementInfo{StatementType: StatementTypeUnknown}
 }
@@ -790,6 +812,37 @@ func detectDmlKeyword(keyword string) DmlType {
 		return DmlTypeDelete
 	}
 	return DmlTypeUnknown
+}
+
+func (p *StatementParser) detectHasThenReturnClause(sql string) bool {
+	parser := &simpleParser{sql: []byte(sql), statementParser: p}
+	for parser.pos < len(parser.sql) {
+		parser.skipWhitespacesAndComments()
+		if parser.pos >= len(parser.sql) {
+			break
+		}
+		if parser.isMultibyte() {
+			parser.nextChar()
+			continue
+		}
+		c := parser.sql[parser.pos]
+		if c == '(' {
+			// THEN RETURN / RETURNING must be in the outermost expression.
+			if err := parser.skipExpressionInBrackets(); err != nil {
+				return false
+			}
+			continue
+		}
+		if parser.eatKeywords(p.returningKeywords()) {
+			return true
+		}
+		newPos, err := p.skip(parser.sql, parser.pos)
+		if err != nil {
+			return false
+		}
+		parser.pos = newPos
+	}
+	return false
 }
 
 func (p *StatementParser) IsCreateDatabaseStatement(sql string) bool {

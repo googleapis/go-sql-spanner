@@ -18,6 +18,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
@@ -52,6 +53,16 @@ func ResultSetStats(ctx context.Context, poolId, connId, rowsId int64) (*spanner
 		return nil, err
 	}
 	return res.ResultSetStats(ctx)
+}
+
+// NextResultSet returns the ResultSetMetadata of the next result set in the given rows or nil if there are no
+// more result sets in the given Rows object.
+func NextResultSet(ctx context.Context, poolId, connId, rowsId int64) (*spannerpb.ResultSetMetadata, error) {
+	res, err := findRows(poolId, connId, rowsId)
+	if err != nil {
+		return nil, err
+	}
+	return res.NextResultSet(ctx)
 }
 
 // NextEncoded returns the next row data in encoded form.
@@ -146,6 +157,38 @@ func (rows *rows) ResultSetStats(ctx context.Context) (*spannerpb.ResultSetStats
 	return rows.stats, nil
 }
 
+func (rows *rows) NextResultSet(ctx context.Context) (*spannerpb.ResultSetMetadata, error) {
+	if !rows.done && rows.stats == nil {
+		// The current result set has not been read to the end.
+		// We therefore need to move the cursor to the next result set which contains
+		// the stats for the current result set, so we can skip those.
+		if !rows.backend.NextResultSet() {
+			if err := rows.backend.Err(); err != nil {
+				return nil, err
+			}
+			// This is unexpected, as we should at least have a stats result set.
+			return nil, status.Error(codes.Internal, "missing ResultSetStats for the current ResultSet")
+		}
+	}
+	if rows.backend.NextResultSet() {
+		rows.done = false
+		rows.stats = nil
+		if err := rows.readMetadata(ctx); err != nil {
+			return nil, err
+		}
+		if len(rows.metadata.RowType.Fields) == 0 {
+			if err := rows.readStats(ctx); err != nil {
+				return nil, err
+			}
+		}
+		return rows.metadata, nil
+	}
+	if err := rows.backend.Err(); err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
 type genericValue struct {
 	v *structpb.Value
 }
@@ -197,6 +240,25 @@ func (rows *rows) Next(ctx context.Context) (*structpb.ListValue, error) {
 		rows.values.Values[i] = rows.buffer[i].(*genericValue).v
 	}
 	return rows.values, nil
+}
+
+func (rows *rows) readMetadata(ctx context.Context) error {
+	// The first result set should contain the metadata.
+	if !rows.backend.Next() {
+		_ = rows.backend.Close()
+		return fmt.Errorf("query returned no metadata")
+	}
+	rows.metadata = &spannerpb.ResultSetMetadata{}
+	if err := rows.backend.Scan(&rows.metadata); err != nil {
+		_ = rows.backend.Close()
+		return err
+	}
+	// Move to the next result set, which contains the normal data.
+	if !rows.backend.NextResultSet() {
+		_ = rows.backend.Close()
+		return fmt.Errorf("no results found after metadata")
+	}
+	return nil
 }
 
 func (rows *rows) readStats(ctx context.Context) error {

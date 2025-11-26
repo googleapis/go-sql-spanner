@@ -120,6 +120,7 @@ type delegatingTransaction struct {
 	conn               *conn
 	ctx                context.Context
 	close              func(result txResult)
+	implicit           bool
 	contextTransaction contextTransaction
 }
 
@@ -762,7 +763,9 @@ func (tx *readWriteTransaction) runDmlBatch(ctx context.Context) (*result, error
 
 	if !tx.retryAborts() {
 		affected, err := tx.rwTx.BatchUpdateWithOptions(ctx, statements, options.QueryOptions)
-		return &result{rowsAffected: sum(affected), batchUpdateCounts: affected}, err
+		res := &result{rowsAffected: sum(affected), batchUpdateCounts: affected}
+		ba := toBatchError(res, err)
+		return res, ba
 	}
 
 	var affected []int64
@@ -777,7 +780,9 @@ func (tx *readWriteTransaction) runDmlBatch(ctx context.Context) (*result, error
 		c:          affected,
 		err:        err,
 	})
-	return &result{rowsAffected: sum(affected), batchUpdateCounts: affected}, err
+	res := &result{rowsAffected: sum(affected), batchUpdateCounts: affected}
+	ba := toBatchError(res, err)
+	return res, ba
 }
 
 func (tx *readWriteTransaction) BufferWrite(ms []*spanner.Mutation) error {

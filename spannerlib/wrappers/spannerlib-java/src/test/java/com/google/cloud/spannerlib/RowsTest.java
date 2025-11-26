@@ -362,4 +362,103 @@ public class RowsTest extends AbstractSpannerLibTest {
 
     assertEquals(1, mockSpanner.countRequestsOfType(CommitRequest.class));
   }
+
+  @Test
+  public void testMultiStatement() {
+    String random1 = "select * from random1";
+    String random2 = "select * from random2";
+    int numRows = 10;
+    RandomResultSetGenerator generator = new RandomResultSetGenerator(numRows);
+    int numCols = RandomResultSetGenerator.generateAllTypes(Dialect.GOOGLE_STANDARD_SQL).length;
+    mockSpanner.putStatementResult(
+        StatementResult.query(Statement.of(random1), generator.generate()));
+    mockSpanner.putStatementResult(
+        StatementResult.query(Statement.of(random2), generator.generate()));
+
+    String dsn =
+        String.format(
+            "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
+    try (Pool pool = Pool.createPool(library, dsn);
+        Connection connection = pool.createConnection()) {
+      try (Rows rows =
+          connection.execute(
+              ExecuteSqlRequest.newBuilder()
+                  .setSql(String.format("%s;%s", random1, random2))
+                  .build())) {
+        ListValue row;
+        ResultSetMetadata metadata = rows.getMetadata();
+        assertEquals(numCols, metadata.getRowType().getFieldsCount());
+
+        int resultSetCount = 0;
+        do {
+          int rowCount = 0;
+          while ((row = rows.next()) != null) {
+            rowCount++;
+            assertEquals(numCols, row.getValuesList().size());
+          }
+          assertEquals(numRows, rowCount);
+          resultSetCount++;
+        } while (rows.nextResultSet());
+        assertEquals(2, resultSetCount);
+      }
+    }
+
+    assertEquals(2, mockSpanner.countRequestsOfType(ExecuteSqlRequest.class));
+    ExecuteSqlRequest request1 = mockSpanner.getRequestsOfType(ExecuteSqlRequest.class).get(0);
+    assertEquals(random1, request1.getSql());
+    ExecuteSqlRequest request2 = mockSpanner.getRequestsOfType(ExecuteSqlRequest.class).get(1);
+    assertEquals(random2, request2.getSql());
+  }
+
+  @Test
+  public void testMultiStatement_MoveToNextResultSetHalfway() {
+    String random1 = "select * from random1";
+    String random2 = "select * from random2";
+    int numRows = 20;
+    int readRowsPerResultSet = ThreadLocalRandom.current().nextInt(numRows);
+    RandomResultSetGenerator generator = new RandomResultSetGenerator(numRows);
+    int numCols = RandomResultSetGenerator.generateAllTypes(Dialect.GOOGLE_STANDARD_SQL).length;
+    mockSpanner.putStatementResult(
+        StatementResult.query(Statement.of(random1), generator.generate()));
+    mockSpanner.putStatementResult(
+        StatementResult.query(Statement.of(random2), generator.generate()));
+
+    int totalReadRows = 0;
+    String dsn =
+        String.format(
+            "localhost:%d/projects/p/instances/i/databases/d?usePlainText=true", getPort());
+    try (Pool pool = Pool.createPool(library, dsn);
+        Connection connection = pool.createConnection()) {
+      try (Rows rows =
+          connection.execute(
+              ExecuteSqlRequest.newBuilder()
+                  .setSql(String.format("%s;%s", random1, random2))
+                  .build())) {
+        ListValue row;
+        ResultSetMetadata metadata = rows.getMetadata();
+        assertEquals(numCols, metadata.getRowType().getFieldsCount());
+
+        int resultSetCount = 0;
+        do {
+          int rowCount = 0;
+          while ((row = rows.next()) != null && rowCount < readRowsPerResultSet) {
+            rowCount++;
+            totalReadRows++;
+            assertEquals(numCols, row.getValuesList().size());
+          }
+          assertEquals(readRowsPerResultSet, rowCount);
+          resultSetCount++;
+        } while (rows.nextResultSet());
+        assertEquals(2, resultSetCount);
+      }
+    }
+
+    assertEquals(readRowsPerResultSet * 2, totalReadRows);
+
+    assertEquals(2, mockSpanner.countRequestsOfType(ExecuteSqlRequest.class));
+    ExecuteSqlRequest request1 = mockSpanner.getRequestsOfType(ExecuteSqlRequest.class).get(0);
+    assertEquals(random1, request1.getSql());
+    ExecuteSqlRequest request2 = mockSpanner.getRequestsOfType(ExecuteSqlRequest.class).get(1);
+    assertEquals(random2, request2.getSql());
+  }
 }

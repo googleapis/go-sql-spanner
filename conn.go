@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
@@ -546,6 +547,9 @@ func (c *conn) RunBatch(ctx context.Context) error {
 func (c *conn) RunDmlBatch(ctx context.Context) (SpannerResult, error) {
 	res, err := c.runBatch(ctx)
 	if err != nil {
+		if spannerRes, ok := res.(SpannerResult); ok {
+			return spannerRes, err
+		}
 		return nil, err
 	}
 	spannerRes, ok := res.(SpannerResult)
@@ -592,7 +596,7 @@ func (c *conn) startBatchDDL() (driver.Result, error) {
 }
 
 func (c *conn) startBatchDML(automatic bool) (driver.Result, error) {
-	execOptions, err := c.options( /*reset = */ true)
+	execOptions, err := c.options( /* reset = */ true)
 	if err != nil {
 		return nil, err
 	}
@@ -701,6 +705,25 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 			return nil, err
 		}
 		if err := op.Wait(ctx); err != nil {
+			if len(statements) > 1 {
+				be := &BatchError{
+					Err:               err,
+					BatchUpdateCounts: []int64{},
+				}
+				metadata, err := op.Metadata()
+				if err != nil {
+					c.logger.WarnContext(ctx, fmt.Sprintf("Error getting metadata for UpdateDatabaseDdl: %v", err))
+				} else if metadata != nil {
+					for _, ts := range metadata.CommitTimestamps {
+						if ts != nil {
+							be.BatchUpdateCounts = append(be.BatchUpdateCounts, int64(-1))
+						} else {
+							break
+						}
+					}
+				}
+				return nil, be
+			}
 			return nil, err
 		}
 	}
@@ -726,7 +749,9 @@ func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement,
 			return err
 		}, options.TransactionOptions)
 	}
-	return &result{rowsAffected: sum(affected), batchUpdateCounts: affected}, err
+	res := &result{rowsAffected: sum(affected), batchUpdateCounts: affected}
+	ba := toBatchError(res, err)
+	return res, ba
 }
 
 func sum(affected []int64) int64 {
@@ -819,7 +844,10 @@ func (c *conn) ResetSession(_ context.Context) error {
 
 // IsValid implements the driver.Validator interface.
 func (c *conn) IsValid() bool {
-	return !c.closed
+	// Mark the connection as invalid if it is still in a read/write transaction.
+	// This ensures that the database/sql package discards the connection and releases
+	// any locks this connection might hold.
+	return !c.closed && !c.inReadWriteTransaction()
 }
 
 func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
@@ -975,6 +1003,16 @@ func (c *conn) applyStatementScopedValues(execOptions *ExecOptions) (cleanup fun
 }
 
 func (c *conn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	// Remove the ExecOptions once all statements in the SQL string have been executed.
+	defer func() { c.tempExecOptions = nil }()
+
+	if ok, statements, _ := c.parser.Split(query); ok {
+		return queryMultiple(ctx, c, statements, args)
+	}
+	return c.querySingle(ctx, query /* isPartOfMultiStatementString = */, false, args)
+}
+
+func (c *conn) querySingle(ctx context.Context, query string, isPartOfMultiStatementString bool, args []driver.NamedValue) (driver.Rows, error) {
 	// Execute client side statement if it is one.
 	clientStmt, err := c.parser.ParseClientSideStatement(query)
 	if err != nil {
@@ -983,6 +1021,11 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 	execOptions, err := c.options( /* reset = */ clientStmt == nil)
 	if err != nil {
 		return nil, err
+	}
+	if isPartOfMultiStatementString {
+		// Statements in a multi-statement SQL string must always be executed directly to ensure that the effects of the
+		// statement is visible to the next statement in the SQL string.
+		execOptions.DirectExecuteQuery = true
 	}
 	if clientStmt != nil {
 		execStmt, err := createExecutableStatement(clientStmt)
@@ -1119,6 +1162,12 @@ func (c *conn) directExecuteQuery(ctx context.Context, cancelQuery context.Cance
 }
 
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	// TODO: Implement support for multi-statement SQL strings.
+	defer func() { c.tempExecOptions = nil }()
+	return c.execSingle(ctx, query, args)
+}
+
+func (c *conn) execSingle(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	// Execute client side statement if it is one.
 	stmt, err := c.parser.ParseClientSideStatement(query)
 	if err != nil {
@@ -1206,15 +1255,14 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions *ExecO
 }
 
 // options returns and optionally resets the ExecOptions for the next statement.
-func (c *conn) options(reset bool) (*ExecOptions, error) {
-	if reset {
+func (c *conn) options(resetTags bool) (*ExecOptions, error) {
+	if resetTags {
 		defer func() {
 			// Only reset the transaction tag if there is no active transaction on the connection.
 			if !c.inTransaction() {
 				_ = propertyTransactionTag.ResetValue(c.state, connectionstate.ContextUser)
 			}
 			_ = propertyStatementTag.ResetValue(c.state, connectionstate.ContextUser)
-			c.tempExecOptions = nil
 		}()
 	}
 	// TODO: Refactor this to only use connection state as the (temporary) storage, and remove the tempExecOptions field
@@ -1257,6 +1305,9 @@ func (c *conn) options(reset bool) (*ExecOptions, error) {
 }
 
 func (c *conn) Close() error {
+	if c.inTransaction() {
+		_ = c.Rollback(context.Background())
+	}
 	return c.connector.decreaseConnCount()
 }
 
@@ -1380,7 +1431,7 @@ func (c *conn) getBatchReadOnlyTransactionOptions() BatchReadOnlyTransactionOpti
 //
 // BeginReadOnlyTransaction starts a new read-only transaction on this connection.
 func (c *conn) BeginReadOnlyTransaction(ctx context.Context, options *ReadOnlyTransactionOptions, close func()) (driver.Tx, error) {
-	tx, err := c.beginTx(ctx, driver.TxOptions{ReadOnly: true}, close)
+	tx, err := c.beginTx(ctx, driver.TxOptions{ReadOnly: true}, close, options.implicit)
 	c.setReadOnlyTransactionOptions(options)
 	if err != nil {
 		return nil, err
@@ -1393,7 +1444,7 @@ func (c *conn) BeginReadOnlyTransaction(ctx context.Context, options *ReadOnlyTr
 //
 // BeginReadWriteTransaction starts a new read/write transaction on this connection.
 func (c *conn) BeginReadWriteTransaction(ctx context.Context, options *ReadWriteTransactionOptions, close func()) (driver.Tx, error) {
-	tx, err := c.beginTx(ctx, driver.TxOptions{}, close)
+	tx, err := c.beginTx(ctx, driver.TxOptions{}, close, options.implicit)
 	c.setReadWriteTransactionOptions(options)
 	if err != nil {
 		return nil, err
@@ -1409,15 +1460,20 @@ func (c *conn) BeginTx(ctx context.Context, driverOpts driver.TxOptions) (driver
 	defer func() {
 		c.tempTransactionCloseFunc = nil
 	}()
-	return c.beginTx(ctx, driverOpts, c.tempTransactionCloseFunc)
+	return c.beginTx(ctx, driverOpts, c.tempTransactionCloseFunc, false)
 }
 
-func (c *conn) beginTx(ctx context.Context, driverOpts driver.TxOptions, closeFunc func()) (driver.Tx, error) {
+func (c *conn) beginTx(ctx context.Context, driverOpts driver.TxOptions, closeFunc func(), implicitBegin bool) (driver.Tx, error) {
 	if c.resetForRetry {
 		c.resetForRetry = false
 		return c.tx, nil
 	}
 	if c.inTransaction() {
+		if c.tx.implicit && !implicitBegin {
+			// Switch the current transaction block from implicit to explicit.
+			c.tx.implicit = false
+			return c.tx, nil
+		}
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "already in a transaction"))
 	}
 	if c.inBatch() {
@@ -1485,6 +1541,7 @@ func (c *conn) beginTx(ctx context.Context, driverOpts driver.TxOptions, closeFu
 			}
 			c.tx = nil
 		},
+		implicit: implicitBegin,
 	}
 	return c.tx, nil
 }
@@ -1596,6 +1653,18 @@ func (c *conn) convertDefaultBeginTransactionOption(opt spanner.BeginTransaction
 
 func (c *conn) inTransaction() bool {
 	return c.tx != nil
+}
+
+func (c *conn) inReadWriteTransaction() bool {
+	if c.tx != nil {
+		_, ok := c.tx.contextTransaction.(*readWriteTransaction)
+		return ok
+	}
+	return false
+}
+
+func (c *conn) inImplicitTransaction() bool {
+	return c.tx != nil && c.tx.implicit
 }
 
 // Commit is not part of the public API of the database/sql driver.

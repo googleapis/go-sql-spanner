@@ -6,38 +6,33 @@
 package com.google.cloud.spannerlib.v1;
 
 @com.google.protobuf.Generated
-public interface NextRequestOrBuilder
-    extends
+public interface NextRequestOrBuilder extends
     // @@protoc_insertion_point(interface_extends:google.spannerlib.v1.NextRequest)
     com.google.protobuf.MessageOrBuilder {
 
   /**
    * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-   *
    * @return Whether the rows field is set.
    */
   boolean hasRows();
-
   /**
    * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
-   *
    * @return The rows.
    */
   com.google.cloud.spannerlib.v1.Rows getRows();
-
-  /** <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code> */
+  /**
+   * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
+   */
   com.google.cloud.spannerlib.v1.RowsOrBuilder getRowsOrBuilder();
 
   /**
    * <code>int64 num_rows = 2 [(.google.api.field_behavior) = REQUIRED];</code>
-   *
    * @return The numRows.
    */
   long getNumRows();
 
   /**
    * <code>int64 encoding = 3 [(.google.api.field_behavior) = REQUIRED];</code>
-   *
    * @return The encoding.
    */
   long getEncoding();
