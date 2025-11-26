@@ -36,6 +36,8 @@ public class SpannerBatch : DbBatch
     public override int Timeout { get; set; }
     protected override DbConnection? DbConnection { get; set; }
     protected override DbTransaction? DbTransaction { get; set; }
+    private SpannerTransaction? SpannerTransaction => DbTransaction as SpannerTransaction;
+    public string? Tag { get; set; }
     
     public SpannerBatch()
     {}
@@ -74,6 +76,24 @@ public class SpannerBatch : DbBatch
         return statements;
     }
 
+    private void SetRequestTag()
+    {
+        if (Tag != null)
+        {
+            var command = SpannerConnection.CreateCommand($"set statement_tag = '{Tag}'");
+            command.ExecuteNonQuery();
+        }
+    }
+
+    private async Task SetRequestTagAsync(CancellationToken cancellationToken)
+    {
+        if (Tag != null)
+        {
+            var command = SpannerConnection.CreateCommand($"set statement_tag = '{Tag}'");
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
     public override int ExecuteNonQuery()
     {
         if (DbBatchCommands.Count == 0)
@@ -81,6 +101,8 @@ public class SpannerBatch : DbBatch
             return 0;
         }
         var statements = CreateStatements();
+        SpannerTransaction?.MarkUsed(initTag: true);
+        SetRequestTag();
         var results = SpannerConnection.LibConnection!.ExecuteBatch(statements);
         DbBatchCommands.SetAffected(results);
         return (int) results.Sum();
@@ -93,6 +115,8 @@ public class SpannerBatch : DbBatch
             return 0;
         }
         var statements = CreateStatements();
+        SpannerTransaction?.MarkUsed(initTag: true);
+        await SetRequestTagAsync(cancellationToken);
         var results = await SpannerConnection.LibConnection!.ExecuteBatchAsync(statements);
         DbBatchCommands.SetAffected(results);
         return (int) results.Sum();

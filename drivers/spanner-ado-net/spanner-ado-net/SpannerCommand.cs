@@ -69,7 +69,14 @@ public class SpannerCommand : DbCommand, ICloneable
     private readonly Mutation? _mutation;
 
     public TransactionOptions.Types.ReadOnly? SingleUseReadOnlyTransactionOptions { get; set; }
-    public RequestOptions? RequestOptions { get; set; }
+
+    public string Tag
+    {
+        get => RequestOptions.RequestTag;
+        set => RequestOptions.RequestTag = value;
+    }
+
+    private RequestOptions RequestOptions { get; } = new ();
     
     private bool _disposed;
         
@@ -135,6 +142,11 @@ public class SpannerCommand : DbCommand, ICloneable
             RequestOptions = RequestOptions,
             QueryMode = mode,
         };
+        if (_transaction?.Tag != null)
+        {
+            RequestOptions.TransactionTag = _transaction?.Tag;
+        }
+
         statement.ParamTypes.Add(paramTypes);
         if (SingleUseReadOnlyTransactionOptions != null)
         {
@@ -220,12 +232,14 @@ public class SpannerCommand : DbCommand, ICloneable
         {
             Mutations = { BuildMutation() }
         };
+        _transaction?.MarkUsed();
         SpannerConnection.LibConnection!.WriteMutations(mutations);
     }
 
     private Rows Execute(ExecuteSqlRequest.Types.QueryMode mode = ExecuteSqlRequest.Types.QueryMode.Normal)
     {
         CheckCommandStateForExecution();
+        _transaction?.MarkUsed();
         return TranslateException(() => SpannerConnection.LibConnection!.Execute(BuildStatement(mode)));
     }
 
@@ -241,6 +255,7 @@ public class SpannerCommand : DbCommand, ICloneable
         {
             return Task.FromCanceled<Rows>(cancellationToken);
         }
+        _transaction?.MarkUsed();
         return TranslateException(() => SpannerConnection.LibConnection!.ExecuteAsync(BuildStatement(mode)));
     }
 

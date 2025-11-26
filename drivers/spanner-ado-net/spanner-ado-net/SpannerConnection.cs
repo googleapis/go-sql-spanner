@@ -196,6 +196,11 @@ public class SpannerConnection : DbConnection
         });
     }
 
+    /// <summary>
+    /// Starts a new read-only transaction with default options.
+    /// </summary>
+    /// <returns>The new transaction</returns>
+    /// <exception cref="InvalidOperationException">If the connection has an active transaction</exception>
     public SpannerTransaction BeginReadOnlyTransaction()
     {
         return BeginTransaction(new TransactionOptions
@@ -205,12 +210,26 @@ public class SpannerConnection : DbConnection
     }
 
     /// <summary>
+    /// Starts a new read-only transaction using the given options.
+    /// </summary>
+    /// <param name="readOnlyOptions">The options to use for the new read-only transaction</param>
+    /// <returns>The new transaction</returns>
+    /// <exception cref="InvalidOperationException">If the connection has an active transaction</exception>
+    public SpannerTransaction BeginReadOnlyTransaction(TransactionOptions.Types.ReadOnly readOnlyOptions)
+    {
+        return BeginTransaction(new TransactionOptions
+        {
+            ReadOnly = readOnlyOptions,
+        });
+    }
+
+    /// <summary>
     /// Start a new transaction using the given TransactionOptions.
     /// </summary>
     /// <param name="transactionOptions">The options to use for the new transaction</param>
     /// <returns>The new transaction</returns>
     /// <exception cref="InvalidOperationException">If the connection has an active transaction</exception>
-    public SpannerTransaction BeginTransaction(TransactionOptions transactionOptions)
+    private SpannerTransaction BeginTransaction(TransactionOptions transactionOptions)
     {
         EnsureOpen();
         GaxPreconditions.CheckState(!HasTransaction, "This connection has a transaction.");

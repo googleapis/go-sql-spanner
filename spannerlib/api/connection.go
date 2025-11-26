@@ -430,8 +430,14 @@ func extractParams(directExecuteContext context.Context, statement *spannerpb.Ex
 	if statement.Params != nil {
 		paramsLen = 1 + len(statement.Params.Fields)
 	}
+	requestTag := ""
+	transactionTag := ""
+	if statement.RequestOptions != nil {
+		requestTag = statement.RequestOptions.RequestTag
+		transactionTag = statement.RequestOptions.TransactionTag
+	}
 	params := make([]any, paramsLen)
-	params = append(params, spannerdriver.ExecOptions{
+	execOptions := spannerdriver.ExecOptions{
 		DecodeOption:            spannerdriver.DecodeOptionProto,
 		TimestampBound:          extractTimestampBound(statement),
 		ReturnResultSetMetadata: true,
@@ -439,9 +445,14 @@ func extractParams(directExecuteContext context.Context, statement *spannerpb.Ex
 		DirectExecuteQuery:      true,
 		DirectExecuteContext:    directExecuteContext,
 		QueryOptions: spanner.QueryOptions{
-			Mode: &statement.QueryMode,
+			Mode:       &statement.QueryMode,
+			RequestTag: requestTag,
 		},
-	})
+	}
+	if transactionTag != "" {
+		execOptions.PropertyValues = []spannerdriver.PropertyValue{{Identifier: parser.Identifier{Parts: []string{"transaction_tag"}}, Value: transactionTag}}
+	}
+	params = append(params, execOptions)
 	if statement.Params != nil {
 		if statement.ParamTypes == nil {
 			statement.ParamTypes = make(map[string]*spannerpb.Type)

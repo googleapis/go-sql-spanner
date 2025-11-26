@@ -36,10 +36,23 @@ public class SpannerTransaction : DbTransaction
     }
     public override IsolationLevel IsolationLevel { get; }
 
+    private string? _tag;
+    public string? Tag
+    {
+        get => _tag;
+        set
+        {
+            GaxPreconditions.CheckState(!_used, "Tag cannot be changed once the transaction has been used");
+            _tag = value;
+        }
+    }
+
     // TODO: Implement savepoint support in the shared library.
     public override bool SupportsSavepoints => false;
 
     private SpannerLib.Connection LibConnection { get; }
+
+    private bool _used;
     
     internal bool IsCompleted => _spannerConnection == null;
     
@@ -83,6 +96,17 @@ public class SpannerTransaction : DbTransaction
                 throw new ArgumentOutOfRangeException(nameof(isolationLevel), isolationLevel,
                     "unsupported isolation level");
         }
+    }
+
+    internal void MarkUsed(bool initTag = false)
+    {
+        if (initTag && !_used && _tag != null)
+        {
+            // TODO: Add some option to the shared library to pass in tags for batches as an API option
+            var command = _spannerConnection?.CreateCommand($"set local transaction_tag = '{_tag}'");
+            command?.ExecuteNonQuery();
+        }
+        _used = true;
     }
 
     protected override void Dispose(bool disposing)
