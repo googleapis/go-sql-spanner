@@ -22,7 +22,7 @@ jobs:
         with:
           go-version: 1.25.x
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Run Go integration tests on emulator
         run: go test -race
         env:
@@ -42,7 +42,7 @@ jobs:
           - 9020:9020
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:

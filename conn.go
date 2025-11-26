@@ -266,6 +266,7 @@ type conn struct {
 	tx            *delegatingTransaction
 	prevTx        *delegatingTransaction
 	resetForRetry bool
+	instance      string
 	database      string
 
 	execSingleQuery              func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, bound spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator
@@ -419,6 +420,16 @@ func (c *conn) setReadOnlyStaleness(staleness spanner.TimestampBound) (driver.Re
 		return nil, err
 	}
 	return driver.ResultNoRows, nil
+}
+
+func (c *conn) readOnlyStalenessPointer() *spanner.TimestampBound {
+	val := propertyReadOnlyStaleness.GetConnectionPropertyValue(c.state)
+	if val == nil || !val.HasValue() {
+		return nil
+	}
+	staleness, _ := val.GetValue()
+	timestampBound := staleness.(spanner.TimestampBound)
+	return &timestampBound
 }
 
 func (c *conn) IsolationLevel() sql.IsolationLevel {
@@ -654,6 +665,31 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 		for i, s := range statements {
 			ddlStatements[i] = s.SQL
 		}
+		if c.parser.IsCreateDatabaseStatement(ddlStatements[0]) {
+			op, err := c.adminClient.CreateDatabase(ctx, &adminpb.CreateDatabaseRequest{
+				CreateStatement: ddlStatements[0],
+				DatabaseDialect: c.parser.Dialect,
+				Parent:          c.instance,
+				ExtraStatements: ddlStatements[1:],
+			})
+			if err != nil {
+				return nil, err
+			}
+			if _, err := op.Wait(ctx); err != nil {
+				return nil, err
+			}
+			return driver.ResultNoRows, nil
+		} else if c.parser.IsDropDatabaseStatement(ddlStatements[0]) {
+			if len(ddlStatements) > 1 {
+				return nil, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "DROP DATABASE cannot be used in a batch with other statements"))
+			}
+			stmt := &parser.ParsedDropDatabaseStatement{}
+			if err := stmt.Parse(c.parser, ddlStatements[0]); err != nil {
+				return nil, err
+			}
+			return (&executableDropDatabaseStatement{stmt}).execContext(ctx, c, nil)
+		}
+
 		op, err := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
 			Database:   c.database,
 			Statements: ddlStatements,
@@ -1253,6 +1289,7 @@ func (c *conn) options(resetTags bool) (*ExecOptions, error) {
 			},
 		},
 		PartitionedQueryOptions: PartitionedQueryOptions{},
+		TimestampBound:          c.readOnlyStalenessPointer(),
 	}
 	if c.tempExecOptions != nil {
 		effectiveOptions.merge(c.tempExecOptions)
@@ -1654,6 +1691,9 @@ func (c *conn) Rollback(ctx context.Context) error {
 }
 
 func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
+	if options.TimestampBound != nil {
+		tb = *options.TimestampBound
+	}
 	return c.Single().WithTimestampBound(tb).QueryWithOptions(ctx, statement, options.QueryOptions)
 }
 
@@ -1688,6 +1728,10 @@ func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement s
 	var result *wrappedRowIterator
 	options.QueryOptions.LastStatement = true
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
+		if result != nil {
+			// in case of a retry
+			result.Stop()
+		}
 		it := tx.QueryWithOptions(ctx, statement, options.QueryOptions)
 		row, err := it.Next()
 		if err == iterator.Done {
@@ -1710,6 +1754,9 @@ func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement s
 	}
 	resp, err := c.ReadWriteTransactionWithOptions(ctx, fn, options.TransactionOptions)
 	if err != nil {
+		if result != nil {
+			result.Stop()
+		}
 		return nil, nil, err
 	}
 	return result, &resp, nil

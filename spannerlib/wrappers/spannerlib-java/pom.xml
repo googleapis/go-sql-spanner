@@ -23,7 +23,7 @@
       <dependency>
         <groupId>com.google.cloud</groupId>
         <artifactId>google-cloud-spanner-bom</artifactId>
-        <version>6.102.1</version>
+        <version>6.103.0</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
@@ -37,7 +37,7 @@
       <dependency>
         <groupId>io.grpc</groupId>
         <artifactId>grpc-bom</artifactId>
-        <version>1.76.0</version>
+        <version>1.77.0</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
