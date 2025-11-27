@@ -16,6 +16,7 @@ public class StreamingRows : Rows
     private ResultSetMetadata? _metadata;
     private ResultSetStats? _stats;
     private bool _done;
+    private bool _pendingNextResultSetCall;
 
     protected override ResultSetStats? Stats => _stats;
 
@@ -57,6 +58,11 @@ public class StreamingRows : Rows
 
     public override ListValue? Next()
     {
+        // TODO: Combine sync and async methods
+        if (_pendingNextResultSetCall)
+        {
+            return null;
+        }
         if (_pendingRow != null) {
             var row = _pendingRow;
             _pendingRow = null;
@@ -81,7 +87,14 @@ public class StreamingRows : Rows
             }
             if (rowData.Data.Count == 0)
             {
-                MarkDone();
+                if (rowData.HasMoreResults)
+                {
+                    _pendingNextResultSetCall = true;
+                }
+                else
+                {
+                    MarkDone();
+                }
                 return null;
             }
             return rowData.Data[0];
@@ -94,6 +107,10 @@ public class StreamingRows : Rows
 
     public override async Task<ListValue?> NextAsync(CancellationToken cancellationToken = default)
     {
+        if (_pendingNextResultSetCall)
+        {
+            return null;
+        }
         if (_pendingRow != null) {
             var row = _pendingRow;
             _pendingRow = null;
@@ -118,7 +135,14 @@ public class StreamingRows : Rows
             }
             if (rowData.Data.Count == 0)
             {
-                MarkDone();
+                if (rowData.HasMoreResults)
+                {
+                    _pendingNextResultSetCall = true;
+                }
+                else
+                {
+                    MarkDone();
+                }
                 return null;
             }
             return rowData.Data[0];
@@ -126,6 +150,64 @@ public class StreamingRows : Rows
         catch (RpcException exception)
         {
             throw SpannerException.ToSpannerException(exception);
+        }
+    }
+
+    /// <summary>
+    /// Moves the cursor to the next result set in this Rows object.
+    /// </summary>
+    /// <returns>True if there was another result set, and false otherwise</returns>
+    public override bool NextResultSet()
+    {
+        if (_done)
+        {
+            return false;
+        }
+        // Read data until we reach the next result set.
+        ReadUntilEnd();
+        
+        return HasNextResultSet();
+    }
+
+    /// <summary>
+    /// Moves the cursor to the next result set in this Rows object.
+    /// </summary>
+    /// <returns>True if there was another result set, and false otherwise</returns>
+    public override async Task<bool> NextResultSetAsync(CancellationToken cancellationToken = default)
+    {
+        if (_done)
+        {
+            return false;
+        }
+        // Read data until we reach the next result set.
+        await ReadUntilEndAsync(cancellationToken);
+        
+        return HasNextResultSet();
+    }
+
+    private bool HasNextResultSet()
+    {
+        if (_pendingNextResultSetCall)
+        {
+            _pendingNextResultSetCall = false;
+            return true;
+        }
+        return false;
+    }
+
+    private void ReadUntilEnd()
+    {
+        // Read the remaining rows in the current result set.
+        while (!_pendingNextResultSetCall && Next() != null)
+        {
+        }
+    }
+
+    private async Task ReadUntilEndAsync(CancellationToken cancellationToken)
+    {
+        // Read the remaining rows in the current result set.
+        while (!_pendingNextResultSetCall && await NextAsync(cancellationToken) != null)
+        {
         }
     }
 }

@@ -760,7 +760,7 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
             switch (result.Type)
             {
                 case StatementResult.StatementResultType.ResultSet:
-                    await WriteResultSet(returnTransaction, result.ResultSet!, responseStream, executionTime);
+                    await WriteResultSet(returnTransaction, result.ResultSet!, responseStream, executionTime, context.CancellationToken);
                     break;
                 case StatementResult.StatementResultType.UpdateCount:
                     await WriteUpdateCount(returnTransaction, result.UpdateCount, responseStream);
@@ -777,19 +777,23 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
         }
     }
 
-    private async Task WriteResultSet(Transaction? transaction, ResultSet resultSet, IServerStreamWriter<PartialResultSet> responseStream, ExecutionTime? executionTime)
+    private async Task WriteResultSet(Transaction? transaction, ResultSet resultSet, IServerStreamWriter<PartialResultSet> responseStream, ExecutionTime? executionTime, CancellationToken cancellationToken)
     {
         int index = 0;
         PartialResultSetsEnumerable enumerator = new PartialResultSetsEnumerable(transaction, resultSet);
         int writePermissions = executionTime?.TakeWritePermission() ?? int.MaxValue;
         foreach (PartialResultSet prs in enumerator)
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
             Exception? e = executionTime?.PopExceptionAtIndex(index);
             if (e != null)
             {
                 throw e;
             }
-            await responseStream.WriteAsync(prs);
+            await responseStream.WriteAsync(prs, cancellationToken);
             index++;
             writePermissions--;
             if (writePermissions == 0)
