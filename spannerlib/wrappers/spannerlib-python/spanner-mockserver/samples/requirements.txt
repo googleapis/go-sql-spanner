@@ -1,0 +1,4 @@
+grpcio>=1.67.0
+google-cloud-spanner>=3.55.0
+protobuf>=4.0.0
+google-api-core
