@@ -32,7 +32,7 @@ public class Rows : AbstractLibObject
 
     public virtual ResultSetMetadata? Metadata => _metadata ??= Spanner.Metadata(this);
 
-    private readonly Lazy<ResultSetStats?> _stats;
+    private Lazy<ResultSetStats?> _stats;
 
     /// <summary>
     /// The ResultSetStats of the SQL statement. This is only available once all data rows have been read.
@@ -95,6 +95,35 @@ public class Rows : AbstractLibObject
     public virtual async Task<ListValue?> NextAsync(CancellationToken cancellationToken = default)
     {
         return await Spanner.NextAsync(this, 1, ISpannerLib.RowEncoding.Proto, cancellationToken);
+    }
+
+    /// <summary>
+    /// Moves the cursor to the next result set in this Rows object.
+    /// </summary>
+    /// <returns>True if there was another result set, and false otherwise</returns>
+    public virtual bool NextResultSet()
+    {
+        return NextResultSet(Spanner.NextResultSet(this));
+    }
+
+    /// <summary>
+    /// Moves the cursor to the next result set in this Rows object.
+    /// </summary>
+    /// <returns>True if there was another result set, and false otherwise</returns>
+    public virtual async Task<bool> NextResultSetAsync(CancellationToken cancellationToken = default)
+    {
+        return NextResultSet(await Spanner.NextResultSetAsync(this, cancellationToken));
+    }
+
+    private bool NextResultSet(ResultSetMetadata? metadata)
+    {
+        if (metadata == null)
+        {
+            return false;
+        }
+        _metadata = metadata;
+        _stats = new(() => Spanner.Stats(this));
+        return true;
     }
 
     /// <summary>

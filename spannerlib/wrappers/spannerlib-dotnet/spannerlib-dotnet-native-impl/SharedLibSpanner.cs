@@ -177,6 +177,17 @@ public class SharedLibSpanner : ISpannerLib
         return await Task.Run(() => Metadata(rows), cancellationToken);
     }
 
+    public ResultSetMetadata? NextResultSet(Rows rows)
+    {
+        using var handler = ExecuteLibraryFunction(() => SpannerLib.NextResultSet(rows.SpannerConnection.Pool.Id, rows.SpannerConnection.Id, rows.Id));
+        return handler.Length == 0 ? null : ResultSetMetadata.Parser.ParseFrom(handler.Value());
+    }
+
+    public async Task<ResultSetMetadata?> NextResultSetAsync(Rows rows, CancellationToken cancellationToken = default)
+    {
+        return await Task.Run(() => NextResultSet(rows), cancellationToken);
+    }
+
     public ResultSetStats? Stats(Rows rows)
     {
         using var handler = ExecuteLibraryFunction(() => SpannerLib.ResultSetStats(rows.SpannerConnection.Pool.Id, rows.SpannerConnection.Id, rows.Id));

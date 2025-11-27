@@ -314,6 +314,23 @@ public class GrpcLibSpanner : ISpannerLib
         }
     }
 
+    public ResultSetMetadata? NextResultSet(Rows rows)
+    {
+        return TranslateException(() => _client.NextResultSet(ToProto(rows)));
+    }
+
+    public async Task<ResultSetMetadata?> NextResultSetAsync(Rows rows, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _client.NextResultSetAsync(ToProto(rows), cancellationToken: cancellationToken);
+        }
+        catch (RpcException exception)
+        {
+            throw SpannerException.ToSpannerException(exception);
+        }
+    }
+
     public ResultSetStats? Stats(Rows rows)
     {
         return TranslateException(() => _client.ResultSetStats(ToProto(rows)));

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
@@ -24,6 +25,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
 	pb "spannerlib/grpc-server/google/spannerlib/v1"
 )
@@ -246,6 +250,17 @@ func TestExecuteStreamingMultiStatement(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
+	// Add a generic successful DDL response to the mock server.
+	var expectedResponse = &emptypb.Empty{}
+	anyMsg, _ := anypb.New(expectedResponse)
+	server.TestDatabaseAdmin.SetResps([]proto.Message{
+		&longrunningpb.Operation{
+			Done:   true,
+			Result: &longrunningpb.Operation_Response{Response: anyMsg},
+			Name:   "test-operation",
+		},
+	})
+
 	client, cleanup := startTestSpannerLibServer(t)
 	defer cleanup()
 
@@ -257,40 +272,161 @@ func TestExecuteStreamingMultiStatement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create connection: %v", err)
 	}
-	stream, err := client.ExecuteStreaming(ctx, &pb.ExecuteRequest{
-		Connection:        connection,
-		ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: fmt.Sprintf("%s;%s", testutil.SelectFooFromBar, testutil.SelectFooFromBar)},
-	})
-	if err != nil {
-		t.Fatalf("failed to execute: %v", err)
+
+	type expectedResults struct {
+		numRows  int
+		affected int64
 	}
-	numResultSets := 1
-	numRows := 0
-	for {
-		row, err := stream.Recv()
-		if err != nil {
-			t.Fatalf("failed to receive row: %v", err)
-		}
-		if len(row.Data) == 0 {
-			if row.HasMoreResults {
-				numResultSets++
-				continue
+	type test struct {
+		name               string
+		sql                string
+		numExecuteRequests int
+		numBachDmlRequests int
+		expectedResults    []expectedResults
+	}
+
+	for _, tt := range []test{
+		{
+			name:               "two queries",
+			sql:                fmt.Sprintf("%s;%s", testutil.SelectFooFromBar, testutil.SelectFooFromBar),
+			numExecuteRequests: 2,
+			expectedResults: []expectedResults{
+				{numRows: 2},
+				{numRows: 2},
+			},
+		},
+		{
+			name:               "three queries",
+			sql:                fmt.Sprintf("%s;%s;%s", testutil.SelectFooFromBar, testutil.SelectFooFromBar, testutil.SelectFooFromBar),
+			numExecuteRequests: 3,
+			expectedResults: []expectedResults{
+				{numRows: 2},
+				{numRows: 2},
+				{numRows: 2},
+			},
+		},
+		{
+			name:               "two DML statements",
+			sql:                fmt.Sprintf("%s;%s", testutil.UpdateBarSetFoo, testutil.UpdateBarSetFoo),
+			numBachDmlRequests: 1,
+			expectedResults: []expectedResults{
+				{affected: testutil.UpdateBarSetFooRowCount},
+				{affected: testutil.UpdateBarSetFooRowCount},
+			},
+		},
+		{
+			name:            "two DDL statements",
+			sql:             "create table my_table (id int64 primary key, value varchar(max)); create index my_index on my_table (value);",
+			expectedResults: []expectedResults{{}, {}},
+		},
+		{
+			name:               "query then DML",
+			sql:                fmt.Sprintf("%s;%s", testutil.SelectFooFromBar, testutil.UpdateBarSetFoo),
+			numExecuteRequests: 2,
+			expectedResults: []expectedResults{
+				{numRows: 2},
+				{affected: testutil.UpdateBarSetFooRowCount},
+			},
+		},
+		{
+			name:               "DML then query",
+			sql:                fmt.Sprintf("%s;%s", testutil.UpdateBarSetFoo, testutil.SelectFooFromBar),
+			numExecuteRequests: 2,
+			expectedResults: []expectedResults{
+				{affected: testutil.UpdateBarSetFooRowCount},
+				{numRows: 2},
+			},
+		},
+		{
+			name:               "query then DDL",
+			sql:                fmt.Sprintf("%s;%s", testutil.SelectFooFromBar, "create table my_table (id int64 primary key, value varchar(max));"),
+			numExecuteRequests: 1,
+			expectedResults: []expectedResults{
+				{numRows: 2},
+				{},
+			},
+		},
+		{
+			name:               "DDL then query",
+			sql:                fmt.Sprintf("%s;%s", "create table my_table (id int64 primary key)", testutil.SelectFooFromBar),
+			numExecuteRequests: 1,
+			expectedResults: []expectedResults{
+				{},
+				{numRows: 2},
+			},
+		},
+		{
+			name:               "DML then DDL",
+			sql:                fmt.Sprintf("%s;%s", testutil.UpdateBarSetFoo, "create table my_table (id int64 primary key, value varchar(max));"),
+			numExecuteRequests: 1,
+			expectedResults: []expectedResults{
+				{affected: testutil.UpdateBarSetFooRowCount},
+				{},
+			},
+		},
+		{
+			name:               "DDL then DML",
+			sql:                fmt.Sprintf("%s;%s", "create table my_table (id int64 primary key)", testutil.UpdateBarSetFoo),
+			numExecuteRequests: 1,
+			expectedResults: []expectedResults{
+				{},
+				{affected: testutil.UpdateBarSetFooRowCount},
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			stream, err := client.ExecuteStreaming(ctx, &pb.ExecuteRequest{
+				Connection:        connection,
+				ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: tt.sql},
+			})
+			if err != nil {
+				t.Fatalf("failed to execute: %v", err)
 			}
-			break
-		}
-		if g, w := len(row.Data), 1; g != w {
-			t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
-		}
-		if g, w := len(row.Data[0].Values), 1; g != w {
-			t.Fatalf("num values mismatch\n Got: %v\nWant: %v", g, w)
-		}
-		numRows++
-	}
-	if g, w := numRows, 4; g != w {
-		t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
-	}
-	if g, w := numResultSets, 2; g != w {
-		t.Fatalf("num result sets mismatch\n Got: %v\nWant: %v", g, w)
+			numResultSets := 1
+			numRows := 0
+			for {
+				row, err := stream.Recv()
+				if err != nil {
+					t.Fatalf("failed to receive row: %v", err)
+				}
+				if len(row.Data) == 0 {
+					if g, w := numRows, tt.expectedResults[numResultSets-1].numRows; g != w {
+						t.Fatalf("row count mismatch\n Got: %d\nWant: %d", g, w)
+					}
+					if row.Stats == nil {
+						t.Fatal("missing stats in end-of-result-set marker")
+					}
+					if g, w := row.Stats.GetRowCountExact(), tt.expectedResults[numResultSets-1].affected; g != w {
+						t.Fatalf("update count mismatch\n Got: %d\nWant: %d", g, w)
+					}
+					if row.HasMoreResults {
+						numRows = 0
+						numResultSets++
+						continue
+					}
+					break
+				}
+				if g, w := len(row.Data), 1; g != w {
+					t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
+				}
+				if g, w := len(row.Data[0].Values), 1; g != w {
+					t.Fatalf("num values mismatch\n Got: %v\nWant: %v", g, w)
+				}
+				numRows++
+			}
+			if g, w := numResultSets, len(tt.expectedResults); g != w {
+				t.Fatalf("num result sets mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			requests := server.TestSpanner.DrainRequestsFromServer()
+			executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+			batchDmlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+			if g, w := len(executeRequests), tt.numExecuteRequests; g != w {
+				t.Fatalf("num ExecuteSql requests mismatch\n Got: %d\nWant: %d", g, w)
+			}
+			if g, w := len(batchDmlRequests), tt.numBachDmlRequests; g != w {
+				t.Fatalf("num BatchDml requests mismatch\n Got: %d\nWant: %d", g, w)
+			}
+		})
 	}
 
 	if _, err := client.ClosePool(ctx, pool); err != nil {
