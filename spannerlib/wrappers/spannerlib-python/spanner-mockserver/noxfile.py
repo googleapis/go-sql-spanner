@@ -16,6 +16,7 @@
 import glob
 import os
 import shutil
+import tempfile
 
 import nox
 
@@ -129,3 +130,68 @@ def publish(session):
     build(session)
     session.install("twine")
     session.run("twine", "upload", "dist/*")
+
+
+@nox.session
+def generate_grpc(session):
+    """
+    Generate gRPC code from googleapis.
+    """
+    session.install("grpcio-tools")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        # Clone googleapis
+        session.log("Cloning googleapis...")
+        session.run(
+            "git",
+            "clone",
+            "--depth",
+            "1",
+            "https://github.com/googleapis/googleapis.git",
+            f"{tmp_dir}/googleapis",
+            external=True,
+        )
+
+        googleapis_dir = os.path.join(tmp_dir, "googleapis")
+        proto_files = glob.glob(
+            os.path.join(googleapis_dir, "google/spanner/v1/*.proto")
+        ) + glob.glob(
+            os.path.join(
+                googleapis_dir, "google/spanner/admin/database/v1/*.proto"
+            )
+        )
+        proto_files_rel = [
+            os.path.relpath(p, googleapis_dir) for p in proto_files
+        ]
+
+        # Run protoc
+        session.log("Generating code...")
+        with session.chdir(googleapis_dir):
+            session.run(
+                "python",
+                "-m",
+                "grpc_tools.protoc",
+                "-I",
+                ".",
+                "--python_out=.",
+                "--pyi_out=.",
+                "--grpc_python_out=.",
+                *proto_files_rel,
+            )
+
+        target_dir = os.path.join(os.getcwd(), "spannermockserver", "generated")
+
+        files_to_copy = {
+            "spanner_pb2_grpc.py": os.path.join(
+                googleapis_dir, "google", "spanner", "v1"
+            ),
+            "spanner_database_admin_pb2_grpc.py": os.path.join(
+                googleapis_dir, "google", "spanner", "admin", "database", "v1"
+            ),
+        }
+
+        for file_name, source_dir in files_to_copy.items():
+            src = os.path.join(source_dir, file_name)
+            dst = os.path.join(target_dir, file_name)
+            shutil.copy(src, dst)
+            session.log(f"Copied {file_name} to {target_dir}")
