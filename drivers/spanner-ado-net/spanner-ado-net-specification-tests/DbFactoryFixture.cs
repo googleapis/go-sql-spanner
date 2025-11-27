@@ -48,9 +48,9 @@ public class DbFactoryFixture : IDisposable, ISelectValueFixture, IDeleteFixture
         DbType.Single,
         DbType.String,
     ];
-    public string SelectNoRows => "select * from (select 1) where false";
+    public string SelectNoRows => "select * from (select 1) where false;";
     public System.Type NullValueExceptionType { get; } = typeof(InvalidCastException);
-    public string DeleteNoRows => "delete from foo where false";
+    public string DeleteNoRows => "delete from foo where false;";
     
     public DbFactoryFixture()
     {
@@ -62,6 +62,8 @@ public class DbFactoryFixture : IDisposable, ISelectValueFixture, IDeleteFixture
         MockServerFixture.SpannerMock.Reset();
         MockServerFixture.SpannerMock.AddOrUpdateStatementResult("SELECT 1;", StatementResult.CreateSelect1ResultSet());
         MockServerFixture.SpannerMock.AddOrUpdateStatementResult("SELECT 1", StatementResult.CreateSelect1ResultSet());
+        MockServerFixture.SpannerMock.AddOrUpdateStatementResult("SELECT 2", StatementResult.CreateSelect2ResultSet());
+        MockServerFixture.SpannerMock.AddOrUpdateStatementResult(" SELECT 2", StatementResult.CreateSelect2ResultSet());
         MockServerFixture.SpannerMock.AddOrUpdateStatementResult("SELECT NULL;",
             StatementResult.CreateSingleColumnResultSet(new V1.Type{Code = TypeCode.Int64}, "c", DBNull.Value));
         MockServerFixture.SpannerMock.AddOrUpdateStatementResult("SELECT 1 AS id;",
@@ -74,6 +76,14 @@ public class DbFactoryFixture : IDisposable, ISelectValueFixture, IDeleteFixture
             StatementResult.CreateSingleColumnResultSet(new V1.Type{Code = TypeCode.String}, "c", "ab¢d"));
         MockServerFixture.SpannerMock.AddOrUpdateStatementResult(SelectNoRows,
             StatementResult.CreateSingleColumnResultSet(new V1.Type{Code = TypeCode.Int64}, "c"));
+        MockServerFixture.SpannerMock.AddOrUpdateStatementResult(SelectNoRows[..^1],
+            StatementResult.CreateSingleColumnResultSet(new V1.Type{Code = TypeCode.Int64}, "c"));
+        MockServerFixture.SpannerMock.AddOrUpdateStatementResult("SELECT 42",
+            StatementResult.CreateSingleColumnResultSet(new V1.Type{Code = TypeCode.Int64}, "c", 42));
+        MockServerFixture.SpannerMock.AddOrUpdateStatementResult("SELECT 43",
+            StatementResult.CreateSingleColumnResultSet(new V1.Type{Code = TypeCode.Int64}, "c", 43));
+        MockServerFixture.SpannerMock.AddOrUpdateStatementResult(" SELECT 43",
+            StatementResult.CreateSingleColumnResultSet(new V1.Type{Code = TypeCode.Int64}, "c", 43));
         MockServerFixture.SpannerMock.AddOrUpdateStatementResult("SELECT 42 UNION SELECT 43;",
             StatementResult.CreateSingleColumnResultSet(new V1.Type{Code = TypeCode.Int64}, "c", 42, 43));
         MockServerFixture.SpannerMock.AddOrUpdateStatementResult("SELECT 1 UNION SELECT 2;",

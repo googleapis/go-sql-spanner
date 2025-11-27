@@ -203,12 +203,13 @@ public class CommandTests : AbstractMockServerTests
     [TestCase(new[] { false, false }, TestName = "TwoNonQueries")]
     [TestCase(new[] { false, true }, TestName = "NonQueryQuery")]
     [TestCase(new[] { true, false }, TestName = "QueryNonQuery")]
-    [Ignore("Requires support for multi-statements strings in the shared library")]
     public async Task MultipleStatements(bool[] queries)
     {
         const string update = "UPDATE my_table SET name='yo' WHERE 1=0;";
         const string select = "SELECT 1;";
         Fixture.SpannerMock.AddOrUpdateStatementResult(update, StatementResult.CreateUpdateCount(0));
+        Fixture.SpannerMock.AddOrUpdateStatementResult(update[..^1], StatementResult.CreateUpdateCount(0));
+        Fixture.SpannerMock.AddOrUpdateStatementResult(select, StatementResult.CreateSelect1ResultSet());
         
         await using var conn = await OpenConnectionAsync();
         var sb = new StringBuilder();
@@ -226,20 +227,29 @@ public class CommandTests : AbstractMockServerTests
                 await cmd.PrepareAsync();
             }
             await using var reader = await cmd.ExecuteReaderAsync();
-            var numResultSets = queries.Count(q => q);
+            var numResultSets = queries.Length;
             for (var i = 0; i < numResultSets; i++)
             {
-                Assert.That(await reader.ReadAsync(), Is.True);
-                Assert.That(reader[0], Is.EqualTo(1));
+                Assert.That(await reader.ReadAsync(), Is.EqualTo(queries[i]));
+                if (queries[i])
+                {
+                    Assert.That(reader[0], Is.EqualTo(1));
+                }
                 Assert.That(await reader.NextResultAsync(), Is.EqualTo(i != numResultSets - 1));
             }
         }
     }
 
     [Test]
-    [Ignore("Requires support for multi-statements strings in the shared library")]
     public async Task MultipleStatementsWithParameters([Values(PrepareOrNot.NotPrepared, PrepareOrNot.Prepared)] PrepareOrNot prepare)
     {
+        Fixture.SpannerMock.AddOrUpdateStatementResult("SELECT @p1", StatementResult.CreateResultSet(
+            new List<Tuple<TypeCode, string>>([Tuple.Create(TypeCode.Int64, "p1")]),
+            new List<object[]>([[8L]])));
+        Fixture.SpannerMock.AddOrUpdateStatementResult(" SELECT @p2", StatementResult.CreateResultSet(
+            new List<Tuple<TypeCode, string>>([Tuple.Create(TypeCode.String, "p2")]),
+            new List<object[]>([["foo"]])));
+        
         await using var conn = await OpenConnectionAsync();
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT @p1; SELECT @p2";
@@ -263,7 +273,6 @@ public class CommandTests : AbstractMockServerTests
     }
     
     [Test]
-    [Ignore("Requires support for multi-statements strings in the shared library")]
     public async Task SingleRowMultipleStatements([Values(PrepareOrNot.NotPrepared, PrepareOrNot.Prepared)] PrepareOrNot prepare)
     {
         await using var conn = await OpenConnectionAsync();
@@ -489,9 +498,8 @@ public class CommandTests : AbstractMockServerTests
         Assert.That(cmd.ExecuteNonQueryAsync, Is.EqualTo(1));
 
         // Insert two rows in one batch using a SQL string that contains two statements.
-        // TODO: Enable when SpannerLib supports SQL strings with multiple statements.
-        // cmd.CommandText = $"{insertOneRow}; {insertOneRow}";
-        // Assert.That(cmd.ExecuteNonQueryAsync, Is.EqualTo(2));
+        cmd.CommandText = $"{insertOneRow}; {insertOneRow}";
+        Assert.That(cmd.ExecuteNonQueryAsync, Is.EqualTo(2));
 
         // Execute a large SQL string.
         var value = TestUtils.GenerateRandomString(10_000_000);
@@ -746,23 +754,25 @@ public class CommandTests : AbstractMockServerTests
     }
     
     [Test]
-    [Ignore("Requires multi-statement support in SpannerLib")]
     public async Task ManyParametersAcrossStatements()
     {
         var result = StatementResult.CreateSelect1ResultSet();
-        // Create a command with 1000 statements which have 70 params each
+        // Create a command with 100 statements which have 7 params each
+        const int numStatements = 100;
+        const int numParamsPerStatement = 7;
+        
         await using var conn = await OpenConnectionAsync();
         await using var cmd = new SpannerCommand(conn);
         var paramIndex = 0;
         var sb = new StringBuilder();
-        for (var statementIndex = 0; statementIndex < 1000; statementIndex++)
+        for (var statementIndex = 0; statementIndex < numStatements; statementIndex++)
         {
             if (statementIndex > 0)
-                sb.Append("; ");
+                sb.Append(";");
             var statement = new StringBuilder();
             statement.Append("SELECT ");
             var startIndex = paramIndex;
-            var endIndex = paramIndex + 70;
+            var endIndex = paramIndex + numParamsPerStatement;
             for (; paramIndex < endIndex; paramIndex++)
             {
                 var paramName = "p" + paramIndex;

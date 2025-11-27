@@ -22,25 +22,6 @@ namespace Google.Cloud.Spanner.DataProvider.SpecificationTests;
 
 public class DataReaderTests(DbFactoryFixture fixture) : DataReaderTestBase<DbFactoryFixture>(fixture)
 {
-    [Fact(Skip = "SpannerLib does not support multiple statements in one query string")]
-    public override void HasRows_works_when_batching()
-    {
-    }
-
-    [Fact(Skip = "SpannerLib does not support multiple statements in one query string")]
-    public override void NextResult_works()
-    {
-    }
-
-    [Fact(Skip = "SpannerLib does not support multiple statements in one query string")]
-    public override void SingleResult_returns_one_result_set()
-    {
-    }
-
-    [Fact(Skip = "SpannerLib does not support multiple statements in one query string")]
-    public override void SingleRow_returns_one_result_set()
-    {
-    }
 
     [Fact(Skip = "Getting stats after closing a DataReader is not supported")]
     public override void RecordsAffected_returns_negative_1_after_close_when_no_rows()

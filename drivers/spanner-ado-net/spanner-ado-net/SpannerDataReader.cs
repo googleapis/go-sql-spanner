@@ -37,6 +37,7 @@ public class SpannerDataReader : DbDataReader
     private readonly SpannerConnection _connection;
     private readonly CommandBehavior _commandBehavior;
     private bool IsSingleRow => _commandBehavior.HasFlag(CommandBehavior.SingleRow);
+    private bool IsSingleResult => _commandBehavior.HasFlag(CommandBehavior.SingleResult);
     private Rows LibRows { get; }
     private bool _closed;
     private bool _hasReadData;
@@ -917,7 +918,17 @@ public class SpannerDataReader : DbDataReader
     public override bool NextResult()
     {
         CheckNotClosed();
-        return false;
+        if (IsSingleRow || IsSingleResult)
+        {
+            return false;
+        }
+        _currentRow = null;
+        _tempRow = null;
+        _hasData = false;
+        _hasReadData = false;
+        _metadata = null;
+        _stats = null;
+        return LibRows.NextResultSet();
     }
 
     public override IEnumerator GetEnumerator()

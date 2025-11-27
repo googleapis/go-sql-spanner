@@ -85,11 +85,6 @@ public class CommandTests(DbFactoryFixture fixture) : CommandTestBase<DbFactoryF
         base.ExecuteScalar_returns_string_when_text();
     }
 
-    [Fact(Skip = "Spanner does not support multiple SQL statements in one string")]
-    public override void ExecuteScalar_returns_first_when_batching()
-    {
-    }
-
     [Fact(Skip = "Spanner does not support empty statements")]
     public override void ExecuteReader_HasRows_is_false_for_comment()
     {

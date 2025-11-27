@@ -228,7 +228,7 @@ public class SpannerParameterCollection : DbParameterCollection
         }
     }
         
-    internal Tuple<Struct, MapField<string, Google.Cloud.Spanner.V1.Type>> CreateSpannerParams()
+    internal Tuple<Struct, MapField<string, Google.Cloud.Spanner.V1.Type>> CreateSpannerParams(bool prepare)
     {
         var queryParams = new Struct();
         var paramTypes = new MapField<string, Google.Cloud.Spanner.V1.Type>();
@@ -250,7 +250,7 @@ public class SpannerParameterCollection : DbParameterCollection
                 {
                     name = "p" + (index + 1);
                 }
-                queryParams.Fields.Add(name, spannerParameter.ConvertToProto(spannerParameter));
+                queryParams.Fields.Add(name, spannerParameter.ConvertToProto(spannerParameter, prepare));
                 var paramType = spannerParameter.GetSpannerType();
                 if (paramType != null)
                 {

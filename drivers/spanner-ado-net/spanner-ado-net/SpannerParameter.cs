@@ -94,9 +94,9 @@ public class SpannerParameter : DbParameter, IDbDataParameter, ICloneable
         _dbType = null;
     }
 
-    internal Value ConvertToProto(DbParameter dbParameter)
+    internal Value ConvertToProto(DbParameter dbParameter, bool prepare)
     {
-        GaxPreconditions.CheckState(dbParameter.Direction != ParameterDirection.Input || Value != null, $"Parameter {ParameterName} has no value");
+        GaxPreconditions.CheckState(prepare || dbParameter.Direction != ParameterDirection.Input || Value != null, $"Parameter {ParameterName} has no value");
         return ConvertToProto(Value);
     }
 

@@ -62,7 +62,7 @@ public class SpannerBatch : DbBatch
         var statements = new List<ExecuteBatchDmlRequest.Types.Statement>(DbBatchCommands.Count);
         foreach (var command in DbBatchCommands)
         {
-            var spannerParams = ((SpannerParameterCollection)command.Parameters).CreateSpannerParams();
+            var spannerParams = ((SpannerParameterCollection)command.Parameters).CreateSpannerParams(prepare: false);
             var queryParams = spannerParams.Item1;
             var paramTypes = spannerParams.Item2;
             var batchStatement = new ExecuteBatchDmlRequest.Types.Statement

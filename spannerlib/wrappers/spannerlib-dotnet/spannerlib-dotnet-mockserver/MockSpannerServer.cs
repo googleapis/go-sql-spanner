@@ -58,15 +58,20 @@ public class StatementResult
     {
         return new StatementResult(exception);
     }
+    
+    public static StatementResult CreateSelectZeroResultSet()
+    {
+        return CreateSingleColumnResultSet(new Spanner.V1.Type { Code = Spanner.V1.TypeCode.Int64 }, "COL1", 0);
+    }
 
     public static StatementResult CreateSelect1ResultSet()
     {
         return CreateSingleColumnResultSet(new Spanner.V1.Type { Code = Spanner.V1.TypeCode.Int64 }, "COL1", 1);
     }
-    
-    public static StatementResult CreateSelectZeroResultSet()
+
+    public static StatementResult CreateSelect2ResultSet()
     {
-        return CreateSingleColumnResultSet(new Spanner.V1.Type { Code = Spanner.V1.TypeCode.Int64 }, "COL1", 0);
+        return CreateSingleColumnResultSet(new Spanner.V1.Type { Code = Spanner.V1.TypeCode.Int64 }, "COL1", 2);
     }
     
     public static StatementResult CreateSingleColumnResultSet(Spanner.V1.Type type, string col, params object[] values)

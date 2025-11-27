@@ -125,7 +125,7 @@ public class SpannerCommand : DbCommand, ICloneable
     {
         GaxPreconditions.CheckState(!(HasTransaction && SingleUseReadOnlyTransactionOptions != null),
             "Cannot set both a transaction and single-use read-only options");
-        var spannerParams = ((SpannerParameterCollection)DbParameterCollection).CreateSpannerParams();
+        var spannerParams = Parameters.CreateSpannerParams(prepare: mode == ExecuteSqlRequest.Types.QueryMode.Plan);
         var queryParams = spannerParams.Item1;
         var paramTypes = spannerParams.Item2;
         var sql = CommandText;
@@ -206,7 +206,7 @@ public class SpannerCommand : DbCommand, ICloneable
                     write.Columns.Add(name);
                 }
 
-                values.Values.Add(spannerParameter.ConvertToProto(spannerParameter));
+                values.Values.Add(spannerParameter.ConvertToProto(spannerParameter, prepare: false));
             }
             else
             {
@@ -282,7 +282,7 @@ public class SpannerCommand : DbCommand, ICloneable
         }
 
         using var rows = Execute();
-        return (int)rows.UpdateCount;
+        return (int)rows.GetTotalUpdateCount();
     }
 
     public override async Task<int> ExecuteNonQueryAsync(CancellationToken cancellationToken)
@@ -295,7 +295,7 @@ public class SpannerCommand : DbCommand, ICloneable
         }
 
         await using var rows = await ExecuteAsync(cancellationToken);
-        return (int)rows.UpdateCount;
+        return (int) await rows.GetTotalUpdateCountAsync(cancellationToken);
     }
     
     public override object? ExecuteScalar()
