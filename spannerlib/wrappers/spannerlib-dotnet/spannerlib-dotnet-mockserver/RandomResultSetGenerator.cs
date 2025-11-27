@@ -57,12 +57,12 @@ public static class RandomResultSetGenerator
         };
     }
 
-    public static ResultSet Generate(int numRows)
+    public static ResultSet Generate(int numRows, bool allowNull = false)
     {
-        return Generate(GenerateAllTypesRowType(), numRows);
+        return Generate(GenerateAllTypesRowType(), numRows, allowNull);
     }
     
-    public static ResultSet Generate(StructType rowType, int numRows)
+    public static ResultSet Generate(StructType rowType, int numRows, bool allowNull = false)
     {
         var result = new ResultSet
         {
@@ -73,23 +73,27 @@ public static class RandomResultSetGenerator
         };
         for (var i = 0; i < numRows; i++)
         {
-            result.Rows.Add(GenerateRow(rowType));
+            result.Rows.Add(GenerateRow(rowType, allowNull));
         }
         return result;
     }
 
-    private static ListValue GenerateRow(StructType rowType)
+    private static ListValue GenerateRow(StructType rowType, bool allowNull)
     {
         var row = new ListValue();
         foreach (var field in rowType.Fields)
         {
-            row.Values.Add(GenerateValue(field.Type));
+            row.Values.Add(GenerateValue(field.Type, allowNull));
         }
         return row;
     }
 
-    private static Value GenerateValue(Spanner.V1.Type type)
+    private static Value GenerateValue(Spanner.V1.Type type, bool allowNull)
     {
+        if (allowNull && Random.Shared.Next(10) == 5)
+        {
+            return Value.ForNull();
+        }
         switch (type.Code)
         {
             case TypeCode.Bool:
@@ -106,7 +110,7 @@ public static class RandomResultSetGenerator
             case TypeCode.Float64:
                 return Value.ForNumber(Random.Shared.NextDouble() * double.MaxValue);
             case TypeCode.Int64:
-                return Value.ForNumber(Random.Shared.NextInt64());
+                return Value.ForString(Random.Shared.NextInt64().ToString());
             case TypeCode.Interval:
                 var timespan = TimeSpan.FromTicks(Random.Shared.NextInt64());
                 return Value.ForString(XmlConvert.ToString(timespan));
@@ -129,7 +133,7 @@ public static class RandomResultSetGenerator
                 var values = new Value[length];
                 for (var i = 0; i < length; i++)
                 {
-                    values[i] = GenerateValue(type.ArrayElementType);
+                    values[i] = GenerateValue(type.ArrayElementType, allowNull);
                 }
                 return Value.ForList(values);
             default:

@@ -142,6 +142,61 @@ public class BasicTests : AbstractMockServerTests
         
         Assert.That(request.ParamTypes.Count, Is.EqualTo(0));
     }
+
+    [Test]
+    public void TestQueryAllDataTypes()
+    {
+        const string sql = "select * from all_types";
+        var result = RandomResultSetGenerator.Generate(10, allowNull: true);
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateQuery(result));
+        
+        using var connection = new SpannerConnection();
+        connection.ConnectionString = ConnectionString;
+        connection.Open();
+        
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = sql;
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            var index = 0;
+            foreach (var field in result.Metadata.RowType.Fields)
+            {
+                Assert.That(reader[index], Is.EqualTo(reader[field.Name]));
+                index++;
+            }
+            Assert.That(reader.GetFieldValue<bool?>(reader.GetOrdinal("col_bool")), Is.EqualTo(ValueOrNull(reader["col_bool"])));
+            Assert.That(reader.GetFieldValue<byte[]>(reader.GetOrdinal("col_bytes")), Is.EqualTo(ValueOrNull(reader["col_bytes"])));
+            Assert.That(reader.GetFieldValue<DateOnly?>(reader.GetOrdinal("col_date")), Is.EqualTo(ValueOrNull(reader["col_date"])));
+            Assert.That(reader.GetFieldValue<float?>(reader.GetOrdinal("col_float32")), Is.EqualTo(ValueOrNull(reader["col_float32"])));
+            Assert.That(reader.GetFieldValue<double?>(reader.GetOrdinal("col_float64")), Is.EqualTo(ValueOrNull(reader["col_float64"])));
+            Assert.That(reader.GetFieldValue<long?>(reader.GetOrdinal("col_int64")), Is.EqualTo(ValueOrNull(reader["col_int64"])));
+            Assert.That(reader.GetFieldValue<TimeSpan?>(reader.GetOrdinal("col_interval")), Is.EqualTo(ValueOrNull(reader["col_interval"])));
+            Assert.That(reader.GetFieldValue<string?>(reader.GetOrdinal("col_json")), Is.EqualTo(ValueOrNull(reader["col_json"])));
+            Assert.That(reader.GetFieldValue<decimal?>(reader.GetOrdinal("col_numeric")), Is.EqualTo(ValueOrNull(reader["col_numeric"])));
+            Assert.That(reader.GetFieldValue<string?>(reader.GetOrdinal("col_string")), Is.EqualTo(ValueOrNull(reader["col_string"])));
+            Assert.That(reader.GetFieldValue<DateTime?>(reader.GetOrdinal("col_timestamp")), Is.EqualTo(ValueOrNull(reader["col_timestamp"])));
+            Assert.That(reader.GetFieldValue<Guid?>(reader.GetOrdinal("col_uuid")), Is.EqualTo(ValueOrNull(reader["col_uuid"])));
+            
+            Assert.That(reader.GetFieldValue<List<bool?>>(reader.GetOrdinal("col_array_bool")), Is.EqualTo(ValueOrNull(reader["col_array_bool"])));
+            Assert.That(reader.GetFieldValue<List<byte[]>>(reader.GetOrdinal("col_array_bytes")), Is.EqualTo(ValueOrNull(reader["col_array_bytes"])));
+            Assert.That(reader.GetFieldValue<List<DateOnly?>>(reader.GetOrdinal("col_array_date")), Is.EqualTo(ValueOrNull(reader["col_array_date"])));
+            Assert.That(reader.GetFieldValue<List<float?>>(reader.GetOrdinal("col_array_float32")), Is.EqualTo(ValueOrNull(reader["col_array_float32"])));
+            Assert.That(reader.GetFieldValue<List<double?>>(reader.GetOrdinal("col_array_float64")), Is.EqualTo(ValueOrNull(reader["col_array_float64"])));
+            Assert.That(reader.GetFieldValue<List<long?>>(reader.GetOrdinal("col_array_int64")), Is.EqualTo(ValueOrNull(reader["col_array_int64"])));
+            Assert.That(reader.GetFieldValue<List<TimeSpan?>>(reader.GetOrdinal("col_array_interval")), Is.EqualTo(ValueOrNull(reader["col_array_interval"])));
+            Assert.That(reader.GetFieldValue<List<string?>>(reader.GetOrdinal("col_array_json")), Is.EqualTo(ValueOrNull(reader["col_array_json"])));
+            Assert.That(reader.GetFieldValue<List<decimal?>>(reader.GetOrdinal("col_array_numeric")), Is.EqualTo(ValueOrNull(reader["col_array_numeric"])));
+            Assert.That(reader.GetFieldValue<List<string?>>(reader.GetOrdinal("col_array_string")), Is.EqualTo(ValueOrNull(reader["col_array_string"])));
+            Assert.That(reader.GetFieldValue<List<DateTime?>>(reader.GetOrdinal("col_array_timestamp")), Is.EqualTo(ValueOrNull(reader["col_array_timestamp"])));
+            Assert.That(reader.GetFieldValue<List<Guid?>>(reader.GetOrdinal("col_array_uuid")), Is.EqualTo(ValueOrNull(reader["col_array_uuid"])));
+        }
+    }
+
+    private static object? ValueOrNull(object value)
+    {
+        return value is DBNull ? null : value;
+    }
         
     [Test]
     public void TestExecuteDdl()

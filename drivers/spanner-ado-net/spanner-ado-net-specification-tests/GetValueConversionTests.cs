@@ -115,6 +115,10 @@ public class GetValueConversionTests(DbFactoryFixture fixture) : GetValueConvers
 
     public override void GetString_throws_for_zero_Single() => TestGetValue(DbType.Single, ValueKind.Zero, x => x.GetString(0), "0");
 
+    public override void GetString_throws_for_null_String_with_GetFieldValue() => TestGetValue(DbType.String, ValueKind.Null, x => x.GetFieldValue<string>(0), null);
+    
+    public override async Task GetString_throws_for_null_String_with_GetFieldValueAsync() => await TestGetValueAsync(DbType.String, ValueKind.Null, async x => await x.GetFieldValueAsync<string>(0), null);
+
     public override void GetDouble_throws_for_one_String_with_GetFieldValue() => TestGetValue(DbType.String, ValueKind.One, x => x.GetFieldValue<double>(0), 1.0d);
 
     public override async Task GetDouble_throws_for_one_String_with_GetFieldValueAsync() => await TestGetValueAsync(DbType.String, ValueKind.One, async x => await x.GetFieldValueAsync<double>(0), 1.0d);

@@ -16,4 +16,5 @@
 INSERT OR UPDATE INTO Singers (SingerId, FirstName, LastName, BirthDate, Picture) VALUES 
   (1, 'Mark', 'Richards', DATE '1990-11-09', NULL),
   (2, 'Catalina', 'Smith', DATE '1998-04-29', NULL),
-  (3, 'Alice', 'Trentor', DATE '1979-10-15', NULL);
+  (3, 'Alice', 'Trentor', DATE '1979-10-15', NULL),
+  (4, 'Lea', 'Martin', NULL, NULL);

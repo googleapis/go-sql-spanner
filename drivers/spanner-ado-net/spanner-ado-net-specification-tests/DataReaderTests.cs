@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System.Data;
 using AdoNet.Specification.Tests;
 using Google.Cloud.SpannerLib.MockServer;
 using Xunit;

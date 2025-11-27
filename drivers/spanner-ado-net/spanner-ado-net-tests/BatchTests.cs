@@ -22,22 +22,47 @@ namespace Google.Cloud.Spanner.DataProvider.Tests;
 
 public class BatchTests : AbstractMockServerTests
 {
-    [TestCase(1, false)]
-    [TestCase(2, false)]
-    [TestCase(5, false)]
-    [TestCase(1, true)]
-    [TestCase(2, true)]
-    [TestCase(5, true)]
-    public async Task TestAllParameterTypes(int numCommands, bool executeAsync)
+    [TestCase(1, false, false)]
+    [TestCase(2, false, false)]
+    [TestCase(5, false, false)]
+    [TestCase(1, true, false)]
+    [TestCase(2, true, false)]
+    [TestCase(5, true, false)]
+    [TestCase(1, false, true)]
+    [TestCase(2, false, true)]
+    [TestCase(5, false, true)]
+    [TestCase(1, true, true)]
+    [TestCase(2, true, true)]
+    [TestCase(5, true, true)]
+    public async Task TestAllParameterTypes(int numCommands, bool executeAsync, bool useTransaction)
     {
         await using var connection = new SpannerConnection();
         connection.ConnectionString = ConnectionString;
         await connection.OpenAsync();
 
-        const string insert = "insert into my_table values (@p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12)";
+        SpannerTransaction? transaction = null;
+        if (useTransaction)
+        {
+            if (executeAsync)
+            {
+                transaction = await connection.BeginTransactionAsync();
+            }
+            else
+            {
+                // ReSharper disable once MethodHasAsyncOverload
+                transaction = connection.BeginTransaction();
+            }
+        }
+
+        const string insert = "insert into my_table values " +
+                              "(@p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15, @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23)";
         Fixture.SpannerMock.AddOrUpdateStatementResult(insert, StatementResult.CreateUpdateCount(1));
         
         await using var batch = connection.CreateBatch();
+        if (transaction != null)
+        {
+            batch.Transaction = transaction;
+        }
 
         for (var i = 0; i < numCommands; i++)
         {
@@ -89,6 +114,18 @@ public class BatchTests : AbstractMockServerTests
         foreach (var command in batch.BatchCommands)
         {
             Assert.That(command.RecordsAffected, Is.EqualTo(1));
+        }
+        if (transaction != null)
+        {
+            if (executeAsync)
+            {
+                await transaction.CommitAsync();
+            }
+            else
+            {
+                // ReSharper disable once MethodHasAsyncOverload
+                transaction.Commit();
+            }
         }
 
         var requests = Fixture.SpannerMock.Requests.ToList();
@@ -196,6 +233,8 @@ public class BatchTests : AbstractMockServerTests
             Assert.That(fields["p23"].ListValue.Values[0].NumberValue, Is.EqualTo(3.14f));
             Assert.That(fields["p23"].ListValue.Values[1].HasNullValue, Is.True);
         }
+        var commitRequest = requests.OfType<CommitRequest>().First();
+        Assert.That(commitRequest, Is.Not.Null);
     }
 
     [TestCase(true)]

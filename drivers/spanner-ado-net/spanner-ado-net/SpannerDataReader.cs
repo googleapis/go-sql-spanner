@@ -19,6 +19,7 @@ using System.Data;
 using System.Data.Common;
 using System.Globalization;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -528,11 +529,21 @@ public class SpannerDataReader : DbDataReader
         return GetClrType(Metadata!.RowType.Fields[ordinal].Type);
     }
 
+    private static System.Type GetNullableClrType(Google.Cloud.Spanner.V1.Type type)
+    {
+        var clr = GetClrType(type);
+        if (clr.IsValueType)
+        {
+            return typeof(Nullable<>).MakeGenericType(clr);
+        }
+        return clr;
+    }
+
     private static System.Type GetClrType(Google.Cloud.Spanner.V1.Type type)
     {
         return type.Code switch
         {
-            TypeCode.Array => typeof(List<>).MakeGenericType(GetClrType(type.ArrayElementType)),
+            TypeCode.Array => typeof(List<>).MakeGenericType(GetNullableClrType(type.ArrayElementType)),
             TypeCode.Bool => typeof(bool),
             TypeCode.Bytes => typeof(byte[]),
             TypeCode.Date => typeof(DateOnly),
@@ -708,6 +719,10 @@ public class SpannerDataReader : DbDataReader
         CheckNotClosed();
         CheckValidPosition();
         CheckValidOrdinal(ordinal);
+        if (typeof(T) == typeof(object))
+        {
+            return base.GetFieldValue<T>(ordinal);
+        }
         if (typeof(T) == typeof(Stream))
         {
             CheckNotNull(ordinal);
@@ -775,6 +790,15 @@ public class SpannerDataReader : DbDataReader
             return (T)(object)GetInt64(ordinal);
         }
 
+        if (IsDBNull(ordinal) && default(T) == null)
+        {
+            if (typeof(T) == typeof(DBNull))
+            {
+                return (T)(object)DBNull.Value;
+            }
+            return (T)(object)null;
+        }
+
         return base.GetFieldValue<T>(ordinal);
     }
 
@@ -797,11 +821,20 @@ public class SpannerDataReader : DbDataReader
         switch (type.Code)
         {
             case TypeCode.Array:
-                var listType = typeof(List<>).MakeGenericType(GetClrType(type.ArrayElementType));
+                var listType = GetClrType(type);
                 var list = (IList)Activator.CreateInstance(listType);
+                if (list == null)
+                {
+                    throw new InvalidOperationException($"Failed to create instance of type {listType}.");
+                }
                 foreach (var element in value.ListValue.Values)
                 {
-                    list.Add(GetUnderlyingValue(type.ArrayElementType, element));
+                    var underlyingValue = GetUnderlyingValue(type.ArrayElementType, element);
+                    if (underlyingValue is DBNull)
+                    {
+                        underlyingValue = null;
+                    }
+                    list.Add(underlyingValue);
                 }
                 return list;
             case TypeCode.Bool:
