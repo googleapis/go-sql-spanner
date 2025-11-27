@@ -123,10 +123,11 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     /// connection. The contents of the returned Rows object depends on the type of SQL statement.
     /// </summary>
     /// <param name="statement">The SQL statement that should be executed</param>
+    /// <param name="cancellationToken">The cancellation token</param>
     /// <returns>A Rows object with the statement result</returns>
-    public Task<Rows> ExecuteAsync(ExecuteSqlRequest statement)
+    public Task<Rows> ExecuteAsync(ExecuteSqlRequest statement, CancellationToken cancellationToken = default)
     {
-        return Spanner.ExecuteAsync(this, statement);
+        return Spanner.ExecuteAsync(this, statement, cancellationToken);
     }
 
     /// <summary>
@@ -151,14 +152,15 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     /// transaction is not supported.
     /// </summary>
     /// <param name="statements">The DML or DDL statements to execute</param>
+    /// <param name="cancellationToken">The cancellation token</param>
     /// <returns>The update count per statement. The update count for a DDL statement is -1.</returns>
-    public Task<long[]> ExecuteBatchAsync(List<ExecuteBatchDmlRequest.Types.Statement> statements)
+    public Task<long[]> ExecuteBatchAsync(List<ExecuteBatchDmlRequest.Types.Statement> statements, CancellationToken cancellationToken = default)
     {
         var request = new ExecuteBatchDmlRequest
         {
             Statements = { statements }
         };
-        return Spanner.ExecuteBatchAsync(this, request);
+        return Spanner.ExecuteBatchAsync(this, request, cancellationToken);
     }
 
     /// <summary>

@@ -58,15 +58,20 @@ public class StatementResult
     {
         return new StatementResult(exception);
     }
+    
+    public static StatementResult CreateSelectZeroResultSet()
+    {
+        return CreateSingleColumnResultSet(new Spanner.V1.Type { Code = Spanner.V1.TypeCode.Int64 }, "COL1", 0);
+    }
 
     public static StatementResult CreateSelect1ResultSet()
     {
         return CreateSingleColumnResultSet(new Spanner.V1.Type { Code = Spanner.V1.TypeCode.Int64 }, "COL1", 1);
     }
-    
-    public static StatementResult CreateSelectZeroResultSet()
+
+    public static StatementResult CreateSelect2ResultSet()
     {
-        return CreateSingleColumnResultSet(new Spanner.V1.Type { Code = Spanner.V1.TypeCode.Int64 }, "COL1", 0);
+        return CreateSingleColumnResultSet(new Spanner.V1.Type { Code = Spanner.V1.TypeCode.Int64 }, "COL1", 2);
     }
     
     public static StatementResult CreateSingleColumnResultSet(Spanner.V1.Type type, string col, params object[] values)
@@ -403,12 +408,12 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
             _abortNextStatement = true;
         }
     }
-    
+
     public void ClearRequests()
     {
         _requests.Clear();
     }
-    
+
     public IEnumerable<IMessage> Requests => new List<IMessage>(_requests).AsReadOnly();
 
     /// <summary>
@@ -444,7 +449,7 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
         }
         return false;
     }
-    
+
     public IEnumerable<ServerCallContext> Contexts => new List<ServerCallContext>(_contexts).AsReadOnly();
 
     public IEnumerable<Metadata> Headers => new List<Metadata>(_headers).AsReadOnly();
