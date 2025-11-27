@@ -133,7 +133,7 @@ def publish(session):
 
 
 @nox.session
-def generate_grpc(session):
+def generate_grpc_DO_NOT_USE(session):
     """
     Generate gRPC code from googleapis.
     """
