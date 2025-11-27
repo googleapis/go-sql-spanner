@@ -60,11 +60,12 @@ public class SpannerTransaction : DbTransaction
         
     private bool _disposed;
 
-    internal SpannerTransaction(SpannerConnection connection, TransactionOptions options)
+    internal SpannerTransaction(SpannerConnection connection, SpannerLib.Connection libConnection, TransactionOptions options)
     {
         _spannerConnection = connection;
         IsolationLevel = TranslateIsolationLevel(options.IsolationLevel);
-        LibConnection = connection.LibConnection!;
+        LibConnection = libConnection;
+        // This call to BeginTransaction does not trigger an RPC. It only registers the transaction on the connection.
         LibConnection.BeginTransaction(options);
     }
 
@@ -98,14 +99,8 @@ public class SpannerTransaction : DbTransaction
         }
     }
 
-    internal void MarkUsed(bool initTag = false)
+    internal void MarkUsed()
     {
-        if (initTag && !_used && _tag != null)
-        {
-            // TODO: Add some option to the shared library to pass in tags for batches as an API option
-            var command = _spannerConnection?.CreateCommand($"set local transaction_tag = '{_tag}'");
-            command?.ExecuteNonQuery();
-        }
         _used = true;
     }
 

@@ -286,13 +286,13 @@ public class CommandTests : AbstractMockServerTests
         Fixture.SpannerMock.AddOrUpdateExecutionTime(nameof(Fixture.SpannerMock.ExecuteStreamingSql), ExecutionTime.FromMillis(10, 0));
         
         await using var dataSource = CreateDataSource(csb => csb.CommandTimeout = 1);
-        await using var conn = await dataSource.OpenConnectionAsync() as SpannerConnection;
-        await using var cmd = new SpannerCommand("SELECT 1", conn!);
+        await using var conn = await dataSource.OpenConnectionAsync();
+        await using var cmd = new SpannerCommand("SELECT 1", conn);
         Assert.That(() => cmd.ExecuteScalar(), Throws.Exception
             .TypeOf<SpannerDbException>()
             .With.InnerException.TypeOf<TimeoutException>()
         );
-        Assert.That(conn!.State, Is.EqualTo(ConnectionState.Open));
+        Assert.That(conn.State, Is.EqualTo(ConnectionState.Open));
     }
     
     [Test]
@@ -302,13 +302,13 @@ public class CommandTests : AbstractMockServerTests
         Fixture.SpannerMock.AddOrUpdateExecutionTime(nameof(Fixture.SpannerMock.ExecuteStreamingSql), ExecutionTime.FromMillis(10, 0));
         
         await using var dataSource = CreateDataSource(csb => csb.CommandTimeout = 1);
-        await using var conn = await dataSource.OpenConnectionAsync() as SpannerConnection;
-        await using var cmd = new SpannerCommand("SELECT 1", conn!);
+        await using var conn = await dataSource.OpenConnectionAsync();
+        await using var cmd = new SpannerCommand("SELECT 1", conn);
         Assert.That(async () => await cmd.ExecuteScalarAsync(),
             Throws.Exception
                 .TypeOf<SpannerDbException>()
                 .With.InnerException.TypeOf<TimeoutException>());
-        Assert.That(conn!.State, Is.EqualTo(ConnectionState.Open));
+        Assert.That(conn.State, Is.EqualTo(ConnectionState.Open));
     }
 
     [Test]
@@ -379,7 +379,7 @@ public class CommandTests : AbstractMockServerTests
     public async Task CloseDuringRead()
     {
         await using var dataSource = CreateDataSource();
-        await using var conn = (await dataSource.OpenConnectionAsync() as SpannerConnection)!;
+        await using var conn = await dataSource.OpenConnectionAsync();
         await using (var cmd = new SpannerCommand("SELECT 1", conn))
         await using (var reader = await cmd.ExecuteReaderAsync())
         {
@@ -608,8 +608,8 @@ public class CommandTests : AbstractMockServerTests
             new List<object[]>([["abc��d"]])));
         
         await using var dataSource = CreateDataSource();
-        await using var conn = await dataSource.OpenConnectionAsync() as SpannerConnection;
-        var value = await conn!.ExecuteScalarAsync(sql);
+        await using var conn = await dataSource.OpenConnectionAsync();
+        var value = await conn.ExecuteScalarAsync(sql);
         Assert.That(value, Is.EqualTo("abc��d"));
     }
     
@@ -648,11 +648,11 @@ public class CommandTests : AbstractMockServerTests
     }
 
     [Test]
-    public void ConnectionNotOpenTrows()
+    public void ConnectionNotOpen_OpensConnection()
     {
         using var conn = new SpannerConnection(ConnectionString);
         var cmd = new SpannerCommand("SELECT 1", conn);
-        Assert.That(() => cmd.ExecuteScalarAsync(), Throws.Exception.TypeOf<InvalidOperationException>());
+        Assert.That(() => cmd.ExecuteScalarAsync(), Throws.Nothing);
     }
     
     [Test]

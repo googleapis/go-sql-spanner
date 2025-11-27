@@ -22,7 +22,6 @@ using Google.Api.Gax;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib;
 using Google.Protobuf.WellKnownTypes;
-using static Google.Cloud.Spanner.DataProvider.SpannerDbException;
 
 namespace Google.Cloud.Spanner.DataProvider;
 
@@ -37,7 +36,7 @@ public class SpannerCommand : DbCommand, ICloneable
     
     public override int CommandTimeout
     {
-        get => _timeout ?? (int?) SpannerConnection?.DefaultCommandTimeout ?? 0;
+        get => _timeout ?? (int?) (Connection as SpannerConnection)?.DefaultCommandTimeout ?? 0;
         set => _timeout = value;
     }
 
@@ -225,22 +224,29 @@ public class SpannerCommand : DbCommand, ICloneable
         return mutation;
     }
 
-    private void ExecuteMutation()
+    private BatchWriteRequest.Types.MutationGroup CreateMutationGroup()
     {
         GaxPreconditions.CheckState(_mutation != null, "Cannot execute mutation");
-        var mutations = new BatchWriteRequest.Types.MutationGroup
+        return new BatchWriteRequest.Types.MutationGroup
         {
             Mutations = { BuildMutation() }
         };
-        _transaction?.MarkUsed();
-        SpannerConnection.LibConnection!.WriteMutations(mutations);
+    }
+
+    private void ExecuteMutation()
+    {
+        SpannerConnection.WriteMutations(CreateMutationGroup());
+    }
+
+    private Task ExecuteMutationAsync(CancellationToken cancellationToken)
+    {
+        return SpannerConnection.WriteMutationsAsync(CreateMutationGroup(), cancellationToken);
     }
 
     private Rows Execute(ExecuteSqlRequest.Types.QueryMode mode = ExecuteSqlRequest.Types.QueryMode.Normal)
     {
         CheckCommandStateForExecution();
-        _transaction?.MarkUsed();
-        return TranslateException(() => SpannerConnection.LibConnection!.Execute(BuildStatement(mode)));
+        return SpannerConnection.Execute(BuildStatement(mode));
     }
 
     private Task<Rows> ExecuteAsync(CancellationToken cancellationToken)
@@ -255,8 +261,7 @@ public class SpannerCommand : DbCommand, ICloneable
         {
             return Task.FromCanceled<Rows>(cancellationToken);
         }
-        _transaction?.MarkUsed();
-        return TranslateException(() => SpannerConnection.LibConnection!.ExecuteAsync(BuildStatement(mode)));
+        return SpannerConnection.ExecuteAsync(BuildStatement(mode), cancellationToken);
     }
 
     private void CheckCommandStateForExecution()
@@ -276,22 +281,28 @@ public class SpannerCommand : DbCommand, ICloneable
             return 1;
         }
 
-        var rows = Execute();
-        try
-        {
-            return (int)rows.UpdateCount;
-        }
-        finally
-        {
-            rows.Close();
-        }
+        using var rows = Execute();
+        return (int)rows.UpdateCount;
     }
 
+    public override async Task<int> ExecuteNonQueryAsync(CancellationToken cancellationToken)
+    {
+        CheckDisposed();
+        if (_mutation != null)
+        {
+            await ExecuteMutationAsync(cancellationToken);
+            return 1;
+        }
+
+        await using var rows = await ExecuteAsync(cancellationToken);
+        return (int)rows.UpdateCount;
+    }
+    
     public override object? ExecuteScalar()
     {
         CheckDisposed();
         GaxPreconditions.CheckState(_mutation == null, "Cannot execute mutations with ExecuteScalar()");
-        var rows = Execute();
+        using var rows = Execute();
         using var reader = new SpannerDataReader(SpannerConnection, rows, CommandBehavior.Default);
         if (reader.Read())
         {
@@ -300,7 +311,22 @@ public class SpannerCommand : DbCommand, ICloneable
                 return reader.GetValue(0);
             }
         }
+        return null;
+    }
 
+    public override async Task<object?> ExecuteScalarAsync(CancellationToken cancellationToken)
+    {
+        CheckDisposed();
+        GaxPreconditions.CheckState(_mutation == null, "Cannot execute mutations with ExecuteScalarAsync()");
+        await using var rows = await ExecuteAsync(cancellationToken);
+        await using var reader = new SpannerDataReader(SpannerConnection, rows, CommandBehavior.Default);
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            if (reader.FieldCount > 0)
+            {
+                return reader.GetValue(0);
+            }
+        }
         return null;
     }
 
@@ -369,7 +395,7 @@ public class SpannerCommand : DbCommand, ICloneable
         {
             if (behavior.HasFlag(CommandBehavior.CloseConnection))
             {
-                SpannerConnection.Close();
+                await SpannerConnection.CloseAsync();
             }
             throw new SpannerDbException(exception);
         }
@@ -396,7 +422,7 @@ public class SpannerCommand : DbCommand, ICloneable
             CommandType = CommandType,
             DesignTimeVisible = DesignTimeVisible,
         };
-        (DbParameterCollection as SpannerParameterCollection)?.CloneTo((clone.Parameters as SpannerParameterCollection)!);
+        (DbParameterCollection as SpannerParameterCollection)?.CloneTo(clone.Parameters);
         return clone;
     }
     

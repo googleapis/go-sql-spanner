@@ -118,18 +118,20 @@ public class SpannerConnection : DbConnection
 
     private Connection? _libConnection;
         
-    internal Connection? LibConnection
+    private Connection LibConnection
     {
         get
         {
             AssertOpen();
-            return _libConnection;
+            return _libConnection!;
         }
     }
 
     internal uint DefaultCommandTimeout => _connectionStringBuilder?.CommandTimeout ?? 0;
         
     private SpannerTransaction? _transaction;
+    
+    internal SpannerTransaction? Transaction => _transaction;
     
     private System.Transactions.Transaction? EnlistedTransaction { get; set; }
     
@@ -233,7 +235,7 @@ public class SpannerConnection : DbConnection
     {
         EnsureOpen();
         GaxPreconditions.CheckState(!HasTransaction, "This connection has a transaction.");
-        _transaction = new SpannerTransaction(this, transactionOptions);
+        _transaction = new SpannerTransaction(this, LibConnection, transactionOptions);
         return _transaction;
     }
 
@@ -337,7 +339,7 @@ public class SpannerConnection : DbConnection
 
     private void AssertOpen()
     {
-        if (InternalState != ConnectionState.Open)
+        if (InternalState != ConnectionState.Open || _libConnection == null)
         {
             throw new InvalidOperationException("Connection is not open");
         }
@@ -354,13 +356,15 @@ public class SpannerConnection : DbConnection
     public CommitResponse? WriteMutations(BatchWriteRequest.Types.MutationGroup mutations)
     {
         EnsureOpen();
-        return TranslateException(() => LibConnection!.WriteMutations(mutations));
+        _transaction?.MarkUsed();
+        return LibConnection.WriteMutations(mutations);
     }
 
     public Task<CommitResponse?> WriteMutationsAsync(BatchWriteRequest.Types.MutationGroup mutations, CancellationToken cancellationToken = default)
     {
         EnsureOpen();
-        return LibConnection!.WriteMutationsAsync(mutations, cancellationToken);
+        _transaction?.MarkUsed();
+        return LibConnection.WriteMutationsAsync(mutations, cancellationToken);
     }
 
     /// <summary>
@@ -383,11 +387,40 @@ public class SpannerConnection : DbConnection
         return cmd;
     }
     
+    public Rows Execute(ExecuteSqlRequest statement)
+    {
+        EnsureOpen();
+        _transaction?.MarkUsed();
+        return TranslateException(() => LibConnection.Execute(statement));
+    }
+    
+    public Task<Rows> ExecuteAsync(ExecuteSqlRequest statement, CancellationToken cancellationToken = default)
+    {
+        EnsureOpen();
+        _transaction?.MarkUsed();
+        return TranslateException(LibConnection.ExecuteAsync(statement, cancellationToken));
+    }
+    
     public new SpannerBatch CreateBatch() => (SpannerBatch) base.CreateBatch();
 
     protected override DbBatch CreateDbBatch()
     {
         return new SpannerBatch(this);
+    }
+
+    public long[] ExecuteBatch(IEnumerable<ExecuteBatchDmlRequest.Types.Statement> statements)
+    {
+        EnsureOpen();
+        _transaction?.MarkUsed();
+        return TranslateException(() => LibConnection.ExecuteBatch(statements));
+    }
+
+    public Task<long[]> ExecuteBatchAsync(List<ExecuteBatchDmlRequest.Types.Statement> statements,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureOpen();
+        _transaction?.MarkUsed();
+        return TranslateException(LibConnection.ExecuteBatchAsync(statements, cancellationToken));
     }
 
     public long[] ExecuteBatchDml(List<DbCommand> commands)
@@ -408,7 +441,8 @@ public class SpannerConnection : DbConnection
                 statements.Add(batchStatement);
             }
         }
-        return TranslateException(() => LibConnection!.ExecuteBatch(statements));
+        _transaction?.MarkUsed();
+        return TranslateException(() => LibConnection.ExecuteBatch(statements));
     }
 
     /// <summary>

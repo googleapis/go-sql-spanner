@@ -166,7 +166,7 @@ public class TagTests : AbstractMockServerTests
     }
 
     [Test]
-    public async Task TestMultipleStatements([Values] bool async)
+    public async Task TestMultipleStatements([Values] bool async, [Values] bool batchFirst)
     {
         const string dml = "insert into my_table (id, value) values (1, 'One')";
         Fixture.SpannerMock.AddOrUpdateStatementResult(dml, StatementResult.CreateUpdateCount(1L));
@@ -179,6 +179,24 @@ public class TagTests : AbstractMockServerTests
         
         await using var transaction = await connection.BeginTransactionAsync();
         transaction.Tag = "my_tx_tag";
+
+        if (batchFirst)
+        {
+            await using var firstBatch = connection.CreateBatch();
+            firstBatch.Transaction = transaction;
+            firstBatch.Tag = "first_batch";
+            firstBatch.BatchCommands.Add(dml);
+            firstBatch.BatchCommands.Add(dml);
+            if (async)
+            {
+                await firstBatch.ExecuteNonQueryAsync();
+            }
+            else
+            {
+                // ReSharper disable once MethodHasAsyncOverload
+                firstBatch.ExecuteNonQuery();
+            }
+        }
         
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -241,7 +259,16 @@ public class TagTests : AbstractMockServerTests
         }
 
         var requests = Fixture.SpannerMock.Requests.ToList();
-        var batchRequest = requests.OfType<ExecuteBatchDmlRequest>().First();
+        if (batchFirst)
+        {
+            var firstBatchRequest = requests.OfType<ExecuteBatchDmlRequest>().First();
+            Assert.That(firstBatchRequest, Is.Not.Null);
+            Assert.That(firstBatchRequest.RequestOptions, Is.Not.Null);
+            Assert.That(firstBatchRequest.RequestOptions.RequestTag, Is.EqualTo("first_batch"));
+            Assert.That(firstBatchRequest.RequestOptions.TransactionTag, Is.EqualTo("my_tx_tag"));
+        }
+
+        var batchRequest = requests.OfType<ExecuteBatchDmlRequest>().Last();
         Assert.That(batchRequest, Is.Not.Null);
         Assert.That(batchRequest.RequestOptions, Is.Not.Null);
         Assert.That(batchRequest.RequestOptions.RequestTag, Is.EqualTo("my_batch"));

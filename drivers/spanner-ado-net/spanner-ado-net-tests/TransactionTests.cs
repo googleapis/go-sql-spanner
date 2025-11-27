@@ -16,6 +16,7 @@ using System.Data;
 using System.Diagnostics.CodeAnalysis;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib.MockServer;
+using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 
 namespace Google.Cloud.Spanner.DataProvider.Tests;
@@ -70,43 +71,71 @@ public class TransactionTests : AbstractMockServerTests
         await using var connection = new SpannerConnection();
         connection.ConnectionString = ConnectionString;
         await connection.OpenAsync();
-        await using var transaction = connection.BeginReadOnlyTransaction();
-        await using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        var paramId = command.CreateParameter();
-        paramId.ParameterName = "id";
-        paramId.Value = 1;
-        command.Parameters.Add(paramId);
-        await using var reader = await command.ExecuteReaderAsync();
-        Assert.That(await reader.ReadAsync());
-        Assert.That(reader.FieldCount, Is.EqualTo(1));
-        Assert.That(reader.GetValue(0), Is.EqualTo("One"));
-        Assert.That(await reader.ReadAsync(), Is.False);
-        
-        // We must commit the transaction in order to end it.
-        await transaction.CommitAsync();
-        
-        var requests = Fixture.SpannerMock.Requests.ToList();
-        // The transaction should use inline-begin.
-        Assert.That(requests.OfType<BeginTransactionRequest>().Count(), Is.EqualTo(0));
-        Assert.That(requests.OfType<ExecuteSqlRequest>().Count(), Is.EqualTo(1));
-        // Committing a read-only transaction is a no-op on Spanner.
-        Assert.That(requests.OfType<CommitRequest>().Count(),  Is.EqualTo(0));
-        var executeRequest = requests.OfType<ExecuteSqlRequest>().First();
-        Assert.That(executeRequest.Transaction, Is.EqualTo(new TransactionSelector
+
+        foreach (var options in new TransactionOptions.Types.ReadOnly?[]
+                 {
+                     null,
+                     new() { Strong = true },
+                     new() { ExactStaleness = Duration.FromTimeSpan(TimeSpan.FromSeconds(25)) },
+                     new() { ReadTimestamp = Timestamp.FromDateTime(DateTime.UtcNow) },
+                 })
         {
-            Begin = new TransactionOptions
+            await using var transaction = options == null 
+                ? connection.BeginReadOnlyTransaction()
+                : connection.BeginReadOnlyTransaction(options);
+            await using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            var paramId = command.CreateParameter();
+            paramId.ParameterName = "id";
+            paramId.Value = 1;
+            command.Parameters.Add(paramId);
+            await using var reader = await command.ExecuteReaderAsync();
+            Assert.That(await reader.ReadAsync());
+            Assert.That(reader.FieldCount, Is.EqualTo(1));
+            Assert.That(reader.GetValue(0), Is.EqualTo("One"));
+            Assert.That(await reader.ReadAsync(), Is.False);
+
+            // We must commit the transaction in order to end it.
+            await transaction.CommitAsync();
+
+            var requests = Fixture.SpannerMock.Requests.ToList();
+            Fixture.SpannerMock.ClearRequests();
+            
+            // The transaction should use inline-begin.
+            Assert.That(requests.OfType<BeginTransactionRequest>().Count(), Is.EqualTo(0));
+            Assert.That(requests.OfType<ExecuteSqlRequest>().Count(), Is.EqualTo(1));
+            // Committing a read-only transaction is a no-op on Spanner.
+            Assert.That(requests.OfType<CommitRequest>().Count(), Is.EqualTo(0));
+            var executeRequest = requests.OfType<ExecuteSqlRequest>().First();
+            if (options == null)
             {
-                ReadOnly = new TransactionOptions.Types.ReadOnly
+                Assert.That(executeRequest.Transaction, Is.EqualTo(new TransactionSelector
                 {
-                    Strong = true,
-                    ReturnReadTimestamp = true,
-                },
+                    Begin = new TransactionOptions
+                    {
+                        ReadOnly = new TransactionOptions.Types.ReadOnly
+                        {
+                            Strong = true,
+                            ReturnReadTimestamp = true,
+                        },
+                    }
+                }));
             }
-        }));
+            else
+            {
+                var expectedOptions = options;
+                expectedOptions.ReturnReadTimestamp = true;
+                Assert.That(executeRequest.Transaction, Is.EqualTo(new TransactionSelector
+                {
+                    Begin = new TransactionOptions
+                    {
+                        ReadOnly = expectedOptions,
+                    }
+                }));
+            }
+        }
     }
 
-    [Ignore("Needs a fix in SpannerLib")]
     [Test]
     public async Task TestTransactionTag()
     {
@@ -118,11 +147,12 @@ public class TransactionTests : AbstractMockServerTests
         await using var connection = new SpannerConnection();
         connection.ConnectionString = ConnectionString;
         await connection.OpenAsync();
+        
         await using var setTagCommand = connection.CreateCommand();
         setTagCommand.CommandText = "set transaction_tag='test_tag'";
         await setTagCommand.ExecuteNonQueryAsync();
-        await using var transaction = await connection.BeginTransactionAsync();
         
+        await using var transaction = await connection.BeginTransactionAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = select;
         var selectParamId = command.CreateParameter();
@@ -177,10 +207,42 @@ public class TransactionTests : AbstractMockServerTests
         await command2.ExecuteNonQueryAsync();
         await tx2.CommitAsync();
         
+        requests = Fixture.SpannerMock.Requests.ToList();
         var lastRequest = requests.OfType<ExecuteSqlRequest>().Last(request => request.Sql == update);
-        Assert.That(lastRequest.RequestOptions.TransactionTag, Is.Null);
+        Assert.That(lastRequest.RequestOptions.TransactionTag, Is.EqualTo(""));
         var lastCommitRequest = requests.OfType<CommitRequest>().Last();
-        Assert.That(lastCommitRequest.RequestOptions.TransactionTag, Is.Null);
+        Assert.That(lastCommitRequest.RequestOptions.TransactionTag, Is.EqualTo(""));
+    }
+
+    [Test]
+    public void TestChangeTransactionTagAfterStart()
+    {
+        const string update = "update my_table set my_column='test' where id=1";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(update, StatementResult.CreateUpdateCount(1L));
+        
+        using var connection = new SpannerConnection();
+        connection.ConnectionString = ConnectionString;
+        connection.Open();
+        
+        using var transaction = connection.BeginTransaction();
+        transaction.Tag = "first_tag";
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = update;
+        
+        // We can still change the transaction tag as long as no statement has been executed.
+        transaction.Tag = "second_tag";
+        // Execute a statement. From this point on the transaction tag can no longer be changed.
+        command.ExecuteNonQuery();
+        
+        Assert.Throws<InvalidOperationException>(() => transaction.Tag = "third_tag");
+        transaction.Commit();
+        
+        var requests = Fixture.SpannerMock.Requests.ToList();
+        var executeRequest = requests.OfType<ExecuteSqlRequest>().Single();
+        Assert.That(executeRequest.RequestOptions.TransactionTag, Is.EqualTo("second_tag"));
+        var commitRequest = requests.OfType<CommitRequest>().Single();
+        Assert.That(commitRequest.RequestOptions.TransactionTag, Is.EqualTo("second_tag"));
     }
     
     [Test]

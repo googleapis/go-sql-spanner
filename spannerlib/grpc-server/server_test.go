@@ -622,52 +622,59 @@ func TestTransaction(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("failed to set transaction_tag: %v", err)
 	}
-	if _, err := client.BeginTransaction(ctx, &pb.BeginTransactionRequest{
-		Connection:         connection,
-		TransactionOptions: &sppb.TransactionOptions{},
-	}); err != nil {
-		t.Fatalf("failed to begin transaction: %v", err)
-	}
-	rows, err := client.Execute(ctx, &pb.ExecuteRequest{
-		Connection:        connection,
-		ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: testutil.UpdateBarSetFoo},
-	})
-	if err != nil {
-		t.Fatalf("failed to execute: %v", err)
-	}
-	row, err := client.Next(ctx, &pb.NextRequest{Rows: rows, NumRows: 1})
-	if err != nil {
-		t.Fatalf("failed to fetch next row: %v", err)
-	}
-	if row.Values != nil {
-		t.Fatalf("row values should be nil: %v", row.Values)
-	}
-	stats, err := client.ResultSetStats(ctx, rows)
-	if err != nil {
-		t.Fatalf("failed to get stats: %v", err)
-	}
-	if g, w := stats.GetRowCountExact(), int64(testutil.UpdateBarSetFooRowCount); g != w {
-		t.Fatalf("row count mismatch\n Got: %v\nWant: %v", g, w)
-	}
-	if _, err := client.CloseRows(ctx, rows); err != nil {
-		t.Fatalf("failed to close rows: %v", err)
-	}
-	if _, err := client.Commit(ctx, connection); err != nil {
-		t.Fatalf("failed to commit: %v", err)
+
+	for i := 0; i < 2; i++ {
+		if _, err := client.BeginTransaction(ctx, &pb.BeginTransactionRequest{
+			Connection:         connection,
+			TransactionOptions: &sppb.TransactionOptions{},
+		}); err != nil {
+			t.Fatalf("failed to begin transaction: %v", err)
+		}
+		rows, err := client.Execute(ctx, &pb.ExecuteRequest{
+			Connection:        connection,
+			ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: testutil.UpdateBarSetFoo},
+		})
+		if err != nil {
+			t.Fatalf("failed to execute: %v", err)
+		}
+		row, err := client.Next(ctx, &pb.NextRequest{Rows: rows, NumRows: 1})
+		if err != nil {
+			t.Fatalf("failed to fetch next row: %v", err)
+		}
+		if row.Values != nil {
+			t.Fatalf("row values should be nil: %v", row.Values)
+		}
+		stats, err := client.ResultSetStats(ctx, rows)
+		if err != nil {
+			t.Fatalf("failed to get stats: %v", err)
+		}
+		if g, w := stats.GetRowCountExact(), int64(testutil.UpdateBarSetFooRowCount); g != w {
+			t.Fatalf("row count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if _, err := client.CloseRows(ctx, rows); err != nil {
+			t.Fatalf("failed to close rows: %v", err)
+		}
+		if _, err := client.Commit(ctx, connection); err != nil {
+			t.Fatalf("failed to commit: %v", err)
+		}
+
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+		if g, w := len(executeRequests), 1; g != w {
+			t.Fatalf("num execute requests mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		request := executeRequests[0].(*sppb.ExecuteSqlRequest)
+		expectedTag := "test_tag"
+		if i == 1 {
+			expectedTag = ""
+		}
+		if g, w := request.RequestOptions.TransactionTag, expectedTag; g != w {
+			t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+		}
 	}
 
 	if _, err := client.ClosePool(ctx, pool); err != nil {
 		t.Fatalf("failed to close pool: %v", err)
-	}
-
-	requests := server.TestSpanner.DrainRequestsFromServer()
-	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
-	if g, w := len(executeRequests), 1; g != w {
-		t.Fatalf("num execute requests mismatch\n Got: %v\nWant: %v", g, w)
-	}
-	request := executeRequests[0].(*sppb.ExecuteSqlRequest)
-	if g, w := request.RequestOptions.TransactionTag, "test_tag"; g != w {
-		t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 

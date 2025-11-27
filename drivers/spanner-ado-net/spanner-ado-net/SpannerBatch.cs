@@ -76,22 +76,41 @@ public class SpannerBatch : DbBatch
         return statements;
     }
 
-    private void SetRequestTag()
+    private SpannerCommand? CreateSetTagsCommandText()
     {
-        if (Tag != null)
+        if (!string.IsNullOrEmpty(Tag) || !string.IsNullOrEmpty(SpannerConnection.Transaction?.Tag))
         {
-            var command = SpannerConnection.CreateCommand($"set statement_tag = '{Tag}'");
-            command.ExecuteNonQuery();
+            string commandText;
+            if (!string.IsNullOrEmpty(SpannerConnection.Transaction?.Tag) && string.IsNullOrEmpty(Tag))
+            {
+                commandText = $"set local transaction_tag='{SpannerConnection.Transaction.Tag}'";
+            }
+            else if (!string.IsNullOrEmpty(Tag) && string.IsNullOrEmpty(SpannerConnection.Transaction?.Tag))
+            {
+                commandText = $"set statement_tag = '{Tag}'";
+            }
+            else
+            {
+                commandText = $"set local transaction_tag='{SpannerConnection.Transaction!.Tag}';set statement_tag = '{Tag}'";
+            }
+            return SpannerConnection.CreateCommand(commandText);
         }
+        return null;
     }
 
-    private async Task SetRequestTagAsync(CancellationToken cancellationToken)
+    private void SetTags()
     {
-        if (Tag != null)
+        CreateSetTagsCommandText()?.ExecuteNonQuery();
+    }
+
+    private Task SetRequestTagAsync(CancellationToken cancellationToken)
+    {
+        var command = CreateSetTagsCommandText();
+        if (command != null)
         {
-            var command = SpannerConnection.CreateCommand($"set statement_tag = '{Tag}'");
-            await command.ExecuteNonQueryAsync(cancellationToken);
+            return command.ExecuteNonQueryAsync(cancellationToken);
         }
+        return Task.CompletedTask;
     }
 
     public override int ExecuteNonQuery()
@@ -101,9 +120,8 @@ public class SpannerBatch : DbBatch
             return 0;
         }
         var statements = CreateStatements();
-        SpannerTransaction?.MarkUsed(initTag: true);
-        SetRequestTag();
-        var results = SpannerConnection.LibConnection!.ExecuteBatch(statements);
+        SetTags();
+        var results = SpannerConnection.ExecuteBatch(statements);
         DbBatchCommands.SetAffected(results);
         return (int) results.Sum();
     }
@@ -115,9 +133,8 @@ public class SpannerBatch : DbBatch
             return 0;
         }
         var statements = CreateStatements();
-        SpannerTransaction?.MarkUsed(initTag: true);
         await SetRequestTagAsync(cancellationToken);
-        var results = await SpannerConnection.LibConnection!.ExecuteBatchAsync(statements);
+        var results = await SpannerConnection.ExecuteBatchAsync(statements, cancellationToken);
         DbBatchCommands.SetAffected(results);
         return (int) results.Sum();
     }
