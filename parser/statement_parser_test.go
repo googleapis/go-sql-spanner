@@ -1285,13 +1285,13 @@ func TestFindParamsWithCommentsPostgreSQL(t *testing.T) {
 			want:    []string{"p1", "p2"},
 		},
 		"backslash at end of string": {
-			input:   `?'test\\'?`,
-			wantSQL: `$1'test\\'$2`,
+			input:   `?'test\\'%s?`,
+			wantSQL: `$1'test\\'%s$2`,
 			want:    []string{"p1", "p2"},
 		},
 		"backslash at end of double-quoted string": {
-			input:   `?"test\\"?`,
-			wantSQL: `$1"test\\"$2`,
+			input:   `?"test\\"%s?`,
+			wantSQL: `$1"test\\"%s$2`,
 			want:    []string{"p1", "p2"},
 		},
 		"triple-quotes": {
