@@ -32,7 +32,7 @@ public class StreamingRows : Rows
     public static async Task<StreamingRows> CreateAsync(Connection connection, AsyncServerStreamingCall<RowData> stream, CancellationToken cancellationToken = default)
     {
         var rows = new StreamingRows(connection, stream);
-        rows._pendingRow = await rows.NextAsync(cancellationToken);
+        rows._pendingRow = await rows.NextAsync(cancellationToken).ConfigureAwait(false);
         return rows;
     }
 
@@ -118,7 +118,7 @@ public class StreamingRows : Rows
         }
         try
         {
-            var hasNext = await _stream.ResponseStream.MoveNext(cancellationToken);
+            var hasNext = await _stream.ResponseStream.MoveNext(cancellationToken).ConfigureAwait(false);
             if (!hasNext)
             {
                 MarkDone();
@@ -180,7 +180,7 @@ public class StreamingRows : Rows
             return false;
         }
         // Read data until we reach the next result set.
-        await ReadUntilEndAsync(cancellationToken);
+        await ReadUntilEndAsync(cancellationToken).ConfigureAwait(false);
         
         return HasNextResultSet();
     }
@@ -206,7 +206,7 @@ public class StreamingRows : Rows
     private async Task ReadUntilEndAsync(CancellationToken cancellationToken)
     {
         // Read the remaining rows in the current result set.
-        while (!_pendingNextResultSetCall && await NextAsync(cancellationToken) != null)
+        while (!_pendingNextResultSetCall && await NextAsync(cancellationToken).ConfigureAwait(false) != null)
         {
         }
     }

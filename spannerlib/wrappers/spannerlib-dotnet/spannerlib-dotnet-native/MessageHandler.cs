@@ -13,7 +13,6 @@
 // limitations under the License.
 
 using System;
-using System.Data;
 using System.Text;
 
 namespace Google.Cloud.SpannerLib.Native;

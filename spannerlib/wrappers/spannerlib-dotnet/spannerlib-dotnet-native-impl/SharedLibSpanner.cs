@@ -174,7 +174,7 @@ public class SharedLibSpanner : ISpannerLib
 
     public async Task<ResultSetMetadata?> MetadataAsync(Rows rows, CancellationToken cancellationToken = default)
     {
-        return await Task.Run(() => Metadata(rows), cancellationToken);
+        return await Task.Run(() => Metadata(rows), cancellationToken).ConfigureAwait(false);
     }
 
     public ResultSetMetadata? NextResultSet(Rows rows)
@@ -185,7 +185,7 @@ public class SharedLibSpanner : ISpannerLib
 
     public async Task<ResultSetMetadata?> NextResultSetAsync(Rows rows, CancellationToken cancellationToken = default)
     {
-        return await Task.Run(() => NextResultSet(rows), cancellationToken);
+        return await Task.Run(() => NextResultSet(rows), cancellationToken).ConfigureAwait(false);
     }
 
     public ResultSetStats? Stats(Rows rows)
@@ -202,7 +202,7 @@ public class SharedLibSpanner : ISpannerLib
 
     public async Task<ListValue?> NextAsync(Rows rows, int numRows, ISpannerLib.RowEncoding encoding, CancellationToken cancellationToken = default)
     {
-        return await Task.Run(() => Next(rows, numRows, encoding), cancellationToken);
+        return await Task.Run(() => Next(rows, numRows, encoding), cancellationToken).ConfigureAwait(false);
     }
 
     public void CloseRows(Rows rows)

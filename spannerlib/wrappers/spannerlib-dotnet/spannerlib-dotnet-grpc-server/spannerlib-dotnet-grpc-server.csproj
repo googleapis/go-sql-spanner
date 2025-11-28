@@ -12,6 +12,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="ConfigureAwaitChecker.Analyzer" PrivateAssets="All" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="binaries/any/*" Pack="true" PackagePath="runtimes/any/native/" />
     <None Include="binaries/linux-x64/*" Pack="true" PackagePath="runtimes/linux-x64/native/" />
     <None Include="binaries/osx-arm64/*" Pack="true" PackagePath="runtimes/osx-arm64/native/" />
