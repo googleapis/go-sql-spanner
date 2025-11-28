@@ -458,8 +458,8 @@ func (p *StatementParser) skipQuoted(sql []byte, pos int, quote byte) (int, int,
 				// This was the end quote.
 				return pos + 1, quoteLength, nil
 			}
-		} else if (p.supportsBackslashEscape() || isEscapeString) && len(sql) > pos+1 && c == '\\' && sql[pos+1] == quote {
-			// This is an escaped quote (e.g. 'foo\'bar').
+		} else if (p.supportsBackslashEscape() || isEscapeString) && len(sql) > pos+1 && c == '\\' && (sql[pos+1] == quote || sql[pos+1] == '\\') {
+			// This is an escaped quote (e.g. 'foo\'bar') or an escaped backslash (e.g 'test\\').
 			// Note that in raw strings, the \ officially does not start an
 			// escape sequence, but the result is still the same, as in a raw
 			// string 'both characters are preserved'.
