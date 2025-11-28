@@ -11,6 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="ConfigureAwaitChecker.Analyzer" PrivateAssets="All" />
     <PackageReference Include="Alpha.Google.Cloud.SpannerLib.GrpcServer" Version="1.0.0-alpha.20251027150914" />
   </ItemGroup>
 
