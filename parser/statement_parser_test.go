@@ -740,6 +740,17 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 				databasepb.DatabaseDialect_POSTGRESQL: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?"?it\"?s"?`)),
 			},
 		},
+		"backslash at end of string": {
+			input: `?'test\\'?`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@p1'test\\'@p2`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `$1'test\\'$2`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"p1", "p2"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1", "p2"},
+			},
+		},
 		"triple-quoted string": {
 			input: `?'''?it\'?s'''?`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
@@ -1092,6 +1103,16 @@ SELECT * FROM PersonsTable WHERE id=$1`,
 			input:   `?"?it\"?s"?`,
 			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?"?it\"?s"?`)),
 		},
+		"backslash at end of string": {
+			input:   `?'test\\'?`,
+			wantSQL: `$1'test\\'$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"backslash at end of double-quoted string": {
+			input:   `?"test\\"?`,
+			wantSQL: `$1"test\\"$2`,
+			want:    []string{"p1", "p2"},
+		},
 		"triple-quoted string": {
 			input:   `?'''?it\'?s'''?`,
 			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'''?it\'?s'''?`)),
@@ -1261,6 +1282,16 @@ func TestFindParamsWithCommentsPostgreSQL(t *testing.T) {
 		"backslash in double-quoted string": {
 			input:   `?\"?it\\"\"?s\"%s?`,
 			wantSQL: `$1\"?it\\"\"?s\"%s$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"backslash at end of string": {
+			input:   `?'test\\'%s?`,
+			wantSQL: `$1'test\\'%s$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"backslash at end of double-quoted string": {
+			input:   `?"test\\"%s?`,
+			wantSQL: `$1"test\\"%s$2`,
 			want:    []string{"p1", "p2"},
 		},
 		"triple-quotes": {
@@ -2026,6 +2057,13 @@ func TestSkip(t *testing.T) {
 			skipped: map[databasepb.DatabaseDialect]string{
 				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "'''foo\\'\\'\\'bar'''",
 				databasepb.DatabaseDialect_POSTGRESQL:          "'''foo\\'",
+			},
+		},
+		"escaped backslash at end of string literal": {
+			input: "'test\\\\' as foo",
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "'test\\\\'",
+				databasepb.DatabaseDialect_POSTGRESQL:          "'test\\\\'",
 			},
 		},
 		"string with linefeed": {
