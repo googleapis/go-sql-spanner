@@ -61,15 +61,19 @@ echo "Building .NET packages..."
 dotnet nuget remove source local-native-build 2>/dev/null
 if [ "$RUNNER_OS" == "Windows" ]; then
   # PWD does not work on Windows
+  mkdir -p "${GITHUB_WORKSPACE}\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-native\bin\Release"
   dotnet nuget add source "${GITHUB_WORKSPACE}\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-native\bin\Release" --name local-native-build
 else
+  mkdir -p "$PWD"/spannerlib-dotnet-native/bin/Release
   dotnet nuget add source "$PWD"/spannerlib-dotnet-native/bin/Release --name local-native-build
 fi
 dotnet nuget remove source local-grpc-server-build 2>/dev/null
 if [ "$RUNNER_OS" == "Windows" ]; then
   # PWD does not work on Windows
+  mkdir -p "${GITHUB_WORKSPACE}\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-grpc-server\bin\Release"
   dotnet nuget add source "${GITHUB_WORKSPACE}\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-grpc-server\bin\Release" --name local-grpc-server-build
 else
+  mkdir -p "$PWD"/spannerlib-dotnet-grpc-server/bin/Release
   dotnet nuget add source "$PWD"/spannerlib-dotnet-grpc-server/bin/Release --name local-grpc-server-build
 fi
 
