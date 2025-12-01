@@ -100,8 +100,8 @@ def lint(session):
 def unit(session):
     """Run unit tests."""
 
-    session.install("-e", ".")
     session.install(*STANDARD_DEPENDENCIES, *UNIT_TEST_STANDARD_DEPENDENCIES)
+    session.install("-e", ".")
 
     test_paths = (
         session.posargs if session.posargs else [os.path.join("tests", "unit")]
@@ -125,8 +125,16 @@ def unit(session):
 def system(session):
     """Run system tests."""
 
-    session.install("-e", ".")
+    # Sanity check: Only run tests if the environment variable is set.
+    if not os.environ.get(
+        "GOOGLE_APPLICATION_CREDENTIALS", ""
+    ) and not os.environ.get("SPANNER_EMULATOR_HOST", ""):
+        session.skip(
+            "Credentials or emulator host must be set via environment variable"
+        )
+
     session.install(*STANDARD_DEPENDENCIES, *SYSTEM_TEST_STANDARD_DEPENDENCIES)
+    session.install("-e", ".")
 
     test_paths = (
         session.posargs
