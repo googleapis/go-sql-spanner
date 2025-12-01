@@ -105,10 +105,10 @@ public class SharedLibSpanner : ISpannerLib
         return CommitResponse.Parser.ParseFrom(handler.Value());
     }
     
-    public Task<CommitResponse?> WriteMutationsAsync(Connection connection,
+    public async Task<CommitResponse?> WriteMutationsAsync(Connection connection,
         BatchWriteRequest.Types.MutationGroup mutations, CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => WriteMutations(connection, mutations), cancellationToken);
+        return await Task.Run(() => WriteMutations(connection, mutations), cancellationToken).ConfigureAwait(false);
     }
 
     public Rows Execute(Connection connection, ExecuteSqlRequest statement)
@@ -122,9 +122,9 @@ public class SharedLibSpanner : ISpannerLib
         return new Rows(connection, handler.ObjectId());
     }
 
-    public Task<Rows> ExecuteAsync(Connection connection, ExecuteSqlRequest statement, CancellationToken cancellationToken)
+    public async Task<Rows> ExecuteAsync(Connection connection, ExecuteSqlRequest statement, CancellationToken cancellationToken)
     {
-        return Task.Run(() => Execute(connection, statement), cancellationToken);
+        return await Task.Run(() => Execute(connection, statement), cancellationToken).ConfigureAwait(false);
     }
 
     public long[] ExecuteBatch(Connection connection, ExecuteBatchDmlRequest statements)
@@ -161,9 +161,9 @@ public class SharedLibSpanner : ISpannerLib
         return result;
     }
 
-    public Task<long[]> ExecuteBatchAsync(Connection connection, ExecuteBatchDmlRequest statements, CancellationToken cancellationToken = default)
+    public async Task<long[]> ExecuteBatchAsync(Connection connection, ExecuteBatchDmlRequest statements, CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => ExecuteBatch(connection, statements),  cancellationToken);
+        return await Task.Run(() => ExecuteBatch(connection, statements),  cancellationToken).ConfigureAwait(false);
     }
 
     public ResultSetMetadata? Metadata(Rows rows)
@@ -210,9 +210,9 @@ public class SharedLibSpanner : ISpannerLib
         ExecuteAndReleaseLibraryFunction(() => SpannerLib.CloseRows(rows.SpannerConnection.Pool.Id, rows.SpannerConnection.Id, rows.Id));
     }
 
-    public Task CloseRowsAsync(Rows rows, CancellationToken cancellationToken = default)
+    public async Task CloseRowsAsync(Rows rows, CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => CloseRows(rows), cancellationToken);
+        await Task.Run(() => CloseRows(rows), cancellationToken).ConfigureAwait(false);
     }
 
     public void BeginTransaction(Connection connection, TransactionOptions transactionOptions)
@@ -241,8 +241,8 @@ public class SharedLibSpanner : ISpannerLib
         ExecuteAndReleaseLibraryFunction(() => SpannerLib.Rollback(connection.Pool.Id, connection.Id));
     }
 
-    public Task RollbackAsync(Connection connection, CancellationToken cancellationToken = default)
+    public async Task RollbackAsync(Connection connection, CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => Rollback(connection), cancellationToken);
+        await Task.Run(() => Rollback(connection), cancellationToken).ConfigureAwait(false);
     }
 }
