@@ -13,25 +13,20 @@
 #  limitations under the License.
 """Helper script to setup Spanner Emulator schema."""
 
-import os
+from _helper import DATABASE_ID, INSTANCE_ID, PROJECT_ID, TEST_ON_PROD
 
 from google.cloud import spanner
 
 
 def setup_env():
-    if os.environ.get("SPANNERLIB_TEST_ON_PROD"):
+    if TEST_ON_PROD:
         return
-
-    project_id = "test-project"
-    instance_id = "test-instance"
-    database_id = "test-db"
-
-    client = spanner.Client(project=project_id)
-    instance = client.instance(instance_id)
+    client = spanner.Client(project=PROJECT_ID)
+    instance = client.instance(INSTANCE_ID)
     if not instance.exists():
         instance.create(configuration_name="emulator-config")
 
-    database = instance.database(database_id)
+    database = instance.database(DATABASE_ID)
     if not database.exists():
         database.create()
 
@@ -56,19 +51,14 @@ def setup_env():
 
 
 def teardown():
-    if os.environ.get("SPANNERLIB_TEST_ON_PROD"):
+    if TEST_ON_PROD:
         return
-
-    project_id = "test-project"
-    instance_id = "test-instance"
-    database_id = "testdb"
-
-    client = spanner.Client(project=project_id)
-    instance = client.instance(instance_id)
+    client = spanner.Client(project=PROJECT_ID)
+    instance = client.instance(INSTANCE_ID)
     if not instance.exists():
         return
 
-    database = instance.database(database_id)
+    database = instance.database(DATABASE_ID)
     if not database.exists():
         return
 
