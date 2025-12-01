@@ -1,6 +1,6 @@
 # Spanner ADO.NET Data Provider
 
-__ALPHA: This library is still in development. It is not year ready for production use.__
+__ALPHA: This library is still in development. It is not yet ready for production use.__
 
 ADO.NET Data Provider for Spanner. This library implements the standard ADO.NET interfaces and classes
 and exposes an API that is similar to ADO.NET data providers for other relational database systems.

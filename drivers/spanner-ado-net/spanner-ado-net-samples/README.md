@@ -1,5 +1,6 @@
 # Spanner ADO.NET Data Provider Samples
 
-Samples for ADO.NET Data Provider for Spanner.
+__ALPHA: This library is still in development. It is not yet ready for production use.__
 
-__ALPHA: Not for production use__
+Samples for the ADO.NET Data Provider for Spanner. The [Snippets](Snippets) directory contains ready-to-run samples
+for using various Spanner features with the ADO.NET provider.
