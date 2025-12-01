@@ -15,28 +15,41 @@
 
 import os
 
-TEST_ON_PROD = os.environ.get("SPANNERLIB_TEST_ON_PROD", False)
-EMULATOR_TEST_CONNECTION_STRING = (
-    "localhost:9010"
-    "/projects/test-project"
-    "/instances/test-instance"
-    "/databases/testdb"
-    "?autoConfigEmulator=true"
-)
+SPANNER_EMULATOR_HOST = os.environ.get("SPANNER_EMULATOR_HOST")
+TEST_ON_PROD = not bool(SPANNER_EMULATOR_HOST)
 
-PROJECT_ID = os.environ.get("SPANNER_PROJECT_ID", "NA")
-INSTANCE_ID = os.environ.get("SPANNER_INSTANCE_ID", "NA")
-DATABASE_ID = os.environ.get("SPANNER_DATABASE_ID", "NA")
+if TEST_ON_PROD:
+    PROJECT_ID = os.environ.get("SPANNER_PROJECT_ID")
+    INSTANCE_ID = os.environ.get("SPANNER_INSTANCE_ID")
+    DATABASE_ID = os.environ.get("SPANNER_DATABASE_ID")
+
+    if not PROJECT_ID or not INSTANCE_ID or not DATABASE_ID:
+        raise ValueError(
+            "SPANNER_PROJECT_ID, SPANNER_INSTANCE_ID, and SPANNER_DATABASE_ID "
+            "must be set when running tests on production."
+        )
+else:
+    PROJECT_ID = "test-project"
+    INSTANCE_ID = "test-instance"
+    DATABASE_ID = "test-db"
 
 PROD_TEST_CONNECTION_STRING = (
-    f"projects/{PROJECT_ID}/instances/{INSTANCE_ID}/databases/{DATABASE_ID}"
+    f"projects/{PROJECT_ID}"
+    f"/instances/{INSTANCE_ID}"
+    f"/databases/{DATABASE_ID}"
+)
+
+EMULATOR_TEST_CONNECTION_STRING = (
+    f"{SPANNER_EMULATOR_HOST}"
+    f"projects/{PROJECT_ID}"
+    f"/instances/{INSTANCE_ID}"
+    f"/databases/{DATABASE_ID}"
+    "?autoConfigEmulator=true"
 )
 
 
 def setup_test_env() -> None:
     if not TEST_ON_PROD:
-        # Set environment variable for Spanner Emulator
-        os.environ["SPANNER_EMULATOR_HOST"] = "localhost:9010"
         print(
             f"Set SPANNER_EMULATOR_HOST to {os.environ['SPANNER_EMULATOR_HOST']}"
         )
@@ -44,8 +57,13 @@ def setup_test_env() -> None:
 
 
 def get_test_connection_string() -> str:
-    return (
-        PROD_TEST_CONNECTION_STRING
-        if TEST_ON_PROD
-        else EMULATOR_TEST_CONNECTION_STRING
-    )
+    if TEST_ON_PROD:
+        return PROD_TEST_CONNECTION_STRING
+    else:
+        return (
+            f"{SPANNER_EMULATOR_HOST}"
+            f"/projects/{PROJECT_ID}"
+            f"/instances/{INSTANCE_ID}"
+            f"/databases/{DATABASE_ID}"
+            "?autoConfigEmulator=true"
+        )

@@ -100,10 +100,6 @@ class AbstractLibraryObject(ABC):
     def _dispose(self) -> None:
         """
         Internal disposal logic.
-
-        Args:
-            disposing: True if called via close()/Context Manager,
-            False if called via __del__ (finalizer).
         """
         if self._is_disposed:
             return
@@ -133,9 +129,6 @@ class AbstractLibraryObject(ABC):
     def __del__(self) -> None:
         """
         Finalizer that attempts to clean up resources if not explicitly closed.
-
-        Note: Relying on __del__ is discouraged in Python. Always prefer
-        using 'with' or 'async with' context managers.
         """
         if not self._is_disposed:
             warnings.warn(
