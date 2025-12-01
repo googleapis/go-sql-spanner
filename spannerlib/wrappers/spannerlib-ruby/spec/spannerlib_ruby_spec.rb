@@ -352,6 +352,36 @@ describe "Connection" do
     err = _ { @conn.execute_batch(batch_req) }.must_raise StandardError
     _(err.message).must_match(/Permission denied/)
   end
+
+  it "can execute a multi-statement query with multiple result sets" do
+    sql = "SELECT 1; SELECT 2"
+    set_mock_result("SELECT 1", StatementResult.create_select1_result)
+
+    set_mock_result(" SELECT 2", StatementResult.create_select1_result)
+
+    req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: sql)
+    rows = @conn.execute(req)
+
+    row1 = rows.next
+    _(row1).wont_be_nil
+    decoded1 = Google::Protobuf::ListValue.decode(row1)
+    _(decoded1.values[0].string_value).must_equal "1"
+
+    _(rows.next).must_be_nil
+
+    metadata = rows.next_result_set
+    _(metadata).wont_be_nil
+    _(metadata.row_type.fields[0].name).must_equal "Col1"
+
+    row2 = rows.next
+    _(row2).wont_be_nil
+    decoded2 = Google::Protobuf::ListValue.decode(row2)
+    _(decoded2.values[0].string_value).must_equal "1"
+
+    _(rows.next).must_be_nil
+
+    _(rows.next_result_set).must_be_nil
+  end
 end
 # rubocop:enable RSpec/NoExpectationExample
 # rubocop:enable Style/GlobalVars

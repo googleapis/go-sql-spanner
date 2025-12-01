@@ -48,15 +48,20 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
     @requests << request
     return unless @req_file_path
 
-    data = {
-      class: request.class.name,
-      payload: request.class.encode(request)
-    }
-    File.open(@req_file_path, "ab") do |f|
-      Marshal.dump(data, f)
+    # Guard clause: Ensure we only attempt to encode Protobuf objects.
+    return unless request.class.respond_to?(:encode)
+
+    begin
+      data = {
+        class: request.class.name,
+        payload: request.class.encode(request)
+      }
+      File.open(@req_file_path, "ab") do |f|
+        Marshal.dump(data, f)
+      end
+    rescue StandardError => e
+      warn "Failed to log request: #{e.message}"
     end
-  rescue StandardError => e
-    warn "Failed to log request: #{e.message}"
   end
 
   def put_statement_result(sql, result)
@@ -123,20 +128,38 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
 
     raise @errors[request.sql].pop if @errors[request.sql] && !@errors[request.sql].empty?
 
-    result = get_statement_result(request.sql).clone
+    results_or_single = get_statement_result(request.sql)
+    results = results_or_single.is_a?(Array) ? results_or_single : [results_or_single]
 
-    if result.result_type == StatementResult::EXCEPTION
-      err_proto = result.result
-      raise GRPC::BadStatus.new(err_proto.code, err_proto.message) if err_proto.is_a?(Google::Rpc::Status)
-
-      raise err_proto
-
-    end
-
+    # Handle streaming vs non-streaming response
+    # Streaming: return an enumerator that yields all result sets
     if streaming
-      result.each created_transaction
+      Enumerator.new do |yielder|
+        results.each do |entry|
+          result = entry.clone
+          if result.result_type == StatementResult::EXCEPTION
+            err_proto = result.result
+            raise GRPC::BadStatus.new(err_proto.code, err_proto.message) if err_proto.is_a?(Google::Rpc::Status)
+
+            raise err_proto
+          end
+
+          result.each(created_transaction) do |partial|
+            yielder << partial
+          end
+        end
+      end
     else
-      result.result created_transaction
+      # Non-streaming: only return the first result set
+      entry = results.first
+      result = entry.clone
+      if result.result_type == StatementResult::EXCEPTION
+        err_proto = result.result
+        raise GRPC::BadStatus.new(err_proto.code, err_proto.message) if err_proto.is_a?(Google::Rpc::Status)
+
+        raise err_proto
+      end
+      result.result(created_transaction)
     end
   end
 

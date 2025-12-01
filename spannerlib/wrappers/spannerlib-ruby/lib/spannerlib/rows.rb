@@ -14,6 +14,8 @@
 
 # frozen_string_literal: true
 
+require "google/spanner/v1/result_set_pb"
+
 module SpannerLib
   class Rows
     include Enumerable
@@ -41,20 +43,36 @@ module SpannerLib
 
       row_data = SpannerLib.next(connection.pool_id, connection.conn_id, id, 1, 0)
 
-      if row_data.nil? || row_data.empty? || (row_data.respond_to?(:values) && row_data.values.empty?)
-        close
-        return nil
-      end
+      return nil if row_data.nil? || row_data.empty? || (row_data.respond_to?(:values) && row_data.values.empty?)
 
       row_data
     end
 
+    def next_result_set
+      return nil if @closed
+
+      res = SpannerLib.next_result_set(connection.pool_id, connection.conn_id, id)
+
+      if res.nil? || (res.is_a?(String) && res.empty?)
+        close
+        return nil
+      end
+
+      Google::Cloud::Spanner::V1::ResultSetMetadata.decode(res)
+    end
+
     def metadata
-      SpannerLib.metadata(connection.pool_id, connection.conn_id, id)
+      raw = SpannerLib.metadata(connection.pool_id, connection.conn_id, id)
+      return nil if raw.nil? || raw.empty?
+
+      Google::Cloud::Spanner::V1::ResultSetMetadata.decode(raw)
     end
 
     def result_set_stats
-      SpannerLib.result_set_stats(connection.pool_id, connection.conn_id, id)
+      raw = SpannerLib.result_set_stats(connection.pool_id, connection.conn_id, id)
+      return nil if raw.nil? || raw.empty?
+
+      Google::Cloud::Spanner::V1::ResultSetStats.decode(raw)
     end
 
     def close
