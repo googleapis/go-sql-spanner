@@ -115,7 +115,7 @@ def unit(session):
         "--cov-append",
         "--cov-config=.coveragerc",
         "--cov-report=",
-        "--cov-fail-under=0",
+        "--cov-fail-under=80",
         *test_paths,
         env={},
     )
