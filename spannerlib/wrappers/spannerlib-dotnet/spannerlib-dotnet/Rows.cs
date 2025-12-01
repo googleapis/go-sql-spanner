@@ -96,7 +96,7 @@ public class Rows : AbstractLibObject
     /// <returns>The next data row or null if there are no more data</returns>
     public virtual async Task<ListValue?> NextAsync(CancellationToken cancellationToken = default)
     {
-        return await Spanner.NextAsync(this, 1, ISpannerLib.RowEncoding.Proto, cancellationToken);
+        return await Spanner.NextAsync(this, 1, ISpannerLib.RowEncoding.Proto, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -158,7 +158,7 @@ public class Rows : AbstractLibObject
         {
             return false;
         }
-        return NextResultSet(await Spanner.NextResultSetAsync(this, cancellationToken));
+        return NextResultSet(await Spanner.NextResultSetAsync(this, cancellationToken).ConfigureAwait(false));
     }
 
     private bool NextResultSet(ResultSetMetadata? metadata)
@@ -183,7 +183,7 @@ public class Rows : AbstractLibObject
 
     protected override async ValueTask CloseLibObjectAsync()
     {
-        await Spanner.CloseRowsAsync(this);
+        await Spanner.CloseRowsAsync(this).ConfigureAwait(false);
     }
     
 }
