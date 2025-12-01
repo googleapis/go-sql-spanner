@@ -16,6 +16,8 @@
 #   SKIP_WINDOWS: If set, will skip the windows/x64 build.
 
 # Fail execution if any command errors out
+set -e
+
 echo -e "Build Spannerlib Shared Lib"
 
 echo -e "RUNNER_OS DIR: $RUNNER_OS"
