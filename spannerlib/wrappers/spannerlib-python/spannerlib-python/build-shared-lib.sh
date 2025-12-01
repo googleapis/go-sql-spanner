@@ -39,7 +39,7 @@ elif [ "$RUNNER_OS" == "Linux" ]; then
 fi
 
 SHARED_LIB_DIR="../../../shared"
-TARGET_WRAPPER_DIR="../wrappers/spannerlib-python/spannerlib-python" 
+TARGET_WRAPPER_DIR="../wrappers/spannerlib-python/spannerlib-python"
 ARTIFACTS_DIR="spannerlib-artifacts"
 
 cd "$SHARED_LIB_DIR" || exit 1
