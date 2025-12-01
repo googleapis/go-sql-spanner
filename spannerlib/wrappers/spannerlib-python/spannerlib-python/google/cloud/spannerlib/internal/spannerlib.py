@@ -139,7 +139,7 @@ class SpannerLib:
                     ctypes.c_longlong,
                     GoSlice,
                 ]
-                lib.Execute.restype = Message
+                lib.ExecuteBatch.restype = Message
 
             # 8. Next
             # Corresponds to:
