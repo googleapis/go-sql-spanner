@@ -117,7 +117,7 @@ python3 -m build
 pip3 install twine
 twine check dist/*
 unzip -l dist/spannerlib-<version>-py3-none-any.whl
-tar -tvzf dist/spannerlib-<version>.tar.gz 
+tar -tvzf dist/spannerlib-<version>.tar.gz
 ``` 
 
 **Install locally**
