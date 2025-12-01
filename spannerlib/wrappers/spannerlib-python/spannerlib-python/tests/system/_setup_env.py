@@ -24,7 +24,7 @@ def setup_env():
 
     project_id = "test-project"
     instance_id = "test-instance"
-    database_id = "testdb"
+    database_id = "test-db"
 
     client = spanner.Client(project=project_id)
     instance = client.instance(instance_id)
