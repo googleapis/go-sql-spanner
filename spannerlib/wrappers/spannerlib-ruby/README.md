@@ -98,3 +98,29 @@ For overall project details, see the main [go-sql-spanner README](../../../READM
 
 **Reference:**  
 For examples of adding new functionality inside the FFI layer, see [PR #655](https://github.com/googleapis/go-sql-spanner/pull/655).
+
+## Building and Packaging the Ruby Gem
+
+Building native binaries for the Ruby wrapper (`spannerlib-ruby`) and publishing them as a Ruby gem is automated via GitHub Actions.
+
+### How it Works
+
+- Native shared libraries for Linux, macOS, and Windows are cross-compiled using GitHub-hosted runners and cross-compilers.
+- The binaries are packaged as part of the Ruby gem.
+- The process is defined in the [`release-ruby-wrapper.yml`](../../../.github/workflows/release-ruby-wrapper.yml) workflow file:
+  - Three main stages:
+    1. **Compilation:** Builds platform-specific binaries for Linux, macOS, and Windows.
+    2. **Artifact Upload:** Compiled binaries are uploaded for later packaging.
+    3. **Gem Packaging and Publishing:** The gem is built from source and published to RubyGems automatically if the workflow is manually dispatched.
+
+Please see the [GitHub Actions workflow file](../../../.github/workflows/release-ruby-wrapper.yml) for full implementation details.
+
+---
+
+**Note:** If you want to manually build the gem locally for testing, you can run the following from within `spannerlib/wrappers/spannerlib-ruby`:
+
+```sh
+gem build spannerlib-ruby.gemspec
+```
+
+For publishing, refer to [RubyGems guides](https://guides.rubygems.org/publishing/) or use the automated workflow.
