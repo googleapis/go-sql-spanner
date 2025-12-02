@@ -154,7 +154,7 @@ class Message(ctypes.Structure):
             logger.exception("Unexpected error during release: %s", e)
             # We do not re-raise here to ensure __exit__ completes cleanly
 
-    def __del__(self) -> None:
+    def __del__(self, _warnings=warnings) -> None:
         """Finalizer: The Safety Net.
 
         Checks if the resource was leaked. If so, issues a ResourceWarning
