@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Protocol defining the expected interface for the Spanner library dependency."""
+"""Protocol defining the expected interface for the Spanner library."""
 from typing import Protocol, runtime_checkable
 
 from .message import Message

@@ -254,7 +254,8 @@ class TestSpannerlib:
         args, _ = mock_lib_instance.Execute.call_args
         assert args[0].value == 123
         assert args[1].value == 456
-        # However, we can check the type if we mocked GoSlice properly or check argtypes.
+        # However, we can check the type if we mocked GoSlice properly
+        # or check argtypes.
         assert mock_lib_instance.Execute.argtypes[2] is type(args[2])
 
         # Verify Library Binding

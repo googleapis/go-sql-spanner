@@ -102,7 +102,8 @@ class TestGoSlice:
         assert hasattr(go_slice, "_keep_alive_ref")
 
         # Ensure it holds the correct encoded bytes
-        # create_string_buffer returns an object that has a .value attribute with the bytes
+        # create_string_buffer returns an object that has a .value attribute
+        # with the bytes
         assert getattr(go_slice, "_keep_alive_ref").value == s.encode("utf-8")
 
     def test_from_bytes_basic(self) -> None:
@@ -115,7 +116,8 @@ class TestGoSlice:
         assert go_slice.data is not None
 
     def test_from_bytes_memory_safety(self) -> None:
-        """White-box test to ensure the keep-alive reference is attached for bytes."""
+        """White-box test to ensure the keep-alive reference is attached
+        for bytes."""
         b = b"Ephemeral Bytes"
         go_slice = GoSlice.from_bytes(b)
 
