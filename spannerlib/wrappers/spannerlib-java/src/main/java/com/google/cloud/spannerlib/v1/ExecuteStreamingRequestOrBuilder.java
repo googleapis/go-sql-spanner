@@ -6,8 +6,8 @@
 package com.google.cloud.spannerlib.v1;
 
 @com.google.protobuf.Generated
-public interface ExecuteRequestOrBuilder extends
-    // @@protoc_insertion_point(interface_extends:google.spannerlib.v1.ExecuteRequest)
+public interface ExecuteStreamingRequestOrBuilder extends
+    // @@protoc_insertion_point(interface_extends:google.spannerlib.v1.ExecuteStreamingRequest)
     com.google.protobuf.MessageOrBuilder {
 
   /**
@@ -39,19 +39,4 @@ public interface ExecuteRequestOrBuilder extends
    * <code>.google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   com.google.spanner.v1.ExecuteSqlRequestOrBuilder getExecuteSqlRequestOrBuilder();
-
-  /**
-   * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
-   * @return Whether the fetchOptions field is set.
-   */
-  boolean hasFetchOptions();
-  /**
-   * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
-   * @return The fetchOptions.
-   */
-  com.google.cloud.spannerlib.v1.FetchOptions getFetchOptions();
-  /**
-   * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
-   */
-  com.google.cloud.spannerlib.v1.FetchOptionsOrBuilder getFetchOptionsOrBuilder();
 }

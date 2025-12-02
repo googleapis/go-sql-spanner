@@ -132,7 +132,6 @@ public class BasicTests : AbstractMockServerTests
     }
 
     [Test]
-    [Ignore("execute async disabled for now")]
     public async Task TestExecuteQueryAsync([Values] LibType libType)
     {
         using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);

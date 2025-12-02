@@ -5,6 +5,7 @@ package google.spannerlib.v1;
 import "google/api/field_behavior.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/struct.proto";
+import "google/rpc/status.proto";
 import "google/spanner/v1/result_set.proto";
 import "google/spanner/v1/spanner.proto";
 import "google/spanner/v1/transaction.proto";
@@ -42,6 +43,7 @@ service SpannerLib {
   rpc WriteMutations(WriteMutationsRequest) returns (google.spanner.v1.CommitResponse) {}
 
   rpc ConnectionStream(stream ConnectionStreamRequest) returns (stream ConnectionStreamResponse) {}
+  rpc ContinueStreaming(Rows) returns (stream RowData) {}
 }
 
 message InfoRequest {
@@ -70,6 +72,7 @@ message ExecuteRequest {
   google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [
     (google.api.field_behavior) = REQUIRED
   ];
+  FetchOptions fetch_options = 3;
 }
 
 message ExecuteBatchRequest {
@@ -127,24 +130,31 @@ message NextRequest {
   Rows rows = 1 [
     (google.api.field_behavior) = REQUIRED
   ];
-  int64 num_rows = 2 [
+  FetchOptions fetch_options = 2 [
     (google.api.field_behavior) = REQUIRED
   ];
-  int64 encoding = 3 [
+}
+
+message FetchOptions {
+  int64 num_rows = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  int64 encoding = 2 [
     (google.api.field_behavior) = REQUIRED
   ];
 }
 
 message RowData {
-  Rows rows = 1 [
+  string request_id = 1;
+  Rows rows = 2 [
     (google.api.field_behavior) = REQUIRED
   ];
-  google.spanner.v1.ResultSetMetadata metadata = 2;
-  repeated google.protobuf.ListValue data = 3 [
+  google.spanner.v1.ResultSetMetadata metadata = 3;
+  repeated google.protobuf.ListValue data = 4 [
     (google.api.field_behavior) = REQUIRED
   ];
-  google.spanner.v1.ResultSetStats stats = 4;
-  bool has_more_results = 5;
+  google.spanner.v1.ResultSetStats stats = 5;
+  bool has_more_results = 6;
 }
 
 message MetadataRequest {
@@ -162,11 +172,31 @@ message ResultSetStatsRequest {
 message ConnectionStreamRequest {
   oneof request {
     ExecuteRequest execute_request = 1;
+    ExecuteBatchRequest execute_batch_request = 2;
+    BeginTransactionRequest begin_transaction_request = 3;
+    Connection commit_request = 4;
+    Connection rollback_request = 5;
+    WriteMutationsRequest write_mutations_request = 6;
   }
 }
 
+message ExecuteResponse {
+  Rows rows = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  repeated google.spanner.v1.ResultSet result_sets = 2;
+  google.rpc.Status status = 3;
+  bool has_more_results = 4;
+}
+
 message ConnectionStreamResponse {
+  google.rpc.Status status = 1;
   oneof response {
-    google.spanner.v1.PartialResultSet row = 1;
+    ExecuteResponse execute_response = 2;
+    google.spanner.v1.ExecuteBatchDmlResponse execute_batch_response = 3;
+    google.protobuf.Empty begin_transaction_response = 4;
+    google.spanner.v1.CommitResponse commit_response = 5;
+    google.protobuf.Empty rollback_response = 6;
+    google.spanner.v1.CommitResponse write_mutations_response = 7;
   }
 }

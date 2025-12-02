@@ -9,7 +9,7 @@
     <PackageId>Alpha.Google.Cloud.Spanner.DataProvider</PackageId>
     <Title>.NET Data Provider for Spanner</Title>
     <Authors>Google</Authors>
-    <Version>1.0.0-alpha.20251003170157</Version>
+    <Version>1.0.0-alpha.20251207191847</Version>
     <Description>ADO.NET Data Provider.
 
 Alpha version: Not for production use</Description>
@@ -19,7 +19,19 @@ Alpha version: Not for production use</Description>
   </PropertyGroup>
   
   <ItemGroup>
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib" Version="1.0.0-alpha.20251207191144" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.Grpc.V1" Version="1.0.0-alpha.20251207191144" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.GrpcImpl" Version="1.0.0-alpha.20251207191144" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.NativeImpl" Version="1.0.0-alpha.20251207191144" />
+    <PackageReference Include="ConfigureAwaitChecker.Analyzer" Version="5.0.0.1">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+  
+  <ItemGroup>
     <ProjectReference Include="..\..\..\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-grpc-impl\spannerlib-dotnet-grpc-impl.csproj" />
+    <ProjectReference Include="..\..\..\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-grpc-v1\spannerlib-dotnet-grpc-v1.csproj" />
     <ProjectReference Include="..\..\..\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-native-impl\spannerlib-dotnet-native-impl.csproj" />
     <ProjectReference Include="..\..\..\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet\spannerlib-dotnet.csproj" />
   </ItemGroup>

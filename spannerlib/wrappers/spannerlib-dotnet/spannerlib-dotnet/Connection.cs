@@ -44,6 +44,23 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     }
 
     /// <summary>
+    /// Begins a new transaction on this connection. A connection can have at most one active transaction at any time.
+    /// Calling this method does not immediately start the transaction on Spanner. Instead, the transaction is only
+    /// registered on the connection, and the BeginTransaction option will be inlined with the first statement in the
+    /// transaction.
+    /// </summary>
+    /// <param name="transactionOptions">
+    /// The transaction options that will be used to create the transaction. The default is a read/write transaction.
+    /// Explicitly set the ReadOnly transaction option to start a read-only transaction.
+    /// </param>
+    /// <param name="cancellationToken">The cancellation token</param>
+    public Task BeginTransactionAsync(TransactionOptions transactionOptions,
+        CancellationToken cancellationToken = default)
+    {
+        return Spanner.BeginTransactionAsync(this, transactionOptions, cancellationToken);
+    }
+
+    /// <summary>
     /// Commits the current transaction on this connection and returns the CommitResponse (if any). Both read/write and
     /// read-only transactions must be either committed or rolled back. Committing or rolling back a read-only
     /// transaction is a no-op on Spanner, and this method does not return a CommitResponse when a read-only transaction
@@ -112,10 +129,11 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     /// connection. The contents of the returned Rows object depends on the type of SQL statement.
     /// </summary>
     /// <param name="statement">The SQL statement that should be executed</param>
+    /// <param name="prefetchRows">The number of rows to prefetch and include in the initial result</param>
     /// <returns>A Rows object with the statement result</returns>
-    public Rows Execute(ExecuteSqlRequest statement)
+    public Rows Execute(ExecuteSqlRequest statement, int prefetchRows = 0)
     {
-        return Spanner.Execute(this, statement);
+        return Spanner.Execute(this, statement, prefetchRows);
     }
 
     /// <summary>
@@ -123,11 +141,12 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     /// connection. The contents of the returned Rows object depends on the type of SQL statement.
     /// </summary>
     /// <param name="statement">The SQL statement that should be executed</param>
+    /// <param name="prefetchRows">The number of rows to prefetch and include in the initial result</param>
     /// <param name="cancellationToken">The cancellation token</param>
     /// <returns>A Rows object with the statement result</returns>
-    public Task<Rows> ExecuteAsync(ExecuteSqlRequest statement, CancellationToken cancellationToken = default)
+    public Task<Rows> ExecuteAsync(ExecuteSqlRequest statement, int prefetchRows = 0, CancellationToken cancellationToken = default)
     {
-        return Spanner.ExecuteAsync(this, statement, cancellationToken);
+        return Spanner.ExecuteAsync(this, statement, prefetchRows, cancellationToken);
     }
 
     /// <summary>

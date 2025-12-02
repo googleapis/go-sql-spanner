@@ -17,6 +17,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection.Metadata.Ecma335;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Api.Gax;
@@ -31,8 +32,6 @@ namespace Google.Cloud.Spanner.DataProvider;
 
 public class SpannerConnection : DbConnection
 {
-    public bool UseSharedLibrary { get; set; }
-    
     private string _connectionString = string.Empty;
     
     private SpannerConnectionStringBuilder? _connectionStringBuilder;
@@ -166,18 +165,10 @@ public class SpannerConnection : DbConnection
         {
             return ValueTask.FromCanceled<SpannerTransaction>(cancellationToken);
         }
-
-        try
+        return BeginTransactionAsync(new TransactionOptions
         {
-            return new ValueTask<SpannerTransaction>(BeginTransaction(new TransactionOptions
-            {
-                IsolationLevel = SpannerTransaction.TranslateIsolationLevel(isolationLevel),
-            }));
-        }
-        catch (Exception e)
-        {
-            return ValueTask.FromException<SpannerTransaction>(e);
-        }
+            IsolationLevel = SpannerTransaction.TranslateIsolationLevel(isolationLevel),
+        }, cancellationToken);
     }
     
     public new SpannerTransaction BeginTransaction() => BeginTransaction(IsolationLevel.Unspecified);
@@ -198,6 +189,14 @@ public class SpannerConnection : DbConnection
         });
     }
 
+    protected override ValueTask<DbTransaction> BeginDbTransactionAsync(IsolationLevel isolationLevel, CancellationToken cancellationToken)
+    {
+        return BeginDbTransactionAsync(new TransactionOptions
+        {
+            IsolationLevel = SpannerTransaction.TranslateIsolationLevel(isolationLevel),
+        }, cancellationToken);
+    }
+    
     /// <summary>
     /// Starts a new read-only transaction with default options.
     /// </summary>
@@ -235,7 +234,30 @@ public class SpannerConnection : DbConnection
     {
         EnsureOpen();
         GaxPreconditions.CheckState(!HasTransaction, "This connection has a transaction.");
-        _transaction = new SpannerTransaction(this, LibConnection, transactionOptions);
+        _transaction = SpannerTransaction.CreateTransaction(this, LibConnection, transactionOptions);
+        return _transaction;
+    }
+
+    /// <summary>
+    /// Start a new transaction using the given TransactionOptions.
+    /// </summary>
+    /// <param name="transactionOptions">The options to use for the new transaction</param>
+    /// <param name="cancellationToken">The cancellation token</param>
+    /// <returns>The new transaction</returns>
+    /// <exception cref="InvalidOperationException">If the connection has an active transaction</exception>
+    private async ValueTask<SpannerTransaction> BeginTransactionAsync(TransactionOptions transactionOptions, CancellationToken cancellationToken)
+    {
+        EnsureOpen();
+        GaxPreconditions.CheckState(!HasTransaction, "This connection has a transaction.");
+        _transaction = await SpannerTransaction.CreateTransactionAsync(this, LibConnection, transactionOptions, cancellationToken).ConfigureAwait(false);
+        return _transaction;
+    }
+    
+    private async ValueTask<DbTransaction> BeginDbTransactionAsync(TransactionOptions transactionOptions, CancellationToken cancellationToken)
+    {
+        EnsureOpen();
+        GaxPreconditions.CheckState(!HasTransaction, "This connection has a transaction.");
+        _transaction = await SpannerTransaction.CreateTransactionAsync(this, LibConnection, transactionOptions, cancellationToken).ConfigureAwait(false);
         return _transaction;
     }
 
@@ -387,18 +409,18 @@ public class SpannerConnection : DbConnection
         return cmd;
     }
     
-    public Rows Execute(ExecuteSqlRequest statement)
+    public Rows Execute(ExecuteSqlRequest statement, int prefetchRows = 0)
     {
         EnsureOpen();
         _transaction?.MarkUsed();
-        return TranslateException(() => LibConnection.Execute(statement));
+        return TranslateException(() => LibConnection.Execute(statement, prefetchRows));
     }
     
-    public Task<Rows> ExecuteAsync(ExecuteSqlRequest statement, CancellationToken cancellationToken = default)
+    public Task<Rows> ExecuteAsync(ExecuteSqlRequest statement, int prefetchRows = 0, CancellationToken cancellationToken = default)
     {
         EnsureOpen();
         _transaction?.MarkUsed();
-        return TranslateException(LibConnection.ExecuteAsync(statement, cancellationToken));
+        return TranslateException(LibConnection.ExecuteAsync(statement, prefetchRows, cancellationToken));
     }
     
     public new SpannerBatch CreateBatch() => (SpannerBatch) base.CreateBatch();

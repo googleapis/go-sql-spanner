@@ -13,6 +13,7 @@
 // limitations under the License.
 
 using System.Data;
+using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib.MockServer;
@@ -485,23 +486,83 @@ public class TransactionTests : AbstractMockServerTests
     }
 
     [Test]
-    [TestCase(IsolationLevel.RepeatableRead,  TransactionOptions.Types.IsolationLevel.RepeatableRead)]
-    [TestCase(IsolationLevel.Serializable,    TransactionOptions.Types.IsolationLevel.Serializable)]
-    [TestCase(IsolationLevel.Snapshot,        TransactionOptions.Types.IsolationLevel.RepeatableRead)]
-    [TestCase(IsolationLevel.Unspecified,     TransactionOptions.Types.IsolationLevel.Unspecified)]
+    public async Task DbConnectionIsolationLevel()
+    {
+        const string insertSql = "INSERT INTO my_table (name) VALUES ('X')";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(insertSql, StatementResult.CreateUpdateCount(1L));
+        const string selectSql = "select value from my_table where id=@id";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(selectSql, StatementResult.CreateSingleColumnResultSet(new V1.Type{Code = V1.TypeCode.String}, "value", "One"));
+        
+        var cancellationToken = CancellationToken.None;
+        await using var conn = await OpenConnectionAsync();
+        DbConnection dbConn = conn;
+        await using var transaction = await dbConn.BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken);
+        await using var cmd = dbConn.CreateCommand();
+        cmd.CommandText = "set local transaction_tag = 'spanner-lib'";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+        
+        await using var selectCommand = dbConn.CreateCommand();
+        selectCommand.CommandText = selectSql;
+        selectCommand.Transaction = transaction;
+        await using var reader = await selectCommand.ExecuteReaderAsync(cancellationToken);
+        var foundRows = 0;
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            foundRows++;
+        }
+        if (foundRows != 1)
+        {
+            throw new InvalidOperationException("Unexpected found rows: " + foundRows);
+        }
+
+        await using var updateCommand = dbConn.CreateCommand();
+        updateCommand.CommandText = insertSql;
+        updateCommand.Transaction = transaction;
+        var updated = await updateCommand.ExecuteNonQueryAsync(cancellationToken);
+        if (updated != 1)
+        {
+            throw new InvalidOperationException("Unexpected affected rows: " + updated);
+        }
+        await transaction.CommitAsync(cancellationToken);
+
+        var requests = Fixture.SpannerMock.Requests;
+        Console.WriteLine(requests);
+        var request = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().First();
+        Assert.That(request.Transaction.Begin.IsolationLevel, Is.EqualTo(TransactionOptions.Types.IsolationLevel.RepeatableRead));
+    }
+
+    [Test]
+    [TestCase(IsolationLevel.RepeatableRead,  TransactionOptions.Types.IsolationLevel.RepeatableRead, false)]
+    [TestCase(IsolationLevel.Serializable,    TransactionOptions.Types.IsolationLevel.Serializable, false)]
+    [TestCase(IsolationLevel.Snapshot,        TransactionOptions.Types.IsolationLevel.RepeatableRead, false)]
+    [TestCase(IsolationLevel.Unspecified,     TransactionOptions.Types.IsolationLevel.Unspecified, false)]
+    [TestCase(IsolationLevel.RepeatableRead,  TransactionOptions.Types.IsolationLevel.RepeatableRead, true)]
+    [TestCase(IsolationLevel.Serializable,    TransactionOptions.Types.IsolationLevel.Serializable, true)]
+    [TestCase(IsolationLevel.Snapshot,        TransactionOptions.Types.IsolationLevel.RepeatableRead, true)]
+    [TestCase(IsolationLevel.Unspecified,     TransactionOptions.Types.IsolationLevel.Unspecified, true)]
     [SuppressMessage("ReSharper", "MethodHasAsyncOverload")]
-    public async Task SupportedIsolationLevels(IsolationLevel level, TransactionOptions.Types.IsolationLevel expectedSpannerLevel)
+    public async Task SupportedIsolationLevels(IsolationLevel level, TransactionOptions.Types.IsolationLevel expectedSpannerLevel, bool async)
     {
         const string insertSql = "INSERT INTO my_table (name) VALUES ('X')";
         Fixture.SpannerMock.AddOrUpdateStatementResult(insertSql, StatementResult.CreateUpdateCount(1L));
         
         await using var conn = await OpenConnectionAsync();
-        var tx = conn.BeginTransaction(level);
+        var tx = async ? await conn.BeginTransactionAsync(level) : conn.BeginTransaction(level);
+        var cmd = conn.CreateCommand("set local transaction_tag='test'");
+        cmd.Transaction = tx;
+        await cmd.ExecuteNonQueryAsync();
         await conn.ExecuteNonQueryAsync(insertSql, tx: tx);
         
         // TODO: Add support for this to the shared lib.
         // Assert.That(conn.ExecuteScalar("SHOW TRANSACTION ISOLATION LEVEL"), Is.EqualTo(expectedSpannerLevel.ToString()));
-        await tx.CommitAsync();
+        if (async)
+        {
+            await tx.CommitAsync();
+        }
+        else
+        {
+            tx.Commit();
+        }
         
         var request = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().First();
         Assert.That(request.Transaction.Begin.IsolationLevel, Is.EqualTo(expectedSpannerLevel));

@@ -60,13 +60,30 @@ public class SpannerTransaction : DbTransaction
         
     private bool _disposed;
 
-    internal SpannerTransaction(SpannerConnection connection, SpannerLib.Connection libConnection, TransactionOptions options)
+    internal static SpannerTransaction CreateTransaction(
+        SpannerConnection connection, SpannerLib.Connection libConnection, TransactionOptions options)
+    {
+        // This call to BeginTransaction does not trigger an RPC. It only registers the transaction on the connection.
+        libConnection.BeginTransaction(options);
+        return new SpannerTransaction(connection, libConnection, options);
+    }
+
+    internal static async ValueTask<SpannerTransaction> CreateTransactionAsync(
+        SpannerConnection connection,
+        SpannerLib.Connection libConnection,
+        TransactionOptions options,
+        CancellationToken cancellationToken)
+    {
+        // This call to BeginTransaction does not trigger an RPC. It only registers the transaction on the connection.
+        await libConnection.BeginTransactionAsync(options,  cancellationToken).ConfigureAwait(false);
+        return new SpannerTransaction(connection, libConnection, options);
+    }
+
+    private SpannerTransaction(SpannerConnection connection, SpannerLib.Connection libConnection, TransactionOptions options)
     {
         _spannerConnection = connection;
         IsolationLevel = TranslateIsolationLevel(options.IsolationLevel);
         LibConnection = libConnection;
-        // This call to BeginTransaction does not trigger an RPC. It only registers the transaction on the connection.
-        LibConnection.BeginTransaction(options);
     }
 
     internal static TransactionOptions.Types.IsolationLevel TranslateIsolationLevel(IsolationLevel isolationLevel)
@@ -109,21 +126,19 @@ public class SpannerTransaction : DbTransaction
         if (!IsCompleted)
         {
             // Do a shoot-and-forget rollback.
-            RollbackAsync(CancellationToken.None);
+            Rollback();
         }
         _disposed = true;
-        base.Dispose(disposing);
     }
 
-    public override ValueTask DisposeAsync()
+    public override async ValueTask DisposeAsync()
     {
         if (!IsCompleted)
         {
             // Do a shoot-and-forget rollback.
-            RollbackAsync(CancellationToken.None);
+            await RollbackAsync(CancellationToken.None).ConfigureAwait(false);
         }
         _disposed = true;
-        return base.DisposeAsync();
     }
 
     private void CheckDisposed()

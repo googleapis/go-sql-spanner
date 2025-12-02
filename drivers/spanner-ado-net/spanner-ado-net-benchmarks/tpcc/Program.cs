@@ -1,23 +1,58 @@
 ﻿using System.Collections.Concurrent;
 using System.Data.Common;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using Google.Api;
+using Google.Api.Gax.ResourceNames;
+using Google.Cloud.Monitoring.V3;
 using Google.Cloud.Spanner.Admin.Database.V1;
+using Google.Cloud.Spanner.Common.V1;
 using Google.Cloud.Spanner.DataProvider.Benchmarks.tpcc.loader;
+using Google.Cloud.SpannerLib.Grpc;
 using Microsoft.AspNetCore.Builder;
+using Enum = System.Enum;
 
 namespace Google.Cloud.Spanner.DataProvider.Benchmarks.tpcc;
 
 public static class Program
 {
-    enum ClientType
+    public enum ClientType
     {
         SpannerLib,
+        BidiSpannerLib,
+        SpannerLibNoRetries,
         NativeSpannerLib,
         ClientLib,
+    }
+
+    public enum BenchmarkType
+    {
+        Tpcc,
+        PointQuery,
+        LargeQuery,
+        Scalar,
+        PointDml,
+        ReadWriteTx,
+    }
+
+    public enum OperationType
+    {
+        PointQuery,
+        LargeQuery,
+        Scalar,
+        PointDml,
+        ReadWriteTx,
+        NewOrder,
+        Payment,
+        OrderStatus,
+        Delivery,
+        StockLevel,
     }
     
     public static async Task Main(string[] args)
     {
+        Console.WriteLine($"Runtime: {RuntimeInformation.RuntimeIdentifier}");
+        
         var cancellationTokenSource = new CancellationTokenSource();
         var builder = WebApplication.CreateBuilder(args);
         var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
@@ -26,17 +61,75 @@ public static class Program
         app.MapGet("/", () => { });
         var webapp = app.RunAsync(url);
 
-        var logWaitTime = int.Parse(Environment.GetEnvironmentVariable("LOG_WAIT_TIME") ?? "10");
+        var exportStats = bool.Parse(Environment.GetEnvironmentVariable("EXPORT_STATS") ?? "true");
+        var logWaitTime = int.Parse(Environment.GetEnvironmentVariable("LOG_WAIT_TIME") ?? "60");
         var database = Environment.GetEnvironmentVariable("DATABASE") ?? "projects/appdev-soda-spanner-staging/instances/knut-test-ycsb/databases/dotnet-tpcc";
         var retryAbortsInternally = bool.Parse(Environment.GetEnvironmentVariable("RETRY_ABORTS_INTERNALLY") ?? "true");
         var numWarehouses = int.Parse(Environment.GetEnvironmentVariable("NUM_WAREHOUSES") ?? "10");
         var numClients = int.Parse(Environment.GetEnvironmentVariable("NUM_CLIENTS") ?? "10");
         var targetTps = int.Parse(Environment.GetEnvironmentVariable("TRANSACTIONS_PER_SECOND") ?? "0");
-        var clientTypeName = Environment.GetEnvironmentVariable("CLIENT_TYPE") ?? "SpannerLib";
+        var clientTypeName = Environment.GetEnvironmentVariable("CLIENT_TYPE") ?? "BidiSpannerLib";
+        var useSharedLib = bool.Parse(Environment.GetEnvironmentVariable("SPANNER_ADO_USE_NATIVE_LIB") ?? "false");
+        var directPath = bool.Parse(Environment.GetEnvironmentVariable("GOOGLE_SPANNER_ENABLE_DIRECT_ACCESS") ?? "false");
+        var communicationStyle = Enum.Parse<GrpcLibSpanner.CommunicationStyle>(Environment.GetEnvironmentVariable("SPANNER_ADO_COMMUNICATION_STYLE") ?? nameof(GrpcLibSpanner.CommunicationStyle.BidiStreaming));
+        var transactionTypeName = Environment.GetEnvironmentVariable("TRANSACTION_TYPE") ?? "Tpcc";
         if (!Enum.TryParse(clientTypeName, out ClientType clientType))
         {
             throw new ArgumentException($"Unknown client type: {clientTypeName}");
         }
+        if (useSharedLib && clientType != ClientType.NativeSpannerLib)
+        {
+            throw new ArgumentException("Invalid combination of clientType and useSharedLib");
+        }
+        if (!Enum.TryParse(transactionTypeName, out BenchmarkType transactionType))
+        {
+            throw new ArgumentException($"Unknown transaction type: {transactionTypeName}");
+        }
+
+        var databaseName = DatabaseName.Parse(database);
+        var projectName = ProjectName.FromProject(databaseName.ProjectId);
+        var metricsClient = await MetricServiceClient.CreateAsync(cancellationTokenSource.Token);
+        var numTransactionsDescriptor = await metricsClient.CreateMetricDescriptorAsync(new CreateMetricDescriptorRequest
+        {
+            ProjectName = projectName,
+            MetricDescriptor = new MetricDescriptor
+            {
+                Name = "spanner-ado-net-tpcc-tps",
+                DisplayName = "Spanner ADO.NET TPCC Number of Transactions",
+                Description = "Spanner ADO.NET TPCC Number of Transactions",
+                LaunchStage = LaunchStage.Alpha,
+                MetricKind = MetricDescriptor.Types.MetricKind.Cumulative,
+                ValueType = MetricDescriptor.Types.ValueType.Int64,
+                Type = "custom.googleapis.com/spanner-ado-net-tpcc/num_transactions",
+                Labels = { 
+                    new LabelDescriptor { Key = "num_clients" , Description = "Number of clients", ValueType = LabelDescriptor.Types.ValueType.Int64 },
+                    new LabelDescriptor { Key = "client_type" , Description = "Client type", ValueType = LabelDescriptor.Types.ValueType.String },
+                }
+            },
+        });
+        // await metricsClient.DeleteMetricDescriptorAsync(new DeleteMetricDescriptorRequest
+        // {
+        //     MetricDescriptorName = MetricDescriptorName.FromProjectMetricDescriptor("appdev-soda-spanner-staging", "custom.googleapis.com/spanner-ado-net-tpcc/operation_latency"),
+        // });
+        var operationLatencyDescriptor = await metricsClient.CreateMetricDescriptorAsync(new CreateMetricDescriptorRequest
+        {
+            ProjectName = projectName,
+            MetricDescriptor = new MetricDescriptor
+            {
+                Name = "spanner-ado-net-operation-latency",
+                DisplayName = "Spanner ADO.NET Operation Latency",
+                Description = "Spanner ADO.NET Operation Latency",
+                LaunchStage = LaunchStage.Alpha,
+                MetricKind = MetricDescriptor.Types.MetricKind.Gauge,
+                ValueType = MetricDescriptor.Types.ValueType.Distribution,
+                Type = "custom.googleapis.com/spanner-ado-net-tpcc/operation_latency",
+                Labels = { 
+                    new LabelDescriptor { Key = "num_clients" , Description = "Number of clients", ValueType = LabelDescriptor.Types.ValueType.Int64 },
+                    new LabelDescriptor { Key = "client_type" , Description = "Client type", ValueType = LabelDescriptor.Types.ValueType.String },
+                    new LabelDescriptor { Key = "operation_type" , Description = "Operation type", ValueType = LabelDescriptor.Types.ValueType.String },
+                }
+            },
+        });
 
         var connectionString = $"Data Source={database}";
         if (!retryAbortsInternally)
@@ -56,19 +149,22 @@ public static class Program
             await loader.LoadAsync(cancellationTokenSource.Token);
         }
 
-        Console.WriteLine("Running benchmark...");
-        var stats = new Stats();
+        Console.WriteLine($"Running benchmark {transactionType}...");
+        Console.WriteLine($"Client type: {clientType}");
+        Console.WriteLine($"Num clients: {numClients}");
+        Console.WriteLine($"Exporting stats: {exportStats}");
+        var stats = new Stats(exportStats, projectName, metricsClient, numTransactionsDescriptor, operationLatencyDescriptor, numClients, clientType, directPath);
 
-        if (targetTps > 0)
+        if (targetTps > 0 && transactionType == BenchmarkType.Tpcc)
         {
             var maxWaitTime = 2 * 1000 / targetTps;
             Console.WriteLine($"Clients: {numClients}");
             Console.WriteLine($"Transactions per second: {targetTps}");
             Console.WriteLine($"Max wait time: {maxWaitTime}");
-            var runners = new BlockingCollection<TpccRunner?>();
+            var runners = new BlockingCollection<AbstractRunner?>();
             for (var client = 0; client < numClients; client++)
             {
-                runners.Add(await CreateRunnerAsync(clientType, connectionString, stats, numWarehouses, cancellationTokenSource), cancellationTokenSource.Token);
+                runners.Add(await CreateRunnerAsync(clientType, transactionType, connectionString, stats, numWarehouses, cancellationTokenSource), cancellationTokenSource.Token);
             }
             var lastLogTime = DateTime.UtcNow;
             while (!cancellationTokenSource.IsCancellationRequested)
@@ -103,6 +199,7 @@ public static class Program
                     Console.WriteLine($"Num available runners: {runners.Count}");
                     Console.WriteLine($"Thread pool size: {ThreadPool.ThreadCount}");
                     stats.LogStats();
+                    await stats.ExportMetrics();
                     lastLogTime = DateTime.UtcNow;
                 }
             }
@@ -112,13 +209,14 @@ public static class Program
             var tasks = new List<Task>();
             for (var client = 0; client < numClients; client++)
             {
-                var runner = await CreateRunnerAsync(clientType, connectionString, stats, numWarehouses, cancellationTokenSource);
+                var runner = await CreateRunnerAsync(clientType, transactionType, connectionString, stats, numWarehouses, cancellationTokenSource);
                 tasks.Add(runner.RunAsync(cancellationTokenSource.Token));
             }
             while (!cancellationTokenSource.Token.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromSeconds(logWaitTime), cancellationTokenSource.Token);
                 stats.LogStats();
+                await stats.ExportMetrics();
             }
             await Task.WhenAll(tasks);
         }
@@ -127,32 +225,29 @@ public static class Program
         await webapp;
     }
 
-    private static async Task<TpccRunner> CreateRunnerAsync(
+    private static async Task<AbstractRunner> CreateRunnerAsync(
         ClientType clientType,
+        BenchmarkType benchmarkType,
         string connectionString,
         Stats stats,
         int numWarehouses,
         CancellationTokenSource cancellationTokenSource)
     {
         DbConnection connection;
-        if (clientType == ClientType.SpannerLib)
-        {
-            connection = new SpannerConnection();
-        }
-        else if (clientType == ClientType.NativeSpannerLib)
-        {
-            connection = new SpannerConnection {UseNativeLibrary = true};
-        }
-        else if (clientType == ClientType.ClientLib)
+        if (clientType == ClientType.ClientLib)
         {
             connection = new Google.Cloud.Spanner.Data.SpannerConnection();
         }
         else
         {
-            throw new ArgumentException($"Unknown client type: {clientType}");
+            connection = new SpannerConnection();
         }
         connection.ConnectionString = connectionString;
         await connection.OpenAsync(cancellationTokenSource.Token);
-        return new TpccRunner(stats, connection, numWarehouses);
+        if (benchmarkType == BenchmarkType.Tpcc)
+        {
+            return new TpccRunner(stats, connection, numWarehouses);
+        }
+        return new BasicsRunner(stats, connection, benchmarkType, numWarehouses);
     }
 }

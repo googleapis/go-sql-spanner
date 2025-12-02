@@ -10,6 +10,7 @@
     <IsTestProject>true</IsTestProject>
     <AssemblyName>Google.Cloud.Spanner.DataProvider.SpecificationTests</AssemblyName>
     <LangVersion>default</LangVersion>
+    <RollForward>LatestMajor</RollForward>
   </PropertyGroup>
 
   <ItemGroup>

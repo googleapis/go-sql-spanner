@@ -43,13 +43,19 @@ private static final long serialVersionUID = 0L;
             com.google.cloud.spannerlib.v1.ConnectionStreamResponse.class, com.google.cloud.spannerlib.v1.ConnectionStreamResponse.Builder.class);
   }
 
+  private int bitField0_;
   private int responseCase_ = 0;
   @SuppressWarnings("serial")
   private java.lang.Object response_;
   public enum ResponseCase
       implements com.google.protobuf.Internal.EnumLite,
           com.google.protobuf.AbstractMessage.InternalOneOfEnum {
-    ROW(1),
+    EXECUTE_RESPONSE(2),
+    EXECUTE_BATCH_RESPONSE(3),
+    BEGIN_TRANSACTION_RESPONSE(4),
+    COMMIT_RESPONSE(5),
+    ROLLBACK_RESPONSE(6),
+    WRITE_MUTATIONS_RESPONSE(7),
     RESPONSE_NOT_SET(0);
     private final int value;
     private ResponseCase(int value) {
@@ -67,7 +73,12 @@ private static final long serialVersionUID = 0L;
 
     public static ResponseCase forNumber(int value) {
       switch (value) {
-        case 1: return ROW;
+        case 2: return EXECUTE_RESPONSE;
+        case 3: return EXECUTE_BATCH_RESPONSE;
+        case 4: return BEGIN_TRANSACTION_RESPONSE;
+        case 5: return COMMIT_RESPONSE;
+        case 6: return ROLLBACK_RESPONSE;
+        case 7: return WRITE_MUTATIONS_RESPONSE;
         case 0: return RESPONSE_NOT_SET;
         default: return null;
       }
@@ -83,35 +94,216 @@ private static final long serialVersionUID = 0L;
         responseCase_);
   }
 
-  public static final int ROW_FIELD_NUMBER = 1;
+  public static final int STATUS_FIELD_NUMBER = 1;
+  private com.google.rpc.Status status_;
   /**
-   * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
-   * @return Whether the row field is set.
+   * <code>.google.rpc.Status status = 1;</code>
+   * @return Whether the status field is set.
    */
   @java.lang.Override
-  public boolean hasRow() {
-    return responseCase_ == 1;
+  public boolean hasStatus() {
+    return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
-   * @return The row.
+   * <code>.google.rpc.Status status = 1;</code>
+   * @return The status.
    */
   @java.lang.Override
-  public com.google.spanner.v1.PartialResultSet getRow() {
-    if (responseCase_ == 1) {
-       return (com.google.spanner.v1.PartialResultSet) response_;
-    }
-    return com.google.spanner.v1.PartialResultSet.getDefaultInstance();
+  public com.google.rpc.Status getStatus() {
+    return status_ == null ? com.google.rpc.Status.getDefaultInstance() : status_;
   }
   /**
-   * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+   * <code>.google.rpc.Status status = 1;</code>
    */
   @java.lang.Override
-  public com.google.spanner.v1.PartialResultSetOrBuilder getRowOrBuilder() {
-    if (responseCase_ == 1) {
-       return (com.google.spanner.v1.PartialResultSet) response_;
+  public com.google.rpc.StatusOrBuilder getStatusOrBuilder() {
+    return status_ == null ? com.google.rpc.Status.getDefaultInstance() : status_;
+  }
+
+  public static final int EXECUTE_RESPONSE_FIELD_NUMBER = 2;
+  /**
+   * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
+   * @return Whether the executeResponse field is set.
+   */
+  @java.lang.Override
+  public boolean hasExecuteResponse() {
+    return responseCase_ == 2;
+  }
+  /**
+   * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
+   * @return The executeResponse.
+   */
+  @java.lang.Override
+  public com.google.cloud.spannerlib.v1.ExecuteResponse getExecuteResponse() {
+    if (responseCase_ == 2) {
+       return (com.google.cloud.spannerlib.v1.ExecuteResponse) response_;
     }
-    return com.google.spanner.v1.PartialResultSet.getDefaultInstance();
+    return com.google.cloud.spannerlib.v1.ExecuteResponse.getDefaultInstance();
+  }
+  /**
+   * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
+   */
+  @java.lang.Override
+  public com.google.cloud.spannerlib.v1.ExecuteResponseOrBuilder getExecuteResponseOrBuilder() {
+    if (responseCase_ == 2) {
+       return (com.google.cloud.spannerlib.v1.ExecuteResponse) response_;
+    }
+    return com.google.cloud.spannerlib.v1.ExecuteResponse.getDefaultInstance();
+  }
+
+  public static final int EXECUTE_BATCH_RESPONSE_FIELD_NUMBER = 3;
+  /**
+   * <code>.google.spanner.v1.ExecuteBatchDmlResponse execute_batch_response = 3;</code>
+   * @return Whether the executeBatchResponse field is set.
+   */
+  @java.lang.Override
+  public boolean hasExecuteBatchResponse() {
+    return responseCase_ == 3;
+  }
+  /**
+   * <code>.google.spanner.v1.ExecuteBatchDmlResponse execute_batch_response = 3;</code>
+   * @return The executeBatchResponse.
+   */
+  @java.lang.Override
+  public com.google.spanner.v1.ExecuteBatchDmlResponse getExecuteBatchResponse() {
+    if (responseCase_ == 3) {
+       return (com.google.spanner.v1.ExecuteBatchDmlResponse) response_;
+    }
+    return com.google.spanner.v1.ExecuteBatchDmlResponse.getDefaultInstance();
+  }
+  /**
+   * <code>.google.spanner.v1.ExecuteBatchDmlResponse execute_batch_response = 3;</code>
+   */
+  @java.lang.Override
+  public com.google.spanner.v1.ExecuteBatchDmlResponseOrBuilder getExecuteBatchResponseOrBuilder() {
+    if (responseCase_ == 3) {
+       return (com.google.spanner.v1.ExecuteBatchDmlResponse) response_;
+    }
+    return com.google.spanner.v1.ExecuteBatchDmlResponse.getDefaultInstance();
+  }
+
+  public static final int BEGIN_TRANSACTION_RESPONSE_FIELD_NUMBER = 4;
+  /**
+   * <code>.google.protobuf.Empty begin_transaction_response = 4;</code>
+   * @return Whether the beginTransactionResponse field is set.
+   */
+  @java.lang.Override
+  public boolean hasBeginTransactionResponse() {
+    return responseCase_ == 4;
+  }
+  /**
+   * <code>.google.protobuf.Empty begin_transaction_response = 4;</code>
+   * @return The beginTransactionResponse.
+   */
+  @java.lang.Override
+  public com.google.protobuf.Empty getBeginTransactionResponse() {
+    if (responseCase_ == 4) {
+       return (com.google.protobuf.Empty) response_;
+    }
+    return com.google.protobuf.Empty.getDefaultInstance();
+  }
+  /**
+   * <code>.google.protobuf.Empty begin_transaction_response = 4;</code>
+   */
+  @java.lang.Override
+  public com.google.protobuf.EmptyOrBuilder getBeginTransactionResponseOrBuilder() {
+    if (responseCase_ == 4) {
+       return (com.google.protobuf.Empty) response_;
+    }
+    return com.google.protobuf.Empty.getDefaultInstance();
+  }
+
+  public static final int COMMIT_RESPONSE_FIELD_NUMBER = 5;
+  /**
+   * <code>.google.spanner.v1.CommitResponse commit_response = 5;</code>
+   * @return Whether the commitResponse field is set.
+   */
+  @java.lang.Override
+  public boolean hasCommitResponse() {
+    return responseCase_ == 5;
+  }
+  /**
+   * <code>.google.spanner.v1.CommitResponse commit_response = 5;</code>
+   * @return The commitResponse.
+   */
+  @java.lang.Override
+  public com.google.spanner.v1.CommitResponse getCommitResponse() {
+    if (responseCase_ == 5) {
+       return (com.google.spanner.v1.CommitResponse) response_;
+    }
+    return com.google.spanner.v1.CommitResponse.getDefaultInstance();
+  }
+  /**
+   * <code>.google.spanner.v1.CommitResponse commit_response = 5;</code>
+   */
+  @java.lang.Override
+  public com.google.spanner.v1.CommitResponseOrBuilder getCommitResponseOrBuilder() {
+    if (responseCase_ == 5) {
+       return (com.google.spanner.v1.CommitResponse) response_;
+    }
+    return com.google.spanner.v1.CommitResponse.getDefaultInstance();
+  }
+
+  public static final int ROLLBACK_RESPONSE_FIELD_NUMBER = 6;
+  /**
+   * <code>.google.protobuf.Empty rollback_response = 6;</code>
+   * @return Whether the rollbackResponse field is set.
+   */
+  @java.lang.Override
+  public boolean hasRollbackResponse() {
+    return responseCase_ == 6;
+  }
+  /**
+   * <code>.google.protobuf.Empty rollback_response = 6;</code>
+   * @return The rollbackResponse.
+   */
+  @java.lang.Override
+  public com.google.protobuf.Empty getRollbackResponse() {
+    if (responseCase_ == 6) {
+       return (com.google.protobuf.Empty) response_;
+    }
+    return com.google.protobuf.Empty.getDefaultInstance();
+  }
+  /**
+   * <code>.google.protobuf.Empty rollback_response = 6;</code>
+   */
+  @java.lang.Override
+  public com.google.protobuf.EmptyOrBuilder getRollbackResponseOrBuilder() {
+    if (responseCase_ == 6) {
+       return (com.google.protobuf.Empty) response_;
+    }
+    return com.google.protobuf.Empty.getDefaultInstance();
+  }
+
+  public static final int WRITE_MUTATIONS_RESPONSE_FIELD_NUMBER = 7;
+  /**
+   * <code>.google.spanner.v1.CommitResponse write_mutations_response = 7;</code>
+   * @return Whether the writeMutationsResponse field is set.
+   */
+  @java.lang.Override
+  public boolean hasWriteMutationsResponse() {
+    return responseCase_ == 7;
+  }
+  /**
+   * <code>.google.spanner.v1.CommitResponse write_mutations_response = 7;</code>
+   * @return The writeMutationsResponse.
+   */
+  @java.lang.Override
+  public com.google.spanner.v1.CommitResponse getWriteMutationsResponse() {
+    if (responseCase_ == 7) {
+       return (com.google.spanner.v1.CommitResponse) response_;
+    }
+    return com.google.spanner.v1.CommitResponse.getDefaultInstance();
+  }
+  /**
+   * <code>.google.spanner.v1.CommitResponse write_mutations_response = 7;</code>
+   */
+  @java.lang.Override
+  public com.google.spanner.v1.CommitResponseOrBuilder getWriteMutationsResponseOrBuilder() {
+    if (responseCase_ == 7) {
+       return (com.google.spanner.v1.CommitResponse) response_;
+    }
+    return com.google.spanner.v1.CommitResponse.getDefaultInstance();
   }
 
   private byte memoizedIsInitialized = -1;
@@ -128,8 +320,26 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
-    if (responseCase_ == 1) {
-      output.writeMessage(1, (com.google.spanner.v1.PartialResultSet) response_);
+    if (((bitField0_ & 0x00000001) != 0)) {
+      output.writeMessage(1, getStatus());
+    }
+    if (responseCase_ == 2) {
+      output.writeMessage(2, (com.google.cloud.spannerlib.v1.ExecuteResponse) response_);
+    }
+    if (responseCase_ == 3) {
+      output.writeMessage(3, (com.google.spanner.v1.ExecuteBatchDmlResponse) response_);
+    }
+    if (responseCase_ == 4) {
+      output.writeMessage(4, (com.google.protobuf.Empty) response_);
+    }
+    if (responseCase_ == 5) {
+      output.writeMessage(5, (com.google.spanner.v1.CommitResponse) response_);
+    }
+    if (responseCase_ == 6) {
+      output.writeMessage(6, (com.google.protobuf.Empty) response_);
+    }
+    if (responseCase_ == 7) {
+      output.writeMessage(7, (com.google.spanner.v1.CommitResponse) response_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -140,9 +350,33 @@ private static final long serialVersionUID = 0L;
     if (size != -1) return size;
 
     size = 0;
-    if (responseCase_ == 1) {
+    if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(1, (com.google.spanner.v1.PartialResultSet) response_);
+        .computeMessageSize(1, getStatus());
+    }
+    if (responseCase_ == 2) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(2, (com.google.cloud.spannerlib.v1.ExecuteResponse) response_);
+    }
+    if (responseCase_ == 3) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(3, (com.google.spanner.v1.ExecuteBatchDmlResponse) response_);
+    }
+    if (responseCase_ == 4) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(4, (com.google.protobuf.Empty) response_);
+    }
+    if (responseCase_ == 5) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(5, (com.google.spanner.v1.CommitResponse) response_);
+    }
+    if (responseCase_ == 6) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(6, (com.google.protobuf.Empty) response_);
+    }
+    if (responseCase_ == 7) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(7, (com.google.spanner.v1.CommitResponse) response_);
     }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
@@ -159,11 +393,36 @@ private static final long serialVersionUID = 0L;
     }
     com.google.cloud.spannerlib.v1.ConnectionStreamResponse other = (com.google.cloud.spannerlib.v1.ConnectionStreamResponse) obj;
 
+    if (hasStatus() != other.hasStatus()) return false;
+    if (hasStatus()) {
+      if (!getStatus()
+          .equals(other.getStatus())) return false;
+    }
     if (!getResponseCase().equals(other.getResponseCase())) return false;
     switch (responseCase_) {
-      case 1:
-        if (!getRow()
-            .equals(other.getRow())) return false;
+      case 2:
+        if (!getExecuteResponse()
+            .equals(other.getExecuteResponse())) return false;
+        break;
+      case 3:
+        if (!getExecuteBatchResponse()
+            .equals(other.getExecuteBatchResponse())) return false;
+        break;
+      case 4:
+        if (!getBeginTransactionResponse()
+            .equals(other.getBeginTransactionResponse())) return false;
+        break;
+      case 5:
+        if (!getCommitResponse()
+            .equals(other.getCommitResponse())) return false;
+        break;
+      case 6:
+        if (!getRollbackResponse()
+            .equals(other.getRollbackResponse())) return false;
+        break;
+      case 7:
+        if (!getWriteMutationsResponse()
+            .equals(other.getWriteMutationsResponse())) return false;
         break;
       case 0:
       default:
@@ -179,10 +438,34 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
+    if (hasStatus()) {
+      hash = (37 * hash) + STATUS_FIELD_NUMBER;
+      hash = (53 * hash) + getStatus().hashCode();
+    }
     switch (responseCase_) {
-      case 1:
-        hash = (37 * hash) + ROW_FIELD_NUMBER;
-        hash = (53 * hash) + getRow().hashCode();
+      case 2:
+        hash = (37 * hash) + EXECUTE_RESPONSE_FIELD_NUMBER;
+        hash = (53 * hash) + getExecuteResponse().hashCode();
+        break;
+      case 3:
+        hash = (37 * hash) + EXECUTE_BATCH_RESPONSE_FIELD_NUMBER;
+        hash = (53 * hash) + getExecuteBatchResponse().hashCode();
+        break;
+      case 4:
+        hash = (37 * hash) + BEGIN_TRANSACTION_RESPONSE_FIELD_NUMBER;
+        hash = (53 * hash) + getBeginTransactionResponse().hashCode();
+        break;
+      case 5:
+        hash = (37 * hash) + COMMIT_RESPONSE_FIELD_NUMBER;
+        hash = (53 * hash) + getCommitResponse().hashCode();
+        break;
+      case 6:
+        hash = (37 * hash) + ROLLBACK_RESPONSE_FIELD_NUMBER;
+        hash = (53 * hash) + getRollbackResponse().hashCode();
+        break;
+      case 7:
+        hash = (37 * hash) + WRITE_MUTATIONS_RESPONSE_FIELD_NUMBER;
+        hash = (53 * hash) + getWriteMutationsResponse().hashCode();
         break;
       case 0:
       default:
@@ -306,20 +589,46 @@ private static final long serialVersionUID = 0L;
 
     // Construct using com.google.cloud.spannerlib.v1.ConnectionStreamResponse.newBuilder()
     private Builder() {
-
+      maybeForceBuilderInitialization();
     }
 
     private Builder(
         com.google.protobuf.GeneratedMessage.BuilderParent parent) {
       super(parent);
-
+      maybeForceBuilderInitialization();
+    }
+    private void maybeForceBuilderInitialization() {
+      if (com.google.protobuf.GeneratedMessage
+              .alwaysUseFieldBuilders) {
+        internalGetStatusFieldBuilder();
+      }
     }
     @java.lang.Override
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      if (rowBuilder_ != null) {
-        rowBuilder_.clear();
+      status_ = null;
+      if (statusBuilder_ != null) {
+        statusBuilder_.dispose();
+        statusBuilder_ = null;
+      }
+      if (executeResponseBuilder_ != null) {
+        executeResponseBuilder_.clear();
+      }
+      if (executeBatchResponseBuilder_ != null) {
+        executeBatchResponseBuilder_.clear();
+      }
+      if (beginTransactionResponseBuilder_ != null) {
+        beginTransactionResponseBuilder_.clear();
+      }
+      if (commitResponseBuilder_ != null) {
+        commitResponseBuilder_.clear();
+      }
+      if (rollbackResponseBuilder_ != null) {
+        rollbackResponseBuilder_.clear();
+      }
+      if (writeMutationsResponseBuilder_ != null) {
+        writeMutationsResponseBuilder_.clear();
       }
       responseCase_ = 0;
       response_ = null;
@@ -357,14 +666,42 @@ private static final long serialVersionUID = 0L;
 
     private void buildPartial0(com.google.cloud.spannerlib.v1.ConnectionStreamResponse result) {
       int from_bitField0_ = bitField0_;
+      int to_bitField0_ = 0;
+      if (((from_bitField0_ & 0x00000001) != 0)) {
+        result.status_ = statusBuilder_ == null
+            ? status_
+            : statusBuilder_.build();
+        to_bitField0_ |= 0x00000001;
+      }
+      result.bitField0_ |= to_bitField0_;
     }
 
     private void buildPartialOneofs(com.google.cloud.spannerlib.v1.ConnectionStreamResponse result) {
       result.responseCase_ = responseCase_;
       result.response_ = this.response_;
-      if (responseCase_ == 1 &&
-          rowBuilder_ != null) {
-        result.response_ = rowBuilder_.build();
+      if (responseCase_ == 2 &&
+          executeResponseBuilder_ != null) {
+        result.response_ = executeResponseBuilder_.build();
+      }
+      if (responseCase_ == 3 &&
+          executeBatchResponseBuilder_ != null) {
+        result.response_ = executeBatchResponseBuilder_.build();
+      }
+      if (responseCase_ == 4 &&
+          beginTransactionResponseBuilder_ != null) {
+        result.response_ = beginTransactionResponseBuilder_.build();
+      }
+      if (responseCase_ == 5 &&
+          commitResponseBuilder_ != null) {
+        result.response_ = commitResponseBuilder_.build();
+      }
+      if (responseCase_ == 6 &&
+          rollbackResponseBuilder_ != null) {
+        result.response_ = rollbackResponseBuilder_.build();
+      }
+      if (responseCase_ == 7 &&
+          writeMutationsResponseBuilder_ != null) {
+        result.response_ = writeMutationsResponseBuilder_.build();
       }
     }
 
@@ -380,9 +717,32 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(com.google.cloud.spannerlib.v1.ConnectionStreamResponse other) {
       if (other == com.google.cloud.spannerlib.v1.ConnectionStreamResponse.getDefaultInstance()) return this;
+      if (other.hasStatus()) {
+        mergeStatus(other.getStatus());
+      }
       switch (other.getResponseCase()) {
-        case ROW: {
-          mergeRow(other.getRow());
+        case EXECUTE_RESPONSE: {
+          mergeExecuteResponse(other.getExecuteResponse());
+          break;
+        }
+        case EXECUTE_BATCH_RESPONSE: {
+          mergeExecuteBatchResponse(other.getExecuteBatchResponse());
+          break;
+        }
+        case BEGIN_TRANSACTION_RESPONSE: {
+          mergeBeginTransactionResponse(other.getBeginTransactionResponse());
+          break;
+        }
+        case COMMIT_RESPONSE: {
+          mergeCommitResponse(other.getCommitResponse());
+          break;
+        }
+        case ROLLBACK_RESPONSE: {
+          mergeRollbackResponse(other.getRollbackResponse());
+          break;
+        }
+        case WRITE_MUTATIONS_RESPONSE: {
+          mergeWriteMutationsResponse(other.getWriteMutationsResponse());
           break;
         }
         case RESPONSE_NOT_SET: {
@@ -417,11 +777,53 @@ private static final long serialVersionUID = 0L;
               break;
             case 10: {
               input.readMessage(
-                  internalGetRowFieldBuilder().getBuilder(),
+                  internalGetStatusFieldBuilder().getBuilder(),
                   extensionRegistry);
-              responseCase_ = 1;
+              bitField0_ |= 0x00000001;
               break;
             } // case 10
+            case 18: {
+              input.readMessage(
+                  internalGetExecuteResponseFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              responseCase_ = 2;
+              break;
+            } // case 18
+            case 26: {
+              input.readMessage(
+                  internalGetExecuteBatchResponseFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              responseCase_ = 3;
+              break;
+            } // case 26
+            case 34: {
+              input.readMessage(
+                  internalGetBeginTransactionResponseFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              responseCase_ = 4;
+              break;
+            } // case 34
+            case 42: {
+              input.readMessage(
+                  internalGetCommitResponseFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              responseCase_ = 5;
+              break;
+            } // case 42
+            case 50: {
+              input.readMessage(
+                  internalGetRollbackResponseFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              responseCase_ = 6;
+              break;
+            } // case 50
+            case 58: {
+              input.readMessage(
+                  internalGetWriteMutationsResponseFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              responseCase_ = 7;
+              break;
+            } // case 58
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -454,146 +856,977 @@ private static final long serialVersionUID = 0L;
 
     private int bitField0_;
 
+    private com.google.rpc.Status status_;
     private com.google.protobuf.SingleFieldBuilder<
-        com.google.spanner.v1.PartialResultSet, com.google.spanner.v1.PartialResultSet.Builder, com.google.spanner.v1.PartialResultSetOrBuilder> rowBuilder_;
+        com.google.rpc.Status, com.google.rpc.Status.Builder, com.google.rpc.StatusOrBuilder> statusBuilder_;
     /**
-     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
-     * @return Whether the row field is set.
+     * <code>.google.rpc.Status status = 1;</code>
+     * @return Whether the status field is set.
      */
-    @java.lang.Override
-    public boolean hasRow() {
-      return responseCase_ == 1;
+    public boolean hasStatus() {
+      return ((bitField0_ & 0x00000001) != 0);
     }
     /**
-     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
-     * @return The row.
+     * <code>.google.rpc.Status status = 1;</code>
+     * @return The status.
      */
-    @java.lang.Override
-    public com.google.spanner.v1.PartialResultSet getRow() {
-      if (rowBuilder_ == null) {
-        if (responseCase_ == 1) {
-          return (com.google.spanner.v1.PartialResultSet) response_;
-        }
-        return com.google.spanner.v1.PartialResultSet.getDefaultInstance();
+    public com.google.rpc.Status getStatus() {
+      if (statusBuilder_ == null) {
+        return status_ == null ? com.google.rpc.Status.getDefaultInstance() : status_;
       } else {
-        if (responseCase_ == 1) {
-          return rowBuilder_.getMessage();
-        }
-        return com.google.spanner.v1.PartialResultSet.getDefaultInstance();
+        return statusBuilder_.getMessage();
       }
     }
     /**
-     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     * <code>.google.rpc.Status status = 1;</code>
      */
-    public Builder setRow(com.google.spanner.v1.PartialResultSet value) {
-      if (rowBuilder_ == null) {
+    public Builder setStatus(com.google.rpc.Status value) {
+      if (statusBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        status_ = value;
+      } else {
+        statusBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000001;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.rpc.Status status = 1;</code>
+     */
+    public Builder setStatus(
+        com.google.rpc.Status.Builder builderForValue) {
+      if (statusBuilder_ == null) {
+        status_ = builderForValue.build();
+      } else {
+        statusBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000001;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.rpc.Status status = 1;</code>
+     */
+    public Builder mergeStatus(com.google.rpc.Status value) {
+      if (statusBuilder_ == null) {
+        if (((bitField0_ & 0x00000001) != 0) &&
+          status_ != null &&
+          status_ != com.google.rpc.Status.getDefaultInstance()) {
+          getStatusBuilder().mergeFrom(value);
+        } else {
+          status_ = value;
+        }
+      } else {
+        statusBuilder_.mergeFrom(value);
+      }
+      if (status_ != null) {
+        bitField0_ |= 0x00000001;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <code>.google.rpc.Status status = 1;</code>
+     */
+    public Builder clearStatus() {
+      bitField0_ = (bitField0_ & ~0x00000001);
+      status_ = null;
+      if (statusBuilder_ != null) {
+        statusBuilder_.dispose();
+        statusBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.rpc.Status status = 1;</code>
+     */
+    public com.google.rpc.Status.Builder getStatusBuilder() {
+      bitField0_ |= 0x00000001;
+      onChanged();
+      return internalGetStatusFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.google.rpc.Status status = 1;</code>
+     */
+    public com.google.rpc.StatusOrBuilder getStatusOrBuilder() {
+      if (statusBuilder_ != null) {
+        return statusBuilder_.getMessageOrBuilder();
+      } else {
+        return status_ == null ?
+            com.google.rpc.Status.getDefaultInstance() : status_;
+      }
+    }
+    /**
+     * <code>.google.rpc.Status status = 1;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.rpc.Status, com.google.rpc.Status.Builder, com.google.rpc.StatusOrBuilder> 
+        internalGetStatusFieldBuilder() {
+      if (statusBuilder_ == null) {
+        statusBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.rpc.Status, com.google.rpc.Status.Builder, com.google.rpc.StatusOrBuilder>(
+                getStatus(),
+                getParentForChildren(),
+                isClean());
+        status_ = null;
+      }
+      return statusBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.cloud.spannerlib.v1.ExecuteResponse, com.google.cloud.spannerlib.v1.ExecuteResponse.Builder, com.google.cloud.spannerlib.v1.ExecuteResponseOrBuilder> executeResponseBuilder_;
+    /**
+     * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
+     * @return Whether the executeResponse field is set.
+     */
+    @java.lang.Override
+    public boolean hasExecuteResponse() {
+      return responseCase_ == 2;
+    }
+    /**
+     * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
+     * @return The executeResponse.
+     */
+    @java.lang.Override
+    public com.google.cloud.spannerlib.v1.ExecuteResponse getExecuteResponse() {
+      if (executeResponseBuilder_ == null) {
+        if (responseCase_ == 2) {
+          return (com.google.cloud.spannerlib.v1.ExecuteResponse) response_;
+        }
+        return com.google.cloud.spannerlib.v1.ExecuteResponse.getDefaultInstance();
+      } else {
+        if (responseCase_ == 2) {
+          return executeResponseBuilder_.getMessage();
+        }
+        return com.google.cloud.spannerlib.v1.ExecuteResponse.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
+     */
+    public Builder setExecuteResponse(com.google.cloud.spannerlib.v1.ExecuteResponse value) {
+      if (executeResponseBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
         response_ = value;
         onChanged();
       } else {
-        rowBuilder_.setMessage(value);
+        executeResponseBuilder_.setMessage(value);
       }
-      responseCase_ = 1;
+      responseCase_ = 2;
       return this;
     }
     /**
-     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
      */
-    public Builder setRow(
-        com.google.spanner.v1.PartialResultSet.Builder builderForValue) {
-      if (rowBuilder_ == null) {
+    public Builder setExecuteResponse(
+        com.google.cloud.spannerlib.v1.ExecuteResponse.Builder builderForValue) {
+      if (executeResponseBuilder_ == null) {
         response_ = builderForValue.build();
         onChanged();
       } else {
-        rowBuilder_.setMessage(builderForValue.build());
+        executeResponseBuilder_.setMessage(builderForValue.build());
       }
-      responseCase_ = 1;
+      responseCase_ = 2;
       return this;
     }
     /**
-     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
      */
-    public Builder mergeRow(com.google.spanner.v1.PartialResultSet value) {
-      if (rowBuilder_ == null) {
-        if (responseCase_ == 1 &&
-            response_ != com.google.spanner.v1.PartialResultSet.getDefaultInstance()) {
-          response_ = com.google.spanner.v1.PartialResultSet.newBuilder((com.google.spanner.v1.PartialResultSet) response_)
+    public Builder mergeExecuteResponse(com.google.cloud.spannerlib.v1.ExecuteResponse value) {
+      if (executeResponseBuilder_ == null) {
+        if (responseCase_ == 2 &&
+            response_ != com.google.cloud.spannerlib.v1.ExecuteResponse.getDefaultInstance()) {
+          response_ = com.google.cloud.spannerlib.v1.ExecuteResponse.newBuilder((com.google.cloud.spannerlib.v1.ExecuteResponse) response_)
               .mergeFrom(value).buildPartial();
         } else {
           response_ = value;
         }
         onChanged();
       } else {
-        if (responseCase_ == 1) {
-          rowBuilder_.mergeFrom(value);
+        if (responseCase_ == 2) {
+          executeResponseBuilder_.mergeFrom(value);
         } else {
-          rowBuilder_.setMessage(value);
+          executeResponseBuilder_.setMessage(value);
         }
       }
-      responseCase_ = 1;
+      responseCase_ = 2;
       return this;
     }
     /**
-     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
      */
-    public Builder clearRow() {
-      if (rowBuilder_ == null) {
-        if (responseCase_ == 1) {
+    public Builder clearExecuteResponse() {
+      if (executeResponseBuilder_ == null) {
+        if (responseCase_ == 2) {
           responseCase_ = 0;
           response_ = null;
           onChanged();
         }
       } else {
-        if (responseCase_ == 1) {
+        if (responseCase_ == 2) {
           responseCase_ = 0;
           response_ = null;
         }
-        rowBuilder_.clear();
+        executeResponseBuilder_.clear();
       }
       return this;
     }
     /**
-     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
      */
-    public com.google.spanner.v1.PartialResultSet.Builder getRowBuilder() {
-      return internalGetRowFieldBuilder().getBuilder();
+    public com.google.cloud.spannerlib.v1.ExecuteResponse.Builder getExecuteResponseBuilder() {
+      return internalGetExecuteResponseFieldBuilder().getBuilder();
     }
     /**
-     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
      */
     @java.lang.Override
-    public com.google.spanner.v1.PartialResultSetOrBuilder getRowOrBuilder() {
-      if ((responseCase_ == 1) && (rowBuilder_ != null)) {
-        return rowBuilder_.getMessageOrBuilder();
+    public com.google.cloud.spannerlib.v1.ExecuteResponseOrBuilder getExecuteResponseOrBuilder() {
+      if ((responseCase_ == 2) && (executeResponseBuilder_ != null)) {
+        return executeResponseBuilder_.getMessageOrBuilder();
       } else {
-        if (responseCase_ == 1) {
-          return (com.google.spanner.v1.PartialResultSet) response_;
+        if (responseCase_ == 2) {
+          return (com.google.cloud.spannerlib.v1.ExecuteResponse) response_;
         }
-        return com.google.spanner.v1.PartialResultSet.getDefaultInstance();
+        return com.google.cloud.spannerlib.v1.ExecuteResponse.getDefaultInstance();
       }
     }
     /**
-     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        com.google.spanner.v1.PartialResultSet, com.google.spanner.v1.PartialResultSet.Builder, com.google.spanner.v1.PartialResultSetOrBuilder> 
-        internalGetRowFieldBuilder() {
-      if (rowBuilder_ == null) {
-        if (!(responseCase_ == 1)) {
-          response_ = com.google.spanner.v1.PartialResultSet.getDefaultInstance();
+        com.google.cloud.spannerlib.v1.ExecuteResponse, com.google.cloud.spannerlib.v1.ExecuteResponse.Builder, com.google.cloud.spannerlib.v1.ExecuteResponseOrBuilder> 
+        internalGetExecuteResponseFieldBuilder() {
+      if (executeResponseBuilder_ == null) {
+        if (!(responseCase_ == 2)) {
+          response_ = com.google.cloud.spannerlib.v1.ExecuteResponse.getDefaultInstance();
         }
-        rowBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            com.google.spanner.v1.PartialResultSet, com.google.spanner.v1.PartialResultSet.Builder, com.google.spanner.v1.PartialResultSetOrBuilder>(
-                (com.google.spanner.v1.PartialResultSet) response_,
+        executeResponseBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.cloud.spannerlib.v1.ExecuteResponse, com.google.cloud.spannerlib.v1.ExecuteResponse.Builder, com.google.cloud.spannerlib.v1.ExecuteResponseOrBuilder>(
+                (com.google.cloud.spannerlib.v1.ExecuteResponse) response_,
                 getParentForChildren(),
                 isClean());
         response_ = null;
       }
-      responseCase_ = 1;
+      responseCase_ = 2;
       onChanged();
-      return rowBuilder_;
+      return executeResponseBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.spanner.v1.ExecuteBatchDmlResponse, com.google.spanner.v1.ExecuteBatchDmlResponse.Builder, com.google.spanner.v1.ExecuteBatchDmlResponseOrBuilder> executeBatchResponseBuilder_;
+    /**
+     * <code>.google.spanner.v1.ExecuteBatchDmlResponse execute_batch_response = 3;</code>
+     * @return Whether the executeBatchResponse field is set.
+     */
+    @java.lang.Override
+    public boolean hasExecuteBatchResponse() {
+      return responseCase_ == 3;
+    }
+    /**
+     * <code>.google.spanner.v1.ExecuteBatchDmlResponse execute_batch_response = 3;</code>
+     * @return The executeBatchResponse.
+     */
+    @java.lang.Override
+    public com.google.spanner.v1.ExecuteBatchDmlResponse getExecuteBatchResponse() {
+      if (executeBatchResponseBuilder_ == null) {
+        if (responseCase_ == 3) {
+          return (com.google.spanner.v1.ExecuteBatchDmlResponse) response_;
+        }
+        return com.google.spanner.v1.ExecuteBatchDmlResponse.getDefaultInstance();
+      } else {
+        if (responseCase_ == 3) {
+          return executeBatchResponseBuilder_.getMessage();
+        }
+        return com.google.spanner.v1.ExecuteBatchDmlResponse.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.spanner.v1.ExecuteBatchDmlResponse execute_batch_response = 3;</code>
+     */
+    public Builder setExecuteBatchResponse(com.google.spanner.v1.ExecuteBatchDmlResponse value) {
+      if (executeBatchResponseBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        response_ = value;
+        onChanged();
+      } else {
+        executeBatchResponseBuilder_.setMessage(value);
+      }
+      responseCase_ = 3;
+      return this;
+    }
+    /**
+     * <code>.google.spanner.v1.ExecuteBatchDmlResponse execute_batch_response = 3;</code>
+     */
+    public Builder setExecuteBatchResponse(
+        com.google.spanner.v1.ExecuteBatchDmlResponse.Builder builderForValue) {
+      if (executeBatchResponseBuilder_ == null) {
+        response_ = builderForValue.build();
+        onChanged();
+      } else {
+        executeBatchResponseBuilder_.setMessage(builderForValue.build());
+      }
+      responseCase_ = 3;
+      return this;
+    }
+    /**
+     * <code>.google.spanner.v1.ExecuteBatchDmlResponse execute_batch_response = 3;</code>
+     */
+    public Builder mergeExecuteBatchResponse(com.google.spanner.v1.ExecuteBatchDmlResponse value) {
+      if (executeBatchResponseBuilder_ == null) {
+        if (responseCase_ == 3 &&
+            response_ != com.google.spanner.v1.ExecuteBatchDmlResponse.getDefaultInstance()) {
+          response_ = com.google.spanner.v1.ExecuteBatchDmlResponse.newBuilder((com.google.spanner.v1.ExecuteBatchDmlResponse) response_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          response_ = value;
+        }
+        onChanged();
+      } else {
+        if (responseCase_ == 3) {
+          executeBatchResponseBuilder_.mergeFrom(value);
+        } else {
+          executeBatchResponseBuilder_.setMessage(value);
+        }
+      }
+      responseCase_ = 3;
+      return this;
+    }
+    /**
+     * <code>.google.spanner.v1.ExecuteBatchDmlResponse execute_batch_response = 3;</code>
+     */
+    public Builder clearExecuteBatchResponse() {
+      if (executeBatchResponseBuilder_ == null) {
+        if (responseCase_ == 3) {
+          responseCase_ = 0;
+          response_ = null;
+          onChanged();
+        }
+      } else {
+        if (responseCase_ == 3) {
+          responseCase_ = 0;
+          response_ = null;
+        }
+        executeBatchResponseBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>.google.spanner.v1.ExecuteBatchDmlResponse execute_batch_response = 3;</code>
+     */
+    public com.google.spanner.v1.ExecuteBatchDmlResponse.Builder getExecuteBatchResponseBuilder() {
+      return internalGetExecuteBatchResponseFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.google.spanner.v1.ExecuteBatchDmlResponse execute_batch_response = 3;</code>
+     */
+    @java.lang.Override
+    public com.google.spanner.v1.ExecuteBatchDmlResponseOrBuilder getExecuteBatchResponseOrBuilder() {
+      if ((responseCase_ == 3) && (executeBatchResponseBuilder_ != null)) {
+        return executeBatchResponseBuilder_.getMessageOrBuilder();
+      } else {
+        if (responseCase_ == 3) {
+          return (com.google.spanner.v1.ExecuteBatchDmlResponse) response_;
+        }
+        return com.google.spanner.v1.ExecuteBatchDmlResponse.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.spanner.v1.ExecuteBatchDmlResponse execute_batch_response = 3;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.spanner.v1.ExecuteBatchDmlResponse, com.google.spanner.v1.ExecuteBatchDmlResponse.Builder, com.google.spanner.v1.ExecuteBatchDmlResponseOrBuilder> 
+        internalGetExecuteBatchResponseFieldBuilder() {
+      if (executeBatchResponseBuilder_ == null) {
+        if (!(responseCase_ == 3)) {
+          response_ = com.google.spanner.v1.ExecuteBatchDmlResponse.getDefaultInstance();
+        }
+        executeBatchResponseBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.spanner.v1.ExecuteBatchDmlResponse, com.google.spanner.v1.ExecuteBatchDmlResponse.Builder, com.google.spanner.v1.ExecuteBatchDmlResponseOrBuilder>(
+                (com.google.spanner.v1.ExecuteBatchDmlResponse) response_,
+                getParentForChildren(),
+                isClean());
+        response_ = null;
+      }
+      responseCase_ = 3;
+      onChanged();
+      return executeBatchResponseBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.protobuf.Empty, com.google.protobuf.Empty.Builder, com.google.protobuf.EmptyOrBuilder> beginTransactionResponseBuilder_;
+    /**
+     * <code>.google.protobuf.Empty begin_transaction_response = 4;</code>
+     * @return Whether the beginTransactionResponse field is set.
+     */
+    @java.lang.Override
+    public boolean hasBeginTransactionResponse() {
+      return responseCase_ == 4;
+    }
+    /**
+     * <code>.google.protobuf.Empty begin_transaction_response = 4;</code>
+     * @return The beginTransactionResponse.
+     */
+    @java.lang.Override
+    public com.google.protobuf.Empty getBeginTransactionResponse() {
+      if (beginTransactionResponseBuilder_ == null) {
+        if (responseCase_ == 4) {
+          return (com.google.protobuf.Empty) response_;
+        }
+        return com.google.protobuf.Empty.getDefaultInstance();
+      } else {
+        if (responseCase_ == 4) {
+          return beginTransactionResponseBuilder_.getMessage();
+        }
+        return com.google.protobuf.Empty.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.protobuf.Empty begin_transaction_response = 4;</code>
+     */
+    public Builder setBeginTransactionResponse(com.google.protobuf.Empty value) {
+      if (beginTransactionResponseBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        response_ = value;
+        onChanged();
+      } else {
+        beginTransactionResponseBuilder_.setMessage(value);
+      }
+      responseCase_ = 4;
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Empty begin_transaction_response = 4;</code>
+     */
+    public Builder setBeginTransactionResponse(
+        com.google.protobuf.Empty.Builder builderForValue) {
+      if (beginTransactionResponseBuilder_ == null) {
+        response_ = builderForValue.build();
+        onChanged();
+      } else {
+        beginTransactionResponseBuilder_.setMessage(builderForValue.build());
+      }
+      responseCase_ = 4;
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Empty begin_transaction_response = 4;</code>
+     */
+    public Builder mergeBeginTransactionResponse(com.google.protobuf.Empty value) {
+      if (beginTransactionResponseBuilder_ == null) {
+        if (responseCase_ == 4 &&
+            response_ != com.google.protobuf.Empty.getDefaultInstance()) {
+          response_ = com.google.protobuf.Empty.newBuilder((com.google.protobuf.Empty) response_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          response_ = value;
+        }
+        onChanged();
+      } else {
+        if (responseCase_ == 4) {
+          beginTransactionResponseBuilder_.mergeFrom(value);
+        } else {
+          beginTransactionResponseBuilder_.setMessage(value);
+        }
+      }
+      responseCase_ = 4;
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Empty begin_transaction_response = 4;</code>
+     */
+    public Builder clearBeginTransactionResponse() {
+      if (beginTransactionResponseBuilder_ == null) {
+        if (responseCase_ == 4) {
+          responseCase_ = 0;
+          response_ = null;
+          onChanged();
+        }
+      } else {
+        if (responseCase_ == 4) {
+          responseCase_ = 0;
+          response_ = null;
+        }
+        beginTransactionResponseBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Empty begin_transaction_response = 4;</code>
+     */
+    public com.google.protobuf.Empty.Builder getBeginTransactionResponseBuilder() {
+      return internalGetBeginTransactionResponseFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.google.protobuf.Empty begin_transaction_response = 4;</code>
+     */
+    @java.lang.Override
+    public com.google.protobuf.EmptyOrBuilder getBeginTransactionResponseOrBuilder() {
+      if ((responseCase_ == 4) && (beginTransactionResponseBuilder_ != null)) {
+        return beginTransactionResponseBuilder_.getMessageOrBuilder();
+      } else {
+        if (responseCase_ == 4) {
+          return (com.google.protobuf.Empty) response_;
+        }
+        return com.google.protobuf.Empty.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.protobuf.Empty begin_transaction_response = 4;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.protobuf.Empty, com.google.protobuf.Empty.Builder, com.google.protobuf.EmptyOrBuilder> 
+        internalGetBeginTransactionResponseFieldBuilder() {
+      if (beginTransactionResponseBuilder_ == null) {
+        if (!(responseCase_ == 4)) {
+          response_ = com.google.protobuf.Empty.getDefaultInstance();
+        }
+        beginTransactionResponseBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.protobuf.Empty, com.google.protobuf.Empty.Builder, com.google.protobuf.EmptyOrBuilder>(
+                (com.google.protobuf.Empty) response_,
+                getParentForChildren(),
+                isClean());
+        response_ = null;
+      }
+      responseCase_ = 4;
+      onChanged();
+      return beginTransactionResponseBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.spanner.v1.CommitResponse, com.google.spanner.v1.CommitResponse.Builder, com.google.spanner.v1.CommitResponseOrBuilder> commitResponseBuilder_;
+    /**
+     * <code>.google.spanner.v1.CommitResponse commit_response = 5;</code>
+     * @return Whether the commitResponse field is set.
+     */
+    @java.lang.Override
+    public boolean hasCommitResponse() {
+      return responseCase_ == 5;
+    }
+    /**
+     * <code>.google.spanner.v1.CommitResponse commit_response = 5;</code>
+     * @return The commitResponse.
+     */
+    @java.lang.Override
+    public com.google.spanner.v1.CommitResponse getCommitResponse() {
+      if (commitResponseBuilder_ == null) {
+        if (responseCase_ == 5) {
+          return (com.google.spanner.v1.CommitResponse) response_;
+        }
+        return com.google.spanner.v1.CommitResponse.getDefaultInstance();
+      } else {
+        if (responseCase_ == 5) {
+          return commitResponseBuilder_.getMessage();
+        }
+        return com.google.spanner.v1.CommitResponse.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.spanner.v1.CommitResponse commit_response = 5;</code>
+     */
+    public Builder setCommitResponse(com.google.spanner.v1.CommitResponse value) {
+      if (commitResponseBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        response_ = value;
+        onChanged();
+      } else {
+        commitResponseBuilder_.setMessage(value);
+      }
+      responseCase_ = 5;
+      return this;
+    }
+    /**
+     * <code>.google.spanner.v1.CommitResponse commit_response = 5;</code>
+     */
+    public Builder setCommitResponse(
+        com.google.spanner.v1.CommitResponse.Builder builderForValue) {
+      if (commitResponseBuilder_ == null) {
+        response_ = builderForValue.build();
+        onChanged();
+      } else {
+        commitResponseBuilder_.setMessage(builderForValue.build());
+      }
+      responseCase_ = 5;
+      return this;
+    }
+    /**
+     * <code>.google.spanner.v1.CommitResponse commit_response = 5;</code>
+     */
+    public Builder mergeCommitResponse(com.google.spanner.v1.CommitResponse value) {
+      if (commitResponseBuilder_ == null) {
+        if (responseCase_ == 5 &&
+            response_ != com.google.spanner.v1.CommitResponse.getDefaultInstance()) {
+          response_ = com.google.spanner.v1.CommitResponse.newBuilder((com.google.spanner.v1.CommitResponse) response_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          response_ = value;
+        }
+        onChanged();
+      } else {
+        if (responseCase_ == 5) {
+          commitResponseBuilder_.mergeFrom(value);
+        } else {
+          commitResponseBuilder_.setMessage(value);
+        }
+      }
+      responseCase_ = 5;
+      return this;
+    }
+    /**
+     * <code>.google.spanner.v1.CommitResponse commit_response = 5;</code>
+     */
+    public Builder clearCommitResponse() {
+      if (commitResponseBuilder_ == null) {
+        if (responseCase_ == 5) {
+          responseCase_ = 0;
+          response_ = null;
+          onChanged();
+        }
+      } else {
+        if (responseCase_ == 5) {
+          responseCase_ = 0;
+          response_ = null;
+        }
+        commitResponseBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>.google.spanner.v1.CommitResponse commit_response = 5;</code>
+     */
+    public com.google.spanner.v1.CommitResponse.Builder getCommitResponseBuilder() {
+      return internalGetCommitResponseFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.google.spanner.v1.CommitResponse commit_response = 5;</code>
+     */
+    @java.lang.Override
+    public com.google.spanner.v1.CommitResponseOrBuilder getCommitResponseOrBuilder() {
+      if ((responseCase_ == 5) && (commitResponseBuilder_ != null)) {
+        return commitResponseBuilder_.getMessageOrBuilder();
+      } else {
+        if (responseCase_ == 5) {
+          return (com.google.spanner.v1.CommitResponse) response_;
+        }
+        return com.google.spanner.v1.CommitResponse.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.spanner.v1.CommitResponse commit_response = 5;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.spanner.v1.CommitResponse, com.google.spanner.v1.CommitResponse.Builder, com.google.spanner.v1.CommitResponseOrBuilder> 
+        internalGetCommitResponseFieldBuilder() {
+      if (commitResponseBuilder_ == null) {
+        if (!(responseCase_ == 5)) {
+          response_ = com.google.spanner.v1.CommitResponse.getDefaultInstance();
+        }
+        commitResponseBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.spanner.v1.CommitResponse, com.google.spanner.v1.CommitResponse.Builder, com.google.spanner.v1.CommitResponseOrBuilder>(
+                (com.google.spanner.v1.CommitResponse) response_,
+                getParentForChildren(),
+                isClean());
+        response_ = null;
+      }
+      responseCase_ = 5;
+      onChanged();
+      return commitResponseBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.protobuf.Empty, com.google.protobuf.Empty.Builder, com.google.protobuf.EmptyOrBuilder> rollbackResponseBuilder_;
+    /**
+     * <code>.google.protobuf.Empty rollback_response = 6;</code>
+     * @return Whether the rollbackResponse field is set.
+     */
+    @java.lang.Override
+    public boolean hasRollbackResponse() {
+      return responseCase_ == 6;
+    }
+    /**
+     * <code>.google.protobuf.Empty rollback_response = 6;</code>
+     * @return The rollbackResponse.
+     */
+    @java.lang.Override
+    public com.google.protobuf.Empty getRollbackResponse() {
+      if (rollbackResponseBuilder_ == null) {
+        if (responseCase_ == 6) {
+          return (com.google.protobuf.Empty) response_;
+        }
+        return com.google.protobuf.Empty.getDefaultInstance();
+      } else {
+        if (responseCase_ == 6) {
+          return rollbackResponseBuilder_.getMessage();
+        }
+        return com.google.protobuf.Empty.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.protobuf.Empty rollback_response = 6;</code>
+     */
+    public Builder setRollbackResponse(com.google.protobuf.Empty value) {
+      if (rollbackResponseBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        response_ = value;
+        onChanged();
+      } else {
+        rollbackResponseBuilder_.setMessage(value);
+      }
+      responseCase_ = 6;
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Empty rollback_response = 6;</code>
+     */
+    public Builder setRollbackResponse(
+        com.google.protobuf.Empty.Builder builderForValue) {
+      if (rollbackResponseBuilder_ == null) {
+        response_ = builderForValue.build();
+        onChanged();
+      } else {
+        rollbackResponseBuilder_.setMessage(builderForValue.build());
+      }
+      responseCase_ = 6;
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Empty rollback_response = 6;</code>
+     */
+    public Builder mergeRollbackResponse(com.google.protobuf.Empty value) {
+      if (rollbackResponseBuilder_ == null) {
+        if (responseCase_ == 6 &&
+            response_ != com.google.protobuf.Empty.getDefaultInstance()) {
+          response_ = com.google.protobuf.Empty.newBuilder((com.google.protobuf.Empty) response_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          response_ = value;
+        }
+        onChanged();
+      } else {
+        if (responseCase_ == 6) {
+          rollbackResponseBuilder_.mergeFrom(value);
+        } else {
+          rollbackResponseBuilder_.setMessage(value);
+        }
+      }
+      responseCase_ = 6;
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Empty rollback_response = 6;</code>
+     */
+    public Builder clearRollbackResponse() {
+      if (rollbackResponseBuilder_ == null) {
+        if (responseCase_ == 6) {
+          responseCase_ = 0;
+          response_ = null;
+          onChanged();
+        }
+      } else {
+        if (responseCase_ == 6) {
+          responseCase_ = 0;
+          response_ = null;
+        }
+        rollbackResponseBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Empty rollback_response = 6;</code>
+     */
+    public com.google.protobuf.Empty.Builder getRollbackResponseBuilder() {
+      return internalGetRollbackResponseFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.google.protobuf.Empty rollback_response = 6;</code>
+     */
+    @java.lang.Override
+    public com.google.protobuf.EmptyOrBuilder getRollbackResponseOrBuilder() {
+      if ((responseCase_ == 6) && (rollbackResponseBuilder_ != null)) {
+        return rollbackResponseBuilder_.getMessageOrBuilder();
+      } else {
+        if (responseCase_ == 6) {
+          return (com.google.protobuf.Empty) response_;
+        }
+        return com.google.protobuf.Empty.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.protobuf.Empty rollback_response = 6;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.protobuf.Empty, com.google.protobuf.Empty.Builder, com.google.protobuf.EmptyOrBuilder> 
+        internalGetRollbackResponseFieldBuilder() {
+      if (rollbackResponseBuilder_ == null) {
+        if (!(responseCase_ == 6)) {
+          response_ = com.google.protobuf.Empty.getDefaultInstance();
+        }
+        rollbackResponseBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.protobuf.Empty, com.google.protobuf.Empty.Builder, com.google.protobuf.EmptyOrBuilder>(
+                (com.google.protobuf.Empty) response_,
+                getParentForChildren(),
+                isClean());
+        response_ = null;
+      }
+      responseCase_ = 6;
+      onChanged();
+      return rollbackResponseBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.spanner.v1.CommitResponse, com.google.spanner.v1.CommitResponse.Builder, com.google.spanner.v1.CommitResponseOrBuilder> writeMutationsResponseBuilder_;
+    /**
+     * <code>.google.spanner.v1.CommitResponse write_mutations_response = 7;</code>
+     * @return Whether the writeMutationsResponse field is set.
+     */
+    @java.lang.Override
+    public boolean hasWriteMutationsResponse() {
+      return responseCase_ == 7;
+    }
+    /**
+     * <code>.google.spanner.v1.CommitResponse write_mutations_response = 7;</code>
+     * @return The writeMutationsResponse.
+     */
+    @java.lang.Override
+    public com.google.spanner.v1.CommitResponse getWriteMutationsResponse() {
+      if (writeMutationsResponseBuilder_ == null) {
+        if (responseCase_ == 7) {
+          return (com.google.spanner.v1.CommitResponse) response_;
+        }
+        return com.google.spanner.v1.CommitResponse.getDefaultInstance();
+      } else {
+        if (responseCase_ == 7) {
+          return writeMutationsResponseBuilder_.getMessage();
+        }
+        return com.google.spanner.v1.CommitResponse.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.spanner.v1.CommitResponse write_mutations_response = 7;</code>
+     */
+    public Builder setWriteMutationsResponse(com.google.spanner.v1.CommitResponse value) {
+      if (writeMutationsResponseBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        response_ = value;
+        onChanged();
+      } else {
+        writeMutationsResponseBuilder_.setMessage(value);
+      }
+      responseCase_ = 7;
+      return this;
+    }
+    /**
+     * <code>.google.spanner.v1.CommitResponse write_mutations_response = 7;</code>
+     */
+    public Builder setWriteMutationsResponse(
+        com.google.spanner.v1.CommitResponse.Builder builderForValue) {
+      if (writeMutationsResponseBuilder_ == null) {
+        response_ = builderForValue.build();
+        onChanged();
+      } else {
+        writeMutationsResponseBuilder_.setMessage(builderForValue.build());
+      }
+      responseCase_ = 7;
+      return this;
+    }
+    /**
+     * <code>.google.spanner.v1.CommitResponse write_mutations_response = 7;</code>
+     */
+    public Builder mergeWriteMutationsResponse(com.google.spanner.v1.CommitResponse value) {
+      if (writeMutationsResponseBuilder_ == null) {
+        if (responseCase_ == 7 &&
+            response_ != com.google.spanner.v1.CommitResponse.getDefaultInstance()) {
+          response_ = com.google.spanner.v1.CommitResponse.newBuilder((com.google.spanner.v1.CommitResponse) response_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          response_ = value;
+        }
+        onChanged();
+      } else {
+        if (responseCase_ == 7) {
+          writeMutationsResponseBuilder_.mergeFrom(value);
+        } else {
+          writeMutationsResponseBuilder_.setMessage(value);
+        }
+      }
+      responseCase_ = 7;
+      return this;
+    }
+    /**
+     * <code>.google.spanner.v1.CommitResponse write_mutations_response = 7;</code>
+     */
+    public Builder clearWriteMutationsResponse() {
+      if (writeMutationsResponseBuilder_ == null) {
+        if (responseCase_ == 7) {
+          responseCase_ = 0;
+          response_ = null;
+          onChanged();
+        }
+      } else {
+        if (responseCase_ == 7) {
+          responseCase_ = 0;
+          response_ = null;
+        }
+        writeMutationsResponseBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>.google.spanner.v1.CommitResponse write_mutations_response = 7;</code>
+     */
+    public com.google.spanner.v1.CommitResponse.Builder getWriteMutationsResponseBuilder() {
+      return internalGetWriteMutationsResponseFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.google.spanner.v1.CommitResponse write_mutations_response = 7;</code>
+     */
+    @java.lang.Override
+    public com.google.spanner.v1.CommitResponseOrBuilder getWriteMutationsResponseOrBuilder() {
+      if ((responseCase_ == 7) && (writeMutationsResponseBuilder_ != null)) {
+        return writeMutationsResponseBuilder_.getMessageOrBuilder();
+      } else {
+        if (responseCase_ == 7) {
+          return (com.google.spanner.v1.CommitResponse) response_;
+        }
+        return com.google.spanner.v1.CommitResponse.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.spanner.v1.CommitResponse write_mutations_response = 7;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.spanner.v1.CommitResponse, com.google.spanner.v1.CommitResponse.Builder, com.google.spanner.v1.CommitResponseOrBuilder> 
+        internalGetWriteMutationsResponseFieldBuilder() {
+      if (writeMutationsResponseBuilder_ == null) {
+        if (!(responseCase_ == 7)) {
+          response_ = com.google.spanner.v1.CommitResponse.getDefaultInstance();
+        }
+        writeMutationsResponseBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.spanner.v1.CommitResponse, com.google.spanner.v1.CommitResponse.Builder, com.google.spanner.v1.CommitResponseOrBuilder>(
+                (com.google.spanner.v1.CommitResponse) response_,
+                getParentForChildren(),
+                isClean());
+        response_ = null;
+      }
+      responseCase_ = 7;
+      onChanged();
+      return writeMutationsResponseBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:google.spannerlib.v1.ConnectionStreamResponse)
