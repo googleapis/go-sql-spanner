@@ -54,7 +54,7 @@ echo -e "PREPARING ARTIFACTS IN: $(pwd)"
 
 # Cleanup old artifacts if they exist
 if [ -d "$ARTIFACTS_DIR" ]; then
-    rm -rf "$ARTIFACTS_DIR" # 2> /dev/null
+    rm -rf "$ARTIFACTS_DIR"
 fi
 
 mkdir -p "$ARTIFACTS_DIR"
