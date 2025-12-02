@@ -4,7 +4,7 @@ This Ruby wrapper provides an interface for interacting with Google Cloud Spanne
 
 ## What Does This Wrapper Do?
 
-- **FFI Integration:** Bridges between Ruby and native C (or Go via cgo) code by wrapping native functions using FFI.
+- **FFI Integration:** Bridges Ruby with native C (or Go via cgo) code by wrapping native functions using FFI.
 - **High Performance:** Provides access to Spanner's performance and reliability through idiomatic Ruby APIs.
 - **Mock Server & Testing:** Includes mock server and integration tests to validate functionality.
 
@@ -25,15 +25,12 @@ Install Ruby dependencies:
 bundle install
 ```
 
-Ensure any required native libraries are built and installed (see FFI configuration and documentation).
-
 ## FFI & Native Integration
 
 This wrapper uses the [FFI Ruby gem](https://github.com/ffi/ffi) to load and call native functions implemented in C (or Go via cgo).
 
-FFI setup is located in [`lib/spannerlib/ffi.rb`](lib/spannerlib/ffi.rb).
-
-Refer to the source code for further details on function signatures and internals.
+FFI setup is located in [`lib/spannerlib/ffi.rb`](lib/spannerlib/ffi.rb).  
+Refer to the source code [`lib/spannerlib/ffi.rb`](lib/spannerlib/ffi.rb) for details on function signatures and internals.
 
 ## Running Tests
 
@@ -41,16 +38,15 @@ Refer to the source code for further details on function signatures and internal
 
 These tests run against an in-memory GRPC mock server.
 
-Run mock server tests with:
-
 ```sh
 bundle exec rspec spec/spannerlib_ruby_spec.rb
 ```
 
 ### Integration Tests
 
-Integration tests are run against the [Google Spanner Emulator](https://cloud.google.com/spanner/docs/emulator).  
-You can quickly start the emulator using Docker (recommended):
+Integration tests are run against the [Google Spanner Emulator](https://cloud.google.com/spanner/docs/emulator).
+
+Start the emulator using Docker (recommended):
 
 ```sh
 docker run --rm -d \
@@ -58,24 +54,23 @@ docker run --rm -d \
   gcr.io/cloud-spanner-emulator/emulator
 ```
 
-Set the environment variable to direct client library calls to the emulator:
+Then set the environment variable to direct client library calls to the emulator:
 
 ```sh
 export SPANNER_EMULATOR_HOST=localhost:9010
 bundle exec rspec spec/integration/
 ```
 
-
 ## Linting & Fixes
 
-Check and auto-correct Ruby code style:
+To check and auto-correct Ruby code style:
 
 ```sh
 bundle exec rubocop         # Checks lint
 bundle exec rubocop -A      # Auto-corrects where possible
 ```
 
-Resolve any remaining errors manually.
+If any linting issues remain, resolve those manually.
 
 ## Contributing
 
@@ -93,8 +88,13 @@ Feel free to open issues or pull requests for improvements.
 
 - **FFI Load Errors:** Ensure required native libraries are built and in your library path.
 - **Missing Gems:** Run `bundle install`.
-- **Spanner Credentials Issues:** Set the required environment variables.
+- **Spanner Credentials Issues:** Set up [Application Default Credentials](https://cloud.google.com/docs/authentication/provide-credentials-adc), for example by setting the `GOOGLE_APPLICATION_CREDENTIALS` environment variable.
 
 ---
 
-For overall project details, see the main [go-sql-spanner README](../../../../README.md).
+For overall project details, see the main [go-sql-spanner README](../../../README.md).
+
+---
+
+**Reference:**  
+For examples of adding new functionality inside the FFI layer, see [PR #655](https://github.com/googleapis/go-sql-spanner/pull/655).
