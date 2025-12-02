@@ -177,7 +177,11 @@ def get_spannerlib_artifacts_binary(session):
 def build_spannerlib(session):
     """
     Build SpannerLib artifacts.
+    Used only in dev env to build SpannerLib artifacts.
     """
+    if platform.system() == "Windows":
+        session.skip("Skipping build_spannerlib on Windows")
+
     session.log("Building spannerlib artifacts...")
 
     # Run the build script
