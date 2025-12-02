@@ -48,6 +48,7 @@ LINT_PATHS = ["google", "tests", "samples", "noxfile.py"]
 
 STANDARD_DEPENDENCIES = [
     "google-cloud-spanner",
+    "importlib_resources",
 ]
 
 UNIT_TEST_STANDARD_DEPENDENCIES = [

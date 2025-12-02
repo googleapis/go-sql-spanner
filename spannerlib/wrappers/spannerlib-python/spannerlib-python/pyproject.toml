@@ -30,6 +30,7 @@ classifiers = [
 ]
 dependencies = [
     "google-cloud-spanner",
+    "importlib_resources",
 ]
 
 [project.optional-dependencies]

@@ -100,7 +100,7 @@ class TestSpannerlib:
         with mock.patch("platform.system", return_value="Linux"):
             with mock.patch.object(Path, "exists", return_value=False):
                 with pytest.raises(
-                    SpannerLibError, match="Library file not found"
+                    SpannerLibError, match="Library path does not exist:"
                 ):
                     SpannerLib()
 

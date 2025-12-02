@@ -13,20 +13,52 @@
 #  limitations under the License.
 """Module for interacting with the SpannerLib shared library."""
 
+from contextlib import contextmanager
 import ctypes
 import logging
 from pathlib import Path
 import platform
-from typing import ClassVar, Final, Optional
+import sys
+from typing import ClassVar, Final, Generator, Optional
 
 from .errors import SpannerLibError
 from .message import Message
 from .types import GoSlice, GoString
 
+if sys.version_info >= (3, 9):
+    from importlib.resources import as_file, files
+else:
+    # Fallback for Python 3.8
+    from importlib_resources import as_file, files
+
 logger = logging.getLogger(__name__)
 
-MODULE_ROOT: Final[Path] = Path(__file__).resolve().parent
+CURRENT_PACKAGE: Final[str] = __package__ or "google.cloud.spannerlib.internal"
 LIB_DIR_NAME: Final[str] = "lib"
+
+
+@contextmanager
+def get_shared_library(
+    library_name: str, subdirectory: str = LIB_DIR_NAME
+) -> Generator[Path, None, None]:
+    """
+    Context manager to yield a physical path to a shared library.
+
+    Compatible with Python 3.8+ and Zip/Egg imports.
+    """
+    try:
+
+        package_root = files(CURRENT_PACKAGE)
+        resource_ref = package_root.joinpath(subdirectory, library_name)
+
+        with as_file(resource_ref) as lib_path:
+            yield lib_path
+
+    except (ImportError, TypeError) as e:
+        raise FileNotFoundError(
+            f"Could not resolve resource '{library_name}'"
+            f" in '{CURRENT_PACKAGE}'"
+        ) from e
 
 
 class SpannerLib:
@@ -70,6 +102,44 @@ class SpannerLib:
                 f"Could not load native dependency '{lib_path.name}': {e}"
             ) from e
 
+    @staticmethod
+    def _get_lib_filename() -> str:
+        """
+        Returns the filename of the shared library based on the OS.
+        """
+        filename: str = ""
+
+        system_name = platform.system()
+
+        if system_name == "Windows":
+            filename = "spannerlib.dll"
+        elif system_name == "Darwin":
+            filename = "spannerlib.dylib"
+        elif system_name == "Linux":
+            filename = "spannerlib.so"
+        else:
+            raise SpannerLibError(
+                f"Unsupported operating system: {system_name}"
+            )
+        return filename
+
+    @staticmethod
+    def _get_lib_path() -> Path:
+        """
+        Resolves the absolute path to the shared library based on the OS.
+        """
+        filename: str = SpannerLib._get_lib_filename()
+
+        with get_shared_library(filename) as lib_path:
+            # Sanity check: Ensure the file actually exists
+            # before handing to ctypes
+            if not lib_path.exists():
+                raise SpannerLibError(
+                    f"Library path does not exist: {lib_path}"
+                )
+
+            return lib_path
+
     def _configure_signatures(self) -> None:
         """
         Defines the argument and return types for the C functions.
@@ -111,7 +181,8 @@ class SpannerLib:
 
             # 5. CloseConnection
             # Corresponds to:
-            # CloseConnection_return CloseConnection(GoInt64 poolId, GoInt64 connId);
+            # CloseConnection_return CloseConnection(GoInt64 poolId,
+            # GoInt64 connId);
             if hasattr(lib, "CloseConnection"):
                 lib.CloseConnection.argtypes = [
                     ctypes.c_longlong,
@@ -121,7 +192,8 @@ class SpannerLib:
 
             # 6. Execute
             # Corresponds to:
-            # Execute_return Execute(GoInt64 poolId, GoInt64 connectionId, GoSlice statement);
+            # Execute_return Execute(GoInt64 poolId, GoInt64 connectionId,
+            # GoSlice statement);
             if hasattr(lib, "Execute"):
                 lib.Execute.argtypes = [
                     ctypes.c_longlong,
@@ -132,7 +204,8 @@ class SpannerLib:
 
             # 7. ExecuteBatch
             # Corresponds to:
-            # ExecuteBatch_return ExecuteBatch(GoInt64 poolId, GoInt64 connectionId, GoSlice statements);
+            # ExecuteBatch_return ExecuteBatch(GoInt64 poolId,
+            # GoInt64 connectionId, GoSlice statements);
             if hasattr(lib, "ExecuteBatch"):
                 lib.ExecuteBatch.argtypes = [
                     ctypes.c_longlong,
@@ -143,7 +216,8 @@ class SpannerLib:
 
             # 8. Next
             # Corresponds to:
-            # Next_return Next(GoInt64 poolId, GoInt64 connId, GoInt64 rowsId, GoInt32 numRows, GoInt32 encodeRowOption);
+            # Next_return Next(GoInt64 poolId, GoInt64 connId,
+            # GoInt64 rowsId, GoInt32 numRows, GoInt32 encodeRowOption);
             if hasattr(lib, "Next"):
                 lib.Next.argtypes = [
                     ctypes.c_longlong,
@@ -156,7 +230,8 @@ class SpannerLib:
 
             # 9. CloseRows
             # Corresponds to:
-            # CloseRows_return CloseRows(GoInt64 poolId, GoInt64 connId, GoInt64 rowsId);
+            # CloseRows_return CloseRows(GoInt64 poolId, GoInt64 connId,
+            # GoInt64 rowsId);
             if hasattr(lib, "CloseRows"):
                 lib.CloseRows.argtypes = [
                     ctypes.c_longlong,
@@ -167,7 +242,8 @@ class SpannerLib:
 
             # 10. Metadata
             # Corresponds to:
-            # Metadata_return Metadata(GoInt64 poolId, GoInt64 connId, GoInt64 rowsId);
+            # Metadata_return Metadata(GoInt64 poolId, GoInt64 connId,
+            # GoInt64 rowsId);
             if hasattr(lib, "Metadata"):
                 lib.Metadata.argtypes = [
                     ctypes.c_longlong,
@@ -178,7 +254,8 @@ class SpannerLib:
 
             # 11. ResultSetStats
             # Corresponds to:
-            # ResultSetStats_return ResultSetStats(GoInt64 poolId, GoInt64 connId, GoInt64 rowsId);
+            # ResultSetStats_return ResultSetStats(GoInt64 poolId,
+            # GoInt64 connId, GoInt64 rowsId);
             if hasattr(lib, "ResultSetStats"):
                 lib.ResultSetStats.argtypes = [
                     ctypes.c_longlong,
@@ -189,7 +266,8 @@ class SpannerLib:
 
             # 12. BeginTransaction
             # Corresponds to:
-            # BeginTransaction_return BeginTransaction(GoInt64 poolId, GoInt64 connectionId, GoSlice txOpts);
+            # BeginTransaction_return BeginTransaction(GoInt64 poolId,
+            # GoInt64 connectionId, GoSlice txOpts);
             if hasattr(lib, "BeginTransaction"):
                 lib.BeginTransaction.argtypes = [
                     ctypes.c_longlong,
@@ -220,7 +298,8 @@ class SpannerLib:
 
             # 15. WriteMutations
             # Corresponds to:
-            # WriteMutations_return WriteMutations(GoInt64 poolId, GoInt64 connectionId, GoSlice mutationsBytes);
+            # WriteMutations_return WriteMutations(GoInt64 poolId,
+            # GoInt64 connectionId, GoSlice mutationsBytes);
             if hasattr(lib, "WriteMutations"):
                 lib.WriteMutations.argtypes = [
                     ctypes.c_longlong,
@@ -233,36 +312,6 @@ class SpannerLib:
             raise SpannerLibError(
                 f"Symbol missing in native library: {e}"
             ) from e
-
-    @staticmethod
-    def _get_lib_path() -> Path:
-        """
-        Resolves the absolute path to the shared library based on the OS.
-        Uses if/elif for Python 3.8 compatibility.
-        """
-        system_name = platform.system()
-
-        filename: str = ""
-
-        if system_name == "Windows":
-            filename = "spannerlib.dll"
-        elif system_name == "Darwin":
-            filename = "spannerlib.dylib"
-        elif system_name == "Linux":
-            filename = "spannerlib.so"
-        else:
-            raise SpannerLibError(
-                f"Unsupported operating system: {system_name}"
-            )
-
-        full_path = MODULE_ROOT / LIB_DIR_NAME / filename
-
-        if not full_path.exists():
-            raise SpannerLibError(
-                f"Library file not found at expected path: {full_path}"
-            )
-
-        return full_path
 
     @property
     def lib(self) -> ctypes.CDLL:
@@ -526,7 +575,8 @@ class SpannerLib:
         Args:
             pool_handle: The pool ID.
             conn_handle: The connection ID.
-            request: The serialized Mutation(BatchWriteRequest.MutationGroup) request.
+            request: The serialized Mutation request.
+            (BatchWriteRequest.MutationGroup)
 
         Returns:
             Message: The result of the write operation.
