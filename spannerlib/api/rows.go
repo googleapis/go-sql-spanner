@@ -100,6 +100,7 @@ func next(ctx context.Context, poolId, connId, rowsId int64, marshalResult bool)
 		return nil, nil, err
 	}
 	if !marshalResult || values == nil {
+		rows.buffer = nil
 		return values, nil, nil
 	}
 
@@ -115,6 +116,9 @@ func next(ctx context.Context, poolId, connId, rowsId int64, marshalResult bool)
 func CloseRows(ctx context.Context, poolId, connId, rowsId int64) error {
 	conn, err := findConnection(poolId, connId)
 	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return nil
+		}
 		return err
 	}
 	r, ok := conn.results.LoadAndDelete(rowsId)

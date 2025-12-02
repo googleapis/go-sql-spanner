@@ -128,7 +128,7 @@ public class Rows : AbstractLibObject
     public async Task<long> GetTotalUpdateCountAsync(CancellationToken cancellationToken = default)
     {
         var result = UpdateCount;
-        while (await NextResultSetAsync(cancellationToken))
+        while (await NextResultSetAsync(cancellationToken).ConfigureAwait(false))
         {
             result += UpdateCount;
         }

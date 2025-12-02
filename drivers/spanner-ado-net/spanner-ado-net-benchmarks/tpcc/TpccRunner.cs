@@ -23,7 +23,7 @@ using SpannerException = Google.Cloud.SpannerLib.SpannerException;
 
 namespace Google.Cloud.Spanner.DataProvider.Benchmarks.tpcc;
 
-internal class TpccRunner
+internal class TpccRunner : AbstractRunner
 {
     internal enum TransactionType
     {
@@ -62,7 +62,7 @@ internal class TpccRunner
         _isClientLib = connection is Data.SpannerConnection;
     }
 
-    internal async Task RunAsync(CancellationToken cancellationToken)
+    public override async Task RunAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -70,7 +70,7 @@ internal class TpccRunner
         }
     }
 
-    internal async Task RunTransactionAsync(CancellationToken cancellationToken)
+    public override async Task RunTransactionAsync(CancellationToken cancellationToken)
     {
         var watch = Stopwatch.StartNew();
         var transaction = Random.Shared.Next(23);
@@ -123,7 +123,10 @@ internal class TpccRunner
                     {
                         continue;
                     }
-
+                    if (exception is SpannerDbException { Status.Code: (int)Code.Aborted })
+                    {
+                        continue;
+                    }
                     if (exception is Data.SpannerException { ErrorCode: ErrorCode.Aborted })
                     {
                         continue;
@@ -857,5 +860,4 @@ internal class TpccRunner
             }
         }
     }
-    
 }

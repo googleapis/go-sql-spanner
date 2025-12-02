@@ -26,14 +26,17 @@ public interface NextRequestOrBuilder extends
   com.google.cloud.spannerlib.v1.RowsOrBuilder getRowsOrBuilder();
 
   /**
-   * <code>int64 num_rows = 2 [(.google.api.field_behavior) = REQUIRED];</code>
-   * @return The numRows.
+   * <code>.google.spannerlib.v1.FetchOptions fetch_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+   * @return Whether the fetchOptions field is set.
    */
-  long getNumRows();
-
+  boolean hasFetchOptions();
   /**
-   * <code>int64 encoding = 3 [(.google.api.field_behavior) = REQUIRED];</code>
-   * @return The encoding.
+   * <code>.google.spannerlib.v1.FetchOptions fetch_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+   * @return The fetchOptions.
    */
-  long getEncoding();
+  com.google.cloud.spannerlib.v1.FetchOptions getFetchOptions();
+  /**
+   * <code>.google.spannerlib.v1.FetchOptions fetch_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+   */
+  com.google.cloud.spannerlib.v1.FetchOptionsOrBuilder getFetchOptionsOrBuilder();
 }

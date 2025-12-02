@@ -112,10 +112,11 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     /// connection. The contents of the returned Rows object depends on the type of SQL statement.
     /// </summary>
     /// <param name="statement">The SQL statement that should be executed</param>
+    /// <param name="prefetchRows">The number of rows to prefetch and include in the initial result</param>
     /// <returns>A Rows object with the statement result</returns>
-    public Rows Execute(ExecuteSqlRequest statement)
+    public Rows Execute(ExecuteSqlRequest statement, int prefetchRows = 0)
     {
-        return Spanner.Execute(this, statement);
+        return Spanner.Execute(this, statement, prefetchRows);
     }
 
     /// <summary>
@@ -123,11 +124,12 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     /// connection. The contents of the returned Rows object depends on the type of SQL statement.
     /// </summary>
     /// <param name="statement">The SQL statement that should be executed</param>
+    /// <param name="prefetchRows">The number of rows to prefetch and include in the initial result</param>
     /// <param name="cancellationToken">The cancellation token</param>
     /// <returns>A Rows object with the statement result</returns>
-    public Task<Rows> ExecuteAsync(ExecuteSqlRequest statement, CancellationToken cancellationToken = default)
+    public Task<Rows> ExecuteAsync(ExecuteSqlRequest statement, int prefetchRows = 0, CancellationToken cancellationToken = default)
     {
-        return Spanner.ExecuteAsync(this, statement, cancellationToken);
+        return Spanner.ExecuteAsync(this, statement, prefetchRows, cancellationToken);
     }
 
     /// <summary>

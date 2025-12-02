@@ -485,23 +485,37 @@ public class TransactionTests : AbstractMockServerTests
     }
 
     [Test]
-    [TestCase(IsolationLevel.RepeatableRead,  TransactionOptions.Types.IsolationLevel.RepeatableRead)]
-    [TestCase(IsolationLevel.Serializable,    TransactionOptions.Types.IsolationLevel.Serializable)]
-    [TestCase(IsolationLevel.Snapshot,        TransactionOptions.Types.IsolationLevel.RepeatableRead)]
-    [TestCase(IsolationLevel.Unspecified,     TransactionOptions.Types.IsolationLevel.Unspecified)]
+    [TestCase(IsolationLevel.RepeatableRead,  TransactionOptions.Types.IsolationLevel.RepeatableRead, false)]
+    [TestCase(IsolationLevel.Serializable,    TransactionOptions.Types.IsolationLevel.Serializable, false)]
+    [TestCase(IsolationLevel.Snapshot,        TransactionOptions.Types.IsolationLevel.RepeatableRead, false)]
+    [TestCase(IsolationLevel.Unspecified,     TransactionOptions.Types.IsolationLevel.Unspecified, false)]
+    [TestCase(IsolationLevel.RepeatableRead,  TransactionOptions.Types.IsolationLevel.RepeatableRead, true)]
+    [TestCase(IsolationLevel.Serializable,    TransactionOptions.Types.IsolationLevel.Serializable, true)]
+    [TestCase(IsolationLevel.Snapshot,        TransactionOptions.Types.IsolationLevel.RepeatableRead, true)]
+    [TestCase(IsolationLevel.Unspecified,     TransactionOptions.Types.IsolationLevel.Unspecified, true)]
     [SuppressMessage("ReSharper", "MethodHasAsyncOverload")]
-    public async Task SupportedIsolationLevels(IsolationLevel level, TransactionOptions.Types.IsolationLevel expectedSpannerLevel)
+    public async Task SupportedIsolationLevels(IsolationLevel level, TransactionOptions.Types.IsolationLevel expectedSpannerLevel, bool async)
     {
         const string insertSql = "INSERT INTO my_table (name) VALUES ('X')";
         Fixture.SpannerMock.AddOrUpdateStatementResult(insertSql, StatementResult.CreateUpdateCount(1L));
         
         await using var conn = await OpenConnectionAsync();
-        var tx = conn.BeginTransaction(level);
+        var tx = async ? await conn.BeginTransactionAsync(level) : conn.BeginTransaction(level);
+        var cmd = conn.CreateCommand("set local transaction_tag='test'");
+        cmd.Transaction = tx;
+        await cmd.ExecuteNonQueryAsync();
         await conn.ExecuteNonQueryAsync(insertSql, tx: tx);
         
         // TODO: Add support for this to the shared lib.
         // Assert.That(conn.ExecuteScalar("SHOW TRANSACTION ISOLATION LEVEL"), Is.EqualTo(expectedSpannerLevel.ToString()));
-        await tx.CommitAsync();
+        if (async)
+        {
+            await tx.CommitAsync();
+        }
+        else
+        {
+            tx.Commit();
+        }
         
         var request = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().First();
         Assert.That(request.Transaction.Begin.IsolationLevel, Is.EqualTo(expectedSpannerLevel));

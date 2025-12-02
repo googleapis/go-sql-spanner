@@ -251,17 +251,17 @@ public class SpannerCommand : DbCommand, ICloneable
 
     private Task<Rows> ExecuteAsync(CancellationToken cancellationToken)
     {
-        return ExecuteAsync(ExecuteSqlRequest.Types.QueryMode.Normal, cancellationToken);
+        return ExecuteAsync(ExecuteSqlRequest.Types.QueryMode.Normal, prefetchRows: 0, cancellationToken);
     }
 
-    private Task<Rows> ExecuteAsync(ExecuteSqlRequest.Types.QueryMode mode, CancellationToken cancellationToken)
+    private Task<Rows> ExecuteAsync(ExecuteSqlRequest.Types.QueryMode mode, int prefetchRows, CancellationToken cancellationToken)
     {
         CheckCommandStateForExecution();
         if (cancellationToken.IsCancellationRequested)
         {
             return Task.FromCanceled<Rows>(cancellationToken);
         }
-        return SpannerConnection.ExecuteAsync(BuildStatement(mode), cancellationToken);
+        return SpannerConnection.ExecuteAsync(BuildStatement(mode), prefetchRows, cancellationToken);
     }
 
     private void CheckCommandStateForExecution()
@@ -290,12 +290,15 @@ public class SpannerCommand : DbCommand, ICloneable
         CheckDisposed();
         if (_mutation != null)
         {
-            await ExecuteMutationAsync(cancellationToken);
+            await ExecuteMutationAsync(cancellationToken).ConfigureAwait(false);
             return 1;
         }
 
-        await using var rows = await ExecuteAsync(cancellationToken);
-        return (int) await rows.GetTotalUpdateCountAsync(cancellationToken);
+        var rows = await ExecuteAsync(cancellationToken).ConfigureAwait(false);
+        await using (rows.ConfigureAwait(false))
+        {
+            return (int)await rows.GetTotalUpdateCountAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
     
     public override object? ExecuteScalar()
@@ -318,28 +321,35 @@ public class SpannerCommand : DbCommand, ICloneable
     {
         CheckDisposed();
         GaxPreconditions.CheckState(_mutation == null, "Cannot execute mutations with ExecuteScalarAsync()");
-        await using var rows = await ExecuteAsync(cancellationToken);
-        await using var reader = new SpannerDataReader(SpannerConnection, rows, CommandBehavior.Default);
-        if (await reader.ReadAsync(cancellationToken))
+        var rows = await ExecuteAsync(cancellationToken).ConfigureAwait(false);
+        await using (rows.ConfigureAwait(false))
         {
-            if (reader.FieldCount > 0)
+            var reader = new SpannerDataReader(SpannerConnection, rows, CommandBehavior.Default);
+            await using (reader.ConfigureAwait(false))
             {
-                return reader.GetValue(0);
+                if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    if (reader.FieldCount > 0)
+                    {
+                        return reader.GetValue(0);
+                    }
+                }
             }
+            return null;
         }
-        return null;
     }
 
     public override void Prepare()
     {
         CheckDisposed();
-        Execute(ExecuteSqlRequest.Types.QueryMode.Plan);
+        using var rows = Execute(ExecuteSqlRequest.Types.QueryMode.Plan);
     }
 
-    public override Task PrepareAsync(CancellationToken cancellationToken = default)
+    public override async Task PrepareAsync(CancellationToken cancellationToken = default)
     {
         CheckDisposed();
-        return ExecuteAsync(ExecuteSqlRequest.Types.QueryMode.Plan, cancellationToken);
+        var rows = await ExecuteAsync(ExecuteSqlRequest.Types.QueryMode.Plan, prefetchRows: 0, cancellationToken).ConfigureAwait(false);
+        await using (rows.ConfigureAwait(false));
     }
 
     protected override DbParameter CreateDbParameter()
@@ -388,14 +398,14 @@ public class SpannerCommand : DbCommand, ICloneable
             var mode = behavior.HasFlag(CommandBehavior.SchemaOnly)
                 ? ExecuteSqlRequest.Types.QueryMode.Plan
                 : ExecuteSqlRequest.Types.QueryMode.Normal;
-            var rows = await ExecuteAsync(mode, cancellationToken);
+            var rows = await ExecuteAsync(mode, prefetchRows: 0, cancellationToken).ConfigureAwait(false);
             return new SpannerDataReader(SpannerConnection, rows, behavior);
         }
         catch (SpannerException exception)
         {
             if (behavior.HasFlag(CommandBehavior.CloseConnection))
             {
-                await SpannerConnection.CloseAsync();
+                await SpannerConnection.CloseAsync().ConfigureAwait(false);
             }
             throw new SpannerDbException(exception);
         }
@@ -403,7 +413,7 @@ public class SpannerCommand : DbCommand, ICloneable
         {
             if (behavior.HasFlag(CommandBehavior.CloseConnection))
             {
-                await SpannerConnection.CloseAsync();
+                await SpannerConnection.CloseAsync().ConfigureAwait(false);
             }
             throw;
         }

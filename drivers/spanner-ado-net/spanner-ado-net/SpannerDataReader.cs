@@ -154,7 +154,7 @@ public class SpannerDataReader : DbDataReader
             if (!InternalRead())
             {
                 _hasReadData = true;
-                _currentRow = await LibRows.NextAsync(cancellationToken);
+                _currentRow = await LibRows.NextAsync(cancellationToken).ConfigureAwait(false);
             }
             _hasData = _hasData || _currentRow != null;
             return _currentRow != null;

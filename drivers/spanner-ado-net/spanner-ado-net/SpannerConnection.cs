@@ -31,8 +31,6 @@ namespace Google.Cloud.Spanner.DataProvider;
 
 public class SpannerConnection : DbConnection
 {
-    public bool UseSharedLibrary { get; set; }
-    
     private string _connectionString = string.Empty;
     
     private SpannerConnectionStringBuilder? _connectionStringBuilder;
@@ -387,18 +385,18 @@ public class SpannerConnection : DbConnection
         return cmd;
     }
     
-    public Rows Execute(ExecuteSqlRequest statement)
+    public Rows Execute(ExecuteSqlRequest statement, int prefetchRows = 0)
     {
         EnsureOpen();
         _transaction?.MarkUsed();
-        return TranslateException(() => LibConnection.Execute(statement));
+        return TranslateException(() => LibConnection.Execute(statement, prefetchRows));
     }
     
-    public Task<Rows> ExecuteAsync(ExecuteSqlRequest statement, CancellationToken cancellationToken = default)
+    public Task<Rows> ExecuteAsync(ExecuteSqlRequest statement, int prefetchRows = 0, CancellationToken cancellationToken = default)
     {
         EnsureOpen();
         _transaction?.MarkUsed();
-        return TranslateException(LibConnection.ExecuteAsync(statement, cancellationToken));
+        return TranslateException(LibConnection.ExecuteAsync(statement, prefetchRows, cancellationToken));
     }
     
     public new SpannerBatch CreateBatch() => (SpannerBatch) base.CreateBatch();

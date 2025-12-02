@@ -133,8 +133,8 @@ public class SpannerBatch : DbBatch
             return 0;
         }
         var statements = CreateStatements();
-        await SetRequestTagAsync(cancellationToken);
-        var results = await SpannerConnection.ExecuteBatchAsync(statements, cancellationToken);
+        await SetRequestTagAsync(cancellationToken).ConfigureAwait(false);
+        var results = await SpannerConnection.ExecuteBatchAsync(statements, cancellationToken).ConfigureAwait(false);
         DbBatchCommands.SetAffected(results);
         return (int) results.Sum();
     }

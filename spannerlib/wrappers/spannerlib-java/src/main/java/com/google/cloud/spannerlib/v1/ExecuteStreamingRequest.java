@@ -6,13 +6,13 @@
 package com.google.cloud.spannerlib.v1;
 
 /**
- * Protobuf type {@code google.spannerlib.v1.ExecuteRequest}
+ * Protobuf type {@code google.spannerlib.v1.ExecuteStreamingRequest}
  */
 @com.google.protobuf.Generated
-public final class ExecuteRequest extends
+public final class ExecuteStreamingRequest extends
     com.google.protobuf.GeneratedMessage implements
-    // @@protoc_insertion_point(message_implements:google.spannerlib.v1.ExecuteRequest)
-    ExecuteRequestOrBuilder {
+    // @@protoc_insertion_point(message_implements:google.spannerlib.v1.ExecuteStreamingRequest)
+    ExecuteStreamingRequestOrBuilder {
 private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
@@ -21,26 +21,26 @@ private static final long serialVersionUID = 0L;
       /* minor= */ 32,
       /* patch= */ 1,
       /* suffix= */ "",
-      ExecuteRequest.class.getName());
+      ExecuteStreamingRequest.class.getName());
   }
-  // Use ExecuteRequest.newBuilder() to construct.
-  private ExecuteRequest(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
+  // Use ExecuteStreamingRequest.newBuilder() to construct.
+  private ExecuteStreamingRequest(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
-  private ExecuteRequest() {
+  private ExecuteStreamingRequest() {
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
       getDescriptor() {
-    return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ExecuteRequest_descriptor;
+    return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ExecuteStreamingRequest_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ExecuteRequest_fieldAccessorTable
+    return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ExecuteStreamingRequest_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            com.google.cloud.spannerlib.v1.ExecuteRequest.class, com.google.cloud.spannerlib.v1.ExecuteRequest.Builder.class);
+            com.google.cloud.spannerlib.v1.ExecuteStreamingRequest.class, com.google.cloud.spannerlib.v1.ExecuteStreamingRequest.Builder.class);
   }
 
   private int bitField0_;
@@ -96,32 +96,6 @@ private static final long serialVersionUID = 0L;
     return executeSqlRequest_ == null ? com.google.spanner.v1.ExecuteSqlRequest.getDefaultInstance() : executeSqlRequest_;
   }
 
-  public static final int FETCH_OPTIONS_FIELD_NUMBER = 3;
-  private com.google.cloud.spannerlib.v1.FetchOptions fetchOptions_;
-  /**
-   * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
-   * @return Whether the fetchOptions field is set.
-   */
-  @java.lang.Override
-  public boolean hasFetchOptions() {
-    return ((bitField0_ & 0x00000004) != 0);
-  }
-  /**
-   * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
-   * @return The fetchOptions.
-   */
-  @java.lang.Override
-  public com.google.cloud.spannerlib.v1.FetchOptions getFetchOptions() {
-    return fetchOptions_ == null ? com.google.cloud.spannerlib.v1.FetchOptions.getDefaultInstance() : fetchOptions_;
-  }
-  /**
-   * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
-   */
-  @java.lang.Override
-  public com.google.cloud.spannerlib.v1.FetchOptionsOrBuilder getFetchOptionsOrBuilder() {
-    return fetchOptions_ == null ? com.google.cloud.spannerlib.v1.FetchOptions.getDefaultInstance() : fetchOptions_;
-  }
-
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -142,9 +116,6 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       output.writeMessage(2, getExecuteSqlRequest());
     }
-    if (((bitField0_ & 0x00000004) != 0)) {
-      output.writeMessage(3, getFetchOptions());
-    }
     getUnknownFields().writeTo(output);
   }
 
@@ -162,10 +133,6 @@ private static final long serialVersionUID = 0L;
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(2, getExecuteSqlRequest());
     }
-    if (((bitField0_ & 0x00000004) != 0)) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(3, getFetchOptions());
-    }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
     return size;
@@ -176,10 +143,10 @@ private static final long serialVersionUID = 0L;
     if (obj == this) {
      return true;
     }
-    if (!(obj instanceof com.google.cloud.spannerlib.v1.ExecuteRequest)) {
+    if (!(obj instanceof com.google.cloud.spannerlib.v1.ExecuteStreamingRequest)) {
       return super.equals(obj);
     }
-    com.google.cloud.spannerlib.v1.ExecuteRequest other = (com.google.cloud.spannerlib.v1.ExecuteRequest) obj;
+    com.google.cloud.spannerlib.v1.ExecuteStreamingRequest other = (com.google.cloud.spannerlib.v1.ExecuteStreamingRequest) obj;
 
     if (hasConnection() != other.hasConnection()) return false;
     if (hasConnection()) {
@@ -190,11 +157,6 @@ private static final long serialVersionUID = 0L;
     if (hasExecuteSqlRequest()) {
       if (!getExecuteSqlRequest()
           .equals(other.getExecuteSqlRequest())) return false;
-    }
-    if (hasFetchOptions() != other.hasFetchOptions()) return false;
-    if (hasFetchOptions()) {
-      if (!getFetchOptions()
-          .equals(other.getFetchOptions())) return false;
     }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
@@ -215,53 +177,49 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + EXECUTE_SQL_REQUEST_FIELD_NUMBER;
       hash = (53 * hash) + getExecuteSqlRequest().hashCode();
     }
-    if (hasFetchOptions()) {
-      hash = (37 * hash) + FETCH_OPTIONS_FIELD_NUMBER;
-      hash = (53 * hash) + getFetchOptions().hashCode();
-    }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
   }
 
-  public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(
+  public static com.google.cloud.spannerlib.v1.ExecuteStreamingRequest parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(
+  public static com.google.cloud.spannerlib.v1.ExecuteStreamingRequest parseFrom(
       java.nio.ByteBuffer data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(
+  public static com.google.cloud.spannerlib.v1.ExecuteStreamingRequest parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(
+  public static com.google.cloud.spannerlib.v1.ExecuteStreamingRequest parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(byte[] data)
+  public static com.google.cloud.spannerlib.v1.ExecuteStreamingRequest parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(
+  public static com.google.cloud.spannerlib.v1.ExecuteStreamingRequest parseFrom(
       byte[] data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(java.io.InputStream input)
+  public static com.google.cloud.spannerlib.v1.ExecuteStreamingRequest parseFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(
+  public static com.google.cloud.spannerlib.v1.ExecuteStreamingRequest parseFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -269,26 +227,26 @@ private static final long serialVersionUID = 0L;
         .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static com.google.cloud.spannerlib.v1.ExecuteRequest parseDelimitedFrom(java.io.InputStream input)
+  public static com.google.cloud.spannerlib.v1.ExecuteStreamingRequest parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input);
   }
 
-  public static com.google.cloud.spannerlib.v1.ExecuteRequest parseDelimitedFrom(
+  public static com.google.cloud.spannerlib.v1.ExecuteStreamingRequest parseDelimitedFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-  public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(
+  public static com.google.cloud.spannerlib.v1.ExecuteStreamingRequest parseFrom(
       com.google.protobuf.CodedInputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static com.google.cloud.spannerlib.v1.ExecuteRequest parseFrom(
+  public static com.google.cloud.spannerlib.v1.ExecuteStreamingRequest parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -301,7 +259,7 @@ private static final long serialVersionUID = 0L;
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-  public static Builder newBuilder(com.google.cloud.spannerlib.v1.ExecuteRequest prototype) {
+  public static Builder newBuilder(com.google.cloud.spannerlib.v1.ExecuteStreamingRequest prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
   @java.lang.Override
@@ -317,26 +275,26 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
-   * Protobuf type {@code google.spannerlib.v1.ExecuteRequest}
+   * Protobuf type {@code google.spannerlib.v1.ExecuteStreamingRequest}
    */
   public static final class Builder extends
       com.google.protobuf.GeneratedMessage.Builder<Builder> implements
-      // @@protoc_insertion_point(builder_implements:google.spannerlib.v1.ExecuteRequest)
-      com.google.cloud.spannerlib.v1.ExecuteRequestOrBuilder {
+      // @@protoc_insertion_point(builder_implements:google.spannerlib.v1.ExecuteStreamingRequest)
+      com.google.cloud.spannerlib.v1.ExecuteStreamingRequestOrBuilder {
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ExecuteRequest_descriptor;
+      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ExecuteStreamingRequest_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ExecuteRequest_fieldAccessorTable
+      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ExecuteStreamingRequest_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              com.google.cloud.spannerlib.v1.ExecuteRequest.class, com.google.cloud.spannerlib.v1.ExecuteRequest.Builder.class);
+              com.google.cloud.spannerlib.v1.ExecuteStreamingRequest.class, com.google.cloud.spannerlib.v1.ExecuteStreamingRequest.Builder.class);
     }
 
-    // Construct using com.google.cloud.spannerlib.v1.ExecuteRequest.newBuilder()
+    // Construct using com.google.cloud.spannerlib.v1.ExecuteStreamingRequest.newBuilder()
     private Builder() {
       maybeForceBuilderInitialization();
     }
@@ -351,7 +309,6 @@ private static final long serialVersionUID = 0L;
               .alwaysUseFieldBuilders) {
         internalGetConnectionFieldBuilder();
         internalGetExecuteSqlRequestFieldBuilder();
-        internalGetFetchOptionsFieldBuilder();
       }
     }
     @java.lang.Override
@@ -368,28 +325,23 @@ private static final long serialVersionUID = 0L;
         executeSqlRequestBuilder_.dispose();
         executeSqlRequestBuilder_ = null;
       }
-      fetchOptions_ = null;
-      if (fetchOptionsBuilder_ != null) {
-        fetchOptionsBuilder_.dispose();
-        fetchOptionsBuilder_ = null;
-      }
       return this;
     }
 
     @java.lang.Override
     public com.google.protobuf.Descriptors.Descriptor
         getDescriptorForType() {
-      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ExecuteRequest_descriptor;
+      return com.google.cloud.spannerlib.v1.SpannerLibProto.internal_static_google_spannerlib_v1_ExecuteStreamingRequest_descriptor;
     }
 
     @java.lang.Override
-    public com.google.cloud.spannerlib.v1.ExecuteRequest getDefaultInstanceForType() {
-      return com.google.cloud.spannerlib.v1.ExecuteRequest.getDefaultInstance();
+    public com.google.cloud.spannerlib.v1.ExecuteStreamingRequest getDefaultInstanceForType() {
+      return com.google.cloud.spannerlib.v1.ExecuteStreamingRequest.getDefaultInstance();
     }
 
     @java.lang.Override
-    public com.google.cloud.spannerlib.v1.ExecuteRequest build() {
-      com.google.cloud.spannerlib.v1.ExecuteRequest result = buildPartial();
+    public com.google.cloud.spannerlib.v1.ExecuteStreamingRequest build() {
+      com.google.cloud.spannerlib.v1.ExecuteStreamingRequest result = buildPartial();
       if (!result.isInitialized()) {
         throw newUninitializedMessageException(result);
       }
@@ -397,14 +349,14 @@ private static final long serialVersionUID = 0L;
     }
 
     @java.lang.Override
-    public com.google.cloud.spannerlib.v1.ExecuteRequest buildPartial() {
-      com.google.cloud.spannerlib.v1.ExecuteRequest result = new com.google.cloud.spannerlib.v1.ExecuteRequest(this);
+    public com.google.cloud.spannerlib.v1.ExecuteStreamingRequest buildPartial() {
+      com.google.cloud.spannerlib.v1.ExecuteStreamingRequest result = new com.google.cloud.spannerlib.v1.ExecuteStreamingRequest(this);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
 
-    private void buildPartial0(com.google.cloud.spannerlib.v1.ExecuteRequest result) {
+    private void buildPartial0(com.google.cloud.spannerlib.v1.ExecuteStreamingRequest result) {
       int from_bitField0_ = bitField0_;
       int to_bitField0_ = 0;
       if (((from_bitField0_ & 0x00000001) != 0)) {
@@ -419,35 +371,26 @@ private static final long serialVersionUID = 0L;
             : executeSqlRequestBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
-      if (((from_bitField0_ & 0x00000004) != 0)) {
-        result.fetchOptions_ = fetchOptionsBuilder_ == null
-            ? fetchOptions_
-            : fetchOptionsBuilder_.build();
-        to_bitField0_ |= 0x00000004;
-      }
       result.bitField0_ |= to_bitField0_;
     }
 
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
-      if (other instanceof com.google.cloud.spannerlib.v1.ExecuteRequest) {
-        return mergeFrom((com.google.cloud.spannerlib.v1.ExecuteRequest)other);
+      if (other instanceof com.google.cloud.spannerlib.v1.ExecuteStreamingRequest) {
+        return mergeFrom((com.google.cloud.spannerlib.v1.ExecuteStreamingRequest)other);
       } else {
         super.mergeFrom(other);
         return this;
       }
     }
 
-    public Builder mergeFrom(com.google.cloud.spannerlib.v1.ExecuteRequest other) {
-      if (other == com.google.cloud.spannerlib.v1.ExecuteRequest.getDefaultInstance()) return this;
+    public Builder mergeFrom(com.google.cloud.spannerlib.v1.ExecuteStreamingRequest other) {
+      if (other == com.google.cloud.spannerlib.v1.ExecuteStreamingRequest.getDefaultInstance()) return this;
       if (other.hasConnection()) {
         mergeConnection(other.getConnection());
       }
       if (other.hasExecuteSqlRequest()) {
         mergeExecuteSqlRequest(other.getExecuteSqlRequest());
-      }
-      if (other.hasFetchOptions()) {
-        mergeFetchOptions(other.getFetchOptions());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -489,13 +432,6 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000002;
               break;
             } // case 18
-            case 26: {
-              input.readMessage(
-                  internalGetFetchOptionsFieldBuilder().getBuilder(),
-                  extensionRegistry);
-              bitField0_ |= 0x00000004;
-              break;
-            } // case 26
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -755,144 +691,23 @@ private static final long serialVersionUID = 0L;
       return executeSqlRequestBuilder_;
     }
 
-    private com.google.cloud.spannerlib.v1.FetchOptions fetchOptions_;
-    private com.google.protobuf.SingleFieldBuilder<
-        com.google.cloud.spannerlib.v1.FetchOptions, com.google.cloud.spannerlib.v1.FetchOptions.Builder, com.google.cloud.spannerlib.v1.FetchOptionsOrBuilder> fetchOptionsBuilder_;
-    /**
-     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
-     * @return Whether the fetchOptions field is set.
-     */
-    public boolean hasFetchOptions() {
-      return ((bitField0_ & 0x00000004) != 0);
-    }
-    /**
-     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
-     * @return The fetchOptions.
-     */
-    public com.google.cloud.spannerlib.v1.FetchOptions getFetchOptions() {
-      if (fetchOptionsBuilder_ == null) {
-        return fetchOptions_ == null ? com.google.cloud.spannerlib.v1.FetchOptions.getDefaultInstance() : fetchOptions_;
-      } else {
-        return fetchOptionsBuilder_.getMessage();
-      }
-    }
-    /**
-     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
-     */
-    public Builder setFetchOptions(com.google.cloud.spannerlib.v1.FetchOptions value) {
-      if (fetchOptionsBuilder_ == null) {
-        if (value == null) {
-          throw new NullPointerException();
-        }
-        fetchOptions_ = value;
-      } else {
-        fetchOptionsBuilder_.setMessage(value);
-      }
-      bitField0_ |= 0x00000004;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
-     */
-    public Builder setFetchOptions(
-        com.google.cloud.spannerlib.v1.FetchOptions.Builder builderForValue) {
-      if (fetchOptionsBuilder_ == null) {
-        fetchOptions_ = builderForValue.build();
-      } else {
-        fetchOptionsBuilder_.setMessage(builderForValue.build());
-      }
-      bitField0_ |= 0x00000004;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
-     */
-    public Builder mergeFetchOptions(com.google.cloud.spannerlib.v1.FetchOptions value) {
-      if (fetchOptionsBuilder_ == null) {
-        if (((bitField0_ & 0x00000004) != 0) &&
-          fetchOptions_ != null &&
-          fetchOptions_ != com.google.cloud.spannerlib.v1.FetchOptions.getDefaultInstance()) {
-          getFetchOptionsBuilder().mergeFrom(value);
-        } else {
-          fetchOptions_ = value;
-        }
-      } else {
-        fetchOptionsBuilder_.mergeFrom(value);
-      }
-      if (fetchOptions_ != null) {
-        bitField0_ |= 0x00000004;
-        onChanged();
-      }
-      return this;
-    }
-    /**
-     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
-     */
-    public Builder clearFetchOptions() {
-      bitField0_ = (bitField0_ & ~0x00000004);
-      fetchOptions_ = null;
-      if (fetchOptionsBuilder_ != null) {
-        fetchOptionsBuilder_.dispose();
-        fetchOptionsBuilder_ = null;
-      }
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
-     */
-    public com.google.cloud.spannerlib.v1.FetchOptions.Builder getFetchOptionsBuilder() {
-      bitField0_ |= 0x00000004;
-      onChanged();
-      return internalGetFetchOptionsFieldBuilder().getBuilder();
-    }
-    /**
-     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
-     */
-    public com.google.cloud.spannerlib.v1.FetchOptionsOrBuilder getFetchOptionsOrBuilder() {
-      if (fetchOptionsBuilder_ != null) {
-        return fetchOptionsBuilder_.getMessageOrBuilder();
-      } else {
-        return fetchOptions_ == null ?
-            com.google.cloud.spannerlib.v1.FetchOptions.getDefaultInstance() : fetchOptions_;
-      }
-    }
-    /**
-     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
-     */
-    private com.google.protobuf.SingleFieldBuilder<
-        com.google.cloud.spannerlib.v1.FetchOptions, com.google.cloud.spannerlib.v1.FetchOptions.Builder, com.google.cloud.spannerlib.v1.FetchOptionsOrBuilder> 
-        internalGetFetchOptionsFieldBuilder() {
-      if (fetchOptionsBuilder_ == null) {
-        fetchOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            com.google.cloud.spannerlib.v1.FetchOptions, com.google.cloud.spannerlib.v1.FetchOptions.Builder, com.google.cloud.spannerlib.v1.FetchOptionsOrBuilder>(
-                getFetchOptions(),
-                getParentForChildren(),
-                isClean());
-        fetchOptions_ = null;
-      }
-      return fetchOptionsBuilder_;
-    }
-
-    // @@protoc_insertion_point(builder_scope:google.spannerlib.v1.ExecuteRequest)
+    // @@protoc_insertion_point(builder_scope:google.spannerlib.v1.ExecuteStreamingRequest)
   }
 
-  // @@protoc_insertion_point(class_scope:google.spannerlib.v1.ExecuteRequest)
-  private static final com.google.cloud.spannerlib.v1.ExecuteRequest DEFAULT_INSTANCE;
+  // @@protoc_insertion_point(class_scope:google.spannerlib.v1.ExecuteStreamingRequest)
+  private static final com.google.cloud.spannerlib.v1.ExecuteStreamingRequest DEFAULT_INSTANCE;
   static {
-    DEFAULT_INSTANCE = new com.google.cloud.spannerlib.v1.ExecuteRequest();
+    DEFAULT_INSTANCE = new com.google.cloud.spannerlib.v1.ExecuteStreamingRequest();
   }
 
-  public static com.google.cloud.spannerlib.v1.ExecuteRequest getDefaultInstance() {
+  public static com.google.cloud.spannerlib.v1.ExecuteStreamingRequest getDefaultInstance() {
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<ExecuteRequest>
-      PARSER = new com.google.protobuf.AbstractParser<ExecuteRequest>() {
+  private static final com.google.protobuf.Parser<ExecuteStreamingRequest>
+      PARSER = new com.google.protobuf.AbstractParser<ExecuteStreamingRequest>() {
     @java.lang.Override
-    public ExecuteRequest parsePartialFrom(
+    public ExecuteStreamingRequest parsePartialFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
@@ -911,17 +726,17 @@ private static final long serialVersionUID = 0L;
     }
   };
 
-  public static com.google.protobuf.Parser<ExecuteRequest> parser() {
+  public static com.google.protobuf.Parser<ExecuteStreamingRequest> parser() {
     return PARSER;
   }
 
   @java.lang.Override
-  public com.google.protobuf.Parser<ExecuteRequest> getParserForType() {
+  public com.google.protobuf.Parser<ExecuteStreamingRequest> getParserForType() {
     return PARSER;
   }
 
   @java.lang.Override
-  public com.google.cloud.spannerlib.v1.ExecuteRequest getDefaultInstanceForType() {
+  public com.google.cloud.spannerlib.v1.ExecuteStreamingRequest getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
 

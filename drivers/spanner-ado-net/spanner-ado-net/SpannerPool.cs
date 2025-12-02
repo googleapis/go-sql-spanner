@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -23,13 +24,19 @@ namespace Google.Cloud.Spanner.DataProvider;
 
 internal class SpannerPool
 {
+    private static bool UseNativeLib => bool.Parse(Environment.GetEnvironmentVariable("SPANNER_ADO_USE_NATIVE_LIB") ?? "false");
+    
+    private static int NumChannels => int.Parse(Environment.GetEnvironmentVariable("SPANNER_ADO_NUM_CHANNELS") ?? "4");
+    
+    private static GrpcLibSpanner.CommunicationStyle CommunicationStyle => Enum.Parse<GrpcLibSpanner.CommunicationStyle>(Environment.GetEnvironmentVariable("SPANNER_ADO_COMMUNICATION_STYLE") ?? nameof(GrpcLibSpanner.CommunicationStyle.BidiStreaming));
+    
     private static ISpannerLib? _gRpcSpannerLib;
 
     private static ISpannerLib GrpcSpannerLib
     {
         get
         {
-            _gRpcSpannerLib ??= new GrpcLibSpanner();
+            _gRpcSpannerLib ??= new GrpcLibSpanner(numChannels: NumChannels, communicationStyle: CommunicationStyle);
             return _gRpcSpannerLib;
         }
     }
@@ -48,13 +55,13 @@ internal class SpannerPool
     private static readonly ConcurrentDictionary<string, SpannerPool> Pools = new();
 
     [MethodImpl(MethodImplOptions.Synchronized)]
-    internal static SpannerPool GetOrCreate(string dsn, bool useNativeLibrary = false)
+    internal static SpannerPool GetOrCreate(string dsn)
     {
         if (Pools.TryGetValue(dsn, out var value))
         {
             return value;
         }
-        var pool = Pool.Create(useNativeLibrary ? NativeSpannerLib : GrpcSpannerLib, dsn);
+        var pool = Pool.Create(UseNativeLib ? NativeSpannerLib : GrpcSpannerLib, dsn);
         var spannerPool = new SpannerPool(dsn, pool);
         Pools[dsn] = spannerPool;
         return spannerPool;

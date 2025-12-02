@@ -123,7 +123,7 @@ func TestExecute(t *testing.T) {
 
 	numRows := 0
 	for {
-		row, err := client.Next(ctx, &pb.NextRequest{Rows: rows, NumRows: 1})
+		row, err := client.Next(ctx, &pb.NextRequest{Rows: rows, FetchOptions: &pb.FetchOptions{NumRows: 1}})
 		if err != nil {
 			t.Fatalf("failed to fetch next row: %v", err)
 		}
@@ -260,6 +260,11 @@ func TestExecuteStreamingMultiStatement(t *testing.T) {
 			Name:   "test-operation",
 		},
 	})
+	invalidQuery := "select * from unknown_table"
+	_ = server.TestSpanner.PutStatementResult(invalidQuery, &testutil.StatementResult{
+		Type: testutil.StatementResultError,
+		Err:  status.Error(codes.NotFound, "Table not found"),
+	})
 
 	client, cleanup := startTestSpannerLibServer(t)
 	defer cleanup()
@@ -276,6 +281,7 @@ func TestExecuteStreamingMultiStatement(t *testing.T) {
 	type expectedResults struct {
 		numRows  int
 		affected int64
+		err      codes.Code
 	}
 	type test struct {
 		name               string
@@ -373,6 +379,15 @@ func TestExecuteStreamingMultiStatement(t *testing.T) {
 				{affected: testutil.UpdateBarSetFooRowCount},
 			},
 		},
+		{
+			name:               "query then error",
+			sql:                fmt.Sprintf("%s;%s", testutil.SelectFooFromBar, invalidQuery),
+			numExecuteRequests: 2,
+			expectedResults: []expectedResults{
+				{numRows: 2},
+				{err: codes.NotFound},
+			},
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			stream, err := client.ExecuteStreaming(ctx, &pb.ExecuteRequest{
@@ -386,8 +401,15 @@ func TestExecuteStreamingMultiStatement(t *testing.T) {
 			numRows := 0
 			for {
 				row, err := stream.Recv()
-				if err != nil {
-					t.Fatalf("failed to receive row: %v", err)
+				if tt.expectedResults[numResultSets-1].err != codes.OK {
+					if g, w := status.Code(err), tt.expectedResults[numResultSets-1].err; g != w {
+						t.Fatalf("err code mismatch\n Got: %v\n Want: %v", g, w)
+					}
+					break
+				} else {
+					if err != nil {
+						t.Fatalf("failed to receive row: %v", err)
+					}
 				}
 				if len(row.Data) == 0 {
 					if g, w := numRows, tt.expectedResults[numResultSets-1].numRows; g != w {
@@ -773,7 +795,7 @@ func TestTransaction(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to execute: %v", err)
 		}
-		row, err := client.Next(ctx, &pb.NextRequest{Rows: rows, NumRows: 1})
+		row, err := client.Next(ctx, &pb.NextRequest{Rows: rows, FetchOptions: &pb.FetchOptions{NumRows: 1}})
 		if err != nil {
 			t.Fatalf("failed to fetch next row: %v", err)
 		}
@@ -913,6 +935,375 @@ func TestWriteMutations(t *testing.T) {
 	if _, err := client.ClosePool(ctx, pool); err != nil {
 		t.Fatalf("failed to close pool: %v", err)
 	}
+}
+
+func TestBidiStream(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	server, teardown := setupMockSpannerServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	client, cleanup := startTestSpannerLibServer(t)
+	defer cleanup()
+
+	pool, err := client.CreatePool(ctx, &pb.CreatePoolRequest{ConnectionString: dsn})
+	if err != nil {
+		t.Fatalf("failed to create pool: %v", err)
+	}
+	connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
+	if err != nil {
+		t.Fatalf("failed to create connection: %v", err)
+	}
+
+	connStream, err := client.ConnectionStream(ctx)
+	if err != nil {
+		t.Fatalf("failed to open connection stream: %v", err)
+	}
+	for range 10 {
+		if err := connStream.Send(&pb.ConnectionStreamRequest{Request: &pb.ConnectionStreamRequest_ExecuteRequest{ExecuteRequest: &pb.ExecuteRequest{
+			Connection:        connection,
+			ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: testutil.SelectFooFromBar},
+		}}}); err != nil {
+			t.Fatalf("failed to send execute request: %v", err)
+		}
+		numRows := 0
+		response, err := connStream.Recv()
+		if err != nil {
+			t.Fatalf("failed to receive response: %v", err)
+		}
+		for _, resultSet := range response.GetExecuteResponse().ResultSets {
+			for i, row := range resultSet.Rows {
+				if g, w := len(row.Values), 1; g != w {
+					t.Fatalf("num values mismatch\n Got: %v\nWant: %v", g, w)
+				}
+				if g, w := row.Values[0].GetStringValue(), fmt.Sprintf("%d", i+1); g != w {
+					t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+				}
+				numRows++
+			}
+		}
+		if g, w := numRows, 2; g != w {
+			t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+	if err := connStream.CloseSend(); err != nil {
+		t.Fatalf("failed to close connection stream: %v", err)
+	}
+
+	if _, err := client.ClosePool(ctx, pool); err != nil {
+		t.Fatalf("failed to close pool: %v", err)
+	}
+}
+
+func TestBidiStreamMultiStatement(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	server, teardown := setupMockSpannerServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	client, cleanup := startTestSpannerLibServer(t)
+	defer cleanup()
+
+	pool, err := client.CreatePool(ctx, &pb.CreatePoolRequest{ConnectionString: dsn})
+	if err != nil {
+		t.Fatalf("failed to create pool: %v", err)
+	}
+	connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
+	if err != nil {
+		t.Fatalf("failed to create connection: %v", err)
+	}
+
+	connStream, err := client.ConnectionStream(ctx)
+	if err != nil {
+		t.Fatalf("failed to open connection stream: %v", err)
+	}
+	if err := connStream.Send(&pb.ConnectionStreamRequest{Request: &pb.ConnectionStreamRequest_ExecuteRequest{ExecuteRequest: &pb.ExecuteRequest{
+		Connection:        connection,
+		ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: fmt.Sprintf("%s;%s", testutil.SelectFooFromBar, testutil.UpdateBarSetFoo)},
+	}}}); err != nil {
+		t.Fatalf("failed to send execute request: %v", err)
+	}
+	numRows := 0
+	response, err := connStream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+	if g, w := len(response.GetExecuteResponse().ResultSets), 2; g != w {
+		t.Fatalf("num result sets mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Get the query result.
+	resultSet := response.GetExecuteResponse().ResultSets[0]
+	for i, row := range resultSet.Rows {
+		if g, w := len(row.Values), 1; g != w {
+			t.Fatalf("num values mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if g, w := row.Values[0].GetStringValue(), fmt.Sprintf("%d", i+1); g != w {
+			t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		numRows++
+	}
+	if g, w := numRows, 2; g != w {
+		t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	// Get the DML result.
+	dmlResult := response.GetExecuteResponse().ResultSets[1]
+	if g, w := len(dmlResult.Rows), 0; g != w {
+		t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := dmlResult.Stats.GetRowCountExact(), int64(testutil.UpdateBarSetFooRowCount); g != w {
+		t.Fatalf("update count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if response.GetExecuteResponse().HasMoreResults {
+		t.Fatal("expected no more results")
+	}
+
+	if err := connStream.CloseSend(); err != nil {
+		t.Fatalf("failed to close connection stream: %v", err)
+	}
+
+	if _, err := client.ClosePool(ctx, pool); err != nil {
+		t.Fatalf("failed to close pool: %v", err)
+	}
+}
+
+func TestBidiStreamMultiStatementFirstFails(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	server, teardown := setupMockSpannerServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	client, cleanup := startTestSpannerLibServer(t)
+	defer cleanup()
+
+	pool, err := client.CreatePool(ctx, &pb.CreatePoolRequest{ConnectionString: dsn})
+	if err != nil {
+		t.Fatalf("failed to create pool: %v", err)
+	}
+	connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
+	if err != nil {
+		t.Fatalf("failed to create connection: %v", err)
+	}
+
+	connStream, err := client.ConnectionStream(ctx)
+	if err != nil {
+		t.Fatalf("failed to open connection stream: %v", err)
+	}
+	if err := connStream.Send(&pb.ConnectionStreamRequest{Request: &pb.ConnectionStreamRequest_ExecuteRequest{ExecuteRequest: &pb.ExecuteRequest{
+		Connection:        connection,
+		ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: fmt.Sprintf("%s;%s", testutil.SelectFooFromBar, testutil.UpdateBarSetFoo)},
+	}}}); err != nil {
+		t.Fatalf("failed to send execute request: %v", err)
+	}
+	numRows := 0
+	response, err := connStream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+	if g, w := len(response.GetExecuteResponse().ResultSets), 2; g != w {
+		t.Fatalf("num result sets mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Get the query result.
+	resultSet := response.GetExecuteResponse().ResultSets[0]
+	for i, row := range resultSet.Rows {
+		if g, w := len(row.Values), 1; g != w {
+			t.Fatalf("num values mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if g, w := row.Values[0].GetStringValue(), fmt.Sprintf("%d", i+1); g != w {
+			t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		numRows++
+	}
+	if g, w := numRows, 2; g != w {
+		t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	// Get the DML result.
+	dmlResult := response.GetExecuteResponse().ResultSets[1]
+	if g, w := len(dmlResult.Rows), 0; g != w {
+		t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := dmlResult.Stats.GetRowCountExact(), int64(testutil.UpdateBarSetFooRowCount); g != w {
+		t.Fatalf("update count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if response.GetExecuteResponse().HasMoreResults {
+		t.Fatal("expected no more results")
+	}
+
+	if err := connStream.CloseSend(); err != nil {
+		t.Fatalf("failed to close connection stream: %v", err)
+	}
+
+	if _, err := client.ClosePool(ctx, pool); err != nil {
+		t.Fatalf("failed to close pool: %v", err)
+	}
+}
+
+func TestBidiStreamEmptyResults(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	server, teardown := setupMockSpannerServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	query := "select * from my_table where 1=0"
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type: testutil.StatementResultResultSet,
+		ResultSet: &sppb.ResultSet{
+			Metadata: &sppb.ResultSetMetadata{
+				RowType: &sppb.StructType{
+					Fields: []*sppb.StructType_Field{{Name: "c", Type: &sppb.Type{Code: sppb.TypeCode_INT64}}},
+				},
+			},
+			Rows: []*structpb.ListValue{},
+		},
+	})
+
+	client, cleanup := startTestSpannerLibServer(t)
+	defer cleanup()
+
+	pool, err := client.CreatePool(ctx, &pb.CreatePoolRequest{ConnectionString: dsn})
+	if err != nil {
+		t.Fatalf("failed to create pool: %v", err)
+	}
+	connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
+	if err != nil {
+		t.Fatalf("failed to create connection: %v", err)
+	}
+
+	connStream, err := client.ConnectionStream(ctx)
+	if err != nil {
+		t.Fatalf("failed to open connection stream: %v", err)
+	}
+	if err := connStream.Send(&pb.ConnectionStreamRequest{Request: &pb.ConnectionStreamRequest_ExecuteRequest{ExecuteRequest: &pb.ExecuteRequest{
+		Connection:        connection,
+		ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: query},
+	}}}); err != nil {
+		t.Fatalf("failed to send execute request: %v", err)
+	}
+	numRows := 0
+	row, err := connStream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+	for _, resultSet := range row.GetExecuteResponse().ResultSets {
+		numRows += len(resultSet.Rows)
+	}
+	if g, w := numRows, 0; g != w {
+		t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if err := connStream.CloseSend(); err != nil {
+		t.Fatalf("failed to close connection stream: %v", err)
+	}
+
+	if _, err := client.ClosePool(ctx, pool); err != nil {
+		t.Fatalf("failed to close pool: %v", err)
+	}
+}
+
+func TestBidiStreamLargeResult(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	server, teardown := setupMockSpannerServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	numRows := 125
+	query := "select id from my_table"
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type:      testutil.StatementResultResultSet,
+		ResultSet: testutil.CreateSingleColumnInt64ResultSet(createInt64Slice(numRows), "id"),
+	})
+
+	client, cleanup := startTestSpannerLibServer(t)
+	defer cleanup()
+
+	pool, err := client.CreatePool(ctx, &pb.CreatePoolRequest{ConnectionString: dsn})
+	if err != nil {
+		t.Fatalf("failed to create pool: %v", err)
+	}
+	connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
+	if err != nil {
+		t.Fatalf("failed to create connection: %v", err)
+	}
+
+	connStream, err := client.ConnectionStream(ctx)
+	if err != nil {
+		t.Fatalf("failed to open connection stream: %v", err)
+	}
+	if err := connStream.Send(&pb.ConnectionStreamRequest{Request: &pb.ConnectionStreamRequest_ExecuteRequest{ExecuteRequest: &pb.ExecuteRequest{
+		Connection:        connection,
+		ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: query},
+	}}}); err != nil {
+		t.Fatalf("failed to send execute request: %v", err)
+	}
+	foundRows := 0
+	response, err := connStream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+	for _, resultSet := range response.GetExecuteResponse().ResultSets {
+		for i, row := range resultSet.Rows {
+			if g, w := len(row.Values), 1; g != w {
+				t.Fatalf("num values mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			if g, w := row.Values[0].GetStringValue(), fmt.Sprintf("%d", i+1); g != w {
+				t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			foundRows++
+		}
+	}
+	if response.GetExecuteResponse().HasMoreResults {
+		stream, err := client.ContinueStreaming(ctx, response.GetExecuteResponse().Rows)
+		if err != nil {
+			t.Fatalf("failed to open stream: %v", err)
+		}
+		for {
+			row, err := stream.Recv()
+			if err != nil {
+				t.Fatalf("failed to receive row: %v", err)
+			}
+			if len(row.Data) == 0 {
+				break
+			}
+			if g, w := len(row.Data), 1; g != w {
+				t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			if g, w := len(row.Data[0].Values), 1; g != w {
+				t.Fatalf("num values mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			if g, w := row.Data[0].Values[0].GetStringValue(), fmt.Sprintf("%d", foundRows+1); g != w {
+				t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			foundRows++
+		}
+	}
+	if g, w := foundRows, numRows; g != w {
+		t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if err := connStream.CloseSend(); err != nil {
+		t.Fatalf("failed to close connection stream: %v", err)
+	}
+
+	if _, err := client.ClosePool(ctx, pool); err != nil {
+		t.Fatalf("failed to close pool: %v", err)
+	}
+}
+
+func createInt64Slice(n int) []int64 {
+	res := make([]int64, n)
+	for i := 0; i < n; i++ {
+		res[i] = int64(i + 1)
+	}
+	return res
 }
 
 func startTestSpannerLibServer(t *testing.T) (client pb.SpannerLibClient, cleanup func()) {
