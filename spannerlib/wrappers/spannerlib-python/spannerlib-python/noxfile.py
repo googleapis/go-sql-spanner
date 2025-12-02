@@ -23,8 +23,22 @@ import nox
 
 DEFAULT_PYTHON_VERSION = "3.13"
 
-UNIT_TEST_PYTHON_VERSIONS: List[str] = ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
-SYSTEM_TEST_PYTHON_VERSIONS: List[str] = ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+UNIT_TEST_PYTHON_VERSIONS: List[str] = [
+    "3.8",
+    "3.9",
+    "3.10",
+    "3.11",
+    "3.12",
+    "3.13",
+]
+SYSTEM_TEST_PYTHON_VERSIONS: List[str] = [
+    "3.8",
+    "3.9",
+    "3.10",
+    "3.11",
+    "3.12",
+    "3.13",
+]
 
 
 FLAKE8_VERSION = "flake8>=6.1.0,<7.3.0"
@@ -90,7 +104,7 @@ def lint(session):
     session.install(FLAKE8_VERSION)
     session.run(
         "flake8",
-        "--max-line-length=124",
+        "--max-line-length=80",
         *LINT_PATHS,
     )
 
