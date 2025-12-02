@@ -51,7 +51,8 @@ EMULATOR_TEST_CONNECTION_STRING = (
 def setup_test_env() -> None:
     if not TEST_ON_PROD:
         print(
-            f"Set SPANNER_EMULATOR_HOST to {os.environ['SPANNER_EMULATOR_HOST']}"
+            f"Set SPANNER_EMULATOR_HOST to "
+            f"{os.environ['SPANNER_EMULATOR_HOST']}"
         )
     print(f"Using Connection String: {get_test_connection_string()}")
 
@@ -59,11 +60,4 @@ def setup_test_env() -> None:
 def get_test_connection_string() -> str:
     if TEST_ON_PROD:
         return PROD_TEST_CONNECTION_STRING
-    else:
-        return (
-            f"{SPANNER_EMULATOR_HOST}"
-            f"/projects/{PROJECT_ID}"
-            f"/instances/{INSTANCE_ID}"
-            f"/databases/{DATABASE_ID}"
-            "?autoConfigEmulator=true"
-        )
+    return EMULATOR_TEST_CONNECTION_STRING

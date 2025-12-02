@@ -62,7 +62,8 @@ def mock_msg_data():
 @pytest.fixture
 def setup_spannerlib_method(mock_lib_instance, mock_msg_data):
     """
-    Helper to setup the mock response for SpannerLib methods like create_pool and close_pool.
+    Helper to setup the mock response for SpannerLib methods
+    like create_pool and close_pool.
     """
 
     def _configure_method(method_name, return_msg_data=None):
