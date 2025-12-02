@@ -55,8 +55,6 @@ class Message(ctypes.Structure):
             if any (r4).
     """
 
-    _is_released: bool = False
-
     _fields_ = [
         ("pinner_id", ctypes.c_int64),  # r0: Handle ID for Go memory pinning
         ("error_code", ctypes.c_int32),  # r1: 0 = Success, >0 = Error
