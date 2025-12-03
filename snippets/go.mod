@@ -2,7 +2,7 @@ module github.com/googleapis/go-sql-spanner/examples
 
 go 1.24.0
 
-toolchain go1.25.4
+toolchain go1.25.5
 
 replace github.com/googleapis/go-sql-spanner => ../
 
@@ -97,10 +97,10 @@ require (
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
-	google.golang.org/api v0.256.0 // indirect
+	google.golang.org/api v0.257.0 // indirect
 	google.golang.org/genproto v0.0.0-20250804133106-a7a43d27e69b // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20251022142026-3a174f9686a8 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20251111163417-95abcf5c77ba // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
