@@ -148,10 +148,10 @@ class Message(ctypes.Structure):
             self._lib.release(self.pinner_id)
             logger.debug("Invoked %s.release(%d)", self._lib, self.pinner_id)
         except ctypes.ArgumentError as e:
-            logger.error("Native release failed: %s", e)
+            logger.exception("Native release failed: %s", e)
             # We do not re-raise here to ensure __exit__ completes cleanly
         except Exception as e:
-            logger.error("Unexpected error during release: %s", e)
+            logger.exception("Unexpected error during release: %s", e)
             # We do not re-raise here to ensure __exit__ completes cleanly
 
     def __del__(self) -> None:
@@ -169,7 +169,6 @@ class Message(ctypes.Structure):
                     "Unclosed SpannerLib Message"
                     f"(pinner_id={self.pinner_id})",
                     ResourceWarning,
-                    source=self,
                 )
             except Exception:
                 pass

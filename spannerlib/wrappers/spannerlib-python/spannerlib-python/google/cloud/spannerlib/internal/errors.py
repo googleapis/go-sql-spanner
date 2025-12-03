@@ -24,19 +24,13 @@ class SpannerError(Exception):
 
 
 class SpannerLibError(SpannerError):
-    """Exception raised when the underlying Go library returns an error code.
+    """Exception raised when the underlying Go library returns an error code."""
 
-    Attributes:
-        message (str): The human-readable error description.
-        error_code (Optional[int]): The raw error code returned by the
-            underlying Go runtime.
-    """
-
-    def __init__(self, message: str, error_code: Optional[int] = None) -> None:
+    def __init__(self, raw_message: str, error_code: Optional[int] = None) -> None:
         """Initializes the SpannerLibError.
 
         Args:
-            message (str): The error description.
+            raw_message (str): The error description.
             error_code (Optional[int]): The error code
                 (e.g., 1 for generic failure).
         """

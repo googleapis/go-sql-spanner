@@ -106,11 +106,16 @@ class GoSlice(ctypes.Structure):
         Returns:
             GoSlice: The C-compatible structure representing a []byte.
         """
+        if s is None:
+            return cls(None, 0, 0)
+
         encoded_s = s.encode("utf-8")
         n = len(encoded_s)
 
-        # Create a C-compatible mutable buffer from the bytes
-        # This is the memory that the GoSlice will point to.
+        # Create a C-compatible mutable buffer from the bytes.
+        # Note: create_string_buffer creates a mutable copy. This is safe because:
+        # 1. It matches Go's []byte which is mutable.
+        # 2. It isolates the original Python object from modification.
         buffer = ctypes.create_string_buffer(encoded_s)
 
         # Create the GoSlice
@@ -138,8 +143,10 @@ class GoSlice(ctypes.Structure):
         """
         n = len(b)
 
-        # Create a C-compatible mutable buffer from the bytes
-        # This is the memory that the GoSlice will point to.
+        # Create a C-compatible mutable buffer from the bytes.
+        # Note: create_string_buffer creates a mutable copy. This is safe because:
+        # 1. It matches Go's []byte which is mutable.
+        # 2. It isolates the original Python object from modification.
         buffer = ctypes.create_string_buffer(b)
 
         # Create the GoSlice
