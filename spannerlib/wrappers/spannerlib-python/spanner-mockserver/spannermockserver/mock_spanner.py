@@ -14,6 +14,7 @@
 
 import base64
 from concurrent import futures
+import inspect
 
 from google.cloud.spanner_v1 import (
     ExecuteSqlRequest,
@@ -26,6 +27,7 @@ import google.cloud.spanner_v1.types.spanner as spanner
 import google.cloud.spanner_v1.types.transaction as transaction
 from google.protobuf import empty_pb2
 import grpc
+from grpc_status.rpc_status import _Status
 
 from .generated import spanner_database_admin_pb2_grpc as database_admin_grpc
 from .generated import spanner_pb2_grpc as spanner_grpc
@@ -35,9 +37,18 @@ from .mock_database_admin import DatabaseAdminServicer
 class MockSpanner:
     def __init__(self):
         self.results = {}
+        self.execute_streaming_sql_results = {}
+        self.errors = {}
 
     def add_result(self, sql: str, result: result_set.ResultSet):
         self.results[sql.lower().strip()] = result
+
+    def add_execute_streaming_sql_results(
+        self, sql: str, partial_result_sets: list[result_set.PartialResultSet]
+    ):
+        self.execute_streaming_sql_results[sql.lower().strip()] = (
+            partial_result_sets
+        )
 
     def get_result(self, sql: str) -> result_set.ResultSet:
         result = self.results.get(sql.lower().strip())
@@ -45,9 +56,29 @@ class MockSpanner:
             raise ValueError(f"No result found for {sql}")
         return result
 
+    def add_error(self, method: str, error: _Status):
+        self.errors[method] = error
+
+    def pop_error(self, context):
+        name = inspect.currentframe().f_back.f_code.co_name
+        error: _Status | None = self.errors.pop(name, None)
+        if error:
+            context.abort_with_status(error)
+
+    def get_execute_streaming_sql_results(
+        self, sql: str, started_transaction: transaction.Transaction
+    ) -> list[result_set.PartialResultSet]:
+        if self.execute_streaming_sql_results.get(sql.lower().strip()):
+            partials = self.execute_streaming_sql_results[sql.lower().strip()]
+        else:
+            partials = self.get_result_as_partial_result_sets(sql)
+        if started_transaction:
+            partials[0].metadata.transaction = started_transaction
+        return partials
+
     def get_result_as_partial_result_sets(
         self, sql: str, started_transaction: transaction.Transaction
-    ) -> [result_set.PartialResultSet]:
+    ) -> list[result_set.PartialResultSet]:
         result: result_set.ResultSet = self.get_result(sql)
         partials = []
         first = True
@@ -60,6 +91,7 @@ class MockSpanner:
                 partial = result_set.PartialResultSet()
                 if first:
                     partial.metadata = ResultSetMetadata(result.metadata)
+                first = False
                 partial.values.extend(row)
                 partials.append(partial)
         partials[len(partials) - 1].stats = result.stats
@@ -95,6 +127,7 @@ class SpannerServicer(spanner_grpc.SpannerServicer):
 
     def BatchCreateSessions(self, request, context):
         self._requests.append(request)
+        self.mock_spanner.pop_error(context)
         sessions = []
         for i in range(request.session_count):
             sessions.append(
@@ -130,16 +163,19 @@ class SpannerServicer(spanner_grpc.SpannerServicer):
 
     def ExecuteSql(self, request, context):
         self._requests.append(request)
-        return result_set.ResultSet()
+        self.mock_spanner.pop_error(context)
+        started_transaction = self.__maybe_create_transaction(request)
+        result: result_set.ResultSet = self.mock_spanner.get_result(request.sql)
+        if started_transaction:
+            result.metadata = ResultSetMetadata(result.metadata)
+            result.metadata.transaction = started_transaction
+        return result
 
     def ExecuteStreamingSql(self, request: ExecuteSqlRequest, context):
         self._requests.append(request)
-        started_transaction = None
-        if not request.transaction.begin == TransactionOptions():
-            started_transaction = self.__create_transaction(
-                request.session, request.transaction.begin
-            )
-        partials = self.mock_spanner.get_result_as_partial_result_sets(
+        self.mock_spanner.pop_error(context)
+        started_transaction = self.__maybe_create_transaction(request)
+        partials = self.mock_spanner.get_execute_streaming_sql_results(
             request.sql, started_transaction
         )
         for result in partials:
@@ -147,12 +183,9 @@ class SpannerServicer(spanner_grpc.SpannerServicer):
 
     def ExecuteBatchDml(self, request, context):
         self._requests.append(request)
+        self.mock_spanner.pop_error(context)
         response = spanner.ExecuteBatchDmlResponse()
-        started_transaction = None
-        if not request.transaction.begin == TransactionOptions():
-            started_transaction = self.__create_transaction(
-                request.session, request.transaction.begin
-            )
+        started_transaction = self.__maybe_create_transaction(request)
         first = True
         for statement in request.statements:
             result = self.mock_spanner.get_result(statement.sql)
@@ -160,7 +193,7 @@ class SpannerServicer(spanner_grpc.SpannerServicer):
                 result = result_set.ResultSet(
                     self.mock_spanner.get_result(statement.sql)
                 )
-                result.metadata = ResultSetMetadata(result.metadata)
+                result.metadata = result_set.ResultSetMetadata(result.metadata)
                 result.metadata.transaction = started_transaction
             response.result_sets.append(result)
         return response
@@ -181,8 +214,16 @@ class SpannerServicer(spanner_grpc.SpannerServicer):
         self._requests.append(request)
         return self.__create_transaction(request.session, request.options)
 
+    def __maybe_create_transaction(self, request):
+        started_transaction = None
+        if not request.transaction.begin == TransactionOptions():
+            started_transaction = self.__create_transaction(
+                request.session, request.transaction.begin
+            )
+        return started_transaction
+
     def __create_transaction(
-        self, session: str, options: TransactionOptions
+        self, session: str, options: transaction.TransactionOptions
     ) -> transaction.Transaction:
         session = self.sessions[session]
         if session is None:
@@ -197,10 +238,22 @@ class SpannerServicer(spanner_grpc.SpannerServicer):
 
     def Commit(self, request, context):
         self._requests.append(request)
-        tx = self.transactions[request.transaction_id]
-        if tx is None:
-            raise ValueError(f"Transaction not found: {request.transaction_id}")
-        del self.transactions[request.transaction_id]
+        self.mock_spanner.pop_error(context)
+        if not request.transaction_id == b"":
+            tx = self.transactions[request.transaction_id]
+            if tx is None:
+                raise ValueError(
+                    f"Transaction not found: {request.transaction_id}"
+                )
+            tx_id = request.transaction_id
+        elif not request.single_use_transaction == TransactionOptions():
+            tx = self.__create_transaction(
+                request.session, request.single_use_transaction
+            )
+            tx_id = tx.id
+        else:
+            raise ValueError("Unsupported transaction type")
+        del self.transactions[tx_id]
         return commit.CommitResponse()
 
     def Rollback(self, request, context):

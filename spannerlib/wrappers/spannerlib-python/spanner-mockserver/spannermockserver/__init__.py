@@ -17,8 +17,8 @@ import logging
 from typing import Final
 
 from .mock_database_admin import DatabaseAdminServicer
-from .mock_spanner import MockSpanner, SpannerServicer, start_mock_server
 from .mock_server_test_base import MockServerTestBase
+from .mock_spanner import MockSpanner, SpannerServicer, start_mock_server
 
 __version__: Final[str] = "0.1.0"
 
