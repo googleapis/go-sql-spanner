@@ -84,7 +84,7 @@ class Connection(AbstractLibraryObject):
         """Executes a SQL statement on the connection.
 
         Args:
-            sql: The SQL statement to execute.
+            request (ExecuteSqlRequest): The ExecuteSqlRequest object.
 
         Returns:
             A Rows object representing the result of the execution.
