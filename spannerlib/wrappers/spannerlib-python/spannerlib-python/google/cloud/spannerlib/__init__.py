@@ -20,7 +20,8 @@ from google.cloud.spannerlib.pool import Pool
 
 __version__: Final[str] = "0.1.0"
 
-logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
 
 __all__: list[str] = [
     "Pool",
