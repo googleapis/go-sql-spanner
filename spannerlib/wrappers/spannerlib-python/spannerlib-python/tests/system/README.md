@@ -19,7 +19,7 @@ export SPANNER_EMULATOR_HOST=localhost:9010
 ```shell
 gcloud spanner instances create test-instance --config=emulator-config --description="Test Instance" --nodes=1
 
-gcloud spanner databases create testdb --instance=test-instance
+gcloud spanner databases create test-db --instance=test-instance
 ```
 4. Run the tests: 
 ```shell
