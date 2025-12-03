@@ -80,8 +80,12 @@ class TestRowsE2E:
             rows.close()
 
     def test_stats_and_update_count(self, connection):
-        """Tests retrieving result set stats and update count from a DML statement."""
-        sql = "INSERT INTO Singers (SingerId, FirstName, LastName) VALUES (999, 'Stats', 'Test')"
+        """Tests retrieving result set stats and update count
+        from a DML statement."""
+        sql = (
+            "INSERT INTO Singers (SingerId, FirstName, LastName) "
+            + "VALUES (999, 'Stats', 'Test')"
+        )
         request = ExecuteSqlRequest(sql=sql)
         rows = connection.execute(request)
 

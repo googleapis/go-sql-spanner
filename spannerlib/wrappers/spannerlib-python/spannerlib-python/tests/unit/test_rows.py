@@ -156,7 +156,8 @@ class TestRows:
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
         mock_pool.spannerlib = mock_spannerlib
 
-        # Setup mock context manager for close_rows to avoid errors during close()
+        # Setup mock context manager for close_rows to avoid errors
+        # during close()
         mock_spannerlib.close_rows.return_value.__enter__.return_value = (
             MagicMock()
         )
@@ -233,13 +234,15 @@ class TestRows:
             mock_stats_cls.deserialize.assert_called_once_with(b"stats_proto")
 
     def test_result_set_stats_raises_if_closed(self) -> None:
-        """Verifies that result_set_stats() raises RuntimeError if rows are closed."""
+        """Verifies that result_set_stats() raises RuntimeError
+        if rows are closed."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
         mock_pool.spannerlib = mock_spannerlib
 
-        # Setup mock context manager for close_rows to avoid errors during close()
+        # Setup mock context manager for close_rows to avoid
+        # errors during close()
         mock_spannerlib.close_rows.return_value.__enter__.return_value = (
             MagicMock()
         )
@@ -295,7 +298,8 @@ class TestRows:
             assert rows.update_count() == 42
 
     def test_update_count_lower_bound(self) -> None:
-        """Verifies update_count returns row_count_lower_bound if exact is missing."""
+        """Verifies update_count returns row_count_lower_bound
+        if exact is missing."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
         rows = Rows(1, mock_pool, mock_conn)
