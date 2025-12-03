@@ -50,7 +50,7 @@ class Connection(AbstractLibraryObject):
         return self._pool
 
     def _close_lib_object(self) -> None:
-        """Internal method to close the pool in the Go library."""
+        """Internal method to close the connection in the Go library."""
         try:
             logger.info("Closing connection ID: %d", self.oid)
             # Call the Go library function to close the connection.
