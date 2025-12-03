@@ -97,7 +97,7 @@ class GoSlice(ctypes.Structure):
     ]
 
     @classmethod
-    def from_str(cls, s: str) -> "GoSlice":
+    def from_str(cls, s: Optional[str]) -> "GoSlice":
         """Converts a Python string to a GoSlice (byte slice).
 
         Args:
