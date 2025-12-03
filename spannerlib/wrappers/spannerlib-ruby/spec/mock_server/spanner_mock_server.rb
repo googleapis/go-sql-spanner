@@ -137,12 +137,7 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
       Enumerator.new do |yielder|
         results.each do |entry|
           result = entry.clone
-          if result.result_type == StatementResult::EXCEPTION
-            err_proto = result.result
-            raise GRPC::BadStatus.new(err_proto.code, err_proto.message) if err_proto.is_a?(Google::Rpc::Status)
-
-            raise err_proto
-          end
+          raise_if_error!(result)
 
           result.each(created_transaction) do |partial|
             yielder << partial
@@ -153,12 +148,7 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
       # Non-streaming: only return the first result set
       entry = results.first
       result = entry.clone
-      if result.result_type == StatementResult::EXCEPTION
-        err_proto = result.result
-        raise GRPC::BadStatus.new(err_proto.code, err_proto.message) if err_proto.is_a?(Google::Rpc::Status)
-
-        raise err_proto
-      end
+      raise_if_error!(result)
       result.result(created_transaction)
     end
   end
@@ -353,5 +343,15 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
       @abort_next_transaction = false
     end
     transaction
+  end
+
+  def raise_if_error!(result)
+    return unless result.result_type == StatementResult::EXCEPTION
+
+    err_proto = result.result
+
+    raise GRPC::BadStatus.new(err_proto.code, err_proto.message) if err_proto.is_a?(Google::Rpc::Status)
+
+    raise err_proto
   end
 end

@@ -357,7 +357,7 @@ describe "Connection" do
     sql = "SELECT 1; SELECT 2"
     set_mock_result("SELECT 1", StatementResult.create_select1_result)
 
-    set_mock_result(" SELECT 2", StatementResult.create_select1_result)
+    set_mock_result(" SELECT 2", StatementResult.create_single_int_result_set("Col1", 2))
 
     req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: sql)
     rows = @conn.execute(req)
@@ -376,7 +376,7 @@ describe "Connection" do
     row2 = rows.next
     _(row2).wont_be_nil
     decoded2 = Google::Protobuf::ListValue.decode(row2)
-    _(decoded2.values[0].string_value).must_equal "1"
+    _(decoded2.values[0].string_value).must_equal "2"
 
     _(rows.next).must_be_nil
 
