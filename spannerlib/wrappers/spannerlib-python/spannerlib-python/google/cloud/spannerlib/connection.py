@@ -17,6 +17,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from .abstract_library_object import AbstractLibraryObject
+from .internal.errors import SpannerLibError
 
 if TYPE_CHECKING:
     from .pool import Pool
@@ -56,9 +57,15 @@ class Connection(AbstractLibraryObject):
             with self.spannerlib.close_connection(
                 self.pool.oid, self.oid
             ) as msg:
-                msg.bind_library(self.spannerlib)
                 msg.raise_if_error()
             logger.info("Connection ID: %d closed", self.oid)
+        except SpannerLibError:
+            logger.exception(
+                "SpannerLib error closing connection ID: %d", self.oid
+            )
+            raise
         except Exception as e:
-            logger.exception("Error closing connection ID: %d", self.oid)
-            raise e
+            logger.exception(
+                "Unexpected error closing connection ID: %d", self.oid
+            )
+            raise SpannerLibError(f"Unexpected error during close: {e}") from e

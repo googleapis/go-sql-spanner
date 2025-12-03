@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from google.cloud.spannerlib.internal.errors import SpannerLibError
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -123,7 +124,6 @@ class TestConnection:
         mock_spanner_lib.close_connection.assert_called_once_with(999, 123)
 
         # Verify context manager lifecycle
-        mock_msg.bind_library.assert_called_once_with(mock_spanner_lib)
         mock_msg.raise_if_error.assert_called_once()
 
         # Verify object is marked disposed
@@ -144,12 +144,12 @@ class TestConnection:
         # 2. Execute & Assert
         # We patch the logger to ensure the error is logged before crashing
         with patch("google.cloud.spannerlib.connection.logger") as mock_logger:
-            with pytest.raises(RuntimeError):
+            with pytest.raises(SpannerLibError):
                 connection.close()
 
             # Verify logging
             mock_logger.exception.assert_called_once_with(
-                "Error closing connection ID: %d", 123
+                "Unexpected error closing connection ID: %d", 123
             )
 
     def test_close_connection_unexpected_error(
@@ -165,7 +165,7 @@ class TestConnection:
 
         # 2. Execute & Assert
         with patch("google.cloud.spannerlib.connection.logger") as mock_logger:
-            with pytest.raises(ValueError):
+            with pytest.raises(SpannerLibError):
                 connection.close()
 
             mock_logger.exception.assert_called_once()

@@ -198,7 +198,8 @@ class TestPool:
         """Test successful creation of a Connection from the Pool."""
         # 1. Setup
         pool = Pool(spannerlib=mock_lib_instance, oid=100)
-        # Mock the create_connection call to return a valid message with a new OID
+        # Mock the create_connection call to return a valid message
+        # with a new OID
         mock_msg_data["object_id"] = 200
         setup_spannerlib_method("create_connection")
 
@@ -213,7 +214,8 @@ class TestPool:
         assert conn.spannerlib == mock_lib_instance
 
     def test_create_connection_pool_closed(self, mock_lib_instance):
-        """Test that creating a connection from a closed pool raises an error."""
+        """Test that creating a connection from a closed pool
+        raises an error."""
         # 1. Setup
         pool = Pool(spannerlib=mock_lib_instance, oid=100)
         pool._is_disposed = True
