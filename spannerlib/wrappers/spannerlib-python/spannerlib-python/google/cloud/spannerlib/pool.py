@@ -89,7 +89,6 @@ class Pool(AbstractLibraryObject):
         logger.info("Creating connection from pool ID: %d", self.oid)
         # Call the Go library function to create a connection.
         with self.spannerlib.create_connection(self.oid) as msg:
-            msg.bind_library(self.spannerlib)
             msg.raise_if_error()
 
             logger.info(

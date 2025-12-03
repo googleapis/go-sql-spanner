@@ -34,7 +34,7 @@ class AbstractLibraryObject(ABC):
 
     def __init__(self, spannerlib: SpannerLibProtocol, oid: int) -> None:
         """
-        Initializes the AbstractLibObject.
+        Initializes the AbstractLibraryObject.
 
         Args:
             spannerlib: The Spanner library instance.
