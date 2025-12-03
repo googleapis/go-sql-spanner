@@ -168,9 +168,9 @@ class Rows(AbstractLibraryObject):
         """
         stats = self.result_set_stats()
 
-        if stats.which_oneof("row_count") == "row_count_exact":
+        if stats._pb.WhichOneof("row_count") == "row_count_exact":
             return stats.row_count_exact
-        if stats.which_oneof("row_count") == "row_count_lower_bound":
+        if stats._pb.WhichOneof("row_count") == "row_count_lower_bound":
             return stats.row_count_lower_bound
 
         return 0

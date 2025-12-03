@@ -293,7 +293,7 @@ class TestRows:
         mock_stats = MagicMock()
         mock_stats.row_count_exact = 42
         mock_stats.row_count_lower_bound = 0
-        mock_stats.which_oneof.return_value = "row_count_exact"
+        mock_stats._pb.WhichOneof.return_value = "row_count_exact"
 
         with patch.object(rows, "result_set_stats", return_value=mock_stats):
             assert rows.update_count() == 42
@@ -308,7 +308,7 @@ class TestRows:
         mock_stats = MagicMock()
         mock_stats.row_count_exact = 0
         mock_stats.row_count_lower_bound = 15
-        mock_stats.which_oneof.return_value = "row_count_lower_bound"
+        mock_stats._pb.WhichOneof.return_value = "row_count_lower_bound"
 
         with patch.object(rows, "result_set_stats", return_value=mock_stats):
             assert rows.update_count() == 15
@@ -322,7 +322,7 @@ class TestRows:
         mock_stats = MagicMock()
         mock_stats.row_count_exact = 0
         mock_stats.row_count_lower_bound = 0
-        mock_stats.which_oneof.return_value = None
+        mock_stats._pb.WhichOneof.return_value = None
 
         with patch.object(rows, "result_set_stats", return_value=mock_stats):
             assert rows.update_count() == 0

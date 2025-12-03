@@ -82,18 +82,20 @@ class TestRowsE2E:
     def test_stats_and_update_count(self, connection):
         """Tests retrieving result set stats and update count
         from a DML statement."""
+        import random
+        singer_id = random.randint(1000, 100000)
         sql = (
             "INSERT INTO Singers (SingerId, FirstName, LastName) "
-            + "VALUES (999, 'Stats', 'Test')"
+            + f"VALUES ({singer_id}, 'Stats', 'Test')"
         )
         request = ExecuteSqlRequest(sql=sql)
         rows = connection.execute(request)
-
+    
         try:
             stats = rows.result_set_stats()
             assert stats is not None
             assert stats.row_count_exact == 1
-
+    
             assert rows.update_count() == 1
         finally:
             rows.close()
