@@ -69,7 +69,8 @@ class TestRows:
         assert rows.closed
 
     def test_close_handles_error(self) -> None:
-        """Verifies that exceptions during close are propagated but object is still disposed."""
+        """Verifies that exceptions during close are propagated
+        but object is still disposed."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)

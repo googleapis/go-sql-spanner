@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from google.cloud.spannerlib import Connection  # type: ignore
+from google.cloud.spannerlib import Connection, Rows  # type: ignore
 from google.cloud.spannerlib.internal.errors import SpannerLibError
 
 

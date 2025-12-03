@@ -70,7 +70,8 @@ def teardown():
         if "Table not found" in str(e) or "NotFound" in str(e):
             print("Table Singers does not exist.")
         else:
-            # Ignore errors if table doesn't exist or other issues during cleanup
+            # Ignore errors if table doesn't exist or other issues
+            # during cleanup
             print(f"Error during cleanup: {e}")
     print("Schema teardown complete.")
 
