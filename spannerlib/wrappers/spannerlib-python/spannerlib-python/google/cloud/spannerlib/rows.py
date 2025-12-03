@@ -101,7 +101,9 @@ class Rows(AbstractLibraryObject):
                     next_row.ParseFromString(proto_bytes)
                     return next_row
                 except Exception as e:
-                    logger.error("Failed to decode/parse row data protobuf: %s", e)
+                    logger.error(
+                        "Failed to decode/parse row data protobuf: %s", e
+                    )
                     raise RuntimeError(f"Failed to get next row(s): {e}")
             else:
                 # Assuming no message means no more rows
@@ -127,7 +129,9 @@ class Rows(AbstractLibraryObject):
                     proto_bytes = ctypes.string_at(msg.msg, msg.msg_len)
                     return ResultSetMetadata.deserialize(proto_bytes)
                 except Exception as e:
-                    logger.error("Failed to decode/parse metadata protobuf: %s", e)
+                    logger.error(
+                        "Failed to decode/parse metadata protobuf: %s", e
+                    )
                     raise RuntimeError(f"Failed to get metadata: {e}")
         return ResultSetMetadata()
 
@@ -163,9 +167,10 @@ class Rows(AbstractLibraryObject):
             int representing the update count.
         """
         stats = self.result_set_stats()
-        if stats.row_count_exact:
+
+        if stats.which_oneof("row_count") == "row_count_exact":
             return stats.row_count_exact
-        elif stats.row_count_lower_bound:
+        if stats.which_oneof("row_count") == "row_count_lower_bound":
             return stats.row_count_lower_bound
 
         return 0
