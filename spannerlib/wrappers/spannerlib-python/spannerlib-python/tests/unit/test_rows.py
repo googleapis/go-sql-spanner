@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from google.cloud.spannerlib.internal.errors import SpannerLibError
 from google.cloud.spannerlib.internal.spannerlib_protocol import (
     SpannerLibProtocol,
 )
@@ -81,7 +82,7 @@ class TestRows:
         # Setup mock to raise exception
         mock_spannerlib.close_rows.side_effect = Exception("Close failed")
 
-        with pytest.raises(Exception, match="Close failed"):
+        with pytest.raises(SpannerLibError, match="Close failed"):
             rows.close()
 
         # Verify object is marked closed despite error

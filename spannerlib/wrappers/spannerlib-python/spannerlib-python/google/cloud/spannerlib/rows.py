@@ -16,6 +16,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from .abstract_library_object import AbstractLibraryObject
+from .internal.errors import SpannerLibError
 
 if TYPE_CHECKING:
     from .connection import Connection
@@ -59,5 +60,5 @@ class Rows(AbstractLibraryObject):
                 msg.raise_if_error()
             logger.info("Rows ID: %d closed", self.oid)
         except Exception as e:
-            logger.exception("Error closing rows ID: %d", self.oid)
-            raise e
+            logger.exception("Unexpected error closing rows ID: %d", self.oid)
+            raise SpannerLibError(f"Unexpected error during close: {e}") from e
