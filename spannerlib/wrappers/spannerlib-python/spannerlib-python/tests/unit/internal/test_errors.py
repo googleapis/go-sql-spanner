@@ -39,7 +39,7 @@ class TestSpannerLibError:
         code = 101
         err = SpannerLibError(msg, code)
 
-        assert err.raw_message == msg
+        assert err.message == msg
         assert err.error_code == code
         assert str(err) == f"[Err {code}] {msg}"
 
@@ -48,7 +48,7 @@ class TestSpannerLibError:
         msg = "Another test error"
         err = SpannerLibError(msg)
 
-        assert err.raw_message == msg
+        assert err.message == msg
         assert err.error_code is None
         assert str(err) == msg
 

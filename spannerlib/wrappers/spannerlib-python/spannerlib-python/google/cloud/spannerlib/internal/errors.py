@@ -26,15 +26,15 @@ class SpannerError(Exception):
 class SpannerLibError(SpannerError):
     """Exception raised when the underlying Go library returns an error code."""
 
-    def __init__(self, raw_message: str, error_code: Optional[int] = None) -> None:
+    def __init__(self, message: str, error_code: Optional[int] = None) -> None:
         """Initializes the SpannerLibError.
 
         Args:
-            raw_message (str): The error description.
+            message (str): The error description.
             error_code (Optional[int]): The error code
                 (e.g., 1 for generic failure).
         """
-        self.raw_message = message
+        self.message = message
         self.error_code = error_code
 
         # Format the string representation for immediate clarity in logs.
@@ -52,5 +52,5 @@ class SpannerLibError(SpannerError):
         """Standard unambiguous representation for debugging."""
         return (
             f"<{self.__class__.__name__}(code={self.error_code}, "
-            f"message='{self.raw_message}')>"
+            f"message='{self.message}')>"
         )
