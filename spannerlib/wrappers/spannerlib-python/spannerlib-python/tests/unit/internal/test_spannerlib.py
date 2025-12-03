@@ -56,13 +56,17 @@ def fixture_mock_lib_instance(mock_cdll_cls):
 
 @pytest.fixture(name="mock_lib_path")
 def fixture_mock_lib_path():
-    """Mocks _get_lib_path to return a dummy path and mock exists."""
-    with mock.patch.object(SpannerLib, "_get_lib_path") as mock_path_getter:
+    """Mocks get_shared_library to yield a dummy path."""
+    with mock.patch(
+        "google.cloud.spannerlib.internal.spannerlib.get_shared_library"
+    ) as mock_ctx:
         mock_path = mock.MagicMock(spec=Path)
         mock_path.exists.return_value = True
         mock_path.name = "mock_lib.so"
         mock_path.__str__.return_value = "/abs/path/to/mock_lib.so"
-        mock_path_getter.return_value = mock_path
+
+        # Configure the context manager to yield mock_path
+        mock_ctx.return_value.__enter__.return_value = mock_path
         yield mock_path
 
 
@@ -95,47 +99,44 @@ class TestSpannerlib:
             ):
                 SpannerLib()
 
-    def test_initialize_lib_not_found(self):
+    def test_initialize_lib_not_found(self, mock_lib_path):
         """Test initialization failure when the library file doesn't exist."""
+        mock_lib_path.exists.return_value = False
         with mock.patch("platform.system", return_value="Linux"):
-            with mock.patch.object(Path, "exists", return_value=False):
-                with pytest.raises(
-                    SpannerLibError, match="Library path does not exist:"
-                ):
-                    SpannerLib()
+            with pytest.raises(
+                SpannerLibError, match="Library path does not exist:"
+            ):
+                SpannerLib()
 
-    def test_get_lib_path_linux(self):
-        """Test _get_lib_path on Linux."""
+    def test_get_lib_filename_linux(self):
+        """Test _get_lib_filename on Linux."""
         with mock.patch("platform.system", return_value="Linux"):
-            with mock.patch.object(Path, "exists", return_value=True):
-                # pylint: disable=protected-access
-                path = SpannerLib._get_lib_path()
-                assert path.name == "spannerlib.so"
+            # pylint: disable=protected-access
+            filename = SpannerLib._get_lib_filename()
+            assert filename == "spannerlib.so"
 
-    def test_get_lib_path_darwin(self):
-        """Test _get_lib_path on Darwin."""
+    def test_get_lib_filename_darwin(self):
+        """Test _get_lib_filename on Darwin."""
         with mock.patch("platform.system", return_value="Darwin"):
-            with mock.patch.object(Path, "exists", return_value=True):
-                # pylint: disable=protected-access
-                path = SpannerLib._get_lib_path()
-                assert path.name == "spannerlib.dylib"
+            # pylint: disable=protected-access
+            filename = SpannerLib._get_lib_filename()
+            assert filename == "spannerlib.dylib"
 
-    def test_get_lib_path_windows(self):
-        """Test _get_lib_path on Windows."""
+    def test_get_lib_filename_windows(self):
+        """Test _get_lib_filename on Windows."""
         with mock.patch("platform.system", return_value="Windows"):
-            with mock.patch.object(Path, "exists", return_value=True):
-                # pylint: disable=protected-access
-                path = SpannerLib._get_lib_path()
-                assert path.name == "spannerlib.dll"
+            # pylint: disable=protected-access
+            filename = SpannerLib._get_lib_filename()
+            assert filename == "spannerlib.dll"
 
-    def test_get_lib_path_unsupported_os(self):
-        """Test _get_lib_path on an unsupported OS."""
+    def test_get_lib_filename_unsupported_os(self):
+        """Test _get_lib_filename on an unsupported OS."""
         with mock.patch("platform.system", return_value="AmigaOS"):
             with pytest.raises(
                 SpannerLibError, match="Unsupported operating system"
             ):
                 # pylint: disable=protected-access
-                SpannerLib._get_lib_path()
+                SpannerLib._get_lib_filename()
 
     def test_configure_signatures_missing_symbol(
         self, mock_lib_path, mock_lib_instance

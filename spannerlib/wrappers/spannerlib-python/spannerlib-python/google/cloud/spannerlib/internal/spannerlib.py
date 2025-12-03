@@ -82,25 +82,39 @@ class SpannerLib:
         if SpannerLib._lib_handle is not None:
             return
 
-        lib_path = self._get_lib_path()
-        logger.debug("Attempting to load SpannerLib from: %s", lib_path)
+        self._load_library()
 
-        try:
-            # ctypes requires a string path
-            SpannerLib._lib_handle = ctypes.CDLL(str(lib_path))
+    def _load_library(self) -> None:
+        """
+        Internal method to load the shared library.
+        """
+        filename: str = SpannerLib._get_lib_filename()
 
-            self._configure_signatures()
+        with get_shared_library(filename) as lib_path:
+            # Sanity check: Ensure the file actually exists
+            # before handing to ctypes
+            if not lib_path.exists():
+                raise SpannerLibError(
+                    f"Library path does not exist: {lib_path}"
+                )
 
-            logger.info("Successfully loaded shared library: %s", str(lib_path))
+            try:
+                # ctypes requires a string path
+                SpannerLib._lib_handle = ctypes.CDLL(str(lib_path))
+                self._configure_signatures()
 
-        except (OSError, FileNotFoundError) as e:
-            logger.critical(
-                "Failed to load native library at %s", str(lib_path)
-            )
-            SpannerLib._lib_handle = None
-            raise SpannerLibError(
-                f"Could not load native dependency '{lib_path.name}': {e}"
-            ) from e
+                logger.info(
+                    "Successfully loaded shared library: %s", str(lib_path)
+                )
+
+            except (OSError, FileNotFoundError) as e:
+                logger.critical(
+                    "Failed to load native library at %s", str(lib_path)
+                )
+                SpannerLib._lib_handle = None
+                raise SpannerLibError(
+                    f"Could not load native dependency '{lib_path.name}': {e}"
+                ) from e
 
     @staticmethod
     def _get_lib_filename() -> str:
@@ -122,23 +136,6 @@ class SpannerLib:
                 f"Unsupported operating system: {system_name}"
             )
         return filename
-
-    @staticmethod
-    def _get_lib_path() -> Path:
-        """
-        Resolves the absolute path to the shared library based on the OS.
-        """
-        filename: str = SpannerLib._get_lib_filename()
-
-        with get_shared_library(filename) as lib_path:
-            # Sanity check: Ensure the file actually exists
-            # before handing to ctypes
-            if not lib_path.exists():
-                raise SpannerLibError(
-                    f"Library path does not exist: {lib_path}"
-                )
-
-            return lib_path
 
     def _configure_signatures(self) -> None:
         """
