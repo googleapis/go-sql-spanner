@@ -63,6 +63,9 @@ class Rows(AbstractLibraryObject):
             ) as msg:
                 msg.raise_if_error()
             logger.info("Rows ID: %d closed", self.oid)
+        except SpannerLibError:
+            logger.exception("SpannerLib error closing rows ID: %d", self.oid)
+            raise
         except Exception as e:
             logger.exception("Unexpected error closing rows ID: %d", self.oid)
             raise SpannerLibError(f"Unexpected error during close: {e}") from e
