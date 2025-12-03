@@ -23,7 +23,7 @@ gcloud spanner databases create testdb --instance=test-instance
 ```
 4. Run the tests: 
 ```shell
-python3 -m unittest src/tests/system/test_pool.py
+python3 -m unittest tests/system/test_pool.py
 ```
 -or-
 ```shell
