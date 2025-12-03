@@ -71,8 +71,8 @@ class Rows(AbstractLibraryObject):
         """Fetches the next row(s) from the result set.
 
         Returns:
-            The fetched row(s), likely as a list of lists or list of dicts,
-            depending on the JSON structure returned by the Go layer.
+            A protobuf `ListValue` object representing the next row.
+            The values within the row are also protobuf `Value` objects.
             Returns None if no more rows are available.
 
         Raises:
@@ -98,7 +98,7 @@ class Rows(AbstractLibraryObject):
                     next_row.ParseFromString(proto_bytes)
                     return next_row
                 except Exception as e:
-                    logger.error("Failed to decode/parse row data JSON: %s", e)
+                    logger.error("Failed to decode/parse row data protobuf: %s", e)
                     raise RuntimeError(f"Failed to get next row(s): {e}")
             else:
                 # Assuming no message means no more rows
@@ -124,7 +124,7 @@ class Rows(AbstractLibraryObject):
                     proto_bytes = ctypes.string_at(msg.msg, msg.msg_len)
                     return ResultSetMetadata.deserialize(proto_bytes)
                 except Exception as e:
-                    logger.error("Failed to decode/parse metadata JSON: %s", e)
+                    logger.error("Failed to decode/parse metadata protobuf: %s", e)
                     raise RuntimeError(f"Failed to get metadata: {e}")
         return ResultSetMetadata()
 
@@ -148,7 +148,7 @@ class Rows(AbstractLibraryObject):
                     return ResultSetStats.deserialize(proto_bytes)
                 except Exception as e:
                     logger.error(
-                        "Failed to decode/parse ResultSetStats JSON: %s", e
+                        "Failed to decode/parse ResultSetStats protobuf: %s", e
                     )
                     raise RuntimeError(f"Failed to get ResultSetStats: {e}")
         return ResultSetStats()
