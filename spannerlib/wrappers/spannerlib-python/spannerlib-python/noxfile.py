@@ -43,13 +43,9 @@ BLACK_VERSION = "black[jupyter]>=23.7.0,<25.11.0"
 ISORT_VERSION = "isort>=5.11.0,<7.0.0"
 LINT_PATHS = ["google", "tests", "samples", "noxfile.py"]
 
-STANDARD_DEPENDENCIES = [
-    "google-cloud-spanner",
-]
+STANDARD_DEPENDENCIES = []
 
 UNIT_TEST_STANDARD_DEPENDENCIES = [
-    "mock",
-    "asyncmock",
     "pytest",
     "pytest-cov",
     "pytest-asyncio",
