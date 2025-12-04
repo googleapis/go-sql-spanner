@@ -14,7 +14,6 @@
 """Helper script to setup Spanner Emulator schema."""
 
 from _helper import DATABASE_ID, INSTANCE_ID, PROJECT_ID, TEST_ON_PROD
-from google.api_core.exceptions import AlreadyExists, NotFound
 
 from google.cloud import spanner
 
@@ -35,7 +34,7 @@ def setup_env():
     try:
         op = database.update_ddl(
             [
-                """CREATE TABLE Singers (
+                """CREATE TABLE IF NOT EXISTS Singers (
                 SingerId INT64 NOT NULL,
                 FirstName STRING(1024),
                 LastName STRING(1024),
@@ -43,8 +42,6 @@ def setup_env():
             ]
         )
         op.result()
-    except AlreadyExists:
-        print("Table Singers already exists.")
     except Exception:
         raise
     print("Schema setup complete.")
@@ -66,10 +63,8 @@ def teardown():
 
     # Drop table
     try:
-        op = database.update_ddl(["DROP TABLE Singers"])
+        op = database.update_ddl(["DROP TABLE IF EXISTS Singers"])
         op.result()
-    except NotFound:
-        print("Table Singers does not exist.")
     except Exception:
         raise
     print("Schema teardown complete.")
