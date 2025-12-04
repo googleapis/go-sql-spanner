@@ -32,11 +32,11 @@ class Pool(AbstractLibraryObject):
     def _close_lib_object(self) -> None:
         """Internal method to close the pool in the Go library."""
         try:
-            logger.info("Closing pool ID: %d", self.oid)
+            logger.debug("Closing pool ID: %d", self.oid)
             # Call the Go library function to close the pool.
             with self.spannerlib.close_pool(self.oid) as msg:
                 msg.raise_if_error()
-            logger.info("Pool ID: %d closed", self.oid)
+            logger.debug("Pool ID: %d closed", self.oid)
         except SpannerLibError:
             logger.exception("SpannerLib error closing pool ID: %d", self.oid)
             raise
@@ -54,7 +54,7 @@ class Pool(AbstractLibraryObject):
         Returns:
             Pool: A new Pool object.
         """
-        logger.info(
+        logger.debug(
             "Creating pool with connection string: %s",
             connection_string,
         )
@@ -64,7 +64,7 @@ class Pool(AbstractLibraryObject):
             with lib.create_pool(connection_string) as msg:
                 msg.raise_if_error()
                 pool = cls(lib, msg.object_id)
-                logger.info("Pool created with ID: %d", pool.oid)
+                logger.debug("Pool created with ID: %d", pool.oid)
         except SpannerLibError:
             logger.exception("Failed to create pool")
             raise
@@ -86,12 +86,12 @@ class Pool(AbstractLibraryObject):
         if self.closed:
             logger.error("Attempted to create connection from a closed pool")
             raise SpannerLibError("Pool is closed")
-        logger.info("Creating connection from pool ID: %d", self.oid)
+        logger.debug("Creating connection from pool ID: %d", self.oid)
         # Call the Go library function to create a connection.
         with self.spannerlib.create_connection(self.oid) as msg:
             msg.raise_if_error()
 
-            logger.info(
+            logger.debug(
                 "Connection created with ID: %d from pool ID: %d",
                 msg.object_id,
                 self.oid,

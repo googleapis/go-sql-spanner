@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from google.cloud.spannerlib import Connection  # type: ignore
+from google.cloud.spannerlib import Connection, Rows  # type: ignore
 from google.cloud.spannerlib.internal.errors import SpannerLibError
 
 
@@ -42,6 +42,8 @@ class TestConnection:
         ctx_manager = MagicMock()
         ctx_manager.__enter__.return_value = mock_msg
         lib.close_connection.return_value = ctx_manager
+        # Ensure close_rows returns a context manager
+        lib.close_rows.return_value = ctx_manager
         return lib
 
     @pytest.fixture
@@ -58,7 +60,9 @@ class TestConnection:
     @pytest.fixture
     def connection(self, mock_pool):
         """Creates a Connection instance for testing."""
-        return Connection(oid=123, pool=mock_pool)
+        conn = Connection(oid=123, pool=mock_pool)
+        yield conn
+        conn.close()
 
     @pytest.fixture
     def setup_close_context(self, mock_spanner_lib, mock_msg):
@@ -169,3 +173,474 @@ class TestConnection:
                 connection.close()
 
             mock_logger.exception.assert_called_once()
+
+    # -------------------------------------------------------------------------
+    # Test Methods: Execution
+    # -------------------------------------------------------------------------
+
+    def test_execute_success(self, connection, mock_spanner_lib, mock_msg):
+        """Test successful SQL execution."""
+        # 1. Setup
+        mock_request = Mock()
+        serialized_request = b"serialized_request"
+
+        with patch(
+            "google.cloud.spanner_v1.ExecuteSqlRequest.serialize",
+            return_value=serialized_request,
+        ) as mock_serialize:
+            # Mock spannerlib.execute context manager
+            ctx_manager = MagicMock()
+            ctx_manager.__enter__.return_value = mock_msg
+            mock_spanner_lib.execute.return_value = ctx_manager
+
+            # Set expected Rows ID
+            mock_msg.object_id = 456
+
+            # 2. Execute
+            rows = connection.execute(mock_request)
+
+            # 3. Assertions
+            mock_serialize.assert_called_once_with(mock_request)
+            mock_spanner_lib.execute.assert_called_once_with(
+                999, 123, serialized_request
+            )
+            mock_msg.raise_if_error.assert_called_once()
+
+            assert isinstance(rows, Rows)
+            assert rows.oid == 456
+            assert rows.pool == connection.pool
+            assert rows.conn == connection
+
+            # Clean up
+            rows.close()
+
+    def test_execute_closed_connection(self, connection):
+        """Test execute raises error if connection is closed."""
+        connection._mark_disposed()
+        mock_request = Mock()
+
+        with pytest.raises(SpannerLibError, match="Connection is closed"):
+            connection.execute(mock_request)
+
+    def test_execute_propagates_error(self, connection, mock_spanner_lib):
+        """Test that execute propagates errors from the library."""
+        # 1. Setup
+        mock_request = Mock()
+        serialized_request = b"serialized_request"
+
+        with patch(
+            "google.cloud.spanner_v1.ExecuteSqlRequest.serialize",
+            return_value=serialized_request,
+        ):
+            # Mock spannerlib.execute context manager with a NEW message object
+            ctx_manager = MagicMock()
+            exec_msg = Mock()
+            ctx_manager.__enter__.return_value = exec_msg
+            mock_spanner_lib.execute.return_value = ctx_manager
+
+            # Simulate error
+            exec_msg.raise_if_error.side_effect = SpannerLibError(
+                "Execution failed"
+            )
+
+            # 2. Execute & Assert
+            with pytest.raises(SpannerLibError, match="Execution failed"):
+                connection.execute(mock_request)
+
+    def test_execute_batch_success(
+        self, connection, mock_spanner_lib, mock_msg
+    ):
+        """Test successful batch DML execution."""
+        # 1. Setup
+        mock_request = Mock()
+        serialized_request = b"serialized_request"
+        mock_response = Mock()
+        serialized_response = b"serialized_response"
+
+        with patch(
+            "google.cloud.spanner_v1.ExecuteBatchDmlRequest.serialize",
+            return_value=serialized_request,
+        ) as mock_serialize, patch(
+            "google.cloud.spannerlib.connection.to_bytes",
+            return_value=serialized_response,
+        ) as mock_to_bytes, patch(
+            "google.cloud.spanner_v1.ExecuteBatchDmlResponse.deserialize",
+            return_value=mock_response,
+        ) as mock_deserialize:
+            # Mock spannerlib.execute_batch context manager
+            ctx_manager = MagicMock()
+            ctx_manager.__enter__.return_value = mock_msg
+            mock_spanner_lib.execute_batch.return_value = ctx_manager
+
+            # Mock message attributes
+            mock_msg.msg = Mock()
+            mock_msg.msg_len = 123
+
+            # 2. Execute
+            response = connection.execute_batch(mock_request)
+
+            # 3. Assertions
+            mock_serialize.assert_called_once_with(mock_request)
+            mock_spanner_lib.execute_batch.assert_called_once_with(
+                999, 123, serialized_request
+            )
+            mock_msg.raise_if_error.assert_called_once()
+            mock_to_bytes.assert_called_once_with(
+                mock_msg.msg, mock_msg.msg_len
+            )
+            mock_deserialize.assert_called_once_with(serialized_response)
+            assert response == mock_response
+
+    def test_execute_batch_closed_connection(self, connection):
+        """Test execute_batch raises error if connection is closed."""
+        connection._mark_disposed()
+        mock_request = Mock()
+
+        with pytest.raises(SpannerLibError, match="Connection is closed"):
+            connection.execute_batch(mock_request)
+
+    def test_execute_batch_propagates_error(self, connection, mock_spanner_lib):
+        """Test that execute_batch propagates errors from the library."""
+        # 1. Setup
+        mock_request = Mock()
+        serialized_request = b"serialized_request"
+
+        with patch(
+            "google.cloud.spanner_v1.ExecuteBatchDmlRequest.serialize",
+            return_value=serialized_request,
+        ):
+            # Mock spannerlib.execute_batch context manager
+            ctx_manager = MagicMock()
+            exec_msg = Mock()
+            ctx_manager.__enter__.return_value = exec_msg
+            mock_spanner_lib.execute_batch.return_value = ctx_manager
+
+            # Simulate error
+            exec_msg.raise_if_error.side_effect = SpannerLibError(
+                "Batch Execution failed"
+            )
+
+            # 2. Execute & Assert
+            with pytest.raises(SpannerLibError, match="Batch Execution failed"):
+                connection.execute_batch(mock_request)
+
+    def test_write_mutations_success(
+        self, connection, mock_spanner_lib, mock_msg
+    ):
+        """Test successful mutation write."""
+        # 1. Setup
+        mock_request = Mock()
+        serialized_request = b"serialized_request"
+        mock_response = Mock()
+        serialized_response = b"serialized_response"
+
+        with patch(
+            "google.cloud.spanner_v1.BatchWriteRequest.MutationGroup.serialize",
+            return_value=serialized_request,
+        ) as mock_serialize, patch(
+            "google.cloud.spannerlib.connection.to_bytes",
+            return_value=serialized_response,
+        ) as mock_to_bytes, patch(
+            "google.cloud.spanner_v1.CommitResponse.deserialize",
+            return_value=mock_response,
+        ) as mock_deserialize:
+            # Mock spannerlib.write_mutations context manager
+            ctx_manager = MagicMock()
+            ctx_manager.__enter__.return_value = mock_msg
+            mock_spanner_lib.write_mutations.return_value = ctx_manager
+
+            # Mock message attributes
+            mock_msg.msg = Mock()
+            mock_msg.msg_len = 123
+
+            # 2. Execute
+            response = connection.write_mutations(mock_request)
+
+            # 3. Assertions
+            mock_serialize.assert_called_once_with(mock_request)
+            mock_spanner_lib.write_mutations.assert_called_once_with(
+                999, 123, serialized_request
+            )
+            mock_msg.raise_if_error.assert_called_once()
+            mock_to_bytes.assert_called_once_with(
+                mock_msg.msg, mock_msg.msg_len
+            )
+            mock_deserialize.assert_called_once_with(serialized_response)
+            assert response == mock_response
+
+    def test_write_mutations_closed_connection(self, connection):
+        """Test write_mutations raises error if connection is closed."""
+        connection._mark_disposed()
+        mock_request = Mock()
+
+        with pytest.raises(SpannerLibError, match="Connection is closed"):
+            connection.write_mutations(mock_request)
+
+    def test_write_mutations_propagates_error(
+        self, connection, mock_spanner_lib
+    ):
+        """Test that write_mutations propagates errors from the library."""
+        # 1. Setup
+        mock_request = Mock()
+        serialized_request = b"serialized_request"
+
+        with patch(
+            "google.cloud.spanner_v1.BatchWriteRequest.MutationGroup.serialize",
+            return_value=serialized_request,
+        ):
+            # Mock spannerlib.write_mutations context manager
+            ctx_manager = MagicMock()
+            exec_msg = Mock()
+            ctx_manager.__enter__.return_value = exec_msg
+            mock_spanner_lib.write_mutations.return_value = ctx_manager
+
+            # Simulate error
+            exec_msg.raise_if_error.side_effect = SpannerLibError(
+                "Mutation Write failed"
+            )
+
+            with pytest.raises(SpannerLibError, match="Mutation Write failed"):
+                connection.write_mutations(mock_request)
+
+    def test_begin_transaction_success(
+        self, connection, mock_spanner_lib, mock_msg
+    ):
+        """Test successful transaction start."""
+        # 1. Setup
+        mock_options = Mock()
+        serialized_options = b"serialized_options"
+
+        with patch(
+            "google.cloud.spanner_v1.TransactionOptions.serialize",
+            return_value=serialized_options,
+        ) as mock_serialize:
+            # Mock spannerlib.begin_transaction context manager
+            ctx_manager = MagicMock()
+            ctx_manager.__enter__.return_value = mock_msg
+            mock_spanner_lib.begin_transaction.return_value = ctx_manager
+
+            # 2. Execute
+            connection.begin_transaction(mock_options)
+
+            # 3. Assertions
+            mock_serialize.assert_called_once_with(mock_options)
+            mock_spanner_lib.begin_transaction.assert_called_once_with(
+                999, 123, serialized_options
+            )
+            mock_msg.raise_if_error.assert_called_once()
+
+    def test_begin_transaction_default_options(
+        self, connection, mock_spanner_lib, mock_msg
+    ):
+        """Test begin_transaction with default options."""
+        # 1. Setup
+        serialized_options = b"default_options"
+
+        with patch(
+            "google.cloud.spannerlib.connection.TransactionOptions"
+        ) as mock_options_cls:
+            mock_options_cls.serialize.return_value = serialized_options
+
+            # Mock spannerlib.begin_transaction context manager
+            ctx_manager = MagicMock()
+            ctx_manager.__enter__.return_value = mock_msg
+            mock_spanner_lib.begin_transaction.return_value = ctx_manager
+
+            # 2. Execute
+            connection.begin_transaction()
+
+            # 3. Assertions
+            mock_options_cls.assert_called_once()
+            mock_options_cls.serialize.assert_called_once()
+            mock_spanner_lib.begin_transaction.assert_called_once_with(
+                999, 123, serialized_options
+            )
+            mock_msg.raise_if_error.assert_called_once()
+
+    def test_begin_transaction_closed_connection(self, connection):
+        """Test begin_transaction raises error if connection is closed."""
+        connection._mark_disposed()
+
+        with pytest.raises(SpannerLibError, match="Connection is closed"):
+            connection.begin_transaction()
+
+    def test_begin_transaction_propagates_error(
+        self, connection, mock_spanner_lib
+    ):
+        """Test that begin_transaction propagates errors from the library."""
+        # 1. Setup
+        serialized_options = b"serialized_options"
+
+        with patch(
+            "google.cloud.spanner_v1.TransactionOptions.serialize",
+            return_value=serialized_options,
+        ):
+            # Mock spannerlib.begin_transaction context manager
+            ctx_manager = MagicMock()
+            exec_msg = Mock()
+            ctx_manager.__enter__.return_value = exec_msg
+            mock_spanner_lib.begin_transaction.return_value = ctx_manager
+
+            # Simulate error
+            exec_msg.raise_if_error.side_effect = SpannerLibError(
+                "Transaction Start failed"
+            )
+
+            # 2. Execute & Assert
+            with pytest.raises(
+                SpannerLibError, match="Transaction Start failed"
+            ):
+                connection.begin_transaction(Mock())
+
+    def test_commit_success(self, connection, mock_spanner_lib, mock_msg):
+        """Test successful commit."""
+        # 1. Setup
+        mock_response = Mock()
+        serialized_response = b"serialized_response"
+
+        with patch(
+            "google.cloud.spannerlib.connection.to_bytes",
+            return_value=serialized_response,
+        ) as mock_to_bytes, patch(
+            "google.cloud.spanner_v1.CommitResponse.deserialize",
+            return_value=mock_response,
+        ) as mock_deserialize:
+            # Mock spannerlib.commit context manager
+            ctx_manager = MagicMock()
+            ctx_manager.__enter__.return_value = mock_msg
+            mock_spanner_lib.commit.return_value = ctx_manager
+
+            # Mock message attributes
+            mock_msg.msg = Mock()
+            mock_msg.msg_len = 123
+
+            # 2. Execute
+            response = connection.commit()
+
+            # 3. Assertions
+            mock_spanner_lib.commit.assert_called_once_with(999, 123)
+            mock_msg.raise_if_error.assert_called_once()
+            mock_to_bytes.assert_called_once_with(
+                mock_msg.msg, mock_msg.msg_len
+            )
+            mock_deserialize.assert_called_once_with(serialized_response)
+            assert response == mock_response
+
+    def test_commit_closed_connection(self, connection):
+        """Test commit raises error if connection is closed."""
+        connection._mark_disposed()
+
+        with pytest.raises(SpannerLibError, match="Connection is closed"):
+            connection.commit()
+
+    def test_commit_propagates_error(self, connection, mock_spanner_lib):
+        """Test that commit propagates errors from the library."""
+        # 1. Setup
+        # Mock spannerlib.commit context manager
+        ctx_manager = MagicMock()
+        exec_msg = Mock()
+        ctx_manager.__enter__.return_value = exec_msg
+        mock_spanner_lib.commit.return_value = ctx_manager
+
+        # Simulate error
+        exec_msg.raise_if_error.side_effect = SpannerLibError("Commit failed")
+
+        # 2. Execute & Assert
+        with pytest.raises(SpannerLibError, match="Commit failed"):
+            connection.commit()
+
+    def test_rollback_success(self, connection, mock_spanner_lib, mock_msg):
+        """Test successful rollback."""
+        # 1. Setup
+        # Mock spannerlib.rollback context manager
+        ctx_manager = MagicMock()
+        ctx_manager.__enter__.return_value = mock_msg
+        mock_spanner_lib.rollback.return_value = ctx_manager
+
+        # 2. Execute
+        connection.rollback()
+
+        # 3. Assertions
+        mock_spanner_lib.rollback.assert_called_once_with(999, 123)
+        mock_msg.raise_if_error.assert_called_once()
+
+    def test_rollback_closed_connection(self, connection):
+        """Test rollback raises error if connection is closed."""
+        connection._mark_disposed()
+
+        with pytest.raises(SpannerLibError, match="Connection is closed"):
+            connection.rollback()
+
+    def test_rollback_propagates_error(self, connection, mock_spanner_lib):
+        """Test that rollback propagates errors from the library."""
+        # 1. Setup
+        # Mock spannerlib.rollback context manager
+        ctx_manager = MagicMock()
+        exec_msg = Mock()
+        ctx_manager.__enter__.return_value = exec_msg
+        mock_spanner_lib.rollback.return_value = ctx_manager
+
+        # Simulate error
+        exec_msg.raise_if_error.side_effect = SpannerLibError("Rollback failed")
+
+        # 2. Execute & Assert
+        with pytest.raises(SpannerLibError, match="Rollback failed"):
+            connection.rollback()
+
+    def test_transaction_write_mutations_success(
+        self, connection, mock_spanner_lib, mock_msg
+    ):
+        """Test writing mutations within a transaction."""
+        # 1. Setup
+        mock_mutation = Mock()
+        serialized_mutation = b"serialized_mutation"
+        mock_response = Mock()
+        serialized_response = b"serialized_response"
+
+        with patch(
+            "google.cloud.spanner_v1.BatchWriteRequest.MutationGroup.serialize",
+            return_value=serialized_mutation,
+        ) as mock_serialize, patch(
+            "google.cloud.spannerlib.connection.to_bytes",
+            return_value=serialized_response,
+        ) as mock_to_bytes, patch(
+            "google.cloud.spanner_v1.CommitResponse.deserialize",
+            return_value=mock_response,
+        ) as mock_deserialize:
+            # Mock spannerlib methods
+            ctx_manager = MagicMock()
+            ctx_manager.__enter__.return_value = mock_msg
+
+            mock_spanner_lib.begin_transaction.return_value = ctx_manager
+            mock_spanner_lib.write_mutations.return_value = ctx_manager
+            mock_spanner_lib.commit.return_value = ctx_manager
+
+            mock_msg.msg = Mock()
+            mock_msg.msg_len = 123
+
+            # 2. Execute
+            connection.begin_transaction()
+
+            # Simulate buffered mutation (no response)
+            mock_msg.msg_len = 0
+            mock_msg.msg = None
+            response = connection.write_mutations(mock_mutation)
+
+            connection.commit()
+
+            # 3. Assertions
+            mock_spanner_lib.begin_transaction.assert_called_once()
+            mock_serialize.assert_called_once_with(mock_mutation)
+            mock_spanner_lib.write_mutations.assert_called_once_with(
+                999, 123, serialized_mutation
+            )
+            mock_spanner_lib.commit.assert_called_once_with(999, 123)
+
+            # Verify response is None for buffered mutation
+            assert response is None
+
+            # to_bytes and deserialize should NOT be called for write_mutations
+            # but ARE called for commit.
+            # commit calls to_bytes and deserialize once.
+            assert mock_to_bytes.call_count == 1
+            assert mock_deserialize.call_count == 1
