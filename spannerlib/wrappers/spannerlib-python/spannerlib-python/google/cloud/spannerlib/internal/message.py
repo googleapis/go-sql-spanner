@@ -59,8 +59,14 @@ class Message(ctypes.Structure):
         ("pinner_id", ctypes.c_int64),  # r0: Handle ID for Go memory pinning
         ("error_code", ctypes.c_int32),  # r1: 0 = Success, >0 = Error
         ("object_id", ctypes.c_int64),  # r2: ID of the resulting object
-        ("msg_len", ctypes.c_int32),  # r3: Length of result or error message bytes
-        ("msg", ctypes.c_void_p),  # r4: Pointer to result or error message bytes
+        (
+            "msg_len",
+            ctypes.c_int32,
+        ),  # r3: Length of result or error message bytes
+        (
+            "msg",
+            ctypes.c_void_p,
+        ),  # r4: Pointer to result or error message bytes
     ]
 
     def __init__(self, *args, **kwargs):

@@ -15,21 +15,15 @@
 
 from contextlib import contextmanager
 import ctypes
+from importlib.resources import as_file, files
 import logging
 from pathlib import Path
 import platform
-import sys
 from typing import ClassVar, Final, Generator, Optional
 
 from .errors import SpannerLibError
 from .message import Message
 from .types import GoSlice, GoString
-
-if sys.version_info >= (3, 9):
-    from importlib.resources import as_file, files
-else:
-    # Fallback for Python 3.8
-    from importlib_resources import as_file, files
 
 logger = logging.getLogger(__name__)
 

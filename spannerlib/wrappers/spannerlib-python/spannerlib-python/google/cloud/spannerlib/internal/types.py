@@ -46,7 +46,7 @@ class GoString(ctypes.Structure):
         if not self.p or self.n == 0:
             return ""
         # We must specify the length to read exactly n bytes, as Go strings
-        # are not necessarily null-terminated.
+        # are not null-terminated.
         return ctypes.string_at(self.p, self.n).decode("utf-8")
 
     @classmethod
