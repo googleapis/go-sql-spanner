@@ -1,5 +1,7 @@
 # SPANNERLIB-PYTHON: A High-Performance Python Wrapper for the Go Spanner Client Shared lib
 
+> **NOTICE:** This is an internal library that can make breaking changes without prior notice.
+
 ## Introduction
 The `spannerlib-python` wrapper provides a high-performance, idiomatic Python interface for Google Cloud Spanner by wrapping the official Go Client Shared library.
 
