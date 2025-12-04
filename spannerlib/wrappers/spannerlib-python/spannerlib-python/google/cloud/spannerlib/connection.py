@@ -14,7 +14,7 @@
 """Module for the Connection class
 representing a single connection to Spanner."""
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from google.cloud.spanner_v1 import (
     BatchWriteRequest,
@@ -153,14 +153,15 @@ class Connection(AbstractLibraryObject):
 
     def write_mutations(
         self, request: BatchWriteRequest.MutationGroup
-    ) -> CommitResponse:
+    ) -> Optional[CommitResponse]:
         """Writes a mutation to the connection.
 
         Args:
             request: The BatchWriteRequest_MutationGroup object.
 
         Returns:
-            A CommitResponse object.
+            A CommitResponse object if the mutation was applied immediately
+            (no active transaction), or None if it was buffered.
         """
         if self.closed:
             raise SpannerLibError("Connection is closed.")
@@ -183,8 +184,10 @@ class Connection(AbstractLibraryObject):
             logger.debug(
                 "Mutation write successful on connection ID: %d.", self.oid
             )
-            response_bytes = to_bytes(msg.msg, msg.msg_len)
-            return CommitResponse.deserialize(response_bytes)
+            if msg.msg_len > 0 and msg.msg:
+                response_bytes = to_bytes(msg.msg, msg.msg_len)
+                return CommitResponse.deserialize(response_bytes)
+            return None
 
     def begin_transaction(self, options: TransactionOptions = None):
         """Begins a new transaction on the connection.

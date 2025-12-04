@@ -620,7 +620,12 @@ class TestConnection:
 
             # 2. Execute
             connection.begin_transaction()
-            connection.write_mutations(mock_mutation)
+
+            # Simulate buffered mutation (no response)
+            mock_msg.msg_len = 0
+            mock_msg.msg = None
+            response = connection.write_mutations(mock_mutation)
+
             connection.commit()
 
             # 3. Assertions
@@ -630,5 +635,12 @@ class TestConnection:
                 999, 123, serialized_mutation
             )
             mock_spanner_lib.commit.assert_called_once_with(999, 123)
-            assert mock_to_bytes.call_count == 2
-            assert mock_deserialize.call_count == 2
+
+            # Verify response is None for buffered mutation
+            assert response is None
+
+            # to_bytes and deserialize should NOT be called for write_mutations
+            # but ARE called for commit.
+            # commit calls to_bytes and deserialize once.
+            assert mock_to_bytes.call_count == 1
+            assert mock_deserialize.call_count == 1

@@ -200,7 +200,8 @@ class TestConnectionE2E:
 
         mutation_group = BatchWriteRequest.MutationGroup(mutations=[mutation])
 
-        connection.write_mutations(mutation_group)
+        response = connection.write_mutations(mutation_group)
+        assert response is None
 
         # If write_mutations commits, this commit() might fail or do nothing.
         # But if it buffers, commit() is needed.
@@ -239,7 +240,8 @@ class TestConnectionE2E:
 
         mutation_group = BatchWriteRequest.MutationGroup(mutations=[mutation])
 
-        connection.write_mutations(mutation_group)
+        response = connection.write_mutations(mutation_group)
+        assert response is None
         connection.rollback()
 
         # Verify data was NOT committed
