@@ -56,13 +56,13 @@ class Rows(AbstractLibraryObject):
     def _close_lib_object(self) -> None:
         """Internal method to close the rows in the Go library."""
         try:
-            logger.info("Closing rows ID: %d", self.oid)
+            logger.debug("Closing rows ID: %d", self.oid)
             # Call the Go library function to close the rows.
             with self.spannerlib.close_rows(
                 self.pool.oid, self.conn.oid, self.oid
             ) as msg:
                 msg.raise_if_error()
-            logger.info("Rows ID: %d closed", self.oid)
+            logger.debug("Rows ID: %d closed", self.oid)
         except SpannerLibError:
             logger.exception("SpannerLib error closing rows ID: %d", self.oid)
             raise

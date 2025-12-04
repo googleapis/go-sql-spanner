@@ -63,13 +63,13 @@ class Connection(AbstractLibraryObject):
     def _close_lib_object(self) -> None:
         """Internal method to close the connection in the Go library."""
         try:
-            logger.info("Closing connection ID: %d", self.oid)
+            logger.debug("Closing connection ID: %d", self.oid)
             # Call the Go library function to close the connection.
             with self.spannerlib.close_connection(
                 self.pool.oid, self.oid
             ) as msg:
                 msg.raise_if_error()
-            logger.info("Connection ID: %d closed", self.oid)
+            logger.debug("Connection ID: %d closed", self.oid)
         except SpannerLibError:
             logger.exception(
                 "SpannerLib error closing connection ID: %d", self.oid
@@ -93,7 +93,7 @@ class Connection(AbstractLibraryObject):
         if self.closed:
             raise SpannerLibError("Connection is closed.")
 
-        logger.info(
+        logger.debug(
             "Executing SQL on connection ID: %d for pool ID: %d",
             self.oid,
             self.pool.oid,
@@ -106,7 +106,7 @@ class Connection(AbstractLibraryObject):
             self.pool.oid, self.oid, request_bytes
         ) as msg:
             msg.raise_if_error()
-            logger.info(
+            logger.debug(
                 "SQL execution successful on connection ID: %d."
                 "Got Rows ID: %d",
                 self.oid,
@@ -129,7 +129,7 @@ class Connection(AbstractLibraryObject):
         if self.closed:
             raise SpannerLibError("Connection is closed.")
 
-        logger.info(
+        logger.debug(
             "Executing batch DML on connection ID: %d for pool ID: %d",
             self.oid,
             self.pool.oid,
@@ -144,7 +144,7 @@ class Connection(AbstractLibraryObject):
             request_bytes,
         ) as msg:
             msg.raise_if_error()
-            logger.info(
+            logger.debug(
                 "Batch DML execution successful on connection ID: %d.",
                 self.oid,
             )
@@ -165,7 +165,7 @@ class Connection(AbstractLibraryObject):
         if self.closed:
             raise SpannerLibError("Connection is closed.")
 
-        logger.info(
+        logger.debug(
             "Writing mutation on connection ID: %d for pool ID: %d",
             self.oid,
             self.pool.oid,
@@ -180,7 +180,7 @@ class Connection(AbstractLibraryObject):
             request_bytes,
         ) as msg:
             msg.raise_if_error()
-            logger.info(
+            logger.debug(
                 "Mutation write successful on connection ID: %d.", self.oid
             )
             response_bytes = to_bytes(msg.msg, msg.msg_len)
@@ -199,7 +199,7 @@ class Connection(AbstractLibraryObject):
         if self.closed:
             raise SpannerLibError("Connection is closed.")
 
-        logger.info(
+        logger.debug(
             "Beginning transaction on connection ID: %d for pool ID: %d",
             self.oid,
             self.pool.oid,
@@ -214,7 +214,7 @@ class Connection(AbstractLibraryObject):
             self.pool.oid, self.oid, options_bytes
         ) as msg:
             msg.raise_if_error()
-            logger.info("Transaction started on connection ID: %d", self.oid)
+            logger.debug("Transaction started on connection ID: %d", self.oid)
 
     def commit(self) -> CommitResponse:
         """Commits the transaction.
@@ -229,10 +229,10 @@ class Connection(AbstractLibraryObject):
         if self.closed:
             raise SpannerLibError("Connection is closed.")
 
-        logger.info("Committing on connection ID: %d", self.oid)
+        logger.debug("Committing on connection ID: %d", self.oid)
         with self.spannerlib.commit(self.pool.oid, self.oid) as msg:
             msg.raise_if_error()
-            logger.info("Committed")
+            logger.debug("Committed")
             response_bytes = to_bytes(msg.msg, msg.msg_len)
             return CommitResponse.deserialize(response_bytes)
 
@@ -246,7 +246,7 @@ class Connection(AbstractLibraryObject):
         if self.closed:
             raise SpannerLibError("Connection is closed.")
 
-        logger.info("Rolling back on connection ID: %d", self.oid)
+        logger.debug("Rolling back on connection ID: %d", self.oid)
         with self.spannerlib.rollback(self.pool.oid, self.oid) as msg:
             msg.raise_if_error()
-            logger.info("Rolled back")
+            logger.debug("Rolled back")
