@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 import pytest
 
-from google.cloud.spannerlib import Pool  # type: ignore
+from google.cloud.spannerlib import Connection, Pool  # type: ignore
 from google.cloud.spannerlib.internal import SpannerLibError  # type: ignore
 from google.cloud.spannerlib.internal.message import Message  # type: ignore
 
@@ -191,3 +191,54 @@ class TestPool:
         assert "Unexpected error during close: Internal type error" in str(
             exc_info.value
         )
+
+    def test_create_connection_success(
+        self, mock_lib_instance, setup_spannerlib_method, mock_msg_data
+    ):  # pylint: disable=redefined-outer-name
+        """Test successful creation of a Connection from the Pool."""
+        # 1. Setup
+        pool = Pool(spannerlib=mock_lib_instance, oid=100)
+        # Mock the create_connection call to return a valid message
+        # with a new OID
+        mock_msg_data["object_id"] = 200
+        setup_spannerlib_method("create_connection")
+
+        # 2. Execute
+        conn = pool.create_connection()
+
+        # 3. Assertions
+        mock_lib_instance.create_connection.assert_called_once_with(100)
+        assert isinstance(conn, Connection)
+        assert conn.oid == 200
+        assert conn.pool.oid == 100
+        assert conn.spannerlib == mock_lib_instance
+
+    def test_create_connection_pool_closed(self, mock_lib_instance):
+        """Test that creating a connection from a closed pool
+        raises an error."""
+        # 1. Setup
+        pool = Pool(spannerlib=mock_lib_instance, oid=100)
+        pool._is_disposed = True
+
+        # 2. Execute & Assert
+        with pytest.raises(SpannerLibError) as exc_info:
+            pool.create_connection()
+
+        assert "Pool is closed" in str(exc_info.value)
+
+    def test_create_connection_lib_error(
+        self, mock_lib_instance, setup_spannerlib_method, mock_msg_data
+    ):  # pylint: disable=redefined-outer-name
+        """Test that SpannerLibError from the underlying lib is propagated."""
+        # 1. Setup
+        pool = Pool(spannerlib=mock_lib_instance, oid=100)
+        mock_msg_data["error_code"] = 1
+        mock_msg_data["msg"] = b"Failed to create connection"
+        mock_msg_data["msg_len"] = len(b"Failed to create connection")
+        setup_spannerlib_method("create_connection")
+
+        # 2. Execute & Assert
+        with pytest.raises(SpannerLibError) as exc_info:
+            pool.create_connection()
+
+        assert "Failed to create connection" in str(exc_info.value)
