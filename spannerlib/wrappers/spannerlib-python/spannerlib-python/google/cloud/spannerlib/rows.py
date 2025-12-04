@@ -173,4 +173,4 @@ class Rows(AbstractLibraryObject):
         if stats._pb.WhichOneof("row_count") == "row_count_lower_bound":
             return stats.row_count_lower_bound
 
-        return 0
+        return -1

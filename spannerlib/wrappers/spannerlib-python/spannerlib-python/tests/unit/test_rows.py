@@ -314,8 +314,8 @@ class TestRows:
         with patch.object(rows, "result_set_stats", return_value=mock_stats):
             assert rows.update_count() == 15
 
-    def test_update_count_zero(self) -> None:
-        """Verifies update_count returns 0 if no stats available."""
+    def test_update_count_not_available(self) -> None:
+        """Verifies update_count returns -1 if no stats available."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
         rows = Rows(1, mock_pool, mock_conn)
@@ -326,7 +326,7 @@ class TestRows:
         mock_stats._pb.WhichOneof.return_value = None
 
         with patch.object(rows, "result_set_stats", return_value=mock_stats):
-            assert rows.update_count() == 0
+            assert rows.update_count() == -1
 
     def test_next_returns_row(self) -> None:
         """Verifies that next() retrieves and deserializes a row."""
