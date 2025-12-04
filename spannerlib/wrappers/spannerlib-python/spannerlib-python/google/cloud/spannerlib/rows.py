@@ -32,21 +32,21 @@ logger = logging.getLogger(__name__)
 class Rows(AbstractLibraryObject):
     """Represents a result set from the Spanner database."""
 
-    def __init__(self, oid: int, pool: "Pool", conn: "Connection") -> None:
+    def __init__(self, oid: int, conn: "Connection") -> None:
         """Initializes a Rows object.
 
         Args:
             oid (int): The object ID (handle) of the row in the Go library.
-            pool (Pool): The Pool object from which this row was created.
+            conn (Connection): The Connection object from which this row was
+                created.
         """
-        super().__init__(pool.spannerlib, oid)
-        self._pool = pool
+        super().__init__(conn.pool.spannerlib, oid)
         self._conn = conn
 
     @property
     def pool(self) -> "Pool":
         """Returns the pool associated with this rows."""
-        return self._pool
+        return self._conn.pool
 
     @property
     def conn(self) -> "Connection":

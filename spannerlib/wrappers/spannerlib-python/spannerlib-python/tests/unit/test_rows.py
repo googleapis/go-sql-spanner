@@ -30,11 +30,12 @@ class TestRows:
         """Verifies correct initialization of Rows."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
+        mock_conn.pool = mock_pool
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
         mock_pool.spannerlib = mock_spannerlib
 
         oid = 123
-        rows = Rows(oid, mock_pool, mock_conn)
+        rows = Rows(oid, mock_conn)
 
         assert rows.oid == oid
         assert rows.pool == mock_pool
@@ -46,6 +47,7 @@ class TestRows:
         """Verifies that close() calls the underlying library function."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
+        mock_conn.pool = mock_pool
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
         mock_pool.spannerlib = mock_spannerlib
 
@@ -54,7 +56,7 @@ class TestRows:
         mock_conn.oid = 20
         rows_oid = 30
 
-        rows = Rows(rows_oid, mock_pool, mock_conn)
+        rows = Rows(rows_oid, mock_conn)
 
         # Setup mock context manager for close_rows
         mock_msg = MagicMock()
@@ -74,10 +76,11 @@ class TestRows:
         but object is still disposed."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
+        mock_conn.pool = mock_pool
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
         mock_pool.spannerlib = mock_spannerlib
 
-        rows = Rows(30, mock_pool, mock_conn)
+        rows = Rows(30, mock_conn)
 
         # Setup mock to raise exception
         mock_spannerlib.close_rows.side_effect = Exception("Close failed")
@@ -92,6 +95,7 @@ class TestRows:
         """Verifies that Rows works as a context manager."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
+        mock_conn.pool = mock_pool
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
         mock_pool.spannerlib = mock_spannerlib
 
@@ -101,7 +105,7 @@ class TestRows:
             mock_msg
         )
 
-        rows = Rows(123, mock_pool, mock_conn)
+        rows = Rows(123, mock_conn)
 
         with rows as r:
             assert r is rows
@@ -114,6 +118,7 @@ class TestRows:
         """Verifies that metadata() retrieves and deserializes metadata."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
+        mock_conn.pool = mock_pool
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
         mock_pool.spannerlib = mock_spannerlib
 
@@ -122,7 +127,7 @@ class TestRows:
         mock_conn.oid = 20
         rows_oid = 30
 
-        rows = Rows(rows_oid, mock_pool, mock_conn)
+        rows = Rows(rows_oid, mock_conn)
 
         # Mock the context manager and message
         mock_msg = MagicMock()
@@ -154,6 +159,7 @@ class TestRows:
         if rows are closed."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
+        mock_conn.pool = mock_pool
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
         mock_pool.spannerlib = mock_spannerlib
 
@@ -163,7 +169,7 @@ class TestRows:
             MagicMock()
         )
 
-        rows = Rows(1, mock_pool, mock_conn)
+        rows = Rows(1, mock_conn)
         rows.close()
 
         with pytest.raises(SpannerLibError, match="Rows object is closed"):
@@ -173,10 +179,11 @@ class TestRows:
         """Verifies that metadata() handles deserialization errors."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
+        mock_conn.pool = mock_pool
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
         mock_pool.spannerlib = mock_spannerlib
 
-        rows = Rows(1, mock_pool, mock_conn)
+        rows = Rows(1, mock_conn)
 
         mock_msg = MagicMock()
         mock_msg.msg_len = 10
@@ -199,6 +206,7 @@ class TestRows:
         """Verifies that result_set_stats() retrieves and deserializes stats."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
+        mock_conn.pool = mock_pool
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
         mock_pool.spannerlib = mock_spannerlib
 
@@ -207,7 +215,7 @@ class TestRows:
         mock_conn.oid = 20
         rows_oid = 30
 
-        rows = Rows(rows_oid, mock_pool, mock_conn)
+        rows = Rows(rows_oid, mock_conn)
 
         # Mock the context manager and message
         mock_msg = MagicMock()
@@ -239,6 +247,7 @@ class TestRows:
         if rows are closed."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
+        mock_conn.pool = mock_pool
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
         mock_pool.spannerlib = mock_spannerlib
 
@@ -248,7 +257,7 @@ class TestRows:
             MagicMock()
         )
 
-        rows = Rows(1, mock_pool, mock_conn)
+        rows = Rows(1, mock_conn)
         rows.close()
 
         with pytest.raises(SpannerLibError, match="Rows object is closed"):
@@ -258,10 +267,11 @@ class TestRows:
         """Verifies that result_set_stats() handles deserialization errors."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
+        mock_conn.pool = mock_pool
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
         mock_pool.spannerlib = mock_spannerlib
 
-        rows = Rows(1, mock_pool, mock_conn)
+        rows = Rows(1, mock_conn)
 
         mock_msg = MagicMock()
         mock_msg.msg_len = 10
@@ -289,7 +299,8 @@ class TestRows:
         """Verifies update_count returns row_count_exact if present."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
-        rows = Rows(1, mock_pool, mock_conn)
+        mock_conn.pool = mock_pool
+        rows = Rows(1, mock_conn)
 
         mock_stats = MagicMock()
         mock_stats.row_count_exact = 42
@@ -304,7 +315,8 @@ class TestRows:
         if exact is missing."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
-        rows = Rows(1, mock_pool, mock_conn)
+        mock_conn.pool = mock_pool
+        rows = Rows(1, mock_conn)
 
         mock_stats = MagicMock()
         mock_stats.row_count_exact = 0
@@ -318,7 +330,8 @@ class TestRows:
         """Verifies update_count returns -1 if no stats available."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
-        rows = Rows(1, mock_pool, mock_conn)
+        mock_conn.pool = mock_pool
+        rows = Rows(1, mock_conn)
 
         mock_stats = MagicMock()
         mock_stats.row_count_exact = 0
@@ -332,10 +345,11 @@ class TestRows:
         """Verifies that next() retrieves and deserializes a row."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
+        mock_conn.pool = mock_pool
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
         mock_pool.spannerlib = mock_spannerlib
 
-        rows = Rows(1, mock_pool, mock_conn)
+        rows = Rows(1, mock_conn)
 
         mock_msg = MagicMock()
         mock_msg.msg_len = 10
@@ -364,10 +378,11 @@ class TestRows:
         """Verifies that next() returns None when no data is returned."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
+        mock_conn.pool = mock_pool
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
         mock_pool.spannerlib = mock_spannerlib
 
-        rows = Rows(1, mock_pool, mock_conn)
+        rows = Rows(1, mock_conn)
 
         mock_msg = MagicMock()
         mock_msg.msg_len = 0
@@ -383,6 +398,7 @@ class TestRows:
         """Verifies that next() raises SpannerLibError if rows are closed."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
+        mock_conn.pool = mock_pool
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
         mock_pool.spannerlib = mock_spannerlib
 
@@ -391,7 +407,7 @@ class TestRows:
             MagicMock()
         )
 
-        rows = Rows(1, mock_pool, mock_conn)
+        rows = Rows(1, mock_conn)
         rows.close()
 
         with pytest.raises(SpannerLibError, match="Rows object is closed"):
@@ -401,10 +417,11 @@ class TestRows:
         """Verifies that next() handles parsing errors."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
+        mock_conn.pool = mock_pool
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
         mock_pool.spannerlib = mock_spannerlib
 
-        rows = Rows(1, mock_pool, mock_conn)
+        rows = Rows(1, mock_conn)
 
         mock_msg = MagicMock()
         mock_msg.msg_len = 10

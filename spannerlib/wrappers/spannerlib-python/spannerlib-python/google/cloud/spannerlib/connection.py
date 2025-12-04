@@ -112,7 +112,7 @@ class Connection(AbstractLibraryObject):
                 self.oid,
                 msg.object_id,
             )
-            return Rows(msg.object_id, self.pool, self)
+            return Rows(msg.object_id, self)
 
     def execute_batch(
         self, request: ExecuteBatchDmlRequest
