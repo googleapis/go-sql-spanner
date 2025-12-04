@@ -487,7 +487,9 @@ class TestConnection:
             )
 
             # 2. Execute & Assert
-            with pytest.raises(SpannerLibError, match="Transaction Start failed"):
+            with pytest.raises(
+                SpannerLibError, match="Transaction Start failed"
+            ):
                 connection.begin_transaction(Mock())
 
     def test_commit_success(self, connection, mock_spanner_lib, mock_msg):

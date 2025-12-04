@@ -150,7 +150,8 @@ class TestRows:
             )
 
     def test_metadata_raises_if_closed(self) -> None:
-        """Verifies that metadata() raises SpannerLibError if rows are closed."""
+        """Verifies that metadata() raises SpannerLibError,
+        if rows are closed."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
