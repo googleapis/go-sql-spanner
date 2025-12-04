@@ -128,3 +128,124 @@ class TestConnectionE2E:
         response = connection.write_mutations(mutation_group)
         assert response is not None
         assert response.commit_timestamp is not None
+
+    def test_transaction_commit(self, connection, setup_env):
+        """Tests a successful transaction commit."""
+        connection.begin_transaction()
+
+        # Insert data within transaction
+        sql = (
+            "INSERT INTO Singers (SingerId, FirstName, LastName) "
+            "VALUES (10, 'Transaction', 'Commit')"
+        )
+        request = ExecuteSqlRequest(sql=sql)
+        rows = connection.execute(request)
+        rows.close()
+
+        commit_resp = connection.commit()
+        assert commit_resp is not None
+        assert commit_resp.commit_timestamp is not None
+
+        # Verify data was committed
+        verify_sql = "SELECT FirstName FROM Singers WHERE SingerId = 10"
+        verify_req = ExecuteSqlRequest(sql=verify_sql)
+        verify_rows = connection.execute(verify_req)
+        row = verify_rows.next()
+        assert row is not None
+        assert row.values[0].string_value == "Transaction"
+        verify_rows.close()
+
+    def test_transaction_rollback(self, connection, setup_env):
+        """Tests a successful transaction rollback."""
+        connection.begin_transaction()
+
+        # Insert data within transaction
+        sql = (
+            "INSERT INTO Singers (SingerId, FirstName, LastName) "
+            "VALUES (20, 'Transaction', 'Rollback')"
+        )
+        request = ExecuteSqlRequest(sql=sql)
+        rows = connection.execute(request)
+        rows.close()
+
+        connection.rollback()
+
+        # Verify data was NOT committed
+        verify_sql = "SELECT FirstName FROM Singers WHERE SingerId = 20"
+        verify_req = ExecuteSqlRequest(sql=verify_sql)
+        verify_rows = connection.execute(verify_req)
+        row = verify_rows.next()
+        assert row is None
+        verify_rows.close()
+
+    def test_transaction_write_mutations(self, connection, setup_env):
+        """Tests writing mutations within a transaction."""
+        connection.begin_transaction()
+
+        mutation = Mutation(
+            insert=Mutation.Write(
+                table="Singers",
+                columns=["SingerId", "FirstName", "LastName"],
+                values=[
+                    ListValue(
+                        values=[
+                            Value(string_value="30"),
+                            Value(string_value="Mutation"),
+                            Value(string_value="Transaction"),
+                        ]
+                    )
+                ],
+            )
+        )
+
+        mutation_group = BatchWriteRequest.MutationGroup(mutations=[mutation])
+
+        connection.write_mutations(mutation_group)
+
+        # If write_mutations commits, this commit() might fail or do nothing.
+        # But if it buffers, commit() is needed.
+        commit_resp = connection.commit()
+
+        assert commit_resp is not None
+
+        # Verify
+        verify_sql = "SELECT FirstName FROM Singers WHERE SingerId = 30"
+        verify_req = ExecuteSqlRequest(sql=verify_sql)
+        verify_rows = connection.execute(verify_req)
+        row = verify_rows.next()
+        assert row is not None
+        assert row.values[0].string_value == "Mutation"
+        verify_rows.close()
+
+    def test_transaction_write_mutations_rollback(self, connection, setup_env):
+        """Tests that mutations in a transaction can be rolled back."""
+        connection.begin_transaction()
+
+        mutation = Mutation(
+            insert=Mutation.Write(
+                table="Singers",
+                columns=["SingerId", "FirstName", "LastName"],
+                values=[
+                    ListValue(
+                        values=[
+                            Value(string_value="40"),
+                            Value(string_value="Mutation"),
+                            Value(string_value="Rollback"),
+                        ]
+                    )
+                ],
+            )
+        )
+
+        mutation_group = BatchWriteRequest.MutationGroup(mutations=[mutation])
+
+        connection.write_mutations(mutation_group)
+        connection.rollback()
+
+        # Verify data was NOT committed
+        verify_sql = "SELECT FirstName FROM Singers WHERE SingerId = 40"
+        verify_req = ExecuteSqlRequest(sql=verify_sql)
+        verify_rows = connection.execute(verify_req)
+        row = verify_rows.next()
+        assert row is None
+        verify_rows.close()
