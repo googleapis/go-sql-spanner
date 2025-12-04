@@ -91,7 +91,7 @@ class Connection(AbstractLibraryObject):
             A Rows object representing the result of the execution.
         """
         if self.closed:
-            raise RuntimeError("Connection is closed.")
+            raise SpannerLibError("Connection is closed.")
 
         logger.info(
             "Executing SQL on connection ID: %d for pool ID: %d",
@@ -127,7 +127,7 @@ class Connection(AbstractLibraryObject):
             of the execution.
         """
         if self.closed:
-            raise RuntimeError("Connection is closed.")
+            raise SpannerLibError("Connection is closed.")
 
         logger.info(
             "Executing batch DML on connection ID: %d for pool ID: %d",
@@ -163,7 +163,7 @@ class Connection(AbstractLibraryObject):
             A CommitResponse object.
         """
         if self.closed:
-            raise RuntimeError("Connection is closed.")
+            raise SpannerLibError("Connection is closed.")
 
         logger.info(
             "Writing mutation on connection ID: %d for pool ID: %d",
@@ -193,11 +193,11 @@ class Connection(AbstractLibraryObject):
             options: Optional transaction options from google.cloud.spanner_v1.
 
         Raises:
-            RuntimeError: If the connection is closed.
+            SpannerLibError: If the connection is closed.
             SpannerLibraryError: If the Go library call fails.
         """
         if self.closed:
-            raise RuntimeError("Connection is closed.")
+            raise SpannerLibError("Connection is closed.")
 
         logger.info(
             "Beginning transaction on connection ID: %d for pool ID: %d",
@@ -220,14 +220,14 @@ class Connection(AbstractLibraryObject):
         """Commits the transaction.
 
         Raises:
-            RuntimeError: If the connection is closed.
+            SpannerLibError: If the connection is closed.
             SpannerLibraryError: If the Go library call fails.
 
         Returns:
             A CommitResponse object.
         """
         if self.closed:
-            raise RuntimeError("Connection is closed.")
+            raise SpannerLibError("Connection is closed.")
 
         logger.info("Committing on connection ID: %d", self.oid)
         with self.spannerlib.commit(self.pool.oid, self.oid) as msg:
@@ -240,11 +240,11 @@ class Connection(AbstractLibraryObject):
         """Rolls back the transaction.
 
         Raises:
-            RuntimeError: If the connection is closed.
+            SpannerLibError: If the connection is closed.
             SpannerLibraryError: If the Go library call fails.
         """
         if self.closed:
-            raise RuntimeError("Connection is closed.")
+            raise SpannerLibError("Connection is closed.")
 
         logger.info("Rolling back on connection ID: %d", self.oid)
         with self.spannerlib.rollback(self.pool.oid, self.oid) as msg:

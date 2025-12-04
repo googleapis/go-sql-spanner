@@ -219,7 +219,7 @@ class TestConnection:
         connection._mark_disposed()
         mock_request = Mock()
 
-        with pytest.raises(RuntimeError, match="Connection is closed"):
+        with pytest.raises(SpannerLibError, match="Connection is closed"):
             connection.execute(mock_request)
 
     def test_execute_propagates_error(self, connection, mock_spanner_lib):
@@ -239,12 +239,12 @@ class TestConnection:
             mock_spanner_lib.execute.return_value = ctx_manager
 
             # Simulate error
-            exec_msg.raise_if_error.side_effect = RuntimeError(
+            exec_msg.raise_if_error.side_effect = SpannerLibError(
                 "Execution failed"
             )
 
             # 2. Execute & Assert
-            with pytest.raises(RuntimeError, match="Execution failed"):
+            with pytest.raises(SpannerLibError, match="Execution failed"):
                 connection.execute(mock_request)
 
     def test_execute_batch_success(
@@ -296,7 +296,7 @@ class TestConnection:
         connection._mark_disposed()
         mock_request = Mock()
 
-        with pytest.raises(RuntimeError, match="Connection is closed"):
+        with pytest.raises(SpannerLibError, match="Connection is closed"):
             connection.execute_batch(mock_request)
 
     def test_execute_batch_propagates_error(self, connection, mock_spanner_lib):
@@ -316,12 +316,12 @@ class TestConnection:
             mock_spanner_lib.execute_batch.return_value = ctx_manager
 
             # Simulate error
-            exec_msg.raise_if_error.side_effect = RuntimeError(
+            exec_msg.raise_if_error.side_effect = SpannerLibError(
                 "Batch Execution failed"
             )
 
             # 2. Execute & Assert
-            with pytest.raises(RuntimeError, match="Batch Execution failed"):
+            with pytest.raises(SpannerLibError, match="Batch Execution failed"):
                 connection.execute_batch(mock_request)
 
     def test_write_mutations_success(
@@ -373,7 +373,7 @@ class TestConnection:
         connection._mark_disposed()
         mock_request = Mock()
 
-        with pytest.raises(RuntimeError, match="Connection is closed"):
+        with pytest.raises(SpannerLibError, match="Connection is closed"):
             connection.write_mutations(mock_request)
 
     def test_write_mutations_propagates_error(
@@ -395,11 +395,11 @@ class TestConnection:
             mock_spanner_lib.write_mutations.return_value = ctx_manager
 
             # Simulate error
-            exec_msg.raise_if_error.side_effect = RuntimeError(
+            exec_msg.raise_if_error.side_effect = SpannerLibError(
                 "Mutation Write failed"
             )
 
-            with pytest.raises(RuntimeError, match="Mutation Write failed"):
+            with pytest.raises(SpannerLibError, match="Mutation Write failed"):
                 connection.write_mutations(mock_request)
 
     def test_begin_transaction_success(
@@ -461,7 +461,7 @@ class TestConnection:
         """Test begin_transaction raises error if connection is closed."""
         connection._mark_disposed()
 
-        with pytest.raises(RuntimeError, match="Connection is closed"):
+        with pytest.raises(SpannerLibError, match="Connection is closed"):
             connection.begin_transaction()
 
     def test_begin_transaction_propagates_error(
@@ -482,12 +482,12 @@ class TestConnection:
             mock_spanner_lib.begin_transaction.return_value = ctx_manager
 
             # Simulate error
-            exec_msg.raise_if_error.side_effect = RuntimeError(
+            exec_msg.raise_if_error.side_effect = SpannerLibError(
                 "Transaction Start failed"
             )
 
             # 2. Execute & Assert
-            with pytest.raises(RuntimeError, match="Transaction Start failed"):
+            with pytest.raises(SpannerLibError, match="Transaction Start failed"):
                 connection.begin_transaction(Mock())
 
     def test_commit_success(self, connection, mock_spanner_lib, mock_msg):
@@ -528,7 +528,7 @@ class TestConnection:
         """Test commit raises error if connection is closed."""
         connection._mark_disposed()
 
-        with pytest.raises(RuntimeError, match="Connection is closed"):
+        with pytest.raises(SpannerLibError, match="Connection is closed"):
             connection.commit()
 
     def test_commit_propagates_error(self, connection, mock_spanner_lib):
@@ -541,10 +541,10 @@ class TestConnection:
         mock_spanner_lib.commit.return_value = ctx_manager
 
         # Simulate error
-        exec_msg.raise_if_error.side_effect = RuntimeError("Commit failed")
+        exec_msg.raise_if_error.side_effect = SpannerLibError("Commit failed")
 
         # 2. Execute & Assert
-        with pytest.raises(RuntimeError, match="Commit failed"):
+        with pytest.raises(SpannerLibError, match="Commit failed"):
             connection.commit()
 
     def test_rollback_success(self, connection, mock_spanner_lib, mock_msg):
@@ -566,7 +566,7 @@ class TestConnection:
         """Test rollback raises error if connection is closed."""
         connection._mark_disposed()
 
-        with pytest.raises(RuntimeError, match="Connection is closed"):
+        with pytest.raises(SpannerLibError, match="Connection is closed"):
             connection.rollback()
 
     def test_rollback_propagates_error(self, connection, mock_spanner_lib):
@@ -579,8 +579,8 @@ class TestConnection:
         mock_spanner_lib.rollback.return_value = ctx_manager
 
         # Simulate error
-        exec_msg.raise_if_error.side_effect = RuntimeError("Rollback failed")
+        exec_msg.raise_if_error.side_effect = SpannerLibError("Rollback failed")
 
         # 2. Execute & Assert
-        with pytest.raises(RuntimeError, match="Rollback failed"):
+        with pytest.raises(SpannerLibError, match="Rollback failed"):
             connection.rollback()
