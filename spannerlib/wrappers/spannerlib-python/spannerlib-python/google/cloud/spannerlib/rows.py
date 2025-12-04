@@ -79,11 +79,11 @@ class Rows(AbstractLibraryObject):
             Returns None if no more rows are available.
 
         Raises:
-            RuntimeError: If the Rows object is closed or if parsing fails.
+            SpannerLibError: If the Rows object is closed or if parsing fails.
             SpannerLibraryError: If the Go library call fails.
         """
         if self.closed:
-            raise RuntimeError("Rows object is closed.")
+            raise SpannerLibError("Rows object is closed.")
 
         logger.debug("Fetching next row for Rows ID: %d", self.oid)
         with self.spannerlib.next(
@@ -104,7 +104,7 @@ class Rows(AbstractLibraryObject):
                     logger.error(
                         "Failed to decode/parse row data protobuf: %s", e
                     )
-                    raise RuntimeError(f"Failed to get next row(s): {e}")
+                    raise SpannerLibError(f"Failed to get next row(s): {e}")
             else:
                 # Assuming no message means no more rows
                 logger.debug("No more rows...")
@@ -117,7 +117,7 @@ class Rows(AbstractLibraryObject):
             ResultSetMetadata object containing the metadata.
         """
         if self.closed:
-            raise RuntimeError("Rows object is closed.")
+            raise SpannerLibError("Rows object is closed.")
 
         logger.debug("Getting metadata for Rows ID: %d", self.oid)
         with self.spannerlib.metadata(
@@ -132,7 +132,7 @@ class Rows(AbstractLibraryObject):
                     logger.error(
                         "Failed to decode/parse metadata protobuf: %s", e
                     )
-                    raise RuntimeError(f"Failed to get metadata: {e}")
+                    raise SpannerLibError(f"Failed to get metadata: {e}")
         return ResultSetMetadata()
 
     def result_set_stats(self) -> ResultSetStats:
@@ -142,7 +142,7 @@ class Rows(AbstractLibraryObject):
             ResultSetStats object containing the statistics.
         """
         if self.closed:
-            raise RuntimeError("Rows object is closed.")
+            raise SpannerLibError("Rows object is closed.")
 
         logger.debug("Getting ResultSetStats for Rows ID: %d", self.oid)
         with self.spannerlib.result_set_stats(
@@ -157,7 +157,7 @@ class Rows(AbstractLibraryObject):
                     logger.error(
                         "Failed to decode/parse ResultSetStats protobuf: %s", e
                     )
-                    raise RuntimeError(f"Failed to get ResultSetStats: {e}")
+                    raise SpannerLibError(f"Failed to get ResultSetStats: {e}")
         return ResultSetStats()
 
     def update_count(self) -> int:

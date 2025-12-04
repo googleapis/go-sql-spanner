@@ -150,7 +150,8 @@ class TestRows:
             )
 
     def test_metadata_raises_if_closed(self) -> None:
-        """Verifies that metadata() raises RuntimeError if rows are closed."""
+        """Verifies that metadata() raises SpannerLibError,
+        if rows are closed."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
@@ -165,7 +166,7 @@ class TestRows:
         rows = Rows(1, mock_pool, mock_conn)
         rows.close()
 
-        with pytest.raises(RuntimeError, match="Rows object is closed"):
+        with pytest.raises(SpannerLibError, match="Rows object is closed"):
             rows.metadata()
 
     def test_metadata_handles_deserialization_error(self) -> None:
@@ -190,7 +191,7 @@ class TestRows:
             mock_metadata_cls.deserialize.side_effect = Exception("Parse error")
 
             with pytest.raises(
-                RuntimeError, match="Failed to get metadata: Parse error"
+                SpannerLibError, match="Failed to get metadata: Parse error"
             ):
                 rows.metadata()
 
@@ -234,7 +235,7 @@ class TestRows:
             mock_stats_cls.deserialize.assert_called_once_with(b"stats_proto")
 
     def test_result_set_stats_raises_if_closed(self) -> None:
-        """Verifies that result_set_stats() raises RuntimeError
+        """Verifies that result_set_stats() raises SpannerLibError
         if rows are closed."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
@@ -250,7 +251,7 @@ class TestRows:
         rows = Rows(1, mock_pool, mock_conn)
         rows.close()
 
-        with pytest.raises(RuntimeError, match="Rows object is closed"):
+        with pytest.raises(SpannerLibError, match="Rows object is closed"):
             rows.result_set_stats()
 
     def test_result_set_stats_handles_deserialization_error(self) -> None:
@@ -279,7 +280,7 @@ class TestRows:
             )
 
             with pytest.raises(
-                RuntimeError,
+                SpannerLibError,
                 match="Failed to get ResultSetStats: Stats parse error",
             ):
                 rows.result_set_stats()
@@ -379,7 +380,7 @@ class TestRows:
         mock_spannerlib.next.assert_called_once()
 
     def test_next_raises_if_closed(self) -> None:
-        """Verifies that next() raises RuntimeError if rows are closed."""
+        """Verifies that next() raises SpannerLibError if rows are closed."""
         mock_pool = MagicMock()
         mock_conn = MagicMock()
         mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
@@ -393,7 +394,7 @@ class TestRows:
         rows = Rows(1, mock_pool, mock_conn)
         rows.close()
 
-        with pytest.raises(RuntimeError, match="Rows object is closed"):
+        with pytest.raises(SpannerLibError, match="Rows object is closed"):
             rows.next()
 
     def test_next_handles_parse_error(self) -> None:
@@ -419,5 +420,5 @@ class TestRows:
             mock_list_value_cls.return_value = mock_row
             mock_row.ParseFromString.side_effect = Exception("Parse error")
 
-            with pytest.raises(RuntimeError, match="Failed to get next row"):
+            with pytest.raises(SpannerLibError, match="Failed to get next row"):
                 rows.next()
