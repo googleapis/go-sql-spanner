@@ -30,6 +30,7 @@ classifiers = [
 ]
 dependencies = [
     "google-cloud-spanner",
+    "importlib_resources; python_version < '3.9'",
 ]
 
 [project.optional-dependencies]

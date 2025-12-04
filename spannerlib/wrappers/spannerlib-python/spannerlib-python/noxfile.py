@@ -48,6 +48,7 @@ LINT_PATHS = ["google", "tests", "samples", "noxfile.py"]
 
 STANDARD_DEPENDENCIES = [
     "google-cloud-spanner",
+    "importlib_resources",
 ]
 
 UNIT_TEST_STANDARD_DEPENDENCIES = [
@@ -145,6 +146,8 @@ def system(session):
         session.skip(
             "Credentials or emulator host must be set via environment variable"
         )
+
+    copy_artifacts(session)
 
     session.install(*STANDARD_DEPENDENCIES, *SYSTEM_TEST_STANDARD_DEPENDENCIES)
     session.install("-e", ".")

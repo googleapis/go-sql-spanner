@@ -11,12 +11,3 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-import unittest
-
-
-class TestPlaceholderUnit(unittest.TestCase):
-    """Placeholder for unit tests."""
-
-    def test_none(self):
-        """Placeholder test method."""
-        pass
