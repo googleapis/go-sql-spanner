@@ -12,8 +12,11 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 """Unit tests for GoString type conversions."""
+import ctypes
+
 from google.cloud.spannerlib.internal.types import GoSlice  # type: ignore
 from google.cloud.spannerlib.internal.types import GoString  # type: ignore
+from google.cloud.spannerlib.internal.types import to_bytes  # type: ignore
 
 
 class TestGoString:
@@ -126,3 +129,40 @@ class TestGoSlice:
 
         # Ensure it holds the correct bytes
         assert getattr(go_slice, "_keep_alive_ref").value == b
+
+
+class TestToBytes:
+    """Test suite for to_bytes function."""
+
+    def test_basic_conversion(self) -> None:
+        """Verifies that a c_void_p converts to bytes correctly."""
+        original = b"Hello, World!"
+        # Create a buffer
+        buff = ctypes.create_string_buffer(original)
+        # Get pointer and length
+        ptr = ctypes.cast(buff, ctypes.c_void_p)
+        length = ctypes.c_int32(len(original))
+
+        result = to_bytes(ptr, length)
+        assert result == original
+
+    def test_empty_conversion(self) -> None:
+        """Verifies that an empty buffer converts to empty bytes."""
+        original = b""
+        buff = ctypes.create_string_buffer(original)
+        ptr = ctypes.cast(buff, ctypes.c_void_p)
+        length = ctypes.c_int32(0)
+
+        result = to_bytes(ptr, length)
+        assert result == original
+
+    def test_partial_conversion(self) -> None:
+        """Verifies that we can read a subset of the buffer."""
+        original = b"Hello, World!"
+        buff = ctypes.create_string_buffer(original)
+        ptr = ctypes.cast(buff, ctypes.c_void_p)
+        # Read only "Hello"
+        length = ctypes.c_int32(5)
+
+        result = to_bytes(ptr, length)
+        assert result == b"Hello"

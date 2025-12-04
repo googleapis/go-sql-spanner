@@ -103,7 +103,7 @@ class SpannerLib:
                 SpannerLib._lib_handle = ctypes.CDLL(str(lib_path))
                 self._configure_signatures()
 
-                logger.info(
+                logger.debug(
                     "Successfully loaded shared library: %s", str(lib_path)
                 )
 

@@ -125,7 +125,7 @@ class Message(ctypes.Structure):
 
     def release(self) -> None:
         """Releases memory using the injected library instance."""
-        if self._is_released:
+        if getattr(self, "_is_released", False):
             return
 
         self._is_released = True
@@ -135,7 +135,8 @@ class Message(ctypes.Structure):
             return
 
         # 2. Check if we have the tool to free it
-        if self._lib is None:
+        lib = getattr(self, "_lib", None)
+        if lib is None:
             logger.critical(
                 "Message (pinner=%d) cannot be released! "
                 "Library dependency was not injected via bind_library().",
@@ -154,7 +155,7 @@ class Message(ctypes.Structure):
             logger.exception("Unexpected error during release: %s", e)
             # We do not re-raise here to ensure __exit__ completes cleanly
 
-    def __del__(self) -> None:
+    def __del__(self, _warnings=warnings) -> None:
         """Finalizer: The Safety Net.
 
         Checks if the resource was leaked. If so, issues a ResourceWarning
