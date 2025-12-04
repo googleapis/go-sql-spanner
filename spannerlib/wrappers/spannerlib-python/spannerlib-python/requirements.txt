@@ -1,3 +1,2 @@
 nox==2025.11.12
 setuptools>=68.0
-importlib_resources

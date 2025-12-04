@@ -21,23 +21,20 @@ from typing import List
 
 import nox
 
-DEFAULT_PYTHON_VERSION = "3.13"
+DEFAULT_PYTHON_VERSION = "3.11"
 
 UNIT_TEST_PYTHON_VERSIONS: List[str] = [
-    "3.8",
-    "3.9",
     "3.10",
     "3.11",
     "3.12",
     "3.13",
 ]
 SYSTEM_TEST_PYTHON_VERSIONS: List[str] = [
-    "3.8",
-    "3.9",
     "3.10",
     "3.11",
     "3.12",
     "3.13",
+    "3.14",
 ]
 
 
@@ -48,7 +45,6 @@ LINT_PATHS = ["google", "tests", "samples", "noxfile.py"]
 
 STANDARD_DEPENDENCIES = [
     "google-cloud-spanner",
-    "importlib_resources",
 ]
 
 UNIT_TEST_STANDARD_DEPENDENCIES = [
