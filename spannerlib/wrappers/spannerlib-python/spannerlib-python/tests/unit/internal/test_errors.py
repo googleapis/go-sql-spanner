@@ -36,6 +36,16 @@ class TestSpannerLibError:
     def test_spanner_lib_error_init_with_code(self) -> None:
         """Test SpannerLibError initialization with an error code."""
         msg = "Test error message"
+        code = 5  # NOT_FOUND
+        err = SpannerLibError(msg, code)
+
+        assert err.message == msg
+        assert err.error_code == code
+        assert str(err) == f"[Err {code} (NOT_FOUND)] {msg}"
+
+    def test_spanner_lib_error_init_with_unknown_code(self) -> None:
+        """Test SpannerLibError initialization with an unknown error code."""
+        msg = "Test error message"
         code = 101
         err = SpannerLibError(msg, code)
 
