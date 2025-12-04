@@ -177,3 +177,75 @@ class TestConnectionE2E:
         row = verify_rows.next()
         assert row is None
         verify_rows.close()
+
+    def test_transaction_write_mutations(self, connection, setup_env):
+        """Tests writing mutations within a transaction."""
+        connection.begin_transaction()
+
+        mutation = Mutation(
+            insert=Mutation.Write(
+                table="Singers",
+                columns=["SingerId", "FirstName", "LastName"],
+                values=[
+                    ListValue(
+                        values=[
+                            Value(string_value="30"),
+                            Value(string_value="Mutation"),
+                            Value(string_value="Transaction"),
+                        ]
+                    )
+                ],
+            )
+        )
+
+        mutation_group = BatchWriteRequest.MutationGroup(mutations=[mutation])
+
+        connection.write_mutations(mutation_group)
+
+        # If write_mutations commits, this commit() might fail or do nothing.
+        # But if it buffers, commit() is needed.
+        commit_resp = connection.commit()
+
+        assert commit_resp is not None
+
+        # Verify
+        verify_sql = "SELECT FirstName FROM Singers WHERE SingerId = 30"
+        verify_req = ExecuteSqlRequest(sql=verify_sql)
+        verify_rows = connection.execute(verify_req)
+        row = verify_rows.next()
+        assert row is not None
+        assert row.values[0].string_value == "Mutation"
+        verify_rows.close()
+
+    def test_transaction_write_mutations_rollback(self, connection, setup_env):
+        """Tests that mutations in a transaction can be rolled back."""
+        connection.begin_transaction()
+
+        mutation = Mutation(
+            insert=Mutation.Write(
+                table="Singers",
+                columns=["SingerId", "FirstName", "LastName"],
+                values=[
+                    ListValue(
+                        values=[
+                            Value(string_value="40"),
+                            Value(string_value="Mutation"),
+                            Value(string_value="Rollback"),
+                        ]
+                    )
+                ],
+            )
+        )
+
+        mutation_group = BatchWriteRequest.MutationGroup(mutations=[mutation])
+
+        connection.write_mutations(mutation_group)
+        connection.rollback()
+
+        # Verify data was NOT committed
+        verify_sql = "SELECT FirstName FROM Singers WHERE SingerId = 40"
+        verify_req = ExecuteSqlRequest(sql=verify_sql)
+        verify_rows = connection.execute(verify_req)
+        row = verify_rows.next()
+        assert row is None
+        verify_rows.close()

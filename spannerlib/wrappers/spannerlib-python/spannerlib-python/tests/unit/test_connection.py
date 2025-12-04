@@ -586,3 +586,49 @@ class TestConnection:
         # 2. Execute & Assert
         with pytest.raises(SpannerLibError, match="Rollback failed"):
             connection.rollback()
+
+    def test_transaction_write_mutations_success(
+        self, connection, mock_spanner_lib, mock_msg
+    ):
+        """Test writing mutations within a transaction."""
+        # 1. Setup
+        mock_mutation = Mock()
+        serialized_mutation = b"serialized_mutation"
+        mock_response = Mock()
+        serialized_response = b"serialized_response"
+
+        with patch(
+            "google.cloud.spanner_v1.BatchWriteRequest.MutationGroup.serialize",
+            return_value=serialized_mutation,
+        ) as mock_serialize, patch(
+            "google.cloud.spannerlib.connection.to_bytes",
+            return_value=serialized_response,
+        ) as mock_to_bytes, patch(
+            "google.cloud.spanner_v1.CommitResponse.deserialize",
+            return_value=mock_response,
+        ) as mock_deserialize:
+            # Mock spannerlib methods
+            ctx_manager = MagicMock()
+            ctx_manager.__enter__.return_value = mock_msg
+
+            mock_spanner_lib.begin_transaction.return_value = ctx_manager
+            mock_spanner_lib.write_mutations.return_value = ctx_manager
+            mock_spanner_lib.commit.return_value = ctx_manager
+
+            mock_msg.msg = Mock()
+            mock_msg.msg_len = 123
+
+            # 2. Execute
+            connection.begin_transaction()
+            connection.write_mutations(mock_mutation)
+            connection.commit()
+
+            # 3. Assertions
+            mock_spanner_lib.begin_transaction.assert_called_once()
+            mock_serialize.assert_called_once_with(mock_mutation)
+            mock_spanner_lib.write_mutations.assert_called_once_with(
+                999, 123, serialized_mutation
+            )
+            mock_spanner_lib.commit.assert_called_once_with(999, 123)
+            assert mock_to_bytes.call_count == 2
+            assert mock_deserialize.call_count == 2
