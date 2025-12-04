@@ -64,8 +64,8 @@ class TestSpannerLibError:
 
     def test_spanner_lib_error_repr_with_code(self) -> None:
         """Test the __repr__ method of SpannerLibError with an error code."""
-        msg = "Repr test"
-        code = 404
+        msg = "ABORTED"
+        code = 10
         err = SpannerLibError(msg, code)
         expected_repr = f"<SpannerLibError(code={code}, message='{msg}')>"
         assert repr(err) == expected_repr
