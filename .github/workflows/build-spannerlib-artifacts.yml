@@ -1,0 +1,101 @@
+name: Build Spannerlib Artifacts
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+    secrets:
+      api_key:
+        required: true
+
+jobs:
+  build-shared-library-binaries:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Install cross-compilers (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          # Mingw-w64 cross toolchain for Windows target (x86_64)
+          sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+          # GCC cross toolchain for Linux arm64
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: Build and Prepare Artifacts (Linux & Windows)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cd spannerlib/shared
+          
+          # Linux x64
+          echo "Building Linux x64..."
+          mkdir -p binaries/linux-x64
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -o binaries/linux-x64/spannerlib.so -buildmode=c-shared shared_lib.go
+          
+          # Linux arm64
+          echo "Building Linux arm64..."
+          mkdir -p binaries/linux-arm64
+          CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ GOOS=linux GOARCH=arm64 CGO_ENABLED=1 go build -o binaries/linux-arm64/spannerlib.so -buildmode=c-shared shared_lib.go
+
+          # Windows x64
+          echo "Building Windows x64..."
+          mkdir -p binaries/win-x64
+          CC=x86_64-w64-mingw32-gcc GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build -o binaries/win-x64/spannerlib.dll -buildmode=c-shared shared_lib.go
+          
+          # Copy to artifacts dir
+          cd ../wrappers/spannerlib-python/spannerlib-python
+          mkdir -p spannerlib-artifacts/linux-x64 spannerlib-artifacts/linux-arm64 spannerlib-artifacts/win-x64
+          
+          cp ../../../shared/binaries/linux-x64/spannerlib.so spannerlib-artifacts/linux-x64/
+          cp ../../../shared/binaries/linux-x64/spannerlib.h spannerlib-artifacts/linux-x64/
+          
+          cp ../../../shared/binaries/linux-arm64/spannerlib.so spannerlib-artifacts/linux-arm64/
+          cp ../../../shared/binaries/linux-arm64/spannerlib.h spannerlib-artifacts/linux-arm64/
+          
+          cp ../../../shared/binaries/win-x64/spannerlib.dll spannerlib-artifacts/win-x64/
+          cp ../../../shared/binaries/win-x64/spannerlib.h spannerlib-artifacts/win-x64/
+
+      - name: Build and Prepare Artifacts (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          cd spannerlib/shared
+          
+          # macOS arm64
+          echo "Building macOS arm64..."
+          mkdir -p binaries/osx-arm64
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -o binaries/osx-arm64/spannerlib.dylib -buildmode=c-shared shared_lib.go
+
+          # macOS x64 (Intel)
+          echo "Building macOS x64..."
+          mkdir -p binaries/osx-x64
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -o binaries/osx-x64/spannerlib.dylib -buildmode=c-shared shared_lib.go
+          
+          # Copy to artifacts dir
+          cd ../wrappers/spannerlib-python/spannerlib-python
+          mkdir -p spannerlib-artifacts/osx-arm64 spannerlib-artifacts/osx-x64
+          
+          cp ../../../shared/binaries/osx-arm64/spannerlib.dylib spannerlib-artifacts/osx-arm64/
+          cp ../../../shared/binaries/osx-arm64/spannerlib.h spannerlib-artifacts/osx-arm64/
+
+          cp ../../../shared/binaries/osx-x64/spannerlib.dylib spannerlib-artifacts/osx-x64/
+          cp ../../../shared/binaries/osx-x64/spannerlib.h spannerlib-artifacts/osx-x64/
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: spannerlib-artifacts-${{ matrix.os }}
+          path: spannerlib/wrappers/spannerlib-python/spannerlib-python/spannerlib-artifacts/
