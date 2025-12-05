@@ -281,7 +281,7 @@ class SpannerServicer(spanner_grpc.SpannerServicer):
         self._requests.append(request)
         self.mock_spanner.pop_error(context)
         if not request.transaction_id == b"":
-            tx = self.transactions[request.transaction_id]
+            tx = self.transactions.get(request.transaction_id)
             if tx is None:
                 raise ValueError(
                     f"Transaction not found: {request.transaction_id}"
