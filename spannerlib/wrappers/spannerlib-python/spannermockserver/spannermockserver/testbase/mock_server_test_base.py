@@ -78,11 +78,10 @@ class MockServerTestBase(unittest.TestCase):
         """Tears down the test method."""
         MockServerTestBase.spanner_service.clear_requests()
         MockServerTestBase.database_admin_service.clear_requests()
-        MockServerTestBase.spanner_service.mock_spanner.results = {}
-        MockServerTestBase.spanner_service.mock_spanner.execute_streaming_sql_results = (
-            {}
-        )
-        MockServerTestBase.spanner_service.mock_spanner.errors = {}
+        mock_spanner = MockServerTestBase.spanner_service.mock_spanner
+        mock_spanner.results = {}
+        mock_spanner.execute_streaming_sql_results = {}
+        mock_spanner.errors = {}
 
     @property
     def client(self) -> Client:
@@ -128,10 +127,12 @@ class MockServerTestBase(unittest.TestCase):
 
         Args:
             requests: List of requests from spanner_service.requests
-            expected_types: List of expected request types (excluding session creation requests)
-            transaction_type: TransactionType enum value to check multiplexed session status
-            allow_multiple_batch_create: If True, skip all leading BatchCreateSessionsRequest
-            and one optional CreateSessionRequest
+            expected_types: List of expected request types (excluding session
+                creation requests)
+            transaction_type: TransactionType enum value to check multiplexed
+                session status
+            allow_multiple_batch_create: If True, skip all leading
+                BatchCreateSessionsRequest and one optional CreateSessionRequest
         """
         from google.cloud.spanner_v1 import (
             BatchCreateSessionsRequest,
@@ -157,25 +158,29 @@ class MockServerTestBase(unittest.TestCase):
             if mux_enabled:
                 self.assertTrue(
                     isinstance(requests[idx], BatchCreateSessionsRequest),
-                    f"Expected BatchCreateSessionsRequest at index {idx}, got {type(requests[idx])}",
+                    f"Expected BatchCreateSessionsRequest at index {idx}, "
+                    f"got {type(requests[idx])}",
                 )
                 idx += 1
                 self.assertTrue(
                     isinstance(requests[idx], CreateSessionRequest),
-                    f"Expected CreateSessionRequest at index {idx}, got {type(requests[idx])}",
+                    f"Expected CreateSessionRequest at index {idx}, "
+                    f"got {type(requests[idx])}",
                 )
                 idx += 1
             else:
                 self.assertTrue(
                     isinstance(requests[idx], BatchCreateSessionsRequest),
-                    f"Expected BatchCreateSessionsRequest at index {idx}, got {type(requests[idx])}",
+                    f"Expected BatchCreateSessionsRequest at index {idx}, "
+                    f"got {type(requests[idx])}",
                 )
                 idx += 1
         # Check the rest of the expected request types
         for expected_type in expected_types:
             self.assertTrue(
                 isinstance(requests[idx], expected_type),
-                f"Expected {expected_type} at index {idx}, got {type(requests[idx])}",
+                f"Expected {expected_type} at index {idx}, "
+                f"got {type(requests[idx])}",
             )
             idx += 1
         self.assertEqual(
@@ -185,12 +190,15 @@ class MockServerTestBase(unittest.TestCase):
     def adjust_request_id_sequence(
         self, expected_segments, requests, transaction_type
     ):
-        """Adjust expected request ID sequence numbers based on actual session creation requests.
+        """Adjust expected request ID sequence numbers based on actual session
+        creation requests.
 
         Args:
-            expected_segments: List of expected (method, (sequence_numbers)) tuples
+            expected_segments: List of expected (method, (sequence_numbers))
+                tuples
             requests: List of actual requests from spanner_service.requests
-            transaction_type: TransactionType enum value to check multiplexed session status
+            transaction_type: TransactionType enum value to check multiplexed
+                session status
 
         Returns:
             List of adjusted expected segments with corrected sequence numbers
@@ -202,7 +210,8 @@ class MockServerTestBase(unittest.TestCase):
             ExecuteSqlRequest,
         )
 
-        # Count session creation requests that come before the first non-session request
+        # Count session creation requests that come before the first
+        # non-session request
         session_requests_before = 0
         for req in requests:
             if isinstance(
@@ -212,7 +221,8 @@ class MockServerTestBase(unittest.TestCase):
             elif isinstance(req, (ExecuteSqlRequest, BeginTransactionRequest)):
                 break
 
-        # For multiplexed sessions, we expect 2 session requests (BatchCreateSessions + CreateSession)
+        # For multiplexed sessions, we expect 2 session requests
+        # (BatchCreateSessions + CreateSession)
         # For non-multiplexed, we expect 1 session request (BatchCreateSessions)
         mux_enabled = is_multiplexed_enabled(transaction_type)
         expected_session_requests = 2 if mux_enabled else 1

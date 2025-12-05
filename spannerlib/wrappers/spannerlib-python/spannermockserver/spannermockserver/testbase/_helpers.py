@@ -22,7 +22,9 @@ from google.cloud.spanner_v1.database_sessions_manager import TransactionType
 
 
 def is_multiplexed_enabled(transaction_type: TransactionType) -> bool:
-    """Returns whether multiplexed sessions are enabled for the given transaction type."""
+    """Returns whether multiplexed sessions are enabled for the given
+    transaction type.
+    """
 
     env_var = "GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS"
     env_var_partitioned = (
