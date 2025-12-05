@@ -17,3 +17,7 @@ permissions:
 jobs:
   build-spannerlib:
     uses: ./.github/workflows/build-spannerlib-artifacts.yml
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "It works!"
