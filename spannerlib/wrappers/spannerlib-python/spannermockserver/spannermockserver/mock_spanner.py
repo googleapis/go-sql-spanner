@@ -322,12 +322,12 @@ class SpannerServicer(spanner_grpc.SpannerServicer):
             yield result
 
 
-def start_mock_server() -> (
+def start_mock_server() -> tuple[
     grpc.Server,
     SpannerServicer,
     DatabaseAdminServicer,
     int,
-):
+]:
     """Starts the mock server."""
     # Create a gRPC server.
     spanner_server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
