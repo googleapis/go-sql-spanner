@@ -262,13 +262,3 @@ def install(session):
     """
     build(session)
     session.install("-e", ".")
-
-
-@nox.session
-def publish(session):
-    """
-    Publish to PyPI
-    """
-    build(session)
-    session.install("twine")
-    session.run("twine", "upload", "dist/*")
