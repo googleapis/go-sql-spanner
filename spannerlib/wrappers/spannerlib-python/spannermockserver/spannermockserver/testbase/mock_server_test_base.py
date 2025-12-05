@@ -78,6 +78,11 @@ class MockServerTestBase(unittest.TestCase):
         """Tears down the test method."""
         MockServerTestBase.spanner_service.clear_requests()
         MockServerTestBase.database_admin_service.clear_requests()
+        MockServerTestBase.spanner_service.mock_spanner.results = {}
+        MockServerTestBase.spanner_service.mock_spanner.execute_streaming_sql_results = (
+            {}
+        )
+        MockServerTestBase.spanner_service.mock_spanner.errors = {}
 
     @property
     def client(self) -> Client:
