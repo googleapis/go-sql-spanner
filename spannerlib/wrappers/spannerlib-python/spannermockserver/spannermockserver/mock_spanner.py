@@ -264,9 +264,10 @@ class SpannerServicer(spanner_grpc.SpannerServicer):
         self, session: str, options: transaction.TransactionOptions
     ) -> transaction.Transaction:
         """Helper method to create a transaction."""
-        session = self.sessions[session]
-        if session is None:
+        session_obj = self.sessions.get(session)
+        if session_obj is None:
             raise ValueError(f"Session not found: {session}")
+        session = session_obj
         self.transaction_counter += 1
         id_bytes = bytes(
             f"{session.name}/transactions/{self.transaction_counter}", "UTF-8"
