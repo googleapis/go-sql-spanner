@@ -27,6 +27,7 @@ module SpannerLib
       @id = rows_id
       @closed = false
       @metadata = nil
+      @stats = nil
     end
 
     def each
@@ -52,8 +53,6 @@ module SpannerLib
     def next_result_set
       return nil if @closed
 
-      @metadata = nil
-
       res = SpannerLib.next_result_set(connection.pool_id, connection.conn_id, id)
 
       if res.nil? || res.empty?
@@ -65,6 +64,7 @@ module SpannerLib
 
     def metadata
       return @metadata if @metadata
+      return nil if @closed
 
       raw = SpannerLib.metadata(connection.pool_id, connection.conn_id, id)
       return nil if raw.nil? || raw.empty?
@@ -73,17 +73,19 @@ module SpannerLib
     end
 
     def result_set_stats
+      return @stats if @stats
+      return nil if @closed
+
       raw = SpannerLib.result_set_stats(connection.pool_id, connection.conn_id, id)
       return nil if raw.nil? || raw.empty?
 
-      Google::Cloud::Spanner::V1::ResultSetStats.decode(raw)
+      @stats = Google::Cloud::Spanner::V1::ResultSetStats.decode(raw)
     end
 
     def close
       return if @closed
 
       SpannerLib.close_rows(connection.pool_id, connection.conn_id, id)
-      @metadata = nil
       @closed = true
     end
   end

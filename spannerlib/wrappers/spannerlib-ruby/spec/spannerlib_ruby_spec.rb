@@ -382,6 +382,53 @@ describe "Connection" do
 
     _(rows.next_result_set).must_be_nil
   end
+
+  it "returns cached metadata and stats after closing rows" do
+    sql = "UPDATE users SET active = true WHERE id = 1"
+    set_mock_result(sql, StatementResult.create_update_count_result(5))
+
+    req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: sql)
+    rows = @conn.execute(req)
+
+    while rows.next; end
+
+    stats_before = rows.result_set_stats
+    _(stats_before).wont_be_nil
+    _(stats_before.row_count_exact).must_equal 5
+
+    metadata_before = rows.metadata
+    _(metadata_before).wont_be_nil
+
+    rows.close
+
+    # Metadata should be cached and available even after close
+    metadata_after = rows.metadata
+    _(metadata_after).wont_be_nil
+    _(metadata_after).must_equal metadata_before
+
+    # Result set stats should be cached and available even after close
+    stats_after = rows.result_set_stats
+    _(stats_after).wont_be_nil
+    _(stats_after.row_count_exact).must_equal 5
+
+    _(rows.next).must_be_nil
+
+    _(rows.next_result_set).must_be_nil
+  end
+
+  it "returns nil for metadata if closed before fetching" do
+    sql = "SELECT 1"
+    set_mock_result(sql, StatementResult.create_select1_result)
+
+    req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: sql)
+    rows = @conn.execute(req)
+
+    rows.close
+
+    # 3. Verify metadata is nil (because it was never cached, and we can't fetch it now)
+    _(rows.metadata).must_be_nil
+    _(rows.result_set_stats).must_be_nil
+  end
 end
 # rubocop:enable RSpec/NoExpectationExample
 # rubocop:enable Style/GlobalVars
