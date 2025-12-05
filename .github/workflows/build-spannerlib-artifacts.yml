@@ -2,13 +2,6 @@ name: Build Spannerlib Artifacts
 
 on:
   workflow_call:
-    inputs:
-      environment:
-        required: true
-        type: string
-    secrets:
-      api_key:
-        required: true
 
 jobs:
   build-shared-library-binaries:
