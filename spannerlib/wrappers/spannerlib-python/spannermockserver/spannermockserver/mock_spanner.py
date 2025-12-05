@@ -73,7 +73,9 @@ class MockSpanner:
         self.errors[method] = error
 
     def pop_error(self, context):
-        """Pops and aborts with an error if one is set for the calling method."""
+        """Pops and aborts with an error if one is set for the calling
+        method.
+        """
         name = inspect.currentframe().f_back.f_code.co_name
         error: _Status | None = self.errors.pop(name, None)
         if error:

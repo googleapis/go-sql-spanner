@@ -89,7 +89,7 @@ def lint(session):
     session.install(FLAKE8_VERSION)
     session.run(
         "flake8",
-        "--max-line-length=124",
+        "--max-line-length=80",
         "--extend-exclude",
         *SKIP_PATHS,
         *LINT_PATHS,
@@ -149,12 +149,14 @@ def post_process_generated_files(target_dir):
 
         # Replace serialization methods for Spanner types
         content = re.sub(
-            r"(google_dot_spanner_dot_[a-zA-Z0-9_]+__pb2\.[a-zA-Z0-9_]+)\.SerializeToString",
+            r"(google_dot_spanner_dot_[a-zA-Z0-9_]+__pb2\.[a-zA-Z0-9_]+)"
+            r"\.SerializeToString",
             r"\1.serialize",
             content,
         )
         content = re.sub(
-            r"(google_dot_spanner_dot_[a-zA-Z0-9_]+__pb2\.[a-zA-Z0-9_]+)\.FromString",
+            r"(google_dot_spanner_dot_[a-zA-Z0-9_]+__pb2\.[a-zA-Z0-9_]+)"
+            r"\.FromString",
             r"\1.deserialize",
             content,
         )
