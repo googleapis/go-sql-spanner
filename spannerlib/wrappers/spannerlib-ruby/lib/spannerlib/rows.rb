@@ -53,6 +53,8 @@ module SpannerLib
     def next_result_set
       return nil if @closed
 
+      @stats = nil
+
       res = SpannerLib.next_result_set(connection.pool_id, connection.conn_id, id)
 
       if res.nil? || res.empty?

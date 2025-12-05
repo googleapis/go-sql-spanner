@@ -429,6 +429,37 @@ describe "Connection" do
     _(rows.metadata).must_be_nil
     _(rows.result_set_stats).must_be_nil
   end
+
+  it "clears and updates stats when moving to next result set (Multi-DML)" do
+    sql = "UPDATE A SET x=1; UPDATE B SET x=2"
+
+    set_mock_result("UPDATE A SET x=1", StatementResult.create_update_count_result(10))
+    set_mock_result(" UPDATE B SET x=2", StatementResult.create_update_count_result(20))
+
+    req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: sql)
+    rows = @conn.execute(req)
+
+    while rows.next; end
+
+    stats1 = rows.result_set_stats
+    _(stats1).wont_be_nil
+    _(stats1.row_count_exact).must_equal 10
+
+    # calling next_result_set should clear the internal @stats cache
+    metadata = rows.next_result_set
+    _(metadata).wont_be_nil
+
+    while rows.next; end
+
+    stats2 = rows.result_set_stats
+    _(stats2).wont_be_nil
+
+    # Verify stats have been updated and earlier cache was cleared
+    _(stats2.row_count_exact).must_equal 20
+    _(stats2.row_count_exact).wont_equal stats1.row_count_exact
+
+    _(rows.next_result_set).must_be_nil
+  end
 end
 # rubocop:enable RSpec/NoExpectationExample
 # rubocop:enable Style/GlobalVars
