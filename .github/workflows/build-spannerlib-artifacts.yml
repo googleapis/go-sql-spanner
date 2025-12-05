@@ -3,6 +3,9 @@ name: Build Spannerlib Artifacts
 on:
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   build-shared-library-binaries:
     strategy:

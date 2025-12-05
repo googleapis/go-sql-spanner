@@ -10,6 +10,9 @@ on:
         required: true
         default: 'warning'
 
+permissions:
+  contents: read
+
 jobs:
   build-spannerlib:
     uses: ./.github/workflows/build-spannerlib-artifacts.yml
