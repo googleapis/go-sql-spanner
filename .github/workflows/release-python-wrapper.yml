@@ -3,7 +3,7 @@ name: Build and Publish Python Wrapper
 on:
   push:
     types: [opened, synchronize, reopened, ready_for_review]
-    branches: [ "main" ]
+
   workflow_dispatch: 
     inputs: 
       logLevel:
