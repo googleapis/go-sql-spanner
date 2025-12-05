@@ -16,11 +16,18 @@
 import glob
 import os
 import shutil
+from typing import List
 
 import nox
 
 DEFAULT_PYTHON_VERSION = "3.13"
-PYTHON_VERSIONS = ["3.13"]
+SYSTEM_TEST_PYTHON_VERSIONS: List[str] = [
+    "3.10",
+    "3.11",
+    "3.12",
+    "3.13",
+    "3.14",
+]
 
 VERBOSE = True
 MODE = "--verbose" if VERBOSE else "--quiet"
@@ -34,14 +41,13 @@ ISORT_VERSION = "isort>=5.11.0,<7.0.0"
 LINT_PATHS = ["spannermockserver", "noxfile.py"]
 SKIP_PATHS = ["spannermockserver/generated"]
 
-STANDARD_DEPENDENCIES = [
-    "google-cloud-spanner",
-    "grpcio",
-    "google-api-core",
-    "protobuf",
+STANDARD_DEPENDENCIES = []
+
+SYSTEM_TEST_STANDARD_DEPENDENCIES = [
+    "pytest",
 ]
 
-nox.options.sessions = ["format", "lint"]
+nox.options.sessions = ["format", "lint", "tests", "noxfile.py"]
 
 # Error if a python version is missing
 nox.options.error_on_missing_interpreters = True
@@ -84,6 +90,26 @@ def lint(session):
         "--extend-exclude",
         *SKIP_PATHS,
         *LINT_PATHS,
+    )
+
+
+@nox.session(python=SYSTEM_TEST_PYTHON_VERSIONS)
+def system(session):
+    """Run system tests."""
+    session.install(*STANDARD_DEPENDENCIES, *SYSTEM_TEST_STANDARD_DEPENDENCIES)
+    session.install(".")
+
+    test_paths = (
+        session.posargs
+        if session.posargs
+        else [os.path.join("tests", "system")]
+    )
+    session.run(
+        "py.test",
+        MODE,
+        f"--junitxml=system_{session.python}_sponge_log.xml",
+        *test_paths,
+        env={},
     )
 
 
