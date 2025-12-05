@@ -41,7 +41,7 @@ BLACK_VERSION = "black[jupyter]>=23.7.0,<25.11.0"
 ISORT_VERSION = "isort>=5.11.0,<7.0.0"
 GRPC_GENERATED_VERSION = "1.67.0"
 
-LINT_PATHS = ["spannermockserver", "noxfile.py"]
+LINT_PATHS = ["spannermockserver", "tests", "noxfile.py"]
 SKIP_PATHS = ["spannermockserver/generated"]
 
 STANDARD_DEPENDENCIES = []
@@ -50,7 +50,7 @@ SYSTEM_TEST_STANDARD_DEPENDENCIES = [
     "pytest",
 ]
 
-nox.options.sessions = ["format", "lint", "tests", "noxfile.py"]
+nox.options.sessions = ["format", "lint", "system"]
 
 # Error if a python version is missing
 nox.options.error_on_missing_interpreters = True

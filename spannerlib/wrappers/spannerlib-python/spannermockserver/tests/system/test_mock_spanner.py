@@ -14,7 +14,7 @@
 
 from google.api_core import exceptions
 from google.cloud.spanner_v1 import KeySet, Type, TypeCode
-from google.cloud.spanner_v1.types import result_set, StructType
+from google.cloud.spanner_v1.types import StructType, result_set
 from google.protobuf.struct_pb2 import ListValue, Value
 from google.rpc import code_pb2, status_pb2
 from grpc_status import rpc_status
@@ -74,12 +74,16 @@ class TestMockSpanner(MockServerTestBase):
                 )
             ),
         )
-        partial_result_1.values.extend([Value(string_value="1"), Value(string_value="Singer1")])
-        
+        partial_result_1.values.extend(
+            [Value(string_value="1"), Value(string_value="Singer1")]
+        )
+
         partial_result_2 = result_set.PartialResultSet(
             stats=result_set.ResultSetStats(row_count_exact=2),
         )
-        partial_result_2.values.extend([Value(string_value="2"), Value(string_value="Singer2")])
+        partial_result_2.values.extend(
+            [Value(string_value="2"), Value(string_value="Singer2")]
+        )
         self.spanner_service.mock_spanner.add_execute_streaming_sql_results(
             sql, [partial_result_1, partial_result_2]
         )
