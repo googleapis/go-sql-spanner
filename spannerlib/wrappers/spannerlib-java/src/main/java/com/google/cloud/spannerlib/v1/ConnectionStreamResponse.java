@@ -43,13 +43,14 @@ private static final long serialVersionUID = 0L;
             com.google.cloud.spannerlib.v1.ConnectionStreamResponse.class, com.google.cloud.spannerlib.v1.ConnectionStreamResponse.Builder.class);
   }
 
+  private int bitField0_;
   private int responseCase_ = 0;
   @SuppressWarnings("serial")
   private java.lang.Object response_;
   public enum ResponseCase
       implements com.google.protobuf.Internal.EnumLite,
           com.google.protobuf.AbstractMessage.InternalOneOfEnum {
-    ROW(1),
+    EXECUTE_RESPONSE(2),
     RESPONSE_NOT_SET(0);
     private final int value;
     private ResponseCase(int value) {
@@ -67,7 +68,7 @@ private static final long serialVersionUID = 0L;
 
     public static ResponseCase forNumber(int value) {
       switch (value) {
-        case 1: return ROW;
+        case 2: return EXECUTE_RESPONSE;
         case 0: return RESPONSE_NOT_SET;
         default: return null;
       }
@@ -83,35 +84,61 @@ private static final long serialVersionUID = 0L;
         responseCase_);
   }
 
-  public static final int ROW_FIELD_NUMBER = 1;
+  public static final int STATUS_FIELD_NUMBER = 1;
+  private com.google.rpc.Status status_;
   /**
-   * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
-   * @return Whether the row field is set.
+   * <code>.google.rpc.Status status = 1;</code>
+   * @return Whether the status field is set.
    */
   @java.lang.Override
-  public boolean hasRow() {
-    return responseCase_ == 1;
+  public boolean hasStatus() {
+    return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
-   * @return The row.
+   * <code>.google.rpc.Status status = 1;</code>
+   * @return The status.
    */
   @java.lang.Override
-  public com.google.spanner.v1.PartialResultSet getRow() {
-    if (responseCase_ == 1) {
-       return (com.google.spanner.v1.PartialResultSet) response_;
-    }
-    return com.google.spanner.v1.PartialResultSet.getDefaultInstance();
+  public com.google.rpc.Status getStatus() {
+    return status_ == null ? com.google.rpc.Status.getDefaultInstance() : status_;
   }
   /**
-   * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+   * <code>.google.rpc.Status status = 1;</code>
    */
   @java.lang.Override
-  public com.google.spanner.v1.PartialResultSetOrBuilder getRowOrBuilder() {
-    if (responseCase_ == 1) {
-       return (com.google.spanner.v1.PartialResultSet) response_;
+  public com.google.rpc.StatusOrBuilder getStatusOrBuilder() {
+    return status_ == null ? com.google.rpc.Status.getDefaultInstance() : status_;
+  }
+
+  public static final int EXECUTE_RESPONSE_FIELD_NUMBER = 2;
+  /**
+   * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
+   * @return Whether the executeResponse field is set.
+   */
+  @java.lang.Override
+  public boolean hasExecuteResponse() {
+    return responseCase_ == 2;
+  }
+  /**
+   * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
+   * @return The executeResponse.
+   */
+  @java.lang.Override
+  public com.google.cloud.spannerlib.v1.ExecuteResponse getExecuteResponse() {
+    if (responseCase_ == 2) {
+       return (com.google.cloud.spannerlib.v1.ExecuteResponse) response_;
     }
-    return com.google.spanner.v1.PartialResultSet.getDefaultInstance();
+    return com.google.cloud.spannerlib.v1.ExecuteResponse.getDefaultInstance();
+  }
+  /**
+   * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
+   */
+  @java.lang.Override
+  public com.google.cloud.spannerlib.v1.ExecuteResponseOrBuilder getExecuteResponseOrBuilder() {
+    if (responseCase_ == 2) {
+       return (com.google.cloud.spannerlib.v1.ExecuteResponse) response_;
+    }
+    return com.google.cloud.spannerlib.v1.ExecuteResponse.getDefaultInstance();
   }
 
   private byte memoizedIsInitialized = -1;
@@ -128,8 +155,11 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
-    if (responseCase_ == 1) {
-      output.writeMessage(1, (com.google.spanner.v1.PartialResultSet) response_);
+    if (((bitField0_ & 0x00000001) != 0)) {
+      output.writeMessage(1, getStatus());
+    }
+    if (responseCase_ == 2) {
+      output.writeMessage(2, (com.google.cloud.spannerlib.v1.ExecuteResponse) response_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -140,9 +170,13 @@ private static final long serialVersionUID = 0L;
     if (size != -1) return size;
 
     size = 0;
-    if (responseCase_ == 1) {
+    if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(1, (com.google.spanner.v1.PartialResultSet) response_);
+        .computeMessageSize(1, getStatus());
+    }
+    if (responseCase_ == 2) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(2, (com.google.cloud.spannerlib.v1.ExecuteResponse) response_);
     }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
@@ -159,11 +193,16 @@ private static final long serialVersionUID = 0L;
     }
     com.google.cloud.spannerlib.v1.ConnectionStreamResponse other = (com.google.cloud.spannerlib.v1.ConnectionStreamResponse) obj;
 
+    if (hasStatus() != other.hasStatus()) return false;
+    if (hasStatus()) {
+      if (!getStatus()
+          .equals(other.getStatus())) return false;
+    }
     if (!getResponseCase().equals(other.getResponseCase())) return false;
     switch (responseCase_) {
-      case 1:
-        if (!getRow()
-            .equals(other.getRow())) return false;
+      case 2:
+        if (!getExecuteResponse()
+            .equals(other.getExecuteResponse())) return false;
         break;
       case 0:
       default:
@@ -179,10 +218,14 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
+    if (hasStatus()) {
+      hash = (37 * hash) + STATUS_FIELD_NUMBER;
+      hash = (53 * hash) + getStatus().hashCode();
+    }
     switch (responseCase_) {
-      case 1:
-        hash = (37 * hash) + ROW_FIELD_NUMBER;
-        hash = (53 * hash) + getRow().hashCode();
+      case 2:
+        hash = (37 * hash) + EXECUTE_RESPONSE_FIELD_NUMBER;
+        hash = (53 * hash) + getExecuteResponse().hashCode();
         break;
       case 0:
       default:
@@ -306,20 +349,31 @@ private static final long serialVersionUID = 0L;
 
     // Construct using com.google.cloud.spannerlib.v1.ConnectionStreamResponse.newBuilder()
     private Builder() {
-
+      maybeForceBuilderInitialization();
     }
 
     private Builder(
         com.google.protobuf.GeneratedMessage.BuilderParent parent) {
       super(parent);
-
+      maybeForceBuilderInitialization();
+    }
+    private void maybeForceBuilderInitialization() {
+      if (com.google.protobuf.GeneratedMessage
+              .alwaysUseFieldBuilders) {
+        internalGetStatusFieldBuilder();
+      }
     }
     @java.lang.Override
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      if (rowBuilder_ != null) {
-        rowBuilder_.clear();
+      status_ = null;
+      if (statusBuilder_ != null) {
+        statusBuilder_.dispose();
+        statusBuilder_ = null;
+      }
+      if (executeResponseBuilder_ != null) {
+        executeResponseBuilder_.clear();
       }
       responseCase_ = 0;
       response_ = null;
@@ -357,14 +411,22 @@ private static final long serialVersionUID = 0L;
 
     private void buildPartial0(com.google.cloud.spannerlib.v1.ConnectionStreamResponse result) {
       int from_bitField0_ = bitField0_;
+      int to_bitField0_ = 0;
+      if (((from_bitField0_ & 0x00000001) != 0)) {
+        result.status_ = statusBuilder_ == null
+            ? status_
+            : statusBuilder_.build();
+        to_bitField0_ |= 0x00000001;
+      }
+      result.bitField0_ |= to_bitField0_;
     }
 
     private void buildPartialOneofs(com.google.cloud.spannerlib.v1.ConnectionStreamResponse result) {
       result.responseCase_ = responseCase_;
       result.response_ = this.response_;
-      if (responseCase_ == 1 &&
-          rowBuilder_ != null) {
-        result.response_ = rowBuilder_.build();
+      if (responseCase_ == 2 &&
+          executeResponseBuilder_ != null) {
+        result.response_ = executeResponseBuilder_.build();
       }
     }
 
@@ -380,9 +442,12 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(com.google.cloud.spannerlib.v1.ConnectionStreamResponse other) {
       if (other == com.google.cloud.spannerlib.v1.ConnectionStreamResponse.getDefaultInstance()) return this;
+      if (other.hasStatus()) {
+        mergeStatus(other.getStatus());
+      }
       switch (other.getResponseCase()) {
-        case ROW: {
-          mergeRow(other.getRow());
+        case EXECUTE_RESPONSE: {
+          mergeExecuteResponse(other.getExecuteResponse());
           break;
         }
         case RESPONSE_NOT_SET: {
@@ -417,11 +482,18 @@ private static final long serialVersionUID = 0L;
               break;
             case 10: {
               input.readMessage(
-                  internalGetRowFieldBuilder().getBuilder(),
+                  internalGetStatusFieldBuilder().getBuilder(),
                   extensionRegistry);
-              responseCase_ = 1;
+              bitField0_ |= 0x00000001;
               break;
             } // case 10
+            case 18: {
+              input.readMessage(
+                  internalGetExecuteResponseFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              responseCase_ = 2;
+              break;
+            } // case 18
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -454,146 +526,267 @@ private static final long serialVersionUID = 0L;
 
     private int bitField0_;
 
+    private com.google.rpc.Status status_;
     private com.google.protobuf.SingleFieldBuilder<
-        com.google.spanner.v1.PartialResultSet, com.google.spanner.v1.PartialResultSet.Builder, com.google.spanner.v1.PartialResultSetOrBuilder> rowBuilder_;
+        com.google.rpc.Status, com.google.rpc.Status.Builder, com.google.rpc.StatusOrBuilder> statusBuilder_;
     /**
-     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
-     * @return Whether the row field is set.
+     * <code>.google.rpc.Status status = 1;</code>
+     * @return Whether the status field is set.
      */
-    @java.lang.Override
-    public boolean hasRow() {
-      return responseCase_ == 1;
+    public boolean hasStatus() {
+      return ((bitField0_ & 0x00000001) != 0);
     }
     /**
-     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
-     * @return The row.
+     * <code>.google.rpc.Status status = 1;</code>
+     * @return The status.
      */
-    @java.lang.Override
-    public com.google.spanner.v1.PartialResultSet getRow() {
-      if (rowBuilder_ == null) {
-        if (responseCase_ == 1) {
-          return (com.google.spanner.v1.PartialResultSet) response_;
-        }
-        return com.google.spanner.v1.PartialResultSet.getDefaultInstance();
+    public com.google.rpc.Status getStatus() {
+      if (statusBuilder_ == null) {
+        return status_ == null ? com.google.rpc.Status.getDefaultInstance() : status_;
       } else {
-        if (responseCase_ == 1) {
-          return rowBuilder_.getMessage();
-        }
-        return com.google.spanner.v1.PartialResultSet.getDefaultInstance();
+        return statusBuilder_.getMessage();
       }
     }
     /**
-     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     * <code>.google.rpc.Status status = 1;</code>
      */
-    public Builder setRow(com.google.spanner.v1.PartialResultSet value) {
-      if (rowBuilder_ == null) {
+    public Builder setStatus(com.google.rpc.Status value) {
+      if (statusBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        status_ = value;
+      } else {
+        statusBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000001;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.rpc.Status status = 1;</code>
+     */
+    public Builder setStatus(
+        com.google.rpc.Status.Builder builderForValue) {
+      if (statusBuilder_ == null) {
+        status_ = builderForValue.build();
+      } else {
+        statusBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000001;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.rpc.Status status = 1;</code>
+     */
+    public Builder mergeStatus(com.google.rpc.Status value) {
+      if (statusBuilder_ == null) {
+        if (((bitField0_ & 0x00000001) != 0) &&
+          status_ != null &&
+          status_ != com.google.rpc.Status.getDefaultInstance()) {
+          getStatusBuilder().mergeFrom(value);
+        } else {
+          status_ = value;
+        }
+      } else {
+        statusBuilder_.mergeFrom(value);
+      }
+      if (status_ != null) {
+        bitField0_ |= 0x00000001;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <code>.google.rpc.Status status = 1;</code>
+     */
+    public Builder clearStatus() {
+      bitField0_ = (bitField0_ & ~0x00000001);
+      status_ = null;
+      if (statusBuilder_ != null) {
+        statusBuilder_.dispose();
+        statusBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.rpc.Status status = 1;</code>
+     */
+    public com.google.rpc.Status.Builder getStatusBuilder() {
+      bitField0_ |= 0x00000001;
+      onChanged();
+      return internalGetStatusFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.google.rpc.Status status = 1;</code>
+     */
+    public com.google.rpc.StatusOrBuilder getStatusOrBuilder() {
+      if (statusBuilder_ != null) {
+        return statusBuilder_.getMessageOrBuilder();
+      } else {
+        return status_ == null ?
+            com.google.rpc.Status.getDefaultInstance() : status_;
+      }
+    }
+    /**
+     * <code>.google.rpc.Status status = 1;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.rpc.Status, com.google.rpc.Status.Builder, com.google.rpc.StatusOrBuilder> 
+        internalGetStatusFieldBuilder() {
+      if (statusBuilder_ == null) {
+        statusBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.rpc.Status, com.google.rpc.Status.Builder, com.google.rpc.StatusOrBuilder>(
+                getStatus(),
+                getParentForChildren(),
+                isClean());
+        status_ = null;
+      }
+      return statusBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.cloud.spannerlib.v1.ExecuteResponse, com.google.cloud.spannerlib.v1.ExecuteResponse.Builder, com.google.cloud.spannerlib.v1.ExecuteResponseOrBuilder> executeResponseBuilder_;
+    /**
+     * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
+     * @return Whether the executeResponse field is set.
+     */
+    @java.lang.Override
+    public boolean hasExecuteResponse() {
+      return responseCase_ == 2;
+    }
+    /**
+     * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
+     * @return The executeResponse.
+     */
+    @java.lang.Override
+    public com.google.cloud.spannerlib.v1.ExecuteResponse getExecuteResponse() {
+      if (executeResponseBuilder_ == null) {
+        if (responseCase_ == 2) {
+          return (com.google.cloud.spannerlib.v1.ExecuteResponse) response_;
+        }
+        return com.google.cloud.spannerlib.v1.ExecuteResponse.getDefaultInstance();
+      } else {
+        if (responseCase_ == 2) {
+          return executeResponseBuilder_.getMessage();
+        }
+        return com.google.cloud.spannerlib.v1.ExecuteResponse.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
+     */
+    public Builder setExecuteResponse(com.google.cloud.spannerlib.v1.ExecuteResponse value) {
+      if (executeResponseBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
         response_ = value;
         onChanged();
       } else {
-        rowBuilder_.setMessage(value);
+        executeResponseBuilder_.setMessage(value);
       }
-      responseCase_ = 1;
+      responseCase_ = 2;
       return this;
     }
     /**
-     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
      */
-    public Builder setRow(
-        com.google.spanner.v1.PartialResultSet.Builder builderForValue) {
-      if (rowBuilder_ == null) {
+    public Builder setExecuteResponse(
+        com.google.cloud.spannerlib.v1.ExecuteResponse.Builder builderForValue) {
+      if (executeResponseBuilder_ == null) {
         response_ = builderForValue.build();
         onChanged();
       } else {
-        rowBuilder_.setMessage(builderForValue.build());
+        executeResponseBuilder_.setMessage(builderForValue.build());
       }
-      responseCase_ = 1;
+      responseCase_ = 2;
       return this;
     }
     /**
-     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
      */
-    public Builder mergeRow(com.google.spanner.v1.PartialResultSet value) {
-      if (rowBuilder_ == null) {
-        if (responseCase_ == 1 &&
-            response_ != com.google.spanner.v1.PartialResultSet.getDefaultInstance()) {
-          response_ = com.google.spanner.v1.PartialResultSet.newBuilder((com.google.spanner.v1.PartialResultSet) response_)
+    public Builder mergeExecuteResponse(com.google.cloud.spannerlib.v1.ExecuteResponse value) {
+      if (executeResponseBuilder_ == null) {
+        if (responseCase_ == 2 &&
+            response_ != com.google.cloud.spannerlib.v1.ExecuteResponse.getDefaultInstance()) {
+          response_ = com.google.cloud.spannerlib.v1.ExecuteResponse.newBuilder((com.google.cloud.spannerlib.v1.ExecuteResponse) response_)
               .mergeFrom(value).buildPartial();
         } else {
           response_ = value;
         }
         onChanged();
       } else {
-        if (responseCase_ == 1) {
-          rowBuilder_.mergeFrom(value);
+        if (responseCase_ == 2) {
+          executeResponseBuilder_.mergeFrom(value);
         } else {
-          rowBuilder_.setMessage(value);
+          executeResponseBuilder_.setMessage(value);
         }
       }
-      responseCase_ = 1;
+      responseCase_ = 2;
       return this;
     }
     /**
-     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
      */
-    public Builder clearRow() {
-      if (rowBuilder_ == null) {
-        if (responseCase_ == 1) {
+    public Builder clearExecuteResponse() {
+      if (executeResponseBuilder_ == null) {
+        if (responseCase_ == 2) {
           responseCase_ = 0;
           response_ = null;
           onChanged();
         }
       } else {
-        if (responseCase_ == 1) {
+        if (responseCase_ == 2) {
           responseCase_ = 0;
           response_ = null;
         }
-        rowBuilder_.clear();
+        executeResponseBuilder_.clear();
       }
       return this;
     }
     /**
-     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
      */
-    public com.google.spanner.v1.PartialResultSet.Builder getRowBuilder() {
-      return internalGetRowFieldBuilder().getBuilder();
+    public com.google.cloud.spannerlib.v1.ExecuteResponse.Builder getExecuteResponseBuilder() {
+      return internalGetExecuteResponseFieldBuilder().getBuilder();
     }
     /**
-     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
      */
     @java.lang.Override
-    public com.google.spanner.v1.PartialResultSetOrBuilder getRowOrBuilder() {
-      if ((responseCase_ == 1) && (rowBuilder_ != null)) {
-        return rowBuilder_.getMessageOrBuilder();
+    public com.google.cloud.spannerlib.v1.ExecuteResponseOrBuilder getExecuteResponseOrBuilder() {
+      if ((responseCase_ == 2) && (executeResponseBuilder_ != null)) {
+        return executeResponseBuilder_.getMessageOrBuilder();
       } else {
-        if (responseCase_ == 1) {
-          return (com.google.spanner.v1.PartialResultSet) response_;
+        if (responseCase_ == 2) {
+          return (com.google.cloud.spannerlib.v1.ExecuteResponse) response_;
         }
-        return com.google.spanner.v1.PartialResultSet.getDefaultInstance();
+        return com.google.cloud.spannerlib.v1.ExecuteResponse.getDefaultInstance();
       }
     }
     /**
-     * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+     * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        com.google.spanner.v1.PartialResultSet, com.google.spanner.v1.PartialResultSet.Builder, com.google.spanner.v1.PartialResultSetOrBuilder> 
-        internalGetRowFieldBuilder() {
-      if (rowBuilder_ == null) {
-        if (!(responseCase_ == 1)) {
-          response_ = com.google.spanner.v1.PartialResultSet.getDefaultInstance();
+        com.google.cloud.spannerlib.v1.ExecuteResponse, com.google.cloud.spannerlib.v1.ExecuteResponse.Builder, com.google.cloud.spannerlib.v1.ExecuteResponseOrBuilder> 
+        internalGetExecuteResponseFieldBuilder() {
+      if (executeResponseBuilder_ == null) {
+        if (!(responseCase_ == 2)) {
+          response_ = com.google.cloud.spannerlib.v1.ExecuteResponse.getDefaultInstance();
         }
-        rowBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            com.google.spanner.v1.PartialResultSet, com.google.spanner.v1.PartialResultSet.Builder, com.google.spanner.v1.PartialResultSetOrBuilder>(
-                (com.google.spanner.v1.PartialResultSet) response_,
+        executeResponseBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.cloud.spannerlib.v1.ExecuteResponse, com.google.cloud.spannerlib.v1.ExecuteResponse.Builder, com.google.cloud.spannerlib.v1.ExecuteResponseOrBuilder>(
+                (com.google.cloud.spannerlib.v1.ExecuteResponse) response_,
                 getParentForChildren(),
                 isClean());
         response_ = null;
       }
-      responseCase_ = 1;
+      responseCase_ = 2;
       onChanged();
-      return rowBuilder_;
+      return executeResponseBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:google.spannerlib.v1.ConnectionStreamResponse)

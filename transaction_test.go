@@ -15,6 +15,51 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+func TestSetTransactionTag(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	c, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(c)
+	if _, err := c.ExecContext(ctx, "set transaction_tag = 'foo'"); err != nil {
+		t.Fatal(err)
+	}
+
+	for range 2 {
+		tx, err := c.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 2; g != w {
+		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	request := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+	if g, w := request.RequestOptions.TransactionTag, "foo"; g != w {
+		t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	// The transaction_tag should not be sticky.
+	request = executeRequests[1].(*spannerpb.ExecuteSqlRequest)
+	if g, w := request.RequestOptions.TransactionTag, ""; g != w {
+		t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
 func TestSetTransactionIsolationLevel(t *testing.T) {
 	t.Parallel()
 
@@ -69,11 +114,10 @@ func TestSetTransactionReadOnly(t *testing.T) {
 	if request.GetTransaction() == nil || request.GetTransaction().GetBegin() == nil {
 		t.Fatal("missing begin transaction on ExecuteSqlRequest")
 	}
-	// TODO: Enable once transaction_read_only is picked up by the driver.
-	//readOnly := request.GetTransaction().GetBegin().GetReadOnly()
-	//if readOnly == nil {
-	//	t.Fatal("missing readOnly on ExecuteSqlRequest")
-	//}
+	readOnly := request.GetTransaction().GetBegin().GetReadOnly()
+	if readOnly == nil {
+		t.Fatal("missing readOnly on ExecuteSqlRequest")
+	}
 }
 
 func TestSetTransactionDeferrable(t *testing.T) {

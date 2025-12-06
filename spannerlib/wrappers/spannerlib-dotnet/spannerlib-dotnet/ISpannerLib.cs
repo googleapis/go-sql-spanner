@@ -111,23 +111,25 @@ public interface ISpannerLib : IDisposable
     /// </summary>
     /// <param name="connection">The connection to use to execute the SQL statement</param>
     /// <param name="statement">The statement to execute</param>
+    /// <param name="prefetchRows">The number of rows to prefetch and include in the initial result</param>
     /// <returns>
     /// A Rows object with the results of the statement. The contents of the Rows object depends on the type of SQL
     /// statement.
     /// </returns>
-    public Rows Execute(Connection connection, ExecuteSqlRequest statement);
+    public Rows Execute(Connection connection, ExecuteSqlRequest statement, int prefetchRows = 0);
 
     /// <summary>
     /// Executes a SQL statement of any type on the given connection.
     /// </summary>
     /// <param name="connection">The connection to use to execute the SQL statement</param>
     /// <param name="statement">The statement to execute</param>
+    /// <param name="prefetchRows">The number of rows to prefetch and include in the initial result</param>
     /// <param name="cancellationToken">The cancellation token</param>
     /// <returns>
     /// A Rows object with the results of the statement. The contents of the Rows object depends on the type of SQL
     /// statement.
     /// </returns>
-    public Task<Rows> ExecuteAsync(Connection connection, ExecuteSqlRequest statement, CancellationToken cancellationToken = default);
+    public Task<Rows> ExecuteAsync(Connection connection, ExecuteSqlRequest statement, int prefetchRows = 0, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Executes a batch of DML or DDL statements on Spanner. The batch may not contain a mix of DML and DDL statements.

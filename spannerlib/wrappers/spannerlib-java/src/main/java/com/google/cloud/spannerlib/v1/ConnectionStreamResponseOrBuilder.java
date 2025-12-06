@@ -11,19 +11,34 @@ public interface ConnectionStreamResponseOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
-   * @return Whether the row field is set.
+   * <code>.google.rpc.Status status = 1;</code>
+   * @return Whether the status field is set.
    */
-  boolean hasRow();
+  boolean hasStatus();
   /**
-   * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
-   * @return The row.
+   * <code>.google.rpc.Status status = 1;</code>
+   * @return The status.
    */
-  com.google.spanner.v1.PartialResultSet getRow();
+  com.google.rpc.Status getStatus();
   /**
-   * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+   * <code>.google.rpc.Status status = 1;</code>
    */
-  com.google.spanner.v1.PartialResultSetOrBuilder getRowOrBuilder();
+  com.google.rpc.StatusOrBuilder getStatusOrBuilder();
+
+  /**
+   * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
+   * @return Whether the executeResponse field is set.
+   */
+  boolean hasExecuteResponse();
+  /**
+   * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
+   * @return The executeResponse.
+   */
+  com.google.cloud.spannerlib.v1.ExecuteResponse getExecuteResponse();
+  /**
+   * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
+   */
+  com.google.cloud.spannerlib.v1.ExecuteResponseOrBuilder getExecuteResponseOrBuilder();
 
   com.google.cloud.spannerlib.v1.ConnectionStreamResponse.ResponseCase getResponseCase();
 }

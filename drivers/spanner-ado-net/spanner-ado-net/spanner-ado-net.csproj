@@ -1,0 +1,32 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Google.Cloud.Spanner.DataProvider</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>default</LangVersion>
+    <AssemblyName>Google.Cloud.Spanner.DataProvider</AssemblyName>
+    <PackageId>Alpha.Google.Cloud.Spanner.DataProvider</PackageId>
+    <Title>.NET Data Provider for Spanner</Title>
+    <Authors>Google</Authors>
+    <Version>1.0.0-alpha.20251205155619</Version>
+    <Description>ADO.NET Data Provider.
+
+Alpha version: Not for production use</Description>
+    <Copyright>Apache v2.0</Copyright>
+    <PackageLicenseUrl>https://github.com/googleapis/go-sql-spanner/drivers/spanner-ado-net/LICENSE</PackageLicenseUrl>
+    <RepositoryUrl>https://github.com/googleapis/go-sql-spanner/drivers/spanner-ado-net</RepositoryUrl>
+  </PropertyGroup>
+  
+  <ItemGroup>
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib" Version="1.0.0-alpha.20251205154526" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.Grpc.V1" Version="1.0.0-alpha.20251205154526" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.GrpcImpl" Version="1.0.0-alpha.20251205154526" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.NativeImpl" Version="1.0.0-alpha.20251205154526" />
+    <PackageReference Include="ConfigureAwaitChecker.Analyzer" Version="5.0.0.1">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+  
+</Project>

@@ -70,26 +70,30 @@ private static final long serialVersionUID = 0L;
     return rows_ == null ? com.google.cloud.spannerlib.v1.Rows.getDefaultInstance() : rows_;
   }
 
-  public static final int NUM_ROWS_FIELD_NUMBER = 2;
-  private long numRows_ = 0L;
+  public static final int FETCH_OPTIONS_FIELD_NUMBER = 2;
+  private com.google.cloud.spannerlib.v1.FetchOptions fetchOptions_;
   /**
-   * <code>int64 num_rows = 2 [(.google.api.field_behavior) = REQUIRED];</code>
-   * @return The numRows.
+   * <code>.google.spannerlib.v1.FetchOptions fetch_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+   * @return Whether the fetchOptions field is set.
    */
   @java.lang.Override
-  public long getNumRows() {
-    return numRows_;
+  public boolean hasFetchOptions() {
+    return ((bitField0_ & 0x00000002) != 0);
   }
-
-  public static final int ENCODING_FIELD_NUMBER = 3;
-  private long encoding_ = 0L;
   /**
-   * <code>int64 encoding = 3 [(.google.api.field_behavior) = REQUIRED];</code>
-   * @return The encoding.
+   * <code>.google.spannerlib.v1.FetchOptions fetch_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+   * @return The fetchOptions.
    */
   @java.lang.Override
-  public long getEncoding() {
-    return encoding_;
+  public com.google.cloud.spannerlib.v1.FetchOptions getFetchOptions() {
+    return fetchOptions_ == null ? com.google.cloud.spannerlib.v1.FetchOptions.getDefaultInstance() : fetchOptions_;
+  }
+  /**
+   * <code>.google.spannerlib.v1.FetchOptions fetch_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+   */
+  @java.lang.Override
+  public com.google.cloud.spannerlib.v1.FetchOptionsOrBuilder getFetchOptionsOrBuilder() {
+    return fetchOptions_ == null ? com.google.cloud.spannerlib.v1.FetchOptions.getDefaultInstance() : fetchOptions_;
   }
 
   private byte memoizedIsInitialized = -1;
@@ -109,11 +113,8 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000001) != 0)) {
       output.writeMessage(1, getRows());
     }
-    if (numRows_ != 0L) {
-      output.writeInt64(2, numRows_);
-    }
-    if (encoding_ != 0L) {
-      output.writeInt64(3, encoding_);
+    if (((bitField0_ & 0x00000002) != 0)) {
+      output.writeMessage(2, getFetchOptions());
     }
     getUnknownFields().writeTo(output);
   }
@@ -128,13 +129,9 @@ private static final long serialVersionUID = 0L;
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(1, getRows());
     }
-    if (numRows_ != 0L) {
+    if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeInt64Size(2, numRows_);
-    }
-    if (encoding_ != 0L) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeInt64Size(3, encoding_);
+        .computeMessageSize(2, getFetchOptions());
     }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
@@ -156,10 +153,11 @@ private static final long serialVersionUID = 0L;
       if (!getRows()
           .equals(other.getRows())) return false;
     }
-    if (getNumRows()
-        != other.getNumRows()) return false;
-    if (getEncoding()
-        != other.getEncoding()) return false;
+    if (hasFetchOptions() != other.hasFetchOptions()) return false;
+    if (hasFetchOptions()) {
+      if (!getFetchOptions()
+          .equals(other.getFetchOptions())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -175,12 +173,10 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + ROWS_FIELD_NUMBER;
       hash = (53 * hash) + getRows().hashCode();
     }
-    hash = (37 * hash) + NUM_ROWS_FIELD_NUMBER;
-    hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
-        getNumRows());
-    hash = (37 * hash) + ENCODING_FIELD_NUMBER;
-    hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
-        getEncoding());
+    if (hasFetchOptions()) {
+      hash = (37 * hash) + FETCH_OPTIONS_FIELD_NUMBER;
+      hash = (53 * hash) + getFetchOptions().hashCode();
+    }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -312,6 +308,7 @@ private static final long serialVersionUID = 0L;
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
         internalGetRowsFieldBuilder();
+        internalGetFetchOptionsFieldBuilder();
       }
     }
     @java.lang.Override
@@ -323,8 +320,11 @@ private static final long serialVersionUID = 0L;
         rowsBuilder_.dispose();
         rowsBuilder_ = null;
       }
-      numRows_ = 0L;
-      encoding_ = 0L;
+      fetchOptions_ = null;
+      if (fetchOptionsBuilder_ != null) {
+        fetchOptionsBuilder_.dispose();
+        fetchOptionsBuilder_ = null;
+      }
       return this;
     }
 
@@ -366,10 +366,10 @@ private static final long serialVersionUID = 0L;
         to_bitField0_ |= 0x00000001;
       }
       if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.numRows_ = numRows_;
-      }
-      if (((from_bitField0_ & 0x00000004) != 0)) {
-        result.encoding_ = encoding_;
+        result.fetchOptions_ = fetchOptionsBuilder_ == null
+            ? fetchOptions_
+            : fetchOptionsBuilder_.build();
+        to_bitField0_ |= 0x00000002;
       }
       result.bitField0_ |= to_bitField0_;
     }
@@ -389,11 +389,8 @@ private static final long serialVersionUID = 0L;
       if (other.hasRows()) {
         mergeRows(other.getRows());
       }
-      if (other.getNumRows() != 0L) {
-        setNumRows(other.getNumRows());
-      }
-      if (other.getEncoding() != 0L) {
-        setEncoding(other.getEncoding());
+      if (other.hasFetchOptions()) {
+        mergeFetchOptions(other.getFetchOptions());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -428,16 +425,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000001;
               break;
             } // case 10
-            case 16: {
-              numRows_ = input.readInt64();
+            case 18: {
+              input.readMessage(
+                  internalGetFetchOptionsFieldBuilder().getBuilder(),
+                  extensionRegistry);
               bitField0_ |= 0x00000002;
               break;
-            } // case 16
-            case 24: {
-              encoding_ = input.readInt64();
-              bitField0_ |= 0x00000004;
-              break;
-            } // case 24
+            } // case 18
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -576,68 +570,125 @@ private static final long serialVersionUID = 0L;
       return rowsBuilder_;
     }
 
-    private long numRows_ ;
+    private com.google.cloud.spannerlib.v1.FetchOptions fetchOptions_;
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.cloud.spannerlib.v1.FetchOptions, com.google.cloud.spannerlib.v1.FetchOptions.Builder, com.google.cloud.spannerlib.v1.FetchOptionsOrBuilder> fetchOptionsBuilder_;
     /**
-     * <code>int64 num_rows = 2 [(.google.api.field_behavior) = REQUIRED];</code>
-     * @return The numRows.
+     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+     * @return Whether the fetchOptions field is set.
      */
-    @java.lang.Override
-    public long getNumRows() {
-      return numRows_;
+    public boolean hasFetchOptions() {
+      return ((bitField0_ & 0x00000002) != 0);
     }
     /**
-     * <code>int64 num_rows = 2 [(.google.api.field_behavior) = REQUIRED];</code>
-     * @param value The numRows to set.
-     * @return This builder for chaining.
+     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+     * @return The fetchOptions.
      */
-    public Builder setNumRows(long value) {
-
-      numRows_ = value;
+    public com.google.cloud.spannerlib.v1.FetchOptions getFetchOptions() {
+      if (fetchOptionsBuilder_ == null) {
+        return fetchOptions_ == null ? com.google.cloud.spannerlib.v1.FetchOptions.getDefaultInstance() : fetchOptions_;
+      } else {
+        return fetchOptionsBuilder_.getMessage();
+      }
+    }
+    /**
+     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+     */
+    public Builder setFetchOptions(com.google.cloud.spannerlib.v1.FetchOptions value) {
+      if (fetchOptionsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        fetchOptions_ = value;
+      } else {
+        fetchOptionsBuilder_.setMessage(value);
+      }
       bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>int64 num_rows = 2 [(.google.api.field_behavior) = REQUIRED];</code>
-     * @return This builder for chaining.
+     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      */
-    public Builder clearNumRows() {
+    public Builder setFetchOptions(
+        com.google.cloud.spannerlib.v1.FetchOptions.Builder builderForValue) {
+      if (fetchOptionsBuilder_ == null) {
+        fetchOptions_ = builderForValue.build();
+      } else {
+        fetchOptionsBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000002;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+     */
+    public Builder mergeFetchOptions(com.google.cloud.spannerlib.v1.FetchOptions value) {
+      if (fetchOptionsBuilder_ == null) {
+        if (((bitField0_ & 0x00000002) != 0) &&
+          fetchOptions_ != null &&
+          fetchOptions_ != com.google.cloud.spannerlib.v1.FetchOptions.getDefaultInstance()) {
+          getFetchOptionsBuilder().mergeFrom(value);
+        } else {
+          fetchOptions_ = value;
+        }
+      } else {
+        fetchOptionsBuilder_.mergeFrom(value);
+      }
+      if (fetchOptions_ != null) {
+        bitField0_ |= 0x00000002;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+     */
+    public Builder clearFetchOptions() {
       bitField0_ = (bitField0_ & ~0x00000002);
-      numRows_ = 0L;
-      onChanged();
-      return this;
-    }
-
-    private long encoding_ ;
-    /**
-     * <code>int64 encoding = 3 [(.google.api.field_behavior) = REQUIRED];</code>
-     * @return The encoding.
-     */
-    @java.lang.Override
-    public long getEncoding() {
-      return encoding_;
-    }
-    /**
-     * <code>int64 encoding = 3 [(.google.api.field_behavior) = REQUIRED];</code>
-     * @param value The encoding to set.
-     * @return This builder for chaining.
-     */
-    public Builder setEncoding(long value) {
-
-      encoding_ = value;
-      bitField0_ |= 0x00000004;
+      fetchOptions_ = null;
+      if (fetchOptionsBuilder_ != null) {
+        fetchOptionsBuilder_.dispose();
+        fetchOptionsBuilder_ = null;
+      }
       onChanged();
       return this;
     }
     /**
-     * <code>int64 encoding = 3 [(.google.api.field_behavior) = REQUIRED];</code>
-     * @return This builder for chaining.
+     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
      */
-    public Builder clearEncoding() {
-      bitField0_ = (bitField0_ & ~0x00000004);
-      encoding_ = 0L;
+    public com.google.cloud.spannerlib.v1.FetchOptions.Builder getFetchOptionsBuilder() {
+      bitField0_ |= 0x00000002;
       onChanged();
-      return this;
+      return internalGetFetchOptionsFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+     */
+    public com.google.cloud.spannerlib.v1.FetchOptionsOrBuilder getFetchOptionsOrBuilder() {
+      if (fetchOptionsBuilder_ != null) {
+        return fetchOptionsBuilder_.getMessageOrBuilder();
+      } else {
+        return fetchOptions_ == null ?
+            com.google.cloud.spannerlib.v1.FetchOptions.getDefaultInstance() : fetchOptions_;
+      }
+    }
+    /**
+     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.cloud.spannerlib.v1.FetchOptions, com.google.cloud.spannerlib.v1.FetchOptions.Builder, com.google.cloud.spannerlib.v1.FetchOptionsOrBuilder> 
+        internalGetFetchOptionsFieldBuilder() {
+      if (fetchOptionsBuilder_ == null) {
+        fetchOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.cloud.spannerlib.v1.FetchOptions, com.google.cloud.spannerlib.v1.FetchOptions.Builder, com.google.cloud.spannerlib.v1.FetchOptionsOrBuilder>(
+                getFetchOptions(),
+                getParentForChildren(),
+                isClean());
+        fetchOptions_ = null;
+      }
+      return fetchOptionsBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:google.spannerlib.v1.NextRequest)

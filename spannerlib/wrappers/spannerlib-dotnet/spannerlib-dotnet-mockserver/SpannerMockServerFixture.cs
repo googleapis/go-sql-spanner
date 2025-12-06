@@ -62,7 +62,7 @@ public class SpannerMockServerFixture : IDisposable
             {
                 options.MaxReceiveMessageSize = null;
             });
-        });        
+        });
         builder.ConfigureKestrel(options =>
         {
             // Set up an HTTP/2 endpoint without TLS.
