@@ -21,6 +21,12 @@ if [ -z "$SKIP_MACOS" ]; then
   echo "Building for darwin/arm64"
   mkdir -p binaries/osx-arm64
   GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -o binaries/osx-arm64/spannerlib.dylib -buildmode=c-shared shared_lib.go
+
+  if [ -n "$BUILD_MACOS_AMD64" ]; then
+      echo "Building for darwin/amd64"
+      mkdir -p binaries/osx-x64
+      GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -o binaries/osx-x64/spannerlib.dylib -buildmode=c-shared shared_lib.go
+  fi
 fi
 
 if [ -z "$SKIP_LINUX_CROSS_COMPILE" ]; then
@@ -36,6 +42,13 @@ elif [ -z "$SKIP_LINUX" ]; then
   echo "Building for linux/x64"
   mkdir -p binaries/linux-x64
   GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -o binaries/linux-x64/spannerlib.so -buildmode=c-shared shared_lib.go
+
+  if [ -n "$BUILD_LINUX_ARM64" ]; then
+      echo "Building for linux/arm64"
+      mkdir -p binaries/linux-arm64
+      # Use CC_LINUX_ARM64 if set, otherwise default to aarch64-linux-gnu-gcc
+      CC=${CC_LINUX_ARM64:-aarch64-linux-gnu-gcc} GOOS=linux GOARCH=arm64 CGO_ENABLED=1 go build -o binaries/linux-arm64/spannerlib.so -buildmode=c-shared shared_lib.go
+  fi
 fi
 
 if [ -z "$SKIP_WINDOWS" ]; then
