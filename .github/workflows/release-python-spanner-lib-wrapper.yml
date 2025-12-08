@@ -3,6 +3,9 @@ name: Build Python Wrapper
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build-shared-lib:
     uses: ./.github/workflows/build-shared-spanner-lib.yml
