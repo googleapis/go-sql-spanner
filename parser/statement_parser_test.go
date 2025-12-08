@@ -27,6 +27,28 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+func TestStatementTypeString(t *testing.T) {
+	testCases := []struct {
+		name string
+		st   StatementType
+		want string
+	}{
+		{name: "Ddl", st: StatementTypeDdl, want: "DDL"},
+		{name: "ClientSide", st: StatementTypeClientSide, want: "ClientSide"},
+		{name: "Query", st: StatementTypeQuery, want: "Query"},
+		{name: "Dml", st: StatementTypeDml, want: "DML"},
+		{name: "Unknown", st: StatementTypeUnknown, want: "Unknown"},
+		{name: "Invalid", st: StatementType(999), want: "Unknown"}, // Also test an undefined value.
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.st.String(); got != tc.want {
+				t.Errorf("String() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestReadKeywordWithComments(t *testing.T) {
 	tests := []struct {
 		input   string
@@ -719,6 +741,17 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 				databasepb.DatabaseDialect_POSTGRESQL: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?"?it\"?s"?`)),
 			},
 		},
+		"backslash at end of string": {
+			input: `?'test\\'?`,
+			wantSQL: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@p1'test\\'@p2`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `$1'test\\'$2`,
+			},
+			want: map[databasepb.DatabaseDialect][]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"p1", "p2"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1", "p2"},
+			},
+		},
 		"triple-quoted string": {
 			input: `?'''?it\'?s'''?`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
@@ -1071,6 +1104,16 @@ SELECT * FROM PersonsTable WHERE id=$1`,
 			input:   `?"?it\"?s"?`,
 			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?"?it\"?s"?`)),
 		},
+		"backslash at end of string": {
+			input:   `?'test\\'?`,
+			wantSQL: `$1'test\\'$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"backslash at end of double-quoted string": {
+			input:   `?"test\\"?`,
+			wantSQL: `$1"test\\"$2`,
+			want:    []string{"p1", "p2"},
+		},
 		"triple-quoted string": {
 			input:   `?'''?it\'?s'''?`,
 			wantErr: spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "SQL statement contains an unclosed literal: %s", `?'''?it\'?s'''?`)),
@@ -1240,6 +1283,16 @@ func TestFindParamsWithCommentsPostgreSQL(t *testing.T) {
 		"backslash in double-quoted string": {
 			input:   `?\"?it\\"\"?s\"%s?`,
 			wantSQL: `$1\"?it\\"\"?s\"%s$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"backslash at end of string": {
+			input:   `?'test\\'%s?`,
+			wantSQL: `$1'test\\'%s$2`,
+			want:    []string{"p1", "p2"},
+		},
+		"backslash at end of double-quoted string": {
+			input:   `?"test\\"%s?`,
+			wantSQL: `$1"test\\"%s$2`,
 			want:    []string{"p1", "p2"},
 		},
 		"triple-quotes": {
@@ -2005,6 +2058,13 @@ func TestSkip(t *testing.T) {
 			skipped: map[databasepb.DatabaseDialect]string{
 				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "'''foo\\'\\'\\'bar'''",
 				databasepb.DatabaseDialect_POSTGRESQL:          "'''foo\\'",
+			},
+		},
+		"escaped backslash at end of string literal": {
+			input: "'test\\\\' as foo",
+			skipped: map[databasepb.DatabaseDialect]string{
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "'test\\\\'",
+				databasepb.DatabaseDialect_POSTGRESQL:          "'test\\\\'",
 			},
 		},
 		"string with linefeed": {
@@ -2952,6 +3012,169 @@ func TestExtractSetStatementsFromHints(t *testing.T) {
 		t.Parallel()
 		runHintTests(t, databasepb.DatabaseDialect_POSTGRESQL, pgTests)
 	})
+}
+
+func TestSkipExpressionInBrackets(t *testing.T) {
+	t.Parallel()
+
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name        string
+		sql         string
+		initialPos  int
+		expectedPos int
+		expectedErr bool
+	}{
+		{
+			name:        "no brackets at initial position",
+			sql:         "SELECT 1 FROM FOO",
+			initialPos:  0,
+			expectedPos: 0,
+			expectedErr: false,
+		},
+		{
+			name:        "empty brackets",
+			sql:         "()",
+			initialPos:  0,
+			expectedPos: 2,
+			expectedErr: false,
+		},
+		{
+			name:        "simple expression",
+			sql:         "(col1)",
+			initialPos:  0,
+			expectedPos: 6,
+			expectedErr: false,
+		},
+		{
+			name:        "expression with multiple tokens",
+			sql:         "(col1 + col2)",
+			initialPos:  0,
+			expectedPos: 13,
+			expectedErr: false,
+		},
+		{
+			name:        "nested brackets",
+			sql:         "(a + (b - c))",
+			initialPos:  0,
+			expectedPos: 13,
+			expectedErr: false,
+		},
+		{
+			name:        "multiple nested brackets",
+			sql:         "((a) + ((b - c)))",
+			initialPos:  0,
+			expectedPos: 17,
+			expectedErr: false,
+		},
+		{
+			name:        "complex expression with various tokens",
+			sql:         "(1 + 'test' - `some_id` / (2 * 3))",
+			initialPos:  0,
+			expectedPos: 34,
+			expectedErr: false,
+		},
+		{
+			name:        "unclosed bracket at end of string",
+			sql:         "(a + b",
+			initialPos:  0,
+			expectedPos: 6, // Should reach end of string, level > 0
+			expectedErr: false,
+		},
+		{
+			name:        "unclosed bracket in middle of string",
+			sql:         "(a + b) + c",
+			initialPos:  0,
+			expectedPos: 7, // Should skip until first closing bracket
+			expectedErr: false,
+		},
+		{
+			name:        "brackets with leading text",
+			sql:         "prefix (a + b)",
+			initialPos:  7, // Start at '('
+			expectedPos: 14,
+			expectedErr: false,
+		},
+		{
+			name:        "brackets with trailing text",
+			sql:         "(a + b) suffix",
+			initialPos:  0,
+			expectedPos: 7,
+			expectedErr: false,
+		},
+		{
+			name:        "only brackets",
+			sql:         "()",
+			initialPos:  0,
+			expectedPos: 2,
+			expectedErr: false,
+		},
+		{
+			name:        "empty string",
+			sql:         "",
+			initialPos:  0,
+			expectedPos: 0,
+			expectedErr: false,
+		},
+		{
+			name:        "multiple spaces inside brackets",
+			sql:         "(  col1   +   col2  )",
+			initialPos:  0,
+			expectedPos: 21,
+			expectedErr: false,
+		},
+		{
+			name:        "multibyte characters in expression",
+			sql:         "(你好 + 世界)", // "Hello + World" in Chinese
+			initialPos:  0,
+			expectedPos: len("(你好 + 世界)"),
+			expectedErr: false,
+		},
+		{
+			name: "brackets with mixed quotes and comments",
+			sql: `('string' /*comment*/ + --comment2
+						col)`,
+			initialPos: 0,
+			expectedPos: len(`('string' /*comment*/ + --comment2
+						col)`),
+			expectedErr: false,
+		},
+		{
+			name:        "brackets and only closing bracket next",
+			sql:         "SELECT 1 FROM FOO)",
+			initialPos:  17, // Position of ')'
+			expectedPos: 17, // Should not move
+			expectedErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &simpleParser{
+				statementParser: parser,
+				sql:             []byte(tt.sql),
+				pos:             tt.initialPos,
+			}
+
+			err := p.skipExpressionInBrackets()
+
+			if tt.expectedErr {
+				if err == nil {
+					t.Errorf("Test %s failed: Expected an error, but got none", tt.name)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Test %s failed: Expected no error, but got %v", tt.name, err)
+				}
+			}
+			if p.pos != tt.expectedPos {
+				t.Errorf("Test %s failed\n Got: %d\nWant: %d\n SQL: '%s'", tt.name, p.pos, tt.expectedPos, tt.sql)
+			}
+		})
+	}
 }
 
 func TestSplit(t *testing.T) {

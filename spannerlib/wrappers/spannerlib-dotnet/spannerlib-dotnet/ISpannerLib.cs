@@ -164,6 +164,23 @@ public interface ISpannerLib : IDisposable
     public Task<ResultSetMetadata?> MetadataAsync(Rows rows, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Moves the cursor in the given Rows object to the next result set and returns the ResultSetMetadata of that
+    /// result set, or null if there are no more result sets.
+    /// </summary>
+    /// <param name="rows">The Rows object to move to the next result set</param>
+    /// <returns>The ResultSetMetadata of the next result set, or null if there are no more results</returns>
+    public ResultSetMetadata? NextResultSet(Rows rows);
+
+    /// <summary>
+    /// Moves the cursor in the given Rows object to the next result set and returns the ResultSetMetadata of that
+    /// result set, or null if there are no more result sets.
+    /// </summary>
+    /// <param name="rows">The Rows object to move to the next result set</param>
+    /// <param name="cancellationToken">The cancellation token</param>
+    /// <returns>The ResultSetMetadata of the next result set, or null if there are no more results</returns>
+    public Task<ResultSetMetadata?> NextResultSetAsync(Rows rows, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Returns the ResultSetStats of a Rows object. This object contains the update count of a DML statement that was
     /// executed. This method can only be called once all data rows in the Rows object have been returned. That is; the
     /// Next method must have returned null for this Rows object (or the caller must know beforehand that the statement

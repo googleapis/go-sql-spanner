@@ -14,6 +14,8 @@
 
 using System.Collections;
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using Google.Apis.Util;
 using Google.Cloud.Spanner.Admin.Database.V1;
 using Google.Cloud.Spanner.Common.V1;
 using Google.Cloud.Spanner.V1;
@@ -22,6 +24,7 @@ using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Google.Rpc;
 using Grpc.Core;
+using Enum = System.Enum;
 using Status = Google.Rpc.Status;
 using GrpcCore = Grpc.Core;
 
@@ -60,7 +63,12 @@ public class StatementResult
     {
         return CreateSingleColumnResultSet(new Spanner.V1.Type { Code = Spanner.V1.TypeCode.Int64 }, "COL1", 1);
     }
-
+    
+    public static StatementResult CreateSelectZeroResultSet()
+    {
+        return CreateSingleColumnResultSet(new Spanner.V1.Type { Code = Spanner.V1.TypeCode.Int64 }, "COL1", 0);
+    }
+    
     public static StatementResult CreateSingleColumnResultSet(Spanner.V1.Type type, string col, params object[] values)
         => CreateSingleColumnResultSet(null, type, col, values);
 
@@ -356,7 +364,7 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
         );
     }
 
-    private void AddDialectResult()
+    public void AddDialectResult(DatabaseDialect dialect = DatabaseDialect.GoogleStandardSql)
     {
         AddOrUpdateStatementResult(SDialectQuery, 
             StatementResult.CreateResultSet(
@@ -366,10 +374,23 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
                 },
                 new List<object[]>
                 {
-                    new object[] { "GOOGLE_STANDARD_SQL" },
+                    new object[] { GetEnumOriginalName(dialect) },
                 }));
     }
-
+    
+    string GetEnumOriginalName(Enum enumValue)
+    {
+        var enumType = enumValue.GetType();
+        var enumValueName = enumValue.ToString();
+        var enumValueInfo = enumType.GetMember(enumValueName).Single();
+        var attribute = enumValueInfo.GetCustomAttribute<Protobuf.Reflection.OriginalNameAttribute>();
+        if (attribute is null)
+        {
+            throw new InvalidOperationException($"Attribute '{nameof(Protobuf.Reflection.OriginalNameAttribute)}' not found on enum '{enumType}'.");
+        }
+        return attribute.Name;
+    }
+    
     internal void AbortTransaction(string transactionId)
     {
         _abortedTransactions.TryAdd(ByteString.FromBase64(transactionId), true);
@@ -382,9 +403,48 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
             _abortNextStatement = true;
         }
     }
-
+    
+    public void ClearRequests()
+    {
+        _requests.Clear();
+    }
+    
     public IEnumerable<IMessage> Requests => new List<IMessage>(_requests).AsReadOnly();
 
+    /// <summary>
+    /// Wait for the requests on the mock server to contain a message that fulfills the given predicate.
+    /// This method will wait for at most 5 seconds for the predicate to be true. If the server does not contain a
+    /// message that fulfills the predicate within 5 seconds, the method will return false.
+    /// </summary>
+    /// <param name="predicate">The predicate that the request must fulfill</param>
+    /// <returns>true if a request was found and otherwise false</returns>
+    public bool WaitForRequestsToContain(Func<IMessage, bool> predicate)
+    {
+        return WaitForRequestsToContain(predicate, new TimeSpan(5 * TimeSpan.TicksPerSecond));
+    }
+    
+    /// <summary>
+    /// Wait for the requests on the mock server to contain a message that fulfills the given predicate.
+    /// This method will wait for at most the given timeout for the predicate to be true.
+    /// If the server does not contain a message that fulfills the predicate within the given timeout,
+    /// the method will return false.
+    /// </summary>
+    /// <param name="predicate">The predicate that the request must fulfill</param>
+    /// <param name="timeout">The amount of time that the method should at most wait</param>
+    /// <returns>true if a request was found and otherwise false</returns>
+    public bool WaitForRequestsToContain(Func<IMessage, bool> predicate, TimeSpan timeout)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        while (stopwatch.Elapsed < timeout)
+        {
+            if (_requests.Any(predicate))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+    
     public IEnumerable<ServerCallContext> Contexts => new List<ServerCallContext>(_contexts).AsReadOnly();
 
     public IEnumerable<Metadata> Headers => new List<Metadata>(_headers).AsReadOnly();
@@ -700,7 +760,7 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
             switch (result.Type)
             {
                 case StatementResult.StatementResultType.ResultSet:
-                    await WriteResultSet(returnTransaction, result.ResultSet!, responseStream, executionTime);
+                    await WriteResultSet(returnTransaction, result.ResultSet!, responseStream, executionTime, context.CancellationToken);
                     break;
                 case StatementResult.StatementResultType.UpdateCount:
                     await WriteUpdateCount(returnTransaction, result.UpdateCount, responseStream);
@@ -708,28 +768,32 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
                 case StatementResult.StatementResultType.Exception:
                     throw result.Exception!;
                 default:
-                    throw new RpcException(new GrpcCore.Status(StatusCode.InvalidArgument, $"Invalid result type {result.Type} for {request.Sql}"));
+                    throw new RpcException(new GrpcCore.Status(StatusCode.InvalidArgument, $"Invalid result type {result.Type} for {request.Sql[..Math.Min(request.Sql.Length, 5000)]}"));
             }
         }
         else
         {
-            throw new RpcException(new GrpcCore.Status(StatusCode.InvalidArgument, $"No result found for {request.Sql}"));
+            throw new RpcException(new GrpcCore.Status(StatusCode.InvalidArgument, $"No result found for {request.Sql[..Math.Min(request.Sql.Length, 5000)]}"));
         }
     }
 
-    private async Task WriteResultSet(Transaction? transaction, ResultSet resultSet, IServerStreamWriter<PartialResultSet> responseStream, ExecutionTime? executionTime)
+    private async Task WriteResultSet(Transaction? transaction, ResultSet resultSet, IServerStreamWriter<PartialResultSet> responseStream, ExecutionTime? executionTime, CancellationToken cancellationToken)
     {
         int index = 0;
         PartialResultSetsEnumerable enumerator = new PartialResultSetsEnumerable(transaction, resultSet);
         int writePermissions = executionTime?.TakeWritePermission() ?? int.MaxValue;
         foreach (PartialResultSet prs in enumerator)
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
             Exception? e = executionTime?.PopExceptionAtIndex(index);
             if (e != null)
             {
                 throw e;
             }
-            await responseStream.WriteAsync(prs);
+            await responseStream.WriteAsync(prs, cancellationToken);
             index++;
             writePermissions--;
             if (writePermissions == 0)

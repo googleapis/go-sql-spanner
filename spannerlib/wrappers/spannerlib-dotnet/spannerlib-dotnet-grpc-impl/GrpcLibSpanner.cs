@@ -157,7 +157,7 @@ public class GrpcLibSpanner : ISpannerLib
     {
         try
         {
-            await _client.CloseConnectionAsync(ToProto(connection), cancellationToken: cancellationToken);
+            await _client.CloseConnectionAsync(ToProto(connection), cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (RpcException exception)
         {
@@ -184,7 +184,7 @@ public class GrpcLibSpanner : ISpannerLib
             {
                 Connection = ToProto(connection),
                 Mutations = mutations,
-            }, cancellationToken: cancellationToken);
+            }, cancellationToken: cancellationToken).ConfigureAwait(false);
             return response.CommitTimestamp == null ? null : response;
         }
         catch (RpcException exception)
@@ -223,13 +223,13 @@ public class GrpcLibSpanner : ISpannerLib
         {
             if (_useStreamingRows)
             {
-                return await ExecuteStreamingAsync(connection, statement, cancellationToken);
+                return await ExecuteStreamingAsync(connection, statement, cancellationToken).ConfigureAwait(false);
             }
             var rows = await _client.ExecuteAsync(new ExecuteRequest
             {
                 Connection = ToProto(connection),
                 ExecuteSqlRequest = statement,
-            }, cancellationToken: cancellationToken);
+            }, cancellationToken: cancellationToken).ConfigureAwait(false);
             return FromProto(connection, rows);
         }
         catch (RpcException exception)
@@ -246,7 +246,7 @@ public class GrpcLibSpanner : ISpannerLib
             Connection = ToProto(connection),
             ExecuteSqlRequest = statement,
         }));
-        return await StreamingRows.CreateAsync(connection, stream, cancellationToken);
+        return await StreamingRows.CreateAsync(connection, stream, cancellationToken).ConfigureAwait(false);
     }
 
     public long[] ExecuteBatch(Connection connection, ExecuteBatchDmlRequest statements)
@@ -283,7 +283,7 @@ public class GrpcLibSpanner : ISpannerLib
             {
                 Connection = ToProto(connection),
                 ExecuteBatchDmlRequest = statements,
-            }, cancellationToken: cancellationToken);
+            }, cancellationToken: cancellationToken).ConfigureAwait(false);
             var result = new long[stats.ResultSets.Count];
             for (var i = 0; i < result.Length; i++)
             {
@@ -306,7 +306,24 @@ public class GrpcLibSpanner : ISpannerLib
     {
         try
         {
-            return await _client.MetadataAsync(ToProto(rows), cancellationToken: cancellationToken);
+            return await _client.MetadataAsync(ToProto(rows), cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (RpcException exception)
+        {
+            throw SpannerException.ToSpannerException(exception);
+        }
+    }
+
+    public ResultSetMetadata? NextResultSet(Rows rows)
+    {
+        return TranslateException(() => _client.NextResultSet(ToProto(rows)));
+    }
+
+    public async Task<ResultSetMetadata?> NextResultSetAsync(Rows rows, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _client.NextResultSetAsync(ToProto(rows), cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (RpcException exception)
         {
@@ -339,7 +356,7 @@ public class GrpcLibSpanner : ISpannerLib
                 Rows = ToProto(rows),
                 NumRows = numRows,
                 Encoding = (long)encoding,
-            }, cancellationToken: cancellationToken);
+            }, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (RpcException exception)
         {
@@ -356,7 +373,7 @@ public class GrpcLibSpanner : ISpannerLib
     {
         try
         {
-            await _client.CloseRowsAsync(ToProto(rows), cancellationToken: cancellationToken);
+            await _client.CloseRowsAsync(ToProto(rows), cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (RpcException exception)
         {
@@ -383,7 +400,7 @@ public class GrpcLibSpanner : ISpannerLib
     {
         try
         {
-            var response = await _client.CommitAsync(ToProto(connection), cancellationToken: cancellationToken);
+            var response = await _client.CommitAsync(ToProto(connection), cancellationToken: cancellationToken).ConfigureAwait(false);
             return response.CommitTimestamp == null ? null : response;
         }
         catch (RpcException exception)
@@ -401,7 +418,7 @@ public class GrpcLibSpanner : ISpannerLib
     {
         try
         {
-            await _client.RollbackAsync(ToProto(connection), cancellationToken:  cancellationToken);
+            await _client.RollbackAsync(ToProto(connection), cancellationToken:  cancellationToken).ConfigureAwait(false);
         }
         catch (RpcException exception)
         {

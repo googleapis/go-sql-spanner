@@ -59,6 +59,10 @@ public static class SpannerLib
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
     public static extern Message Metadata(long poolId, long connectionId, long rowsId);
 
+    [DllImport(SpannerLibName, EntryPoint = "NextResultSet")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
+    public static extern Message NextResultSet(long poolId, long connectionId, long rowsId);
+
     [DllImport(SpannerLibName, EntryPoint = "ResultSetStats")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
     public static extern Message ResultSetStats(long poolId, long connectionId, long rowsId);

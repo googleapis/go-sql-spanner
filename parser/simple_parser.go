@@ -391,6 +391,30 @@ func (p *simpleParser) skipWhitespacesAndCommentsWithPgHintOption(skipPgHints bo
 	p.pos = p.statementParser.skipWhitespacesAndComments(p.sql, p.pos, skipPgHints)
 }
 
+func (p *simpleParser) skipExpressionInBrackets() error {
+	if p.pos >= len(p.sql) || p.sql[p.pos] != '(' {
+		return nil
+	}
+	p.pos++
+	level := 1
+	for p.pos < len(p.sql) && level > 0 {
+		if !p.isMultibyte() && p.sql[p.pos] == ')' {
+			level--
+			p.pos++
+		} else if !p.isMultibyte() && p.sql[p.pos] == '(' {
+			level++
+			p.pos++
+		} else {
+			newPos, err := p.statementParser.skip(p.sql, p.pos)
+			if err != nil {
+				return err
+			}
+			p.pos = newPos
+		}
+	}
+	return nil
+}
+
 var googleSqlStatementHintPrefix = []byte{'@', '{'}
 var postgreSqlStatementHintPrefix = []byte{'/', '*', '@'}
 

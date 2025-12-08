@@ -18,7 +18,6 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
-	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -322,32 +321,23 @@ func execute(ctx, directExecuteContext context.Context, conn *Connection, execut
 	if err != nil {
 		return 0, err
 	}
-	// The first result set should contain the metadata.
-	if !it.Next() {
-		_ = it.Close()
-		return 0, fmt.Errorf("query returned no metadata")
+	res := &rows{
+		backend: it,
 	}
-	metadata := &spannerpb.ResultSetMetadata{}
-	if err := it.Scan(&metadata); err != nil {
-		_ = it.Close()
+	if err := res.readMetadata(ctx); err != nil {
 		return 0, err
 	}
-	// Move to the next result set, which contains the normal data.
-	if !it.NextResultSet() {
-		_ = it.Close()
-		return 0, fmt.Errorf("no results found after metadata")
-	}
 	id := conn.resultsIdx.Add(1)
-	res := &rows{
-		backend:  it,
-		metadata: metadata,
-	}
-	if len(metadata.RowType.Fields) == 0 {
+	if !hasFields(res.metadata) {
 		// No rows returned. Read the stats now.
 		_ = res.readStats(ctx)
 	}
 	conn.results.Store(id, res)
 	return id, nil
+}
+
+func hasFields(metadata *spannerpb.ResultSetMetadata) bool {
+	return metadata != nil && metadata.RowType != nil && metadata.RowType.Fields != nil && len(metadata.RowType.Fields) > 0
 }
 
 func executeBatch(ctx context.Context, conn *Connection, executor queryExecutor, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
@@ -492,7 +482,7 @@ func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDm
 			if i > 0 {
 				tp := spannerConn.DetectStatementType(statement.Sql)
 				if tp != firstStatementType {
-					return status.Errorf(codes.InvalidArgument, "Batches may not contain different types of statements. The first statement is of type %v. The statement on position %d is of type %v.", firstStatementType, i, tp)
+					return status.Errorf(codes.InvalidArgument, "Batches may not contain different types of statements. The first statement is of type %v. The statement on position %d is of type %v.", firstStatementType, i+1, tp)
 				}
 			}
 		}

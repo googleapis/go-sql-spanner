@@ -116,6 +116,7 @@ module SpannerLib
   attach_function :ResultSetStats, %i[int64 int64 int64], Message.by_value
   attach_function :CloseRows, %i[int64 int64 int64], Message.by_value
   attach_function :Release, [:int64], :void
+  attach_function :NextResultSet, %i[int64 int64 int64], Message.by_value
 
   # --- Ruby-friendly Wrappers ---
 
@@ -271,6 +272,12 @@ module SpannerLib
   def self.close_rows(pool_id, conn_id, rows_id)
     message = CloseRows(pool_id, conn_id, rows_id)
     handle_status_response(message, "CloseRows")
+  end
+
+  def self.next_result_set(pool_id, conn_id, rows_id)
+    message = NextResultSet(pool_id, conn_id, rows_id)
+    # This returns Metadata for the next result set, or nil if no more sets exist.
+    handle_data_response(message, "NextResultSet")
   end
 end
 

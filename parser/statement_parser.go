@@ -44,11 +44,7 @@ var clientSideKeywords = map[string]bool{
 	"BEGIN":    true,
 	"COMMIT":   true,
 	"ROLLBACK": true,
-	"CREATE":   true, // CREATE DATABASE is handled as a client-side statement
-	"DROP":     true, // DROP DATABASE is handled as a client-side statement
 }
-var createStatements = map[string]bool{"CREATE": true}
-var dropStatements = map[string]bool{"DROP": true}
 var showStatements = map[string]bool{"SHOW": true}
 var setStatements = map[string]bool{"SET": true}
 var resetStatements = map[string]bool{"RESET": true}
@@ -230,6 +226,16 @@ func (p *StatementParser) supportsEscapeStrings() bool {
 // GoogleSQL: 'It”s true' => These are two strings: "It" and "s true".
 func (p *StatementParser) supportsEscapeQuoteWithQuote() bool {
 	return p.Dialect == databasepb.DatabaseDialect_POSTGRESQL
+}
+
+var googleSqlReturningKeywords = []string{"then", "return"}
+var postgreSqlReturningKeywords = []string{"returning"}
+
+func (p *StatementParser) returningKeywords() []string {
+	if p.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		return postgreSqlReturningKeywords
+	}
+	return googleSqlReturningKeywords
 }
 
 // supportsLinefeedInString returns true if the dialect allows linefeeds in standard string literals.
@@ -460,8 +466,8 @@ func (p *StatementParser) skipQuoted(sql []byte, pos int, quote byte) (int, int,
 				// This was the end quote.
 				return pos + 1, quoteLength, nil
 			}
-		} else if (p.supportsBackslashEscape() || isEscapeString) && len(sql) > pos+1 && c == '\\' && sql[pos+1] == quote {
-			// This is an escaped quote (e.g. 'foo\'bar').
+		} else if (p.supportsBackslashEscape() || isEscapeString) && len(sql) > pos+1 && c == '\\' && (sql[pos+1] == quote || sql[pos+1] == '\\') {
+			// This is an escaped quote (e.g. 'foo\'bar') or an escaped backslash (e.g 'test\\').
 			// Note that in raw strings, the \ officially does not start an
 			// escape sequence, but the result is still the same, as in a raw
 			// string 'both characters are preserved'.
@@ -594,9 +600,12 @@ func (p *StatementParser) ParseClientSideStatement(query string) (ParsedStatemen
 	if p.useCache {
 		if val, ok := p.statementsCache.Get(query); ok {
 			if val.info.StatementType == StatementTypeClientSide {
-				return val.parsedStatement, nil
+				if val.parsedStatement != nil {
+					return val.parsedStatement, nil
+				}
+			} else {
+				return nil, nil
 			}
-			return nil, nil
 		}
 	}
 	// Determine whether it could be a valid client-side statement by looking at the first keyword.
@@ -622,6 +631,10 @@ func (p *StatementParser) ParseClientSideStatement(query string) (ParsedStatemen
 		return stmt, nil
 	}
 	return nil, nil
+}
+
+func isClientSideKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, clientSideKeywords)
 }
 
 // isDDL returns true if the given sql string is a DDL statement.
@@ -654,14 +667,6 @@ func isDmlKeyword(keyword string) bool {
 func (p *StatementParser) isQuery(query string) bool {
 	info := p.DetectStatementType(query)
 	return info.StatementType == StatementTypeQuery
-}
-
-func isCreateKeyword(keyword string) bool {
-	return isStatementKeyword(keyword, createStatements)
-}
-
-func isDropKeyword(keyword string) bool {
-	return isStatementKeyword(keyword, dropStatements)
 }
 
 func isQueryKeyword(keyword string) bool {
@@ -734,6 +739,21 @@ const (
 	StatementTypeClientSide
 )
 
+func (st StatementType) String() string {
+	switch st {
+	case StatementTypeQuery:
+		return "Query"
+	case StatementTypeDml:
+		return "DML"
+	case StatementTypeDdl:
+		return "DDL"
+	case StatementTypeClientSide:
+		return "ClientSide"
+	default:
+		return "Unknown"
+	}
+}
+
 // DmlType designates the type of modification that a DML statement will execute.
 type DmlType int
 
@@ -749,6 +769,8 @@ const (
 type StatementInfo struct {
 	StatementType StatementType
 	DmlType       DmlType
+	// TODO: Implement parsing of THEN RETURN / RETURNING clauses
+	HasThenReturn bool
 }
 
 // DetectStatementType returns the type of SQL statement based on the first
@@ -779,9 +801,12 @@ func (p *StatementParser) calculateDetectStatementType(sql string) *StatementInf
 		return &StatementInfo{
 			StatementType: StatementTypeDml,
 			DmlType:       detectDmlKeyword(keyword),
+			HasThenReturn: p.detectHasThenReturnClause(sql),
 		}
 	} else if isDDLKeyword(keyword) {
 		return &StatementInfo{StatementType: StatementTypeDdl}
+	} else if isClientSideKeyword(keyword) {
+		return &StatementInfo{StatementType: StatementTypeClientSide}
 	}
 	return &StatementInfo{StatementType: StatementTypeUnknown}
 }
@@ -854,6 +879,45 @@ func (p *StatementParser) extractConnectionVariables(sql string) (*ParsedSetStat
 		return nil, status.Errorf(codes.InvalidArgument, "unexpected tokens: %s", string(sp.sql[sp.pos:]))
 	}
 	return statement, nil
+}
+
+func (p *StatementParser) detectHasThenReturnClause(sql string) bool {
+	parser := &simpleParser{sql: []byte(sql), statementParser: p}
+	for parser.pos < len(parser.sql) {
+		parser.skipWhitespacesAndComments()
+		if parser.pos >= len(parser.sql) {
+			break
+		}
+		if parser.isMultibyte() {
+			parser.nextChar()
+			continue
+		}
+		c := parser.sql[parser.pos]
+		if c == '(' {
+			// THEN RETURN / RETURNING must be in the outermost expression.
+			if err := parser.skipExpressionInBrackets(); err != nil {
+				return false
+			}
+			continue
+		}
+		if parser.eatKeywords(p.returningKeywords()) {
+			return true
+		}
+		newPos, err := p.skip(parser.sql, parser.pos)
+		if err != nil {
+			return false
+		}
+		parser.pos = newPos
+	}
+	return false
+}
+
+func (p *StatementParser) IsCreateDatabaseStatement(sql string) bool {
+	return isCreateDatabase(p, sql)
+}
+
+func (p *StatementParser) IsDropDatabaseStatement(sql string) bool {
+	return isDropDatabase(p, sql)
 }
 
 // Split splits a SQL string that potentially contains multiple statements separated by

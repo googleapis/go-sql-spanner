@@ -485,11 +485,7 @@ func (r *rows) nextStats(dest []driver.Value) error {
 
 var _ driver.Rows = (*emptyRows)(nil)
 var _ driver.RowsNextResultSet = (*emptyRows)(nil)
-var emptyRowsMetadata = &sppb.ResultSetMetadata{
-	RowType: &sppb.StructType{
-		Fields: []*sppb.StructType_Field{{Name: "affected_rows", Type: &sppb.Type{Code: sppb.TypeCode_INT64}}},
-	},
-}
+var emptyRowsMetadata = &sppb.ResultSetMetadata{RowType: &sppb.StructType{Fields: []*sppb.StructType_Field{}}}
 var emptyRowsStats = &sppb.ResultSetStats{}
 
 type emptyRows struct {
@@ -500,6 +496,7 @@ type emptyRows struct {
 
 	hasReturnedResultSetMetadata bool
 	hasReturnedResultSetStats    bool
+	stats                        *sppb.ResultSetStats
 }
 
 func createDriverResultRows(_ driver.Result, cancel context.CancelFunc, opts *ExecOptions) *emptyRows {
@@ -578,6 +575,10 @@ func (e *emptyRows) nextStats(dest []driver.Value) error {
 		return io.EOF
 	}
 	e.hasReturnedResultSetStats = true
-	dest[0] = emptyRowsStats
+	if e.stats == nil {
+		dest[0] = emptyRowsStats
+	} else {
+		dest[0] = e.stats
+	}
 	return nil
 }

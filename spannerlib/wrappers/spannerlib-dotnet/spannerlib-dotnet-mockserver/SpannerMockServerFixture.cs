@@ -18,11 +18,14 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Google.Cloud.SpannerLib.MockServer;
 
 public class SpannerMockServerFixture : IDisposable
 {
+    private const int MaxRequestBodySize = 100_000_000;
+    
     private readonly Random _random = new ();
 
     private readonly IWebHost _host;
@@ -53,10 +56,18 @@ public class SpannerMockServerFixture : IDisposable
         var builder = WebHost.CreateDefaultBuilder();
         builder.ConfigureAppConfiguration(configurationBuilder => configurationBuilder.AddJsonFile("appsettings.json", true));
         builder.UseStartup(_ => new MockServerStartup(SpannerMock, DatabaseAdminMock));
+        builder.ConfigureServices(services =>
+        {
+            services.AddGrpc(options =>
+            {
+                options.MaxReceiveMessageSize = null;
+            });
+        });        
         builder.ConfigureKestrel(options =>
         {
-            // Setup a HTTP/2 endpoint without TLS.
+            // Set up an HTTP/2 endpoint without TLS.
             options.Listen(endpoint, o => o.Protocols = HttpProtocols.Http2);
+            options.Limits.MaxRequestBodySize = MaxRequestBodySize;
         });
         _host = builder.Build();
         _host.Start();

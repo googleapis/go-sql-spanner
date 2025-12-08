@@ -99,7 +99,7 @@ public abstract class AbstractLibObject : IDisposable, IAsyncDisposable
         {
             if (Id > 0)
             {
-                await CloseLibObjectAsync();
+                await CloseLibObjectAsync().ConfigureAwait(false);
             }
         }
         finally
