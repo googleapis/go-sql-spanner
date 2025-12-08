@@ -352,6 +352,114 @@ describe "Connection" do
     err = _ { @conn.execute_batch(batch_req) }.must_raise StandardError
     _(err.message).must_match(/Permission denied/)
   end
+
+  it "can execute a multi-statement query with multiple result sets" do
+    sql = "SELECT 1; SELECT 2"
+    set_mock_result("SELECT 1", StatementResult.create_select1_result)
+
+    set_mock_result(" SELECT 2", StatementResult.create_single_int_result_set("Col1", 2))
+
+    req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: sql)
+    rows = @conn.execute(req)
+
+    row1 = rows.next
+    _(row1).wont_be_nil
+    decoded1 = Google::Protobuf::ListValue.decode(row1)
+    _(decoded1.values[0].string_value).must_equal "1"
+
+    _(rows.next).must_be_nil
+
+    metadata = rows.next_result_set
+    _(metadata).wont_be_nil
+    _(metadata.row_type.fields[0].name).must_equal "Col1"
+
+    row2 = rows.next
+    _(row2).wont_be_nil
+    decoded2 = Google::Protobuf::ListValue.decode(row2)
+    _(decoded2.values[0].string_value).must_equal "2"
+
+    _(rows.next).must_be_nil
+
+    _(rows.next_result_set).must_be_nil
+  end
+
+  it "returns cached metadata and stats after closing rows" do
+    sql = "UPDATE users SET active = true WHERE id = 1"
+    set_mock_result(sql, StatementResult.create_update_count_result(5))
+
+    req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: sql)
+    rows = @conn.execute(req)
+
+    while rows.next; end
+
+    stats_before = rows.result_set_stats
+    _(stats_before).wont_be_nil
+    _(stats_before.row_count_exact).must_equal 5
+
+    metadata_before = rows.metadata
+    _(metadata_before).wont_be_nil
+
+    rows.close
+
+    # Metadata should be cached and available even after close
+    metadata_after = rows.metadata
+    _(metadata_after).wont_be_nil
+    _(metadata_after).must_equal metadata_before
+
+    # Result set stats should be cached and available even after close
+    stats_after = rows.result_set_stats
+    _(stats_after).wont_be_nil
+    _(stats_after.row_count_exact).must_equal 5
+
+    _(rows.next).must_be_nil
+
+    _(rows.next_result_set).must_be_nil
+  end
+
+  it "returns nil for metadata if closed before fetching" do
+    sql = "SELECT 1"
+    set_mock_result(sql, StatementResult.create_select1_result)
+
+    req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: sql)
+    rows = @conn.execute(req)
+
+    rows.close
+
+    # 3. Verify metadata is nil (because it was never cached, and we can't fetch it now)
+    _(rows.metadata).must_be_nil
+    _(rows.result_set_stats).must_be_nil
+  end
+
+  it "clears and updates stats when moving to next result set (Multi-DML)" do
+    sql = "UPDATE A SET x=1; UPDATE B SET x=2"
+
+    set_mock_result("UPDATE A SET x=1", StatementResult.create_update_count_result(10))
+    set_mock_result(" UPDATE B SET x=2", StatementResult.create_update_count_result(20))
+
+    req = Google::Cloud::Spanner::V1::ExecuteSqlRequest.new(sql: sql)
+    rows = @conn.execute(req)
+
+    while rows.next; end
+
+    stats1 = rows.result_set_stats
+    _(stats1).wont_be_nil
+    _(stats1.row_count_exact).must_equal 10
+
+    # calling next_result_set should clear the internal @stats cache
+    metadata = rows.next_result_set
+    _(metadata).wont_be_nil
+
+    while rows.next; end
+
+    stats2 = rows.result_set_stats
+    _(stats2).wont_be_nil
+
+    # Verify stats have been updated and earlier cache was cleared
+    _(stats2.row_count_exact).must_equal 20
+    _(stats2.row_count_exact).wont_equal stats1.row_count_exact
+
+    _(rows.next_result_set).must_be_nil
+  end
 end
 # rubocop:enable RSpec/NoExpectationExample
 # rubocop:enable Style/GlobalVars
