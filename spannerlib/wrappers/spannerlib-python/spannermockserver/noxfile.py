@@ -23,7 +23,7 @@ from typing import List
 import nox
 
 DEFAULT_PYTHON_VERSION = "3.13"
-SYSTEM_TEST_PYTHON_VERSIONS: List[str] = [
+INTEGRATION_TEST_PYTHON_VERSIONS: List[str] = [
     "3.10",
     "3.11",
     "3.12",
@@ -46,11 +46,11 @@ SKIP_PATHS = ["spannermockserver/generated"]
 
 STANDARD_DEPENDENCIES = []
 
-SYSTEM_TEST_STANDARD_DEPENDENCIES = [
+INTEGRATION_TEST_STANDARD_DEPENDENCIES = [
     "pytest",
 ]
 
-nox.options.sessions = ["format", "lint", "system"]
+nox.options.sessions = ["format", "lint", "integration"]
 
 # Error if a python version is missing
 nox.options.error_on_missing_interpreters = True
@@ -96,21 +96,21 @@ def lint(session):
     )
 
 
-@nox.session(python=SYSTEM_TEST_PYTHON_VERSIONS)
-def system(session):
-    """Run system tests."""
-    session.install(*STANDARD_DEPENDENCIES, *SYSTEM_TEST_STANDARD_DEPENDENCIES)
+@nox.session(python=INTEGRATION_TEST_PYTHON_VERSIONS)
+def integration(session):
+    """Run integration tests."""
+    session.install(*STANDARD_DEPENDENCIES, *INTEGRATION_TEST_STANDARD_DEPENDENCIES)
     session.install(".")
 
     test_paths = (
         session.posargs
         if session.posargs
-        else [os.path.join("tests", "system")]
+        else [os.path.join("tests", "integration")]
     )
     session.run(
         "py.test",
         MODE,
-        f"--junitxml=system_{session.python}_sponge_log.xml",
+        f"--junitxml=integration_{session.python}_sponge_log.xml",
         *test_paths,
         env={},
     )
