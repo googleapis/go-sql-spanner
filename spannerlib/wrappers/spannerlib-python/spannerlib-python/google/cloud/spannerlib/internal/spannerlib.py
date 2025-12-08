@@ -473,7 +473,8 @@ class SpannerLib:
             rows_handle: The rows ID.
 
         Returns:
-            Message: The result containing the rows.
+            Message: Returns the ResultSetMetadata of the next result set,
+            or None if there are no more result sets.
         """
         msg = self.lib.NextResultSet(
             ctypes.c_longlong(pool_handle),
