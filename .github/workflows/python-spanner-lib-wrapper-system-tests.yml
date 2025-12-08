@@ -1,0 +1,61 @@
+name: Python Wrapper System Tests
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'spannerlib/wrappers/spannerlib-python/**'
+      - 'spannerlib/shared/**'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'spannerlib/wrappers/spannerlib-python/**'
+      - 'spannerlib/shared/**'
+  workflow_dispatch:
+
+jobs:
+  system-tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
+    defaults:
+      run:
+        working-directory: spannerlib/wrappers/spannerlib-python/spannerlib-python
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25.x'
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+
+    - name: Install Nox
+      run: pip install nox
+
+    - name: Run System Tests
+      env:
+        SPANNER_EMULATOR_HOST: localhost:9010
+      shell: bash
+      run: |
+        # Install and start Spanner Emulator (only on Linux for now)
+        if [ "${{ runner.os }}" == "Linux" ]; then
+          docker run -d -p 9010:9010 -p 9020:9020 gcr.io/cloud-spanner-emulator/emulator
+          sleep 10
+        fi
+        
+        # On Windows/Mac, we skip tests requiring the emulator for now as Docker is not standard in GitHub Actions runners for these OSes.
+        
+        if [ "${{ runner.os }}" == "Linux" ]; then
+             nox -s system-${{ matrix.python-version }}
+        else
+             echo "Skipping system tests on ${{ runner.os }} as emulator is not easily available via docker run in this environment."
+        fi
