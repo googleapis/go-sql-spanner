@@ -61,6 +61,7 @@ public static class Program
         app.MapGet("/", () => { });
         var webapp = app.RunAsync(url);
 
+        var loadData = bool.Parse(Environment.GetEnvironmentVariable("LOAD_DATA") ?? "true");
         var exportStats = bool.Parse(Environment.GetEnvironmentVariable("EXPORT_STATS") ?? "true");
         var logWaitTime = int.Parse(Environment.GetEnvironmentVariable("LOG_WAIT_TIME") ?? "60");
         var database = Environment.GetEnvironmentVariable("DATABASE") ?? "projects/appdev-soda-spanner-staging/instances/knut-test-ycsb/databases/dotnet-tpcc";
@@ -136,13 +137,16 @@ public static class Program
         {
             connectionString += ";retryAbortsInternally=false";
         }
-        await using (var connection = new SpannerConnection())
+
+        if (loadData)
         {
+            await using var connection = new SpannerConnection();
             connection.ConnectionString = connectionString;
             await connection.OpenAsync(cancellationTokenSource.Token);
 
             Console.WriteLine("Creating schema...");
-            await SchemaUtil.CreateSchemaAsync(connection, DatabaseDialect.Postgresql, cancellationTokenSource.Token);
+            await SchemaUtil.CreateSchemaAsync(connection, DatabaseDialect.Postgresql,
+                cancellationTokenSource.Token);
 
             Console.WriteLine("Loading data...");
             var loader = new DataLoader(connection, numWarehouses);

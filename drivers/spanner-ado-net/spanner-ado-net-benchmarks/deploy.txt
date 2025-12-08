@@ -109,7 +109,7 @@ gcloud run deploy spannerlib-dotnet-benchmark-read-write-tx \
   --no-allow-unauthenticated --no-cpu-throttling \
   --min-instances=1 --max-instances=1 \
   --cpu=4 --memory=2Gi \
-  --set-env-vars=NUM_WAREHOUSES=100,NUM_CLIENTS=50,TRANSACTION_TYPE=ReadWriteTx \
+  --set-env-vars=NUM_WAREHOUSES=500,NUM_CLIENTS=50,TRANSACTION_TYPE=ReadWriteTx,LOAD_DATA=false \
   --base-image dotnet8 \
   --source .
 
@@ -121,7 +121,7 @@ gcloud run deploy spannerlib-dotnet-benchmark-read-write-tx-client-lib \
   --no-allow-unauthenticated --no-cpu-throttling \
   --min-instances=1 --max-instances=1 \
   --cpu=4 --memory=2Gi \
-  --set-env-vars=NUM_WAREHOUSES=100,NUM_CLIENTS=50,TRANSACTION_TYPE=ReadWriteTx,CLIENT_TYPE=ClientLib \
+  --set-env-vars=NUM_WAREHOUSES=500,NUM_CLIENTS=50,TRANSACTION_TYPE=ReadWriteTx,CLIENT_TYPE=ClientLib,LOAD_DATA=false \
   --base-image dotnet8 \
   --source .
 
