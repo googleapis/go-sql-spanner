@@ -3,14 +3,8 @@ name: Python Wrapper Unit Tests
 on:
   push:
     branches: [ "main" ]
-    paths:
-      - 'spannerlib/wrappers/spannerlib-python/**'
-      - 'spannerlib/shared/**'
   pull_request:
     branches: [ "main" ]
-    paths:
-      - 'spannerlib/wrappers/spannerlib-python/**'
-      - 'spannerlib/shared/**'
   workflow_dispatch:
 
 jobs:
