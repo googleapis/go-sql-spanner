@@ -99,7 +99,9 @@ def lint(session):
 @nox.session(python=INTEGRATION_TEST_PYTHON_VERSIONS)
 def integration(session):
     """Run integration tests."""
-    session.install(*STANDARD_DEPENDENCIES, *INTEGRATION_TEST_STANDARD_DEPENDENCIES)
+    session.install(
+        *STANDARD_DEPENDENCIES, *INTEGRATION_TEST_STANDARD_DEPENDENCIES
+    )
     session.install(".")
 
     test_paths = (
