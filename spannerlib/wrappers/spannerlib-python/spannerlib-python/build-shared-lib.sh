@@ -55,6 +55,7 @@ echo -e "PREPARING ARTIFACTS IN: $(pwd)"
 # However, the user requested to copy to internal/lib.
 
 TARGET_LIB_DIR="google/cloud/spannerlib/internal/lib"
+rm -rf "$TARGET_LIB_DIR"
 mkdir -p "$TARGET_LIB_DIR"
 
 echo "Copying all binaries to $TARGET_LIB_DIR..."
