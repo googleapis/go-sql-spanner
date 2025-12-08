@@ -115,6 +115,10 @@ func next(ctx context.Context, poolId, connId, rowsId int64, marshalResult bool)
 func CloseRows(ctx context.Context, poolId, connId, rowsId int64) error {
 	conn, err := findConnection(poolId, connId)
 	if err != nil {
+		// Ignore NotFound errors to ensure that closing a non-existing rows object is a no-op.
+		if status.Code(err) == codes.NotFound {
+			return nil
+		}
 		return err
 	}
 	r, ok := conn.results.LoadAndDelete(rowsId)

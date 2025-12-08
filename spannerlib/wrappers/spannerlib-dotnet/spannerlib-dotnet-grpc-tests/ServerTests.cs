@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System.Diagnostics;
 using Google.Cloud.SpannerLib.V1;
 
 namespace Google.Cloud.SpannerLib.Grpc;
@@ -45,6 +46,12 @@ public class Tests
         Assert.That(info, Is.Not.Null);
         
         _server.Stop();
+        var watch = Stopwatch.StartNew();
+        // Give the server a couple of seconds to stop.
+        while (_server.IsRunning && watch.ElapsedMilliseconds < 2000)
+        {
+            // Wait until the server has stopped.
+        }
         Assert.That(_server.IsRunning, Is.False);
     }
 }

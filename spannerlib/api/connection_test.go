@@ -71,6 +71,10 @@ func TestCreateAndCloseConnection(t *testing.T) {
 	if err := ClosePool(ctx, poolId); err != nil {
 		t.Fatalf("ClosePool returned unexpected error: %v", err)
 	}
+	// Closing a connection after its pool has been closed should be a no-op.
+	if err := CloseConnection(ctx, poolId, connId); err != nil {
+		t.Fatalf("CloseConnection returned unexpected error: %v", err)
+	}
 }
 
 func TestCreateConnectionWithUnknownPool(t *testing.T) {
