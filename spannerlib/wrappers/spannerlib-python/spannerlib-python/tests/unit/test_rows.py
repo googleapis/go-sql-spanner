@@ -493,4 +493,6 @@ class TestRows:
         )
 
         assert rows.next_result_set() is None
-        mock_spannerlib.next_result_set.assert_called_once()
+        mock_spannerlib.next_result_set.assert_called_once_with(
+            mock_pool.oid, mock_conn.oid, rows.oid
+        )
