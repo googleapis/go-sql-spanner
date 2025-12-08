@@ -133,10 +133,21 @@ def run_bash_script(session, script_path):
     if platform.system() == "Windows":
         bash_path = shutil.which("bash")
         if not bash_path:
-            # Try some common locations for Git Bash
             possible_paths = [
-                r"C:\Program Files\Git\bin\bash.exe",
-                r"C:\Program Files (x86)\Git\bin\bash.exe",
+                os.path.join(
+                    os.environ.get("ProgramFiles", r"C:\Program Files"),
+                    "Git",
+                    "bin",
+                    "bash.exe",
+                ),
+                os.path.join(
+                    os.environ.get(
+                        "ProgramFiles(x86)", r"C:\Program Files (x86)"
+                    ),
+                    "Git",
+                    "bin",
+                    "bash.exe",
+                ),
             ]
             for p in possible_paths:
                 if os.path.exists(p):
