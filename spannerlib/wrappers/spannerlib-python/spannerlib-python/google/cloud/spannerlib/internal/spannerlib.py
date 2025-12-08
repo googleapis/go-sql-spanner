@@ -113,23 +113,34 @@ class SpannerLib:
     @staticmethod
     def _get_lib_filename() -> str:
         """
-        Returns the filename of the shared library based on the OS.
+        Returns the filename of the shared library based on the OS
+        and architecture.
         """
-        filename: str = ""
-
         system_name = platform.system()
+        machine_name = platform.machine().lower()
 
         if system_name == "Windows":
-            filename = "spannerlib.dll"
+            os_part = "windows"
+            ext = "dll"
         elif system_name == "Darwin":
-            filename = "spannerlib.dylib"
+            os_part = "macos"
+            ext = "dylib"
         elif system_name == "Linux":
-            filename = "spannerlib.so"
+            os_part = "linux"
+            ext = "so"
         else:
             raise SpannerLibError(
                 f"Unsupported operating system: {system_name}"
             )
-        return filename
+
+        if machine_name in ("amd64", "x86_64"):
+            arch_part = "amd64"
+        elif machine_name in ("arm64", "aarch64"):
+            arch_part = "arm64"
+        else:
+            raise SpannerLibError(f"Unsupported architecture: {machine_name}")
+
+        return f"{os_part}-{arch_part}/spannerlib.{ext}"
 
     def _configure_signatures(self) -> None:
         """

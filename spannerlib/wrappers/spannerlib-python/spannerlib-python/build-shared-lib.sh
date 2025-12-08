@@ -40,7 +40,7 @@ fi
 
 SHARED_LIB_DIR="../../../shared"
 TARGET_WRAPPER_DIR="../wrappers/spannerlib-python/spannerlib-python"
-ARTIFACTS_DIR="spannerlib-artifacts"
+# We are not using ARTIFACTS_DIR anymore for the final destination.
 
 cd "$SHARED_LIB_DIR" || exit 1
 
@@ -52,30 +52,32 @@ cd "$TARGET_WRAPPER_DIR" || exit 1
 
 echo -e "PREPARING ARTIFACTS IN: $(pwd)"
 
-# Cleanup old artifacts if they exist
-if [ -d "$ARTIFACTS_DIR" ]; then
-    rm -rf "$ARTIFACTS_DIR"
+# However, the user requested to copy to internal/lib.
+
+TARGET_LIB_DIR="google/cloud/spannerlib/internal/lib"
+mkdir -p "$TARGET_LIB_DIR"
+
+echo "Copying all binaries to $TARGET_LIB_DIR..."
+cp -r "$SHARED_LIB_DIR/binaries/"* "$TARGET_LIB_DIR/"
+
+# Rename directories to match spannerlib.py expectations
+# linux-x64 -> linux-amd64
+if [ -d "$TARGET_LIB_DIR/linux-x64" ]; then
+    echo "Renaming linux-x64 to linux-amd64"
+    rm -rf "$TARGET_LIB_DIR/linux-amd64"
+    mv "$TARGET_LIB_DIR/linux-x64" "$TARGET_LIB_DIR/linux-amd64"
 fi
 
-mkdir -p "$ARTIFACTS_DIR"
-
-if [ -z "$SKIP_MACOS" ]; then
-echo "Copying MacOS binaries..."
-    mkdir -p "$ARTIFACTS_DIR/osx-arm64"
-    cp "$SHARED_LIB_DIR/binaries/osx-arm64/spannerlib.dylib" "$ARTIFACTS_DIR/osx-arm64/spannerlib.dylib"
-    cp "$SHARED_LIB_DIR/binaries/osx-arm64/spannerlib.h" "$ARTIFACTS_DIR/osx-arm64/spannerlib.h"
+# win-x64 -> windows-amd64
+if [ -d "$TARGET_LIB_DIR/win-x64" ]; then
+    echo "Renaming win-x64 to windows-amd64"
+    rm -rf "$TARGET_LIB_DIR/windows-amd64"
+    mv "$TARGET_LIB_DIR/win-x64" "$TARGET_LIB_DIR/windows-amd64"
 fi
 
-if [ -z "$SKIP_LINUX_CROSS_COMPILE" ] || [ -z "$SKIP_LINUX" ]; then
-    echo "Copying Linux binaries..."
-    mkdir -p "$ARTIFACTS_DIR/linux-x64"
-    cp "$SHARED_LIB_DIR/binaries/linux-x64/spannerlib.so" "$ARTIFACTS_DIR/linux-x64/spannerlib.so"
-    cp "$SHARED_LIB_DIR/binaries/linux-x64/spannerlib.h" "$ARTIFACTS_DIR/linux-x64/spannerlib.h"
-fi
-
-if [ -z "$SKIP_WINDOWS" ]; then
-    echo "Copying Windows binaries..."
-    mkdir -p "$ARTIFACTS_DIR/win-x64"
-    cp "$SHARED_LIB_DIR/binaries/win-x64/spannerlib.dll" "$ARTIFACTS_DIR/win-x64/spannerlib.dll"
-    cp "$SHARED_LIB_DIR/binaries/win-x64/spannerlib.h" "$ARTIFACTS_DIR/win-x64/spannerlib.h"
+# osx-arm64 -> macos-arm64
+if [ -d "$TARGET_LIB_DIR/osx-arm64" ]; then
+    echo "Renaming osx-arm64 to macos-arm64"
+    rm -rf "$TARGET_LIB_DIR/macos-arm64"
+    mv "$TARGET_LIB_DIR/osx-arm64" "$TARGET_LIB_DIR/macos-arm64"
 fi

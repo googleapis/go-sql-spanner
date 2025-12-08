@@ -60,7 +60,6 @@ MODE = "--verbose" if VERBOSE else "--quiet"
 
 DIST_DIR = "dist"
 LIB_DIR = "google/cloud/spannerlib/internal/lib"
-ARTIFACT_DIR = "spannerlib-artifacts"
 
 # Error if a python version is missing
 nox.options.error_on_missing_interpreters = True
@@ -127,6 +126,41 @@ def unit(session):
     )
 
 
+def run_bash_script(session, script_path):
+    """Runs a bash script, handling Windows specifics."""
+    cmd = ["bash", script_path]
+
+    if platform.system() == "Windows":
+        bash_path = shutil.which("bash")
+        if not bash_path:
+            # Try some common locations for Git Bash
+            possible_paths = [
+                r"C:\Program Files\Git\bin\bash.exe",
+                r"C:\Program Files (x86)\Git\bin\bash.exe",
+            ]
+            for p in possible_paths:
+                if os.path.exists(p):
+                    bash_path = p
+                    break
+
+        if bash_path:
+            cmd[0] = bash_path
+        else:
+            session.error(
+                "Bash not found. Please ensure 'bash' is in your PATH "
+                "or Git Bash is installed."
+            )
+
+    session.run(*cmd, external=True)
+
+
+def _build_artifacts(session):
+    """Helper to build spannerlib artifacts."""
+    session.log("Building spannerlib artifacts...")
+    session.env["RUNNER_OS"] = platform.system()
+    run_bash_script(session, "./build-shared-lib.sh")
+
+
 @nox.session(python=SYSTEM_TEST_PYTHON_VERSIONS)
 def system(session):
     """Run system tests."""
@@ -139,7 +173,8 @@ def system(session):
             "Credentials or emulator host must be set via environment variable"
         )
 
-    copy_artifacts(session)
+    # Build/Copy artifacts using the script
+    _build_artifacts(session)
 
     session.install(*STANDARD_DEPENDENCIES, *SYSTEM_TEST_STANDARD_DEPENDENCIES)
     session.install("-e", ".")
@@ -158,68 +193,13 @@ def system(session):
     )
 
 
-def get_spannerlib_artifacts_binary(session):
-    """
-    Returns spannerlib lib and header files.
-    """
-    header = "spannerlib.h"
-
-    lib = None
-    folder = None
-
-    buildsystem = platform.system()
-    if buildsystem == "Darwin":
-        lib, folder = "spannerlib.dylib", "osx-arm64"
-    elif buildsystem == "Windows":
-        lib, folder = "spannerlib.dll", "win-x64"
-    elif buildsystem == "Linux":
-        lib, folder = "spannerlib.so", "linux-x64"
-
-    if lib is None or folder is None:
-        session.error(f"Unsupported platform: {buildsystem}")
-
-    return (lib, folder, header)
-
-
 @nox.session
 def build_spannerlib(session):
     """
     Build SpannerLib artifacts.
     Used only in dev env to build SpannerLib artifacts.
     """
-    if platform.system() == "Windows":
-        session.skip("Skipping build_spannerlib on Windows")
-
-    session.log("Building spannerlib artifacts...")
-
-    # Run the build script
-    session.env["RUNNER_OS"] = platform.system()
-    session.run("bash", "./build-shared-lib.sh", external=True)
-
-
-def copy_artifacts(session):
-    """
-    Copy correct spannerlib artifact to lib folder
-    """
-    session.log("Copy platform specific artifacts to lib dir")
-    artifact_dir_path = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)), ARTIFACT_DIR
-    )
-    lib_dir_path = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)), LIB_DIR
-    )
-    if os.path.exists(LIB_DIR):
-        shutil.rmtree(LIB_DIR)
-    os.makedirs(LIB_DIR)
-    lib, folder, header = get_spannerlib_artifacts_binary(session)
-    shutil.copy(
-        os.path.join(artifact_dir_path, folder, lib),
-        os.path.join(lib_dir_path, lib),
-    )
-    shutil.copy(
-        os.path.join(artifact_dir_path, folder, header),
-        os.path.join(lib_dir_path, header),
-    )
+    _build_artifacts(session)
 
 
 @nox.session
@@ -234,7 +214,7 @@ def build(session):
     session.install("build", "twine")
 
     # Run the preparation step
-    copy_artifacts(session)
+    _build_artifacts(session)
 
     # Build the wheel
     session.log("Building...")
