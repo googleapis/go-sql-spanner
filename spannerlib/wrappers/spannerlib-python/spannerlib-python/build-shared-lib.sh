@@ -59,25 +59,3 @@ mkdir -p "$TARGET_LIB_DIR"
 
 echo "Copying all binaries to $TARGET_LIB_DIR..."
 cp -r "$SHARED_LIB_DIR/binaries/"* "$TARGET_LIB_DIR/"
-
-# Rename directories to match spannerlib.py expectations
-# linux-x64 -> linux-amd64
-if [ -d "$TARGET_LIB_DIR/linux-x64" ]; then
-    echo "Renaming linux-x64 to linux-amd64"
-    rm -rf "$TARGET_LIB_DIR/linux-amd64"
-    mv "$TARGET_LIB_DIR/linux-x64" "$TARGET_LIB_DIR/linux-amd64"
-fi
-
-# win-x64 -> windows-amd64
-if [ -d "$TARGET_LIB_DIR/win-x64" ]; then
-    echo "Renaming win-x64 to windows-amd64"
-    rm -rf "$TARGET_LIB_DIR/windows-amd64"
-    mv "$TARGET_LIB_DIR/win-x64" "$TARGET_LIB_DIR/windows-amd64"
-fi
-
-# osx-arm64 -> macos-arm64
-if [ -d "$TARGET_LIB_DIR/osx-arm64" ]; then
-    echo "Renaming osx-arm64 to macos-arm64"
-    rm -rf "$TARGET_LIB_DIR/macos-arm64"
-    mv "$TARGET_LIB_DIR/osx-arm64" "$TARGET_LIB_DIR/macos-arm64"
-fi

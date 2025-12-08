@@ -120,10 +120,10 @@ class SpannerLib:
         machine_name = platform.machine().lower()
 
         if system_name == "Windows":
-            os_part = "windows"
+            os_part = "win"
             ext = "dll"
         elif system_name == "Darwin":
-            os_part = "macos"
+            os_part = "osx"
             ext = "dylib"
         elif system_name == "Linux":
             os_part = "linux"
@@ -134,7 +134,7 @@ class SpannerLib:
             )
 
         if machine_name in ("amd64", "x86_64"):
-            arch_part = "amd64"
+            arch_part = "x64"
         elif machine_name in ("arm64", "aarch64"):
             arch_part = "arm64"
         else:

@@ -114,7 +114,7 @@ class TestSpannerlib:
             with mock.patch("platform.machine", return_value="x86_64"):
                 # pylint: disable=protected-access
                 filename = SpannerLib._get_lib_filename()
-                assert filename == "linux-amd64/spannerlib.so"
+                assert filename == "linux-x64/spannerlib.so"
 
     def test_get_lib_filename_linux_arm64(self):
         """Test _get_lib_filename on Linux ARM64."""
@@ -130,7 +130,7 @@ class TestSpannerlib:
             with mock.patch("platform.machine", return_value="arm64"):
                 # pylint: disable=protected-access
                 filename = SpannerLib._get_lib_filename()
-                assert filename == "macos-arm64/spannerlib.dylib"
+                assert filename == "osx-arm64/spannerlib.dylib"
 
     def test_get_lib_filename_windows(self):
         """Test _get_lib_filename on Windows AMD64."""
@@ -138,7 +138,7 @@ class TestSpannerlib:
             with mock.patch("platform.machine", return_value="AMD64"):
                 # pylint: disable=protected-access
                 filename = SpannerLib._get_lib_filename()
-                assert filename == "windows-amd64/spannerlib.dll"
+                assert filename == "win-x64/spannerlib.dll"
 
     def test_get_lib_filename_unsupported_arch(self):
         """Test _get_lib_filename on an unsupported architecture."""
