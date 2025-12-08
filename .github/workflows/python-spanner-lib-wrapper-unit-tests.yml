@@ -1,0 +1,41 @@
+name: Python Wrapper Unit Tests
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'spannerlib/wrappers/spannerlib-python/**'
+      - 'spannerlib/shared/**'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'spannerlib/wrappers/spannerlib-python/**'
+      - 'spannerlib/shared/**'
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: spannerlib/wrappers/spannerlib-python/spannerlib-python
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25.x'
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+
+    - name: Install Nox
+      run: pip install nox
+
+    - name: Run Unit Tests
+      run: nox -s unit-3.10
