@@ -3,6 +3,5 @@ from setuptools import setup
 
 
 setup(
-    has_ext_modules=lambda: True,
     include_package_data=True,
 )
