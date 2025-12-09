@@ -325,7 +325,7 @@ func TestExecuteStreamingMultiQuery(t *testing.T) {
 		t.Fatalf("failed to consume result 2: %v", err)
 	}
 	if !hasMore {
-		t.Fatalf("missing result 2")
+		t.Fatalf("missing result 3")
 	}
 	result3, hasMore, err := consume()
 	if err != nil {
@@ -334,9 +334,15 @@ func TestExecuteStreamingMultiQuery(t *testing.T) {
 	if hasMore {
 		t.Fatalf("found unexpected results after result 3")
 	}
-	fmt.Println(result1)
-	fmt.Println(result2)
-	fmt.Println(result3)
+	if g, w := result1, [][]string{{"1"}, {"2"}}; !reflect.DeepEqual(g, w) {
+		t.Fatalf("result1 mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := result2, [][]string{{"10", "10"}, {"11", "11"}, {"12", "12"}}; !reflect.DeepEqual(g, w) {
+		t.Fatalf("result2 mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := result3, [][]string{{"3"}, {"4"}, {"5"}, {"6"}}; !reflect.DeepEqual(g, w) {
+		t.Fatalf("result3 mismatch\n Got: %v\nWant: %v", g, w)
+	}
 
 	if _, err := client.ClosePool(ctx, pool); err != nil {
 		t.Fatalf("failed to close pool: %v", err)
