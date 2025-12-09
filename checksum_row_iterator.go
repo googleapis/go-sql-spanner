@@ -149,7 +149,7 @@ func hashValue(value *structpb.Value, digest hash.Hash) {
 		}
 	case *structpb.Value_StructValue:
 		fields := make([]string, 0, len(value.GetStructValue().Fields))
-		for field, _ := range value.GetStructValue().Fields {
+for field := range value.GetStructValue().Fields {
 			fields = append(fields, field)
 		}
 		sort.Strings(fields)
