@@ -119,4 +119,4 @@ The implementation of the Spanner gRPC service.
 ### `MockSpanner`
 Handles the in-memory state and responses.
 - **`add_result(sql, result)`**: Maps a SQL string to a `ResultSet` response.
-- **`add_error(method, error)`**: Maps a gRPC method name (e.g., "ExecuteSql") to an error (composed of code and message) to simulate failures.
+- **`add_error(method, error)`**: Maps a gRPC method name (e.g., "ExecuteSql") to an error (an instance of `grpc_status.rpc_status._Status`) to simulate failures.
