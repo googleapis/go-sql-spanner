@@ -58,7 +58,7 @@ from google.cloud.spanner_v1.types import ResultSet, ResultSetMetadata, StructTy
 # Define the SQL you expect
 sql = "SELECT 1"
 
-# Create a mock result set
+# Create a mock result set with schema definition
 metadata = ResultSetMetadata(
     row_type=StructType(
         fields=[
