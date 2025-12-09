@@ -35,6 +35,10 @@ import (
 func CloseConnection(ctx context.Context, poolId, connId int64) error {
 	pool, err := findPool(poolId)
 	if err != nil {
+		// Ignore NotFound errors to ensure that closing a non-existing connection is a no-op.
+		if status.Code(err) == codes.NotFound {
+			return nil
+		}
 		return err
 	}
 	c, ok := pool.connections.LoadAndDelete(connId)

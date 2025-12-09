@@ -43,12 +43,22 @@ public class StreamingRows : Rows
 
     protected override void Dispose(bool disposing)
     {
+        Cleanup();
+    }
+
+    protected override ValueTask DisposeAsyncCore()
+    {
+        Cleanup();
+        return ValueTask.CompletedTask;
+    }
+    
+    private void Cleanup()
+    {
         if (!_done)
         {
             MarkDone();
         }
         _stream.Dispose();
-        base.Dispose(disposing);
     }
     
     private void MarkDone()

@@ -81,6 +81,10 @@ func TestExecute(t *testing.T) {
 	if err := CloseConnection(ctx, poolId, connId); err != nil {
 		t.Fatalf("CloseConnection returned unexpected error: %v", err)
 	}
+	// Closing a Rows object after closing its connection should be a no-op.
+	if err := CloseRows(ctx, poolId, connId, rowsId); err != nil {
+		t.Fatalf("CloseRows returned unexpected error: %v", err)
+	}
 	if err := ClosePool(ctx, poolId); err != nil {
 		t.Fatalf("ClosePool returned unexpected error: %v", err)
 	}

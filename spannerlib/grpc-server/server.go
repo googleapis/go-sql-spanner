@@ -136,6 +136,9 @@ func (s *spannerLibServer) ExecuteStreaming(request *pb.ExecuteRequest, stream g
 
 	first := true
 	for {
+		if queryContext.Err() != nil {
+			return queryContext.Err()
+		}
 		if row, err := api.Next(queryContext, request.Connection.Pool.Id, request.Connection.Id, id); err != nil {
 			return err
 		} else {

@@ -159,15 +159,6 @@ public class RowsTests : AbstractMockServerTests
         // The error is 'Connection not found' or an internal exception from the underlying driver, depending on exactly
         // when the driver detects that the connection and all related objects have been closed.
         Assert.That(exception.Code is Code.NotFound or Code.Unknown, Is.True);
-
-        if (libType == LibType.Shared)
-        {
-            // TODO: Remove this once it has been fixed in the shared library.
-            //       Closing a Rows object that has already been closed because the connection has been closed, should
-            //       be a no-op.
-            var closeException = Assert.Throws<SpannerException>(() => rows.Close());
-            Assert.That(closeException.Code, Is.EqualTo(Code.NotFound));
-        }
     }
 
     [Test]
