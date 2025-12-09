@@ -20,10 +20,14 @@ import (
 	"reflect"
 	"testing"
 
+	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -408,6 +412,86 @@ func TestStaleQuery(t *testing.T) {
 	request := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
 	if g, w := request.Transaction.GetSingleUse().GetReadOnly().GetMaxStaleness().GetSeconds(), int64(15); g != w {
 		t.Fatalf("staleness mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	if err := ClosePool(ctx, poolId); err != nil {
+		t.Fatalf("ClosePool returned unexpected error: %v", err)
+	}
+}
+
+func TestCreateDatabase(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	// Add a CreateDatabase response to the mock server.
+	var expectedResponse = &databasepb.Database{}
+	anyMsg, _ := anypb.New(expectedResponse)
+	server.TestDatabaseAdmin.SetResps([]proto.Message{
+		&longrunningpb.Operation{
+			Done:   true,
+			Result: &longrunningpb.Operation_Response{Response: anyMsg},
+			Name:   "test-operation",
+		},
+	})
+
+	poolId, err := CreatePool(ctx, dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+
+	for _, tt := range []struct {
+		name       string
+		statements *spannerpb.ExecuteBatchDmlRequest
+	}{
+		{
+			name: "create_database",
+			statements: &spannerpb.ExecuteBatchDmlRequest{
+				Statements: []*spannerpb.ExecuteBatchDmlRequest_Statement{
+					{Sql: "CREATE DATABASE my_db"},
+				},
+			},
+		},
+		{
+			name: "create_database_with_extra_statements",
+			statements: &spannerpb.ExecuteBatchDmlRequest{
+				Statements: []*spannerpb.ExecuteBatchDmlRequest_Statement{
+					{Sql: "CREATE DATABASE my_db"},
+					{Sql: "CREATE TABLE my_table (id int64 primary key, value string(max))"},
+					{Sql: "CREATE INDEX my_index ON my_table (value)"},
+				},
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err = ExecuteBatch(ctx, poolId, connId, tt.statements)
+			if err != nil {
+				t.Fatalf("CreateDatabase returned unexpected error: %v", err)
+			}
+
+			requests := server.TestDatabaseAdmin.Reqs()
+			if g, w := len(requests), 1; g != w {
+				t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
+			}
+			if req, ok := requests[0].(*databasepb.CreateDatabaseRequest); ok {
+				if g, w := req.Parent, "projects/p/instances/i"; g != w {
+					t.Fatalf("parent mismatch\n Got: %v\nWant: %v", g, w)
+				}
+				if g, w := len(req.ExtraStatements), len(tt.statements.Statements)-1; g != w {
+					t.Fatalf("extra statements count mismatch\n Got: %v\nWant: %v", g, w)
+				}
+			} else {
+				t.Fatalf("request type mismatch, got %v", requests[0])
+			}
+			server.TestDatabaseAdmin.SetReqs(make([]proto.Message, 0))
+		})
 	}
 
 	if err := ClosePool(ctx, poolId); err != nil {
