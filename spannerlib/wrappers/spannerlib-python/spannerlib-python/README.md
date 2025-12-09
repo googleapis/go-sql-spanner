@@ -92,10 +92,7 @@ with Pool.create_pool(connection_string) as pool:
         
         # Rows/Results are also context managers
         with conn.execute(request) as rows:
-            while True:
-                row = rows.next()
-                if row is None:
-                    break
+            for row in iter(rows.next, None):
                 print(row.values[0].string_value)
 # Resources are automatically closed here
 ```
