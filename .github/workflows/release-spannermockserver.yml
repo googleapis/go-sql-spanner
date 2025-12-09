@@ -44,3 +44,4 @@ jobs:
       with:
         packages_dir: spannerlib/wrappers/spannerlib-python/spannermockserver/dist/
         verbose: true
+        repository-url: https://test.pypi.org/legacy/
