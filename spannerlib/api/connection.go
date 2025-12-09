@@ -429,19 +429,29 @@ func extractParams(directExecuteContext context.Context, statement *spannerpb.Ex
 	if statement.Params != nil {
 		paramsLen = 1 + len(statement.Params.Fields)
 	}
+	requestTag := ""
+	transactionTag := ""
+	if statement.RequestOptions != nil {
+		requestTag = statement.RequestOptions.RequestTag
+		transactionTag = statement.RequestOptions.TransactionTag
+	}
 	params := make([]any, paramsLen)
-	params = append(params, spannerdriver.ExecOptions{
-		DecodeOption: spannerdriver.DecodeOptionProto,
-		// TODO: Implement support for passing in stale query options
-		// TimestampBound:          extractTimestampBound(statement),
+	execOptions := spannerdriver.ExecOptions{
+		DecodeOption:            spannerdriver.DecodeOptionProto,
+		TimestampBound:          extractTimestampBound(statement),
 		ReturnResultSetMetadata: true,
 		ReturnResultSetStats:    true,
 		DirectExecuteQuery:      true,
 		DirectExecuteContext:    directExecuteContext,
 		QueryOptions: spanner.QueryOptions{
-			Mode: &statement.QueryMode,
+			Mode:       &statement.QueryMode,
+			RequestTag: requestTag,
 		},
-	})
+	}
+	if transactionTag != "" {
+		execOptions.PropertyValues = []spannerdriver.PropertyValue{{Identifier: parser.Identifier{Parts: []string{"transaction_tag"}}, Value: transactionTag}}
+	}
+	params = append(params, execOptions)
 	if statement.Params != nil {
 		if statement.ParamTypes == nil {
 			statement.ParamTypes = make(map[string]*spannerpb.Type)
@@ -461,6 +471,29 @@ func extractParams(directExecuteContext context.Context, statement *spannerpb.Ex
 		}
 	}
 	return params
+}
+
+func extractTimestampBound(statement *spannerpb.ExecuteSqlRequest) *spanner.TimestampBound {
+	if statement.Transaction != nil && statement.Transaction.GetSingleUse() != nil && statement.Transaction.GetSingleUse().GetReadOnly() != nil {
+		ro := statement.Transaction.GetSingleUse().GetReadOnly()
+		var t spanner.TimestampBound
+		if ro.GetStrong() {
+			t = spanner.StrongRead()
+		} else if ro.GetMaxStaleness() != nil {
+			t = spanner.MaxStaleness(ro.GetMaxStaleness().AsDuration())
+		} else if ro.GetExactStaleness() != nil {
+			t = spanner.ExactStaleness(ro.GetExactStaleness().AsDuration())
+		} else if ro.GetMinReadTimestamp() != nil {
+			t = spanner.MinReadTimestamp(ro.GetMinReadTimestamp().AsTime())
+		} else if ro.GetReadTimestamp() != nil {
+			t = spanner.ReadTimestamp(ro.GetReadTimestamp().AsTime())
+		} else {
+			// Default to strong read.
+			t = spanner.StrongRead()
+		}
+		return &t
+	}
+	return nil
 }
 
 func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (parser.BatchType, error) {

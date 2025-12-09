@@ -24,6 +24,7 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -294,6 +295,115 @@ func TestWriteMutationsInReadOnlyTx(t *testing.T) {
 	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
 	if g, w := len(commitRequests), 0; g != w {
 		t.Fatalf("num CommitRequests mismatch\n Got: %d\nWant: %d", g, w)
+	}
+
+	if err := ClosePool(ctx, poolId); err != nil {
+		t.Fatalf("ClosePool returned unexpected error: %v", err)
+	}
+}
+
+func TestTags(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolId, err := CreatePool(ctx, dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	if err := BeginTransaction(ctx, poolId, connId, nil); err != nil {
+		t.Fatalf("BeginTransaction returned unexpected error: %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err = Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{
+			Sql: testutil.UpdateBarSetFoo,
+			RequestOptions: &spannerpb.RequestOptions{
+				RequestTag:     fmt.Sprintf("my_request_tag_%d", i),
+				TransactionTag: "my_transaction_tag",
+			},
+		}); err != nil {
+			t.Fatalf("Execute returned unexpected error: %v", err)
+		}
+	}
+	if _, err := Commit(ctx, poolId, connId); err != nil {
+		t.Fatalf("Commit returned unexpected error: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 2; g != w {
+		t.Fatalf("num ExecuteSql requests mismatch\n Got: %d\nWant: %d", g, w)
+	}
+	for i, request := range executeRequests {
+		if g, w := request.(*spannerpb.ExecuteSqlRequest).RequestOptions.RequestTag, fmt.Sprintf("my_request_tag_%d", i); g != w {
+			t.Fatalf("ExecuteSql request tag mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if g, w := request.(*spannerpb.ExecuteSqlRequest).RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+			t.Fatalf("ExecuteSql transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("num CommitRequests mismatch\n Got: %d\nWant: %d", g, w)
+	}
+	commitRequest := commitRequests[0].(*spannerpb.CommitRequest)
+	if g, w := commitRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+		t.Fatalf("Commit transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	if err := ClosePool(ctx, poolId); err != nil {
+		t.Fatalf("ClosePool returned unexpected error: %v", err)
+	}
+}
+
+func TestStaleQuery(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolId, err := CreatePool(ctx, dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	_, err = Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{
+		Sql: testutil.SelectFooFromBar,
+		Transaction: &spannerpb.TransactionSelector{
+			Selector: &spannerpb.TransactionSelector_SingleUse{
+				SingleUse: &spannerpb.TransactionOptions{
+					Mode: &spannerpb.TransactionOptions_ReadOnly_{
+						ReadOnly: &spannerpb.TransactionOptions_ReadOnly{
+							TimestampBound: &spannerpb.TransactionOptions_ReadOnly_MaxStaleness{
+								MaxStaleness: &durationpb.Duration{Seconds: 15},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("num ExecuteSql requests mismatch\n Got: %d\nWant: %d", g, w)
+	}
+	request := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+	if g, w := request.Transaction.GetSingleUse().GetReadOnly().GetMaxStaleness().GetSeconds(), int64(15); g != w {
+		t.Fatalf("staleness mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
 	if err := ClosePool(ctx, poolId); err != nil {
