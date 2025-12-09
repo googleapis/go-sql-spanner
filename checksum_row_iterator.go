@@ -15,11 +15,14 @@
 package spannerdriver
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/gob"
+	"hash"
+	"math"
 	"reflect"
+	"sort"
 
 	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
@@ -70,8 +73,6 @@ type checksumRowIterator struct {
 	// seen. It is calculated as a SHA256 checksum over all rows that so far
 	// have been returned.
 	checksum *[32]byte
-	buffer   *bytes.Buffer
-	enc      *gob.Encoder
 
 	// errIndex and err indicate any error and the index in the result set
 	// where the error occurred.
@@ -110,7 +111,7 @@ func (it *checksumRowIterator) Next() (row *spanner.Row, err error) {
 			// checksum of the columns that are included in this result. This is
 			// also used to detect the possible difference between two empty
 			// result sets with a different set of columns.
-			it.checksum, err = createMetadataChecksum(it.enc, it.buffer, it.metadata)
+			it.checksum, err = createMetadataChecksum(it.metadata)
 			if err != nil {
 				return err
 			}
@@ -119,7 +120,7 @@ func (it *checksumRowIterator) Next() (row *spanner.Row, err error) {
 			return it.err
 		}
 		// Update the current checksum.
-		it.checksum, err = updateChecksum(it.enc, it.buffer, it.checksum, row)
+		it.checksum, err = updateChecksum(it.checksum, row)
 		return err
 	})
 	return row, err
@@ -127,37 +128,79 @@ func (it *checksumRowIterator) Next() (row *spanner.Row, err error) {
 
 // updateChecksum calculates the following checksum based on a current checksum
 // and a new row.
-func updateChecksum(enc *gob.Encoder, buffer *bytes.Buffer, currentChecksum *[32]byte, row *spanner.Row) (*[32]byte, error) {
-	buffer.Reset()
-	buffer.Write(currentChecksum[:])
+func updateChecksum(currentChecksum *[32]byte, row *spanner.Row) (*[32]byte, error) {
+	hasher := sha256.New()
+	hasher.Write(currentChecksum[:])
 	for i := 0; i < row.Size(); i++ {
 		var v spanner.GenericColumnValue
 		err := row.Column(i, &v)
 		if err != nil {
 			return nil, err
 		}
-		err = enc.Encode(v)
-		if err != nil {
-			return nil, err
+		hashValue(v.Value, hasher)
+	}
+	res := hasher.Sum(nil)
+	return (*[32]byte)(res), nil
+}
+
+var int32Buf [4]byte
+var float64Buf [8]byte
+
+func hashValue(value *structpb.Value, hasher hash.Hash) {
+	switch value.GetKind().(type) {
+	case *structpb.Value_StringValue:
+		hasher.Write(intToByte(int32Buf, len(value.GetStringValue())))
+		hasher.Write([]byte(value.GetStringValue()))
+	case *structpb.Value_NullValue:
+		hasher.Write([]byte{0})
+	case *structpb.Value_NumberValue:
+		hasher.Write(float64ToByte(float64Buf, value.GetNumberValue()))
+	case *structpb.Value_BoolValue:
+		if value.GetBoolValue() {
+			hasher.Write([]byte{1})
+		} else {
+			hasher.Write([]byte{0})
+		}
+	case *structpb.Value_StructValue:
+		fields := make([]string, 0, len(value.GetStructValue().Fields))
+		for field, _ := range value.GetStructValue().Fields {
+			fields = append(fields, field)
+		}
+		sort.Strings(fields)
+		for _, field := range fields {
+			hasher.Write(intToByte(int32Buf, len(field)))
+			hasher.Write([]byte(field))
+			hashValue(value.GetStructValue().Fields[field], hasher)
+		}
+	case *structpb.Value_ListValue:
+		for _, v := range value.GetListValue().GetValues() {
+			hashValue(v, hasher)
 		}
 	}
-	res := sha256.Sum256(buffer.Bytes())
-	return &res, nil
+}
+
+func intToByte(buf [4]byte, v int) []byte {
+	binary.BigEndian.PutUint32(buf[:], uint32(v))
+	return buf[:]
+}
+
+func float64ToByte(buf [8]byte, f float64) []byte {
+	binary.BigEndian.PutUint64(buf[:], math.Float64bits(f))
+	return buf[:]
 }
 
 // createMetadataChecksum calculates the checksum of the metadata of a result.
 // Only the column names and types are included in the checksum. Any transaction
 // metadata is not included.
-func createMetadataChecksum(enc *gob.Encoder, buffer *bytes.Buffer, metadata *sppb.ResultSetMetadata) (*[32]byte, error) {
-	buffer.Reset()
+func createMetadataChecksum(metadata *sppb.ResultSetMetadata) (*[32]byte, error) {
+	hasher := sha256.New()
 	for _, field := range metadata.RowType.Fields {
-		err := enc.Encode(field)
-		if err != nil {
-			return nil, err
-		}
+		hasher.Write(intToByte(int32Buf, len(field.Name)))
+		hasher.Write([]byte(field.Name))
+		hasher.Write(intToByte(int32Buf, int(field.Type.Code.Number())))
 	}
-	res := sha256.Sum256(buffer.Bytes())
-	return &res, nil
+	res := hasher.Sum(nil)
+	return (*[32]byte)(res), nil
 }
 
 // retry implements retriableStatement.retry for queries. It will execute the
@@ -167,8 +210,6 @@ func createMetadataChecksum(enc *gob.Encoder, buffer *bytes.Buffer, metadata *sp
 // initial iterator was also returned by the new iterator, and that the errors
 // were returned by the same row index.
 func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteStmtBasedTransaction) error {
-	buffer := &bytes.Buffer{}
-	enc := gob.NewEncoder(buffer)
 	retryIt := tx.QueryWithOptions(ctx, it.stmt, it.options)
 	// If the original iterator had been stopped, we should also always stop the
 	// new iterator.
@@ -198,7 +239,7 @@ func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteS
 	for n := int64(0); n < it.nc; n++ {
 		row, err := retryIt.Next()
 		if n == 0 && (err == nil || err == iterator.Done) {
-			newChecksum, checksumErr = createMetadataChecksum(enc, buffer, retryIt.Metadata)
+			newChecksum, checksumErr = createMetadataChecksum(retryIt.Metadata)
 			if checksumErr != nil {
 				return failRetry(checksumErr)
 			}
@@ -218,7 +259,7 @@ func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteS
 			}
 			return failRetry(ErrAbortedDueToConcurrentModification)
 		}
-		newChecksum, err = updateChecksum(enc, buffer, newChecksum, row)
+		newChecksum, err = updateChecksum(newChecksum, row)
 		if err != nil {
 			return failRetry(err)
 		}

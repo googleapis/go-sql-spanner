@@ -139,7 +139,7 @@ public class BasicsRunner : AbstractRunner
                 else
                 {
                     await using var cmd = _connection.CreateCommand();
-                    cmd.CommandText = "set local transaction_tag = 'spanner-lib'";
+                    cmd.CommandText = "set local transaction_tag = 'spanner-lib-exp'";
                     await cmd.ExecuteNonQueryAsync(cancellationToken);
                 }
 
@@ -185,12 +185,12 @@ public class BasicsRunner : AbstractRunner
 
                 await transaction.CommitAsync(cancellationToken);
                 watch.Stop();
-                _stats.RegisterOperationLatency(Program.OperationType.ReadWriteTx, watch.Elapsed.TotalMilliseconds);
+                _stats.RegisterOperationLatency(Program.OperationType.ReadWriteTxExp, watch.Elapsed.TotalMilliseconds);
                 break;
             }
             catch (Exception exception)
             {
-                _stats.RegisterFailedOperation(Program.OperationType.ReadWriteTx, watch.Elapsed, exception);
+                _stats.RegisterFailedOperation(Program.OperationType.ReadWriteTxExp, watch.Elapsed, exception);
             }
         }
     }

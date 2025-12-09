@@ -42,6 +42,7 @@ public static class Program
         Scalar,
         PointDml,
         ReadWriteTx,
+        ReadWriteTxExp,
         NewOrder,
         Payment,
         OrderStatus,

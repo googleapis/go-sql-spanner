@@ -500,35 +500,39 @@ public class TransactionTests : AbstractMockServerTests
         await using var cmd = dbConn.CreateCommand();
         cmd.CommandText = "set local transaction_tag = 'spanner-lib'";
         await cmd.ExecuteNonQueryAsync(cancellationToken);
-        
-        await using var selectCommand = dbConn.CreateCommand();
-        selectCommand.CommandText = selectSql;
-        selectCommand.Transaction = transaction;
-        await using var reader = await selectCommand.ExecuteReaderAsync(cancellationToken);
-        var foundRows = 0;
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            foundRows++;
-        }
-        if (foundRows != 1)
-        {
-            throw new InvalidOperationException("Unexpected found rows: " + foundRows);
-        }
 
-        await using var updateCommand = dbConn.CreateCommand();
-        updateCommand.CommandText = insertSql;
-        updateCommand.Transaction = transaction;
-        var updated = await updateCommand.ExecuteNonQueryAsync(cancellationToken);
-        if (updated != 1)
+        for (var i = 0; i < 3; i++)
         {
-            throw new InvalidOperationException("Unexpected affected rows: " + updated);
+            await using var selectCommand = dbConn.CreateCommand();
+            selectCommand.CommandText = selectSql;
+            selectCommand.Transaction = transaction;
+            await using var reader = await selectCommand.ExecuteReaderAsync(cancellationToken);
+            var foundRows = 0;
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                foundRows++;
+            }
+
+            if (foundRows != 1)
+            {
+                throw new InvalidOperationException("Unexpected found rows: " + foundRows);
+            }
+
+            await using var updateCommand = dbConn.CreateCommand();
+            updateCommand.CommandText = insertSql;
+            updateCommand.Transaction = transaction;
+            var updated = await updateCommand.ExecuteNonQueryAsync(cancellationToken);
+            if (updated != 1)
+            {
+                throw new InvalidOperationException("Unexpected affected rows: " + updated);
+            }
         }
         await transaction.CommitAsync(cancellationToken);
 
+        var firstRequest = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().First();
+        Assert.That(firstRequest.Transaction.Begin.IsolationLevel, Is.EqualTo(TransactionOptions.Types.IsolationLevel.RepeatableRead));
         var requests = Fixture.SpannerMock.Requests;
-        Console.WriteLine(requests);
-        var request = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().First();
-        Assert.That(request.Transaction.Begin.IsolationLevel, Is.EqualTo(TransactionOptions.Types.IsolationLevel.RepeatableRead));
+        Assert.That(requests.OfType<ExecuteSqlRequest>().Count(), Is.EqualTo(6));
     }
 
     [Test]
