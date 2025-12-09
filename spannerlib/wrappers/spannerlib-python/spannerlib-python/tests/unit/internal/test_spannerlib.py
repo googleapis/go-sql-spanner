@@ -132,6 +132,14 @@ class TestSpannerlib:
                 filename = SpannerLib._get_lib_filename()
                 assert filename == "osx-arm64/spannerlib.dylib"
 
+    def test_get_lib_filename_darwin_amd64(self):
+        """Test _get_lib_filename on Darwin AMD64."""
+        with mock.patch("platform.system", return_value="Darwin"):
+            with mock.patch("platform.machine", return_value="x86_64"):
+                # pylint: disable=protected-access
+                filename = SpannerLib._get_lib_filename()
+                assert filename == "osx-x64/spannerlib.dylib"
+
     def test_get_lib_filename_windows(self):
         """Test _get_lib_filename on Windows AMD64."""
         with mock.patch("platform.system", return_value="Windows"):
