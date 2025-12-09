@@ -113,23 +113,34 @@ class SpannerLib:
     @staticmethod
     def _get_lib_filename() -> str:
         """
-        Returns the filename of the shared library based on the OS.
+        Returns the filename of the shared library based on the OS
+        and architecture.
         """
-        filename: str = ""
-
         system_name = platform.system()
+        machine_name = platform.machine().lower()
 
         if system_name == "Windows":
-            filename = "spannerlib.dll"
+            os_part = "win"
+            ext = "dll"
         elif system_name == "Darwin":
-            filename = "spannerlib.dylib"
+            os_part = "osx"
+            ext = "dylib"
         elif system_name == "Linux":
-            filename = "spannerlib.so"
+            os_part = "linux"
+            ext = "so"
         else:
             raise SpannerLibError(
                 f"Unsupported operating system: {system_name}"
             )
-        return filename
+
+        if machine_name in ("amd64", "x86_64"):
+            arch_part = "x64"
+        elif machine_name in ("arm64", "aarch64"):
+            arch_part = "arm64"
+        else:
+            raise SpannerLibError(f"Unsupported architecture: {machine_name}")
+
+        return f"{os_part}-{arch_part}/spannerlib.{ext}"
 
     def _configure_signatures(self) -> None:
         """
@@ -299,6 +310,18 @@ class SpannerLib:
                 ]
                 lib.WriteMutations.restype = Message
 
+            # 16. NextResultSet
+            # Corresponds to:
+            # NextResultSet_return NextResultSet(GoInt64 poolId,
+            # GoInt64 connId, GoInt64 rowsId)
+            if hasattr(lib, "NextResultSet"):
+                lib.NextResultSet.argtypes = [
+                    ctypes.c_longlong,
+                    ctypes.c_longlong,
+                    ctypes.c_longlong,
+                ]
+                lib.NextResultSet.restype = Message
+
         except AttributeError as e:
             raise SpannerLibError(
                 f"Symbol missing in native library: {e}"
@@ -444,6 +467,30 @@ class SpannerLib:
             ctypes.c_longlong(rows_handle),
             ctypes.c_int32(num_rows),
             ctypes.c_int32(encode_row_option),
+        )
+        return msg.bind_library(self)
+
+    def next_result_set(
+        self,
+        pool_handle: int,
+        conn_handle: int,
+        rows_handle: int,
+    ) -> Message:
+        """Calls the NextResultSet function from the shared library.
+
+        Args:
+            pool_handle: The pool ID.
+            conn_handle: The connection ID.
+            rows_handle: The rows ID.
+
+        Returns:
+            Message: Returns the ResultSetMetadata of the next result set,
+            or None if there are no more result sets.
+        """
+        msg = self.lib.NextResultSet(
+            ctypes.c_longlong(pool_handle),
+            ctypes.c_longlong(conn_handle),
+            ctypes.c_longlong(rows_handle),
         )
         return msg.bind_library(self)
 

@@ -1,14 +1,14 @@
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "spannerlib-python"
+name = "spannermockserver"
 dynamic = ["version"]
 authors = [
     { name="Google LLC", email="googleapis-packages@google.com" },
 ]
-description = "A Python wrapper for the Go spannerlib. This is an internal library that can make breaking changes without prior notice."
+description = "A lightweight in-memory mock server for Google Cloud Spanner. This is an internal library that can make breaking changes without prior notice."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = [
@@ -27,7 +27,10 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-    "google-cloud-spanner",
+    "grpcio>=1.67.0",
+    "google-cloud-spanner>=3.55.0",
+    "protobuf>=4.0.0",
+    "google-api-core",
 ]
 
 [project.optional-dependencies]
@@ -37,13 +40,12 @@ dev = [
 ]
 
 [tool.setuptools]
-dynamic = {"version" = {attr = "google.cloud.spannerlib.__version__"}}
-include-package-data = true
+dynamic = {"version" = {attr = "spannermockserver.__version__"}}
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["google*"]
+include = ["spannermockserver*"]
 
 [project.urls]
-Homepage = "https://github.com/googleapis/go-sql-spanner/tree/main/spannerlib/wrappers/spannerlib-python/spannerlib-python/README.md"
-Repository = "https://github.com/googleapis/go-sql-spanner/tree/main/spannerlib/wrappers/spannerlib-python/spannerlib-python"
+Homepage = "https://github.com/googleapis/go-sql-spanner/tree/main/spannerlib/wrappers/spannerlib-python/spannermockserver/README.md"
+Repository = "https://github.com/googleapis/go-sql-spanner/tree/main/spannerlib/wrappers/spannerlib-python/spannermockserver"

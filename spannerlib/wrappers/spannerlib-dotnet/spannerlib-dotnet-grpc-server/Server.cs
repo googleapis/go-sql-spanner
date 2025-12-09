@@ -174,7 +174,6 @@ public class Server : IDisposable
             return;
         }
         _process.Kill();
-        _process.WaitForExit();
     }
 
     protected virtual void Dispose(bool disposing)

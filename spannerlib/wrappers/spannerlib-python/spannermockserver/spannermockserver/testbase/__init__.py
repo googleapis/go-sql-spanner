@@ -12,21 +12,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-"""Python wrapper for the Spanner Go library."""
-import logging
-from typing import Final
-
-from google.cloud.spannerlib.connection import Connection
-from google.cloud.spannerlib.pool import Pool
-from google.cloud.spannerlib.rows import Rows
-
-__version__: Final[str] = "0.1.1"
-
-logger = logging.getLogger(__name__)
-logger.addHandler(logging.NullHandler())
+from .mock_server_test_base import MockServerTestBase
 
 __all__: list[str] = [
-    "Pool",
-    "Connection",
-    "Rows",
+    "MockServerTestBase",
 ]
