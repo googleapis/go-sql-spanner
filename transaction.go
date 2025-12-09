@@ -15,10 +15,9 @@
 package spannerdriver
 
 import (
-	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql/driver"
-	"encoding/gob"
 	"fmt"
 	"log/slog"
 	"math/rand"
@@ -625,7 +624,6 @@ func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statemen
 
 	// If retries are enabled, we need to use a row iterator that will keep
 	// track of a running checksum of all the results that we see.
-	buffer := &bytes.Buffer{}
 	it := &checksumRowIterator{
 		RowIterator: tx.rwTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions),
 		ctx:         ctx,
@@ -633,8 +631,7 @@ func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statemen
 		stmt:        stmt,
 		stmtType:    stmtType,
 		options:     execOptions.QueryOptions,
-		buffer:      buffer,
-		enc:         gob.NewEncoder(buffer),
+		hash:        sha256.New(),
 	}
 	tx.statements = append(tx.statements, it)
 	return it, nil

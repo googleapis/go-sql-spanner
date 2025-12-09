@@ -15,17 +15,21 @@
 package testutil
 
 import (
+	crypto "crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"math"
+	"math/rand"
 	"net"
 	"strconv"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	pb "cloud.google.com/go/spanner/testdata/protos"
+	"github.com/google/uuid"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -236,7 +240,7 @@ func createSingersRow(idx int64) *structpb.ListValue {
 	}
 }
 
-func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb.ResultSet {
+func CreateResultSetMetadataWithAllTypes() *spannerpb.ResultSetMetadata {
 	index := 0
 	fields := make([]*spannerpb.StructType_Field, 26)
 	fields[index] = &spannerpb.StructType_Field{
@@ -410,9 +414,14 @@ func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb
 	rowType := &spannerpb.StructType{
 		Fields: fields,
 	}
-	metadata := &spannerpb.ResultSetMetadata{
+	return &spannerpb.ResultSetMetadata{
 		RowType: rowType,
 	}
+}
+
+func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb.ResultSet {
+	metadata := CreateResultSetMetadataWithAllTypes()
+	fields := metadata.RowType.Fields
 	rows := make([]*structpb.ListValue, 1)
 	rowValue := make([]*structpb.Value, len(fields))
 	if nullValues {
@@ -436,7 +445,7 @@ func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb
 			Genre:       &singer2ProtoEnum,
 		}
 
-		index = 0
+		index := 0
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_BoolValue{BoolValue: true}}
 		index++
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: "test"}}
@@ -574,6 +583,122 @@ func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb
 		Metadata: metadata,
 		Rows:     rows,
 	}
+}
+
+func CreateRandomResultSet(numRows int) *spannerpb.ResultSet {
+	metadata := CreateResultSetMetadataWithAllTypes()
+	fields := metadata.RowType.Fields
+	rows := make([]*structpb.ListValue, numRows)
+
+	for i := 0; i < numRows; i++ {
+		rowValue := make([]*structpb.Value, len(fields))
+		for col := range fields {
+			rowValue[col] = randomValue(fields[col].Type)
+		}
+		rows[i] = &structpb.ListValue{Values: rowValue}
+	}
+	return &spannerpb.ResultSet{
+		Metadata: metadata,
+		Rows:     rows,
+	}
+}
+
+var nullValue *structpb.Value
+
+func init() {
+	nullValue = &structpb.Value{Kind: &structpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}}
+}
+
+func randomValue(t *spannerpb.Type) *structpb.Value {
+	if rand.Intn(10) == 5 {
+		return nullValue
+	}
+	switch t.Code {
+	case spannerpb.TypeCode_BOOL:
+		return randomBoolValue()
+	case spannerpb.TypeCode_BYTES:
+		return randomBytesValue()
+	case spannerpb.TypeCode_DATE:
+		return randomDateValue()
+	case spannerpb.TypeCode_FLOAT32:
+		return randomFloat32Value()
+	case spannerpb.TypeCode_FLOAT64:
+		return randomFloat64Value()
+	case spannerpb.TypeCode_INT64:
+		return randomInt64Value()
+	case spannerpb.TypeCode_JSON:
+		return randomJsonValue()
+	case spannerpb.TypeCode_NUMERIC:
+		return randomNumericValue()
+	case spannerpb.TypeCode_STRING:
+		return randomStringValue()
+	case spannerpb.TypeCode_TIMESTAMP:
+		return randomTimestampValue()
+	case spannerpb.TypeCode_UUID:
+		return randomUuidValue()
+	case spannerpb.TypeCode_ARRAY:
+		numElements := rand.Intn(10)
+		value := &structpb.Value{Kind: &structpb.Value_ListValue{ListValue: &structpb.ListValue{Values: make([]*structpb.Value, numElements)}}}
+		for i := range numElements {
+			value.GetListValue().Values[i] = randomValue(t.ArrayElementType)
+		}
+		return value
+	}
+	return nullValue
+}
+
+func randomBoolValue() *structpb.Value {
+	return &structpb.Value{Kind: &structpb.Value_BoolValue{BoolValue: rand.Intn(2) == 1}}
+}
+
+func randomString() string {
+	b := make([]byte, rand.Intn(1024))
+	_, _ = crypto.Read(b)
+	return base64.StdEncoding.EncodeToString(b)
+}
+
+func randomBytesValue() *structpb.Value {
+	return &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: randomString()}}
+}
+
+func randomDateValue() *structpb.Value {
+	year := rand.Intn(2100) + 1
+	month := rand.Intn(12) + 1
+	day := rand.Intn(28) + 1
+	return &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%04d-%02d-%02d", year, month, day)}}
+}
+
+func randomFloat32Value() *structpb.Value {
+	return &structpb.Value{Kind: &structpb.Value_NumberValue{NumberValue: float64(rand.Float32())}}
+}
+
+func randomFloat64Value() *structpb.Value {
+	return &structpb.Value{Kind: &structpb.Value_NumberValue{NumberValue: float64(rand.Float32())}}
+}
+
+func randomJsonValue() *structpb.Value {
+	return &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf(`{"key": "%s"}`, randomString())}}
+}
+
+func randomInt64Value() *structpb.Value {
+	return &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%d", rand.Int63())}}
+}
+
+func randomNumericValue() *structpb.Value {
+	return &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%d.%d", rand.Intn(10000000), rand.Intn(1000))}}
+}
+
+func randomStringValue() *structpb.Value {
+	return randomBytesValue()
+}
+
+func randomTimestampValue() *structpb.Value {
+	t := time.UnixMilli(time.Now().UnixMilli() + int64(rand.Intn(1000000)))
+	return &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: t.Format(time.RFC3339)}}
+}
+
+func randomUuidValue() *structpb.Value {
+	return &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: uuid.New().String()}}
 }
 
 func nullValueOrAlt(nullValue bool, alt *structpb.Value) *structpb.Value {
