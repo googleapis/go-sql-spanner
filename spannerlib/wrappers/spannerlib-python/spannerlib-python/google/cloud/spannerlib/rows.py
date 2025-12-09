@@ -14,7 +14,7 @@
 
 import ctypes
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from google.cloud.spanner_v1 import ResultSetMetadata, ResultSetStats
 from google.protobuf.struct_pb2 import ListValue
@@ -109,6 +109,37 @@ class Rows(AbstractLibraryObject):
                 # Assuming no message means no more rows
                 logger.debug("No more rows...")
                 return None
+
+    def next_result_set(self) -> Optional[ResultSetMetadata]:
+        """Advances to the next result set.
+
+        Returns:
+            ResultSetMetadata if there is a next result set, None otherwise.
+
+        Raises:
+            SpannerLibError: If the Rows object is closed.
+            SpannerLibraryError: If the Go library call fails.
+        """
+        if self.closed:
+            raise SpannerLibError("Rows object is closed.")
+
+        logger.debug("Advancing to next result set for Rows ID: %d", self.oid)
+        with self.spannerlib.next_result_set(
+            self.pool.oid, self.conn.oid, self.oid
+        ) as msg:
+            msg.raise_if_error()
+            if msg.msg_len > 0 and msg.msg:
+                try:
+                    proto_bytes = ctypes.string_at(msg.msg, msg.msg_len)
+                    return ResultSetMetadata.deserialize(proto_bytes)
+                except Exception as e:
+                    logger.error(
+                        "Failed to decode/parse next result set metadata: %s", e
+                    )
+                    raise SpannerLibError(
+                        f"Failed to parse next result set metadata: {e}"
+                    )
+            return None
 
     def metadata(self) -> ResultSetMetadata:
         """Retrieves the metadata for the result set.

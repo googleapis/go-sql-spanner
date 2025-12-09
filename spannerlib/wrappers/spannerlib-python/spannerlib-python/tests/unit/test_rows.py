@@ -439,3 +439,60 @@ class TestRows:
 
             with pytest.raises(SpannerLibError, match="Failed to get next row"):
                 rows.next()
+
+    def test_next_result_set_returns_metadata(self) -> None:
+        """Verifies that next_result_set() returns metadata when successful."""
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.pool = mock_pool
+        mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
+        mock_pool.spannerlib = mock_spannerlib
+
+        rows = Rows(1, mock_conn)
+
+        mock_msg = MagicMock()
+        mock_msg.msg_len = 10
+        mock_msg.msg = 12345
+        mock_spannerlib.next_result_set.return_value.__enter__.return_value = (
+            mock_msg
+        )
+
+        with patch("google.cloud.spannerlib.rows.ctypes") as mock_ctypes, patch(
+            "google.cloud.spannerlib.rows.ResultSetMetadata"
+        ) as mock_metadata_cls:
+            mock_ctypes.string_at.return_value = b"metadata_proto"
+            expected_metadata = MagicMock()
+            mock_metadata_cls.deserialize.return_value = expected_metadata
+
+            assert rows.next_result_set() == expected_metadata
+
+            mock_spannerlib.next_result_set.assert_called_once_with(
+                mock_pool.oid, mock_conn.oid, rows.oid
+            )
+            mock_msg.raise_if_error.assert_called_once()
+            mock_ctypes.string_at.assert_called_once_with(12345, 10)
+            mock_metadata_cls.deserialize.assert_called_once_with(
+                b"metadata_proto"
+            )
+
+    def test_next_result_set_returns_none(self) -> None:
+        """Verifies that next_result_set() returns None when no more sets."""
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.pool = mock_pool
+        mock_spannerlib = MagicMock(spec=SpannerLibProtocol)
+        mock_pool.spannerlib = mock_spannerlib
+
+        rows = Rows(1, mock_conn)
+
+        mock_msg = MagicMock()
+        mock_msg.msg_len = 0
+        mock_msg.msg = None
+        mock_spannerlib.next_result_set.return_value.__enter__.return_value = (
+            mock_msg
+        )
+
+        assert rows.next_result_set() is None
+        mock_spannerlib.next_result_set.assert_called_once_with(
+            mock_pool.oid, mock_conn.oid, rows.oid
+        )

@@ -124,3 +124,49 @@ class TestRowsE2E:
             assert rows.next() is None
         finally:
             rows.close()
+
+    def test_next_result_set(self, connection):
+        """Tests next_result_set() returns None for standard query."""
+        sql = "SELECT 1"
+        request = ExecuteSqlRequest(sql=sql)
+        rows = connection.execute(request)
+
+        try:
+            # Consume rows
+            while rows.next():
+                pass
+
+            # Check next result set
+            assert rows.next_result_set() is None
+        finally:
+            rows.close()
+
+    def test_next_result_set_multiple_statements(self, connection):
+        """Tests next_result_set() with multiple statements."""
+        sql = "SELECT 1 AS num; SELECT 2 AS num"
+        request = ExecuteSqlRequest(sql=sql)
+        rows = connection.execute(request)
+
+        try:
+            # Consume first result set
+            row = rows.next()
+            assert row is not None
+            assert row.values[0].string_value == "1"
+            assert rows.next() is None
+
+            # Check next result set
+            metadata = rows.next_result_set()
+            assert metadata is not None
+            assert len(metadata.row_type.fields) == 1
+            assert metadata.row_type.fields[0].name == "num"
+
+            # Consume second result set
+            row = rows.next()
+            assert row is not None
+            assert row.values[0].string_value == "2"
+            assert rows.next() is None
+
+            # Check end of result sets
+            assert rows.next_result_set() is None
+        finally:
+            rows.close()

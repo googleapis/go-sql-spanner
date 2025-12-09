@@ -299,6 +299,18 @@ class SpannerLib:
                 ]
                 lib.WriteMutations.restype = Message
 
+            # 16. NextResultSet
+            # Corresponds to:
+            # NextResultSet_return NextResultSet(GoInt64 poolId,
+            # GoInt64 connId, GoInt64 rowsId)
+            if hasattr(lib, "NextResultSet"):
+                lib.NextResultSet.argtypes = [
+                    ctypes.c_longlong,
+                    ctypes.c_longlong,
+                    ctypes.c_longlong,
+                ]
+                lib.NextResultSet.restype = Message
+
         except AttributeError as e:
             raise SpannerLibError(
                 f"Symbol missing in native library: {e}"
@@ -444,6 +456,30 @@ class SpannerLib:
             ctypes.c_longlong(rows_handle),
             ctypes.c_int32(num_rows),
             ctypes.c_int32(encode_row_option),
+        )
+        return msg.bind_library(self)
+
+    def next_result_set(
+        self,
+        pool_handle: int,
+        conn_handle: int,
+        rows_handle: int,
+    ) -> Message:
+        """Calls the NextResultSet function from the shared library.
+
+        Args:
+            pool_handle: The pool ID.
+            conn_handle: The connection ID.
+            rows_handle: The rows ID.
+
+        Returns:
+            Message: Returns the ResultSetMetadata of the next result set,
+            or None if there are no more result sets.
+        """
+        msg = self.lib.NextResultSet(
+            ctypes.c_longlong(pool_handle),
+            ctypes.c_longlong(conn_handle),
+            ctypes.c_longlong(rows_handle),
         )
         return msg.bind_library(self)
 
