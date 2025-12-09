@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://test.pypi.org/p/spannerlib-python
+      url: https://pypi.org/p/spannerlib-python
     timeout-minutes: 10
     permissions:
       id-token: write
@@ -81,4 +81,3 @@ jobs:
         with:
           packages-dir: spannerlib/wrappers/spannerlib-python/spannerlib-python/dist/
           verbose: true
-          repository-url: https://test.pypi.org/legacy/
