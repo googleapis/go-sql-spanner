@@ -20,7 +20,7 @@ from .mock_database_admin import DatabaseAdminServicer
 from .mock_spanner import MockSpanner, SpannerServicer, start_mock_server
 from .testbase.mock_server_test_base import MockServerTestBase
 
-__version__: Final[str] = "0.1.0"
+__version__: Final[str] = "0.1.1"
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
