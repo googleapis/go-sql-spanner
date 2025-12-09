@@ -349,6 +349,14 @@ func TestTags(t *testing.T) {
 			t.Fatalf("ExecuteSql transaction tag mismatch\n Got: %v\nWant: %v", g, w)
 		}
 	}
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("num CommitRequests mismatch\n Got: %d\nWant: %d", g, w)
+	}
+	commitRequest := commitRequests[0].(*spannerpb.CommitRequest)
+	if g, w := commitRequest.RequestOptions.TransactionTag, "my_transaction_tag"; g != w {
+		t.Fatalf("Commit transaction tag mismatch\n Got: %v\nWant: %v", g, w)
+	}
 
 	if err := ClosePool(ctx, poolId); err != nil {
 		t.Fatalf("ClosePool returned unexpected error: %v", err)
