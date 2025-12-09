@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "spannerlib"
+name = "spannerlib-python"
 dynamic = ["version"]
 authors = [
     { name="Google LLC", email="googleapis-packages@google.com" },

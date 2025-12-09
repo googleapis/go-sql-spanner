@@ -1,19 +1,27 @@
-name: Build Python Wrapper
+name: Build and Release Python Wrapper
 
 on:
   workflow_dispatch:
 
 permissions:
+  id-token: write
   contents: read
 
 jobs:
   build-shared-lib:
     uses: ./.github/workflows/build-shared-spanner-lib.yml
 
-  build-wrapper:
+  build-and-publish-wrapper:
     needs: build-shared-lib
     runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://test.pypi.org/p/spannerlib-python
     timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
       - uses: actions/checkout@v4
       
@@ -67,3 +75,10 @@ jobs:
         with:
           name: python-wheels
           path: spannerlib/wrappers/spannerlib-python/spannerlib-python/dist/*
+      
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: spannerlib/wrappers/spannerlib-python/spannerlib-python/dist/
+          verbose: true
+          repository-url: https://test.pypi.org/legacy/
