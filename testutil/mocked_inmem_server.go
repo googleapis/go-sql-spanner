@@ -673,7 +673,7 @@ func randomFloat32Value() *structpb.Value {
 }
 
 func randomFloat64Value() *structpb.Value {
-	return &structpb.Value{Kind: &structpb.Value_NumberValue{NumberValue: float64(rand.Float32())}}
+	return &structpb.Value{Kind: &structpb.Value_NumberValue{NumberValue: rand.Float64()}}
 }
 
 func randomJsonValue() *structpb.Value {
