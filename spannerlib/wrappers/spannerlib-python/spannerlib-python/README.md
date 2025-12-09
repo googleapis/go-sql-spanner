@@ -7,125 +7,95 @@ The `spannerlib-python` wrapper provides a high-performance, idiomatic Python in
 
 The Go library is compiled into a C-shared library, and this project calls it directly from Python, aiming to combine Go's performance with Python's ease of use.
 
-## Code Structure
+
+## Installation
+
+To install the library, use pip:
 
 ```bash
-spannerlib-python/
-|___google/cloud/spannerlib/
-    |___internal - SpannerLib wrapper
-        |___lib - Spannerlib artifacts
-|___tests/
-    |___unit/ - Unit tests
-    |___system/ - System tests
-|___samples
-README.md
-noxfile.py
-pyproject.toml - Project config for packaging
+pip install spannerlib-python
 ```
 
-## NOX Setup
+## Usage
 
-1. Create virtual environment
+Here is a simple example of how to use the library to execute a SQL query.
 
-**Mac/Linux**
-```bash
-pip install virtualenv
-virtualenv <your-env>
-source <your-env>/bin/activate
+### 1. Import the library
+
+```python
+from google.cloud.spannerlib import Pool
+from google.cloud.spanner_v1 import ExecuteSqlRequest
 ```
 
-**Windows**
-```bash
-pip install virtualenv
-virtualenv <your-env>
-<your-env>\Scripts\activate
+### 2. Create a connection pool
+
+Initialize the pool with your database connection string.
+
+```python
+connection_string = "projects/<your-project>/instances/<your-instance>/databases/<your-database>"
+pool = Pool.create_pool(connection_string)
 ```
 
-**Install Dependencies**
-```bash
-pip install -r requirements.txt
+### 3. Create a connection
+
+```python
+conn = pool.create_connection()
 ```
 
-To run the nox tests, navigate to the root directory of this wrapper (`spannerlib-python`) and run:
+### 4. Execute a query
 
-**format/Lint**
+Use `ExecuteSqlRequest` to specify your SQL query.
 
-```bash
-nox -s format lint
+```python
+sql = "SELECT 'Hello, World!' as greeting"
+request = ExecuteSqlRequest(sql=sql)
+
+# Execute the query
+rows = conn.execute(request)
+
+# Iterate over the results
+while True:
+    row = rows.next()
+    if row is None:
+        break
+    # row is a google.protobuf.struct_pb2.ListValue
+    print(row.values[0].string_value)
+
+# Close the rows object when done
+rows.close()
 ```
 
-**Unit Tests**
+### 5. Cleanup
 
-```bash
-nox -s unit
+Always close the connection and pool to release resources.
+
+```python
+conn.close()
+pool.close()
 ```
 
-Run specific tests
-```bash
-# file
-nox -s unit-3.13 -- tests/unit/test_connection.py
-# class
-nox -s unit-3.13 -- tests/unit/test_connection.py::TestConnection
-# method
-nox -s unit-3.13 -- tests/unit/test_connection.py::TestConnection::test_close_connection_propagates_error
+### Using Context Managers
+
+You can also use the `with` statement to automatically manage resources (close connections and pools).
+
+```python
+from google.cloud.spannerlib import Pool
+from google.cloud.spanner_v1 import ExecuteSqlRequest
+
+connection_string = "projects/<your-project>/instances/<your-instance>/databases/<your-database>"
+
+# Pool and Connection are context managers
+with Pool.create_pool(connection_string) as pool:
+    with pool.create_connection() as conn:
+        sql = "SELECT 'Hello, World!' as greeting"
+        request = ExecuteSqlRequest(sql=sql)
+        
+        # Rows/Results are also context managers
+        with conn.execute(request) as rows:
+            while True:
+                row = rows.next()
+                if row is None:
+                    break
+                print(row.values[0].string_value)
+# Resources are automatically closed here
 ```
-
-**System Tests**
-
-The system tests require a Cloud Spanner Emulator instance running.
-
-1.  **Pull and Run the Emulator:**
-
-    ```bash
-    docker pull gcr.io/cloud-spanner-emulator/emulator
-    docker run -p 9010:9010 -p 9020:9020 -d gcr.io/cloud-spanner-emulator/emulator
-    ```
-
-2.  **Set Environment Variable:**
-
-    Ensure the `SPANNER_EMULATOR_HOST` environment variable is set:
-    ```bash
-    export SPANNER_EMULATOR_HOST=localhost:9010
-    ```
-
-3.  **Create Test Instance and Database:**
-
-    You need the `gcloud` CLI installed and configured.
-    ```bash
-    gcloud spanner instances create test-instance --config=emulator-config --description="Test Instance" --nodes=1
-    gcloud spanner databases create testdb --instance=test-instance
-    ```
-
-4.  **Run the System Tests:**
-
-    ```bash
-    nox -s system
-    ```
-
-## Build and install
-
-**Package**
-
-Create python wheel
-
-```bash
-pip3 install build
-python3 -m build
-```
-
-**Validate Package**
-
-```bash
-pip3 install twine
-twine check dist/*
-unzip -l dist/spannerlib-*-*.whl
-tar -tvzf dist/spannerlib-*.tar.gz
-```
-
-**Install locally**
-
-```bash
-pip3 install -e .
-```
-
-

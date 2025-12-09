@@ -20,7 +20,7 @@ from google.cloud.spannerlib.connection import Connection
 from google.cloud.spannerlib.pool import Pool
 from google.cloud.spannerlib.rows import Rows
 
-__version__: Final[str] = "0.1.0"
+__version__: Final[str] = "0.1.1"
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
