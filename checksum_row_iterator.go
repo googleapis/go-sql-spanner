@@ -21,7 +21,6 @@ import (
 	"encoding/binary"
 	"hash"
 	"math"
-	"reflect"
 	"sort"
 
 	"cloud.google.com/go/spanner"
@@ -149,7 +148,7 @@ func hashValue(value *structpb.Value, digest hash.Hash) {
 		}
 	case *structpb.Value_StructValue:
 		fields := make([]string, 0, len(value.GetStructValue().Fields))
-		for field, _ := range value.GetStructValue().Fields {
+		for field := range value.GetStructValue().Fields {
 			fields = append(fields, field)
 		}
 		sort.Strings(fields)
@@ -266,8 +265,8 @@ func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteS
 }
 
 func checksumsEqual(h1, h2 hash.Hash) bool {
-	if reflect.ValueOf(h1).IsNil() && reflect.ValueOf(h2).IsNil() {
-		return true
+	if h1 == nil || h2 == nil {
+		return h1 == h2
 	}
 	c1 := h1.Sum(nil)
 	c2 := h2.Sum(nil)
