@@ -158,6 +158,7 @@ func (rows *rows) ResultSetStats(ctx context.Context) (*spannerpb.ResultSetStats
 }
 
 func (rows *rows) NextResultSet(ctx context.Context) (*spannerpb.ResultSetMetadata, error) {
+	rows.buffer = nil
 	if !rows.done && rows.stats == nil {
 		// The current result set has not been read to the end.
 		// We therefore need to move the cursor to the next result set which contains
