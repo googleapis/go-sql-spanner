@@ -1,81 +1,89 @@
 #!/bin/bash
+set -e
 
 # Builds the shared library and copies the binaries to the appropriate folders for
 # the Python wrapper.
-# 
-# Binaries can be built for
-#   linux/x64,
-#   darwin/arm64, and
-#   windows/x64.
 #
-# Which ones are actually built depends on the values of the following variables:
-#   SKIP_MACOS: If set, will skip the darwin/arm64 build
-#   SKIP_LINUX: If set, will skip the linux/x64 build that uses the default C compiler on the system
-#   SKIP_LINUX_CROSS_COMPILE: If set, will skip the linux/x64 build that uses the x86_64-unknown-linux-gnu-gcc C compiler.
-#                           This compiler is used when compiling for linux/x64 on MacOS.
-#   SKIP_WINDOWS: If set, will skip the windows/x64 build.
+# This script delegates the actual build process to spannerlib/shared/build-binaries.sh
+# and then copies the artifacts to google/cloud/spannerlib/internal/lib.
 
-# Fail execution if any command errors out
-set -e
+log() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
+}
 
-echo -e "Build Spannerlib Shared Lib"
+log "Starting Spannerlib Shared Library Build for Python Wrapper..."
 
-echo -e "RUNNER_OS DIR: $RUNNER_OS"
-# Determine which builds to skip when the script runs on GitHub Actions.
-if [ "$RUNNER_OS" == "Windows" ]; then
-    # Windows does not support any cross-compiling.
-    export SKIP_MACOS=true
-    export SKIP_LINUX=true
-    export SKIP_LINUX_CROSS_COMPILE=true
-elif [ "$RUNNER_OS" == "macOS" ]; then
-    # When running on macOS, cross-compiling is supported.
-    # We skip the 'normal' Linux build (the one that does not explicitly set a C compiler).
-    export SKIP_LINUX=true
-elif [ "$RUNNER_OS" == "Linux" ]; then
-    # Linux does not (yet) support cross-compiling to MacOS.
-    # In addition, we use the 'normal' Linux build when we are already running on Linux.
-    export SKIP_MACOS=true
-    export SKIP_LINUX_CROSS_COMPILE=true
+# Resolve absolute paths
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SHARED_LIB_DIR="$(cd "$SCRIPT_DIR/../../../shared" && pwd)"
+TARGET_LIB_DIR="$SCRIPT_DIR/google/cloud/spannerlib/internal/lib"
+
+log "Script Directory: $SCRIPT_DIR"
+log "Shared Lib Directory: $SHARED_LIB_DIR"
+log "Target Lib Directory: $TARGET_LIB_DIR"
+log "Runner OS: ${RUNNER_OS:-Unknown}"
+
+# Auto-detect RUNNER_OS if not set (e.g. local run)
+if [ -z "$RUNNER_OS" ]; then
+    case "$(uname -s)" in
+        Linux*)     RUNNER_OS="Linux";;
+        Darwin*)    RUNNER_OS="macOS";;
+        CYGWIN*|MINGW*|MSYS*) RUNNER_OS="Windows";;
+        *)          RUNNER_OS="Unknown";;
+    esac
+    log "Auto-detected RUNNER_OS: $RUNNER_OS"
 fi
 
-SHARED_LIB_DIR="../../../shared"
-TARGET_WRAPPER_DIR="../wrappers/spannerlib-python/spannerlib-python"
-ARTIFACTS_DIR="spannerlib-artifacts"
+# Determine which builds to skip/enable based on the runner OS.
+# This is primarily for CI (GitHub Actions). Local runs might not have RUNNER_OS set.
+if [ -n "$RUNNER_OS" ]; then
+    if [[ "$RUNNER_OS" == "Windows" ]] || [[ "$RUNNER_OS" == "Windows_NT" ]]; then
+        # Windows runners usually can't cross-compile to Linux/Mac easily without extra setup
+        export SKIP_MACOS=true
+        export SKIP_LINUX=true
+        export SKIP_LINUX_CROSS_COMPILE=true
+    elif [[ "$RUNNER_OS" == "macOS" ]]; then
+        # macOS can cross-compile to Linux x64 (if toolchain exists) but not usually to Windows or Linux ARM64 easily
+        # We skip the 'native' Linux build
+        export SKIP_LINUX=true
+        # We might want to enable macOS AMD64 build if running on ARM64, or vice versa
+        # For now, let's assume we want both if possible, or rely on build-binaries.sh defaults
+        export BUILD_MACOS_AMD64=true
+    elif [[ "$RUNNER_OS" == "Linux" ]]; then
+        # Linux runners
+        export SKIP_MACOS=true
+        export SKIP_LINUX_CROSS_COMPILE=true
+        # Enable Linux ARM64 build if cross-compiler is available (checked in build-binaries.sh)
+        export BUILD_LINUX_ARM64=true
+    fi
+fi
 
-cd "$SHARED_LIB_DIR" || exit 1
-
+# Execute the shared library build script
+log "Executing build-binaries.sh in $SHARED_LIB_DIR..."
+pushd "$SHARED_LIB_DIR" > /dev/null
 ./build-binaries.sh
+popd > /dev/null
 
-echo -e "PREPARING ARTIFACTS IN: $(pwd)"
-# Navigate to the correct wrapper directory
-cd "$TARGET_WRAPPER_DIR" || exit 1
+# Prepare target directory
+if [ -d "$TARGET_LIB_DIR" ]; then
+    log "Cleaning up existing target directory: $TARGET_LIB_DIR"
+    rm -rf "$TARGET_LIB_DIR"
+fi
+mkdir -p "$TARGET_LIB_DIR"
 
-echo -e "PREPARING ARTIFACTS IN: $(pwd)"
+# Copy artifacts
+SOURCE_BINARIES="$SHARED_LIB_DIR/binaries"
 
-# Cleanup old artifacts if they exist
-if [ -d "$ARTIFACTS_DIR" ]; then
-    rm -rf "$ARTIFACTS_DIR"
+if [ -d "$SOURCE_BINARIES" ] && [ "$(ls -A $SOURCE_BINARIES)" ]; then
+    log "Copying binaries from $SOURCE_BINARIES to $TARGET_LIB_DIR..."
+    cp -r "$SOURCE_BINARIES/"* "$TARGET_LIB_DIR/"
+    log "Artifacts copied successfully."
+    ls -R "$TARGET_LIB_DIR"
+else
+    log "WARNING: No binaries found in $SOURCE_BINARIES. The build might have skipped everything or failed silently."
+    # We don't exit with error here because sometimes we might run this in a context where
+    # we expect no binaries (e.g. linting only), but usually this is an issue.
+    # However, since set -e is on, build-binaries.sh should have failed if it errored.
 fi
 
-mkdir -p "$ARTIFACTS_DIR"
-
-if [ -z "$SKIP_MACOS" ]; then
-echo "Copying MacOS binaries..."
-    mkdir -p "$ARTIFACTS_DIR/osx-arm64"
-    cp "$SHARED_LIB_DIR/binaries/osx-arm64/spannerlib.dylib" "$ARTIFACTS_DIR/osx-arm64/spannerlib.dylib"
-    cp "$SHARED_LIB_DIR/binaries/osx-arm64/spannerlib.h" "$ARTIFACTS_DIR/osx-arm64/spannerlib.h"
-fi
-
-if [ -z "$SKIP_LINUX_CROSS_COMPILE" ] || [ -z "$SKIP_LINUX" ]; then
-    echo "Copying Linux binaries..."
-    mkdir -p "$ARTIFACTS_DIR/linux-x64"
-    cp "$SHARED_LIB_DIR/binaries/linux-x64/spannerlib.so" "$ARTIFACTS_DIR/linux-x64/spannerlib.so"
-    cp "$SHARED_LIB_DIR/binaries/linux-x64/spannerlib.h" "$ARTIFACTS_DIR/linux-x64/spannerlib.h"
-fi
-
-if [ -z "$SKIP_WINDOWS" ]; then
-    echo "Copying Windows binaries..."
-    mkdir -p "$ARTIFACTS_DIR/win-x64"
-    cp "$SHARED_LIB_DIR/binaries/win-x64/spannerlib.dll" "$ARTIFACTS_DIR/win-x64/spannerlib.dll"
-    cp "$SHARED_LIB_DIR/binaries/win-x64/spannerlib.h" "$ARTIFACTS_DIR/win-x64/spannerlib.h"
-fi
+log "Build and copy process completed."

@@ -1,0 +1,69 @@
+name: Build Python Wrapper
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-shared-lib:
+    uses: ./.github/workflows/build-shared-spanner-lib.yml
+
+  build-wrapper:
+    needs: build-shared-lib
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download Shared Library Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries
+          pattern: spannerlib*
+          merge-multiple: true
+      
+      - name: Display Downloaded Files
+        run: ls -R binaries
+
+      - name: Copy Binaries to Lib
+        run: |
+          mkdir -p spannerlib/wrappers/spannerlib-python/spannerlib-python/google/cloud/spannerlib/internal/lib
+          cp -r binaries/* spannerlib/wrappers/spannerlib-python/spannerlib-python/google/cloud/spannerlib/internal/lib/
+          ls -R spannerlib/wrappers/spannerlib-python/spannerlib-python/google/cloud/spannerlib/internal/lib
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          
+      - name: Install Build Dependencies
+        run: pip install build twine
+        
+      - name: Build Wheel
+        run: |
+          cd spannerlib/wrappers/spannerlib-python/spannerlib-python
+          python -m build
+
+      - name: Check Wheels
+        run: twine check spannerlib/wrappers/spannerlib-python/spannerlib-python/dist/*
+
+      - name: Verify Installation
+        run: |
+          # Create a fresh virtual environment
+          python -m venv test-env
+          source test-env/bin/activate
+          
+          # Install the built wheel
+          pip install spannerlib/wrappers/spannerlib-python/spannerlib-python/dist/*.whl
+          
+          # Verify import
+          python -c "import google.cloud.spannerlib; print('Successfully imported wrapper from:', google.cloud.spannerlib.__file__)"
+
+      - name: Upload Wheel Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-wheels
+          path: spannerlib/wrappers/spannerlib-python/spannerlib-python/dist/*
