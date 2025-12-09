@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://test.pypi.org/p/spannermockserver
+      url: https://pypi.org/p/spannermockserver
     permissions:
       id-token: write
       contents: read
@@ -42,5 +42,5 @@ jobs:
     - name: Publish to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
-        packages_dir: spannerlib/wrappers/spannerlib-python/spannermockserver/dist/
+        packages-dir: spannerlib/wrappers/spannerlib-python/spannermockserver/dist/
         verbose: true
