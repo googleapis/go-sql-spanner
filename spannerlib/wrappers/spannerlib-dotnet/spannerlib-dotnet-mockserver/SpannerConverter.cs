@@ -95,7 +95,7 @@ internal static class SpannerConverter
                 {
                     return Value.ForString(XmlConvert.ToString(timeSpan));
                 }
-                return Value.ForString(value.ToString());            
+                return Value.ForString(value.ToString());
             case TypeCode.Json:
                 if (value is string stringValue)
                 {

@@ -35,6 +35,9 @@ import (
 func CloseConnection(ctx context.Context, poolId, connId int64) error {
 	pool, err := findPool(poolId)
 	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return nil
+		}
 		return err
 	}
 	c, ok := pool.connections.LoadAndDelete(connId)
@@ -357,11 +360,14 @@ func executeBatch(ctx context.Context, conn *Connection, executor queryExecutor,
 }
 
 func executeBatchDdl(ctx context.Context, conn *Connection, executor queryExecutor, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
-	if err := conn.backend.Raw(func(driverConn any) error {
-		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
-		return spannerConn.StartBatchDDL()
-	}); err != nil {
-		return nil, err
+	useExplicitBatch := len(statements) > 1
+	if useExplicitBatch {
+		if err := conn.backend.Raw(func(driverConn any) error {
+			spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
+			return spannerConn.StartBatchDDL()
+		}); err != nil {
+			return nil, err
+		}
 	}
 	for _, statement := range statements {
 		_, err := executor.ExecContext(ctx, statement.Sql)
@@ -369,12 +375,14 @@ func executeBatchDdl(ctx context.Context, conn *Connection, executor queryExecut
 			return nil, err
 		}
 	}
-	// TODO: Add support for getting the actual Batch DDL response.
-	if err := conn.backend.Raw(func(driverConn any) (err error) {
-		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
-		return spannerConn.RunBatch(ctx)
-	}); err != nil {
-		return nil, err
+	if useExplicitBatch {
+		// TODO: Add support for getting the actual Batch DDL response.
+		if err := conn.backend.Raw(func(driverConn any) (err error) {
+			spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
+			return spannerConn.RunBatch(ctx)
+		}); err != nil {
+			return nil, err
+		}
 	}
 
 	response := spannerpb.ExecuteBatchDmlResponse{}
@@ -429,19 +437,29 @@ func extractParams(directExecuteContext context.Context, statement *spannerpb.Ex
 	if statement.Params != nil {
 		paramsLen = 1 + len(statement.Params.Fields)
 	}
+	requestTag := ""
+	transactionTag := ""
+	if statement.RequestOptions != nil {
+		requestTag = statement.RequestOptions.RequestTag
+		transactionTag = statement.RequestOptions.TransactionTag
+	}
 	params := make([]any, paramsLen)
-	params = append(params, spannerdriver.ExecOptions{
-		DecodeOption: spannerdriver.DecodeOptionProto,
-		// TODO: Implement support for passing in stale query options
-		// TimestampBound:          extractTimestampBound(statement),
+	execOptions := spannerdriver.ExecOptions{
+		DecodeOption:            spannerdriver.DecodeOptionProto,
+		TimestampBound:          extractTimestampBound(statement),
 		ReturnResultSetMetadata: true,
 		ReturnResultSetStats:    true,
 		DirectExecuteQuery:      true,
 		DirectExecuteContext:    directExecuteContext,
 		QueryOptions: spanner.QueryOptions{
-			Mode: &statement.QueryMode,
+			Mode:       &statement.QueryMode,
+			RequestTag: requestTag,
 		},
-	})
+	}
+	if transactionTag != "" {
+		execOptions.PropertyValues = []spannerdriver.PropertyValue{{Identifier: parser.Identifier{Parts: []string{"transaction_tag"}}, Value: transactionTag}}
+	}
+	params = append(params, execOptions)
 	if statement.Params != nil {
 		if statement.ParamTypes == nil {
 			statement.ParamTypes = make(map[string]*spannerpb.Type)
@@ -463,6 +481,26 @@ func extractParams(directExecuteContext context.Context, statement *spannerpb.Ex
 	return params
 }
 
+func extractTimestampBound(statement *spannerpb.ExecuteSqlRequest) *spanner.TimestampBound {
+	if statement.Transaction != nil && statement.Transaction.GetSingleUse() != nil && statement.Transaction.GetSingleUse().GetReadOnly() != nil {
+		ro := statement.Transaction.GetSingleUse().GetReadOnly()
+		var t spanner.TimestampBound
+		if ro.GetStrong() {
+			t = spanner.StrongRead()
+		} else if ro.GetMaxStaleness() != nil {
+			t = spanner.MaxStaleness(ro.GetMaxStaleness().AsDuration())
+		} else if ro.GetExactStaleness() != nil {
+			t = spanner.ExactStaleness(ro.GetExactStaleness().AsDuration())
+		} else if ro.GetMinReadTimestamp() != nil {
+			t = spanner.MinReadTimestamp(ro.GetMinReadTimestamp().AsTime())
+		} else if ro.GetReadTimestamp() != nil {
+			t = spanner.ReadTimestamp(ro.GetReadTimestamp().AsTime())
+		}
+		return &t
+	}
+	return nil
+}
+
 func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (parser.BatchType, error) {
 	if len(statements) == 0 {
 		return parser.BatchTypeDdl, status.Errorf(codes.InvalidArgument, "cannot determine type of an empty batch")
@@ -471,6 +509,12 @@ func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDm
 	if err := conn.backend.Raw(func(driverConn any) error {
 		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
 		firstStatementType := spannerConn.DetectStatementType(statements[0].Sql)
+		// As a special case, we allow the first statement in a batch to be a CREATE DATABASE statement. This will
+		// then trigger a CreateDatabase operation with the remaining DDL statements in this batch to be used as the
+		// ExtraStatements for the CreateDatabase operation.
+		if spannerConn.Parser().IsCreateDatabaseStatement(statements[0].Sql) {
+			firstStatementType = parser.StatementTypeDdl
+		}
 		if firstStatementType == parser.StatementTypeDml {
 			batchType = parser.BatchTypeDml
 		} else if firstStatementType == parser.StatementTypeDdl {

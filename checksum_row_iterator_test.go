@@ -15,8 +15,6 @@
 package spannerdriver
 
 import (
-	"bytes"
-	"encoding/gob"
 	"math/big"
 	"testing"
 	"time"
@@ -26,13 +24,6 @@ import (
 )
 
 func TestUpdateChecksum(t *testing.T) {
-	buffer1 := &bytes.Buffer{}
-	enc1 := gob.NewEncoder(buffer1)
-	buffer2 := &bytes.Buffer{}
-	enc2 := gob.NewEncoder(buffer2)
-	buffer3 := &bytes.Buffer{}
-	enc3 := gob.NewEncoder(buffer3)
-
 	row1, err := spanner.NewRow(
 		[]string{
 			"ColBool", "ColInt64", "ColFloat64", "ColNumeric", "ColString", "ColBytes", "ColDate", "ColTimestamp", "ColJson",
@@ -111,17 +102,17 @@ func TestUpdateChecksum(t *testing.T) {
 		t.Fatalf("could not create row 3: %v", err)
 	}
 	initial1 := new([32]byte)
-	checksum1, err := updateChecksum(enc1, buffer1, initial1, row1)
+	checksum1, err := updateChecksum(initial1, row1)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 1: %v", err)
 	}
 	initial2 := new([32]byte)
-	checksum2, err := updateChecksum(enc2, buffer2, initial2, row2)
+	checksum2, err := updateChecksum(initial2, row2)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 2: %v", err)
 	}
 	initial3 := new([32]byte)
-	checksum3, err := updateChecksum(enc3, buffer3, initial3, row3)
+	checksum3, err := updateChecksum(initial3, row3)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 3: %v", err)
 	}
@@ -136,11 +127,11 @@ func TestUpdateChecksum(t *testing.T) {
 
 	// Updating checksums 1 and 3 with the data from row 2 should also produce
 	// the same checksum.
-	checksum1_2, err := updateChecksum(enc1, buffer1, checksum1, row2)
+	checksum1_2, err := updateChecksum(checksum1, row2)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 1_2: %v", err)
 	}
-	checksum3_2, err := updateChecksum(enc3, buffer3, checksum3, row2)
+	checksum3_2, err := updateChecksum(checksum3, row2)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 1_2: %v", err)
 	}
@@ -150,7 +141,7 @@ func TestUpdateChecksum(t *testing.T) {
 
 	// The combination of row 3 and 2 will produce a different checksum than the
 	// combination 2 and 3, because they are in a different order.
-	checksum2_3, err := updateChecksum(enc2, buffer2, checksum2, row3)
+	checksum2_3, err := updateChecksum(checksum2, row3)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 2_3: %v", err)
 	}
@@ -160,9 +151,6 @@ func TestUpdateChecksum(t *testing.T) {
 }
 
 func TestUpdateChecksumForNullValues(t *testing.T) {
-	buffer := &bytes.Buffer{}
-	enc := gob.NewEncoder(buffer)
-
 	row, err := spanner.NewRow(
 		[]string{
 			"ColBool", "ColInt64", "ColFloat64", "ColNumeric", "ColString", "ColBytes", "ColDate", "ColTimestamp", "ColJson",
@@ -182,7 +170,7 @@ func TestUpdateChecksumForNullValues(t *testing.T) {
 	}
 	initial := new([32]byte)
 	// Create the initial checksum.
-	checksum, err := updateChecksum(enc, buffer, initial, row)
+	checksum, err := updateChecksum(initial, row)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 1: %v", err)
 	}
@@ -192,14 +180,88 @@ func TestUpdateChecksumForNullValues(t *testing.T) {
 		t.Fatalf("checksum value should not be equal to the initial value")
 	}
 	// Calculating the same checksum again should yield the same result.
-	buffer2 := &bytes.Buffer{}
-	enc2 := gob.NewEncoder(buffer2)
 	initial2 := new([32]byte)
-	checksum2, err := updateChecksum(enc2, buffer2, initial2, row)
+	checksum2, err := updateChecksum(initial2, row)
 	if err != nil {
 		t.Fatalf("failed to update checksum: %v", err)
 	}
 	if *checksum != *checksum2 {
 		t.Fatalf("recalculated checksum does not match the initial calculation")
+	}
+}
+
+func BenchmarkChecksumRowIterator(b *testing.B) {
+	row1, _ := spanner.NewRow(
+		[]string{
+			"ColBool", "ColInt64", "ColFloat64", "ColNumeric", "ColString", "ColBytes", "ColDate", "ColTimestamp", "ColJson",
+			"ArrBool", "ArrInt64", "ArrFloat64", "ArrNumeric", "ArrString", "ArrBytes", "ArrDate", "ArrTimestamp", "ArrJson",
+		},
+		[]interface{}{
+			true, int64(1), 3.14, numeric("6.626"), "test", []byte("testbytes"), civil.Date{Year: 2021, Month: 8, Day: 5},
+			time.Date(2021, 8, 5, 13, 19, 23, 123456789, time.UTC),
+			nullJson(true, `"key": "value", "other-key": ["value1", "value2"]}`),
+			[]bool{true, false}, []int64{1, 2}, []float64{3.14, 6.626}, []big.Rat{numeric("3.14"), numeric("6.626")},
+			[]string{"test1", "test2"}, [][]byte{[]byte("testbytes1"), []byte("testbytes1")},
+			[]civil.Date{{Year: 2021, Month: 8, Day: 5}, {Year: 2021, Month: 8, Day: 6}},
+			[]time.Time{
+				time.Date(2021, 8, 5, 13, 19, 23, 123456789, time.UTC),
+				time.Date(2021, 8, 6, 13, 19, 23, 123456789, time.UTC),
+			},
+			[]spanner.NullJSON{
+				nullJson(true, `"key1": "value1", "other-key1": ["value1", "value2"]}`),
+				nullJson(true, `"key2": "value2", "other-key2": ["value1", "value2"]}`),
+			},
+		},
+	)
+	row2, _ := spanner.NewRow(
+		[]string{
+			"ColBool", "ColInt64", "ColFloat64", "ColNumeric", "ColString", "ColBytes", "ColDate", "ColTimestamp", "ColJson",
+			"ArrBool", "ArrInt64", "ArrFloat64", "ArrNumeric", "ArrString", "ArrBytes", "ArrDate", "ArrTimestamp", "ArrJson",
+		},
+		[]interface{}{
+			true, int64(2), 6.626, numeric("3.14"), "test2", []byte("testbytes2"), civil.Date{Year: 2020, Month: 8, Day: 5},
+			time.Date(2020, 8, 5, 13, 19, 23, 123456789, time.UTC),
+			nullJson(true, `"key": "other-value", "other-key": ["other-value1", "other-value2"]}`),
+			[]bool{true, false}, []int64{1, 2}, []float64{3.14, 6.626}, []big.Rat{numeric("3.14"), numeric("6.626")},
+			[]string{"test1_", "test2_"}, [][]byte{[]byte("testbytes1_"), []byte("testbytes1_")},
+			[]civil.Date{{Year: 2020, Month: 8, Day: 5}, {Year: 2020, Month: 8, Day: 6}},
+			[]time.Time{
+				time.Date(2020, 8, 5, 13, 19, 23, 123456789, time.UTC),
+				time.Date(2020, 8, 6, 13, 19, 23, 123456789, time.UTC),
+			},
+			[]spanner.NullJSON{
+				nullJson(true, `"key1": "other-value1", "other-key1": ["other-value1", "other-value2"]}`),
+				nullJson(true, `"key2": "other-value2", "other-key2": ["other-value1", "other-value2"]}`),
+			},
+		},
+	)
+	row3, _ := spanner.NewRow(
+		[]string{
+			"ColBool", "ColInt64", "ColFloat64", "ColNumeric", "ColString", "ColBytes", "ColDate", "ColTimestamp", "ColJson",
+			"ArrBool", "ArrInt64", "ArrFloat64", "ArrNumeric", "ArrString", "ArrBytes", "ArrDate", "ArrTimestamp", "ArrJson",
+		},
+		[]interface{}{
+			true, int64(1), 3.14, numeric("6.626"), "test", []byte("testbytes"), civil.Date{Year: 2021, Month: 8, Day: 5},
+			time.Date(2021, 8, 5, 13, 19, 23, 123456789, time.UTC),
+			nullJson(true, `"key": "value", "other-key": ["value1", "value2"]}`),
+			[]bool{true, false}, []int64{1, 2}, []float64{3.14, 6.626}, []big.Rat{numeric("3.14"), numeric("6.626")},
+			[]string{"test1", "test2"}, [][]byte{[]byte("testbytes1"), []byte("testbytes1")},
+			[]civil.Date{{Year: 2021, Month: 8, Day: 5}, {Year: 2021, Month: 8, Day: 6}},
+			[]time.Time{
+				time.Date(2021, 8, 5, 13, 19, 23, 123456789, time.UTC),
+				time.Date(2021, 8, 6, 13, 19, 23, 123456789, time.UTC),
+			},
+			[]spanner.NullJSON{
+				nullJson(true, `"key1": "value1", "other-key1": ["value1", "value2"]}`),
+				nullJson(true, `"key2": "value2", "other-key2": ["value1", "value2"]}`),
+			},
+		},
+	)
+
+	for b.Loop() {
+		initial := new([32]byte)
+		checksum, _ := updateChecksum(initial, row1)
+		checksum, _ = updateChecksum(checksum, row2)
+		checksum, _ = updateChecksum(checksum, row3)
 	}
 }
