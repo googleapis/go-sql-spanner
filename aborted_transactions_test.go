@@ -41,6 +41,9 @@ func TestCommitAborted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin failed: %v", err)
 	}
+	if _, err := tx.ExecContext(ctx, "set local transaction_tag = 'my_tx_tag'"); err != nil {
+		t.Fatalf("set local transaction tag failed: %v", err)
+	}
 	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
 		t.Fatal(err)
 	}
@@ -55,6 +58,17 @@ func TestCommitAborted(t *testing.T) {
 	commitReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitReqs), 2; g != w {
 		t.Fatalf("commit request count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	for i, req := range commitReqs {
+		if g, w := req.(*sppb.CommitRequest).RequestOptions.TransactionTag, "my_tx_tag"; g != w {
+			t.Fatalf("%d: commit request tag mismatch\n Got: %v\nWant: %v", i, g, w)
+		}
+	}
+	execReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	for i, req := range execReqs {
+		if g, w := req.(*sppb.ExecuteSqlRequest).RequestOptions.TransactionTag, "my_tx_tag"; g != w {
+			t.Fatalf("%d: execute request tag mismatch\n Got: %v\nWant: %v", i, g, w)
+		}
 	}
 
 	// Verify that the db is still usable.
