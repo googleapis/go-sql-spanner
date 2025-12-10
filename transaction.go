@@ -498,6 +498,9 @@ func (tx *readWriteTransaction) runWithRetry(ctx context.Context, f func(ctx con
 		if err == nil {
 			err = f(ctx)
 		}
+		if err == nil {
+			return
+		}
 		if err == ErrAbortedDueToConcurrentModification {
 			tx.logger.Log(ctx, LevelNotice, "transaction retry failed due to a concurrent modification")
 			return

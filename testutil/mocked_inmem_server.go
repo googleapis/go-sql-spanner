@@ -90,14 +90,14 @@ type MockedSpannerInMemTestServer struct {
 // NewMockedSpannerInMemTestServer creates a MockedSpannerInMemTestServer at
 // localhost with a random port and returns client options that can be used
 // to connect to it.
-func NewMockedSpannerInMemTestServer(t *testing.T) (mockedServer *MockedSpannerInMemTestServer, opts []option.ClientOption, teardown func()) {
+func NewMockedSpannerInMemTestServer(t testing.TB) (mockedServer *MockedSpannerInMemTestServer, opts []option.ClientOption, teardown func()) {
 	return NewMockedSpannerInMemTestServerWithAddr(t, "localhost:0")
 }
 
 // NewMockedSpannerInMemTestServerWithAddr creates a MockedSpannerInMemTestServer
 // at a given listening address and returns client options that can be used
 // to connect to it.
-func NewMockedSpannerInMemTestServerWithAddr(t *testing.T, addr string) (mockedServer *MockedSpannerInMemTestServer, opts []option.ClientOption, teardown func()) {
+func NewMockedSpannerInMemTestServerWithAddr(t testing.TB, addr string) (mockedServer *MockedSpannerInMemTestServer, opts []option.ClientOption, teardown func()) {
 	mockedServer = &MockedSpannerInMemTestServer{}
 	opts = mockedServer.setupMockedServerWithAddr(t, addr)
 	return mockedServer, opts, func() {
@@ -108,7 +108,7 @@ func NewMockedSpannerInMemTestServerWithAddr(t *testing.T, addr string) (mockedS
 	}
 }
 
-func (s *MockedSpannerInMemTestServer) setupMockedServerWithAddr(t *testing.T, addr string) []option.ClientOption {
+func (s *MockedSpannerInMemTestServer) setupMockedServerWithAddr(t testing.TB, addr string) []option.ClientOption {
 	s.TestSpanner = NewInMemSpannerServer()
 	s.TestInstanceAdmin = NewInMemInstanceAdminServer()
 	s.TestDatabaseAdmin = NewInMemDatabaseAdminServer()
@@ -128,7 +128,9 @@ func (s *MockedSpannerInMemTestServer) setupMockedServerWithAddr(t *testing.T, a
 	if err != nil {
 		t.Fatal(err)
 	}
-	go s.server.Serve(lis)
+	go func() {
+		_ = s.server.Serve(lis)
+	}()
 
 	s.Address = lis.Addr().String()
 	opts := []option.ClientOption{
@@ -141,23 +143,23 @@ func (s *MockedSpannerInMemTestServer) setupMockedServerWithAddr(t *testing.T, a
 
 func (s *MockedSpannerInMemTestServer) SetupSelectDialectResult(dialect databasepb.DatabaseDialect) {
 	result := &StatementResult{Type: StatementResultResultSet, ResultSet: CreateSelectDialectResultSet(dialect)}
-	s.TestSpanner.PutStatementResult(selectDialect, result)
+	_ = s.TestSpanner.PutStatementResult(selectDialect, result)
 }
 
 func (s *MockedSpannerInMemTestServer) setupSelect1Result() {
 	result := &StatementResult{Type: StatementResultResultSet, ResultSet: CreateSelect1ResultSet()}
-	s.TestSpanner.PutStatementResult("SELECT 1", result)
+	_ = s.TestSpanner.PutStatementResult("SELECT 1", result)
 }
 
 func (s *MockedSpannerInMemTestServer) setupFooResults() {
 	resultSet := CreateSingleColumnInt64ResultSet(selectFooFromBarResults, "FOO")
 	result := &StatementResult{Type: StatementResultResultSet, ResultSet: resultSet}
-	s.TestSpanner.PutStatementResult(SelectFooFromBar, result)
-	s.TestSpanner.PutStatementResult(UpdateBarSetFoo, &StatementResult{
+	_ = s.TestSpanner.PutStatementResult(SelectFooFromBar, result)
+	_ = s.TestSpanner.PutStatementResult(UpdateBarSetFoo, &StatementResult{
 		Type:        StatementResultUpdateCount,
 		UpdateCount: UpdateBarSetFooRowCount,
 	})
-	s.TestSpanner.PutStatementResult(UpdateSingersSetLastName, &StatementResult{
+	_ = s.TestSpanner.PutStatementResult(UpdateSingersSetLastName, &StatementResult{
 		Type:        StatementResultUpdateCount,
 		UpdateCount: UpdateSingersSetLastNameRowCount,
 	})
@@ -175,7 +177,7 @@ func (s *MockedSpannerInMemTestServer) setupSingersResults() {
 		Rows:     rows,
 	}
 	result := &StatementResult{Type: StatementResultResultSet, ResultSet: resultSet}
-	s.TestSpanner.PutStatementResult(SelectSingerIDAlbumIDAlbumTitleFromAlbums, result)
+	_ = s.TestSpanner.PutStatementResult(SelectSingerIDAlbumIDAlbumTitleFromAlbums, result)
 }
 
 // CreateSingleRowSingersResult creates a result set containing a single row of

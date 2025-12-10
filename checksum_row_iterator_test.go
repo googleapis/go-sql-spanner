@@ -108,22 +108,23 @@ func TestUpdateChecksum(t *testing.T) {
 		t.Fatalf("could not create row 3: %v", err)
 	}
 
+	it := &checksumRowIterator{}
 	hash1 := sha256.New()
-	err = updateChecksum(hash1, row1)
+	err = it.updateChecksum(hash1, row1)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 1: %v", err)
 	}
 	checksum1 := hash1.Sum(nil)
 
 	hash2 := sha256.New()
-	err = updateChecksum(hash2, row2)
+	err = it.updateChecksum(hash2, row2)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 2: %v", err)
 	}
 	checksum2 := hash2.Sum(nil)
 
 	hash3 := sha256.New()
-	err = updateChecksum(hash3, row3)
+	err = it.updateChecksum(hash3, row3)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 3: %v", err)
 	}
@@ -140,13 +141,13 @@ func TestUpdateChecksum(t *testing.T) {
 
 	// Updating checksums 1 and 3 with the data from row 2 should also produce
 	// the same checksum.
-	err = updateChecksum(hash1, row2)
+	err = it.updateChecksum(hash1, row2)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 1_2: %v", err)
 	}
 	checksum1_2 := hash1.Sum(nil)
 
-	err = updateChecksum(hash3, row2)
+	err = it.updateChecksum(hash3, row2)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 3_2: %v", err)
 	}
@@ -158,7 +159,7 @@ func TestUpdateChecksum(t *testing.T) {
 
 	// The combination of row 3 and 2 will produce a different checksum than the
 	// combination 2 and 3, because they are in a different order.
-	err = updateChecksum(hash2, row3)
+	err = it.updateChecksum(hash2, row3)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 2_3: %v", err)
 	}
@@ -187,10 +188,11 @@ func TestUpdateChecksumForNullValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not create row: %v", err)
 	}
+	it := &checksumRowIterator{}
 	hash1 := sha256.New()
 	initial := hash1.Sum(nil)
 	// Create the initial checksum.
-	err = updateChecksum(hash1, row)
+	err = it.updateChecksum(hash1, row)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 1: %v", err)
 	}
@@ -202,7 +204,7 @@ func TestUpdateChecksumForNullValues(t *testing.T) {
 	}
 	// Calculating the same checksum again should yield the same result.
 	hash2 := sha256.New()
-	err = updateChecksum(hash2, row)
+	err = it.updateChecksum(hash2, row)
 	if err != nil {
 		t.Fatalf("failed to update checksum: %v", err)
 	}
@@ -281,14 +283,15 @@ func BenchmarkChecksumRowIterator(b *testing.B) {
 	)
 
 	for b.Loop() {
+		it := &checksumRowIterator{}
 		hash := sha256.New()
-		if err := updateChecksum(hash, row1); err != nil {
+		if err := it.updateChecksum(hash, row1); err != nil {
 			b.Fatal(err)
 		}
-		if err := updateChecksum(hash, row2); err != nil {
+		if err := it.updateChecksum(hash, row2); err != nil {
 			b.Fatal(err)
 		}
-		if err := updateChecksum(hash, row3); err != nil {
+		if err := it.updateChecksum(hash, row3); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -318,12 +321,13 @@ func BenchmarkChecksumRowIteratorRandom(b *testing.B) {
 		b.Run(fmt.Sprintf("num-rows-%d", numRows), func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
-				hash, err := createMetadataChecksum(resultSet.Metadata)
+				it := &checksumRowIterator{}
+				hash, err := it.createMetadataChecksum(resultSet.Metadata)
 				if err != nil {
 					b.Fatal(err)
 				}
 				for _, row := range rows {
-					if err := updateChecksum(hash, row); err != nil {
+					if err := it.updateChecksum(hash, row); err != nil {
 						b.Fatal(err)
 					}
 				}
