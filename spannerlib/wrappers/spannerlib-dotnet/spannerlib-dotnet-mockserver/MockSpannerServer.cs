@@ -396,7 +396,7 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
         _abortedTransactions.TryAdd(ByteString.FromBase64(transactionId), true);
     }
 
-    internal void AbortNextStatement()
+    public void AbortNextStatement()
     {
         lock (_lock)
         {
