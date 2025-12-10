@@ -16,6 +16,7 @@ using Google.Cloud.Spanner.Admin.Database.V1;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib.MockServer;
 using Google.Rpc;
+using Grpc.Core;
 using TypeCode = Google.Cloud.Spanner.V1.TypeCode;
 
 namespace Google.Cloud.SpannerLib.Tests;
@@ -51,12 +52,17 @@ public class RowsTests : AbstractMockServerTests
         Assert.That(rows.Metadata, Is.Not.Null);
         Assert.That(rows.Metadata.RowType.Fields.Count, Is.EqualTo(1));
         Assert.That(rows.Next(), Is.Null);
+        // Verify that calling Next() and NextResultSet() continues to return the correct result.
+        Assert.That(rows.Next(), Is.Null);
+        Assert.That(rows.NextResultSet(), Is.False);
+        Assert.That(rows.Next(), Is.Null);
+        Assert.That(rows.Next(), Is.Null);
+        Assert.That(rows.NextResultSet(), Is.False);
     }
 
     [Test]
-    public void TestRandomResults([Values] LibType libType)
+    public void TestRandomResults([Values] LibType libType, [Values(0, 1, 10)] int numRows)
     {
-        var numRows = 10;
         var rowType = RandomResultSetGenerator.GenerateAllTypesRowType();
         var results = RandomResultSetGenerator.Generate(rowType, numRows);
         Fixture.SpannerMock.AddOrUpdateStatementResult("select * from random", StatementResult.CreateQuery(results));
@@ -101,9 +107,8 @@ public class RowsTests : AbstractMockServerTests
     }
 
     [Test]
-    public void TestStopHalfway([Values] LibType libType)
+    public void TestStopHalfway([Values] LibType libType, [Values(2, 10)] int numRows)
     {
-        var numRows = 10;
         var rowType = RandomResultSetGenerator.GenerateAllTypesRowType();
         var results = RandomResultSetGenerator.Generate(rowType, numRows);
         Fixture.SpannerMock.AddOrUpdateStatementResult("select * from random", StatementResult.CreateQuery(results));
@@ -130,7 +135,78 @@ public class RowsTests : AbstractMockServerTests
         var request = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().First();
         Assert.That(request.Transaction?.SingleUse?.ReadOnly?.HasStrong ?? false);
     }
+    
+    [Test]
+    public void TestStopHalfwayTwoQueries([Values] LibType libType)
+    {
+        const string sql = "select c from my_table";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateResultSet(
+            [Tuple.Create(TypeCode.Int64, "c")], [[1L], [2L]]));
+        
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        using var connection = pool.CreateConnection();
 
+        for (var i = 0; i < 2; i++)
+        {
+            using var rows = connection.Execute(new ExecuteSqlRequest { Sql = sql });
+            Assert.That(rows.Metadata, Is.Not.Null);
+            Assert.That(rows.Metadata.RowType.Fields.Count, Is.EqualTo(1));
+            var row = rows.Next();
+            Assert.That(row, Is.Not.Null);
+            Assert.That(row.Values.Count, Is.EqualTo(1));
+            Assert.That(row.Values[0].HasStringValue);
+            Assert.That(row.Values[0].StringValue, Is.EqualTo("1"));
+        }
+        Assert.That(Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().Count(), Is.EqualTo(2));
+    }
+
+    [Test]
+    public void TestStopHalfwayMultipleQueries(
+        [Values] LibType libType,
+        [Values(2, 10)] int numRows,
+        [Values(1, 2, 3)] int numQueries)
+    {
+        const string query = "select * from random";
+        
+        var rowType = RandomResultSetGenerator.GenerateAllTypesRowType();
+        var results = RandomResultSetGenerator.Generate(rowType, numRows);
+        Fixture.SpannerMock.AddOrUpdateStatementResult(query, StatementResult.CreateQuery(results));
+        
+        var stopAfterRows = new int[numQueries];
+        var queries = new string[numQueries];
+        for (var i = 0; i < numQueries; i++)
+        {
+            stopAfterRows[i] = Random.Shared.Next(1, numRows - 1);
+            queries[i] = query;
+        }
+
+        var sql = string.Join(";", queries);
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        using var connection = pool.CreateConnection();
+        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = sql });
+        Assert.That(rows.Metadata, Is.Not.Null);
+        Assert.That(rows.Metadata.RowType.Fields.Count, Is.EqualTo(rowType.Fields.Count));
+
+        var totalRowCount = 0;
+        for (var i = 0; i < numQueries; i++)
+        {
+            var rowCount = 0;
+            while (rows.Next() is { } row)
+            {
+                rowCount++;
+                totalRowCount++;
+                Assert.That(row.Values.Count, Is.EqualTo(rowType.Fields.Count));
+                if (rowCount == stopAfterRows[i])
+                {
+                    break;
+                }
+            }
+            Assert.That(rows.NextResultSet(), Is.EqualTo(i < numQueries-1));
+        }
+        Assert.That(Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().Count(), Is.EqualTo(numQueries));
+        Assert.That(totalRowCount, Is.EqualTo(stopAfterRows.Sum()));
+    }
+    
     [Test]
     public void TestCloseConnectionWithOpenRows([Values] LibType libType)
     {
@@ -143,8 +219,10 @@ public class RowsTests : AbstractMockServerTests
         using var connection = pool.CreateConnection();
         using var rows = connection.Execute(new ExecuteSqlRequest { Sql = "select * from random" });
 
+        var foundRows = 0;
         // Verify that we can fetch the first row.
         Assert.That(rows.Next(), Is.Not.Null);
+        foundRows++;
         // Close the connection while the rows object is still open.
         connection.Close();
         // Getting all the rows should not be possible.
@@ -154,11 +232,13 @@ public class RowsTests : AbstractMockServerTests
         {
             while (rows.Next() is not null)
             {
+                foundRows++;
             }
         });
         // The error is 'Connection not found' or an internal exception from the underlying driver, depending on exactly
         // when the driver detects that the connection and all related objects have been closed.
         Assert.That(exception.Code is Code.NotFound or Code.Unknown, Is.True);
+        Assert.That(foundRows, Is.LessThan(numRows));
     }
 
     [Test]
@@ -257,13 +337,12 @@ public class RowsTests : AbstractMockServerTests
     }
     
     [Test]
-    public async Task TestMultipleMixedStatements([Values] LibType libType, [Values] bool async)
+    public async Task TestMultipleMixedStatements([Values] LibType libType, [Values(2, 10)] int numRows, [Values] bool async)
     {
         var updateCount = 3L;
         var dml = "update my_table set value=1 where id in (1,2,3)";
         Fixture.SpannerMock.AddOrUpdateStatementResult(dml, StatementResult.CreateUpdateCount(updateCount));
         
-        var numRows = 10;
         var rowType = RandomResultSetGenerator.GenerateAllTypesRowType();
         var results = RandomResultSetGenerator.Generate(rowType, numRows);
         var query = "select * from random";
@@ -285,7 +364,7 @@ public class RowsTests : AbstractMockServerTests
         do
         {
             // ReSharper disable once MethodHasAsyncOverload
-            while ((async ? await rows.NextAsync() : rows.Next()) is { } row)
+            while ((async ? await rows.NextAsync() : rows.Next()) is not null)
             {
                 totalRows++;
             }
@@ -304,5 +383,115 @@ public class RowsTests : AbstractMockServerTests
         // There are 5 statements in the SQL string.
         Assert.That(numResultSets, Is.EqualTo(5));
     }
+    
+    [Test]
+    public async Task TestMultipleMixedStatementsWithErrors(
+        [Values] LibType libType,
+        [Values(2, 10)] int numRows,
+        [Values(0, 1, 2, 3, 4, 5)] int errorIndex,
+        [Values] bool async)
+    {
+        const long updateCount = 3L;
+        const string dml = "update my_table set value=1 where id in (1,2,3)";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(dml, StatementResult.CreateUpdateCount(updateCount));
+        
+        var rowType = RandomResultSetGenerator.GenerateAllTypesRowType();
+        var results = RandomResultSetGenerator.Generate(rowType, numRows);
+        const string query = "select * from random";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(query, StatementResult.CreateQuery(results));
 
+        const string invalidQuery = "select * from unknown_table";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(invalidQuery, StatementResult.CreateException(new RpcException(new global::Grpc.Core.Status(StatusCode.NotFound, "Table not found"))));
+
+        // Create a SQL string containing a mix of DML and queries.
+        var numStatements = Random.Shared.Next(errorIndex + 1, errorIndex + 6);
+        var statements = new string[numStatements];
+        var statementIsDml = new bool[numStatements];
+        for (var i = 0; i < statements.Length; i++)
+        {
+            if (errorIndex == i)
+            {
+                statements[i] = invalidQuery;
+            }
+            else
+            {
+                statementIsDml[i] = Random.Shared.Next(2) == 1;
+                statements[i] = statementIsDml[i] ? dml : query;
+            }
+        }
+        var sql = string.Join(";", statements);
+
+        await using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        await using var connection = pool.CreateConnection();
+        var numResultSets = 0;
+        var totalRows = 0;
+        var totalUpdateCount = 0L;
+        
+        if (errorIndex == 0)
+        {
+            if (async)
+            {
+                Assert.ThrowsAsync<SpannerException>(() => connection.ExecuteAsync(new ExecuteSqlRequest { Sql = sql }));
+            }
+            else
+            {
+                Assert.Throws<SpannerException>(() => connection.Execute(new ExecuteSqlRequest { Sql = sql }));
+            }
+        }
+        else
+        {
+            await using var rows = async
+                ? await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = sql })
+                // ReSharper disable once MethodHasAsyncOverload
+                : connection.Execute(new ExecuteSqlRequest { Sql = sql });
+
+            var statementIndex = 0;
+            while (statementIndex < numStatements)
+            {
+                // ReSharper disable once MethodHasAsyncOverload
+                while ((async ? await rows.NextAsync() : rows.Next()) is not null)
+                {
+                    totalRows++;
+                }
+                numResultSets++;
+                if (rows.UpdateCount > -1)
+                {
+                    totalUpdateCount += rows.UpdateCount;
+                }
+                statementIndex++;
+                if (statementIndex == errorIndex)
+                {
+                    if (async)
+                    {
+                        Assert.ThrowsAsync<SpannerException>(() => rows.NextResultSetAsync());
+                    }
+                    else
+                    {
+                        Assert.Throws<SpannerException>(() => rows.NextResultSet());
+                    }
+                    break;
+                }
+                // ReSharper disable once MethodHasAsyncOverload
+                Assert.That(async ? await rows.NextResultSetAsync() : rows.NextResultSet());
+            }
+        }
+
+        var expectedUpdateCount = 0L;
+        var expectedRowCount = 0;
+        for (var i = 0; i < errorIndex; i++)
+        {
+            if (statementIsDml[i])
+            {
+                expectedUpdateCount += updateCount;
+            }
+            else
+            {
+                expectedRowCount += numRows;
+            }
+        }
+        
+        Assert.That(totalRows, Is.EqualTo(expectedRowCount));
+        Assert.That(totalUpdateCount, Is.EqualTo(expectedUpdateCount));
+        Assert.That(numResultSets, Is.EqualTo(errorIndex));
+    }
 }

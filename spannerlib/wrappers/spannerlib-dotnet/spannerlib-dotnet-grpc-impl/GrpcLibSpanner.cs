@@ -17,6 +17,7 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Google.Api.Gax;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib.V1;
 using Google.Protobuf.WellKnownTypes;
@@ -27,8 +28,14 @@ using Status = Google.Rpc.Status;
 
 namespace Google.Cloud.SpannerLib.Grpc;
 
-public class GrpcLibSpanner : ISpannerLib
+public sealed class GrpcLibSpanner : ISpannerLib
 {
+    
+    /// <summary>
+    /// Creates a GrpcChannel that uses a Unix domain socket with the given file name.
+    /// </summary>
+    /// <param name="fileName">The file to use for communication</param>
+    /// <returns>A GrpcChannel over a Unix domain socket with the given file name</returns>
     public static GrpcChannel ForUnixSocket(string fileName)
     {
         var endpoint = new UnixDomainSocketEndPoint(fileName);
@@ -50,6 +57,12 @@ public class GrpcLibSpanner : ISpannerLib
         });
     }
 
+    /// <summary>
+    /// Creates a GrpcChannel that connects to the given IP address or host name. The GrpcChannel uses a TCP socket for
+    /// communication. The communication does not use encryption.
+    /// </summary>
+    /// <param name="address">The IP address or host name that the channel should connect to</param>
+    /// <returns>A GrpcChannel using a TCP socket for communication</returns>
     public static GrpcChannel ForTcpSocket(string address)
     {
         return GrpcChannel.ForAddress($"http://{address}", new GrpcChannelOptions
@@ -63,22 +76,20 @@ public class GrpcLibSpanner : ISpannerLib
     }
     
     private readonly Server _server;
-    private readonly V1.SpannerLib.SpannerLibClient _client;
-    private readonly GrpcChannel _channel;
     private readonly V1.SpannerLib.SpannerLibClient[] _clients;
     private readonly GrpcChannel[] _channels;
-    private readonly bool _useStreamingRows;
     private bool _disposed;
+    
+    private V1.SpannerLib.SpannerLibClient Client => _clients[Random.Shared.Next(_clients.Length)];
 
-    public GrpcLibSpanner(bool useStreamingRows = true, Server.AddressType addressType = Server.AddressType.UnixDomainSocket)
+    public GrpcLibSpanner(
+        int numChannels = 4,
+        Server.AddressType addressType = Server.AddressType.UnixDomainSocket)
     {
+        GaxPreconditions.CheckArgument(numChannels > 0, nameof(numChannels), "numChannels must be > 0");
         _server = new Server();
         var file = _server.Start(addressType: addressType);
-        _channel = addressType == Server.AddressType.Tcp ? ForTcpSocket(file) : ForUnixSocket(file);
-        _client = new V1.SpannerLib.SpannerLibClient(_channel);
-        _useStreamingRows = useStreamingRows;
 
-        var numChannels = 1;
         _channels = new GrpcChannel[numChannels];
         _clients = new V1.SpannerLib.SpannerLibClient[numChannels];
         for (var i = 0; i < numChannels; i++)
@@ -88,13 +99,15 @@ public class GrpcLibSpanner : ISpannerLib
         }
     }
     
+    ~GrpcLibSpanner() => Dispose(false);
+    
     public void Dispose()
     {
         Dispose(true);
         GC.SuppressFinalize(this);
     }
 
-    protected virtual void Dispose(bool disposing)
+    private void Dispose(bool disposing)
     {
         if (_disposed)
         {
@@ -102,7 +115,6 @@ public class GrpcLibSpanner : ISpannerLib
         }
         try
         {
-            _channel.Dispose();
             foreach (var channel in _channels)
             {
                 channel.Dispose();
@@ -129,7 +141,7 @@ public class GrpcLibSpanner : ISpannerLib
     
     public Pool CreatePool(string connectionString)
     {
-        return FromProto(TranslateException(() => _client.CreatePool(new CreatePoolRequest
+        return FromProto(TranslateException(() => Client.CreatePool(new CreatePoolRequest
         {
             ConnectionString = connectionString,
         })));
@@ -137,12 +149,12 @@ public class GrpcLibSpanner : ISpannerLib
 
     public void ClosePool(Pool pool)
     {
-        TranslateException(() => _client.ClosePool(ToProto(pool)));
+        TranslateException(() => Client.ClosePool(ToProto(pool)));
     }
 
     public Connection CreateConnection(Pool pool)
     {
-        return FromProto(pool, TranslateException(() => _client.CreateConnection(new CreateConnectionRequest
+        return FromProto(pool, TranslateException(() => Client.CreateConnection(new CreateConnectionRequest
         {
             Pool = ToProto(pool),
         })));
@@ -150,14 +162,14 @@ public class GrpcLibSpanner : ISpannerLib
 
     public void CloseConnection(Connection connection)
     {
-        TranslateException(() => _client.CloseConnection(ToProto(connection)));
+        TranslateException(() => Client.CloseConnection(ToProto(connection)));
     }
 
     public async Task CloseConnectionAsync(Connection connection, CancellationToken cancellationToken =  default)
     {
         try
         {
-            await _client.CloseConnectionAsync(ToProto(connection), cancellationToken: cancellationToken).ConfigureAwait(false);
+            await Client.CloseConnectionAsync(ToProto(connection), cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (RpcException exception)
         {
@@ -167,7 +179,7 @@ public class GrpcLibSpanner : ISpannerLib
 
     public CommitResponse? WriteMutations(Connection connection, BatchWriteRequest.Types.MutationGroup mutations)
     {
-        var response = TranslateException(() => _client.WriteMutations(new WriteMutationsRequest
+        var response = TranslateException(() => Client.WriteMutations(new WriteMutationsRequest
         {
             Connection = ToProto(connection),
             Mutations = mutations,
@@ -180,7 +192,7 @@ public class GrpcLibSpanner : ISpannerLib
     {
         try
         {
-            var response = await _client.WriteMutationsAsync(new WriteMutationsRequest
+            var response = await Client.WriteMutationsAsync(new WriteMutationsRequest
             {
                 Connection = ToProto(connection),
                 Mutations = mutations,
@@ -195,15 +207,7 @@ public class GrpcLibSpanner : ISpannerLib
     
     public Rows Execute(Connection connection, ExecuteSqlRequest statement)
     {
-        if (_useStreamingRows) 
-        {
-            return ExecuteStreaming(connection, statement);
-        }
-        return FromProto(connection, TranslateException(() => _client.Execute(new ExecuteRequest
-        {
-            Connection = ToProto(connection),
-            ExecuteSqlRequest = statement,
-        })));
+        return ExecuteStreaming(connection, statement);
     }
 
     private StreamingRows ExecuteStreaming(Connection connection, ExecuteSqlRequest statement)
@@ -221,16 +225,7 @@ public class GrpcLibSpanner : ISpannerLib
     {
         try
         {
-            if (_useStreamingRows)
-            {
-                return await ExecuteStreamingAsync(connection, statement, cancellationToken).ConfigureAwait(false);
-            }
-            var rows = await _client.ExecuteAsync(new ExecuteRequest
-            {
-                Connection = ToProto(connection),
-                ExecuteSqlRequest = statement,
-            }, cancellationToken: cancellationToken).ConfigureAwait(false);
-            return FromProto(connection, rows);
+            return await ExecuteStreamingAsync(connection, statement, cancellationToken).ConfigureAwait(false);
         }
         catch (RpcException exception)
         {
@@ -251,7 +246,7 @@ public class GrpcLibSpanner : ISpannerLib
 
     public long[] ExecuteBatch(Connection connection, ExecuteBatchDmlRequest statements)
     {
-        var response = TranslateException(() => _client.ExecuteBatch(new ExecuteBatchRequest
+        var response = TranslateException(() => Client.ExecuteBatch(new ExecuteBatchRequest
         {
             Connection = ToProto(connection),
             ExecuteBatchDmlRequest = statements,
@@ -279,7 +274,7 @@ public class GrpcLibSpanner : ISpannerLib
     {
         try
         {
-            var stats = await _client.ExecuteBatchAsync(new ExecuteBatchRequest
+            var stats = await Client.ExecuteBatchAsync(new ExecuteBatchRequest
             {
                 Connection = ToProto(connection),
                 ExecuteBatchDmlRequest = statements,
@@ -299,14 +294,14 @@ public class GrpcLibSpanner : ISpannerLib
 
     public ResultSetMetadata? Metadata(Rows rows)
     {
-        return TranslateException(() => _client.Metadata(ToProto(rows)));
+        return TranslateException(() => Client.Metadata(ToProto(rows)));
     }
 
     public async Task<ResultSetMetadata?> MetadataAsync(Rows rows, CancellationToken cancellationToken = default)
     {
         try
         {
-            return await _client.MetadataAsync(ToProto(rows), cancellationToken: cancellationToken).ConfigureAwait(false);
+            return await Client.MetadataAsync(ToProto(rows), cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (RpcException exception)
         {
@@ -316,14 +311,14 @@ public class GrpcLibSpanner : ISpannerLib
 
     public ResultSetMetadata? NextResultSet(Rows rows)
     {
-        return TranslateException(() => _client.NextResultSet(ToProto(rows)));
+        return TranslateException(() => Client.NextResultSet(ToProto(rows)));
     }
 
     public async Task<ResultSetMetadata?> NextResultSetAsync(Rows rows, CancellationToken cancellationToken = default)
     {
         try
         {
-            return await _client.NextResultSetAsync(ToProto(rows), cancellationToken: cancellationToken).ConfigureAwait(false);
+            return await Client.NextResultSetAsync(ToProto(rows), cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (RpcException exception)
         {
@@ -333,12 +328,12 @@ public class GrpcLibSpanner : ISpannerLib
 
     public ResultSetStats? Stats(Rows rows)
     {
-        return TranslateException(() => _client.ResultSetStats(ToProto(rows)));
+        return TranslateException(() => Client.ResultSetStats(ToProto(rows)));
     }
 
     public ListValue? Next(Rows rows, int numRows, ISpannerLib.RowEncoding encoding)
     {
-        var row = TranslateException(() =>_client.Next(new NextRequest
+        var row = TranslateException(() =>Client.Next(new NextRequest
         {
             Rows = ToProto(rows),
             NumRows = numRows,
@@ -351,7 +346,7 @@ public class GrpcLibSpanner : ISpannerLib
     {
         try
         {
-            return await _client.NextAsync(new NextRequest
+            return await Client.NextAsync(new NextRequest
             {
                 Rows = ToProto(rows),
                 NumRows = numRows,
@@ -366,14 +361,14 @@ public class GrpcLibSpanner : ISpannerLib
 
     public void CloseRows(Rows rows)
     {
-        TranslateException(() => _client.CloseRows(ToProto(rows)));
+        TranslateException(() => Client.CloseRows(ToProto(rows)));
     }
 
     public async Task CloseRowsAsync(Rows rows, CancellationToken cancellationToken = default)
     {
         try
         {
-            await _client.CloseRowsAsync(ToProto(rows), cancellationToken: cancellationToken).ConfigureAwait(false);
+            await Client.CloseRowsAsync(ToProto(rows), cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (RpcException exception)
         {
@@ -383,7 +378,7 @@ public class GrpcLibSpanner : ISpannerLib
 
     public void BeginTransaction(Connection connection, TransactionOptions transactionOptions)
     {
-        TranslateException(() => _client.BeginTransaction(new BeginTransactionRequest
+        TranslateException(() => Client.BeginTransaction(new BeginTransactionRequest
         {
             Connection = ToProto(connection),
             TransactionOptions = transactionOptions,
@@ -392,7 +387,7 @@ public class GrpcLibSpanner : ISpannerLib
 
     public CommitResponse? Commit(Connection connection)
     {
-        var response = TranslateException(() => _client.Commit(ToProto(connection)));
+        var response = TranslateException(() => Client.Commit(ToProto(connection)));
         return response.CommitTimestamp == null ? null : response;
     }
 
@@ -400,7 +395,7 @@ public class GrpcLibSpanner : ISpannerLib
     {
         try
         {
-            var response = await _client.CommitAsync(ToProto(connection), cancellationToken: cancellationToken).ConfigureAwait(false);
+            var response = await Client.CommitAsync(ToProto(connection), cancellationToken: cancellationToken).ConfigureAwait(false);
             return response.CommitTimestamp == null ? null : response;
         }
         catch (RpcException exception)
@@ -411,14 +406,14 @@ public class GrpcLibSpanner : ISpannerLib
 
     public void Rollback(Connection connection)
     {
-        TranslateException(() => _client.Rollback(ToProto(connection)));
+        TranslateException(() => Client.Rollback(ToProto(connection)));
     }
 
     public async Task RollbackAsync(Connection connection, CancellationToken cancellationToken = default)
     {
         try
         {
-            await _client.RollbackAsync(ToProto(connection), cancellationToken:  cancellationToken).ConfigureAwait(false);
+            await Client.RollbackAsync(ToProto(connection), cancellationToken:  cancellationToken).ConfigureAwait(false);
         }
         catch (RpcException exception)
         {
@@ -426,15 +421,13 @@ public class GrpcLibSpanner : ISpannerLib
         }
     }
 
-    Pool FromProto(V1.Pool pool) => new(this, pool.Id);
+    private Pool FromProto(V1.Pool pool) => new(this, pool.Id);
 
-    V1.Pool ToProto(Pool pool) => new() { Id = pool.Id };
+    private V1.Pool ToProto(Pool pool) => new() { Id = pool.Id };
 
-    Connection FromProto(Pool pool, V1.Connection proto) => new(pool, proto.Id);
+    private Connection FromProto(Pool pool, V1.Connection proto) => new(pool, proto.Id);
 
-    V1.Connection ToProto(Connection connection) => new() { Id = connection.Id, Pool = ToProto(connection.Pool), };
+    private V1.Connection ToProto(Connection connection) => new() { Id = connection.Id, Pool = ToProto(connection.Pool), };
 
-    Rows FromProto(Connection connection, V1.Rows proto) => new(connection, proto.Id);
-
-    V1.Rows ToProto(Rows rows) => new() { Id = rows.Id, Connection = ToProto(rows.SpannerConnection), };
+    private V1.Rows ToProto(Rows rows) => new() { Id = rows.Id, Connection = ToProto(rows.SpannerConnection), };
 }

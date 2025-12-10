@@ -1,3 +1,17 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Api.Gax;
@@ -176,7 +190,9 @@ public class StreamingRows : Rows
         // Read data until we reach the next result set.
         ReadUntilEnd();
         
-        return HasNextResultSet();
+        var hasNextResultSet = HasNextResultSet();
+        _pendingRow = Next();
+        return hasNextResultSet;
     }
 
     /// <summary>
@@ -192,13 +208,17 @@ public class StreamingRows : Rows
         // Read data until we reach the next result set.
         await ReadUntilEndAsync(cancellationToken).ConfigureAwait(false);
         
-        return HasNextResultSet();
+        var hasNextResultSet = HasNextResultSet();
+        _pendingRow = await NextAsync(cancellationToken).ConfigureAwait(false);
+        return hasNextResultSet;
     }
 
     private bool HasNextResultSet()
     {
         if (_pendingNextResultSetCall)
         {
+            _stats = null;
+            _metadata = null;
             _pendingNextResultSetCall = false;
             return true;
         }
