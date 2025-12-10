@@ -11,19 +11,124 @@ public interface ConnectionStreamResponseOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
-   * @return Whether the row field is set.
+   * <pre>
+   * Status indicates whether the request succeeded or failed. The response field only contains
+   * a value if the status code is OK.
+   * </pre>
+   *
+   * <code>.google.rpc.Status status = 1;</code>
+   * @return Whether the status field is set.
    */
-  boolean hasRow();
+  boolean hasStatus();
   /**
-   * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
-   * @return The row.
+   * <pre>
+   * Status indicates whether the request succeeded or failed. The response field only contains
+   * a value if the status code is OK.
+   * </pre>
+   *
+   * <code>.google.rpc.Status status = 1;</code>
+   * @return The status.
    */
-  com.google.spanner.v1.PartialResultSet getRow();
+  com.google.rpc.Status getStatus();
   /**
-   * <code>.google.spanner.v1.PartialResultSet row = 1;</code>
+   * <pre>
+   * Status indicates whether the request succeeded or failed. The response field only contains
+   * a value if the status code is OK.
+   * </pre>
+   *
+   * <code>.google.rpc.Status status = 1;</code>
    */
-  com.google.spanner.v1.PartialResultSetOrBuilder getRowOrBuilder();
+  com.google.rpc.StatusOrBuilder getStatusOrBuilder();
+
+  /**
+   * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
+   * @return Whether the executeResponse field is set.
+   */
+  boolean hasExecuteResponse();
+  /**
+   * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
+   * @return The executeResponse.
+   */
+  com.google.cloud.spannerlib.v1.ExecuteResponse getExecuteResponse();
+  /**
+   * <code>.google.spannerlib.v1.ExecuteResponse execute_response = 2;</code>
+   */
+  com.google.cloud.spannerlib.v1.ExecuteResponseOrBuilder getExecuteResponseOrBuilder();
+
+  /**
+   * <code>.google.spanner.v1.ExecuteBatchDmlResponse execute_batch_response = 3;</code>
+   * @return Whether the executeBatchResponse field is set.
+   */
+  boolean hasExecuteBatchResponse();
+  /**
+   * <code>.google.spanner.v1.ExecuteBatchDmlResponse execute_batch_response = 3;</code>
+   * @return The executeBatchResponse.
+   */
+  com.google.spanner.v1.ExecuteBatchDmlResponse getExecuteBatchResponse();
+  /**
+   * <code>.google.spanner.v1.ExecuteBatchDmlResponse execute_batch_response = 3;</code>
+   */
+  com.google.spanner.v1.ExecuteBatchDmlResponseOrBuilder getExecuteBatchResponseOrBuilder();
+
+  /**
+   * <code>.google.protobuf.Empty begin_transaction_response = 4;</code>
+   * @return Whether the beginTransactionResponse field is set.
+   */
+  boolean hasBeginTransactionResponse();
+  /**
+   * <code>.google.protobuf.Empty begin_transaction_response = 4;</code>
+   * @return The beginTransactionResponse.
+   */
+  com.google.protobuf.Empty getBeginTransactionResponse();
+  /**
+   * <code>.google.protobuf.Empty begin_transaction_response = 4;</code>
+   */
+  com.google.protobuf.EmptyOrBuilder getBeginTransactionResponseOrBuilder();
+
+  /**
+   * <code>.google.spanner.v1.CommitResponse commit_response = 5;</code>
+   * @return Whether the commitResponse field is set.
+   */
+  boolean hasCommitResponse();
+  /**
+   * <code>.google.spanner.v1.CommitResponse commit_response = 5;</code>
+   * @return The commitResponse.
+   */
+  com.google.spanner.v1.CommitResponse getCommitResponse();
+  /**
+   * <code>.google.spanner.v1.CommitResponse commit_response = 5;</code>
+   */
+  com.google.spanner.v1.CommitResponseOrBuilder getCommitResponseOrBuilder();
+
+  /**
+   * <code>.google.protobuf.Empty rollback_response = 6;</code>
+   * @return Whether the rollbackResponse field is set.
+   */
+  boolean hasRollbackResponse();
+  /**
+   * <code>.google.protobuf.Empty rollback_response = 6;</code>
+   * @return The rollbackResponse.
+   */
+  com.google.protobuf.Empty getRollbackResponse();
+  /**
+   * <code>.google.protobuf.Empty rollback_response = 6;</code>
+   */
+  com.google.protobuf.EmptyOrBuilder getRollbackResponseOrBuilder();
+
+  /**
+   * <code>.google.spanner.v1.CommitResponse write_mutations_response = 7;</code>
+   * @return Whether the writeMutationsResponse field is set.
+   */
+  boolean hasWriteMutationsResponse();
+  /**
+   * <code>.google.spanner.v1.CommitResponse write_mutations_response = 7;</code>
+   * @return The writeMutationsResponse.
+   */
+  com.google.spanner.v1.CommitResponse getWriteMutationsResponse();
+  /**
+   * <code>.google.spanner.v1.CommitResponse write_mutations_response = 7;</code>
+   */
+  com.google.spanner.v1.CommitResponseOrBuilder getWriteMutationsResponseOrBuilder();
 
   com.google.cloud.spannerlib.v1.ConnectionStreamResponse.ResponseCase getResponseCase();
 }

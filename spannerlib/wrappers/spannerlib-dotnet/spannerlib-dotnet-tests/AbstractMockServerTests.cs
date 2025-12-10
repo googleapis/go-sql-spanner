@@ -26,12 +26,16 @@ public abstract class AbstractMockServerTests
         Shared,
         Grpc,
         GrpcTcp,
+        GrpcBidi,
     }
     
     protected readonly Dictionary<LibType, ISpannerLib> SpannerLibDictionary = new([
-        new KeyValuePair<LibType, ISpannerLib>(LibType.Shared, new SharedLibSpanner()),
-        new KeyValuePair<LibType, ISpannerLib>(LibType.Grpc, new GrpcLibSpanner()),
-        new KeyValuePair<LibType, ISpannerLib>(LibType.GrpcTcp, new GrpcLibSpanner(addressType: Server.AddressType.Tcp)),
+        (Environment.GetEnvironmentVariable("SKIP_SHARED_LIB_TESTS") ?? "").Equals("true")
+            ? new KeyValuePair<LibType, ISpannerLib>(LibType.Shared, new GrpcLibSpanner())
+            : new KeyValuePair<LibType, ISpannerLib>(LibType.Shared, new SharedLibSpanner()),
+        new KeyValuePair<LibType, ISpannerLib>(LibType.Grpc, new GrpcLibSpanner(communicationStyle: GrpcLibSpanner.CommunicationStyle.ServerStreaming)),
+        new KeyValuePair<LibType, ISpannerLib>(LibType.GrpcTcp, new GrpcLibSpanner(communicationStyle: GrpcLibSpanner.CommunicationStyle.ServerStreaming, addressType: Server.AddressType.Tcp)),
+        new KeyValuePair<LibType, ISpannerLib>(LibType.GrpcBidi, new GrpcLibSpanner(communicationStyle: GrpcLibSpanner.CommunicationStyle.BidiStreaming)),
     ]);
     
     protected SpannerMockServerFixture Fixture;
