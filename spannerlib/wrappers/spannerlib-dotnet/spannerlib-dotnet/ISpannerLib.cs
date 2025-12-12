@@ -111,23 +111,25 @@ public interface ISpannerLib : IDisposable
     /// </summary>
     /// <param name="connection">The connection to use to execute the SQL statement</param>
     /// <param name="statement">The statement to execute</param>
+    /// <param name="prefetchRows">The number of rows to prefetch and include in the initial result</param>
     /// <returns>
     /// A Rows object with the results of the statement. The contents of the Rows object depends on the type of SQL
     /// statement.
     /// </returns>
-    public Rows Execute(Connection connection, ExecuteSqlRequest statement);
+    public Rows Execute(Connection connection, ExecuteSqlRequest statement, int prefetchRows = 0);
 
     /// <summary>
     /// Executes a SQL statement of any type on the given connection.
     /// </summary>
     /// <param name="connection">The connection to use to execute the SQL statement</param>
     /// <param name="statement">The statement to execute</param>
+    /// <param name="prefetchRows">The number of rows to prefetch and include in the initial result</param>
     /// <param name="cancellationToken">The cancellation token</param>
     /// <returns>
     /// A Rows object with the results of the statement. The contents of the Rows object depends on the type of SQL
     /// statement.
     /// </returns>
-    public Task<Rows> ExecuteAsync(Connection connection, ExecuteSqlRequest statement, CancellationToken cancellationToken = default);
+    public Task<Rows> ExecuteAsync(Connection connection, ExecuteSqlRequest statement, int prefetchRows = 0, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Executes a batch of DML or DDL statements on Spanner. The batch may not contain a mix of DML and DDL statements.
@@ -145,6 +147,32 @@ public interface ISpannerLib : IDisposable
     /// <param name="cancellationToken">The cancellation token</param>
     /// <returns>The update count per statement. The update count for a DDL statement is -1.</returns>
     public Task<long[]> ExecuteBatchAsync(Connection connection, ExecuteBatchDmlRequest statements, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Converts an ExecuteBatchDmlResponse to an array of update counts.
+    /// </summary>
+    /// <param name="response">The response to convert</param>
+    /// <returns>An array of update counts extracted from the given response</returns>
+    public static long[] ToUpdateCounts(ExecuteBatchDmlResponse response)
+    {
+        var result = new long[response.ResultSets.Count];
+        for (var i = 0; i < result.Length; i++)
+        {
+            if (response.ResultSets[i].Stats.HasRowCountExact)
+            {
+                result[i] = response.ResultSets[i].Stats.RowCountExact;
+            }
+            else if (response.ResultSets[i].Stats.HasRowCountLowerBound)
+            {
+                result[i] = response.ResultSets[i].Stats.RowCountLowerBound;
+            }
+            else
+            {
+                result[i] = -1;
+            }
+        }
+        return result;
+    }
 
     /// <summary>
     /// Returns the ResultSetMetadata of a Rows object. This can be used to inspect the type of data that a Rows object
@@ -236,7 +264,19 @@ public interface ISpannerLib : IDisposable
     /// to create a read-only transaction.
     /// </param>
     public void BeginTransaction(Connection connection, TransactionOptions transactionOptions);
-
+    
+    /// <summary>
+    /// Starts a new transaction on this connection. A connection can have at most one transaction at any time. All
+    /// transactions, including read-only transactions, must be either committed or rolled back.
+    /// </summary>
+    /// <param name="connection">The connection to use to start the transaction</param>
+    /// <param name="transactionOptions">
+    /// The options for the new transaction. The default is to create a read/write transaction. Set the ReadOnly option
+    /// to create a read-only transaction.
+    /// </param>
+    /// <param name="cancellationToken">The cancellation token</param>
+    public Task BeginTransactionAsync(Connection connection, TransactionOptions transactionOptions, CancellationToken cancellationToken = default);
+    
     /// <summary>
     /// Commits the current transaction on this connection.
     /// </summary>

@@ -70,7 +70,7 @@ func NextResultSet(ctx context.Context, poolId, connId, rowsId int64) (*spannerp
 // as it allows the library to re-use the encoding buffer.
 // TODO: Add an encoder function as input argument, instead of hardcoding protobuf encoding here.
 func NextEncoded(ctx context.Context, poolId, connId, rowsId int64) ([]byte, error) {
-	_, bytes, err := next(ctx, poolId, connId, rowsId, true)
+	_, bytes, err := next(ctx, poolId, connId, rowsId /*marshalResult=*/, true /*resetBuffer=*/, false)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +79,20 @@ func NextEncoded(ctx context.Context, poolId, connId, rowsId int64) ([]byte, err
 
 // Next returns the next row as a protobuf ListValue.
 func Next(ctx context.Context, poolId, connId, rowsId int64) (*structpb.ListValue, error) {
-	values, _, err := next(ctx, poolId, connId, rowsId, false)
+	return nextWithBufferOption(ctx, poolId, connId, rowsId /*resetBuffer=*/, true)
+}
+
+// NextBuffered returns the next row as a protobuf ListValue.
+// The same buffer is used to construct the ListValue for each call. This means that this function is only
+// safe to call if the result that is returned is copied into a different data structure before the next call
+// to this function. Safe use of this function for example includes calls that request the next row and then
+// serialize this result into a byte slice or send it as a gRPC message (which also serializes the result).
+func NextBuffered(ctx context.Context, poolId, connId, rowsId int64) (*structpb.ListValue, error) {
+	return nextWithBufferOption(ctx, poolId, connId, rowsId /*resetBuffer=*/, false)
+}
+
+func nextWithBufferOption(ctx context.Context, poolId, connId, rowsId int64, resetBuffer bool) (*structpb.ListValue, error) {
+	values, _, err := next(ctx, poolId, connId, rowsId /*marshalResult=*/, false, resetBuffer)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +103,7 @@ func Next(ctx context.Context, poolId, connId, rowsId int64) (*structpb.ListValu
 // The row is returned as a protobuf ListValue if marshalResult==false.
 // The row is returned as a byte slice if marshalResult==true.
 // TODO: Add generics to the function and add input arguments for encoding instead of hardcoding it.
-func next(ctx context.Context, poolId, connId, rowsId int64, marshalResult bool) (*structpb.ListValue, []byte, error) {
+func next(ctx context.Context, poolId, connId, rowsId int64, marshalResult, resetBuffer bool) (*structpb.ListValue, []byte, error) {
 	rows, err := findRows(poolId, connId, rowsId)
 	if err != nil {
 		return nil, nil, err
@@ -98,6 +111,9 @@ func next(ctx context.Context, poolId, connId, rowsId int64, marshalResult bool)
 	values, err := rows.Next(ctx)
 	if err != nil {
 		return nil, nil, err
+	}
+	if resetBuffer {
+		rows.buffer = nil
 	}
 	if !marshalResult || values == nil {
 		return values, nil, nil

@@ -38,9 +38,25 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     /// The transaction options that will be used to create the transaction. The default is a read/write transaction.
     /// Explicitly set the ReadOnly transaction option to start a read-only transaction.
     /// </param>
-    public void BeginTransaction(TransactionOptions transactionOptions)
+    public virtual void BeginTransaction(TransactionOptions transactionOptions)
     {
         Spanner.BeginTransaction(this, transactionOptions);
+    }
+    
+    /// <summary>
+    /// Begins a new transaction on this connection. A connection can have at most one active transaction at any time.
+    /// Calling this method does not immediately start the transaction on Spanner. Instead, the transaction is only
+    /// registered on the connection, and the BeginTransaction option will be inlined with the first statement in the
+    /// transaction.
+    /// </summary>
+    /// <param name="transactionOptions">
+    /// The transaction options that will be used to create the transaction. The default is a read/write transaction.
+    /// Explicitly set the ReadOnly transaction option to start a read-only transaction.
+    /// </param>
+    /// <param name="cancellationToken">The cancellation token</param>
+    public virtual Task BeginTransactionAsync(TransactionOptions transactionOptions, CancellationToken cancellationToken = default)
+    {
+        return Spanner.BeginTransactionAsync(this, transactionOptions, cancellationToken);
     }
 
     /// <summary>
@@ -50,12 +66,12 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     /// is committed.
     /// </summary>
     /// <returns>The CommitResponse for this transaction, or null for read-only transactions</returns>
-    public CommitResponse? Commit()
+    public virtual CommitResponse? Commit()
     {
         return Spanner.Commit(this);
     }
 
-    public Task<CommitResponse?> CommitAsync(CancellationToken cancellationToken = default)
+    public virtual Task<CommitResponse?> CommitAsync(CancellationToken cancellationToken = default)
     {
         return Spanner.CommitAsync(this, cancellationToken);
     }
@@ -63,12 +79,12 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     /// <summary>
     /// Rollbacks the current transaction.
     /// </summary>
-    public void Rollback()
+    public virtual void Rollback()
     {
         Spanner.Rollback(this);
     }
 
-    public Task RollbackAsync(CancellationToken cancellationToken = default)
+    public virtual Task RollbackAsync(CancellationToken cancellationToken = default)
     {
         return Spanner.RollbackAsync(this, cancellationToken);
     }
@@ -84,7 +100,7 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     /// The CommitResponse that is returned by Spanner, or null if the mutations were only buffered in the current
     /// transaction.
     /// </returns>
-    public CommitResponse? WriteMutations(BatchWriteRequest.Types.MutationGroup mutations)
+    public virtual CommitResponse? WriteMutations(BatchWriteRequest.Types.MutationGroup mutations)
     {
         return Spanner.WriteMutations(this, mutations);
     }
@@ -101,7 +117,7 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     /// The CommitResponse that is returned by Spanner, or null if the mutations were only buffered in the current
     /// transaction.
     /// </returns>
-    public Task<CommitResponse?> WriteMutationsAsync(BatchWriteRequest.Types.MutationGroup mutations,
+    public virtual Task<CommitResponse?> WriteMutationsAsync(BatchWriteRequest.Types.MutationGroup mutations,
         CancellationToken cancellationToken = default)
     {
         return Spanner.WriteMutationsAsync(this, mutations, cancellationToken);
@@ -112,10 +128,11 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     /// connection. The contents of the returned Rows object depends on the type of SQL statement.
     /// </summary>
     /// <param name="statement">The SQL statement that should be executed</param>
+    /// <param name="prefetchRows">The number of rows to prefetch and include in the initial result</param>
     /// <returns>A Rows object with the statement result</returns>
-    public Rows Execute(ExecuteSqlRequest statement)
+    public virtual Rows Execute(ExecuteSqlRequest statement, int prefetchRows = 0)
     {
-        return Spanner.Execute(this, statement);
+        return Spanner.Execute(this, statement, prefetchRows);
     }
 
     /// <summary>
@@ -123,10 +140,12 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     /// connection. The contents of the returned Rows object depends on the type of SQL statement.
     /// </summary>
     /// <param name="statement">The SQL statement that should be executed</param>
+    /// <param name="prefetchRows">The number of rows to prefetch and include in the initial result</param>
+    /// <param name="cancellationToken">The cancellation token</param>
     /// <returns>A Rows object with the statement result</returns>
-    public Task<Rows> ExecuteAsync(ExecuteSqlRequest statement)
+    public virtual Task<Rows> ExecuteAsync(ExecuteSqlRequest statement, int prefetchRows = 0, CancellationToken cancellationToken = default)
     {
-        return Spanner.ExecuteAsync(this, statement);
+        return Spanner.ExecuteAsync(this, statement, prefetchRows, cancellationToken);
     }
 
     /// <summary>
@@ -136,7 +155,7 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     /// </summary>
     /// <param name="statements">The DML or DDL statements to execute</param>
     /// <returns>The update count per statement. The update count for a DDL statement is -1.</returns>
-    public long[] ExecuteBatch(IEnumerable<ExecuteBatchDmlRequest.Types.Statement> statements)
+    public virtual long[] ExecuteBatch(List<ExecuteBatchDmlRequest.Types.Statement> statements)
     {
         var request = new ExecuteBatchDmlRequest
         {
@@ -151,14 +170,15 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
     /// transaction is not supported.
     /// </summary>
     /// <param name="statements">The DML or DDL statements to execute</param>
+    /// <param name="cancellationToken">The cancellation token</param>
     /// <returns>The update count per statement. The update count for a DDL statement is -1.</returns>
-    public Task<long[]> ExecuteBatchAsync(List<ExecuteBatchDmlRequest.Types.Statement> statements)
+    public virtual Task<long[]> ExecuteBatchAsync(List<ExecuteBatchDmlRequest.Types.Statement> statements, CancellationToken cancellationToken = default)
     {
         var request = new ExecuteBatchDmlRequest
         {
             Statements = { statements }
         };
-        return Spanner.ExecuteBatchAsync(this, request);
+        return Spanner.ExecuteBatchAsync(this, request, cancellationToken);
     }
 
     /// <summary>

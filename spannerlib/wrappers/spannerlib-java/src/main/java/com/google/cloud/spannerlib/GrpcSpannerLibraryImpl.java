@@ -16,7 +16,6 @@
 
 package com.google.cloud.spannerlib;
 
-import com.google.cloud.spannerlib.Rows.Encoding;
 import com.google.cloud.spannerlib.v1.BeginTransactionRequest;
 import com.google.cloud.spannerlib.v1.CreateConnectionRequest;
 import com.google.cloud.spannerlib.v1.CreatePoolRequest;
@@ -260,13 +259,7 @@ public class GrpcSpannerLibraryImpl implements SpannerLibrary {
   @Override
   public ListValue next(Rows rows) {
     try {
-      ListValue values =
-          stub.next(
-              NextRequest.newBuilder()
-                  .setRows(toProto(rows))
-                  .setNumRows(1)
-                  .setEncoding(Encoding.PROTOBUF.ordinal())
-                  .build());
+      ListValue values = stub.next(NextRequest.newBuilder().setRows(toProto(rows)).build());
       if (values.getValuesList().isEmpty()) {
         return null;
       }

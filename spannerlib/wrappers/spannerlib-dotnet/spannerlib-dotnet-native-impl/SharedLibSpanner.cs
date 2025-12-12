@@ -111,7 +111,7 @@ public class SharedLibSpanner : ISpannerLib
         return await Task.Run(() => WriteMutations(connection, mutations), cancellationToken).ConfigureAwait(false);
     }
 
-    public Rows Execute(Connection connection, ExecuteSqlRequest statement)
+    public Rows Execute(Connection connection, ExecuteSqlRequest statement, int prefetchRows = 0)
     {
         using var handler = ExecuteLibraryFunction(() =>
         {
@@ -122,7 +122,7 @@ public class SharedLibSpanner : ISpannerLib
         return new Rows(connection, handler.ObjectId());
     }
 
-    public async Task<Rows> ExecuteAsync(Connection connection, ExecuteSqlRequest statement, CancellationToken cancellationToken)
+    public async Task<Rows> ExecuteAsync(Connection connection, ExecuteSqlRequest statement, int prefetchRows = 0, CancellationToken cancellationToken = default)
     {
         return await Task.Run(() => Execute(connection, statement), cancellationToken).ConfigureAwait(false);
     }
@@ -223,6 +223,12 @@ public class SharedLibSpanner : ISpannerLib
             using var goOptions = DisposableGoSlice.Create(optionsBytes);
             return SpannerLib.BeginTransaction(connection.Pool.Id, connection.Id, goOptions.GoSlice);
         });
+    }
+
+    public Task BeginTransactionAsync(Connection connection, TransactionOptions transactionOptions,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => BeginTransaction(connection, transactionOptions), cancellationToken);
     }
 
     public CommitResponse? Commit(Connection connection)

@@ -75,20 +75,36 @@ public sealed class GrpcLibSpanner : ISpannerLib
         });
     }
     
+    /// <summary>
+    /// This enum is used to configure a connection to use either a single bidirectional gRPC stream for all requests
+    /// that are sent to SpannerLib, or to use server streaming RPCs for queries and unary RPCs for all other
+    /// operations.
+    ///
+    /// NOTE: This enum is likely to be removed in a future version.
+    /// </summary>
+    public enum CommunicationStyle
+    {
+        ServerStreaming,
+        BidiStreaming,
+    }
+    
     private readonly Server _server;
     private readonly V1.SpannerLib.SpannerLibClient[] _clients;
     private readonly GrpcChannel[] _channels;
+    private readonly CommunicationStyle _communicationStyle;
     private bool _disposed;
     
-    private V1.SpannerLib.SpannerLibClient Client => _clients[Random.Shared.Next(_clients.Length)];
+    internal V1.SpannerLib.SpannerLibClient Client => _clients[Random.Shared.Next(_clients.Length)];
 
     public GrpcLibSpanner(
+        CommunicationStyle communicationStyle = CommunicationStyle.BidiStreaming,
         int numChannels = 4,
         Server.AddressType addressType = Server.AddressType.UnixDomainSocket)
     {
         GaxPreconditions.CheckArgument(numChannels > 0, nameof(numChannels), "numChannels must be > 0");
         _server = new Server();
         var file = _server.Start(addressType: addressType);
+        _communicationStyle = communicationStyle;
 
         _channels = new GrpcChannel[numChannels];
         _clients = new V1.SpannerLib.SpannerLibClient[numChannels];
@@ -205,27 +221,41 @@ public sealed class GrpcLibSpanner : ISpannerLib
         }
     }
     
-    public Rows Execute(Connection connection, ExecuteSqlRequest statement)
+    public Rows Execute(Connection connection, ExecuteSqlRequest statement, int prefetchRows = 0)
     {
-        return ExecuteStreaming(connection, statement);
+        return ExecuteStreaming(connection, statement, prefetchRows);
     }
 
-    private StreamingRows ExecuteStreaming(Connection connection, ExecuteSqlRequest statement)
+    private StreamingRows ExecuteStreaming(Connection connection, ExecuteSqlRequest statement, int prefetchRows)
     {
         var client = _clients[Random.Shared.Next(_clients.Length)];
         var stream = TranslateException(() => client.ExecuteStreaming(new ExecuteRequest
         {
             Connection = ToProto(connection),
             ExecuteSqlRequest = statement,
+            FetchOptions = new FetchOptions
+            {
+                NumRows = prefetchRows,
+            },
         }));
-        return StreamingRows.Create(connection, stream);
+        return StreamingRows.Create(this, connection, stream);
+    }
+    
+    internal AsyncServerStreamingCall<RowData> ContinueStreaming(Connection connection, long rowsId)
+    {
+        var client = _clients[Random.Shared.Next(_clients.Length)];
+        return TranslateException(() => client.ContinueStreaming(new V1.Rows
+        {
+            Connection = ToProto(connection),
+            Id = rowsId,
+        }));
     }
 
-    public async Task<Rows> ExecuteAsync(Connection connection, ExecuteSqlRequest statement, CancellationToken cancellationToken = default)
+    public async Task<Rows> ExecuteAsync(Connection connection, ExecuteSqlRequest statement, int prefetchRows = 0, CancellationToken cancellationToken = default)
     {
         try
         {
-            return await ExecuteStreamingAsync(connection, statement, cancellationToken).ConfigureAwait(false);
+            return await ExecuteStreamingAsync(connection, statement, prefetchRows, cancellationToken).ConfigureAwait(false);
         }
         catch (RpcException exception)
         {
@@ -233,15 +263,29 @@ public sealed class GrpcLibSpanner : ISpannerLib
         }
     }
 
-    private async Task<StreamingRows> ExecuteStreamingAsync(Connection connection, ExecuteSqlRequest statement, CancellationToken cancellationToken = default)
+    private async Task<StreamingRows> ExecuteStreamingAsync(Connection connection, ExecuteSqlRequest statement, int prefetchRows, CancellationToken cancellationToken = default)
     {
         var client = _clients[Random.Shared.Next(_clients.Length)];
         var stream = TranslateException(() => client.ExecuteStreaming(new ExecuteRequest
         {
             Connection = ToProto(connection),
             ExecuteSqlRequest = statement,
+            FetchOptions = new FetchOptions
+            {
+                NumRows = prefetchRows,
+            },
         }));
-        return await StreamingRows.CreateAsync(connection, stream, cancellationToken).ConfigureAwait(false);
+        return await StreamingRows.CreateAsync(this, connection, stream, cancellationToken).ConfigureAwait(false);
+    }
+    
+    internal AsyncServerStreamingCall<RowData> ContinueStreamingAsync(Connection connection, long rowsId, CancellationToken cancellationToken)
+    {
+        var client = _clients[Random.Shared.Next(_clients.Length)];
+        return TranslateException(() => client.ContinueStreaming(new V1.Rows
+        {
+            Connection = ToProto(connection),
+            Id = rowsId,
+        },  cancellationToken: cancellationToken));
     }
 
     public long[] ExecuteBatch(Connection connection, ExecuteBatchDmlRequest statements)
@@ -251,40 +295,19 @@ public sealed class GrpcLibSpanner : ISpannerLib
             Connection = ToProto(connection),
             ExecuteBatchDmlRequest = statements,
         }));
-        var result = new long[response.ResultSets.Count];
-        for (var i = 0; i < result.Length; i++)
-        {
-            if (response.ResultSets[i].Stats.HasRowCountExact)
-            {
-                result[i] = response.ResultSets[i].Stats.RowCountExact;
-            }
-            else if (response.ResultSets[i].Stats.HasRowCountLowerBound)
-            {
-                result[i] = response.ResultSets[i].Stats.RowCountLowerBound;
-            }
-            else
-            {
-                result[i] = -1;
-            }
-        }
-        return result;
+        return ISpannerLib.ToUpdateCounts(response);
     }
 
     public async Task<long[]> ExecuteBatchAsync(Connection connection, ExecuteBatchDmlRequest statements, CancellationToken cancellationToken = default)
     {
         try
         {
-            var stats = await Client.ExecuteBatchAsync(new ExecuteBatchRequest
+            var response = await Client.ExecuteBatchAsync(new ExecuteBatchRequest
             {
                 Connection = ToProto(connection),
                 ExecuteBatchDmlRequest = statements,
             }, cancellationToken: cancellationToken).ConfigureAwait(false);
-            var result = new long[stats.ResultSets.Count];
-            for (var i = 0; i < result.Length; i++)
-            {
-                result[i] = stats.ResultSets[i].Stats.RowCountExact;
-            }
-            return result;
+            return ISpannerLib.ToUpdateCounts(response);
         }
         catch (RpcException exception)
         {
@@ -336,8 +359,11 @@ public sealed class GrpcLibSpanner : ISpannerLib
         var row = TranslateException(() =>Client.Next(new NextRequest
         {
             Rows = ToProto(rows),
-            NumRows = numRows,
-            Encoding = (long) encoding,
+            FetchOptions = new FetchOptions
+            {
+                NumRows = numRows,
+                Encoding = (long) encoding,
+            },
         }));
         return row.Values.Count == 0 ? null : row;
     }
@@ -349,8 +375,11 @@ public sealed class GrpcLibSpanner : ISpannerLib
             return await Client.NextAsync(new NextRequest
             {
                 Rows = ToProto(rows),
-                NumRows = numRows,
-                Encoding = (long)encoding,
+                FetchOptions = new FetchOptions
+                {
+                    NumRows = numRows,
+                    Encoding = (long) encoding,
+                },
             }, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (RpcException exception)
@@ -384,7 +413,16 @@ public sealed class GrpcLibSpanner : ISpannerLib
             TransactionOptions = transactionOptions,
         }));
     }
-
+    
+    public async Task BeginTransactionAsync(Connection connection, TransactionOptions transactionOptions, CancellationToken cancellationToken = default)
+    {
+        await TranslateException(() => Client.BeginTransactionAsync(new BeginTransactionRequest
+        {
+            Connection = ToProto(connection),
+            TransactionOptions = transactionOptions,
+        })).ConfigureAwait(false);
+    }
+    
     public CommitResponse? Commit(Connection connection)
     {
         var response = TranslateException(() => Client.Commit(ToProto(connection)));
@@ -423,11 +461,14 @@ public sealed class GrpcLibSpanner : ISpannerLib
 
     private Pool FromProto(V1.Pool pool) => new(this, pool.Id);
 
-    private V1.Pool ToProto(Pool pool) => new() { Id = pool.Id };
+    private static V1.Pool ToProto(Pool pool) => new() { Id = pool.Id };
 
-    private Connection FromProto(Pool pool, V1.Connection proto) => new(pool, proto.Id);
+    private Connection FromProto(Pool pool, V1.Connection proto) =>
+        _communicationStyle == CommunicationStyle.ServerStreaming
+            ? new Connection(pool, proto.Id)
+            : new GrpcBidiConnection(this, pool, proto.Id);
 
-    private V1.Connection ToProto(Connection connection) => new() { Id = connection.Id, Pool = ToProto(connection.Pool), };
+    internal static V1.Connection ToProto(Connection connection) => new() { Id = connection.Id, Pool = ToProto(connection.Pool), };
 
     private V1.Rows ToProto(Rows rows) => new() { Id = rows.Id, Connection = ToProto(rows.SpannerConnection), };
 }

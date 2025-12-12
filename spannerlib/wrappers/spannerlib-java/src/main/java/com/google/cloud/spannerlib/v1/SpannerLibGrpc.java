@@ -570,6 +570,37 @@ public final class SpannerLibGrpc {
     return getConnectionStreamMethod;
   }
 
+  private static volatile io.grpc.MethodDescriptor<com.google.cloud.spannerlib.v1.Rows,
+      com.google.cloud.spannerlib.v1.RowData> getContinueStreamingMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "ContinueStreaming",
+      requestType = com.google.cloud.spannerlib.v1.Rows.class,
+      responseType = com.google.cloud.spannerlib.v1.RowData.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.SERVER_STREAMING)
+  public static io.grpc.MethodDescriptor<com.google.cloud.spannerlib.v1.Rows,
+      com.google.cloud.spannerlib.v1.RowData> getContinueStreamingMethod() {
+    io.grpc.MethodDescriptor<com.google.cloud.spannerlib.v1.Rows, com.google.cloud.spannerlib.v1.RowData> getContinueStreamingMethod;
+    if ((getContinueStreamingMethod = SpannerLibGrpc.getContinueStreamingMethod) == null) {
+      synchronized (SpannerLibGrpc.class) {
+        if ((getContinueStreamingMethod = SpannerLibGrpc.getContinueStreamingMethod) == null) {
+          SpannerLibGrpc.getContinueStreamingMethod = getContinueStreamingMethod =
+              io.grpc.MethodDescriptor.<com.google.cloud.spannerlib.v1.Rows, com.google.cloud.spannerlib.v1.RowData>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.SERVER_STREAMING)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "ContinueStreaming"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  com.google.cloud.spannerlib.v1.Rows.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  com.google.cloud.spannerlib.v1.RowData.getDefaultInstance()))
+              .setSchemaDescriptor(new SpannerLibMethodDescriptorSupplier("ContinueStreaming"))
+              .build();
+        }
+      }
+    }
+    return getContinueStreamingMethod;
+  }
+
   /**
    * Creates a new async stub that supports all call types for the service
    */
@@ -753,10 +784,28 @@ public final class SpannerLibGrpc {
     }
 
     /**
+     * <pre>
+     * ConnectionStream opens a bi-directional gRPC stream between the client and the server.
+     * This stream can be re-used by the client for multiple requests, and normally gives the
+     * lowest possible latency, at the cost of a slightly more complex API.
+     * </pre>
      */
     default io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.ConnectionStreamRequest> connectionStream(
         io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.ConnectionStreamResponse> responseObserver) {
       return io.grpc.stub.ServerCalls.asyncUnimplementedStreamingCall(getConnectionStreamMethod(), responseObserver);
+    }
+
+    /**
+     * <pre>
+     * ContinueStreaming returns a server stream that returns the remaining rows of a SQL statement
+     * that has previously been executed using a ConnectionStreamRequest on a bi-directional
+     * ConnectionStream. The client is responsible for calling this RPC if the has_more_data flag
+     * of the ExecuteResponse was true.
+     * </pre>
+     */
+    default void continueStreaming(com.google.cloud.spannerlib.v1.Rows request,
+        io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.RowData> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getContinueStreamingMethod(), responseObserver);
     }
   }
 
@@ -924,11 +973,30 @@ public final class SpannerLibGrpc {
     }
 
     /**
+     * <pre>
+     * ConnectionStream opens a bi-directional gRPC stream between the client and the server.
+     * This stream can be re-used by the client for multiple requests, and normally gives the
+     * lowest possible latency, at the cost of a slightly more complex API.
+     * </pre>
      */
     public io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.ConnectionStreamRequest> connectionStream(
         io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.ConnectionStreamResponse> responseObserver) {
       return io.grpc.stub.ClientCalls.asyncBidiStreamingCall(
           getChannel().newCall(getConnectionStreamMethod(), getCallOptions()), responseObserver);
+    }
+
+    /**
+     * <pre>
+     * ContinueStreaming returns a server stream that returns the remaining rows of a SQL statement
+     * that has previously been executed using a ConnectionStreamRequest on a bi-directional
+     * ConnectionStream. The client is responsible for calling this RPC if the has_more_data flag
+     * of the ExecuteResponse was true.
+     * </pre>
+     */
+    public void continueStreaming(com.google.cloud.spannerlib.v1.Rows request,
+        io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.RowData> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncServerStreamingCall(
+          getChannel().newCall(getContinueStreamingMethod(), getCallOptions()), request, responseObserver);
     }
   }
 
@@ -1070,12 +1138,32 @@ public final class SpannerLibGrpc {
     }
 
     /**
+     * <pre>
+     * ConnectionStream opens a bi-directional gRPC stream between the client and the server.
+     * This stream can be re-used by the client for multiple requests, and normally gives the
+     * lowest possible latency, at the cost of a slightly more complex API.
+     * </pre>
      */
     @io.grpc.ExperimentalApi("https://github.com/grpc/grpc-java/issues/10918")
     public io.grpc.stub.BlockingClientCall<com.google.cloud.spannerlib.v1.ConnectionStreamRequest, com.google.cloud.spannerlib.v1.ConnectionStreamResponse>
         connectionStream() {
       return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
           getChannel(), getConnectionStreamMethod(), getCallOptions());
+    }
+
+    /**
+     * <pre>
+     * ContinueStreaming returns a server stream that returns the remaining rows of a SQL statement
+     * that has previously been executed using a ConnectionStreamRequest on a bi-directional
+     * ConnectionStream. The client is responsible for calling this RPC if the has_more_data flag
+     * of the ExecuteResponse was true.
+     * </pre>
+     */
+    @io.grpc.ExperimentalApi("https://github.com/grpc/grpc-java/issues/10918")
+    public io.grpc.stub.BlockingClientCall<?, com.google.cloud.spannerlib.v1.RowData>
+        continueStreaming(com.google.cloud.spannerlib.v1.Rows request) {
+      return io.grpc.stub.ClientCalls.blockingV2ServerStreamingCall(
+          getChannel(), getContinueStreamingMethod(), getCallOptions(), request);
     }
   }
 
@@ -1213,6 +1301,20 @@ public final class SpannerLibGrpc {
     public com.google.spanner.v1.CommitResponse writeMutations(com.google.cloud.spannerlib.v1.WriteMutationsRequest request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
           getChannel(), getWriteMutationsMethod(), getCallOptions(), request);
+    }
+
+    /**
+     * <pre>
+     * ContinueStreaming returns a server stream that returns the remaining rows of a SQL statement
+     * that has previously been executed using a ConnectionStreamRequest on a bi-directional
+     * ConnectionStream. The client is responsible for calling this RPC if the has_more_data flag
+     * of the ExecuteResponse was true.
+     * </pre>
+     */
+    public java.util.Iterator<com.google.cloud.spannerlib.v1.RowData> continueStreaming(
+        com.google.cloud.spannerlib.v1.Rows request) {
+      return io.grpc.stub.ClientCalls.blockingServerStreamingCall(
+          getChannel(), getContinueStreamingMethod(), getCallOptions(), request);
     }
   }
 
@@ -1378,7 +1480,8 @@ public final class SpannerLibGrpc {
   private static final int METHODID_COMMIT = 14;
   private static final int METHODID_ROLLBACK = 15;
   private static final int METHODID_WRITE_MUTATIONS = 16;
-  private static final int METHODID_CONNECTION_STREAM = 17;
+  private static final int METHODID_CONTINUE_STREAMING = 17;
+  private static final int METHODID_CONNECTION_STREAM = 18;
 
   private static final class MethodHandlers<Req, Resp> implements
       io.grpc.stub.ServerCalls.UnaryMethod<Req, Resp>,
@@ -1464,6 +1567,10 @@ public final class SpannerLibGrpc {
         case METHODID_WRITE_MUTATIONS:
           serviceImpl.writeMutations((com.google.cloud.spannerlib.v1.WriteMutationsRequest) request,
               (io.grpc.stub.StreamObserver<com.google.spanner.v1.CommitResponse>) responseObserver);
+          break;
+        case METHODID_CONTINUE_STREAMING:
+          serviceImpl.continueStreaming((com.google.cloud.spannerlib.v1.Rows) request,
+              (io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.RowData>) responseObserver);
           break;
         default:
           throw new AssertionError();
@@ -1612,6 +1719,13 @@ public final class SpannerLibGrpc {
               com.google.cloud.spannerlib.v1.ConnectionStreamRequest,
               com.google.cloud.spannerlib.v1.ConnectionStreamResponse>(
                 service, METHODID_CONNECTION_STREAM)))
+        .addMethod(
+          getContinueStreamingMethod(),
+          io.grpc.stub.ServerCalls.asyncServerStreamingCall(
+            new MethodHandlers<
+              com.google.cloud.spannerlib.v1.Rows,
+              com.google.cloud.spannerlib.v1.RowData>(
+                service, METHODID_CONTINUE_STREAMING)))
         .build();
   }
 
@@ -1678,6 +1792,7 @@ public final class SpannerLibGrpc {
               .addMethod(getRollbackMethod())
               .addMethod(getWriteMutationsMethod())
               .addMethod(getConnectionStreamMethod())
+              .addMethod(getContinueStreamingMethod())
               .build();
         }
       }

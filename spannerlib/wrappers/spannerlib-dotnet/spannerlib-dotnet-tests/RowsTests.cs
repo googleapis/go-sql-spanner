@@ -61,7 +61,7 @@ public class RowsTests : AbstractMockServerTests
     }
 
     [Test]
-    public void TestRandomResults([Values] LibType libType, [Values(0, 1, 10)] int numRows)
+    public void TestRandomResults([Values] LibType libType, [Values(0, 1, 10)] int numRows, [Values(0, 1, 5, 9, 10, 11)] int prefetchRows)
     {
         var rowType = RandomResultSetGenerator.GenerateAllTypesRowType();
         var results = RandomResultSetGenerator.Generate(rowType, numRows);
@@ -69,7 +69,7 @@ public class RowsTests : AbstractMockServerTests
         
         using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
-        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = "select * from random" });
+        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = "select * from random" }, prefetchRows);
 
         var rowCount = 0;
         while (rows.Next() is { } row)
@@ -107,7 +107,7 @@ public class RowsTests : AbstractMockServerTests
     }
 
     [Test]
-    public void TestStopHalfway([Values] LibType libType, [Values(2, 10)] int numRows)
+    public void TestStopHalfway([Values] LibType libType, [Values(2, 10)] int numRows, [Values(0, 1, 2, 3, 5, 9, 10, 11)] int prefetchRows)
     {
         var rowType = RandomResultSetGenerator.GenerateAllTypesRowType();
         var results = RandomResultSetGenerator.Generate(rowType, numRows);
@@ -116,7 +116,7 @@ public class RowsTests : AbstractMockServerTests
         
         using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
-        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = "select * from random" });
+        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = "select * from random" }, prefetchRows);
         Assert.That(rows.Metadata, Is.Not.Null);
         Assert.That(rows.Metadata.RowType.Fields.Count, Is.EqualTo(rowType.Fields.Count));
 
@@ -137,7 +137,7 @@ public class RowsTests : AbstractMockServerTests
     }
     
     [Test]
-    public void TestStopHalfwayTwoQueries([Values] LibType libType)
+    public void TestStopHalfwayTwoQueries([Values] LibType libType, [Values(0, 1, 2, 3)] int prefetchRows)
     {
         const string sql = "select c from my_table";
         Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateResultSet(
@@ -148,7 +148,7 @@ public class RowsTests : AbstractMockServerTests
 
         for (var i = 0; i < 2; i++)
         {
-            using var rows = connection.Execute(new ExecuteSqlRequest { Sql = sql });
+            using var rows = connection.Execute(new ExecuteSqlRequest { Sql = sql }, prefetchRows);
             Assert.That(rows.Metadata, Is.Not.Null);
             Assert.That(rows.Metadata.RowType.Fields.Count, Is.EqualTo(1));
             var row = rows.Next();
@@ -164,6 +164,7 @@ public class RowsTests : AbstractMockServerTests
     public void TestStopHalfwayMultipleQueries(
         [Values] LibType libType,
         [Values(2, 10)] int numRows,
+        [Values(0, 1, 2, 3, 5, 9, 10, 11)] int prefetchRows,
         [Values(1, 2, 3)] int numQueries)
     {
         const string query = "select * from random";
@@ -183,7 +184,7 @@ public class RowsTests : AbstractMockServerTests
         var sql = string.Join(";", queries);
         using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
-        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = sql });
+        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = sql } ,prefetchRows);
         Assert.That(rows.Metadata, Is.Not.Null);
         Assert.That(rows.Metadata.RowType.Fields.Count, Is.EqualTo(rowType.Fields.Count));
 
@@ -242,14 +243,14 @@ public class RowsTests : AbstractMockServerTests
     }
 
     [Test]
-    public void TestExecuteDml([Values] LibType libType)
+    public void TestExecuteDml([Values] LibType libType, [Values(0, 1, 2)] int prefetchRows)
     {
         var sql = "update my_table set value=1 where id=2";
         Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateUpdateCount(1L));
         
         using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
-        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = sql });
+        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = sql }, prefetchRows);
         Assert.That(rows.Next(), Is.Null);
         Assert.That(rows.UpdateCount, Is.EqualTo(1L));
         
@@ -337,7 +338,7 @@ public class RowsTests : AbstractMockServerTests
     }
     
     [Test]
-    public async Task TestMultipleMixedStatements([Values] LibType libType, [Values(2, 10)] int numRows, [Values] bool async)
+    public async Task TestMultipleMixedStatements([Values] LibType libType, [Values(2, 10)] int numRows, [Values(0, 1, 2, 3, 5, 9, 10, 11)] int prefetchRows, [Values] bool async)
     {
         var updateCount = 3L;
         var dml = "update my_table set value=1 where id in (1,2,3)";
@@ -354,9 +355,9 @@ public class RowsTests : AbstractMockServerTests
         await using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         await using var connection = pool.CreateConnection();
         await using var rows = async
-            ? await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = sql })
+            ? await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = sql }, prefetchRows)
             // ReSharper disable once MethodHasAsyncOverload
-            : connection.Execute(new ExecuteSqlRequest { Sql = sql });
+            : connection.Execute(new ExecuteSqlRequest { Sql = sql }, prefetchRows);
 
         var numResultSets = 0;
         var totalRows = 0;
@@ -388,6 +389,7 @@ public class RowsTests : AbstractMockServerTests
     public async Task TestMultipleMixedStatementsWithErrors(
         [Values] LibType libType,
         [Values(2, 10)] int numRows,
+        [Values(0, 1, 2, 3, 5, 9, 10, 11)] int prefetchRows,
         [Values(0, 1, 2, 3, 4, 5)] int errorIndex,
         [Values] bool async)
     {
@@ -431,19 +433,19 @@ public class RowsTests : AbstractMockServerTests
         {
             if (async)
             {
-                Assert.ThrowsAsync<SpannerException>(() => connection.ExecuteAsync(new ExecuteSqlRequest { Sql = sql }));
+                Assert.ThrowsAsync<SpannerException>(() => connection.ExecuteAsync(new ExecuteSqlRequest { Sql = sql }, prefetchRows));
             }
             else
             {
-                Assert.Throws<SpannerException>(() => connection.Execute(new ExecuteSqlRequest { Sql = sql }));
+                Assert.Throws<SpannerException>(() => connection.Execute(new ExecuteSqlRequest { Sql = sql }, prefetchRows));
             }
         }
         else
         {
             await using var rows = async
-                ? await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = sql })
+                ? await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = sql }, prefetchRows)
                 // ReSharper disable once MethodHasAsyncOverload
-                : connection.Execute(new ExecuteSqlRequest { Sql = sql });
+                : connection.Execute(new ExecuteSqlRequest { Sql = sql }, prefetchRows);
 
             var statementIndex = 0;
             while (statementIndex < numStatements)
