@@ -23,7 +23,7 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       
       - name: Download Shared Library Artifacts
         uses: actions/download-artifact@v4 
@@ -42,7 +42,7 @@ jobs:
           ls -R spannerlib/wrappers/spannerlib-python/spannerlib-python/google/cloud/spannerlib/internal/lib
       
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
           cache: 'pip'
