@@ -23,18 +23,11 @@ import nox
 
 DEFAULT_PYTHON_VERSION = "3.11"
 
-UNIT_TEST_PYTHON_VERSIONS: List[str] = [
+TEST_PYTHON_VERSIONS: List[str] = [
     "3.10",
     "3.11",
     "3.12",
     "3.13",
-]
-SYSTEM_TEST_PYTHON_VERSIONS: List[str] = [
-    "3.10",
-    "3.11",
-    "3.12",
-    "3.13",
-    "3.14",
 ]
 
 
@@ -55,6 +48,11 @@ SYSTEM_TEST_STANDARD_DEPENDENCIES = [
     "pytest",
 ]
 
+MOCK_TEST_STANDARD_DEPENDENCIES = [
+    "pytest",
+    "spannermockserver",
+]
+
 VERBOSE = True
 MODE = "--verbose" if VERBOSE else "--quiet"
 
@@ -64,7 +62,7 @@ LIB_DIR = "google/cloud/spannerlib/internal/lib"
 # Error if a python version is missing
 nox.options.error_on_missing_interpreters = True
 
-nox.options.sessions = ["format", "lint", "unit", "system"]
+nox.options.sessions = ["format", "lint", "unit", "mock", "system"]
 
 
 @nox.session(python=DEFAULT_PYTHON_VERSION)
@@ -101,7 +99,7 @@ def lint(session):
     )
 
 
-@nox.session(python=UNIT_TEST_PYTHON_VERSIONS)
+@nox.session(python=TEST_PYTHON_VERSIONS)
 def unit(session):
     """Run unit tests."""
 
@@ -172,7 +170,28 @@ def _build_artifacts(session):
     run_bash_script(session, "./build-shared-lib.sh")
 
 
-@nox.session(python=SYSTEM_TEST_PYTHON_VERSIONS)
+@nox.session(python=TEST_PYTHON_VERSIONS)
+def mock(session):
+    """Run mock tests using spannermockserver."""
+    # Build/Copy artifacts using the script
+    _build_artifacts(session)
+
+    session.install(*STANDARD_DEPENDENCIES, *MOCK_TEST_STANDARD_DEPENDENCIES)
+    session.install("-e", ".")
+
+    test_paths = (
+        session.posargs if session.posargs else [os.path.join("tests", "mock")]
+    )
+    session.run(
+        "py.test",
+        MODE,
+        f"--junitxml=mock_{session.python}_sponge_log.xml",
+        *test_paths,
+        env={},
+    )
+
+
+@nox.session(python=TEST_PYTHON_VERSIONS)
 def system(session):
     """Run system tests."""
 
