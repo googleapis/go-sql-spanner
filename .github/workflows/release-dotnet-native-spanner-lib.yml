@@ -21,12 +21,12 @@ jobs:
         working-directory: spannerlib
         run: go build grpc_server.go
       - name: Upload linux-x64 shared lib
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: spannerlib-linux-x64
           path: spannerlib/spannerlib.so
       - name: Upload linux-x64 gRPC server
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: spannerlib-server-linux-x64
           path: spannerlib/grpc_server
@@ -46,12 +46,12 @@ jobs:
         working-directory: spannerlib
         run: go build grpc_server.go
       - name: Upload osx-arm64 shared lib
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: spannerlib-osx-arm64
           path: spannerlib/spannerlib.dylib
       - name: Upload osx-arm64 gRPC server
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: spannerlib-server-osx-arm64
           path: spannerlib/grpc_server
@@ -62,24 +62,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
       - name: Download and copy linux-x64 shared lib
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: spannerlib-linux-x64
           path: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Native/libraries/linux-x64/
       - name: Download and copy linux-x64 gRPC server
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: spannerlib-server-linux-x64
           path: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/linux-x64/
       - name: Add execute permission to linux-x64 gRPC server
         run: chmod +x spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/linux-x64/grpc_server
       - name: Download and copy osx-arm64
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: spannerlib-osx-arm64
           path: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Native/libraries/osx-arm64/
       - name: Download and copy osx-arm64 gRPC server
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: spannerlib-server-osx-arm64
           path: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/osx-arm64/
