@@ -323,14 +323,14 @@ func TestTransactionTimeoutSecondStatement(t *testing.T) {
 	ctx := context.Background()
 
 	tx, _ := db.BeginTx(ctx, &sql.TxOptions{})
-	if _, err := tx.ExecContext(ctx, "set local transaction_timeout=20ms"); err != nil {
+	if _, err := tx.ExecContext(ctx, "set local transaction_timeout=1000ms"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
 		t.Fatal(err)
 	}
 
-	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: 50 * time.Millisecond})
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: 1500 * time.Millisecond})
 	rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar, ExecOptions{DirectExecuteQuery: true})
 	if rows != nil {
 		_ = rows.Close()
