@@ -62,6 +62,8 @@ public class Rows : AbstractLibObject
             return -1L;
         }
     }
+    
+    private bool _hasReadAllResults;
 
     public Rows(Connection connection, long id, bool initMetadata = true) : base(connection.Spanner, id)
     {
@@ -98,11 +100,77 @@ public class Rows : AbstractLibObject
     }
 
     /// <summary>
+    /// Gets the total update count in this Rows object. This consumes all data in all the result sets.
+    /// This method should only be called if the caller is only interested in the update count, and not in any of the
+    /// rows in the result sets.
+    /// </summary>
+    /// <returns>
+    /// The total update count of all the result sets in this Rows object.
+    /// If the SQL string only contained non-DML statements, then the update count is -1. If the SQL string contained at
+    /// least one DML statement, then the returned value is the sum of all update counts of the DML statements in the
+    /// SQL string that was executed.
+    /// </returns>
+    public long GetTotalUpdateCount()
+    {
+        long result = -1;
+        var hasUpdateCount = false;
+        do
+        {
+            var updateCount = UpdateCount;
+            if (updateCount > -1)
+            {
+                if (!hasUpdateCount)
+                {
+                    hasUpdateCount = true;
+                    result = 0;
+                }
+                result += updateCount;
+            }
+        } while (NextResultSet());
+        return result;
+    }
+
+    /// <summary>
+    /// Gets the total update count in this Rows object. This consumes all data in all the result sets.
+    /// This method should only be called if the caller is only interested in the update count, and not in any of the
+    /// rows in the result sets.
+    /// </summary>
+    /// <returns>
+    /// The total update count of all the result sets in this Rows object.
+    /// If the SQL string only contained non-DML statements, then the update count is -1. If the SQL string contained at
+    /// least one DML statement, then the returned value is the sum of all update counts of the DML statements in the
+    /// SQL string that was executed.
+    /// </returns>
+    public async Task<long> GetTotalUpdateCountAsync(CancellationToken cancellationToken = default)
+    {
+        long result = -1;
+        var hasUpdateCount = false;
+        do
+        {
+            var updateCount = UpdateCount;
+            if (updateCount > -1)
+            {
+                if (!hasUpdateCount)
+                {
+                    hasUpdateCount = true;
+                    result = 0;
+                }
+                result += updateCount;
+            }
+        } while (await NextResultSetAsync(cancellationToken).ConfigureAwait(false));
+        return result;
+    }
+
+    /// <summary>
     /// Moves the cursor to the next result set in this Rows object.
     /// </summary>
     /// <returns>True if there was another result set, and false otherwise</returns>
     public virtual bool NextResultSet()
     {
+        if (_hasReadAllResults)
+        {
+            return false;
+        }
         return NextResultSet(Spanner.NextResultSet(this));
     }
 
@@ -112,6 +180,10 @@ public class Rows : AbstractLibObject
     /// <returns>True if there was another result set, and false otherwise</returns>
     public virtual async Task<bool> NextResultSetAsync(CancellationToken cancellationToken = default)
     {
+        if (_hasReadAllResults)
+        {
+            return false;
+        }
         return NextResultSet(await Spanner.NextResultSetAsync(this, cancellationToken).ConfigureAwait(false));
     }
 
@@ -119,6 +191,7 @@ public class Rows : AbstractLibObject
     {
         if (metadata == null)
         {
+            _hasReadAllResults = true;
             return false;
         }
         _metadata = metadata;
