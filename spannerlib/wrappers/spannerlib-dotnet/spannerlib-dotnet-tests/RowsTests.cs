@@ -400,27 +400,23 @@ public class RowsTests : AbstractMockServerTests
         Fixture.SpannerMock.AddOrUpdateStatementResult(query, StatementResult.CreateQuery(results));
 
         // Create a SQL string containing a mix of DML and queries.
-        var numQueries = 0;
         var builder = new StringBuilder();
         for (var i = 0; i < numDmlStatements; i++)
         {
-            while (Random.Shared.Next() % 2 == 0)
+            while (Random.Shared.Next(2) == 0)
             {
                 builder.Append(query).Append(';');
-                numQueries++;
             }
             builder.Append(dml).Append(';');
-            while (Random.Shared.Next() % 5 == 0)
+            while (Random.Shared.Next(5) == 0)
             {
                 builder.Append(query).Append(';');
-                numQueries++;
             }
         }
         var sql = builder.ToString();
-        if ("".Equals(sql))
+        if (string.IsNullOrEmpty(sql))
         {
             sql = query;
-            numQueries = 1;
         }
 
         await using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
@@ -432,7 +428,7 @@ public class RowsTests : AbstractMockServerTests
 
         // ReSharper disable once MethodHasAsyncOverload
         var totalUpdateCount = async ? await rows.GetTotalUpdateCountAsync() : rows.GetTotalUpdateCount();
-        Assert.That(totalUpdateCount, Is.EqualTo(updateCount * numDmlStatements - numQueries));
+        Assert.That(totalUpdateCount, Is.EqualTo(numDmlStatements == 0 ? -1 : updateCount * numDmlStatements));
     }
     
     [Test]
