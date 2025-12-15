@@ -88,6 +88,64 @@ public class TransactionTests : AbstractMockServerTests
     }
 
     [Test]
+    public void TestAbortedReadWriteTransaction([Values] LibType libType)
+    {
+        var updateSql = "update my_table set value=@value where id=@id";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(updateSql, StatementResult.CreateUpdateCount(1));
+        
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        using var connection = pool.CreateConnection();
+        connection.BeginTransaction(new TransactionOptions
+        {
+            IsolationLevel = TransactionOptions.Types.IsolationLevel.RepeatableRead,
+        });
+        using(connection.Execute(new ExecuteSqlRequest
+        {
+            Sql = "set local transaction_tag = 'my_tx_tag'",
+        }));
+
+        using var rows = connection.Execute(new ExecuteSqlRequest
+        {
+            Sql = updateSql,
+            Params = new Struct
+            {
+                Fields =
+                {
+                    ["value"] = Value.ForString("test-value"),
+                    ["id"] = Value.ForString("1")
+                },
+            }
+        });
+        Assert.That(rows.Next(), Is.Null);
+        Assert.That(rows.UpdateCount, Is.EqualTo(1));
+        
+        Fixture.SpannerMock.AbortNextStatement();
+        var commitResponse = connection.Commit();
+        Assert.That(commitResponse, Is.Not.Null);
+        Assert.That(commitResponse.CommitTimestamp, Is.Not.Null);
+        
+        Assert.That(Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>().Count(), Is.EqualTo(1));
+        Assert.That(Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().Count(), Is.EqualTo(2));
+        Assert.That(Fixture.SpannerMock.Requests.OfType<CommitRequest>().Count(), Is.EqualTo(2));
+        
+        var requests = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().ToList();
+        Assert.That(requests[0].Transaction?.Begin?.ReadWrite, Is.Not.Null);
+        Assert.That(requests[1].Transaction?.HasId ?? false, Is.True);
+        foreach (var request in requests)
+        {
+            Assert.That(request.RequestOptions.TransactionTag, Is.EqualTo("my_tx_tag"));
+        }
+        foreach (var request in Fixture.SpannerMock.Requests.OfType<CommitRequest>())
+        {
+            Assert.That(request.RequestOptions.TransactionTag, Is.EqualTo("my_tx_tag"));
+        }
+        foreach (var request in Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>())
+        {
+            Assert.That(request.RequestOptions.TransactionTag, Is.EqualTo("my_tx_tag"));
+        }
+    }
+
+    [Test]
     public void TestReadOnlyTransaction([Values] LibType libType)
     {
         var numRows = 5;
