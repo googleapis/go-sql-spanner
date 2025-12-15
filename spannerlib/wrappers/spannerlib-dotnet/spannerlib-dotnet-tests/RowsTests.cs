@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System.Text;
 using Google.Cloud.Spanner.Admin.Database.V1;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib.MockServer;
@@ -383,6 +384,55 @@ public class RowsTests : AbstractMockServerTests
         Assert.That(totalUpdateCount, Is.EqualTo(updateCount * 3));
         // There are 5 statements in the SQL string.
         Assert.That(numResultSets, Is.EqualTo(5));
+    }
+    
+    [Test]
+    public async Task TestGetAllUpdateCounts([Values] LibType libType, [Values(0, 1, 2, 5)] int numDmlStatements, [Values(2, 10)] int numRows, [Values(0, 1, 2, 3, 5, 9, 10, 11)] int prefetchRows, [Values] bool async)
+    {
+        var updateCount = 3L;
+        var dml = "update my_table set value=1 where id in (1,2,3)";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(dml, StatementResult.CreateUpdateCount(updateCount));
+        Fixture.SpannerMock.AddOrUpdateStatementResult(dml + ";", StatementResult.CreateUpdateCount(updateCount));
+        
+        var rowType = RandomResultSetGenerator.GenerateAllTypesRowType();
+        var results = RandomResultSetGenerator.Generate(rowType, numRows);
+        var query = "select * from random";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(query, StatementResult.CreateQuery(results));
+
+        // Create a SQL string containing a mix of DML and queries.
+        var numQueries = 0;
+        var builder = new StringBuilder();
+        for (var i = 0; i < numDmlStatements; i++)
+        {
+            while (Random.Shared.Next() % 2 == 0)
+            {
+                builder.Append(query).Append(';');
+                numQueries++;
+            }
+            builder.Append(dml).Append(';');
+            while (Random.Shared.Next() % 5 == 0)
+            {
+                builder.Append(query).Append(';');
+                numQueries++;
+            }
+        }
+        var sql = builder.ToString();
+        if ("".Equals(sql))
+        {
+            sql = query;
+            numQueries = 1;
+        }
+
+        await using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        await using var connection = pool.CreateConnection();
+        await using var rows = async
+            ? await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = sql }, prefetchRows)
+            // ReSharper disable once MethodHasAsyncOverload
+            : connection.Execute(new ExecuteSqlRequest { Sql = sql }, prefetchRows);
+
+        // ReSharper disable once MethodHasAsyncOverload
+        var totalUpdateCount = async ? await rows.GetTotalUpdateCountAsync() : rows.GetTotalUpdateCount();
+        Assert.That(totalUpdateCount, Is.EqualTo(updateCount * numDmlStatements - numQueries));
     }
     
     [Test]
