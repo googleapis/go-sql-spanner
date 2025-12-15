@@ -226,9 +226,6 @@ type SpannerConn interface {
 	// DetectStatementType returns the type of SQL statement.
 	DetectStatementType(query string) parser.StatementType
 
-	// Parser returns the parser.StatementParser that is used for this connection.
-	Parser() *parser.StatementParser
-
 	// resetTransactionForRetry resets the current transaction after it has
 	// been aborted by Spanner. Calling this function on a transaction that
 	// has not been aborted is not supported and will cause an error to be
@@ -297,10 +294,6 @@ func (c *conn) UnderlyingClient() (*spanner.Client, error) {
 func (c *conn) DetectStatementType(query string) parser.StatementType {
 	info := c.parser.DetectStatementType(query)
 	return info.StatementType
-}
-
-func (c *conn) Parser() *parser.StatementParser {
-	return c.parser
 }
 
 func (c *conn) CommitTimestamp() (time.Time, error) {

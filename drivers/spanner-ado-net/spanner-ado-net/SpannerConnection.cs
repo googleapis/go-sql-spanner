@@ -430,7 +430,7 @@ public class SpannerConnection : DbConnection
         return new SpannerBatch(this);
     }
 
-    public long[] ExecuteBatch(IEnumerable<ExecuteBatchDmlRequest.Types.Statement> statements)
+    public long[] ExecuteBatch(List<ExecuteBatchDmlRequest.Types.Statement> statements)
     {
         EnsureOpen();
         _transaction?.MarkUsed();

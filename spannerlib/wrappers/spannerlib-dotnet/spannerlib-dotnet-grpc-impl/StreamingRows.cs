@@ -133,8 +133,9 @@ public class StreamingRows : Rows
         _done = true;
     }
 
-    private bool TryNextCached(out ListValue? result)
+    private bool TryNextCached(out ListValue? result, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (_pendingNextResultSetCall || _done)
         {
             result = null;
@@ -156,7 +157,7 @@ public class StreamingRows : Rows
 
     public override ListValue? Next()
     {
-        if (TryNextCached(out var result))
+        if (TryNextCached(out var result, CancellationToken.None))
         {
             return result;
         }
@@ -200,7 +201,7 @@ public class StreamingRows : Rows
 
     public override async Task<ListValue?> NextAsync(CancellationToken cancellationToken = default)
     {
-        if (TryNextCached(out var result))
+        if (TryNextCached(out var result, cancellationToken))
         {
             return result;
         }

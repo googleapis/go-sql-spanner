@@ -116,7 +116,6 @@ func next(ctx context.Context, poolId, connId, rowsId int64, marshalResult, rese
 		rows.buffer = nil
 	}
 	if !marshalResult || values == nil {
-		rows.buffer = nil
 		return values, nil, nil
 	}
 

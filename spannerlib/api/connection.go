@@ -361,14 +361,11 @@ func executeBatch(ctx context.Context, conn *Connection, executor queryExecutor,
 }
 
 func executeBatchDdl(ctx context.Context, conn *Connection, executor queryExecutor, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
-	useExplicitBatch := len(statements) > 1
-	if useExplicitBatch {
-		if err := conn.backend.Raw(func(driverConn any) error {
-			spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
-			return spannerConn.StartBatchDDL()
-		}); err != nil {
-			return nil, err
-		}
+	if err := conn.backend.Raw(func(driverConn any) error {
+		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
+		return spannerConn.StartBatchDDL()
+	}); err != nil {
+		return nil, err
 	}
 	for _, statement := range statements {
 		_, err := executor.ExecContext(ctx, statement.Sql)
@@ -376,14 +373,12 @@ func executeBatchDdl(ctx context.Context, conn *Connection, executor queryExecut
 			return nil, err
 		}
 	}
-	if useExplicitBatch {
-		// TODO: Add support for getting the actual Batch DDL response.
-		if err := conn.backend.Raw(func(driverConn any) (err error) {
-			spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
-			return spannerConn.RunBatch(ctx)
-		}); err != nil {
-			return nil, err
-		}
+	// TODO: Add support for getting the actual Batch DDL response.
+	if err := conn.backend.Raw(func(driverConn any) (err error) {
+		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
+		return spannerConn.RunBatch(ctx)
+	}); err != nil {
+		return nil, err
 	}
 
 	response := spannerpb.ExecuteBatchDmlResponse{}
@@ -513,12 +508,6 @@ func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDm
 	if err := conn.backend.Raw(func(driverConn any) error {
 		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
 		firstStatementType := spannerConn.DetectStatementType(statements[0].Sql)
-		// As a special case, we allow the first statement in a batch to be a CREATE DATABASE statement. This will
-		// then trigger a CreateDatabase operation with the remaining DDL statements in this batch to be used as the
-		// ExtraStatements for the CreateDatabase operation.
-		if spannerConn.Parser().IsCreateDatabaseStatement(statements[0].Sql) {
-			firstStatementType = parser.StatementTypeDdl
-		}
 		if firstStatementType == parser.StatementTypeDml {
 			batchType = parser.BatchTypeDml
 		} else if firstStatementType == parser.StatementTypeDdl {
