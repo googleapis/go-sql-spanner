@@ -53,15 +53,8 @@ public static class Program
     public static async Task Main(string[] args)
     {
         Console.WriteLine($"Runtime: {RuntimeInformation.RuntimeIdentifier}");
-        
-        var cancellationTokenSource = new CancellationTokenSource();
-        var builder = WebApplication.CreateBuilder(args);
-        var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
-        var url = $"http://0.0.0.0:{port}";
-        var app = builder.Build();
-        app.MapGet("/", () => { });
-        var webapp = app.RunAsync(url);
 
+        var createAlivenessServer = bool.Parse(Environment.GetEnvironmentVariable("CREATE_ALIVENESS_SERVER") ?? "true");
         var loadData = bool.Parse(Environment.GetEnvironmentVariable("LOAD_DATA") ?? "true");
         var exportStats = bool.Parse(Environment.GetEnvironmentVariable("EXPORT_STATS") ?? "true");
         var logWaitTime = int.Parse(Environment.GetEnvironmentVariable("LOG_WAIT_TIME") ?? "60");
@@ -86,6 +79,19 @@ public static class Program
         if (!Enum.TryParse(transactionTypeName, out BenchmarkType transactionType))
         {
             throw new ArgumentException($"Unknown transaction type: {transactionTypeName}");
+        }
+        
+        var cancellationTokenSource = new CancellationTokenSource();
+        WebApplication? app = null;
+        Task? webapp = null;
+        if (createAlivenessServer)
+        {
+            var builder = WebApplication.CreateBuilder(args);
+            var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+            var url = $"http://0.0.0.0:{port}";
+            app = builder.Build();
+            app.MapGet("/", () => { });
+            webapp = app.RunAsync(url);
         }
 
         var databaseName = DatabaseName.Parse(database);
@@ -226,8 +232,11 @@ public static class Program
             await Task.WhenAll(tasks);
         }
 
-        await app.StopAsync(cancellationTokenSource.Token);
-        await webapp;
+        if (app != null && webapp != null)
+        {
+            await app.StopAsync(cancellationTokenSource.Token);
+            await webapp;
+        }
     }
 
     private static async Task<AbstractRunner> CreateRunnerAsync(

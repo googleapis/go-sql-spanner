@@ -11,7 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Alpha.Google.Cloud.Spanner.DataProvider" Version="1.0.0-alpha.20251209081138" />
+    <PackageReference Include="Alpha.Google.Cloud.Spanner.DataProvider" Version="1.0.0-alpha.20251216092833" />
     <PackageReference Include="Google.Cloud.Monitoring.V3" Version="3.16.0" />
     <PackageReference Include="Google.Cloud.Spanner.Data" Version="5.8.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="9.0.6" />

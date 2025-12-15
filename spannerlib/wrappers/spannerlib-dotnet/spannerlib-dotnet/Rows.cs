@@ -106,17 +106,30 @@ public class Rows : AbstractLibObject
     /// </summary>
     /// <returns>
     /// The total update count of all the result sets in this Rows object.
+    /// If the SQL string only contained non-DML statements, then the update count is -1. If the SQL string contained at
+    /// least one DML statement, then the returned value is the sum of all update counts of the DML statements in the
+    /// SQL string that was executed.
     /// </returns>
     public long GetTotalUpdateCount()
     {
-        var result = UpdateCount;
-        while (NextResultSet())
+        long result = -1;
+        var hasUpdateCount = false;
+        do
         {
-            result += UpdateCount;
-        }
+            var updateCount = UpdateCount;
+            if (updateCount > -1)
+            {
+                if (!hasUpdateCount)
+                {
+                    hasUpdateCount = true;
+                    result = 0;
+                }
+                result += updateCount;
+            }
+        } while (NextResultSet());
         return result;
     }
-    
+
     /// <summary>
     /// Gets the total update count in this Rows object. This consumes all data in all the result sets.
     /// This method should only be called if the caller is only interested in the update count, and not in any of the
@@ -124,14 +137,27 @@ public class Rows : AbstractLibObject
     /// </summary>
     /// <returns>
     /// The total update count of all the result sets in this Rows object.
+    /// If the SQL string only contained non-DML statements, then the update count is -1. If the SQL string contained at
+    /// least one DML statement, then the returned value is the sum of all update counts of the DML statements in the
+    /// SQL string that was executed.
     /// </returns>
     public async Task<long> GetTotalUpdateCountAsync(CancellationToken cancellationToken = default)
     {
-        var result = UpdateCount;
-        while (await NextResultSetAsync(cancellationToken).ConfigureAwait(false))
+        long result = -1;
+        var hasUpdateCount = false;
+        do
         {
-            result += UpdateCount;
-        }
+            var updateCount = UpdateCount;
+            if (updateCount > -1)
+            {
+                if (!hasUpdateCount)
+                {
+                    hasUpdateCount = true;
+                    result = 0;
+                }
+                result += updateCount;
+            }
+        } while (await NextResultSetAsync(cancellationToken).ConfigureAwait(false));
         return result;
     }
 

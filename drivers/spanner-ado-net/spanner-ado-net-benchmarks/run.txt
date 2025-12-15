@@ -1,0 +1,34 @@
+# SpannerLib, 50 clients - PointQuery
+
+export CREATE_ALIVENESS_SERVER=false
+export NUM_WAREHOUSES=100
+export NUM_CLIENTS=50
+export TRANSACTION_TYPE=PointQuery
+dotnet build --configuration Release
+cd bin/Release/net8.0
+./Google.Cloud.Spanner.DataProvider.Benchmarks
+
+
+# ClientLib, 50 clients - PointQuery
+
+export CREATE_ALIVENESS_SERVER=false
+export NUM_WAREHOUSES=100
+export NUM_CLIENTS=50
+export TRANSACTION_TYPE=PointQuery
+export CLIENT_TYPE=ClientLib
+dotnet build --configuration Release
+cd bin/Release/net8.0
+./Google.Cloud.Spanner.DataProvider.Benchmarks
+
+
+# SpannerLib, 50 clients - PointDml
+
+export CREATE_ALIVENESS_SERVER=false
+export NUM_WAREHOUSES=100
+export NUM_CLIENTS=50
+export TRANSACTION_TYPE=PointDml
+dotnet build --configuration Release
+cd bin/Release/net8.0
+./Google.Cloud.Spanner.DataProvider.Benchmarks
+
+
