@@ -191,7 +191,7 @@ func TestStatementTimeout(t *testing.T) {
 	ctx := context.Background()
 
 	// The database/sql driver uses ExecuteStreamingSql for all statements.
-	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: 10 * time.Millisecond})
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: 50 * time.Millisecond})
 
 	_, err := db.ExecContext(ctx, testutil.UpdateBarSetFoo)
 	if g, w := spanner.ErrCode(err), codes.DeadlineExceeded; g != w {
