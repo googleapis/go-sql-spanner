@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-using System.Data;
-
 namespace Google.Cloud.Spanner.DataProvider.Samples.Snippets;
 
 // Example for getting the commit timestamp of a read/write transaction.
