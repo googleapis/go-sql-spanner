@@ -595,8 +595,7 @@ func (s *inMemSpannerServer) updateSessionLastUseTime(session string) {
 }
 
 func getCurrentTimestamp() *timestamppb.Timestamp {
-	t := time.Now()
-	return &timestamppb.Timestamp{Seconds: t.Unix(), Nanos: int32(t.Nanosecond())}
+	return timestamppb.New(time.Now())
 }
 
 // Gets the transaction id from the transaction selector. If the selector
