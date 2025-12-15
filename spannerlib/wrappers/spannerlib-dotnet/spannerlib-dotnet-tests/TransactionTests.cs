@@ -139,11 +139,10 @@ public class TransactionTests : AbstractMockServerTests
         {
             Assert.That(request.RequestOptions.TransactionTag, Is.EqualTo("my_tx_tag"));
         }
-        // TODO: Enable once this has been fixed in the client library.
-        // foreach (var request in Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>())
-        // {
-        //     Assert.That(request.RequestOptions.TransactionTag, Is.EqualTo("my_tx_tag"));
-        // }
+        foreach (var request in Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>())
+        {
+            Assert.That(request.RequestOptions.TransactionTag, Is.EqualTo("my_tx_tag"));
+        }
     }
 
     [Test]

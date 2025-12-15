@@ -55,6 +55,15 @@ func TestCommitAborted(t *testing.T) {
 		t.Fatalf("commit failed: %v", err)
 	}
 	reqs := server.TestSpanner.DrainRequestsFromServer()
+	beginReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	if g, w := len(beginReqs), 1; g != w {
+		t.Fatalf("begin request count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	for i, req := range beginReqs {
+		if g, w := req.(*sppb.BeginTransactionRequest).RequestOptions.TransactionTag, "my_tx_tag"; g != w {
+			t.Fatalf("%d: begin request tag mismatch\n Got: %v\nWant: %v", i, g, w)
+		}
+	}
 	commitReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitReqs), 2; g != w {
 		t.Fatalf("commit request count mismatch\n Got: %v\nWant: %v", g, w)
