@@ -83,6 +83,50 @@ public class RowsTests : AbstractMockServerTests
         var request = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().First();
         Assert.That(request.Transaction?.SingleUse?.ReadOnly?.HasStrong ?? false);
     }
+
+    [Test]
+    public async Task TestCancellation([Values] LibType libType, [Values(0, 1, 10)] int numRows, [Values(0, 1, 5, 9, 10, 11)] int prefetchRows)
+    {
+        var rowType = RandomResultSetGenerator.GenerateAllTypesRowType();
+        var results = RandomResultSetGenerator.Generate(rowType, numRows);
+        Fixture.SpannerMock.AddOrUpdateStatementResult("select * from random", StatementResult.CreateQuery(results));
+
+        CancellationTokenSource cts = new CancellationTokenSource();
+        var numReadRowsBeforeCancellation = Random.Shared.Next(numRows);
+        await using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        await using var connection = pool.CreateConnection();
+        if (numReadRowsBeforeCancellation == 0)
+        {
+            await cts.CancelAsync();
+            var exception = Assert.CatchAsync<Exception>(async () => await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = "select * from random" }, prefetchRows, cts.Token));
+            Assert.That(exception, Is.Not.Null);
+            Assert.That(exception, Is.InstanceOf<OperationCanceledException>().Or.InstanceOf<RpcException>().Or.InstanceOf<OperationCanceledException>());
+        }
+        else
+        {
+            await using var rows = await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = "select * from random" },
+                prefetchRows, cts.Token);
+
+            var rowCount = 0;
+            while (await rows.NextAsync(cts.Token) is not null)
+            {
+                rowCount++;
+                if (numReadRowsBeforeCancellation == rowCount)
+                {
+                    await cts.CancelAsync();
+                    var exception = Assert.CatchAsync<Exception>(async () => await rows.NextAsync(cts.Token));
+                    Assert.That(exception, Is.Not.Null);
+                    Assert.That(exception, Is.InstanceOf<OperationCanceledException>().Or.InstanceOf<RpcException>().Or.InstanceOf<OperationCanceledException>());
+                    break;
+                }
+            }
+            Assert.That(rowCount, Is.LessThan(numRows));
+
+            Assert.That(Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().Count(), Is.EqualTo(1));
+            var request = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().First();
+            Assert.That(request.Transaction?.SingleUse?.ReadOnly?.HasStrong ?? false);
+        }
+    }
     
     [Test]
     public void TestLargeStringValue([Values] LibType libType)
