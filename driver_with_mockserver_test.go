@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"math/big"
 	"math/rand"
+	"os"
 	"reflect"
 	"sync"
 	"testing"
@@ -5727,6 +5728,10 @@ func setupMockedTestServerWithConfigAndClientOptionsAndDialect(t testing.TB, con
 	ctx := context.Background()
 	formattedDatabase := fmt.Sprintf("projects/%s/instances/%s/databases/%s", "[PROJECT]", "[INSTANCE]", "[DATABASE]")
 	config.DisableNativeMetrics = true
+	// Disable client config logging by default.
+	if _, found := os.LookupEnv("GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS"); !found {
+		_ = os.Setenv("GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS", "true")
+	}
 	client, err := spanner.NewClientWithConfig(ctx, formattedDatabase, config, opts...)
 	if err != nil {
 		t.Fatal(err)

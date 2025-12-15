@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
-	"github.com/golang/protobuf/ptypes/timestamp"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
@@ -37,6 +36,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 var (
@@ -594,9 +594,8 @@ func (s *inMemSpannerServer) updateSessionLastUseTime(session string) {
 	s.sessionLastUseTime[session] = time.Now()
 }
 
-func getCurrentTimestamp() *timestamp.Timestamp {
-	t := time.Now()
-	return &timestamp.Timestamp{Seconds: t.Unix(), Nanos: int32(t.Nanosecond())}
+func getCurrentTimestamp() *timestamppb.Timestamp {
+	return timestamppb.New(time.Now())
 }
 
 // Gets the transaction id from the transaction selector. If the selector
