@@ -15,18 +15,17 @@
 package testutil_test
 
 import (
-	"strconv"
-
-	. "github.com/googleapis/go-sql-spanner/testutil"
-
 	"context"
 	"flag"
 	"fmt"
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
+
+	. "github.com/googleapis/go-sql-spanner/testutil"
 
 	apiv1 "cloud.google.com/go/spanner/apiv1"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
