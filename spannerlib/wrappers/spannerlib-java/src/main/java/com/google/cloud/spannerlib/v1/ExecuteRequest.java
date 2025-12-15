@@ -96,6 +96,32 @@ private static final long serialVersionUID = 0L;
     return executeSqlRequest_ == null ? com.google.spanner.v1.ExecuteSqlRequest.getDefaultInstance() : executeSqlRequest_;
   }
 
+  public static final int FETCH_OPTIONS_FIELD_NUMBER = 3;
+  private com.google.cloud.spannerlib.v1.FetchOptions fetchOptions_;
+  /**
+   * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
+   * @return Whether the fetchOptions field is set.
+   */
+  @java.lang.Override
+  public boolean hasFetchOptions() {
+    return ((bitField0_ & 0x00000004) != 0);
+  }
+  /**
+   * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
+   * @return The fetchOptions.
+   */
+  @java.lang.Override
+  public com.google.cloud.spannerlib.v1.FetchOptions getFetchOptions() {
+    return fetchOptions_ == null ? com.google.cloud.spannerlib.v1.FetchOptions.getDefaultInstance() : fetchOptions_;
+  }
+  /**
+   * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
+   */
+  @java.lang.Override
+  public com.google.cloud.spannerlib.v1.FetchOptionsOrBuilder getFetchOptionsOrBuilder() {
+    return fetchOptions_ == null ? com.google.cloud.spannerlib.v1.FetchOptions.getDefaultInstance() : fetchOptions_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -116,6 +142,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       output.writeMessage(2, getExecuteSqlRequest());
     }
+    if (((bitField0_ & 0x00000004) != 0)) {
+      output.writeMessage(3, getFetchOptions());
+    }
     getUnknownFields().writeTo(output);
   }
 
@@ -132,6 +161,10 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(2, getExecuteSqlRequest());
+    }
+    if (((bitField0_ & 0x00000004) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(3, getFetchOptions());
     }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
@@ -158,6 +191,11 @@ private static final long serialVersionUID = 0L;
       if (!getExecuteSqlRequest()
           .equals(other.getExecuteSqlRequest())) return false;
     }
+    if (hasFetchOptions() != other.hasFetchOptions()) return false;
+    if (hasFetchOptions()) {
+      if (!getFetchOptions()
+          .equals(other.getFetchOptions())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -176,6 +214,10 @@ private static final long serialVersionUID = 0L;
     if (hasExecuteSqlRequest()) {
       hash = (37 * hash) + EXECUTE_SQL_REQUEST_FIELD_NUMBER;
       hash = (53 * hash) + getExecuteSqlRequest().hashCode();
+    }
+    if (hasFetchOptions()) {
+      hash = (37 * hash) + FETCH_OPTIONS_FIELD_NUMBER;
+      hash = (53 * hash) + getFetchOptions().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -309,6 +351,7 @@ private static final long serialVersionUID = 0L;
               .alwaysUseFieldBuilders) {
         internalGetConnectionFieldBuilder();
         internalGetExecuteSqlRequestFieldBuilder();
+        internalGetFetchOptionsFieldBuilder();
       }
     }
     @java.lang.Override
@@ -324,6 +367,11 @@ private static final long serialVersionUID = 0L;
       if (executeSqlRequestBuilder_ != null) {
         executeSqlRequestBuilder_.dispose();
         executeSqlRequestBuilder_ = null;
+      }
+      fetchOptions_ = null;
+      if (fetchOptionsBuilder_ != null) {
+        fetchOptionsBuilder_.dispose();
+        fetchOptionsBuilder_ = null;
       }
       return this;
     }
@@ -371,6 +419,12 @@ private static final long serialVersionUID = 0L;
             : executeSqlRequestBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
+      if (((from_bitField0_ & 0x00000004) != 0)) {
+        result.fetchOptions_ = fetchOptionsBuilder_ == null
+            ? fetchOptions_
+            : fetchOptionsBuilder_.build();
+        to_bitField0_ |= 0x00000004;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -391,6 +445,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasExecuteSqlRequest()) {
         mergeExecuteSqlRequest(other.getExecuteSqlRequest());
+      }
+      if (other.hasFetchOptions()) {
+        mergeFetchOptions(other.getFetchOptions());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -432,6 +489,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000002;
               break;
             } // case 18
+            case 26: {
+              input.readMessage(
+                  internalGetFetchOptionsFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000004;
+              break;
+            } // case 26
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -689,6 +753,127 @@ private static final long serialVersionUID = 0L;
         executeSqlRequest_ = null;
       }
       return executeSqlRequestBuilder_;
+    }
+
+    private com.google.cloud.spannerlib.v1.FetchOptions fetchOptions_;
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.cloud.spannerlib.v1.FetchOptions, com.google.cloud.spannerlib.v1.FetchOptions.Builder, com.google.cloud.spannerlib.v1.FetchOptionsOrBuilder> fetchOptionsBuilder_;
+    /**
+     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
+     * @return Whether the fetchOptions field is set.
+     */
+    public boolean hasFetchOptions() {
+      return ((bitField0_ & 0x00000004) != 0);
+    }
+    /**
+     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
+     * @return The fetchOptions.
+     */
+    public com.google.cloud.spannerlib.v1.FetchOptions getFetchOptions() {
+      if (fetchOptionsBuilder_ == null) {
+        return fetchOptions_ == null ? com.google.cloud.spannerlib.v1.FetchOptions.getDefaultInstance() : fetchOptions_;
+      } else {
+        return fetchOptionsBuilder_.getMessage();
+      }
+    }
+    /**
+     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
+     */
+    public Builder setFetchOptions(com.google.cloud.spannerlib.v1.FetchOptions value) {
+      if (fetchOptionsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        fetchOptions_ = value;
+      } else {
+        fetchOptionsBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
+     */
+    public Builder setFetchOptions(
+        com.google.cloud.spannerlib.v1.FetchOptions.Builder builderForValue) {
+      if (fetchOptionsBuilder_ == null) {
+        fetchOptions_ = builderForValue.build();
+      } else {
+        fetchOptionsBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
+     */
+    public Builder mergeFetchOptions(com.google.cloud.spannerlib.v1.FetchOptions value) {
+      if (fetchOptionsBuilder_ == null) {
+        if (((bitField0_ & 0x00000004) != 0) &&
+          fetchOptions_ != null &&
+          fetchOptions_ != com.google.cloud.spannerlib.v1.FetchOptions.getDefaultInstance()) {
+          getFetchOptionsBuilder().mergeFrom(value);
+        } else {
+          fetchOptions_ = value;
+        }
+      } else {
+        fetchOptionsBuilder_.mergeFrom(value);
+      }
+      if (fetchOptions_ != null) {
+        bitField0_ |= 0x00000004;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
+     */
+    public Builder clearFetchOptions() {
+      bitField0_ = (bitField0_ & ~0x00000004);
+      fetchOptions_ = null;
+      if (fetchOptionsBuilder_ != null) {
+        fetchOptionsBuilder_.dispose();
+        fetchOptionsBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
+     */
+    public com.google.cloud.spannerlib.v1.FetchOptions.Builder getFetchOptionsBuilder() {
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return internalGetFetchOptionsFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
+     */
+    public com.google.cloud.spannerlib.v1.FetchOptionsOrBuilder getFetchOptionsOrBuilder() {
+      if (fetchOptionsBuilder_ != null) {
+        return fetchOptionsBuilder_.getMessageOrBuilder();
+      } else {
+        return fetchOptions_ == null ?
+            com.google.cloud.spannerlib.v1.FetchOptions.getDefaultInstance() : fetchOptions_;
+      }
+    }
+    /**
+     * <code>.google.spannerlib.v1.FetchOptions fetch_options = 3;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.cloud.spannerlib.v1.FetchOptions, com.google.cloud.spannerlib.v1.FetchOptions.Builder, com.google.cloud.spannerlib.v1.FetchOptionsOrBuilder> 
+        internalGetFetchOptionsFieldBuilder() {
+      if (fetchOptionsBuilder_ == null) {
+        fetchOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.cloud.spannerlib.v1.FetchOptions, com.google.cloud.spannerlib.v1.FetchOptions.Builder, com.google.cloud.spannerlib.v1.FetchOptionsOrBuilder>(
+                getFetchOptions(),
+                getParentForChildren(),
+                isClean());
+        fetchOptions_ = null;
+      }
+      return fetchOptionsBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:google.spannerlib.v1.ExecuteRequest)

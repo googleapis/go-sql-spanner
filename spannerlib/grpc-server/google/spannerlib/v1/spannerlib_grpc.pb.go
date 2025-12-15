@@ -22,24 +22,25 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	SpannerLib_Info_FullMethodName             = "/google.spannerlib.v1.SpannerLib/Info"
-	SpannerLib_CreatePool_FullMethodName       = "/google.spannerlib.v1.SpannerLib/CreatePool"
-	SpannerLib_ClosePool_FullMethodName        = "/google.spannerlib.v1.SpannerLib/ClosePool"
-	SpannerLib_CreateConnection_FullMethodName = "/google.spannerlib.v1.SpannerLib/CreateConnection"
-	SpannerLib_CloseConnection_FullMethodName  = "/google.spannerlib.v1.SpannerLib/CloseConnection"
-	SpannerLib_Execute_FullMethodName          = "/google.spannerlib.v1.SpannerLib/Execute"
-	SpannerLib_ExecuteStreaming_FullMethodName = "/google.spannerlib.v1.SpannerLib/ExecuteStreaming"
-	SpannerLib_ExecuteBatch_FullMethodName     = "/google.spannerlib.v1.SpannerLib/ExecuteBatch"
-	SpannerLib_Metadata_FullMethodName         = "/google.spannerlib.v1.SpannerLib/Metadata"
-	SpannerLib_Next_FullMethodName             = "/google.spannerlib.v1.SpannerLib/Next"
-	SpannerLib_ResultSetStats_FullMethodName   = "/google.spannerlib.v1.SpannerLib/ResultSetStats"
-	SpannerLib_NextResultSet_FullMethodName    = "/google.spannerlib.v1.SpannerLib/NextResultSet"
-	SpannerLib_CloseRows_FullMethodName        = "/google.spannerlib.v1.SpannerLib/CloseRows"
-	SpannerLib_BeginTransaction_FullMethodName = "/google.spannerlib.v1.SpannerLib/BeginTransaction"
-	SpannerLib_Commit_FullMethodName           = "/google.spannerlib.v1.SpannerLib/Commit"
-	SpannerLib_Rollback_FullMethodName         = "/google.spannerlib.v1.SpannerLib/Rollback"
-	SpannerLib_WriteMutations_FullMethodName   = "/google.spannerlib.v1.SpannerLib/WriteMutations"
-	SpannerLib_ConnectionStream_FullMethodName = "/google.spannerlib.v1.SpannerLib/ConnectionStream"
+	SpannerLib_Info_FullMethodName              = "/google.spannerlib.v1.SpannerLib/Info"
+	SpannerLib_CreatePool_FullMethodName        = "/google.spannerlib.v1.SpannerLib/CreatePool"
+	SpannerLib_ClosePool_FullMethodName         = "/google.spannerlib.v1.SpannerLib/ClosePool"
+	SpannerLib_CreateConnection_FullMethodName  = "/google.spannerlib.v1.SpannerLib/CreateConnection"
+	SpannerLib_CloseConnection_FullMethodName   = "/google.spannerlib.v1.SpannerLib/CloseConnection"
+	SpannerLib_Execute_FullMethodName           = "/google.spannerlib.v1.SpannerLib/Execute"
+	SpannerLib_ExecuteStreaming_FullMethodName  = "/google.spannerlib.v1.SpannerLib/ExecuteStreaming"
+	SpannerLib_ExecuteBatch_FullMethodName      = "/google.spannerlib.v1.SpannerLib/ExecuteBatch"
+	SpannerLib_Metadata_FullMethodName          = "/google.spannerlib.v1.SpannerLib/Metadata"
+	SpannerLib_Next_FullMethodName              = "/google.spannerlib.v1.SpannerLib/Next"
+	SpannerLib_ResultSetStats_FullMethodName    = "/google.spannerlib.v1.SpannerLib/ResultSetStats"
+	SpannerLib_NextResultSet_FullMethodName     = "/google.spannerlib.v1.SpannerLib/NextResultSet"
+	SpannerLib_CloseRows_FullMethodName         = "/google.spannerlib.v1.SpannerLib/CloseRows"
+	SpannerLib_BeginTransaction_FullMethodName  = "/google.spannerlib.v1.SpannerLib/BeginTransaction"
+	SpannerLib_Commit_FullMethodName            = "/google.spannerlib.v1.SpannerLib/Commit"
+	SpannerLib_Rollback_FullMethodName          = "/google.spannerlib.v1.SpannerLib/Rollback"
+	SpannerLib_WriteMutations_FullMethodName    = "/google.spannerlib.v1.SpannerLib/WriteMutations"
+	SpannerLib_ConnectionStream_FullMethodName  = "/google.spannerlib.v1.SpannerLib/ConnectionStream"
+	SpannerLib_ContinueStreaming_FullMethodName = "/google.spannerlib.v1.SpannerLib/ContinueStreaming"
 )
 
 // SpannerLibClient is the client API for SpannerLib service.
@@ -63,7 +64,15 @@ type SpannerLibClient interface {
 	Commit(ctx context.Context, in *Connection, opts ...grpc.CallOption) (*spannerpb.CommitResponse, error)
 	Rollback(ctx context.Context, in *Connection, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	WriteMutations(ctx context.Context, in *WriteMutationsRequest, opts ...grpc.CallOption) (*spannerpb.CommitResponse, error)
+	// ConnectionStream opens a bi-directional gRPC stream between the client and the server.
+	// This stream can be re-used by the client for multiple requests, and normally gives the
+	// lowest possible latency, at the cost of a slightly more complex API.
 	ConnectionStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConnectionStreamRequest, ConnectionStreamResponse], error)
+	// ContinueStreaming returns a server stream that returns the remaining rows of a SQL statement
+	// that has previously been executed using a ConnectionStreamRequest on a bi-directional
+	// ConnectionStream. The client is responsible for calling this RPC if the has_more_data flag
+	// of the ExecuteResponse was true.
+	ContinueStreaming(ctx context.Context, in *Rows, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RowData], error)
 }
 
 type spannerLibClient struct {
@@ -266,6 +275,25 @@ func (c *spannerLibClient) ConnectionStream(ctx context.Context, opts ...grpc.Ca
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SpannerLib_ConnectionStreamClient = grpc.BidiStreamingClient[ConnectionStreamRequest, ConnectionStreamResponse]
 
+func (c *spannerLibClient) ContinueStreaming(ctx context.Context, in *Rows, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RowData], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &SpannerLib_ServiceDesc.Streams[2], SpannerLib_ContinueStreaming_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[Rows, RowData]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SpannerLib_ContinueStreamingClient = grpc.ServerStreamingClient[RowData]
+
 // SpannerLibServer is the server API for SpannerLib service.
 // All implementations must embed UnimplementedSpannerLibServer
 // for forward compatibility.
@@ -287,7 +315,15 @@ type SpannerLibServer interface {
 	Commit(context.Context, *Connection) (*spannerpb.CommitResponse, error)
 	Rollback(context.Context, *Connection) (*emptypb.Empty, error)
 	WriteMutations(context.Context, *WriteMutationsRequest) (*spannerpb.CommitResponse, error)
+	// ConnectionStream opens a bi-directional gRPC stream between the client and the server.
+	// This stream can be re-used by the client for multiple requests, and normally gives the
+	// lowest possible latency, at the cost of a slightly more complex API.
 	ConnectionStream(grpc.BidiStreamingServer[ConnectionStreamRequest, ConnectionStreamResponse]) error
+	// ContinueStreaming returns a server stream that returns the remaining rows of a SQL statement
+	// that has previously been executed using a ConnectionStreamRequest on a bi-directional
+	// ConnectionStream. The client is responsible for calling this RPC if the has_more_data flag
+	// of the ExecuteResponse was true.
+	ContinueStreaming(*Rows, grpc.ServerStreamingServer[RowData]) error
 	mustEmbedUnimplementedSpannerLibServer()
 }
 
@@ -351,6 +387,9 @@ func (UnimplementedSpannerLibServer) WriteMutations(context.Context, *WriteMutat
 }
 func (UnimplementedSpannerLibServer) ConnectionStream(grpc.BidiStreamingServer[ConnectionStreamRequest, ConnectionStreamResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method ConnectionStream not implemented")
+}
+func (UnimplementedSpannerLibServer) ContinueStreaming(*Rows, grpc.ServerStreamingServer[RowData]) error {
+	return status.Errorf(codes.Unimplemented, "method ContinueStreaming not implemented")
 }
 func (UnimplementedSpannerLibServer) mustEmbedUnimplementedSpannerLibServer() {}
 func (UnimplementedSpannerLibServer) testEmbeddedByValue()                    {}
@@ -679,6 +718,17 @@ func _SpannerLib_ConnectionStream_Handler(srv interface{}, stream grpc.ServerStr
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SpannerLib_ConnectionStreamServer = grpc.BidiStreamingServer[ConnectionStreamRequest, ConnectionStreamResponse]
 
+func _SpannerLib_ContinueStreaming_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(Rows)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(SpannerLibServer).ContinueStreaming(m, &grpc.GenericServerStream[Rows, RowData]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SpannerLib_ContinueStreamingServer = grpc.ServerStreamingServer[RowData]
+
 // SpannerLib_ServiceDesc is the grpc.ServiceDesc for SpannerLib service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -762,6 +812,11 @@ var SpannerLib_ServiceDesc = grpc.ServiceDesc{
 			Handler:       _SpannerLib_ConnectionStream_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
+		},
+		{
+			StreamName:    "ContinueStreaming",
+			Handler:       _SpannerLib_ContinueStreaming_Handler,
+			ServerStreams: true,
 		},
 	},
 	Metadata: "google/spannerlib/v1/spannerlib.proto",

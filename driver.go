@@ -607,6 +607,11 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	config := spanner.ClientConfig{
 		SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 	}
+	// Disable client config logging by default.
+	if _, found := os.LookupEnv("GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS"); !found {
+		_ = os.Setenv("GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS", "true")
+	}
+
 	if propertyUsePlainText.GetValueOrDefault(state) {
 		opts = append(opts,
 			option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),

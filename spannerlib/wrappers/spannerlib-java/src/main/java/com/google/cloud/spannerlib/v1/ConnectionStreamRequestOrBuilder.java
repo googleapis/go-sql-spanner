@@ -25,5 +25,80 @@ public interface ConnectionStreamRequestOrBuilder extends
    */
   com.google.cloud.spannerlib.v1.ExecuteRequestOrBuilder getExecuteRequestOrBuilder();
 
+  /**
+   * <code>.google.spannerlib.v1.ExecuteBatchRequest execute_batch_request = 2;</code>
+   * @return Whether the executeBatchRequest field is set.
+   */
+  boolean hasExecuteBatchRequest();
+  /**
+   * <code>.google.spannerlib.v1.ExecuteBatchRequest execute_batch_request = 2;</code>
+   * @return The executeBatchRequest.
+   */
+  com.google.cloud.spannerlib.v1.ExecuteBatchRequest getExecuteBatchRequest();
+  /**
+   * <code>.google.spannerlib.v1.ExecuteBatchRequest execute_batch_request = 2;</code>
+   */
+  com.google.cloud.spannerlib.v1.ExecuteBatchRequestOrBuilder getExecuteBatchRequestOrBuilder();
+
+  /**
+   * <code>.google.spannerlib.v1.BeginTransactionRequest begin_transaction_request = 3;</code>
+   * @return Whether the beginTransactionRequest field is set.
+   */
+  boolean hasBeginTransactionRequest();
+  /**
+   * <code>.google.spannerlib.v1.BeginTransactionRequest begin_transaction_request = 3;</code>
+   * @return The beginTransactionRequest.
+   */
+  com.google.cloud.spannerlib.v1.BeginTransactionRequest getBeginTransactionRequest();
+  /**
+   * <code>.google.spannerlib.v1.BeginTransactionRequest begin_transaction_request = 3;</code>
+   */
+  com.google.cloud.spannerlib.v1.BeginTransactionRequestOrBuilder getBeginTransactionRequestOrBuilder();
+
+  /**
+   * <code>.google.spannerlib.v1.Connection commit_request = 4;</code>
+   * @return Whether the commitRequest field is set.
+   */
+  boolean hasCommitRequest();
+  /**
+   * <code>.google.spannerlib.v1.Connection commit_request = 4;</code>
+   * @return The commitRequest.
+   */
+  com.google.cloud.spannerlib.v1.Connection getCommitRequest();
+  /**
+   * <code>.google.spannerlib.v1.Connection commit_request = 4;</code>
+   */
+  com.google.cloud.spannerlib.v1.ConnectionOrBuilder getCommitRequestOrBuilder();
+
+  /**
+   * <code>.google.spannerlib.v1.Connection rollback_request = 5;</code>
+   * @return Whether the rollbackRequest field is set.
+   */
+  boolean hasRollbackRequest();
+  /**
+   * <code>.google.spannerlib.v1.Connection rollback_request = 5;</code>
+   * @return The rollbackRequest.
+   */
+  com.google.cloud.spannerlib.v1.Connection getRollbackRequest();
+  /**
+   * <code>.google.spannerlib.v1.Connection rollback_request = 5;</code>
+   */
+  com.google.cloud.spannerlib.v1.ConnectionOrBuilder getRollbackRequestOrBuilder();
+
+  /**
+   * <code>.google.spannerlib.v1.WriteMutationsRequest write_mutations_request = 6;</code>
+   * @return Whether the writeMutationsRequest field is set.
+   */
+  boolean hasWriteMutationsRequest();
+  /**
+   * <code>.google.spannerlib.v1.WriteMutationsRequest write_mutations_request = 6;</code>
+   * @return The writeMutationsRequest.
+   */
+  com.google.cloud.spannerlib.v1.WriteMutationsRequest getWriteMutationsRequest();
+  /**
+   * <code>.google.spannerlib.v1.WriteMutationsRequest write_mutations_request = 6;</code>
+   */
+  com.google.cloud.spannerlib.v1.WriteMutationsRequestOrBuilder getWriteMutationsRequestOrBuilder();
+
   com.google.cloud.spannerlib.v1.ConnectionStreamRequest.RequestCase getRequestCase();
 }

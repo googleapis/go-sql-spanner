@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"math/big"
 	"math/rand"
+	"os"
 	"reflect"
 	"sync"
 	"testing"
@@ -5636,19 +5637,19 @@ func nullUuid(valid bool, v string) spanner.NullUUID {
 	return spanner.NullUUID{Valid: true, UUID: uuid.MustParse(v)}
 }
 
-func setupTestDBConnection(t *testing.T) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+func setupTestDBConnection(t testing.TB) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
 	return setupTestDBConnectionWithParams(t, "")
 }
 
-func setupTestDBConnectionWithDialect(t *testing.T, dialect databasepb.DatabaseDialect) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+func setupTestDBConnectionWithDialect(t testing.TB, dialect databasepb.DatabaseDialect) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
 	return setupTestDBConnectionWithParamsAndDialect(t, "", dialect)
 }
 
-func setupTestDBConnectionWithParams(t *testing.T, params string) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+func setupTestDBConnectionWithParams(t testing.TB, params string) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
 	return setupTestDBConnectionWithParamsAndDialect(t, params, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
 }
 
-func setupTestDBConnectionWithParamsAndDialect(t *testing.T, params string, dialect databasepb.DatabaseDialect) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+func setupTestDBConnectionWithParamsAndDialect(t testing.TB, params string, dialect databasepb.DatabaseDialect) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
 	server, _, serverTeardown := setupMockedTestServerWithDialect(t, dialect)
 	db, err := sql.Open(
 		"spanner",
@@ -5663,7 +5664,7 @@ func setupTestDBConnectionWithParamsAndDialect(t *testing.T, params string, dial
 	}
 }
 
-func setupTestDBConnectionWithConfigurator(t *testing.T, params string, configurator func(config *spanner.ClientConfig, opts *[]option.ClientOption)) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+func setupTestDBConnectionWithConfigurator(t testing.TB, params string, configurator func(config *spanner.ClientConfig, opts *[]option.ClientOption)) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
 	server, _, serverTeardown := setupMockedTestServer(t)
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;%s", server.Address, params)
 	config, err := ExtractConnectorConfig(dsn)
@@ -5684,7 +5685,7 @@ func setupTestDBConnectionWithConfigurator(t *testing.T, params string, configur
 	}
 }
 
-func setupTestDBConnectionWithConnectorConfig(t *testing.T, config ConnectorConfig) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+func setupTestDBConnectionWithConnectorConfig(t testing.TB, config ConnectorConfig) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
 	server, _, serverTeardown := setupMockedTestServer(t)
 	config.Host = server.Address
 	if config.Params == nil {
@@ -5703,23 +5704,23 @@ func setupTestDBConnectionWithConnectorConfig(t *testing.T, config ConnectorConf
 	}
 }
 
-func setupMockedTestServer(t *testing.T) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
+func setupMockedTestServer(t testing.TB) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
 	return setupMockedTestServerWithConfig(t, spanner.ClientConfig{})
 }
 
-func setupMockedTestServerWithDialect(t *testing.T, dialect databasepb.DatabaseDialect) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
+func setupMockedTestServerWithDialect(t testing.TB, dialect databasepb.DatabaseDialect) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
 	return setupMockedTestServerWithConfigAndClientOptionsAndDialect(t, spanner.ClientConfig{}, []option.ClientOption{}, dialect)
 }
 
-func setupMockedTestServerWithConfig(t *testing.T, config spanner.ClientConfig) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
+func setupMockedTestServerWithConfig(t testing.TB, config spanner.ClientConfig) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
 	return setupMockedTestServerWithConfigAndClientOptions(t, config, []option.ClientOption{})
 }
 
-func setupMockedTestServerWithConfigAndClientOptions(t *testing.T, config spanner.ClientConfig, clientOptions []option.ClientOption) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
+func setupMockedTestServerWithConfigAndClientOptions(t testing.TB, config spanner.ClientConfig, clientOptions []option.ClientOption) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
 	return setupMockedTestServerWithConfigAndClientOptionsAndDialect(t, config, clientOptions, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
 }
 
-func setupMockedTestServerWithConfigAndClientOptionsAndDialect(t *testing.T, config spanner.ClientConfig, clientOptions []option.ClientOption, dialect databasepb.DatabaseDialect) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
+func setupMockedTestServerWithConfigAndClientOptionsAndDialect(t testing.TB, config spanner.ClientConfig, clientOptions []option.ClientOption, dialect databasepb.DatabaseDialect) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
 	server, opts, serverTeardown := testutil.NewMockedSpannerInMemTestServer(t)
 	server.SetupSelectDialectResult(dialect)
 
@@ -5727,6 +5728,10 @@ func setupMockedTestServerWithConfigAndClientOptionsAndDialect(t *testing.T, con
 	ctx := context.Background()
 	formattedDatabase := fmt.Sprintf("projects/%s/instances/%s/databases/%s", "[PROJECT]", "[INSTANCE]", "[DATABASE]")
 	config.DisableNativeMetrics = true
+	// Disable client config logging by default.
+	if _, found := os.LookupEnv("GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS"); !found {
+		_ = os.Setenv("GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS", "true")
+	}
 	client, err := spanner.NewClientWithConfig(ctx, formattedDatabase, config, opts...)
 	if err != nil {
 		t.Fatal(err)

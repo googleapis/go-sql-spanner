@@ -145,6 +145,9 @@ jobs:
         working-directory: spannerlib/wrappers/spannerlib-dotnet/spannerlib-dotnet-tests
         run: |
           dotnet --version
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            export SKIP_SHARED_LIB_TESTS=true
+          fi
           # Retry the tests 3 times before the step actually fails.
           # We do this because the tests are executed using both the internal gRPC server and using a shared
           # native library. The latter is not really supported due to an incompatibility between the .NET and Go

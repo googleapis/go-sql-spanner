@@ -23,10 +23,10 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       
       - name: Download Shared Library Artifacts
-        uses: actions/download-artifact@v4 
+        uses: actions/download-artifact@v7 
         with:
           path: binaries
           pattern: spannerlib*
@@ -42,7 +42,7 @@ jobs:
           ls -R spannerlib/wrappers/spannerlib-python/spannerlib-python/google/cloud/spannerlib/internal/lib
       
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
           cache: 'pip'
@@ -71,7 +71,7 @@ jobs:
           python -c "import google.cloud.spannerlib; print('Successfully imported wrapper from:', google.cloud.spannerlib.__file__)"
 
       - name: Upload Wheel Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: python-wheels
           path: spannerlib/wrappers/spannerlib-python/spannerlib-python/dist/*

@@ -6,6 +6,11 @@
 package com.google.cloud.spannerlib.v1;
 
 /**
+ * <pre>
+ * ConnectionStreamRequest is used by a client to send a request to the server using a
+ * bi-directional gRPC stream. Such a stream is opened by calling the ConnectionStream RPC.
+ * </pre>
+ *
  * Protobuf type {@code google.spannerlib.v1.ConnectionStreamRequest}
  */
 @com.google.protobuf.Generated
@@ -50,6 +55,11 @@ private static final long serialVersionUID = 0L;
       implements com.google.protobuf.Internal.EnumLite,
           com.google.protobuf.AbstractMessage.InternalOneOfEnum {
     EXECUTE_REQUEST(1),
+    EXECUTE_BATCH_REQUEST(2),
+    BEGIN_TRANSACTION_REQUEST(3),
+    COMMIT_REQUEST(4),
+    ROLLBACK_REQUEST(5),
+    WRITE_MUTATIONS_REQUEST(6),
     REQUEST_NOT_SET(0);
     private final int value;
     private RequestCase(int value) {
@@ -68,6 +78,11 @@ private static final long serialVersionUID = 0L;
     public static RequestCase forNumber(int value) {
       switch (value) {
         case 1: return EXECUTE_REQUEST;
+        case 2: return EXECUTE_BATCH_REQUEST;
+        case 3: return BEGIN_TRANSACTION_REQUEST;
+        case 4: return COMMIT_REQUEST;
+        case 5: return ROLLBACK_REQUEST;
+        case 6: return WRITE_MUTATIONS_REQUEST;
         case 0: return REQUEST_NOT_SET;
         default: return null;
       }
@@ -114,6 +129,161 @@ private static final long serialVersionUID = 0L;
     return com.google.cloud.spannerlib.v1.ExecuteRequest.getDefaultInstance();
   }
 
+  public static final int EXECUTE_BATCH_REQUEST_FIELD_NUMBER = 2;
+  /**
+   * <code>.google.spannerlib.v1.ExecuteBatchRequest execute_batch_request = 2;</code>
+   * @return Whether the executeBatchRequest field is set.
+   */
+  @java.lang.Override
+  public boolean hasExecuteBatchRequest() {
+    return requestCase_ == 2;
+  }
+  /**
+   * <code>.google.spannerlib.v1.ExecuteBatchRequest execute_batch_request = 2;</code>
+   * @return The executeBatchRequest.
+   */
+  @java.lang.Override
+  public com.google.cloud.spannerlib.v1.ExecuteBatchRequest getExecuteBatchRequest() {
+    if (requestCase_ == 2) {
+       return (com.google.cloud.spannerlib.v1.ExecuteBatchRequest) request_;
+    }
+    return com.google.cloud.spannerlib.v1.ExecuteBatchRequest.getDefaultInstance();
+  }
+  /**
+   * <code>.google.spannerlib.v1.ExecuteBatchRequest execute_batch_request = 2;</code>
+   */
+  @java.lang.Override
+  public com.google.cloud.spannerlib.v1.ExecuteBatchRequestOrBuilder getExecuteBatchRequestOrBuilder() {
+    if (requestCase_ == 2) {
+       return (com.google.cloud.spannerlib.v1.ExecuteBatchRequest) request_;
+    }
+    return com.google.cloud.spannerlib.v1.ExecuteBatchRequest.getDefaultInstance();
+  }
+
+  public static final int BEGIN_TRANSACTION_REQUEST_FIELD_NUMBER = 3;
+  /**
+   * <code>.google.spannerlib.v1.BeginTransactionRequest begin_transaction_request = 3;</code>
+   * @return Whether the beginTransactionRequest field is set.
+   */
+  @java.lang.Override
+  public boolean hasBeginTransactionRequest() {
+    return requestCase_ == 3;
+  }
+  /**
+   * <code>.google.spannerlib.v1.BeginTransactionRequest begin_transaction_request = 3;</code>
+   * @return The beginTransactionRequest.
+   */
+  @java.lang.Override
+  public com.google.cloud.spannerlib.v1.BeginTransactionRequest getBeginTransactionRequest() {
+    if (requestCase_ == 3) {
+       return (com.google.cloud.spannerlib.v1.BeginTransactionRequest) request_;
+    }
+    return com.google.cloud.spannerlib.v1.BeginTransactionRequest.getDefaultInstance();
+  }
+  /**
+   * <code>.google.spannerlib.v1.BeginTransactionRequest begin_transaction_request = 3;</code>
+   */
+  @java.lang.Override
+  public com.google.cloud.spannerlib.v1.BeginTransactionRequestOrBuilder getBeginTransactionRequestOrBuilder() {
+    if (requestCase_ == 3) {
+       return (com.google.cloud.spannerlib.v1.BeginTransactionRequest) request_;
+    }
+    return com.google.cloud.spannerlib.v1.BeginTransactionRequest.getDefaultInstance();
+  }
+
+  public static final int COMMIT_REQUEST_FIELD_NUMBER = 4;
+  /**
+   * <code>.google.spannerlib.v1.Connection commit_request = 4;</code>
+   * @return Whether the commitRequest field is set.
+   */
+  @java.lang.Override
+  public boolean hasCommitRequest() {
+    return requestCase_ == 4;
+  }
+  /**
+   * <code>.google.spannerlib.v1.Connection commit_request = 4;</code>
+   * @return The commitRequest.
+   */
+  @java.lang.Override
+  public com.google.cloud.spannerlib.v1.Connection getCommitRequest() {
+    if (requestCase_ == 4) {
+       return (com.google.cloud.spannerlib.v1.Connection) request_;
+    }
+    return com.google.cloud.spannerlib.v1.Connection.getDefaultInstance();
+  }
+  /**
+   * <code>.google.spannerlib.v1.Connection commit_request = 4;</code>
+   */
+  @java.lang.Override
+  public com.google.cloud.spannerlib.v1.ConnectionOrBuilder getCommitRequestOrBuilder() {
+    if (requestCase_ == 4) {
+       return (com.google.cloud.spannerlib.v1.Connection) request_;
+    }
+    return com.google.cloud.spannerlib.v1.Connection.getDefaultInstance();
+  }
+
+  public static final int ROLLBACK_REQUEST_FIELD_NUMBER = 5;
+  /**
+   * <code>.google.spannerlib.v1.Connection rollback_request = 5;</code>
+   * @return Whether the rollbackRequest field is set.
+   */
+  @java.lang.Override
+  public boolean hasRollbackRequest() {
+    return requestCase_ == 5;
+  }
+  /**
+   * <code>.google.spannerlib.v1.Connection rollback_request = 5;</code>
+   * @return The rollbackRequest.
+   */
+  @java.lang.Override
+  public com.google.cloud.spannerlib.v1.Connection getRollbackRequest() {
+    if (requestCase_ == 5) {
+       return (com.google.cloud.spannerlib.v1.Connection) request_;
+    }
+    return com.google.cloud.spannerlib.v1.Connection.getDefaultInstance();
+  }
+  /**
+   * <code>.google.spannerlib.v1.Connection rollback_request = 5;</code>
+   */
+  @java.lang.Override
+  public com.google.cloud.spannerlib.v1.ConnectionOrBuilder getRollbackRequestOrBuilder() {
+    if (requestCase_ == 5) {
+       return (com.google.cloud.spannerlib.v1.Connection) request_;
+    }
+    return com.google.cloud.spannerlib.v1.Connection.getDefaultInstance();
+  }
+
+  public static final int WRITE_MUTATIONS_REQUEST_FIELD_NUMBER = 6;
+  /**
+   * <code>.google.spannerlib.v1.WriteMutationsRequest write_mutations_request = 6;</code>
+   * @return Whether the writeMutationsRequest field is set.
+   */
+  @java.lang.Override
+  public boolean hasWriteMutationsRequest() {
+    return requestCase_ == 6;
+  }
+  /**
+   * <code>.google.spannerlib.v1.WriteMutationsRequest write_mutations_request = 6;</code>
+   * @return The writeMutationsRequest.
+   */
+  @java.lang.Override
+  public com.google.cloud.spannerlib.v1.WriteMutationsRequest getWriteMutationsRequest() {
+    if (requestCase_ == 6) {
+       return (com.google.cloud.spannerlib.v1.WriteMutationsRequest) request_;
+    }
+    return com.google.cloud.spannerlib.v1.WriteMutationsRequest.getDefaultInstance();
+  }
+  /**
+   * <code>.google.spannerlib.v1.WriteMutationsRequest write_mutations_request = 6;</code>
+   */
+  @java.lang.Override
+  public com.google.cloud.spannerlib.v1.WriteMutationsRequestOrBuilder getWriteMutationsRequestOrBuilder() {
+    if (requestCase_ == 6) {
+       return (com.google.cloud.spannerlib.v1.WriteMutationsRequest) request_;
+    }
+    return com.google.cloud.spannerlib.v1.WriteMutationsRequest.getDefaultInstance();
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -131,6 +301,21 @@ private static final long serialVersionUID = 0L;
     if (requestCase_ == 1) {
       output.writeMessage(1, (com.google.cloud.spannerlib.v1.ExecuteRequest) request_);
     }
+    if (requestCase_ == 2) {
+      output.writeMessage(2, (com.google.cloud.spannerlib.v1.ExecuteBatchRequest) request_);
+    }
+    if (requestCase_ == 3) {
+      output.writeMessage(3, (com.google.cloud.spannerlib.v1.BeginTransactionRequest) request_);
+    }
+    if (requestCase_ == 4) {
+      output.writeMessage(4, (com.google.cloud.spannerlib.v1.Connection) request_);
+    }
+    if (requestCase_ == 5) {
+      output.writeMessage(5, (com.google.cloud.spannerlib.v1.Connection) request_);
+    }
+    if (requestCase_ == 6) {
+      output.writeMessage(6, (com.google.cloud.spannerlib.v1.WriteMutationsRequest) request_);
+    }
     getUnknownFields().writeTo(output);
   }
 
@@ -143,6 +328,26 @@ private static final long serialVersionUID = 0L;
     if (requestCase_ == 1) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(1, (com.google.cloud.spannerlib.v1.ExecuteRequest) request_);
+    }
+    if (requestCase_ == 2) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(2, (com.google.cloud.spannerlib.v1.ExecuteBatchRequest) request_);
+    }
+    if (requestCase_ == 3) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(3, (com.google.cloud.spannerlib.v1.BeginTransactionRequest) request_);
+    }
+    if (requestCase_ == 4) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(4, (com.google.cloud.spannerlib.v1.Connection) request_);
+    }
+    if (requestCase_ == 5) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(5, (com.google.cloud.spannerlib.v1.Connection) request_);
+    }
+    if (requestCase_ == 6) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(6, (com.google.cloud.spannerlib.v1.WriteMutationsRequest) request_);
     }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
@@ -165,6 +370,26 @@ private static final long serialVersionUID = 0L;
         if (!getExecuteRequest()
             .equals(other.getExecuteRequest())) return false;
         break;
+      case 2:
+        if (!getExecuteBatchRequest()
+            .equals(other.getExecuteBatchRequest())) return false;
+        break;
+      case 3:
+        if (!getBeginTransactionRequest()
+            .equals(other.getBeginTransactionRequest())) return false;
+        break;
+      case 4:
+        if (!getCommitRequest()
+            .equals(other.getCommitRequest())) return false;
+        break;
+      case 5:
+        if (!getRollbackRequest()
+            .equals(other.getRollbackRequest())) return false;
+        break;
+      case 6:
+        if (!getWriteMutationsRequest()
+            .equals(other.getWriteMutationsRequest())) return false;
+        break;
       case 0:
       default:
     }
@@ -183,6 +408,26 @@ private static final long serialVersionUID = 0L;
       case 1:
         hash = (37 * hash) + EXECUTE_REQUEST_FIELD_NUMBER;
         hash = (53 * hash) + getExecuteRequest().hashCode();
+        break;
+      case 2:
+        hash = (37 * hash) + EXECUTE_BATCH_REQUEST_FIELD_NUMBER;
+        hash = (53 * hash) + getExecuteBatchRequest().hashCode();
+        break;
+      case 3:
+        hash = (37 * hash) + BEGIN_TRANSACTION_REQUEST_FIELD_NUMBER;
+        hash = (53 * hash) + getBeginTransactionRequest().hashCode();
+        break;
+      case 4:
+        hash = (37 * hash) + COMMIT_REQUEST_FIELD_NUMBER;
+        hash = (53 * hash) + getCommitRequest().hashCode();
+        break;
+      case 5:
+        hash = (37 * hash) + ROLLBACK_REQUEST_FIELD_NUMBER;
+        hash = (53 * hash) + getRollbackRequest().hashCode();
+        break;
+      case 6:
+        hash = (37 * hash) + WRITE_MUTATIONS_REQUEST_FIELD_NUMBER;
+        hash = (53 * hash) + getWriteMutationsRequest().hashCode();
         break;
       case 0:
       default:
@@ -285,6 +530,11 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
+   * <pre>
+   * ConnectionStreamRequest is used by a client to send a request to the server using a
+   * bi-directional gRPC stream. Such a stream is opened by calling the ConnectionStream RPC.
+   * </pre>
+   *
    * Protobuf type {@code google.spannerlib.v1.ConnectionStreamRequest}
    */
   public static final class Builder extends
@@ -320,6 +570,21 @@ private static final long serialVersionUID = 0L;
       bitField0_ = 0;
       if (executeRequestBuilder_ != null) {
         executeRequestBuilder_.clear();
+      }
+      if (executeBatchRequestBuilder_ != null) {
+        executeBatchRequestBuilder_.clear();
+      }
+      if (beginTransactionRequestBuilder_ != null) {
+        beginTransactionRequestBuilder_.clear();
+      }
+      if (commitRequestBuilder_ != null) {
+        commitRequestBuilder_.clear();
+      }
+      if (rollbackRequestBuilder_ != null) {
+        rollbackRequestBuilder_.clear();
+      }
+      if (writeMutationsRequestBuilder_ != null) {
+        writeMutationsRequestBuilder_.clear();
       }
       requestCase_ = 0;
       request_ = null;
@@ -366,6 +631,26 @@ private static final long serialVersionUID = 0L;
           executeRequestBuilder_ != null) {
         result.request_ = executeRequestBuilder_.build();
       }
+      if (requestCase_ == 2 &&
+          executeBatchRequestBuilder_ != null) {
+        result.request_ = executeBatchRequestBuilder_.build();
+      }
+      if (requestCase_ == 3 &&
+          beginTransactionRequestBuilder_ != null) {
+        result.request_ = beginTransactionRequestBuilder_.build();
+      }
+      if (requestCase_ == 4 &&
+          commitRequestBuilder_ != null) {
+        result.request_ = commitRequestBuilder_.build();
+      }
+      if (requestCase_ == 5 &&
+          rollbackRequestBuilder_ != null) {
+        result.request_ = rollbackRequestBuilder_.build();
+      }
+      if (requestCase_ == 6 &&
+          writeMutationsRequestBuilder_ != null) {
+        result.request_ = writeMutationsRequestBuilder_.build();
+      }
     }
 
     @java.lang.Override
@@ -383,6 +668,26 @@ private static final long serialVersionUID = 0L;
       switch (other.getRequestCase()) {
         case EXECUTE_REQUEST: {
           mergeExecuteRequest(other.getExecuteRequest());
+          break;
+        }
+        case EXECUTE_BATCH_REQUEST: {
+          mergeExecuteBatchRequest(other.getExecuteBatchRequest());
+          break;
+        }
+        case BEGIN_TRANSACTION_REQUEST: {
+          mergeBeginTransactionRequest(other.getBeginTransactionRequest());
+          break;
+        }
+        case COMMIT_REQUEST: {
+          mergeCommitRequest(other.getCommitRequest());
+          break;
+        }
+        case ROLLBACK_REQUEST: {
+          mergeRollbackRequest(other.getRollbackRequest());
+          break;
+        }
+        case WRITE_MUTATIONS_REQUEST: {
+          mergeWriteMutationsRequest(other.getWriteMutationsRequest());
           break;
         }
         case REQUEST_NOT_SET: {
@@ -422,6 +727,41 @@ private static final long serialVersionUID = 0L;
               requestCase_ = 1;
               break;
             } // case 10
+            case 18: {
+              input.readMessage(
+                  internalGetExecuteBatchRequestFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              requestCase_ = 2;
+              break;
+            } // case 18
+            case 26: {
+              input.readMessage(
+                  internalGetBeginTransactionRequestFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              requestCase_ = 3;
+              break;
+            } // case 26
+            case 34: {
+              input.readMessage(
+                  internalGetCommitRequestFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              requestCase_ = 4;
+              break;
+            } // case 34
+            case 42: {
+              input.readMessage(
+                  internalGetRollbackRequestFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              requestCase_ = 5;
+              break;
+            } // case 42
+            case 50: {
+              input.readMessage(
+                  internalGetWriteMutationsRequestFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              requestCase_ = 6;
+              break;
+            } // case 50
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -594,6 +934,716 @@ private static final long serialVersionUID = 0L;
       requestCase_ = 1;
       onChanged();
       return executeRequestBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.cloud.spannerlib.v1.ExecuteBatchRequest, com.google.cloud.spannerlib.v1.ExecuteBatchRequest.Builder, com.google.cloud.spannerlib.v1.ExecuteBatchRequestOrBuilder> executeBatchRequestBuilder_;
+    /**
+     * <code>.google.spannerlib.v1.ExecuteBatchRequest execute_batch_request = 2;</code>
+     * @return Whether the executeBatchRequest field is set.
+     */
+    @java.lang.Override
+    public boolean hasExecuteBatchRequest() {
+      return requestCase_ == 2;
+    }
+    /**
+     * <code>.google.spannerlib.v1.ExecuteBatchRequest execute_batch_request = 2;</code>
+     * @return The executeBatchRequest.
+     */
+    @java.lang.Override
+    public com.google.cloud.spannerlib.v1.ExecuteBatchRequest getExecuteBatchRequest() {
+      if (executeBatchRequestBuilder_ == null) {
+        if (requestCase_ == 2) {
+          return (com.google.cloud.spannerlib.v1.ExecuteBatchRequest) request_;
+        }
+        return com.google.cloud.spannerlib.v1.ExecuteBatchRequest.getDefaultInstance();
+      } else {
+        if (requestCase_ == 2) {
+          return executeBatchRequestBuilder_.getMessage();
+        }
+        return com.google.cloud.spannerlib.v1.ExecuteBatchRequest.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.spannerlib.v1.ExecuteBatchRequest execute_batch_request = 2;</code>
+     */
+    public Builder setExecuteBatchRequest(com.google.cloud.spannerlib.v1.ExecuteBatchRequest value) {
+      if (executeBatchRequestBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        request_ = value;
+        onChanged();
+      } else {
+        executeBatchRequestBuilder_.setMessage(value);
+      }
+      requestCase_ = 2;
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.ExecuteBatchRequest execute_batch_request = 2;</code>
+     */
+    public Builder setExecuteBatchRequest(
+        com.google.cloud.spannerlib.v1.ExecuteBatchRequest.Builder builderForValue) {
+      if (executeBatchRequestBuilder_ == null) {
+        request_ = builderForValue.build();
+        onChanged();
+      } else {
+        executeBatchRequestBuilder_.setMessage(builderForValue.build());
+      }
+      requestCase_ = 2;
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.ExecuteBatchRequest execute_batch_request = 2;</code>
+     */
+    public Builder mergeExecuteBatchRequest(com.google.cloud.spannerlib.v1.ExecuteBatchRequest value) {
+      if (executeBatchRequestBuilder_ == null) {
+        if (requestCase_ == 2 &&
+            request_ != com.google.cloud.spannerlib.v1.ExecuteBatchRequest.getDefaultInstance()) {
+          request_ = com.google.cloud.spannerlib.v1.ExecuteBatchRequest.newBuilder((com.google.cloud.spannerlib.v1.ExecuteBatchRequest) request_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          request_ = value;
+        }
+        onChanged();
+      } else {
+        if (requestCase_ == 2) {
+          executeBatchRequestBuilder_.mergeFrom(value);
+        } else {
+          executeBatchRequestBuilder_.setMessage(value);
+        }
+      }
+      requestCase_ = 2;
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.ExecuteBatchRequest execute_batch_request = 2;</code>
+     */
+    public Builder clearExecuteBatchRequest() {
+      if (executeBatchRequestBuilder_ == null) {
+        if (requestCase_ == 2) {
+          requestCase_ = 0;
+          request_ = null;
+          onChanged();
+        }
+      } else {
+        if (requestCase_ == 2) {
+          requestCase_ = 0;
+          request_ = null;
+        }
+        executeBatchRequestBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.ExecuteBatchRequest execute_batch_request = 2;</code>
+     */
+    public com.google.cloud.spannerlib.v1.ExecuteBatchRequest.Builder getExecuteBatchRequestBuilder() {
+      return internalGetExecuteBatchRequestFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.google.spannerlib.v1.ExecuteBatchRequest execute_batch_request = 2;</code>
+     */
+    @java.lang.Override
+    public com.google.cloud.spannerlib.v1.ExecuteBatchRequestOrBuilder getExecuteBatchRequestOrBuilder() {
+      if ((requestCase_ == 2) && (executeBatchRequestBuilder_ != null)) {
+        return executeBatchRequestBuilder_.getMessageOrBuilder();
+      } else {
+        if (requestCase_ == 2) {
+          return (com.google.cloud.spannerlib.v1.ExecuteBatchRequest) request_;
+        }
+        return com.google.cloud.spannerlib.v1.ExecuteBatchRequest.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.spannerlib.v1.ExecuteBatchRequest execute_batch_request = 2;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.cloud.spannerlib.v1.ExecuteBatchRequest, com.google.cloud.spannerlib.v1.ExecuteBatchRequest.Builder, com.google.cloud.spannerlib.v1.ExecuteBatchRequestOrBuilder> 
+        internalGetExecuteBatchRequestFieldBuilder() {
+      if (executeBatchRequestBuilder_ == null) {
+        if (!(requestCase_ == 2)) {
+          request_ = com.google.cloud.spannerlib.v1.ExecuteBatchRequest.getDefaultInstance();
+        }
+        executeBatchRequestBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.cloud.spannerlib.v1.ExecuteBatchRequest, com.google.cloud.spannerlib.v1.ExecuteBatchRequest.Builder, com.google.cloud.spannerlib.v1.ExecuteBatchRequestOrBuilder>(
+                (com.google.cloud.spannerlib.v1.ExecuteBatchRequest) request_,
+                getParentForChildren(),
+                isClean());
+        request_ = null;
+      }
+      requestCase_ = 2;
+      onChanged();
+      return executeBatchRequestBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.cloud.spannerlib.v1.BeginTransactionRequest, com.google.cloud.spannerlib.v1.BeginTransactionRequest.Builder, com.google.cloud.spannerlib.v1.BeginTransactionRequestOrBuilder> beginTransactionRequestBuilder_;
+    /**
+     * <code>.google.spannerlib.v1.BeginTransactionRequest begin_transaction_request = 3;</code>
+     * @return Whether the beginTransactionRequest field is set.
+     */
+    @java.lang.Override
+    public boolean hasBeginTransactionRequest() {
+      return requestCase_ == 3;
+    }
+    /**
+     * <code>.google.spannerlib.v1.BeginTransactionRequest begin_transaction_request = 3;</code>
+     * @return The beginTransactionRequest.
+     */
+    @java.lang.Override
+    public com.google.cloud.spannerlib.v1.BeginTransactionRequest getBeginTransactionRequest() {
+      if (beginTransactionRequestBuilder_ == null) {
+        if (requestCase_ == 3) {
+          return (com.google.cloud.spannerlib.v1.BeginTransactionRequest) request_;
+        }
+        return com.google.cloud.spannerlib.v1.BeginTransactionRequest.getDefaultInstance();
+      } else {
+        if (requestCase_ == 3) {
+          return beginTransactionRequestBuilder_.getMessage();
+        }
+        return com.google.cloud.spannerlib.v1.BeginTransactionRequest.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.spannerlib.v1.BeginTransactionRequest begin_transaction_request = 3;</code>
+     */
+    public Builder setBeginTransactionRequest(com.google.cloud.spannerlib.v1.BeginTransactionRequest value) {
+      if (beginTransactionRequestBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        request_ = value;
+        onChanged();
+      } else {
+        beginTransactionRequestBuilder_.setMessage(value);
+      }
+      requestCase_ = 3;
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.BeginTransactionRequest begin_transaction_request = 3;</code>
+     */
+    public Builder setBeginTransactionRequest(
+        com.google.cloud.spannerlib.v1.BeginTransactionRequest.Builder builderForValue) {
+      if (beginTransactionRequestBuilder_ == null) {
+        request_ = builderForValue.build();
+        onChanged();
+      } else {
+        beginTransactionRequestBuilder_.setMessage(builderForValue.build());
+      }
+      requestCase_ = 3;
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.BeginTransactionRequest begin_transaction_request = 3;</code>
+     */
+    public Builder mergeBeginTransactionRequest(com.google.cloud.spannerlib.v1.BeginTransactionRequest value) {
+      if (beginTransactionRequestBuilder_ == null) {
+        if (requestCase_ == 3 &&
+            request_ != com.google.cloud.spannerlib.v1.BeginTransactionRequest.getDefaultInstance()) {
+          request_ = com.google.cloud.spannerlib.v1.BeginTransactionRequest.newBuilder((com.google.cloud.spannerlib.v1.BeginTransactionRequest) request_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          request_ = value;
+        }
+        onChanged();
+      } else {
+        if (requestCase_ == 3) {
+          beginTransactionRequestBuilder_.mergeFrom(value);
+        } else {
+          beginTransactionRequestBuilder_.setMessage(value);
+        }
+      }
+      requestCase_ = 3;
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.BeginTransactionRequest begin_transaction_request = 3;</code>
+     */
+    public Builder clearBeginTransactionRequest() {
+      if (beginTransactionRequestBuilder_ == null) {
+        if (requestCase_ == 3) {
+          requestCase_ = 0;
+          request_ = null;
+          onChanged();
+        }
+      } else {
+        if (requestCase_ == 3) {
+          requestCase_ = 0;
+          request_ = null;
+        }
+        beginTransactionRequestBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.BeginTransactionRequest begin_transaction_request = 3;</code>
+     */
+    public com.google.cloud.spannerlib.v1.BeginTransactionRequest.Builder getBeginTransactionRequestBuilder() {
+      return internalGetBeginTransactionRequestFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.google.spannerlib.v1.BeginTransactionRequest begin_transaction_request = 3;</code>
+     */
+    @java.lang.Override
+    public com.google.cloud.spannerlib.v1.BeginTransactionRequestOrBuilder getBeginTransactionRequestOrBuilder() {
+      if ((requestCase_ == 3) && (beginTransactionRequestBuilder_ != null)) {
+        return beginTransactionRequestBuilder_.getMessageOrBuilder();
+      } else {
+        if (requestCase_ == 3) {
+          return (com.google.cloud.spannerlib.v1.BeginTransactionRequest) request_;
+        }
+        return com.google.cloud.spannerlib.v1.BeginTransactionRequest.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.spannerlib.v1.BeginTransactionRequest begin_transaction_request = 3;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.cloud.spannerlib.v1.BeginTransactionRequest, com.google.cloud.spannerlib.v1.BeginTransactionRequest.Builder, com.google.cloud.spannerlib.v1.BeginTransactionRequestOrBuilder> 
+        internalGetBeginTransactionRequestFieldBuilder() {
+      if (beginTransactionRequestBuilder_ == null) {
+        if (!(requestCase_ == 3)) {
+          request_ = com.google.cloud.spannerlib.v1.BeginTransactionRequest.getDefaultInstance();
+        }
+        beginTransactionRequestBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.cloud.spannerlib.v1.BeginTransactionRequest, com.google.cloud.spannerlib.v1.BeginTransactionRequest.Builder, com.google.cloud.spannerlib.v1.BeginTransactionRequestOrBuilder>(
+                (com.google.cloud.spannerlib.v1.BeginTransactionRequest) request_,
+                getParentForChildren(),
+                isClean());
+        request_ = null;
+      }
+      requestCase_ = 3;
+      onChanged();
+      return beginTransactionRequestBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.cloud.spannerlib.v1.Connection, com.google.cloud.spannerlib.v1.Connection.Builder, com.google.cloud.spannerlib.v1.ConnectionOrBuilder> commitRequestBuilder_;
+    /**
+     * <code>.google.spannerlib.v1.Connection commit_request = 4;</code>
+     * @return Whether the commitRequest field is set.
+     */
+    @java.lang.Override
+    public boolean hasCommitRequest() {
+      return requestCase_ == 4;
+    }
+    /**
+     * <code>.google.spannerlib.v1.Connection commit_request = 4;</code>
+     * @return The commitRequest.
+     */
+    @java.lang.Override
+    public com.google.cloud.spannerlib.v1.Connection getCommitRequest() {
+      if (commitRequestBuilder_ == null) {
+        if (requestCase_ == 4) {
+          return (com.google.cloud.spannerlib.v1.Connection) request_;
+        }
+        return com.google.cloud.spannerlib.v1.Connection.getDefaultInstance();
+      } else {
+        if (requestCase_ == 4) {
+          return commitRequestBuilder_.getMessage();
+        }
+        return com.google.cloud.spannerlib.v1.Connection.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.spannerlib.v1.Connection commit_request = 4;</code>
+     */
+    public Builder setCommitRequest(com.google.cloud.spannerlib.v1.Connection value) {
+      if (commitRequestBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        request_ = value;
+        onChanged();
+      } else {
+        commitRequestBuilder_.setMessage(value);
+      }
+      requestCase_ = 4;
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.Connection commit_request = 4;</code>
+     */
+    public Builder setCommitRequest(
+        com.google.cloud.spannerlib.v1.Connection.Builder builderForValue) {
+      if (commitRequestBuilder_ == null) {
+        request_ = builderForValue.build();
+        onChanged();
+      } else {
+        commitRequestBuilder_.setMessage(builderForValue.build());
+      }
+      requestCase_ = 4;
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.Connection commit_request = 4;</code>
+     */
+    public Builder mergeCommitRequest(com.google.cloud.spannerlib.v1.Connection value) {
+      if (commitRequestBuilder_ == null) {
+        if (requestCase_ == 4 &&
+            request_ != com.google.cloud.spannerlib.v1.Connection.getDefaultInstance()) {
+          request_ = com.google.cloud.spannerlib.v1.Connection.newBuilder((com.google.cloud.spannerlib.v1.Connection) request_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          request_ = value;
+        }
+        onChanged();
+      } else {
+        if (requestCase_ == 4) {
+          commitRequestBuilder_.mergeFrom(value);
+        } else {
+          commitRequestBuilder_.setMessage(value);
+        }
+      }
+      requestCase_ = 4;
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.Connection commit_request = 4;</code>
+     */
+    public Builder clearCommitRequest() {
+      if (commitRequestBuilder_ == null) {
+        if (requestCase_ == 4) {
+          requestCase_ = 0;
+          request_ = null;
+          onChanged();
+        }
+      } else {
+        if (requestCase_ == 4) {
+          requestCase_ = 0;
+          request_ = null;
+        }
+        commitRequestBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.Connection commit_request = 4;</code>
+     */
+    public com.google.cloud.spannerlib.v1.Connection.Builder getCommitRequestBuilder() {
+      return internalGetCommitRequestFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.google.spannerlib.v1.Connection commit_request = 4;</code>
+     */
+    @java.lang.Override
+    public com.google.cloud.spannerlib.v1.ConnectionOrBuilder getCommitRequestOrBuilder() {
+      if ((requestCase_ == 4) && (commitRequestBuilder_ != null)) {
+        return commitRequestBuilder_.getMessageOrBuilder();
+      } else {
+        if (requestCase_ == 4) {
+          return (com.google.cloud.spannerlib.v1.Connection) request_;
+        }
+        return com.google.cloud.spannerlib.v1.Connection.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.spannerlib.v1.Connection commit_request = 4;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.cloud.spannerlib.v1.Connection, com.google.cloud.spannerlib.v1.Connection.Builder, com.google.cloud.spannerlib.v1.ConnectionOrBuilder> 
+        internalGetCommitRequestFieldBuilder() {
+      if (commitRequestBuilder_ == null) {
+        if (!(requestCase_ == 4)) {
+          request_ = com.google.cloud.spannerlib.v1.Connection.getDefaultInstance();
+        }
+        commitRequestBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.cloud.spannerlib.v1.Connection, com.google.cloud.spannerlib.v1.Connection.Builder, com.google.cloud.spannerlib.v1.ConnectionOrBuilder>(
+                (com.google.cloud.spannerlib.v1.Connection) request_,
+                getParentForChildren(),
+                isClean());
+        request_ = null;
+      }
+      requestCase_ = 4;
+      onChanged();
+      return commitRequestBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.cloud.spannerlib.v1.Connection, com.google.cloud.spannerlib.v1.Connection.Builder, com.google.cloud.spannerlib.v1.ConnectionOrBuilder> rollbackRequestBuilder_;
+    /**
+     * <code>.google.spannerlib.v1.Connection rollback_request = 5;</code>
+     * @return Whether the rollbackRequest field is set.
+     */
+    @java.lang.Override
+    public boolean hasRollbackRequest() {
+      return requestCase_ == 5;
+    }
+    /**
+     * <code>.google.spannerlib.v1.Connection rollback_request = 5;</code>
+     * @return The rollbackRequest.
+     */
+    @java.lang.Override
+    public com.google.cloud.spannerlib.v1.Connection getRollbackRequest() {
+      if (rollbackRequestBuilder_ == null) {
+        if (requestCase_ == 5) {
+          return (com.google.cloud.spannerlib.v1.Connection) request_;
+        }
+        return com.google.cloud.spannerlib.v1.Connection.getDefaultInstance();
+      } else {
+        if (requestCase_ == 5) {
+          return rollbackRequestBuilder_.getMessage();
+        }
+        return com.google.cloud.spannerlib.v1.Connection.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.spannerlib.v1.Connection rollback_request = 5;</code>
+     */
+    public Builder setRollbackRequest(com.google.cloud.spannerlib.v1.Connection value) {
+      if (rollbackRequestBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        request_ = value;
+        onChanged();
+      } else {
+        rollbackRequestBuilder_.setMessage(value);
+      }
+      requestCase_ = 5;
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.Connection rollback_request = 5;</code>
+     */
+    public Builder setRollbackRequest(
+        com.google.cloud.spannerlib.v1.Connection.Builder builderForValue) {
+      if (rollbackRequestBuilder_ == null) {
+        request_ = builderForValue.build();
+        onChanged();
+      } else {
+        rollbackRequestBuilder_.setMessage(builderForValue.build());
+      }
+      requestCase_ = 5;
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.Connection rollback_request = 5;</code>
+     */
+    public Builder mergeRollbackRequest(com.google.cloud.spannerlib.v1.Connection value) {
+      if (rollbackRequestBuilder_ == null) {
+        if (requestCase_ == 5 &&
+            request_ != com.google.cloud.spannerlib.v1.Connection.getDefaultInstance()) {
+          request_ = com.google.cloud.spannerlib.v1.Connection.newBuilder((com.google.cloud.spannerlib.v1.Connection) request_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          request_ = value;
+        }
+        onChanged();
+      } else {
+        if (requestCase_ == 5) {
+          rollbackRequestBuilder_.mergeFrom(value);
+        } else {
+          rollbackRequestBuilder_.setMessage(value);
+        }
+      }
+      requestCase_ = 5;
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.Connection rollback_request = 5;</code>
+     */
+    public Builder clearRollbackRequest() {
+      if (rollbackRequestBuilder_ == null) {
+        if (requestCase_ == 5) {
+          requestCase_ = 0;
+          request_ = null;
+          onChanged();
+        }
+      } else {
+        if (requestCase_ == 5) {
+          requestCase_ = 0;
+          request_ = null;
+        }
+        rollbackRequestBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.Connection rollback_request = 5;</code>
+     */
+    public com.google.cloud.spannerlib.v1.Connection.Builder getRollbackRequestBuilder() {
+      return internalGetRollbackRequestFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.google.spannerlib.v1.Connection rollback_request = 5;</code>
+     */
+    @java.lang.Override
+    public com.google.cloud.spannerlib.v1.ConnectionOrBuilder getRollbackRequestOrBuilder() {
+      if ((requestCase_ == 5) && (rollbackRequestBuilder_ != null)) {
+        return rollbackRequestBuilder_.getMessageOrBuilder();
+      } else {
+        if (requestCase_ == 5) {
+          return (com.google.cloud.spannerlib.v1.Connection) request_;
+        }
+        return com.google.cloud.spannerlib.v1.Connection.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.spannerlib.v1.Connection rollback_request = 5;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.cloud.spannerlib.v1.Connection, com.google.cloud.spannerlib.v1.Connection.Builder, com.google.cloud.spannerlib.v1.ConnectionOrBuilder> 
+        internalGetRollbackRequestFieldBuilder() {
+      if (rollbackRequestBuilder_ == null) {
+        if (!(requestCase_ == 5)) {
+          request_ = com.google.cloud.spannerlib.v1.Connection.getDefaultInstance();
+        }
+        rollbackRequestBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.cloud.spannerlib.v1.Connection, com.google.cloud.spannerlib.v1.Connection.Builder, com.google.cloud.spannerlib.v1.ConnectionOrBuilder>(
+                (com.google.cloud.spannerlib.v1.Connection) request_,
+                getParentForChildren(),
+                isClean());
+        request_ = null;
+      }
+      requestCase_ = 5;
+      onChanged();
+      return rollbackRequestBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.cloud.spannerlib.v1.WriteMutationsRequest, com.google.cloud.spannerlib.v1.WriteMutationsRequest.Builder, com.google.cloud.spannerlib.v1.WriteMutationsRequestOrBuilder> writeMutationsRequestBuilder_;
+    /**
+     * <code>.google.spannerlib.v1.WriteMutationsRequest write_mutations_request = 6;</code>
+     * @return Whether the writeMutationsRequest field is set.
+     */
+    @java.lang.Override
+    public boolean hasWriteMutationsRequest() {
+      return requestCase_ == 6;
+    }
+    /**
+     * <code>.google.spannerlib.v1.WriteMutationsRequest write_mutations_request = 6;</code>
+     * @return The writeMutationsRequest.
+     */
+    @java.lang.Override
+    public com.google.cloud.spannerlib.v1.WriteMutationsRequest getWriteMutationsRequest() {
+      if (writeMutationsRequestBuilder_ == null) {
+        if (requestCase_ == 6) {
+          return (com.google.cloud.spannerlib.v1.WriteMutationsRequest) request_;
+        }
+        return com.google.cloud.spannerlib.v1.WriteMutationsRequest.getDefaultInstance();
+      } else {
+        if (requestCase_ == 6) {
+          return writeMutationsRequestBuilder_.getMessage();
+        }
+        return com.google.cloud.spannerlib.v1.WriteMutationsRequest.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.spannerlib.v1.WriteMutationsRequest write_mutations_request = 6;</code>
+     */
+    public Builder setWriteMutationsRequest(com.google.cloud.spannerlib.v1.WriteMutationsRequest value) {
+      if (writeMutationsRequestBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        request_ = value;
+        onChanged();
+      } else {
+        writeMutationsRequestBuilder_.setMessage(value);
+      }
+      requestCase_ = 6;
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.WriteMutationsRequest write_mutations_request = 6;</code>
+     */
+    public Builder setWriteMutationsRequest(
+        com.google.cloud.spannerlib.v1.WriteMutationsRequest.Builder builderForValue) {
+      if (writeMutationsRequestBuilder_ == null) {
+        request_ = builderForValue.build();
+        onChanged();
+      } else {
+        writeMutationsRequestBuilder_.setMessage(builderForValue.build());
+      }
+      requestCase_ = 6;
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.WriteMutationsRequest write_mutations_request = 6;</code>
+     */
+    public Builder mergeWriteMutationsRequest(com.google.cloud.spannerlib.v1.WriteMutationsRequest value) {
+      if (writeMutationsRequestBuilder_ == null) {
+        if (requestCase_ == 6 &&
+            request_ != com.google.cloud.spannerlib.v1.WriteMutationsRequest.getDefaultInstance()) {
+          request_ = com.google.cloud.spannerlib.v1.WriteMutationsRequest.newBuilder((com.google.cloud.spannerlib.v1.WriteMutationsRequest) request_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          request_ = value;
+        }
+        onChanged();
+      } else {
+        if (requestCase_ == 6) {
+          writeMutationsRequestBuilder_.mergeFrom(value);
+        } else {
+          writeMutationsRequestBuilder_.setMessage(value);
+        }
+      }
+      requestCase_ = 6;
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.WriteMutationsRequest write_mutations_request = 6;</code>
+     */
+    public Builder clearWriteMutationsRequest() {
+      if (writeMutationsRequestBuilder_ == null) {
+        if (requestCase_ == 6) {
+          requestCase_ = 0;
+          request_ = null;
+          onChanged();
+        }
+      } else {
+        if (requestCase_ == 6) {
+          requestCase_ = 0;
+          request_ = null;
+        }
+        writeMutationsRequestBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>.google.spannerlib.v1.WriteMutationsRequest write_mutations_request = 6;</code>
+     */
+    public com.google.cloud.spannerlib.v1.WriteMutationsRequest.Builder getWriteMutationsRequestBuilder() {
+      return internalGetWriteMutationsRequestFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.google.spannerlib.v1.WriteMutationsRequest write_mutations_request = 6;</code>
+     */
+    @java.lang.Override
+    public com.google.cloud.spannerlib.v1.WriteMutationsRequestOrBuilder getWriteMutationsRequestOrBuilder() {
+      if ((requestCase_ == 6) && (writeMutationsRequestBuilder_ != null)) {
+        return writeMutationsRequestBuilder_.getMessageOrBuilder();
+      } else {
+        if (requestCase_ == 6) {
+          return (com.google.cloud.spannerlib.v1.WriteMutationsRequest) request_;
+        }
+        return com.google.cloud.spannerlib.v1.WriteMutationsRequest.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.google.spannerlib.v1.WriteMutationsRequest write_mutations_request = 6;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.cloud.spannerlib.v1.WriteMutationsRequest, com.google.cloud.spannerlib.v1.WriteMutationsRequest.Builder, com.google.cloud.spannerlib.v1.WriteMutationsRequestOrBuilder> 
+        internalGetWriteMutationsRequestFieldBuilder() {
+      if (writeMutationsRequestBuilder_ == null) {
+        if (!(requestCase_ == 6)) {
+          request_ = com.google.cloud.spannerlib.v1.WriteMutationsRequest.getDefaultInstance();
+        }
+        writeMutationsRequestBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.cloud.spannerlib.v1.WriteMutationsRequest, com.google.cloud.spannerlib.v1.WriteMutationsRequest.Builder, com.google.cloud.spannerlib.v1.WriteMutationsRequestOrBuilder>(
+                (com.google.cloud.spannerlib.v1.WriteMutationsRequest) request_,
+                getParentForChildren(),
+                isClean());
+        request_ = null;
+      }
+      requestCase_ = 6;
+      onChanged();
+      return writeMutationsRequestBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:google.spannerlib.v1.ConnectionStreamRequest)
