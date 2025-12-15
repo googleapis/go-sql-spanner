@@ -232,6 +232,14 @@ namespace Google.Cloud.SpannerLib.V1 {
         __Marshaller_google_spannerlib_v1_ConnectionStreamRequest,
         __Marshaller_google_spannerlib_v1_ConnectionStreamResponse);
 
+    [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]
+    static readonly grpc::Method<global::Google.Cloud.SpannerLib.V1.Rows, global::Google.Cloud.SpannerLib.V1.RowData> __Method_ContinueStreaming = new grpc::Method<global::Google.Cloud.SpannerLib.V1.Rows, global::Google.Cloud.SpannerLib.V1.RowData>(
+        grpc::MethodType.ServerStreaming,
+        __ServiceName,
+        "ContinueStreaming",
+        __Marshaller_google_spannerlib_v1_Rows,
+        __Marshaller_google_spannerlib_v1_RowData);
+
     /// <summary>Service descriptor</summary>
     public static global::Google.Protobuf.Reflection.ServiceDescriptor Descriptor
     {
@@ -595,15 +603,61 @@ namespace Google.Cloud.SpannerLib.V1 {
       {
         return CallInvoker.AsyncUnaryCall(__Method_WriteMutations, null, options, request);
       }
+      /// <summary>
+      /// ConnectionStream opens a bi-directional gRPC stream between the client and the server.
+      /// This stream can be re-used by the client for multiple requests, and normally gives the
+      /// lowest possible latency, at the cost of a slightly more complex API.
+      /// </summary>
+      /// <param name="headers">The initial metadata to send with the call. This parameter is optional.</param>
+      /// <param name="deadline">An optional deadline for the call. The call will be cancelled if deadline is hit.</param>
+      /// <param name="cancellationToken">An optional token for canceling the call.</param>
+      /// <returns>The call object.</returns>
       [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]
       public virtual grpc::AsyncDuplexStreamingCall<global::Google.Cloud.SpannerLib.V1.ConnectionStreamRequest, global::Google.Cloud.SpannerLib.V1.ConnectionStreamResponse> ConnectionStream(grpc::Metadata headers = null, global::System.DateTime? deadline = null, global::System.Threading.CancellationToken cancellationToken = default(global::System.Threading.CancellationToken))
       {
         return ConnectionStream(new grpc::CallOptions(headers, deadline, cancellationToken));
       }
+      /// <summary>
+      /// ConnectionStream opens a bi-directional gRPC stream between the client and the server.
+      /// This stream can be re-used by the client for multiple requests, and normally gives the
+      /// lowest possible latency, at the cost of a slightly more complex API.
+      /// </summary>
+      /// <param name="options">The options for the call.</param>
+      /// <returns>The call object.</returns>
       [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]
       public virtual grpc::AsyncDuplexStreamingCall<global::Google.Cloud.SpannerLib.V1.ConnectionStreamRequest, global::Google.Cloud.SpannerLib.V1.ConnectionStreamResponse> ConnectionStream(grpc::CallOptions options)
       {
         return CallInvoker.AsyncDuplexStreamingCall(__Method_ConnectionStream, null, options);
+      }
+      /// <summary>
+      /// ContinueStreaming returns a server stream that returns the remaining rows of a SQL statement
+      /// that has previously been executed using a ConnectionStreamRequest on a bi-directional
+      /// ConnectionStream. The client is responsible for calling this RPC if the has_more_data flag
+      /// of the ExecuteResponse was true.
+      /// </summary>
+      /// <param name="request">The request to send to the server.</param>
+      /// <param name="headers">The initial metadata to send with the call. This parameter is optional.</param>
+      /// <param name="deadline">An optional deadline for the call. The call will be cancelled if deadline is hit.</param>
+      /// <param name="cancellationToken">An optional token for canceling the call.</param>
+      /// <returns>The call object.</returns>
+      [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]
+      public virtual grpc::AsyncServerStreamingCall<global::Google.Cloud.SpannerLib.V1.RowData> ContinueStreaming(global::Google.Cloud.SpannerLib.V1.Rows request, grpc::Metadata headers = null, global::System.DateTime? deadline = null, global::System.Threading.CancellationToken cancellationToken = default(global::System.Threading.CancellationToken))
+      {
+        return ContinueStreaming(request, new grpc::CallOptions(headers, deadline, cancellationToken));
+      }
+      /// <summary>
+      /// ContinueStreaming returns a server stream that returns the remaining rows of a SQL statement
+      /// that has previously been executed using a ConnectionStreamRequest on a bi-directional
+      /// ConnectionStream. The client is responsible for calling this RPC if the has_more_data flag
+      /// of the ExecuteResponse was true.
+      /// </summary>
+      /// <param name="request">The request to send to the server.</param>
+      /// <param name="options">The options for the call.</param>
+      /// <returns>The call object.</returns>
+      [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]
+      public virtual grpc::AsyncServerStreamingCall<global::Google.Cloud.SpannerLib.V1.RowData> ContinueStreaming(global::Google.Cloud.SpannerLib.V1.Rows request, grpc::CallOptions options)
+      {
+        return CallInvoker.AsyncServerStreamingCall(__Method_ContinueStreaming, null, options, request);
       }
       /// <summary>Creates a new instance of client from given <c>ClientBaseConfiguration</c>.</summary>
       [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]

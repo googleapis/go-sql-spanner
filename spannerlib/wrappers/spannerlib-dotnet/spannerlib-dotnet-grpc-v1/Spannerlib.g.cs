@@ -27,106 +27,134 @@ namespace Google.Cloud.SpannerLib.V1 {
             "CiVnb29nbGUvc3Bhbm5lcmxpYi92MS9zcGFubmVybGliLnByb3RvEhRnb29n",
             "bGUuc3Bhbm5lcmxpYi52MRofZ29vZ2xlL2FwaS9maWVsZF9iZWhhdmlvci5w",
             "cm90bxobZ29vZ2xlL3Byb3RvYnVmL2VtcHR5LnByb3RvGhxnb29nbGUvcHJv",
-            "dG9idWYvc3RydWN0LnByb3RvGiJnb29nbGUvc3Bhbm5lci92MS9yZXN1bHRf",
-            "c2V0LnByb3RvGh9nb29nbGUvc3Bhbm5lci92MS9zcGFubmVyLnByb3RvGiNn",
-            "b29nbGUvc3Bhbm5lci92MS90cmFuc2FjdGlvbi5wcm90byINCgtJbmZvUmVx",
-            "dWVzdCIfCgxJbmZvUmVzcG9uc2USDwoHdmVyc2lvbhgBIAEoCSIzChFDcmVh",
-            "dGVQb29sUmVxdWVzdBIeChFjb25uZWN0aW9uX3N0cmluZxgBIAEoCUID4EEC",
-            "IkgKF0NyZWF0ZUNvbm5lY3Rpb25SZXF1ZXN0Ei0KBHBvb2wYASABKAsyGi5n",
-            "b29nbGUuc3Bhbm5lcmxpYi52MS5Qb29sQgPgQQIikwEKDkV4ZWN1dGVSZXF1",
-            "ZXN0EjkKCmNvbm5lY3Rpb24YASABKAsyIC5nb29nbGUuc3Bhbm5lcmxpYi52",
-            "MS5Db25uZWN0aW9uQgPgQQISRgoTZXhlY3V0ZV9zcWxfcmVxdWVzdBgCIAEo",
-            "CzIkLmdvb2dsZS5zcGFubmVyLnYxLkV4ZWN1dGVTcWxSZXF1ZXN0QgPgQQIi",
-            "owEKE0V4ZWN1dGVCYXRjaFJlcXVlc3QSOQoKY29ubmVjdGlvbhgBIAEoCzIg",
-            "Lmdvb2dsZS5zcGFubmVybGliLnYxLkNvbm5lY3Rpb25CA+BBAhJRChlleGVj",
-            "dXRlX2JhdGNoX2RtbF9yZXF1ZXN0GAIgASgLMikuZ29vZ2xlLnNwYW5uZXIu",
-            "djEuRXhlY3V0ZUJhdGNoRG1sUmVxdWVzdEID4EECIp0BChdCZWdpblRyYW5z",
-            "YWN0aW9uUmVxdWVzdBI5Cgpjb25uZWN0aW9uGAEgASgLMiAuZ29vZ2xlLnNw",
-            "YW5uZXJsaWIudjEuQ29ubmVjdGlvbkID4EECEkcKE3RyYW5zYWN0aW9uX29w",
-            "dGlvbnMYAiABKAsyJS5nb29nbGUuc3Bhbm5lci52MS5UcmFuc2FjdGlvbk9w",
-            "dGlvbnNCA+BBAiKeAQoVV3JpdGVNdXRhdGlvbnNSZXF1ZXN0EjkKCmNvbm5l",
-            "Y3Rpb24YASABKAsyIC5nb29nbGUuc3Bhbm5lcmxpYi52MS5Db25uZWN0aW9u",
-            "QgPgQQISSgoJbXV0YXRpb25zGAIgASgLMjIuZ29vZ2xlLnNwYW5uZXIudjEu",
-            "QmF0Y2hXcml0ZVJlcXVlc3QuTXV0YXRpb25Hcm91cEID4EECIhcKBFBvb2wS",
-            "DwoCaWQYASABKANCA+BBAiJMCgpDb25uZWN0aW9uEi0KBHBvb2wYASABKAsy",
-            "Gi5nb29nbGUuc3Bhbm5lcmxpYi52MS5Qb29sQgPgQQISDwoCaWQYAiABKANC",
-            "A+BBAiJSCgRSb3dzEjkKCmNvbm5lY3Rpb24YASABKAsyIC5nb29nbGUuc3Bh",
-            "bm5lcmxpYi52MS5Db25uZWN0aW9uQgPgQQISDwoCaWQYAiABKANCA+BBAiJq",
-            "CgtOZXh0UmVxdWVzdBItCgRyb3dzGAEgASgLMhouZ29vZ2xlLnNwYW5uZXJs",
-            "aWIudjEuUm93c0ID4EECEhUKCG51bV9yb3dzGAIgASgDQgPgQQISFQoIZW5j",
-            "b2RpbmcYAyABKANCA+BBAiLrAQoHUm93RGF0YRItCgRyb3dzGAEgASgLMhou",
-            "Z29vZ2xlLnNwYW5uZXJsaWIudjEuUm93c0ID4EECEjYKCG1ldGFkYXRhGAIg",
-            "ASgLMiQuZ29vZ2xlLnNwYW5uZXIudjEuUmVzdWx0U2V0TWV0YWRhdGESLQoE",
-            "ZGF0YRgDIAMoCzIaLmdvb2dsZS5wcm90b2J1Zi5MaXN0VmFsdWVCA+BBAhIw",
-            "CgVzdGF0cxgEIAEoCzIhLmdvb2dsZS5zcGFubmVyLnYxLlJlc3VsdFNldFN0",
-            "YXRzEhgKEGhhc19tb3JlX3Jlc3VsdHMYBSABKAgiQAoPTWV0YWRhdGFSZXF1",
-            "ZXN0Ei0KBHJvd3MYASABKAsyGi5nb29nbGUuc3Bhbm5lcmxpYi52MS5Sb3dz",
-            "QgPgQQIiRgoVUmVzdWx0U2V0U3RhdHNSZXF1ZXN0Ei0KBHJvd3MYASABKAsy",
-            "Gi5nb29nbGUuc3Bhbm5lcmxpYi52MS5Sb3dzQgPgQQIiZQoXQ29ubmVjdGlv",
-            "blN0cmVhbVJlcXVlc3QSPwoPZXhlY3V0ZV9yZXF1ZXN0GAEgASgLMiQuZ29v",
-            "Z2xlLnNwYW5uZXJsaWIudjEuRXhlY3V0ZVJlcXVlc3RIAEIJCgdyZXF1ZXN0",
-            "IloKGENvbm5lY3Rpb25TdHJlYW1SZXNwb25zZRIyCgNyb3cYASABKAsyIy5n",
-            "b29nbGUuc3Bhbm5lci52MS5QYXJ0aWFsUmVzdWx0U2V0SABCCgoIcmVzcG9u",
-            "c2UylwwKClNwYW5uZXJMaWISTwoESW5mbxIhLmdvb2dsZS5zcGFubmVybGli",
-            "LnYxLkluZm9SZXF1ZXN0GiIuZ29vZ2xlLnNwYW5uZXJsaWIudjEuSW5mb1Jl",
-            "c3BvbnNlIgASUwoKQ3JlYXRlUG9vbBInLmdvb2dsZS5zcGFubmVybGliLnYx",
-            "LkNyZWF0ZVBvb2xSZXF1ZXN0GhouZ29vZ2xlLnNwYW5uZXJsaWIudjEuUG9v",
-            "bCIAEkEKCUNsb3NlUG9vbBIaLmdvb2dsZS5zcGFubmVybGliLnYxLlBvb2wa",
-            "Fi5nb29nbGUucHJvdG9idWYuRW1wdHkiABJlChBDcmVhdGVDb25uZWN0aW9u",
-            "Ei0uZ29vZ2xlLnNwYW5uZXJsaWIudjEuQ3JlYXRlQ29ubmVjdGlvblJlcXVl",
-            "c3QaIC5nb29nbGUuc3Bhbm5lcmxpYi52MS5Db25uZWN0aW9uIgASTQoPQ2xv",
-            "c2VDb25uZWN0aW9uEiAuZ29vZ2xlLnNwYW5uZXJsaWIudjEuQ29ubmVjdGlv",
-            "bhoWLmdvb2dsZS5wcm90b2J1Zi5FbXB0eSIAEk0KB0V4ZWN1dGUSJC5nb29n",
-            "bGUuc3Bhbm5lcmxpYi52MS5FeGVjdXRlUmVxdWVzdBoaLmdvb2dsZS5zcGFu",
-            "bmVybGliLnYxLlJvd3MiABJbChBFeGVjdXRlU3RyZWFtaW5nEiQuZ29vZ2xl",
-            "LnNwYW5uZXJsaWIudjEuRXhlY3V0ZVJlcXVlc3QaHS5nb29nbGUuc3Bhbm5l",
-            "cmxpYi52MS5Sb3dEYXRhIgAwARJnCgxFeGVjdXRlQmF0Y2gSKS5nb29nbGUu",
-            "c3Bhbm5lcmxpYi52MS5FeGVjdXRlQmF0Y2hSZXF1ZXN0GiouZ29vZ2xlLnNw",
-            "YW5uZXIudjEuRXhlY3V0ZUJhdGNoRG1sUmVzcG9uc2UiABJOCghNZXRhZGF0",
-            "YRIaLmdvb2dsZS5zcGFubmVybGliLnYxLlJvd3MaJC5nb29nbGUuc3Bhbm5l",
-            "ci52MS5SZXN1bHRTZXRNZXRhZGF0YSIAEkcKBE5leHQSIS5nb29nbGUuc3Bh",
-            "bm5lcmxpYi52MS5OZXh0UmVxdWVzdBoaLmdvb2dsZS5wcm90b2J1Zi5MaXN0",
-            "VmFsdWUiABJRCg5SZXN1bHRTZXRTdGF0cxIaLmdvb2dsZS5zcGFubmVybGli",
-            "LnYxLlJvd3MaIS5nb29nbGUuc3Bhbm5lci52MS5SZXN1bHRTZXRTdGF0cyIA",
-            "ElMKDU5leHRSZXN1bHRTZXQSGi5nb29nbGUuc3Bhbm5lcmxpYi52MS5Sb3dz",
-            "GiQuZ29vZ2xlLnNwYW5uZXIudjEuUmVzdWx0U2V0TWV0YWRhdGEiABJBCglD",
-            "bG9zZVJvd3MSGi5nb29nbGUuc3Bhbm5lcmxpYi52MS5Sb3dzGhYuZ29vZ2xl",
-            "LnByb3RvYnVmLkVtcHR5IgASWwoQQmVnaW5UcmFuc2FjdGlvbhItLmdvb2ds",
-            "ZS5zcGFubmVybGliLnYxLkJlZ2luVHJhbnNhY3Rpb25SZXF1ZXN0GhYuZ29v",
-            "Z2xlLnByb3RvYnVmLkVtcHR5IgASTwoGQ29tbWl0EiAuZ29vZ2xlLnNwYW5u",
-            "ZXJsaWIudjEuQ29ubmVjdGlvbhohLmdvb2dsZS5zcGFubmVyLnYxLkNvbW1p",
-            "dFJlc3BvbnNlIgASRgoIUm9sbGJhY2sSIC5nb29nbGUuc3Bhbm5lcmxpYi52",
-            "MS5Db25uZWN0aW9uGhYuZ29vZ2xlLnByb3RvYnVmLkVtcHR5IgASYgoOV3Jp",
-            "dGVNdXRhdGlvbnMSKy5nb29nbGUuc3Bhbm5lcmxpYi52MS5Xcml0ZU11dGF0",
-            "aW9uc1JlcXVlc3QaIS5nb29nbGUuc3Bhbm5lci52MS5Db21taXRSZXNwb25z",
-            "ZSIAEncKEENvbm5lY3Rpb25TdHJlYW0SLS5nb29nbGUuc3Bhbm5lcmxpYi52",
-            "MS5Db25uZWN0aW9uU3RyZWFtUmVxdWVzdBouLmdvb2dsZS5zcGFubmVybGli",
-            "LnYxLkNvbm5lY3Rpb25TdHJlYW1SZXNwb25zZSIAKAEwAULNAQoeY29tLmdv",
-            "b2dsZS5jbG91ZC5zcGFubmVybGliLnYxQg9TcGFubmVyTGliUHJvdG9QAVo+",
-            "Y2xvdWQuZ29vZ2xlLmNvbS9nby9zcGFubmVybGliL2FwaXYxL3NwYW5uZXJs",
-            "aWJwYjtzcGFubmVybGlicGKqAhpHb29nbGUuQ2xvdWQuU3Bhbm5lckxpYi5W",
-            "McoCGkdvb2dsZVxDbG91ZFxTcGFubmVyTGliXFYx6gIdR29vZ2xlOjpDbG91",
-            "ZDo6U3Bhbm5lckxpYjo6VjFiBnByb3RvMw=="));
+            "dG9idWYvc3RydWN0LnByb3RvGhdnb29nbGUvcnBjL3N0YXR1cy5wcm90bxoi",
+            "Z29vZ2xlL3NwYW5uZXIvdjEvcmVzdWx0X3NldC5wcm90bxofZ29vZ2xlL3Nw",
+            "YW5uZXIvdjEvc3Bhbm5lci5wcm90bxojZ29vZ2xlL3NwYW5uZXIvdjEvdHJh",
+            "bnNhY3Rpb24ucHJvdG8iDQoLSW5mb1JlcXVlc3QiHwoMSW5mb1Jlc3BvbnNl",
+            "Eg8KB3ZlcnNpb24YASABKAkiMwoRQ3JlYXRlUG9vbFJlcXVlc3QSHgoRY29u",
+            "bmVjdGlvbl9zdHJpbmcYASABKAlCA+BBAiJIChdDcmVhdGVDb25uZWN0aW9u",
+            "UmVxdWVzdBItCgRwb29sGAEgASgLMhouZ29vZ2xlLnNwYW5uZXJsaWIudjEu",
+            "UG9vbEID4EECIjwKDEZldGNoT3B0aW9ucxIVCghudW1fcm93cxgBIAEoA0ID",
+            "4EECEhUKCGVuY29kaW5nGAIgASgDQgPgQQIizgEKDkV4ZWN1dGVSZXF1ZXN0",
+            "EjkKCmNvbm5lY3Rpb24YASABKAsyIC5nb29nbGUuc3Bhbm5lcmxpYi52MS5D",
+            "b25uZWN0aW9uQgPgQQISRgoTZXhlY3V0ZV9zcWxfcmVxdWVzdBgCIAEoCzIk",
+            "Lmdvb2dsZS5zcGFubmVyLnYxLkV4ZWN1dGVTcWxSZXF1ZXN0QgPgQQISOQoN",
+            "ZmV0Y2hfb3B0aW9ucxgDIAEoCzIiLmdvb2dsZS5zcGFubmVybGliLnYxLkZl",
+            "dGNoT3B0aW9ucyKjAQoTRXhlY3V0ZUJhdGNoUmVxdWVzdBI5Cgpjb25uZWN0",
+            "aW9uGAEgASgLMiAuZ29vZ2xlLnNwYW5uZXJsaWIudjEuQ29ubmVjdGlvbkID",
+            "4EECElEKGWV4ZWN1dGVfYmF0Y2hfZG1sX3JlcXVlc3QYAiABKAsyKS5nb29n",
+            "bGUuc3Bhbm5lci52MS5FeGVjdXRlQmF0Y2hEbWxSZXF1ZXN0QgPgQQIinQEK",
+            "F0JlZ2luVHJhbnNhY3Rpb25SZXF1ZXN0EjkKCmNvbm5lY3Rpb24YASABKAsy",
+            "IC5nb29nbGUuc3Bhbm5lcmxpYi52MS5Db25uZWN0aW9uQgPgQQISRwoTdHJh",
+            "bnNhY3Rpb25fb3B0aW9ucxgCIAEoCzIlLmdvb2dsZS5zcGFubmVyLnYxLlRy",
+            "YW5zYWN0aW9uT3B0aW9uc0ID4EECIp4BChVXcml0ZU11dGF0aW9uc1JlcXVl",
+            "c3QSOQoKY29ubmVjdGlvbhgBIAEoCzIgLmdvb2dsZS5zcGFubmVybGliLnYx",
+            "LkNvbm5lY3Rpb25CA+BBAhJKCgltdXRhdGlvbnMYAiABKAsyMi5nb29nbGUu",
+            "c3Bhbm5lci52MS5CYXRjaFdyaXRlUmVxdWVzdC5NdXRhdGlvbkdyb3VwQgPg",
+            "QQIiFwoEUG9vbBIPCgJpZBgBIAEoA0ID4EECIkwKCkNvbm5lY3Rpb24SLQoE",
+            "cG9vbBgBIAEoCzIaLmdvb2dsZS5zcGFubmVybGliLnYxLlBvb2xCA+BBAhIP",
+            "CgJpZBgCIAEoA0ID4EECIlIKBFJvd3MSOQoKY29ubmVjdGlvbhgBIAEoCzIg",
+            "Lmdvb2dsZS5zcGFubmVybGliLnYxLkNvbm5lY3Rpb25CA+BBAhIPCgJpZBgC",
+            "IAEoA0ID4EECInwKC05leHRSZXF1ZXN0Ei0KBHJvd3MYASABKAsyGi5nb29n",
+            "bGUuc3Bhbm5lcmxpYi52MS5Sb3dzQgPgQQISPgoNZmV0Y2hfb3B0aW9ucxgC",
+            "IAEoCzIiLmdvb2dsZS5zcGFubmVybGliLnYxLkZldGNoT3B0aW9uc0ID4EEC",
+            "IusBCgdSb3dEYXRhEi0KBHJvd3MYASABKAsyGi5nb29nbGUuc3Bhbm5lcmxp",
+            "Yi52MS5Sb3dzQgPgQQISNgoIbWV0YWRhdGEYAiABKAsyJC5nb29nbGUuc3Bh",
+            "bm5lci52MS5SZXN1bHRTZXRNZXRhZGF0YRItCgRkYXRhGAMgAygLMhouZ29v",
+            "Z2xlLnByb3RvYnVmLkxpc3RWYWx1ZUID4EECEjAKBXN0YXRzGAQgASgLMiEu",
+            "Z29vZ2xlLnNwYW5uZXIudjEuUmVzdWx0U2V0U3RhdHMSGAoQaGFzX21vcmVf",
+            "cmVzdWx0cxgFIAEoCCJACg9NZXRhZGF0YVJlcXVlc3QSLQoEcm93cxgBIAEo",
+            "CzIaLmdvb2dsZS5zcGFubmVybGliLnYxLlJvd3NCA+BBAiJGChVSZXN1bHRT",
+            "ZXRTdGF0c1JlcXVlc3QSLQoEcm93cxgBIAEoCzIaLmdvb2dsZS5zcGFubmVy",
+            "bGliLnYxLlJvd3NCA+BBAiLPAwoXQ29ubmVjdGlvblN0cmVhbVJlcXVlc3QS",
+            "PwoPZXhlY3V0ZV9yZXF1ZXN0GAEgASgLMiQuZ29vZ2xlLnNwYW5uZXJsaWIu",
+            "djEuRXhlY3V0ZVJlcXVlc3RIABJKChVleGVjdXRlX2JhdGNoX3JlcXVlc3QY",
+            "AiABKAsyKS5nb29nbGUuc3Bhbm5lcmxpYi52MS5FeGVjdXRlQmF0Y2hSZXF1",
+            "ZXN0SAASUgoZYmVnaW5fdHJhbnNhY3Rpb25fcmVxdWVzdBgDIAEoCzItLmdv",
+            "b2dsZS5zcGFubmVybGliLnYxLkJlZ2luVHJhbnNhY3Rpb25SZXF1ZXN0SAAS",
+            "OgoOY29tbWl0X3JlcXVlc3QYBCABKAsyIC5nb29nbGUuc3Bhbm5lcmxpYi52",
+            "MS5Db25uZWN0aW9uSAASPAoQcm9sbGJhY2tfcmVxdWVzdBgFIAEoCzIgLmdv",
+            "b2dsZS5zcGFubmVybGliLnYxLkNvbm5lY3Rpb25IABJOChd3cml0ZV9tdXRh",
+            "dGlvbnNfcmVxdWVzdBgGIAEoCzIrLmdvb2dsZS5zcGFubmVybGliLnYxLldy",
+            "aXRlTXV0YXRpb25zUmVxdWVzdEgAQgkKB3JlcXVlc3QisQEKD0V4ZWN1dGVS",
+            "ZXNwb25zZRItCgRyb3dzGAEgASgLMhouZ29vZ2xlLnNwYW5uZXJsaWIudjEu",
+            "Um93c0ID4EECEjEKC3Jlc3VsdF9zZXRzGAIgAygLMhwuZ29vZ2xlLnNwYW5u",
+            "ZXIudjEuUmVzdWx0U2V0EiIKBnN0YXR1cxgDIAEoCzISLmdvb2dsZS5ycGMu",
+            "U3RhdHVzEhgKEGhhc19tb3JlX3Jlc3VsdHMYBCABKAgi0wMKGENvbm5lY3Rp",
+            "b25TdHJlYW1SZXNwb25zZRIiCgZzdGF0dXMYASABKAsyEi5nb29nbGUucnBj",
+            "LlN0YXR1cxJBChBleGVjdXRlX3Jlc3BvbnNlGAIgASgLMiUuZ29vZ2xlLnNw",
+            "YW5uZXJsaWIudjEuRXhlY3V0ZVJlc3BvbnNlSAASTAoWZXhlY3V0ZV9iYXRj",
+            "aF9yZXNwb25zZRgDIAEoCzIqLmdvb2dsZS5zcGFubmVyLnYxLkV4ZWN1dGVC",
+            "YXRjaERtbFJlc3BvbnNlSAASPAoaYmVnaW5fdHJhbnNhY3Rpb25fcmVzcG9u",
+            "c2UYBCABKAsyFi5nb29nbGUucHJvdG9idWYuRW1wdHlIABI8Cg9jb21taXRf",
+            "cmVzcG9uc2UYBSABKAsyIS5nb29nbGUuc3Bhbm5lci52MS5Db21taXRSZXNw",
+            "b25zZUgAEjMKEXJvbGxiYWNrX3Jlc3BvbnNlGAYgASgLMhYuZ29vZ2xlLnBy",
+            "b3RvYnVmLkVtcHR5SAASRQoYd3JpdGVfbXV0YXRpb25zX3Jlc3BvbnNlGAcg",
+            "ASgLMiEuZ29vZ2xlLnNwYW5uZXIudjEuQ29tbWl0UmVzcG9uc2VIAEIKCghy",
+            "ZXNwb25zZTLrDAoKU3Bhbm5lckxpYhJPCgRJbmZvEiEuZ29vZ2xlLnNwYW5u",
+            "ZXJsaWIudjEuSW5mb1JlcXVlc3QaIi5nb29nbGUuc3Bhbm5lcmxpYi52MS5J",
+            "bmZvUmVzcG9uc2UiABJTCgpDcmVhdGVQb29sEicuZ29vZ2xlLnNwYW5uZXJs",
+            "aWIudjEuQ3JlYXRlUG9vbFJlcXVlc3QaGi5nb29nbGUuc3Bhbm5lcmxpYi52",
+            "MS5Qb29sIgASQQoJQ2xvc2VQb29sEhouZ29vZ2xlLnNwYW5uZXJsaWIudjEu",
+            "UG9vbBoWLmdvb2dsZS5wcm90b2J1Zi5FbXB0eSIAEmUKEENyZWF0ZUNvbm5l",
+            "Y3Rpb24SLS5nb29nbGUuc3Bhbm5lcmxpYi52MS5DcmVhdGVDb25uZWN0aW9u",
+            "UmVxdWVzdBogLmdvb2dsZS5zcGFubmVybGliLnYxLkNvbm5lY3Rpb24iABJN",
+            "Cg9DbG9zZUNvbm5lY3Rpb24SIC5nb29nbGUuc3Bhbm5lcmxpYi52MS5Db25u",
+            "ZWN0aW9uGhYuZ29vZ2xlLnByb3RvYnVmLkVtcHR5IgASTQoHRXhlY3V0ZRIk",
+            "Lmdvb2dsZS5zcGFubmVybGliLnYxLkV4ZWN1dGVSZXF1ZXN0GhouZ29vZ2xl",
+            "LnNwYW5uZXJsaWIudjEuUm93cyIAElsKEEV4ZWN1dGVTdHJlYW1pbmcSJC5n",
+            "b29nbGUuc3Bhbm5lcmxpYi52MS5FeGVjdXRlUmVxdWVzdBodLmdvb2dsZS5z",
+            "cGFubmVybGliLnYxLlJvd0RhdGEiADABEmcKDEV4ZWN1dGVCYXRjaBIpLmdv",
+            "b2dsZS5zcGFubmVybGliLnYxLkV4ZWN1dGVCYXRjaFJlcXVlc3QaKi5nb29n",
+            "bGUuc3Bhbm5lci52MS5FeGVjdXRlQmF0Y2hEbWxSZXNwb25zZSIAEk4KCE1l",
+            "dGFkYXRhEhouZ29vZ2xlLnNwYW5uZXJsaWIudjEuUm93cxokLmdvb2dsZS5z",
+            "cGFubmVyLnYxLlJlc3VsdFNldE1ldGFkYXRhIgASRwoETmV4dBIhLmdvb2ds",
+            "ZS5zcGFubmVybGliLnYxLk5leHRSZXF1ZXN0GhouZ29vZ2xlLnByb3RvYnVm",
+            "Lkxpc3RWYWx1ZSIAElEKDlJlc3VsdFNldFN0YXRzEhouZ29vZ2xlLnNwYW5u",
+            "ZXJsaWIudjEuUm93cxohLmdvb2dsZS5zcGFubmVyLnYxLlJlc3VsdFNldFN0",
+            "YXRzIgASUwoNTmV4dFJlc3VsdFNldBIaLmdvb2dsZS5zcGFubmVybGliLnYx",
+            "LlJvd3MaJC5nb29nbGUuc3Bhbm5lci52MS5SZXN1bHRTZXRNZXRhZGF0YSIA",
+            "EkEKCUNsb3NlUm93cxIaLmdvb2dsZS5zcGFubmVybGliLnYxLlJvd3MaFi5n",
+            "b29nbGUucHJvdG9idWYuRW1wdHkiABJbChBCZWdpblRyYW5zYWN0aW9uEi0u",
+            "Z29vZ2xlLnNwYW5uZXJsaWIudjEuQmVnaW5UcmFuc2FjdGlvblJlcXVlc3Qa",
+            "Fi5nb29nbGUucHJvdG9idWYuRW1wdHkiABJPCgZDb21taXQSIC5nb29nbGUu",
+            "c3Bhbm5lcmxpYi52MS5Db25uZWN0aW9uGiEuZ29vZ2xlLnNwYW5uZXIudjEu",
+            "Q29tbWl0UmVzcG9uc2UiABJGCghSb2xsYmFjaxIgLmdvb2dsZS5zcGFubmVy",
+            "bGliLnYxLkNvbm5lY3Rpb24aFi5nb29nbGUucHJvdG9idWYuRW1wdHkiABJi",
+            "Cg5Xcml0ZU11dGF0aW9ucxIrLmdvb2dsZS5zcGFubmVybGliLnYxLldyaXRl",
+            "TXV0YXRpb25zUmVxdWVzdBohLmdvb2dsZS5zcGFubmVyLnYxLkNvbW1pdFJl",
+            "c3BvbnNlIgASdwoQQ29ubmVjdGlvblN0cmVhbRItLmdvb2dsZS5zcGFubmVy",
+            "bGliLnYxLkNvbm5lY3Rpb25TdHJlYW1SZXF1ZXN0Gi4uZ29vZ2xlLnNwYW5u",
+            "ZXJsaWIudjEuQ29ubmVjdGlvblN0cmVhbVJlc3BvbnNlIgAoATABElIKEUNv",
+            "bnRpbnVlU3RyZWFtaW5nEhouZ29vZ2xlLnNwYW5uZXJsaWIudjEuUm93cxod",
+            "Lmdvb2dsZS5zcGFubmVybGliLnYxLlJvd0RhdGEiADABQs0BCh5jb20uZ29v",
+            "Z2xlLmNsb3VkLnNwYW5uZXJsaWIudjFCD1NwYW5uZXJMaWJQcm90b1ABWj5j",
+            "bG91ZC5nb29nbGUuY29tL2dvL3NwYW5uZXJsaWIvYXBpdjEvc3Bhbm5lcmxp",
+            "YnBiO3NwYW5uZXJsaWJwYqoCGkdvb2dsZS5DbG91ZC5TcGFubmVyTGliLlYx",
+            "ygIaR29vZ2xlXENsb3VkXFNwYW5uZXJMaWJcVjHqAh1Hb29nbGU6OkNsb3Vk",
+            "OjpTcGFubmVyTGliOjpWMWIGcHJvdG8z"));
       descriptor = pbr::FileDescriptor.FromGeneratedCode(descriptorData,
-          new pbr::FileDescriptor[] { global::Google.Api.FieldBehaviorReflection.Descriptor, global::Google.Protobuf.WellKnownTypes.EmptyReflection.Descriptor, global::Google.Protobuf.WellKnownTypes.StructReflection.Descriptor, global::Google.Cloud.Spanner.V1.ResultSetReflection.Descriptor, global::Google.Cloud.Spanner.V1.SpannerReflection.Descriptor, global::Google.Cloud.Spanner.V1.TransactionReflection.Descriptor, },
+          new pbr::FileDescriptor[] { global::Google.Api.FieldBehaviorReflection.Descriptor, global::Google.Protobuf.WellKnownTypes.EmptyReflection.Descriptor, global::Google.Protobuf.WellKnownTypes.StructReflection.Descriptor, global::Google.Rpc.StatusReflection.Descriptor, global::Google.Cloud.Spanner.V1.ResultSetReflection.Descriptor, global::Google.Cloud.Spanner.V1.SpannerReflection.Descriptor, global::Google.Cloud.Spanner.V1.TransactionReflection.Descriptor, },
           new pbr::GeneratedClrTypeInfo(null, null, new pbr::GeneratedClrTypeInfo[] {
             new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.InfoRequest), global::Google.Cloud.SpannerLib.V1.InfoRequest.Parser, null, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.InfoResponse), global::Google.Cloud.SpannerLib.V1.InfoResponse.Parser, new[]{ "Version" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.CreatePoolRequest), global::Google.Cloud.SpannerLib.V1.CreatePoolRequest.Parser, new[]{ "ConnectionString" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.CreateConnectionRequest), global::Google.Cloud.SpannerLib.V1.CreateConnectionRequest.Parser, new[]{ "Pool" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.ExecuteRequest), global::Google.Cloud.SpannerLib.V1.ExecuteRequest.Parser, new[]{ "Connection", "ExecuteSqlRequest" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.FetchOptions), global::Google.Cloud.SpannerLib.V1.FetchOptions.Parser, new[]{ "NumRows", "Encoding" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.ExecuteRequest), global::Google.Cloud.SpannerLib.V1.ExecuteRequest.Parser, new[]{ "Connection", "ExecuteSqlRequest", "FetchOptions" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.ExecuteBatchRequest), global::Google.Cloud.SpannerLib.V1.ExecuteBatchRequest.Parser, new[]{ "Connection", "ExecuteBatchDmlRequest" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.BeginTransactionRequest), global::Google.Cloud.SpannerLib.V1.BeginTransactionRequest.Parser, new[]{ "Connection", "TransactionOptions" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.WriteMutationsRequest), global::Google.Cloud.SpannerLib.V1.WriteMutationsRequest.Parser, new[]{ "Connection", "Mutations" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.Pool), global::Google.Cloud.SpannerLib.V1.Pool.Parser, new[]{ "Id" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.Connection), global::Google.Cloud.SpannerLib.V1.Connection.Parser, new[]{ "Pool", "Id" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.Rows), global::Google.Cloud.SpannerLib.V1.Rows.Parser, new[]{ "Connection", "Id" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.NextRequest), global::Google.Cloud.SpannerLib.V1.NextRequest.Parser, new[]{ "Rows", "NumRows", "Encoding" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.NextRequest), global::Google.Cloud.SpannerLib.V1.NextRequest.Parser, new[]{ "Rows", "FetchOptions" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.RowData), global::Google.Cloud.SpannerLib.V1.RowData.Parser, new[]{ "Rows", "Metadata", "Data", "Stats", "HasMoreResults" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.MetadataRequest), global::Google.Cloud.SpannerLib.V1.MetadataRequest.Parser, new[]{ "Rows" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.ResultSetStatsRequest), global::Google.Cloud.SpannerLib.V1.ResultSetStatsRequest.Parser, new[]{ "Rows" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.ConnectionStreamRequest), global::Google.Cloud.SpannerLib.V1.ConnectionStreamRequest.Parser, new[]{ "ExecuteRequest" }, new[]{ "Request" }, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.ConnectionStreamResponse), global::Google.Cloud.SpannerLib.V1.ConnectionStreamResponse.Parser, new[]{ "Row" }, new[]{ "Response" }, null, null, null)
+            new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.ConnectionStreamRequest), global::Google.Cloud.SpannerLib.V1.ConnectionStreamRequest.Parser, new[]{ "ExecuteRequest", "ExecuteBatchRequest", "BeginTransactionRequest", "CommitRequest", "RollbackRequest", "WriteMutationsRequest" }, new[]{ "Request" }, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.ExecuteResponse), global::Google.Cloud.SpannerLib.V1.ExecuteResponse.Parser, new[]{ "Rows", "ResultSets", "Status", "HasMoreResults" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Google.Cloud.SpannerLib.V1.ConnectionStreamResponse), global::Google.Cloud.SpannerLib.V1.ConnectionStreamResponse.Parser, new[]{ "Status", "ExecuteResponse", "ExecuteBatchResponse", "BeginTransactionResponse", "CommitResponse", "RollbackResponse", "WriteMutationsResponse" }, new[]{ "Response" }, null, null, null)
           }));
     }
     #endregion
@@ -898,6 +926,241 @@ namespace Google.Cloud.SpannerLib.V1 {
   }
 
   [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
+  public sealed partial class FetchOptions : pb::IMessage<FetchOptions>
+  #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+      , pb::IBufferMessage
+  #endif
+  {
+    private static readonly pb::MessageParser<FetchOptions> _parser = new pb::MessageParser<FetchOptions>(() => new FetchOptions());
+    private pb::UnknownFieldSet _unknownFields;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public static pb::MessageParser<FetchOptions> Parser { get { return _parser; } }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public static pbr::MessageDescriptor Descriptor {
+      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[4]; }
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    pbr::MessageDescriptor pb::IMessage.Descriptor {
+      get { return Descriptor; }
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public FetchOptions() {
+      OnConstruction();
+    }
+
+    partial void OnConstruction();
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public FetchOptions(FetchOptions other) : this() {
+      numRows_ = other.numRows_;
+      encoding_ = other.encoding_;
+      _unknownFields = pb::UnknownFieldSet.Clone(other._unknownFields);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public FetchOptions Clone() {
+      return new FetchOptions(this);
+    }
+
+    /// <summary>Field number for the "num_rows" field.</summary>
+    public const int NumRowsFieldNumber = 1;
+    private long numRows_;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public long NumRows {
+      get { return numRows_; }
+      set {
+        numRows_ = value;
+      }
+    }
+
+    /// <summary>Field number for the "encoding" field.</summary>
+    public const int EncodingFieldNumber = 2;
+    private long encoding_;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public long Encoding {
+      get { return encoding_; }
+      set {
+        encoding_ = value;
+      }
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public override bool Equals(object other) {
+      return Equals(other as FetchOptions);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public bool Equals(FetchOptions other) {
+      if (ReferenceEquals(other, null)) {
+        return false;
+      }
+      if (ReferenceEquals(other, this)) {
+        return true;
+      }
+      if (NumRows != other.NumRows) return false;
+      if (Encoding != other.Encoding) return false;
+      return Equals(_unknownFields, other._unknownFields);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public override int GetHashCode() {
+      int hash = 1;
+      if (NumRows != 0L) hash ^= NumRows.GetHashCode();
+      if (Encoding != 0L) hash ^= Encoding.GetHashCode();
+      if (_unknownFields != null) {
+        hash ^= _unknownFields.GetHashCode();
+      }
+      return hash;
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public override string ToString() {
+      return pb::JsonFormatter.ToDiagnosticString(this);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void WriteTo(pb::CodedOutputStream output) {
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+      output.WriteRawMessage(this);
+    #else
+      if (NumRows != 0L) {
+        output.WriteRawTag(8);
+        output.WriteInt64(NumRows);
+      }
+      if (Encoding != 0L) {
+        output.WriteRawTag(16);
+        output.WriteInt64(Encoding);
+      }
+      if (_unknownFields != null) {
+        _unknownFields.WriteTo(output);
+      }
+    #endif
+    }
+
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    void pb::IBufferMessage.InternalWriteTo(ref pb::WriteContext output) {
+      if (NumRows != 0L) {
+        output.WriteRawTag(8);
+        output.WriteInt64(NumRows);
+      }
+      if (Encoding != 0L) {
+        output.WriteRawTag(16);
+        output.WriteInt64(Encoding);
+      }
+      if (_unknownFields != null) {
+        _unknownFields.WriteTo(ref output);
+      }
+    }
+    #endif
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public int CalculateSize() {
+      int size = 0;
+      if (NumRows != 0L) {
+        size += 1 + pb::CodedOutputStream.ComputeInt64Size(NumRows);
+      }
+      if (Encoding != 0L) {
+        size += 1 + pb::CodedOutputStream.ComputeInt64Size(Encoding);
+      }
+      if (_unknownFields != null) {
+        size += _unknownFields.CalculateSize();
+      }
+      return size;
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void MergeFrom(FetchOptions other) {
+      if (other == null) {
+        return;
+      }
+      if (other.NumRows != 0L) {
+        NumRows = other.NumRows;
+      }
+      if (other.Encoding != 0L) {
+        Encoding = other.Encoding;
+      }
+      _unknownFields = pb::UnknownFieldSet.MergeFrom(_unknownFields, other._unknownFields);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void MergeFrom(pb::CodedInputStream input) {
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+      input.ReadRawMessage(this);
+    #else
+      uint tag;
+      while ((tag = input.ReadTag()) != 0) {
+      if ((tag & 7) == 4) {
+        // Abort on any end group tag.
+        return;
+      }
+      switch(tag) {
+          default:
+            _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, input);
+            break;
+          case 8: {
+            NumRows = input.ReadInt64();
+            break;
+          }
+          case 16: {
+            Encoding = input.ReadInt64();
+            break;
+          }
+        }
+      }
+    #endif
+    }
+
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    void pb::IBufferMessage.InternalMergeFrom(ref pb::ParseContext input) {
+      uint tag;
+      while ((tag = input.ReadTag()) != 0) {
+      if ((tag & 7) == 4) {
+        // Abort on any end group tag.
+        return;
+      }
+      switch(tag) {
+          default:
+            _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, ref input);
+            break;
+          case 8: {
+            NumRows = input.ReadInt64();
+            break;
+          }
+          case 16: {
+            Encoding = input.ReadInt64();
+            break;
+          }
+        }
+      }
+    }
+    #endif
+
+  }
+
+  [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class ExecuteRequest : pb::IMessage<ExecuteRequest>
   #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
       , pb::IBufferMessage
@@ -912,7 +1175,7 @@ namespace Google.Cloud.SpannerLib.V1 {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[4]; }
+      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[5]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -934,6 +1197,7 @@ namespace Google.Cloud.SpannerLib.V1 {
     public ExecuteRequest(ExecuteRequest other) : this() {
       connection_ = other.connection_ != null ? other.connection_.Clone() : null;
       executeSqlRequest_ = other.executeSqlRequest_ != null ? other.executeSqlRequest_.Clone() : null;
+      fetchOptions_ = other.fetchOptions_ != null ? other.fetchOptions_.Clone() : null;
       _unknownFields = pb::UnknownFieldSet.Clone(other._unknownFields);
     }
 
@@ -967,6 +1231,18 @@ namespace Google.Cloud.SpannerLib.V1 {
       }
     }
 
+    /// <summary>Field number for the "fetch_options" field.</summary>
+    public const int FetchOptionsFieldNumber = 3;
+    private global::Google.Cloud.SpannerLib.V1.FetchOptions fetchOptions_;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public global::Google.Cloud.SpannerLib.V1.FetchOptions FetchOptions {
+      get { return fetchOptions_; }
+      set {
+        fetchOptions_ = value;
+      }
+    }
+
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public override bool Equals(object other) {
@@ -984,6 +1260,7 @@ namespace Google.Cloud.SpannerLib.V1 {
       }
       if (!object.Equals(Connection, other.Connection)) return false;
       if (!object.Equals(ExecuteSqlRequest, other.ExecuteSqlRequest)) return false;
+      if (!object.Equals(FetchOptions, other.FetchOptions)) return false;
       return Equals(_unknownFields, other._unknownFields);
     }
 
@@ -993,6 +1270,7 @@ namespace Google.Cloud.SpannerLib.V1 {
       int hash = 1;
       if (connection_ != null) hash ^= Connection.GetHashCode();
       if (executeSqlRequest_ != null) hash ^= ExecuteSqlRequest.GetHashCode();
+      if (fetchOptions_ != null) hash ^= FetchOptions.GetHashCode();
       if (_unknownFields != null) {
         hash ^= _unknownFields.GetHashCode();
       }
@@ -1019,6 +1297,10 @@ namespace Google.Cloud.SpannerLib.V1 {
         output.WriteRawTag(18);
         output.WriteMessage(ExecuteSqlRequest);
       }
+      if (fetchOptions_ != null) {
+        output.WriteRawTag(26);
+        output.WriteMessage(FetchOptions);
+      }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(output);
       }
@@ -1037,6 +1319,10 @@ namespace Google.Cloud.SpannerLib.V1 {
         output.WriteRawTag(18);
         output.WriteMessage(ExecuteSqlRequest);
       }
+      if (fetchOptions_ != null) {
+        output.WriteRawTag(26);
+        output.WriteMessage(FetchOptions);
+      }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(ref output);
       }
@@ -1052,6 +1338,9 @@ namespace Google.Cloud.SpannerLib.V1 {
       }
       if (executeSqlRequest_ != null) {
         size += 1 + pb::CodedOutputStream.ComputeMessageSize(ExecuteSqlRequest);
+      }
+      if (fetchOptions_ != null) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(FetchOptions);
       }
       if (_unknownFields != null) {
         size += _unknownFields.CalculateSize();
@@ -1076,6 +1365,12 @@ namespace Google.Cloud.SpannerLib.V1 {
           ExecuteSqlRequest = new global::Google.Cloud.Spanner.V1.ExecuteSqlRequest();
         }
         ExecuteSqlRequest.MergeFrom(other.ExecuteSqlRequest);
+      }
+      if (other.fetchOptions_ != null) {
+        if (fetchOptions_ == null) {
+          FetchOptions = new global::Google.Cloud.SpannerLib.V1.FetchOptions();
+        }
+        FetchOptions.MergeFrom(other.FetchOptions);
       }
       _unknownFields = pb::UnknownFieldSet.MergeFrom(_unknownFields, other._unknownFields);
     }
@@ -1108,6 +1403,13 @@ namespace Google.Cloud.SpannerLib.V1 {
               ExecuteSqlRequest = new global::Google.Cloud.Spanner.V1.ExecuteSqlRequest();
             }
             input.ReadMessage(ExecuteSqlRequest);
+            break;
+          }
+          case 26: {
+            if (fetchOptions_ == null) {
+              FetchOptions = new global::Google.Cloud.SpannerLib.V1.FetchOptions();
+            }
+            input.ReadMessage(FetchOptions);
             break;
           }
         }
@@ -1143,6 +1445,13 @@ namespace Google.Cloud.SpannerLib.V1 {
             input.ReadMessage(ExecuteSqlRequest);
             break;
           }
+          case 26: {
+            if (fetchOptions_ == null) {
+              FetchOptions = new global::Google.Cloud.SpannerLib.V1.FetchOptions();
+            }
+            input.ReadMessage(FetchOptions);
+            break;
+          }
         }
       }
     }
@@ -1165,7 +1474,7 @@ namespace Google.Cloud.SpannerLib.V1 {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[5]; }
+      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[6]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -1418,7 +1727,7 @@ namespace Google.Cloud.SpannerLib.V1 {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[6]; }
+      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[7]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -1671,7 +1980,7 @@ namespace Google.Cloud.SpannerLib.V1 {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[7]; }
+      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[8]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -1924,7 +2233,7 @@ namespace Google.Cloud.SpannerLib.V1 {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[8]; }
+      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[9]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -2122,7 +2431,7 @@ namespace Google.Cloud.SpannerLib.V1 {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[9]; }
+      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[10]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -2366,7 +2675,7 @@ namespace Google.Cloud.SpannerLib.V1 {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[10]; }
+      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[11]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -2610,7 +2919,7 @@ namespace Google.Cloud.SpannerLib.V1 {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[11]; }
+      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[12]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -2631,8 +2940,7 @@ namespace Google.Cloud.SpannerLib.V1 {
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public NextRequest(NextRequest other) : this() {
       rows_ = other.rows_ != null ? other.rows_.Clone() : null;
-      numRows_ = other.numRows_;
-      encoding_ = other.encoding_;
+      fetchOptions_ = other.fetchOptions_ != null ? other.fetchOptions_.Clone() : null;
       _unknownFields = pb::UnknownFieldSet.Clone(other._unknownFields);
     }
 
@@ -2654,27 +2962,15 @@ namespace Google.Cloud.SpannerLib.V1 {
       }
     }
 
-    /// <summary>Field number for the "num_rows" field.</summary>
-    public const int NumRowsFieldNumber = 2;
-    private long numRows_;
+    /// <summary>Field number for the "fetch_options" field.</summary>
+    public const int FetchOptionsFieldNumber = 2;
+    private global::Google.Cloud.SpannerLib.V1.FetchOptions fetchOptions_;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public long NumRows {
-      get { return numRows_; }
+    public global::Google.Cloud.SpannerLib.V1.FetchOptions FetchOptions {
+      get { return fetchOptions_; }
       set {
-        numRows_ = value;
-      }
-    }
-
-    /// <summary>Field number for the "encoding" field.</summary>
-    public const int EncodingFieldNumber = 3;
-    private long encoding_;
-    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
-    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public long Encoding {
-      get { return encoding_; }
-      set {
-        encoding_ = value;
+        fetchOptions_ = value;
       }
     }
 
@@ -2694,8 +2990,7 @@ namespace Google.Cloud.SpannerLib.V1 {
         return true;
       }
       if (!object.Equals(Rows, other.Rows)) return false;
-      if (NumRows != other.NumRows) return false;
-      if (Encoding != other.Encoding) return false;
+      if (!object.Equals(FetchOptions, other.FetchOptions)) return false;
       return Equals(_unknownFields, other._unknownFields);
     }
 
@@ -2704,8 +2999,7 @@ namespace Google.Cloud.SpannerLib.V1 {
     public override int GetHashCode() {
       int hash = 1;
       if (rows_ != null) hash ^= Rows.GetHashCode();
-      if (NumRows != 0L) hash ^= NumRows.GetHashCode();
-      if (Encoding != 0L) hash ^= Encoding.GetHashCode();
+      if (fetchOptions_ != null) hash ^= FetchOptions.GetHashCode();
       if (_unknownFields != null) {
         hash ^= _unknownFields.GetHashCode();
       }
@@ -2728,13 +3022,9 @@ namespace Google.Cloud.SpannerLib.V1 {
         output.WriteRawTag(10);
         output.WriteMessage(Rows);
       }
-      if (NumRows != 0L) {
-        output.WriteRawTag(16);
-        output.WriteInt64(NumRows);
-      }
-      if (Encoding != 0L) {
-        output.WriteRawTag(24);
-        output.WriteInt64(Encoding);
+      if (fetchOptions_ != null) {
+        output.WriteRawTag(18);
+        output.WriteMessage(FetchOptions);
       }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(output);
@@ -2750,13 +3040,9 @@ namespace Google.Cloud.SpannerLib.V1 {
         output.WriteRawTag(10);
         output.WriteMessage(Rows);
       }
-      if (NumRows != 0L) {
-        output.WriteRawTag(16);
-        output.WriteInt64(NumRows);
-      }
-      if (Encoding != 0L) {
-        output.WriteRawTag(24);
-        output.WriteInt64(Encoding);
+      if (fetchOptions_ != null) {
+        output.WriteRawTag(18);
+        output.WriteMessage(FetchOptions);
       }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(ref output);
@@ -2771,11 +3057,8 @@ namespace Google.Cloud.SpannerLib.V1 {
       if (rows_ != null) {
         size += 1 + pb::CodedOutputStream.ComputeMessageSize(Rows);
       }
-      if (NumRows != 0L) {
-        size += 1 + pb::CodedOutputStream.ComputeInt64Size(NumRows);
-      }
-      if (Encoding != 0L) {
-        size += 1 + pb::CodedOutputStream.ComputeInt64Size(Encoding);
+      if (fetchOptions_ != null) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(FetchOptions);
       }
       if (_unknownFields != null) {
         size += _unknownFields.CalculateSize();
@@ -2795,11 +3078,11 @@ namespace Google.Cloud.SpannerLib.V1 {
         }
         Rows.MergeFrom(other.Rows);
       }
-      if (other.NumRows != 0L) {
-        NumRows = other.NumRows;
-      }
-      if (other.Encoding != 0L) {
-        Encoding = other.Encoding;
+      if (other.fetchOptions_ != null) {
+        if (fetchOptions_ == null) {
+          FetchOptions = new global::Google.Cloud.SpannerLib.V1.FetchOptions();
+        }
+        FetchOptions.MergeFrom(other.FetchOptions);
       }
       _unknownFields = pb::UnknownFieldSet.MergeFrom(_unknownFields, other._unknownFields);
     }
@@ -2827,12 +3110,11 @@ namespace Google.Cloud.SpannerLib.V1 {
             input.ReadMessage(Rows);
             break;
           }
-          case 16: {
-            NumRows = input.ReadInt64();
-            break;
-          }
-          case 24: {
-            Encoding = input.ReadInt64();
+          case 18: {
+            if (fetchOptions_ == null) {
+              FetchOptions = new global::Google.Cloud.SpannerLib.V1.FetchOptions();
+            }
+            input.ReadMessage(FetchOptions);
             break;
           }
         }
@@ -2861,12 +3143,11 @@ namespace Google.Cloud.SpannerLib.V1 {
             input.ReadMessage(Rows);
             break;
           }
-          case 16: {
-            NumRows = input.ReadInt64();
-            break;
-          }
-          case 24: {
-            Encoding = input.ReadInt64();
+          case 18: {
+            if (fetchOptions_ == null) {
+              FetchOptions = new global::Google.Cloud.SpannerLib.V1.FetchOptions();
+            }
+            input.ReadMessage(FetchOptions);
             break;
           }
         }
@@ -2891,7 +3172,7 @@ namespace Google.Cloud.SpannerLib.V1 {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[12]; }
+      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[13]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -3253,7 +3534,7 @@ namespace Google.Cloud.SpannerLib.V1 {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[13]; }
+      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[14]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -3460,7 +3741,7 @@ namespace Google.Cloud.SpannerLib.V1 {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[14]; }
+      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[15]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -3652,6 +3933,10 @@ namespace Google.Cloud.SpannerLib.V1 {
 
   }
 
+  /// <summary>
+  /// ConnectionStreamRequest is used by a client to send a request to the server using a
+  /// bi-directional gRPC stream. Such a stream is opened by calling the ConnectionStream RPC.
+  /// </summary>
   [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class ConnectionStreamRequest : pb::IMessage<ConnectionStreamRequest>
   #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
@@ -3667,7 +3952,7 @@ namespace Google.Cloud.SpannerLib.V1 {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[15]; }
+      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[16]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -3690,6 +3975,21 @@ namespace Google.Cloud.SpannerLib.V1 {
       switch (other.RequestCase) {
         case RequestOneofCase.ExecuteRequest:
           ExecuteRequest = other.ExecuteRequest.Clone();
+          break;
+        case RequestOneofCase.ExecuteBatchRequest:
+          ExecuteBatchRequest = other.ExecuteBatchRequest.Clone();
+          break;
+        case RequestOneofCase.BeginTransactionRequest:
+          BeginTransactionRequest = other.BeginTransactionRequest.Clone();
+          break;
+        case RequestOneofCase.CommitRequest:
+          CommitRequest = other.CommitRequest.Clone();
+          break;
+        case RequestOneofCase.RollbackRequest:
+          RollbackRequest = other.RollbackRequest.Clone();
+          break;
+        case RequestOneofCase.WriteMutationsRequest:
+          WriteMutationsRequest = other.WriteMutationsRequest.Clone();
           break;
       }
 
@@ -3714,11 +4014,76 @@ namespace Google.Cloud.SpannerLib.V1 {
       }
     }
 
+    /// <summary>Field number for the "execute_batch_request" field.</summary>
+    public const int ExecuteBatchRequestFieldNumber = 2;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public global::Google.Cloud.SpannerLib.V1.ExecuteBatchRequest ExecuteBatchRequest {
+      get { return requestCase_ == RequestOneofCase.ExecuteBatchRequest ? (global::Google.Cloud.SpannerLib.V1.ExecuteBatchRequest) request_ : null; }
+      set {
+        request_ = value;
+        requestCase_ = value == null ? RequestOneofCase.None : RequestOneofCase.ExecuteBatchRequest;
+      }
+    }
+
+    /// <summary>Field number for the "begin_transaction_request" field.</summary>
+    public const int BeginTransactionRequestFieldNumber = 3;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public global::Google.Cloud.SpannerLib.V1.BeginTransactionRequest BeginTransactionRequest {
+      get { return requestCase_ == RequestOneofCase.BeginTransactionRequest ? (global::Google.Cloud.SpannerLib.V1.BeginTransactionRequest) request_ : null; }
+      set {
+        request_ = value;
+        requestCase_ = value == null ? RequestOneofCase.None : RequestOneofCase.BeginTransactionRequest;
+      }
+    }
+
+    /// <summary>Field number for the "commit_request" field.</summary>
+    public const int CommitRequestFieldNumber = 4;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public global::Google.Cloud.SpannerLib.V1.Connection CommitRequest {
+      get { return requestCase_ == RequestOneofCase.CommitRequest ? (global::Google.Cloud.SpannerLib.V1.Connection) request_ : null; }
+      set {
+        request_ = value;
+        requestCase_ = value == null ? RequestOneofCase.None : RequestOneofCase.CommitRequest;
+      }
+    }
+
+    /// <summary>Field number for the "rollback_request" field.</summary>
+    public const int RollbackRequestFieldNumber = 5;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public global::Google.Cloud.SpannerLib.V1.Connection RollbackRequest {
+      get { return requestCase_ == RequestOneofCase.RollbackRequest ? (global::Google.Cloud.SpannerLib.V1.Connection) request_ : null; }
+      set {
+        request_ = value;
+        requestCase_ = value == null ? RequestOneofCase.None : RequestOneofCase.RollbackRequest;
+      }
+    }
+
+    /// <summary>Field number for the "write_mutations_request" field.</summary>
+    public const int WriteMutationsRequestFieldNumber = 6;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public global::Google.Cloud.SpannerLib.V1.WriteMutationsRequest WriteMutationsRequest {
+      get { return requestCase_ == RequestOneofCase.WriteMutationsRequest ? (global::Google.Cloud.SpannerLib.V1.WriteMutationsRequest) request_ : null; }
+      set {
+        request_ = value;
+        requestCase_ = value == null ? RequestOneofCase.None : RequestOneofCase.WriteMutationsRequest;
+      }
+    }
+
     private object request_;
     /// <summary>Enum of possible cases for the "request" oneof.</summary>
     public enum RequestOneofCase {
       None = 0,
       ExecuteRequest = 1,
+      ExecuteBatchRequest = 2,
+      BeginTransactionRequest = 3,
+      CommitRequest = 4,
+      RollbackRequest = 5,
+      WriteMutationsRequest = 6,
     }
     private RequestOneofCase requestCase_ = RequestOneofCase.None;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -3750,6 +4115,11 @@ namespace Google.Cloud.SpannerLib.V1 {
         return true;
       }
       if (!object.Equals(ExecuteRequest, other.ExecuteRequest)) return false;
+      if (!object.Equals(ExecuteBatchRequest, other.ExecuteBatchRequest)) return false;
+      if (!object.Equals(BeginTransactionRequest, other.BeginTransactionRequest)) return false;
+      if (!object.Equals(CommitRequest, other.CommitRequest)) return false;
+      if (!object.Equals(RollbackRequest, other.RollbackRequest)) return false;
+      if (!object.Equals(WriteMutationsRequest, other.WriteMutationsRequest)) return false;
       if (RequestCase != other.RequestCase) return false;
       return Equals(_unknownFields, other._unknownFields);
     }
@@ -3759,6 +4129,11 @@ namespace Google.Cloud.SpannerLib.V1 {
     public override int GetHashCode() {
       int hash = 1;
       if (requestCase_ == RequestOneofCase.ExecuteRequest) hash ^= ExecuteRequest.GetHashCode();
+      if (requestCase_ == RequestOneofCase.ExecuteBatchRequest) hash ^= ExecuteBatchRequest.GetHashCode();
+      if (requestCase_ == RequestOneofCase.BeginTransactionRequest) hash ^= BeginTransactionRequest.GetHashCode();
+      if (requestCase_ == RequestOneofCase.CommitRequest) hash ^= CommitRequest.GetHashCode();
+      if (requestCase_ == RequestOneofCase.RollbackRequest) hash ^= RollbackRequest.GetHashCode();
+      if (requestCase_ == RequestOneofCase.WriteMutationsRequest) hash ^= WriteMutationsRequest.GetHashCode();
       hash ^= (int) requestCase_;
       if (_unknownFields != null) {
         hash ^= _unknownFields.GetHashCode();
@@ -3782,6 +4157,26 @@ namespace Google.Cloud.SpannerLib.V1 {
         output.WriteRawTag(10);
         output.WriteMessage(ExecuteRequest);
       }
+      if (requestCase_ == RequestOneofCase.ExecuteBatchRequest) {
+        output.WriteRawTag(18);
+        output.WriteMessage(ExecuteBatchRequest);
+      }
+      if (requestCase_ == RequestOneofCase.BeginTransactionRequest) {
+        output.WriteRawTag(26);
+        output.WriteMessage(BeginTransactionRequest);
+      }
+      if (requestCase_ == RequestOneofCase.CommitRequest) {
+        output.WriteRawTag(34);
+        output.WriteMessage(CommitRequest);
+      }
+      if (requestCase_ == RequestOneofCase.RollbackRequest) {
+        output.WriteRawTag(42);
+        output.WriteMessage(RollbackRequest);
+      }
+      if (requestCase_ == RequestOneofCase.WriteMutationsRequest) {
+        output.WriteRawTag(50);
+        output.WriteMessage(WriteMutationsRequest);
+      }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(output);
       }
@@ -3796,6 +4191,26 @@ namespace Google.Cloud.SpannerLib.V1 {
         output.WriteRawTag(10);
         output.WriteMessage(ExecuteRequest);
       }
+      if (requestCase_ == RequestOneofCase.ExecuteBatchRequest) {
+        output.WriteRawTag(18);
+        output.WriteMessage(ExecuteBatchRequest);
+      }
+      if (requestCase_ == RequestOneofCase.BeginTransactionRequest) {
+        output.WriteRawTag(26);
+        output.WriteMessage(BeginTransactionRequest);
+      }
+      if (requestCase_ == RequestOneofCase.CommitRequest) {
+        output.WriteRawTag(34);
+        output.WriteMessage(CommitRequest);
+      }
+      if (requestCase_ == RequestOneofCase.RollbackRequest) {
+        output.WriteRawTag(42);
+        output.WriteMessage(RollbackRequest);
+      }
+      if (requestCase_ == RequestOneofCase.WriteMutationsRequest) {
+        output.WriteRawTag(50);
+        output.WriteMessage(WriteMutationsRequest);
+      }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(ref output);
       }
@@ -3808,6 +4223,21 @@ namespace Google.Cloud.SpannerLib.V1 {
       int size = 0;
       if (requestCase_ == RequestOneofCase.ExecuteRequest) {
         size += 1 + pb::CodedOutputStream.ComputeMessageSize(ExecuteRequest);
+      }
+      if (requestCase_ == RequestOneofCase.ExecuteBatchRequest) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(ExecuteBatchRequest);
+      }
+      if (requestCase_ == RequestOneofCase.BeginTransactionRequest) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(BeginTransactionRequest);
+      }
+      if (requestCase_ == RequestOneofCase.CommitRequest) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(CommitRequest);
+      }
+      if (requestCase_ == RequestOneofCase.RollbackRequest) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(RollbackRequest);
+      }
+      if (requestCase_ == RequestOneofCase.WriteMutationsRequest) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(WriteMutationsRequest);
       }
       if (_unknownFields != null) {
         size += _unknownFields.CalculateSize();
@@ -3827,6 +4257,36 @@ namespace Google.Cloud.SpannerLib.V1 {
             ExecuteRequest = new global::Google.Cloud.SpannerLib.V1.ExecuteRequest();
           }
           ExecuteRequest.MergeFrom(other.ExecuteRequest);
+          break;
+        case RequestOneofCase.ExecuteBatchRequest:
+          if (ExecuteBatchRequest == null) {
+            ExecuteBatchRequest = new global::Google.Cloud.SpannerLib.V1.ExecuteBatchRequest();
+          }
+          ExecuteBatchRequest.MergeFrom(other.ExecuteBatchRequest);
+          break;
+        case RequestOneofCase.BeginTransactionRequest:
+          if (BeginTransactionRequest == null) {
+            BeginTransactionRequest = new global::Google.Cloud.SpannerLib.V1.BeginTransactionRequest();
+          }
+          BeginTransactionRequest.MergeFrom(other.BeginTransactionRequest);
+          break;
+        case RequestOneofCase.CommitRequest:
+          if (CommitRequest == null) {
+            CommitRequest = new global::Google.Cloud.SpannerLib.V1.Connection();
+          }
+          CommitRequest.MergeFrom(other.CommitRequest);
+          break;
+        case RequestOneofCase.RollbackRequest:
+          if (RollbackRequest == null) {
+            RollbackRequest = new global::Google.Cloud.SpannerLib.V1.Connection();
+          }
+          RollbackRequest.MergeFrom(other.RollbackRequest);
+          break;
+        case RequestOneofCase.WriteMutationsRequest:
+          if (WriteMutationsRequest == null) {
+            WriteMutationsRequest = new global::Google.Cloud.SpannerLib.V1.WriteMutationsRequest();
+          }
+          WriteMutationsRequest.MergeFrom(other.WriteMutationsRequest);
           break;
       }
 
@@ -3858,6 +4318,51 @@ namespace Google.Cloud.SpannerLib.V1 {
             ExecuteRequest = subBuilder;
             break;
           }
+          case 18: {
+            global::Google.Cloud.SpannerLib.V1.ExecuteBatchRequest subBuilder = new global::Google.Cloud.SpannerLib.V1.ExecuteBatchRequest();
+            if (requestCase_ == RequestOneofCase.ExecuteBatchRequest) {
+              subBuilder.MergeFrom(ExecuteBatchRequest);
+            }
+            input.ReadMessage(subBuilder);
+            ExecuteBatchRequest = subBuilder;
+            break;
+          }
+          case 26: {
+            global::Google.Cloud.SpannerLib.V1.BeginTransactionRequest subBuilder = new global::Google.Cloud.SpannerLib.V1.BeginTransactionRequest();
+            if (requestCase_ == RequestOneofCase.BeginTransactionRequest) {
+              subBuilder.MergeFrom(BeginTransactionRequest);
+            }
+            input.ReadMessage(subBuilder);
+            BeginTransactionRequest = subBuilder;
+            break;
+          }
+          case 34: {
+            global::Google.Cloud.SpannerLib.V1.Connection subBuilder = new global::Google.Cloud.SpannerLib.V1.Connection();
+            if (requestCase_ == RequestOneofCase.CommitRequest) {
+              subBuilder.MergeFrom(CommitRequest);
+            }
+            input.ReadMessage(subBuilder);
+            CommitRequest = subBuilder;
+            break;
+          }
+          case 42: {
+            global::Google.Cloud.SpannerLib.V1.Connection subBuilder = new global::Google.Cloud.SpannerLib.V1.Connection();
+            if (requestCase_ == RequestOneofCase.RollbackRequest) {
+              subBuilder.MergeFrom(RollbackRequest);
+            }
+            input.ReadMessage(subBuilder);
+            RollbackRequest = subBuilder;
+            break;
+          }
+          case 50: {
+            global::Google.Cloud.SpannerLib.V1.WriteMutationsRequest subBuilder = new global::Google.Cloud.SpannerLib.V1.WriteMutationsRequest();
+            if (requestCase_ == RequestOneofCase.WriteMutationsRequest) {
+              subBuilder.MergeFrom(WriteMutationsRequest);
+            }
+            input.ReadMessage(subBuilder);
+            WriteMutationsRequest = subBuilder;
+            break;
+          }
         }
       }
     #endif
@@ -3886,6 +4391,51 @@ namespace Google.Cloud.SpannerLib.V1 {
             ExecuteRequest = subBuilder;
             break;
           }
+          case 18: {
+            global::Google.Cloud.SpannerLib.V1.ExecuteBatchRequest subBuilder = new global::Google.Cloud.SpannerLib.V1.ExecuteBatchRequest();
+            if (requestCase_ == RequestOneofCase.ExecuteBatchRequest) {
+              subBuilder.MergeFrom(ExecuteBatchRequest);
+            }
+            input.ReadMessage(subBuilder);
+            ExecuteBatchRequest = subBuilder;
+            break;
+          }
+          case 26: {
+            global::Google.Cloud.SpannerLib.V1.BeginTransactionRequest subBuilder = new global::Google.Cloud.SpannerLib.V1.BeginTransactionRequest();
+            if (requestCase_ == RequestOneofCase.BeginTransactionRequest) {
+              subBuilder.MergeFrom(BeginTransactionRequest);
+            }
+            input.ReadMessage(subBuilder);
+            BeginTransactionRequest = subBuilder;
+            break;
+          }
+          case 34: {
+            global::Google.Cloud.SpannerLib.V1.Connection subBuilder = new global::Google.Cloud.SpannerLib.V1.Connection();
+            if (requestCase_ == RequestOneofCase.CommitRequest) {
+              subBuilder.MergeFrom(CommitRequest);
+            }
+            input.ReadMessage(subBuilder);
+            CommitRequest = subBuilder;
+            break;
+          }
+          case 42: {
+            global::Google.Cloud.SpannerLib.V1.Connection subBuilder = new global::Google.Cloud.SpannerLib.V1.Connection();
+            if (requestCase_ == RequestOneofCase.RollbackRequest) {
+              subBuilder.MergeFrom(RollbackRequest);
+            }
+            input.ReadMessage(subBuilder);
+            RollbackRequest = subBuilder;
+            break;
+          }
+          case 50: {
+            global::Google.Cloud.SpannerLib.V1.WriteMutationsRequest subBuilder = new global::Google.Cloud.SpannerLib.V1.WriteMutationsRequest();
+            if (requestCase_ == RequestOneofCase.WriteMutationsRequest) {
+              subBuilder.MergeFrom(WriteMutationsRequest);
+            }
+            input.ReadMessage(subBuilder);
+            WriteMutationsRequest = subBuilder;
+            break;
+          }
         }
       }
     }
@@ -3893,6 +4443,341 @@ namespace Google.Cloud.SpannerLib.V1 {
 
   }
 
+  /// <summary>
+  /// ExecuteResponse is returned by the server when it receives an ExecuteRequest on a bi-directional
+  /// ConnectionStream. The response contains the first N rows, the metadata, and an indication whether
+  /// the result contains more data than in the initial response. The client should fetch the remaining
+  /// data by calling the ContinueStreaming RPC. This will start a separate server stream with the
+  /// remaining results. The client can continue to send additional requests on the ConnectionStream
+  /// while the additional server stream is open.
+  ///
+  /// The initial response also contains the ResultSetStats if there is no more data to be returned.
+  /// </summary>
+  [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
+  public sealed partial class ExecuteResponse : pb::IMessage<ExecuteResponse>
+  #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+      , pb::IBufferMessage
+  #endif
+  {
+    private static readonly pb::MessageParser<ExecuteResponse> _parser = new pb::MessageParser<ExecuteResponse>(() => new ExecuteResponse());
+    private pb::UnknownFieldSet _unknownFields;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public static pb::MessageParser<ExecuteResponse> Parser { get { return _parser; } }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public static pbr::MessageDescriptor Descriptor {
+      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[17]; }
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    pbr::MessageDescriptor pb::IMessage.Descriptor {
+      get { return Descriptor; }
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public ExecuteResponse() {
+      OnConstruction();
+    }
+
+    partial void OnConstruction();
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public ExecuteResponse(ExecuteResponse other) : this() {
+      rows_ = other.rows_ != null ? other.rows_.Clone() : null;
+      resultSets_ = other.resultSets_.Clone();
+      status_ = other.status_ != null ? other.status_.Clone() : null;
+      hasMoreResults_ = other.hasMoreResults_;
+      _unknownFields = pb::UnknownFieldSet.Clone(other._unknownFields);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public ExecuteResponse Clone() {
+      return new ExecuteResponse(this);
+    }
+
+    /// <summary>Field number for the "rows" field.</summary>
+    public const int RowsFieldNumber = 1;
+    private global::Google.Cloud.SpannerLib.V1.Rows rows_;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public global::Google.Cloud.SpannerLib.V1.Rows Rows {
+      get { return rows_; }
+      set {
+        rows_ = value;
+      }
+    }
+
+    /// <summary>Field number for the "result_sets" field.</summary>
+    public const int ResultSetsFieldNumber = 2;
+    private static readonly pb::FieldCodec<global::Google.Cloud.Spanner.V1.ResultSet> _repeated_resultSets_codec
+        = pb::FieldCodec.ForMessage(18, global::Google.Cloud.Spanner.V1.ResultSet.Parser);
+    private readonly pbc::RepeatedField<global::Google.Cloud.Spanner.V1.ResultSet> resultSets_ = new pbc::RepeatedField<global::Google.Cloud.Spanner.V1.ResultSet>();
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public pbc::RepeatedField<global::Google.Cloud.Spanner.V1.ResultSet> ResultSets {
+      get { return resultSets_; }
+    }
+
+    /// <summary>Field number for the "status" field.</summary>
+    public const int StatusFieldNumber = 3;
+    private global::Google.Rpc.Status status_;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public global::Google.Rpc.Status Status {
+      get { return status_; }
+      set {
+        status_ = value;
+      }
+    }
+
+    /// <summary>Field number for the "has_more_results" field.</summary>
+    public const int HasMoreResultsFieldNumber = 4;
+    private bool hasMoreResults_;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public bool HasMoreResults {
+      get { return hasMoreResults_; }
+      set {
+        hasMoreResults_ = value;
+      }
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public override bool Equals(object other) {
+      return Equals(other as ExecuteResponse);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public bool Equals(ExecuteResponse other) {
+      if (ReferenceEquals(other, null)) {
+        return false;
+      }
+      if (ReferenceEquals(other, this)) {
+        return true;
+      }
+      if (!object.Equals(Rows, other.Rows)) return false;
+      if(!resultSets_.Equals(other.resultSets_)) return false;
+      if (!object.Equals(Status, other.Status)) return false;
+      if (HasMoreResults != other.HasMoreResults) return false;
+      return Equals(_unknownFields, other._unknownFields);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public override int GetHashCode() {
+      int hash = 1;
+      if (rows_ != null) hash ^= Rows.GetHashCode();
+      hash ^= resultSets_.GetHashCode();
+      if (status_ != null) hash ^= Status.GetHashCode();
+      if (HasMoreResults != false) hash ^= HasMoreResults.GetHashCode();
+      if (_unknownFields != null) {
+        hash ^= _unknownFields.GetHashCode();
+      }
+      return hash;
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public override string ToString() {
+      return pb::JsonFormatter.ToDiagnosticString(this);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void WriteTo(pb::CodedOutputStream output) {
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+      output.WriteRawMessage(this);
+    #else
+      if (rows_ != null) {
+        output.WriteRawTag(10);
+        output.WriteMessage(Rows);
+      }
+      resultSets_.WriteTo(output, _repeated_resultSets_codec);
+      if (status_ != null) {
+        output.WriteRawTag(26);
+        output.WriteMessage(Status);
+      }
+      if (HasMoreResults != false) {
+        output.WriteRawTag(32);
+        output.WriteBool(HasMoreResults);
+      }
+      if (_unknownFields != null) {
+        _unknownFields.WriteTo(output);
+      }
+    #endif
+    }
+
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    void pb::IBufferMessage.InternalWriteTo(ref pb::WriteContext output) {
+      if (rows_ != null) {
+        output.WriteRawTag(10);
+        output.WriteMessage(Rows);
+      }
+      resultSets_.WriteTo(ref output, _repeated_resultSets_codec);
+      if (status_ != null) {
+        output.WriteRawTag(26);
+        output.WriteMessage(Status);
+      }
+      if (HasMoreResults != false) {
+        output.WriteRawTag(32);
+        output.WriteBool(HasMoreResults);
+      }
+      if (_unknownFields != null) {
+        _unknownFields.WriteTo(ref output);
+      }
+    }
+    #endif
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public int CalculateSize() {
+      int size = 0;
+      if (rows_ != null) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(Rows);
+      }
+      size += resultSets_.CalculateSize(_repeated_resultSets_codec);
+      if (status_ != null) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(Status);
+      }
+      if (HasMoreResults != false) {
+        size += 1 + 1;
+      }
+      if (_unknownFields != null) {
+        size += _unknownFields.CalculateSize();
+      }
+      return size;
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void MergeFrom(ExecuteResponse other) {
+      if (other == null) {
+        return;
+      }
+      if (other.rows_ != null) {
+        if (rows_ == null) {
+          Rows = new global::Google.Cloud.SpannerLib.V1.Rows();
+        }
+        Rows.MergeFrom(other.Rows);
+      }
+      resultSets_.Add(other.resultSets_);
+      if (other.status_ != null) {
+        if (status_ == null) {
+          Status = new global::Google.Rpc.Status();
+        }
+        Status.MergeFrom(other.Status);
+      }
+      if (other.HasMoreResults != false) {
+        HasMoreResults = other.HasMoreResults;
+      }
+      _unknownFields = pb::UnknownFieldSet.MergeFrom(_unknownFields, other._unknownFields);
+    }
+
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public void MergeFrom(pb::CodedInputStream input) {
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+      input.ReadRawMessage(this);
+    #else
+      uint tag;
+      while ((tag = input.ReadTag()) != 0) {
+      if ((tag & 7) == 4) {
+        // Abort on any end group tag.
+        return;
+      }
+      switch(tag) {
+          default:
+            _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, input);
+            break;
+          case 10: {
+            if (rows_ == null) {
+              Rows = new global::Google.Cloud.SpannerLib.V1.Rows();
+            }
+            input.ReadMessage(Rows);
+            break;
+          }
+          case 18: {
+            resultSets_.AddEntriesFrom(input, _repeated_resultSets_codec);
+            break;
+          }
+          case 26: {
+            if (status_ == null) {
+              Status = new global::Google.Rpc.Status();
+            }
+            input.ReadMessage(Status);
+            break;
+          }
+          case 32: {
+            HasMoreResults = input.ReadBool();
+            break;
+          }
+        }
+      }
+    #endif
+    }
+
+    #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    void pb::IBufferMessage.InternalMergeFrom(ref pb::ParseContext input) {
+      uint tag;
+      while ((tag = input.ReadTag()) != 0) {
+      if ((tag & 7) == 4) {
+        // Abort on any end group tag.
+        return;
+      }
+      switch(tag) {
+          default:
+            _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, ref input);
+            break;
+          case 10: {
+            if (rows_ == null) {
+              Rows = new global::Google.Cloud.SpannerLib.V1.Rows();
+            }
+            input.ReadMessage(Rows);
+            break;
+          }
+          case 18: {
+            resultSets_.AddEntriesFrom(ref input, _repeated_resultSets_codec);
+            break;
+          }
+          case 26: {
+            if (status_ == null) {
+              Status = new global::Google.Rpc.Status();
+            }
+            input.ReadMessage(Status);
+            break;
+          }
+          case 32: {
+            HasMoreResults = input.ReadBool();
+            break;
+          }
+        }
+      }
+    }
+    #endif
+
+  }
+
+  /// <summary>
+  /// ConnectionStreamResponse is returned by the server when it receives a ConnectionStreamRequest.
+  /// The contents of the response depends on the request that the client sent.
+  ///
+  /// The response contains a Status that indicates whether the request succeeded or not. The stream
+  /// itself normally does not return an error if a request fails.
+  /// The stream only returns an error and is discontinued in case of a network error or other
+  /// unexpected internal errors.
+  /// </summary>
   [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class ConnectionStreamResponse : pb::IMessage<ConnectionStreamResponse>
   #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
@@ -3908,7 +4793,7 @@ namespace Google.Cloud.SpannerLib.V1 {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[16]; }
+      get { return global::Google.Cloud.SpannerLib.V1.SpannerlibReflection.Descriptor.MessageTypes[18]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -3928,9 +4813,25 @@ namespace Google.Cloud.SpannerLib.V1 {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public ConnectionStreamResponse(ConnectionStreamResponse other) : this() {
+      status_ = other.status_ != null ? other.status_.Clone() : null;
       switch (other.ResponseCase) {
-        case ResponseOneofCase.Row:
-          Row = other.Row.Clone();
+        case ResponseOneofCase.ExecuteResponse:
+          ExecuteResponse = other.ExecuteResponse.Clone();
+          break;
+        case ResponseOneofCase.ExecuteBatchResponse:
+          ExecuteBatchResponse = other.ExecuteBatchResponse.Clone();
+          break;
+        case ResponseOneofCase.BeginTransactionResponse:
+          BeginTransactionResponse = other.BeginTransactionResponse.Clone();
+          break;
+        case ResponseOneofCase.CommitResponse:
+          CommitResponse = other.CommitResponse.Clone();
+          break;
+        case ResponseOneofCase.RollbackResponse:
+          RollbackResponse = other.RollbackResponse.Clone();
+          break;
+        case ResponseOneofCase.WriteMutationsResponse:
+          WriteMutationsResponse = other.WriteMutationsResponse.Clone();
           break;
       }
 
@@ -3943,15 +4844,91 @@ namespace Google.Cloud.SpannerLib.V1 {
       return new ConnectionStreamResponse(this);
     }
 
-    /// <summary>Field number for the "row" field.</summary>
-    public const int RowFieldNumber = 1;
+    /// <summary>Field number for the "status" field.</summary>
+    public const int StatusFieldNumber = 1;
+    private global::Google.Rpc.Status status_;
+    /// <summary>
+    /// Status indicates whether the request succeeded or failed. The response field only contains
+    /// a value if the status code is OK.
+    /// </summary>
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public global::Google.Cloud.Spanner.V1.PartialResultSet Row {
-      get { return responseCase_ == ResponseOneofCase.Row ? (global::Google.Cloud.Spanner.V1.PartialResultSet) response_ : null; }
+    public global::Google.Rpc.Status Status {
+      get { return status_; }
+      set {
+        status_ = value;
+      }
+    }
+
+    /// <summary>Field number for the "execute_response" field.</summary>
+    public const int ExecuteResponseFieldNumber = 2;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public global::Google.Cloud.SpannerLib.V1.ExecuteResponse ExecuteResponse {
+      get { return responseCase_ == ResponseOneofCase.ExecuteResponse ? (global::Google.Cloud.SpannerLib.V1.ExecuteResponse) response_ : null; }
       set {
         response_ = value;
-        responseCase_ = value == null ? ResponseOneofCase.None : ResponseOneofCase.Row;
+        responseCase_ = value == null ? ResponseOneofCase.None : ResponseOneofCase.ExecuteResponse;
+      }
+    }
+
+    /// <summary>Field number for the "execute_batch_response" field.</summary>
+    public const int ExecuteBatchResponseFieldNumber = 3;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public global::Google.Cloud.Spanner.V1.ExecuteBatchDmlResponse ExecuteBatchResponse {
+      get { return responseCase_ == ResponseOneofCase.ExecuteBatchResponse ? (global::Google.Cloud.Spanner.V1.ExecuteBatchDmlResponse) response_ : null; }
+      set {
+        response_ = value;
+        responseCase_ = value == null ? ResponseOneofCase.None : ResponseOneofCase.ExecuteBatchResponse;
+      }
+    }
+
+    /// <summary>Field number for the "begin_transaction_response" field.</summary>
+    public const int BeginTransactionResponseFieldNumber = 4;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public global::Google.Protobuf.WellKnownTypes.Empty BeginTransactionResponse {
+      get { return responseCase_ == ResponseOneofCase.BeginTransactionResponse ? (global::Google.Protobuf.WellKnownTypes.Empty) response_ : null; }
+      set {
+        response_ = value;
+        responseCase_ = value == null ? ResponseOneofCase.None : ResponseOneofCase.BeginTransactionResponse;
+      }
+    }
+
+    /// <summary>Field number for the "commit_response" field.</summary>
+    public const int CommitResponseFieldNumber = 5;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public global::Google.Cloud.Spanner.V1.CommitResponse CommitResponse {
+      get { return responseCase_ == ResponseOneofCase.CommitResponse ? (global::Google.Cloud.Spanner.V1.CommitResponse) response_ : null; }
+      set {
+        response_ = value;
+        responseCase_ = value == null ? ResponseOneofCase.None : ResponseOneofCase.CommitResponse;
+      }
+    }
+
+    /// <summary>Field number for the "rollback_response" field.</summary>
+    public const int RollbackResponseFieldNumber = 6;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public global::Google.Protobuf.WellKnownTypes.Empty RollbackResponse {
+      get { return responseCase_ == ResponseOneofCase.RollbackResponse ? (global::Google.Protobuf.WellKnownTypes.Empty) response_ : null; }
+      set {
+        response_ = value;
+        responseCase_ = value == null ? ResponseOneofCase.None : ResponseOneofCase.RollbackResponse;
+      }
+    }
+
+    /// <summary>Field number for the "write_mutations_response" field.</summary>
+    public const int WriteMutationsResponseFieldNumber = 7;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public global::Google.Cloud.Spanner.V1.CommitResponse WriteMutationsResponse {
+      get { return responseCase_ == ResponseOneofCase.WriteMutationsResponse ? (global::Google.Cloud.Spanner.V1.CommitResponse) response_ : null; }
+      set {
+        response_ = value;
+        responseCase_ = value == null ? ResponseOneofCase.None : ResponseOneofCase.WriteMutationsResponse;
       }
     }
 
@@ -3959,7 +4936,12 @@ namespace Google.Cloud.SpannerLib.V1 {
     /// <summary>Enum of possible cases for the "response" oneof.</summary>
     public enum ResponseOneofCase {
       None = 0,
-      Row = 1,
+      ExecuteResponse = 2,
+      ExecuteBatchResponse = 3,
+      BeginTransactionResponse = 4,
+      CommitResponse = 5,
+      RollbackResponse = 6,
+      WriteMutationsResponse = 7,
     }
     private ResponseOneofCase responseCase_ = ResponseOneofCase.None;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -3990,7 +4972,13 @@ namespace Google.Cloud.SpannerLib.V1 {
       if (ReferenceEquals(other, this)) {
         return true;
       }
-      if (!object.Equals(Row, other.Row)) return false;
+      if (!object.Equals(Status, other.Status)) return false;
+      if (!object.Equals(ExecuteResponse, other.ExecuteResponse)) return false;
+      if (!object.Equals(ExecuteBatchResponse, other.ExecuteBatchResponse)) return false;
+      if (!object.Equals(BeginTransactionResponse, other.BeginTransactionResponse)) return false;
+      if (!object.Equals(CommitResponse, other.CommitResponse)) return false;
+      if (!object.Equals(RollbackResponse, other.RollbackResponse)) return false;
+      if (!object.Equals(WriteMutationsResponse, other.WriteMutationsResponse)) return false;
       if (ResponseCase != other.ResponseCase) return false;
       return Equals(_unknownFields, other._unknownFields);
     }
@@ -3999,7 +4987,13 @@ namespace Google.Cloud.SpannerLib.V1 {
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public override int GetHashCode() {
       int hash = 1;
-      if (responseCase_ == ResponseOneofCase.Row) hash ^= Row.GetHashCode();
+      if (status_ != null) hash ^= Status.GetHashCode();
+      if (responseCase_ == ResponseOneofCase.ExecuteResponse) hash ^= ExecuteResponse.GetHashCode();
+      if (responseCase_ == ResponseOneofCase.ExecuteBatchResponse) hash ^= ExecuteBatchResponse.GetHashCode();
+      if (responseCase_ == ResponseOneofCase.BeginTransactionResponse) hash ^= BeginTransactionResponse.GetHashCode();
+      if (responseCase_ == ResponseOneofCase.CommitResponse) hash ^= CommitResponse.GetHashCode();
+      if (responseCase_ == ResponseOneofCase.RollbackResponse) hash ^= RollbackResponse.GetHashCode();
+      if (responseCase_ == ResponseOneofCase.WriteMutationsResponse) hash ^= WriteMutationsResponse.GetHashCode();
       hash ^= (int) responseCase_;
       if (_unknownFields != null) {
         hash ^= _unknownFields.GetHashCode();
@@ -4019,9 +5013,33 @@ namespace Google.Cloud.SpannerLib.V1 {
     #if !GOOGLE_PROTOBUF_REFSTRUCT_COMPATIBILITY_MODE
       output.WriteRawMessage(this);
     #else
-      if (responseCase_ == ResponseOneofCase.Row) {
+      if (status_ != null) {
         output.WriteRawTag(10);
-        output.WriteMessage(Row);
+        output.WriteMessage(Status);
+      }
+      if (responseCase_ == ResponseOneofCase.ExecuteResponse) {
+        output.WriteRawTag(18);
+        output.WriteMessage(ExecuteResponse);
+      }
+      if (responseCase_ == ResponseOneofCase.ExecuteBatchResponse) {
+        output.WriteRawTag(26);
+        output.WriteMessage(ExecuteBatchResponse);
+      }
+      if (responseCase_ == ResponseOneofCase.BeginTransactionResponse) {
+        output.WriteRawTag(34);
+        output.WriteMessage(BeginTransactionResponse);
+      }
+      if (responseCase_ == ResponseOneofCase.CommitResponse) {
+        output.WriteRawTag(42);
+        output.WriteMessage(CommitResponse);
+      }
+      if (responseCase_ == ResponseOneofCase.RollbackResponse) {
+        output.WriteRawTag(50);
+        output.WriteMessage(RollbackResponse);
+      }
+      if (responseCase_ == ResponseOneofCase.WriteMutationsResponse) {
+        output.WriteRawTag(58);
+        output.WriteMessage(WriteMutationsResponse);
       }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(output);
@@ -4033,9 +5051,33 @@ namespace Google.Cloud.SpannerLib.V1 {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     void pb::IBufferMessage.InternalWriteTo(ref pb::WriteContext output) {
-      if (responseCase_ == ResponseOneofCase.Row) {
+      if (status_ != null) {
         output.WriteRawTag(10);
-        output.WriteMessage(Row);
+        output.WriteMessage(Status);
+      }
+      if (responseCase_ == ResponseOneofCase.ExecuteResponse) {
+        output.WriteRawTag(18);
+        output.WriteMessage(ExecuteResponse);
+      }
+      if (responseCase_ == ResponseOneofCase.ExecuteBatchResponse) {
+        output.WriteRawTag(26);
+        output.WriteMessage(ExecuteBatchResponse);
+      }
+      if (responseCase_ == ResponseOneofCase.BeginTransactionResponse) {
+        output.WriteRawTag(34);
+        output.WriteMessage(BeginTransactionResponse);
+      }
+      if (responseCase_ == ResponseOneofCase.CommitResponse) {
+        output.WriteRawTag(42);
+        output.WriteMessage(CommitResponse);
+      }
+      if (responseCase_ == ResponseOneofCase.RollbackResponse) {
+        output.WriteRawTag(50);
+        output.WriteMessage(RollbackResponse);
+      }
+      if (responseCase_ == ResponseOneofCase.WriteMutationsResponse) {
+        output.WriteRawTag(58);
+        output.WriteMessage(WriteMutationsResponse);
       }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(ref output);
@@ -4047,8 +5089,26 @@ namespace Google.Cloud.SpannerLib.V1 {
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public int CalculateSize() {
       int size = 0;
-      if (responseCase_ == ResponseOneofCase.Row) {
-        size += 1 + pb::CodedOutputStream.ComputeMessageSize(Row);
+      if (status_ != null) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(Status);
+      }
+      if (responseCase_ == ResponseOneofCase.ExecuteResponse) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(ExecuteResponse);
+      }
+      if (responseCase_ == ResponseOneofCase.ExecuteBatchResponse) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(ExecuteBatchResponse);
+      }
+      if (responseCase_ == ResponseOneofCase.BeginTransactionResponse) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(BeginTransactionResponse);
+      }
+      if (responseCase_ == ResponseOneofCase.CommitResponse) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(CommitResponse);
+      }
+      if (responseCase_ == ResponseOneofCase.RollbackResponse) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(RollbackResponse);
+      }
+      if (responseCase_ == ResponseOneofCase.WriteMutationsResponse) {
+        size += 1 + pb::CodedOutputStream.ComputeMessageSize(WriteMutationsResponse);
       }
       if (_unknownFields != null) {
         size += _unknownFields.CalculateSize();
@@ -4062,12 +5122,48 @@ namespace Google.Cloud.SpannerLib.V1 {
       if (other == null) {
         return;
       }
+      if (other.status_ != null) {
+        if (status_ == null) {
+          Status = new global::Google.Rpc.Status();
+        }
+        Status.MergeFrom(other.Status);
+      }
       switch (other.ResponseCase) {
-        case ResponseOneofCase.Row:
-          if (Row == null) {
-            Row = new global::Google.Cloud.Spanner.V1.PartialResultSet();
+        case ResponseOneofCase.ExecuteResponse:
+          if (ExecuteResponse == null) {
+            ExecuteResponse = new global::Google.Cloud.SpannerLib.V1.ExecuteResponse();
           }
-          Row.MergeFrom(other.Row);
+          ExecuteResponse.MergeFrom(other.ExecuteResponse);
+          break;
+        case ResponseOneofCase.ExecuteBatchResponse:
+          if (ExecuteBatchResponse == null) {
+            ExecuteBatchResponse = new global::Google.Cloud.Spanner.V1.ExecuteBatchDmlResponse();
+          }
+          ExecuteBatchResponse.MergeFrom(other.ExecuteBatchResponse);
+          break;
+        case ResponseOneofCase.BeginTransactionResponse:
+          if (BeginTransactionResponse == null) {
+            BeginTransactionResponse = new global::Google.Protobuf.WellKnownTypes.Empty();
+          }
+          BeginTransactionResponse.MergeFrom(other.BeginTransactionResponse);
+          break;
+        case ResponseOneofCase.CommitResponse:
+          if (CommitResponse == null) {
+            CommitResponse = new global::Google.Cloud.Spanner.V1.CommitResponse();
+          }
+          CommitResponse.MergeFrom(other.CommitResponse);
+          break;
+        case ResponseOneofCase.RollbackResponse:
+          if (RollbackResponse == null) {
+            RollbackResponse = new global::Google.Protobuf.WellKnownTypes.Empty();
+          }
+          RollbackResponse.MergeFrom(other.RollbackResponse);
+          break;
+        case ResponseOneofCase.WriteMutationsResponse:
+          if (WriteMutationsResponse == null) {
+            WriteMutationsResponse = new global::Google.Cloud.Spanner.V1.CommitResponse();
+          }
+          WriteMutationsResponse.MergeFrom(other.WriteMutationsResponse);
           break;
       }
 
@@ -4091,12 +5187,64 @@ namespace Google.Cloud.SpannerLib.V1 {
             _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, input);
             break;
           case 10: {
-            global::Google.Cloud.Spanner.V1.PartialResultSet subBuilder = new global::Google.Cloud.Spanner.V1.PartialResultSet();
-            if (responseCase_ == ResponseOneofCase.Row) {
-              subBuilder.MergeFrom(Row);
+            if (status_ == null) {
+              Status = new global::Google.Rpc.Status();
+            }
+            input.ReadMessage(Status);
+            break;
+          }
+          case 18: {
+            global::Google.Cloud.SpannerLib.V1.ExecuteResponse subBuilder = new global::Google.Cloud.SpannerLib.V1.ExecuteResponse();
+            if (responseCase_ == ResponseOneofCase.ExecuteResponse) {
+              subBuilder.MergeFrom(ExecuteResponse);
             }
             input.ReadMessage(subBuilder);
-            Row = subBuilder;
+            ExecuteResponse = subBuilder;
+            break;
+          }
+          case 26: {
+            global::Google.Cloud.Spanner.V1.ExecuteBatchDmlResponse subBuilder = new global::Google.Cloud.Spanner.V1.ExecuteBatchDmlResponse();
+            if (responseCase_ == ResponseOneofCase.ExecuteBatchResponse) {
+              subBuilder.MergeFrom(ExecuteBatchResponse);
+            }
+            input.ReadMessage(subBuilder);
+            ExecuteBatchResponse = subBuilder;
+            break;
+          }
+          case 34: {
+            global::Google.Protobuf.WellKnownTypes.Empty subBuilder = new global::Google.Protobuf.WellKnownTypes.Empty();
+            if (responseCase_ == ResponseOneofCase.BeginTransactionResponse) {
+              subBuilder.MergeFrom(BeginTransactionResponse);
+            }
+            input.ReadMessage(subBuilder);
+            BeginTransactionResponse = subBuilder;
+            break;
+          }
+          case 42: {
+            global::Google.Cloud.Spanner.V1.CommitResponse subBuilder = new global::Google.Cloud.Spanner.V1.CommitResponse();
+            if (responseCase_ == ResponseOneofCase.CommitResponse) {
+              subBuilder.MergeFrom(CommitResponse);
+            }
+            input.ReadMessage(subBuilder);
+            CommitResponse = subBuilder;
+            break;
+          }
+          case 50: {
+            global::Google.Protobuf.WellKnownTypes.Empty subBuilder = new global::Google.Protobuf.WellKnownTypes.Empty();
+            if (responseCase_ == ResponseOneofCase.RollbackResponse) {
+              subBuilder.MergeFrom(RollbackResponse);
+            }
+            input.ReadMessage(subBuilder);
+            RollbackResponse = subBuilder;
+            break;
+          }
+          case 58: {
+            global::Google.Cloud.Spanner.V1.CommitResponse subBuilder = new global::Google.Cloud.Spanner.V1.CommitResponse();
+            if (responseCase_ == ResponseOneofCase.WriteMutationsResponse) {
+              subBuilder.MergeFrom(WriteMutationsResponse);
+            }
+            input.ReadMessage(subBuilder);
+            WriteMutationsResponse = subBuilder;
             break;
           }
         }
@@ -4119,12 +5267,64 @@ namespace Google.Cloud.SpannerLib.V1 {
             _unknownFields = pb::UnknownFieldSet.MergeFieldFrom(_unknownFields, ref input);
             break;
           case 10: {
-            global::Google.Cloud.Spanner.V1.PartialResultSet subBuilder = new global::Google.Cloud.Spanner.V1.PartialResultSet();
-            if (responseCase_ == ResponseOneofCase.Row) {
-              subBuilder.MergeFrom(Row);
+            if (status_ == null) {
+              Status = new global::Google.Rpc.Status();
+            }
+            input.ReadMessage(Status);
+            break;
+          }
+          case 18: {
+            global::Google.Cloud.SpannerLib.V1.ExecuteResponse subBuilder = new global::Google.Cloud.SpannerLib.V1.ExecuteResponse();
+            if (responseCase_ == ResponseOneofCase.ExecuteResponse) {
+              subBuilder.MergeFrom(ExecuteResponse);
             }
             input.ReadMessage(subBuilder);
-            Row = subBuilder;
+            ExecuteResponse = subBuilder;
+            break;
+          }
+          case 26: {
+            global::Google.Cloud.Spanner.V1.ExecuteBatchDmlResponse subBuilder = new global::Google.Cloud.Spanner.V1.ExecuteBatchDmlResponse();
+            if (responseCase_ == ResponseOneofCase.ExecuteBatchResponse) {
+              subBuilder.MergeFrom(ExecuteBatchResponse);
+            }
+            input.ReadMessage(subBuilder);
+            ExecuteBatchResponse = subBuilder;
+            break;
+          }
+          case 34: {
+            global::Google.Protobuf.WellKnownTypes.Empty subBuilder = new global::Google.Protobuf.WellKnownTypes.Empty();
+            if (responseCase_ == ResponseOneofCase.BeginTransactionResponse) {
+              subBuilder.MergeFrom(BeginTransactionResponse);
+            }
+            input.ReadMessage(subBuilder);
+            BeginTransactionResponse = subBuilder;
+            break;
+          }
+          case 42: {
+            global::Google.Cloud.Spanner.V1.CommitResponse subBuilder = new global::Google.Cloud.Spanner.V1.CommitResponse();
+            if (responseCase_ == ResponseOneofCase.CommitResponse) {
+              subBuilder.MergeFrom(CommitResponse);
+            }
+            input.ReadMessage(subBuilder);
+            CommitResponse = subBuilder;
+            break;
+          }
+          case 50: {
+            global::Google.Protobuf.WellKnownTypes.Empty subBuilder = new global::Google.Protobuf.WellKnownTypes.Empty();
+            if (responseCase_ == ResponseOneofCase.RollbackResponse) {
+              subBuilder.MergeFrom(RollbackResponse);
+            }
+            input.ReadMessage(subBuilder);
+            RollbackResponse = subBuilder;
+            break;
+          }
+          case 58: {
+            global::Google.Cloud.Spanner.V1.CommitResponse subBuilder = new global::Google.Cloud.Spanner.V1.CommitResponse();
+            if (responseCase_ == ResponseOneofCase.WriteMutationsResponse) {
+              subBuilder.MergeFrom(WriteMutationsResponse);
+            }
+            input.ReadMessage(subBuilder);
+            WriteMutationsResponse = subBuilder;
             break;
           }
         }
