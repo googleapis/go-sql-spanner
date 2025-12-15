@@ -64,7 +64,14 @@ type SpannerLibClient interface {
 	Commit(ctx context.Context, in *Connection, opts ...grpc.CallOption) (*spannerpb.CommitResponse, error)
 	Rollback(ctx context.Context, in *Connection, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	WriteMutations(ctx context.Context, in *WriteMutationsRequest, opts ...grpc.CallOption) (*spannerpb.CommitResponse, error)
+	// ConnectionStream opens a bi-directional gRPC stream between the client and the server.
+	// This stream can be re-used by the client for multiple requests, and normally gives the
+	// lowest possible latency, at the cost of a slightly more complex API.
 	ConnectionStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConnectionStreamRequest, ConnectionStreamResponse], error)
+	// ContinueStreaming returns a server stream that returns the remaining rows of a SQL statement
+	// that has previously been executed using a ConnectionStreamRequest on a bi-directional
+	// ConnectionStream. The client is responsible for calling this RPC if the has_more_data flag
+	// of the ExecuteResponse was true.
 	ContinueStreaming(ctx context.Context, in *Rows, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RowData], error)
 }
 
@@ -308,7 +315,14 @@ type SpannerLibServer interface {
 	Commit(context.Context, *Connection) (*spannerpb.CommitResponse, error)
 	Rollback(context.Context, *Connection) (*emptypb.Empty, error)
 	WriteMutations(context.Context, *WriteMutationsRequest) (*spannerpb.CommitResponse, error)
+	// ConnectionStream opens a bi-directional gRPC stream between the client and the server.
+	// This stream can be re-used by the client for multiple requests, and normally gives the
+	// lowest possible latency, at the cost of a slightly more complex API.
 	ConnectionStream(grpc.BidiStreamingServer[ConnectionStreamRequest, ConnectionStreamResponse]) error
+	// ContinueStreaming returns a server stream that returns the remaining rows of a SQL statement
+	// that has previously been executed using a ConnectionStreamRequest on a bi-directional
+	// ConnectionStream. The client is responsible for calling this RPC if the has_more_data flag
+	// of the ExecuteResponse was true.
 	ContinueStreaming(*Rows, grpc.ServerStreamingServer[RowData]) error
 	mustEmbedUnimplementedSpannerLibServer()
 }

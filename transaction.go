@@ -16,6 +16,7 @@ package spannerdriver
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql/driver"
 	"fmt"
 	"log/slog"
@@ -497,6 +498,9 @@ func (tx *readWriteTransaction) runWithRetry(ctx context.Context, f func(ctx con
 		if err == nil {
 			err = f(ctx)
 		}
+		if err == nil {
+			return
+		}
 		if err == ErrAbortedDueToConcurrentModification {
 			tx.logger.Log(ctx, LevelNotice, "transaction retry failed due to a concurrent modification")
 			return
@@ -630,6 +634,7 @@ func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statemen
 		stmt:        stmt,
 		stmtType:    stmtType,
 		options:     execOptions.QueryOptions,
+		hash:        sha256.New(),
 	}
 	tx.statements = append(tx.statements, it)
 	return it, nil

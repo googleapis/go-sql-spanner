@@ -134,6 +134,9 @@ func TestExecute(t *testing.T) {
 			t.Fatalf("num values mismatch\n Got: %v\nWant: %v", g, w)
 		}
 		numRows++
+		if g, w := row.Values[0].GetStringValue(), fmt.Sprintf("%d", numRows); g != w {
+			t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+		}
 	}
 	if g, w := numRows, 2; g != w {
 		t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
@@ -232,9 +235,113 @@ func TestExecuteStreaming(t *testing.T) {
 			t.Fatalf("num values mismatch\n Got: %v\nWant: %v", g, w)
 		}
 		numRows++
+		if g, w := row.Data[0].Values[0].GetStringValue(), fmt.Sprintf("%d", numRows); g != w {
+			t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+		}
 	}
 	if g, w := numRows, 2; g != w {
 		t.Fatalf("num rows mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	if _, err := client.ClosePool(ctx, pool); err != nil {
+		t.Fatalf("failed to close pool: %v", err)
+	}
+}
+
+func TestExecuteStreamingMultiQuery(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	server, teardown := setupMockSpannerServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	client, cleanup := startTestSpannerLibServer(t)
+	defer cleanup()
+
+	query1 := "select c from table1"
+	_ = server.TestSpanner.PutStatementResult(query1, &testutil.StatementResult{
+		Type:      testutil.StatementResultResultSet,
+		ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{1, 2}, "c"),
+	})
+	query2 := "select c1, c2 from table2"
+	_ = server.TestSpanner.PutStatementResult(query2, &testutil.StatementResult{
+		Type:      testutil.StatementResultResultSet,
+		ResultSet: testutil.CreateTwoColumnResultSet([][2]int64{{10, 10}, {11, 11}, {12, 12}}, [2]string{"c1", "c2"}),
+	})
+	query3 := "select c from table3"
+	_ = server.TestSpanner.PutStatementResult(query3, &testutil.StatementResult{
+		Type:      testutil.StatementResultResultSet,
+		ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{3, 4, 5, 6}, "c"),
+	})
+
+	pool, err := client.CreatePool(ctx, &pb.CreatePoolRequest{ConnectionString: dsn})
+	if err != nil {
+		t.Fatalf("failed to create pool: %v", err)
+	}
+	connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
+	if err != nil {
+		t.Fatalf("failed to create connection: %v", err)
+	}
+	stream, err := client.ExecuteStreaming(ctx, &pb.ExecuteRequest{
+		Connection:        connection,
+		ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: fmt.Sprintf("%s;%s;%s", query1, query2, query3)},
+	})
+	if err != nil {
+		t.Fatalf("failed to execute: %v", err)
+	}
+
+	consume := func() ([][]string, bool, error) {
+		result := make([][]string, 0)
+		hasMore := false
+		for {
+			chunk, err := stream.Recv()
+			if err != nil {
+				return nil, false, err
+			}
+			if len(chunk.Data) == 0 {
+				hasMore = chunk.HasMoreResults
+				break
+			}
+			for _, row := range chunk.Data {
+				rowValues := make([]string, len(row.Values))
+				for i := range rowValues {
+					rowValues[i] = row.Values[i].GetStringValue()
+				}
+				result = append(result, rowValues)
+			}
+		}
+		return result, hasMore, nil
+	}
+	result1, hasMore, err := consume()
+	if err != nil {
+		t.Fatalf("failed to consume result 1: %v", err)
+	}
+	if !hasMore {
+		t.Fatalf("missing result 2")
+	}
+	result2, hasMore, err := consume()
+	if err != nil {
+		t.Fatalf("failed to consume result 2: %v", err)
+	}
+	if !hasMore {
+		t.Fatalf("missing result 3")
+	}
+	result3, hasMore, err := consume()
+	if err != nil {
+		t.Fatalf("failed to consume result 3: %v", err)
+	}
+	if hasMore {
+		t.Fatalf("found unexpected results after result 3")
+	}
+	if g, w := result1, [][]string{{"1"}, {"2"}}; !reflect.DeepEqual(g, w) {
+		t.Fatalf("result1 mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := result2, [][]string{{"10", "10"}, {"11", "11"}, {"12", "12"}}; !reflect.DeepEqual(g, w) {
+		t.Fatalf("result2 mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := result3, [][]string{{"3"}, {"4"}, {"5"}, {"6"}}; !reflect.DeepEqual(g, w) {
+		t.Fatalf("result3 mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
 	if _, err := client.ClosePool(ctx, pool); err != nil {
@@ -435,6 +542,9 @@ func TestExecuteStreamingMultiStatement(t *testing.T) {
 					t.Fatalf("num values mismatch\n Got: %v\nWant: %v", g, w)
 				}
 				numRows++
+				if g, w := row.Data[0].Values[0].GetStringValue(), fmt.Sprintf("%d", numRows); g != w {
+					t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+				}
 			}
 			if g, w := numResultSets, len(tt.expectedResults); g != w {
 				t.Fatalf("num result sets mismatch\n Got: %v\nWant: %v", g, w)

@@ -15,10 +15,12 @@
 package parser
 
 import (
+	"bytes"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -43,16 +45,29 @@ func (p *simpleParser) hasMoreTokens() bool {
 //
 // Any whitespace and/or comments before or between the tokens will be skipped.
 func (p *simpleParser) eatTokens(tokens []byte) bool {
+	return p.eatTokensWithWhitespaceOption(tokens, true)
+}
+
+// eatTokens advances the parser by len(tokens) positions and returns true
+// if the next len(tokens) bytes are equal to the given bytes. This function
+// only works for characters that can be encoded in one byte.
+//
+// Any whitespace and/or comments before or between the tokens will be interpreted as actual tokens.
+func (p *simpleParser) eatTokensOnly(tokens []byte) bool {
+	return p.eatTokensWithWhitespaceOption(tokens, false)
+}
+
+func (p *simpleParser) eatTokensWithWhitespaceOption(tokens []byte, eatWhitespaces bool) bool {
 	if len(tokens) == 0 {
 		return true
 	}
 	if len(tokens) == 1 {
-		return p.eatToken(tokens[0])
+		return p.eatTokenWithWhitespaceOption(tokens[0], eatWhitespaces)
 	}
 
 	startPos := p.pos
 	for _, t := range tokens {
-		if !p.eatToken(t) {
+		if !p.eatTokenWithWhitespaceOption(t, eatWhitespaces) {
 			p.pos = startPos
 			return false
 		}
@@ -369,7 +384,11 @@ func (p *simpleParser) readUnquotedLiteral() string {
 // position until it encounters a non-whitespace / non-comment.
 // The position of the parser is updated.
 func (p *simpleParser) skipWhitespacesAndComments() {
-	p.pos = p.statementParser.skipWhitespacesAndComments(p.sql, p.pos)
+	p.skipWhitespacesAndCommentsWithPgHintOption( /*skipPgHints = */ true)
+}
+
+func (p *simpleParser) skipWhitespacesAndCommentsWithPgHintOption(skipPgHints bool) {
+	p.pos = p.statementParser.skipWhitespacesAndComments(p.sql, p.pos, skipPgHints)
 }
 
 func (p *simpleParser) skipExpressionInBrackets() error {
@@ -396,22 +415,41 @@ func (p *simpleParser) skipExpressionInBrackets() error {
 	return nil
 }
 
-var statementHintPrefix = []byte{'@', '{'}
+var googleSqlStatementHintPrefix = []byte{'@', '{'}
+var postgreSqlStatementHintPrefix = []byte{'/', '*', '@'}
 
 // skipStatementHint skips any statement hint at the start of the statement.
-func (p *simpleParser) skipStatementHint() bool {
-	if p.eatTokens(statementHintPrefix) {
-		for ; p.pos < len(p.sql); p.pos++ {
-			// We don't have to worry about an '}' being inside a statement hint
-			// key or value, as it is not a valid part of an identifier, and
-			// statement hints have a fixed set of possible values.
-			if p.sql[p.pos] == '}' {
-				p.pos++
-				return true
+// Returns true if a statement hint was actually found, and the start index of that statement hint.
+func (p *simpleParser) skipStatementHint() (bool, int) {
+	if p.statementParser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		// Statement hints in PostgreSQL are encoded in comments of the following form:
+		// /*@ hint_key=hint_value[, hint_key2=hint_value2[,...]] */
+		// Skip all other whitespaces and comments, but not comments that contain a PG hint.
+		p.skipWhitespacesAndCommentsWithPgHintOption( /*skipPgHints=*/ false)
+		// Check if the next tokens are a PG hint.
+		if bytes.HasPrefix(p.sql[p.pos:], postgreSqlStatementHintPrefix) {
+			startPos := p.pos
+			// Move to the end of this comment.
+			p.pos = p.statementParser.skipMultiLineComment(p.sql, p.pos)
+			// Note that this also returns true if the multiline comment is not terminated, and we just reached the
+			// end of the SQL string.
+			return true, startPos
+		}
+	} else {
+		startPos := p.pos
+		if p.eatTokens(googleSqlStatementHintPrefix) {
+			for ; p.pos < len(p.sql); p.pos++ {
+				// We don't have to worry about an '}' being inside a statement hint
+				// key or value, as it is not a valid part of an identifier, and
+				// statement hints have a fixed set of possible values.
+				if p.sql[p.pos] == '}' {
+					p.pos++
+					return true, startPos
+				}
 			}
 		}
 	}
-	return false
+	return false, 0
 }
 
 // isMultibyte returns true if the character at the current position

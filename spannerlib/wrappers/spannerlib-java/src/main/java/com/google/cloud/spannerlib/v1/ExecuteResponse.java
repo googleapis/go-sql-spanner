@@ -6,6 +6,17 @@
 package com.google.cloud.spannerlib.v1;
 
 /**
+ * <pre>
+ * ExecuteResponse is returned by the server when it receives an ExecuteRequest on a bi-directional
+ * ConnectionStream. The response contains the first N rows, the metadata, and an indication whether
+ * the result contains more data than in the initial response. The client should fetch the remaining
+ * data by calling the ContinueStreaming RPC. This will start a separate server stream with the
+ * remaining results. The client can continue to send additional requests on the ConnectionStream
+ * while the additional server stream is open.
+ *
+ * The initial response also contains the ResultSetStats if there is no more data to be returned.
+ * </pre>
+ *
  * Protobuf type {@code google.spannerlib.v1.ExecuteResponse}
  */
 @com.google.protobuf.Generated
@@ -353,6 +364,17 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
+   * <pre>
+   * ExecuteResponse is returned by the server when it receives an ExecuteRequest on a bi-directional
+   * ConnectionStream. The response contains the first N rows, the metadata, and an indication whether
+   * the result contains more data than in the initial response. The client should fetch the remaining
+   * data by calling the ContinueStreaming RPC. This will start a separate server stream with the
+   * remaining results. The client can continue to send additional requests on the ConnectionStream
+   * while the additional server stream is open.
+   *
+   * The initial response also contains the ResultSetStats if there is no more data to be returned.
+   * </pre>
+   *
    * Protobuf type {@code google.spannerlib.v1.ExecuteResponse}
    */
   public static final class Builder extends

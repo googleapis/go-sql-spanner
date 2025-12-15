@@ -28,7 +28,6 @@ private static final long serialVersionUID = 0L;
     super(builder);
   }
   private RowData() {
-    requestId_ = "";
     data_ = java.util.Collections.emptyList();
   }
 
@@ -46,49 +45,10 @@ private static final long serialVersionUID = 0L;
   }
 
   private int bitField0_;
-  public static final int REQUEST_ID_FIELD_NUMBER = 1;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object requestId_ = "";
-  /**
-   * <code>string request_id = 1;</code>
-   * @return The requestId.
-   */
-  @java.lang.Override
-  public java.lang.String getRequestId() {
-    java.lang.Object ref = requestId_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      requestId_ = s;
-      return s;
-    }
-  }
-  /**
-   * <code>string request_id = 1;</code>
-   * @return The bytes for requestId.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getRequestIdBytes() {
-    java.lang.Object ref = requestId_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      requestId_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
-  }
-
-  public static final int ROWS_FIELD_NUMBER = 2;
+  public static final int ROWS_FIELD_NUMBER = 1;
   private com.google.cloud.spannerlib.v1.Rows rows_;
   /**
-   * <code>.google.spannerlib.v1.Rows rows = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+   * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
    * @return Whether the rows field is set.
    */
   @java.lang.Override
@@ -96,7 +56,7 @@ private static final long serialVersionUID = 0L;
     return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.google.spannerlib.v1.Rows rows = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+   * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
    * @return The rows.
    */
   @java.lang.Override
@@ -104,17 +64,17 @@ private static final long serialVersionUID = 0L;
     return rows_ == null ? com.google.cloud.spannerlib.v1.Rows.getDefaultInstance() : rows_;
   }
   /**
-   * <code>.google.spannerlib.v1.Rows rows = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+   * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   @java.lang.Override
   public com.google.cloud.spannerlib.v1.RowsOrBuilder getRowsOrBuilder() {
     return rows_ == null ? com.google.cloud.spannerlib.v1.Rows.getDefaultInstance() : rows_;
   }
 
-  public static final int METADATA_FIELD_NUMBER = 3;
+  public static final int METADATA_FIELD_NUMBER = 2;
   private com.google.spanner.v1.ResultSetMetadata metadata_;
   /**
-   * <code>.google.spanner.v1.ResultSetMetadata metadata = 3;</code>
+   * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
    * @return Whether the metadata field is set.
    */
   @java.lang.Override
@@ -122,7 +82,7 @@ private static final long serialVersionUID = 0L;
     return ((bitField0_ & 0x00000002) != 0);
   }
   /**
-   * <code>.google.spanner.v1.ResultSetMetadata metadata = 3;</code>
+   * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
    * @return The metadata.
    */
   @java.lang.Override
@@ -130,25 +90,25 @@ private static final long serialVersionUID = 0L;
     return metadata_ == null ? com.google.spanner.v1.ResultSetMetadata.getDefaultInstance() : metadata_;
   }
   /**
-   * <code>.google.spanner.v1.ResultSetMetadata metadata = 3;</code>
+   * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
    */
   @java.lang.Override
   public com.google.spanner.v1.ResultSetMetadataOrBuilder getMetadataOrBuilder() {
     return metadata_ == null ? com.google.spanner.v1.ResultSetMetadata.getDefaultInstance() : metadata_;
   }
 
-  public static final int DATA_FIELD_NUMBER = 4;
+  public static final int DATA_FIELD_NUMBER = 3;
   @SuppressWarnings("serial")
   private java.util.List<com.google.protobuf.ListValue> data_;
   /**
-   * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   @java.lang.Override
   public java.util.List<com.google.protobuf.ListValue> getDataList() {
     return data_;
   }
   /**
-   * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   @java.lang.Override
   public java.util.List<? extends com.google.protobuf.ListValueOrBuilder> 
@@ -156,21 +116,21 @@ private static final long serialVersionUID = 0L;
     return data_;
   }
   /**
-   * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   @java.lang.Override
   public int getDataCount() {
     return data_.size();
   }
   /**
-   * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   @java.lang.Override
   public com.google.protobuf.ListValue getData(int index) {
     return data_.get(index);
   }
   /**
-   * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+   * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   @java.lang.Override
   public com.google.protobuf.ListValueOrBuilder getDataOrBuilder(
@@ -178,10 +138,10 @@ private static final long serialVersionUID = 0L;
     return data_.get(index);
   }
 
-  public static final int STATS_FIELD_NUMBER = 5;
+  public static final int STATS_FIELD_NUMBER = 4;
   private com.google.spanner.v1.ResultSetStats stats_;
   /**
-   * <code>.google.spanner.v1.ResultSetStats stats = 5;</code>
+   * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
    * @return Whether the stats field is set.
    */
   @java.lang.Override
@@ -189,7 +149,7 @@ private static final long serialVersionUID = 0L;
     return ((bitField0_ & 0x00000004) != 0);
   }
   /**
-   * <code>.google.spanner.v1.ResultSetStats stats = 5;</code>
+   * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
    * @return The stats.
    */
   @java.lang.Override
@@ -197,17 +157,17 @@ private static final long serialVersionUID = 0L;
     return stats_ == null ? com.google.spanner.v1.ResultSetStats.getDefaultInstance() : stats_;
   }
   /**
-   * <code>.google.spanner.v1.ResultSetStats stats = 5;</code>
+   * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
    */
   @java.lang.Override
   public com.google.spanner.v1.ResultSetStatsOrBuilder getStatsOrBuilder() {
     return stats_ == null ? com.google.spanner.v1.ResultSetStats.getDefaultInstance() : stats_;
   }
 
-  public static final int HAS_MORE_RESULTS_FIELD_NUMBER = 6;
+  public static final int HAS_MORE_RESULTS_FIELD_NUMBER = 5;
   private boolean hasMoreResults_ = false;
   /**
-   * <code>bool has_more_results = 6;</code>
+   * <code>bool has_more_results = 5;</code>
    * @return The hasMoreResults.
    */
   @java.lang.Override
@@ -229,23 +189,20 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 1, requestId_);
-    }
     if (((bitField0_ & 0x00000001) != 0)) {
-      output.writeMessage(2, getRows());
+      output.writeMessage(1, getRows());
     }
     if (((bitField0_ & 0x00000002) != 0)) {
-      output.writeMessage(3, getMetadata());
+      output.writeMessage(2, getMetadata());
     }
     for (int i = 0; i < data_.size(); i++) {
-      output.writeMessage(4, data_.get(i));
+      output.writeMessage(3, data_.get(i));
     }
     if (((bitField0_ & 0x00000004) != 0)) {
-      output.writeMessage(5, getStats());
+      output.writeMessage(4, getStats());
     }
     if (hasMoreResults_ != false) {
-      output.writeBool(6, hasMoreResults_);
+      output.writeBool(5, hasMoreResults_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -256,28 +213,25 @@ private static final long serialVersionUID = 0L;
     if (size != -1) return size;
 
     size = 0;
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(1, requestId_);
-    }
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(2, getRows());
+        .computeMessageSize(1, getRows());
     }
     if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(3, getMetadata());
+        .computeMessageSize(2, getMetadata());
     }
     for (int i = 0; i < data_.size(); i++) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(4, data_.get(i));
+        .computeMessageSize(3, data_.get(i));
     }
     if (((bitField0_ & 0x00000004) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(5, getStats());
+        .computeMessageSize(4, getStats());
     }
     if (hasMoreResults_ != false) {
       size += com.google.protobuf.CodedOutputStream
-        .computeBoolSize(6, hasMoreResults_);
+        .computeBoolSize(5, hasMoreResults_);
     }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
@@ -294,8 +248,6 @@ private static final long serialVersionUID = 0L;
     }
     com.google.cloud.spannerlib.v1.RowData other = (com.google.cloud.spannerlib.v1.RowData) obj;
 
-    if (!getRequestId()
-        .equals(other.getRequestId())) return false;
     if (hasRows() != other.hasRows()) return false;
     if (hasRows()) {
       if (!getRows()
@@ -326,8 +278,6 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    hash = (37 * hash) + REQUEST_ID_FIELD_NUMBER;
-    hash = (53 * hash) + getRequestId().hashCode();
     if (hasRows()) {
       hash = (37 * hash) + ROWS_FIELD_NUMBER;
       hash = (53 * hash) + getRows().hashCode();
@@ -487,7 +437,6 @@ private static final long serialVersionUID = 0L;
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      requestId_ = "";
       rows_ = null;
       if (rowsBuilder_ != null) {
         rowsBuilder_.dispose();
@@ -504,7 +453,7 @@ private static final long serialVersionUID = 0L;
         data_ = null;
         dataBuilder_.clear();
       }
-      bitField0_ = (bitField0_ & ~0x00000008);
+      bitField0_ = (bitField0_ & ~0x00000004);
       stats_ = null;
       if (statsBuilder_ != null) {
         statsBuilder_.dispose();
@@ -545,9 +494,9 @@ private static final long serialVersionUID = 0L;
 
     private void buildPartialRepeatedFields(com.google.cloud.spannerlib.v1.RowData result) {
       if (dataBuilder_ == null) {
-        if (((bitField0_ & 0x00000008) != 0)) {
+        if (((bitField0_ & 0x00000004) != 0)) {
           data_ = java.util.Collections.unmodifiableList(data_);
-          bitField0_ = (bitField0_ & ~0x00000008);
+          bitField0_ = (bitField0_ & ~0x00000004);
         }
         result.data_ = data_;
       } else {
@@ -557,29 +506,26 @@ private static final long serialVersionUID = 0L;
 
     private void buildPartial0(com.google.cloud.spannerlib.v1.RowData result) {
       int from_bitField0_ = bitField0_;
-      if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.requestId_ = requestId_;
-      }
       int to_bitField0_ = 0;
-      if (((from_bitField0_ & 0x00000002) != 0)) {
+      if (((from_bitField0_ & 0x00000001) != 0)) {
         result.rows_ = rowsBuilder_ == null
             ? rows_
             : rowsBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
-      if (((from_bitField0_ & 0x00000004) != 0)) {
+      if (((from_bitField0_ & 0x00000002) != 0)) {
         result.metadata_ = metadataBuilder_ == null
             ? metadata_
             : metadataBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
-      if (((from_bitField0_ & 0x00000010) != 0)) {
+      if (((from_bitField0_ & 0x00000008) != 0)) {
         result.stats_ = statsBuilder_ == null
             ? stats_
             : statsBuilder_.build();
         to_bitField0_ |= 0x00000004;
       }
-      if (((from_bitField0_ & 0x00000020) != 0)) {
+      if (((from_bitField0_ & 0x00000010) != 0)) {
         result.hasMoreResults_ = hasMoreResults_;
       }
       result.bitField0_ |= to_bitField0_;
@@ -597,11 +543,6 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(com.google.cloud.spannerlib.v1.RowData other) {
       if (other == com.google.cloud.spannerlib.v1.RowData.getDefaultInstance()) return this;
-      if (!other.getRequestId().isEmpty()) {
-        requestId_ = other.requestId_;
-        bitField0_ |= 0x00000001;
-        onChanged();
-      }
       if (other.hasRows()) {
         mergeRows(other.getRows());
       }
@@ -612,7 +553,7 @@ private static final long serialVersionUID = 0L;
         if (!other.data_.isEmpty()) {
           if (data_.isEmpty()) {
             data_ = other.data_;
-            bitField0_ = (bitField0_ & ~0x00000008);
+            bitField0_ = (bitField0_ & ~0x00000004);
           } else {
             ensureDataIsMutable();
             data_.addAll(other.data_);
@@ -625,7 +566,7 @@ private static final long serialVersionUID = 0L;
             dataBuilder_.dispose();
             dataBuilder_ = null;
             data_ = other.data_;
-            bitField0_ = (bitField0_ & ~0x00000008);
+            bitField0_ = (bitField0_ & ~0x00000004);
             dataBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetDataFieldBuilder() : null;
@@ -667,25 +608,20 @@ private static final long serialVersionUID = 0L;
               done = true;
               break;
             case 10: {
-              requestId_ = input.readStringRequireUtf8();
+              input.readMessage(
+                  internalGetRowsFieldBuilder().getBuilder(),
+                  extensionRegistry);
               bitField0_ |= 0x00000001;
               break;
             } // case 10
             case 18: {
               input.readMessage(
-                  internalGetRowsFieldBuilder().getBuilder(),
+                  internalGetMetadataFieldBuilder().getBuilder(),
                   extensionRegistry);
               bitField0_ |= 0x00000002;
               break;
             } // case 18
             case 26: {
-              input.readMessage(
-                  internalGetMetadataFieldBuilder().getBuilder(),
-                  extensionRegistry);
-              bitField0_ |= 0x00000004;
-              break;
-            } // case 26
-            case 34: {
               com.google.protobuf.ListValue m =
                   input.readMessage(
                       com.google.protobuf.ListValue.parser(),
@@ -697,19 +633,19 @@ private static final long serialVersionUID = 0L;
                 dataBuilder_.addMessage(m);
               }
               break;
-            } // case 34
-            case 42: {
+            } // case 26
+            case 34: {
               input.readMessage(
                   internalGetStatsFieldBuilder().getBuilder(),
                   extensionRegistry);
+              bitField0_ |= 0x00000008;
+              break;
+            } // case 34
+            case 40: {
+              hasMoreResults_ = input.readBool();
               bitField0_ |= 0x00000010;
               break;
-            } // case 42
-            case 48: {
-              hasMoreResults_ = input.readBool();
-              bitField0_ |= 0x00000020;
-              break;
-            } // case 48
+            } // case 40
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -727,90 +663,18 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private java.lang.Object requestId_ = "";
-    /**
-     * <code>string request_id = 1;</code>
-     * @return The requestId.
-     */
-    public java.lang.String getRequestId() {
-      java.lang.Object ref = requestId_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        requestId_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <code>string request_id = 1;</code>
-     * @return The bytes for requestId.
-     */
-    public com.google.protobuf.ByteString
-        getRequestIdBytes() {
-      java.lang.Object ref = requestId_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        requestId_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <code>string request_id = 1;</code>
-     * @param value The requestId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setRequestId(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      requestId_ = value;
-      bitField0_ |= 0x00000001;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string request_id = 1;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearRequestId() {
-      requestId_ = getDefaultInstance().getRequestId();
-      bitField0_ = (bitField0_ & ~0x00000001);
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string request_id = 1;</code>
-     * @param value The bytes for requestId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setRequestIdBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      requestId_ = value;
-      bitField0_ |= 0x00000001;
-      onChanged();
-      return this;
-    }
-
     private com.google.cloud.spannerlib.v1.Rows rows_;
     private com.google.protobuf.SingleFieldBuilder<
         com.google.cloud.spannerlib.v1.Rows, com.google.cloud.spannerlib.v1.Rows.Builder, com.google.cloud.spannerlib.v1.RowsOrBuilder> rowsBuilder_;
     /**
-     * <code>.google.spannerlib.v1.Rows rows = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      * @return Whether the rows field is set.
      */
     public boolean hasRows() {
-      return ((bitField0_ & 0x00000002) != 0);
+      return ((bitField0_ & 0x00000001) != 0);
     }
     /**
-     * <code>.google.spannerlib.v1.Rows rows = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      * @return The rows.
      */
     public com.google.cloud.spannerlib.v1.Rows getRows() {
@@ -821,7 +685,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.google.spannerlib.v1.Rows rows = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder setRows(com.google.cloud.spannerlib.v1.Rows value) {
       if (rowsBuilder_ == null) {
@@ -832,12 +696,12 @@ private static final long serialVersionUID = 0L;
       } else {
         rowsBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000002;
+      bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>.google.spannerlib.v1.Rows rows = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder setRows(
         com.google.cloud.spannerlib.v1.Rows.Builder builderForValue) {
@@ -846,16 +710,16 @@ private static final long serialVersionUID = 0L;
       } else {
         rowsBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000002;
+      bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>.google.spannerlib.v1.Rows rows = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder mergeRows(com.google.cloud.spannerlib.v1.Rows value) {
       if (rowsBuilder_ == null) {
-        if (((bitField0_ & 0x00000002) != 0) &&
+        if (((bitField0_ & 0x00000001) != 0) &&
           rows_ != null &&
           rows_ != com.google.cloud.spannerlib.v1.Rows.getDefaultInstance()) {
           getRowsBuilder().mergeFrom(value);
@@ -866,16 +730,16 @@ private static final long serialVersionUID = 0L;
         rowsBuilder_.mergeFrom(value);
       }
       if (rows_ != null) {
-        bitField0_ |= 0x00000002;
+        bitField0_ |= 0x00000001;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.google.spannerlib.v1.Rows rows = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder clearRows() {
-      bitField0_ = (bitField0_ & ~0x00000002);
+      bitField0_ = (bitField0_ & ~0x00000001);
       rows_ = null;
       if (rowsBuilder_ != null) {
         rowsBuilder_.dispose();
@@ -885,15 +749,15 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.google.spannerlib.v1.Rows rows = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public com.google.cloud.spannerlib.v1.Rows.Builder getRowsBuilder() {
-      bitField0_ |= 0x00000002;
+      bitField0_ |= 0x00000001;
       onChanged();
       return internalGetRowsFieldBuilder().getBuilder();
     }
     /**
-     * <code>.google.spannerlib.v1.Rows rows = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public com.google.cloud.spannerlib.v1.RowsOrBuilder getRowsOrBuilder() {
       if (rowsBuilder_ != null) {
@@ -904,7 +768,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.google.spannerlib.v1.Rows rows = 2 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>.google.spannerlib.v1.Rows rows = 1 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
         com.google.cloud.spannerlib.v1.Rows, com.google.cloud.spannerlib.v1.Rows.Builder, com.google.cloud.spannerlib.v1.RowsOrBuilder> 
@@ -924,14 +788,14 @@ private static final long serialVersionUID = 0L;
     private com.google.protobuf.SingleFieldBuilder<
         com.google.spanner.v1.ResultSetMetadata, com.google.spanner.v1.ResultSetMetadata.Builder, com.google.spanner.v1.ResultSetMetadataOrBuilder> metadataBuilder_;
     /**
-     * <code>.google.spanner.v1.ResultSetMetadata metadata = 3;</code>
+     * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
      * @return Whether the metadata field is set.
      */
     public boolean hasMetadata() {
-      return ((bitField0_ & 0x00000004) != 0);
+      return ((bitField0_ & 0x00000002) != 0);
     }
     /**
-     * <code>.google.spanner.v1.ResultSetMetadata metadata = 3;</code>
+     * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
      * @return The metadata.
      */
     public com.google.spanner.v1.ResultSetMetadata getMetadata() {
@@ -942,7 +806,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.google.spanner.v1.ResultSetMetadata metadata = 3;</code>
+     * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
      */
     public Builder setMetadata(com.google.spanner.v1.ResultSetMetadata value) {
       if (metadataBuilder_ == null) {
@@ -953,12 +817,12 @@ private static final long serialVersionUID = 0L;
       } else {
         metadataBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>.google.spanner.v1.ResultSetMetadata metadata = 3;</code>
+     * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
      */
     public Builder setMetadata(
         com.google.spanner.v1.ResultSetMetadata.Builder builderForValue) {
@@ -967,16 +831,16 @@ private static final long serialVersionUID = 0L;
       } else {
         metadataBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>.google.spanner.v1.ResultSetMetadata metadata = 3;</code>
+     * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
      */
     public Builder mergeMetadata(com.google.spanner.v1.ResultSetMetadata value) {
       if (metadataBuilder_ == null) {
-        if (((bitField0_ & 0x00000004) != 0) &&
+        if (((bitField0_ & 0x00000002) != 0) &&
           metadata_ != null &&
           metadata_ != com.google.spanner.v1.ResultSetMetadata.getDefaultInstance()) {
           getMetadataBuilder().mergeFrom(value);
@@ -987,16 +851,16 @@ private static final long serialVersionUID = 0L;
         metadataBuilder_.mergeFrom(value);
       }
       if (metadata_ != null) {
-        bitField0_ |= 0x00000004;
+        bitField0_ |= 0x00000002;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.google.spanner.v1.ResultSetMetadata metadata = 3;</code>
+     * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
      */
     public Builder clearMetadata() {
-      bitField0_ = (bitField0_ & ~0x00000004);
+      bitField0_ = (bitField0_ & ~0x00000002);
       metadata_ = null;
       if (metadataBuilder_ != null) {
         metadataBuilder_.dispose();
@@ -1006,15 +870,15 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.google.spanner.v1.ResultSetMetadata metadata = 3;</code>
+     * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
      */
     public com.google.spanner.v1.ResultSetMetadata.Builder getMetadataBuilder() {
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000002;
       onChanged();
       return internalGetMetadataFieldBuilder().getBuilder();
     }
     /**
-     * <code>.google.spanner.v1.ResultSetMetadata metadata = 3;</code>
+     * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
      */
     public com.google.spanner.v1.ResultSetMetadataOrBuilder getMetadataOrBuilder() {
       if (metadataBuilder_ != null) {
@@ -1025,7 +889,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.google.spanner.v1.ResultSetMetadata metadata = 3;</code>
+     * <code>.google.spanner.v1.ResultSetMetadata metadata = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
         com.google.spanner.v1.ResultSetMetadata, com.google.spanner.v1.ResultSetMetadata.Builder, com.google.spanner.v1.ResultSetMetadataOrBuilder> 
@@ -1044,9 +908,9 @@ private static final long serialVersionUID = 0L;
     private java.util.List<com.google.protobuf.ListValue> data_ =
       java.util.Collections.emptyList();
     private void ensureDataIsMutable() {
-      if (!((bitField0_ & 0x00000008) != 0)) {
+      if (!((bitField0_ & 0x00000004) != 0)) {
         data_ = new java.util.ArrayList<com.google.protobuf.ListValue>(data_);
-        bitField0_ |= 0x00000008;
+        bitField0_ |= 0x00000004;
        }
     }
 
@@ -1054,7 +918,7 @@ private static final long serialVersionUID = 0L;
         com.google.protobuf.ListValue, com.google.protobuf.ListValue.Builder, com.google.protobuf.ListValueOrBuilder> dataBuilder_;
 
     /**
-     * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public java.util.List<com.google.protobuf.ListValue> getDataList() {
       if (dataBuilder_ == null) {
@@ -1064,7 +928,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public int getDataCount() {
       if (dataBuilder_ == null) {
@@ -1074,7 +938,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public com.google.protobuf.ListValue getData(int index) {
       if (dataBuilder_ == null) {
@@ -1084,7 +948,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder setData(
         int index, com.google.protobuf.ListValue value) {
@@ -1101,7 +965,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder setData(
         int index, com.google.protobuf.ListValue.Builder builderForValue) {
@@ -1115,7 +979,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder addData(com.google.protobuf.ListValue value) {
       if (dataBuilder_ == null) {
@@ -1131,7 +995,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder addData(
         int index, com.google.protobuf.ListValue value) {
@@ -1148,7 +1012,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder addData(
         com.google.protobuf.ListValue.Builder builderForValue) {
@@ -1162,7 +1026,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder addData(
         int index, com.google.protobuf.ListValue.Builder builderForValue) {
@@ -1176,7 +1040,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder addAllData(
         java.lang.Iterable<? extends com.google.protobuf.ListValue> values) {
@@ -1191,12 +1055,12 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder clearData() {
       if (dataBuilder_ == null) {
         data_ = java.util.Collections.emptyList();
-        bitField0_ = (bitField0_ & ~0x00000008);
+        bitField0_ = (bitField0_ & ~0x00000004);
         onChanged();
       } else {
         dataBuilder_.clear();
@@ -1204,7 +1068,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public Builder removeData(int index) {
       if (dataBuilder_ == null) {
@@ -1217,14 +1081,14 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public com.google.protobuf.ListValue.Builder getDataBuilder(
         int index) {
       return internalGetDataFieldBuilder().getBuilder(index);
     }
     /**
-     * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public com.google.protobuf.ListValueOrBuilder getDataOrBuilder(
         int index) {
@@ -1234,7 +1098,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public java.util.List<? extends com.google.protobuf.ListValueOrBuilder> 
          getDataOrBuilderList() {
@@ -1245,14 +1109,14 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public com.google.protobuf.ListValue.Builder addDataBuilder() {
       return internalGetDataFieldBuilder().addBuilder(
           com.google.protobuf.ListValue.getDefaultInstance());
     }
     /**
-     * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public com.google.protobuf.ListValue.Builder addDataBuilder(
         int index) {
@@ -1260,7 +1124,7 @@ private static final long serialVersionUID = 0L;
           index, com.google.protobuf.ListValue.getDefaultInstance());
     }
     /**
-     * <code>repeated .google.protobuf.ListValue data = 4 [(.google.api.field_behavior) = REQUIRED];</code>
+     * <code>repeated .google.protobuf.ListValue data = 3 [(.google.api.field_behavior) = REQUIRED];</code>
      */
     public java.util.List<com.google.protobuf.ListValue.Builder> 
          getDataBuilderList() {
@@ -1273,7 +1137,7 @@ private static final long serialVersionUID = 0L;
         dataBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
             com.google.protobuf.ListValue, com.google.protobuf.ListValue.Builder, com.google.protobuf.ListValueOrBuilder>(
                 data_,
-                ((bitField0_ & 0x00000008) != 0),
+                ((bitField0_ & 0x00000004) != 0),
                 getParentForChildren(),
                 isClean());
         data_ = null;
@@ -1285,14 +1149,14 @@ private static final long serialVersionUID = 0L;
     private com.google.protobuf.SingleFieldBuilder<
         com.google.spanner.v1.ResultSetStats, com.google.spanner.v1.ResultSetStats.Builder, com.google.spanner.v1.ResultSetStatsOrBuilder> statsBuilder_;
     /**
-     * <code>.google.spanner.v1.ResultSetStats stats = 5;</code>
+     * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
      * @return Whether the stats field is set.
      */
     public boolean hasStats() {
-      return ((bitField0_ & 0x00000010) != 0);
+      return ((bitField0_ & 0x00000008) != 0);
     }
     /**
-     * <code>.google.spanner.v1.ResultSetStats stats = 5;</code>
+     * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
      * @return The stats.
      */
     public com.google.spanner.v1.ResultSetStats getStats() {
@@ -1303,7 +1167,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.google.spanner.v1.ResultSetStats stats = 5;</code>
+     * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
      */
     public Builder setStats(com.google.spanner.v1.ResultSetStats value) {
       if (statsBuilder_ == null) {
@@ -1314,12 +1178,12 @@ private static final long serialVersionUID = 0L;
       } else {
         statsBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
     /**
-     * <code>.google.spanner.v1.ResultSetStats stats = 5;</code>
+     * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
      */
     public Builder setStats(
         com.google.spanner.v1.ResultSetStats.Builder builderForValue) {
@@ -1328,16 +1192,16 @@ private static final long serialVersionUID = 0L;
       } else {
         statsBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
     /**
-     * <code>.google.spanner.v1.ResultSetStats stats = 5;</code>
+     * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
      */
     public Builder mergeStats(com.google.spanner.v1.ResultSetStats value) {
       if (statsBuilder_ == null) {
-        if (((bitField0_ & 0x00000010) != 0) &&
+        if (((bitField0_ & 0x00000008) != 0) &&
           stats_ != null &&
           stats_ != com.google.spanner.v1.ResultSetStats.getDefaultInstance()) {
           getStatsBuilder().mergeFrom(value);
@@ -1348,16 +1212,16 @@ private static final long serialVersionUID = 0L;
         statsBuilder_.mergeFrom(value);
       }
       if (stats_ != null) {
-        bitField0_ |= 0x00000010;
+        bitField0_ |= 0x00000008;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.google.spanner.v1.ResultSetStats stats = 5;</code>
+     * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
      */
     public Builder clearStats() {
-      bitField0_ = (bitField0_ & ~0x00000010);
+      bitField0_ = (bitField0_ & ~0x00000008);
       stats_ = null;
       if (statsBuilder_ != null) {
         statsBuilder_.dispose();
@@ -1367,15 +1231,15 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.google.spanner.v1.ResultSetStats stats = 5;</code>
+     * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
      */
     public com.google.spanner.v1.ResultSetStats.Builder getStatsBuilder() {
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000008;
       onChanged();
       return internalGetStatsFieldBuilder().getBuilder();
     }
     /**
-     * <code>.google.spanner.v1.ResultSetStats stats = 5;</code>
+     * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
      */
     public com.google.spanner.v1.ResultSetStatsOrBuilder getStatsOrBuilder() {
       if (statsBuilder_ != null) {
@@ -1386,7 +1250,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.google.spanner.v1.ResultSetStats stats = 5;</code>
+     * <code>.google.spanner.v1.ResultSetStats stats = 4;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
         com.google.spanner.v1.ResultSetStats, com.google.spanner.v1.ResultSetStats.Builder, com.google.spanner.v1.ResultSetStatsOrBuilder> 
@@ -1404,7 +1268,7 @@ private static final long serialVersionUID = 0L;
 
     private boolean hasMoreResults_ ;
     /**
-     * <code>bool has_more_results = 6;</code>
+     * <code>bool has_more_results = 5;</code>
      * @return The hasMoreResults.
      */
     @java.lang.Override
@@ -1412,23 +1276,23 @@ private static final long serialVersionUID = 0L;
       return hasMoreResults_;
     }
     /**
-     * <code>bool has_more_results = 6;</code>
+     * <code>bool has_more_results = 5;</code>
      * @param value The hasMoreResults to set.
      * @return This builder for chaining.
      */
     public Builder setHasMoreResults(boolean value) {
 
       hasMoreResults_ = value;
-      bitField0_ |= 0x00000020;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }
     /**
-     * <code>bool has_more_results = 6;</code>
+     * <code>bool has_more_results = 5;</code>
      * @return This builder for chaining.
      */
     public Builder clearHasMoreResults() {
-      bitField0_ = (bitField0_ & ~0x00000020);
+      bitField0_ = (bitField0_ & ~0x00000010);
       hasMoreResults_ = false;
       onChanged();
       return this;

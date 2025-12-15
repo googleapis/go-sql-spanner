@@ -73,6 +73,12 @@ class SpannerLibProtocol(Protocol):
         """Calls the CloseRows function from the shared library."""
         ...
 
+    def next_result_set(
+        self, pool_handle: int, conn_handle: int, rows_handle: int
+    ) -> Message:
+        """Calls the NextResultSet function from the shared library."""
+        ...
+
     def metadata(
         self, pool_handle: int, conn_handle: int, rows_handle: int
     ) -> Message:

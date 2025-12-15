@@ -21,7 +21,6 @@ using Google.Api.Gax;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib.V1;
 using Google.Protobuf.WellKnownTypes;
-using Google.Rpc;
 using Grpc.Core;
 using Grpc.Net.Client;
 using BeginTransactionRequest = Google.Cloud.SpannerLib.V1.BeginTransactionRequest;
@@ -31,6 +30,12 @@ namespace Google.Cloud.SpannerLib.Grpc;
 
 public sealed class GrpcLibSpanner : ISpannerLib
 {
+    
+    /// <summary>
+    /// Creates a GrpcChannel that uses a Unix domain socket with the given file name.
+    /// </summary>
+    /// <param name="fileName">The file to use for communication</param>
+    /// <returns>A GrpcChannel over a Unix domain socket with the given file name</returns>
     public static GrpcChannel ForUnixSocket(string fileName)
     {
         var endpoint = new UnixDomainSocketEndPoint(fileName);
@@ -52,6 +57,12 @@ public sealed class GrpcLibSpanner : ISpannerLib
         });
     }
 
+    /// <summary>
+    /// Creates a GrpcChannel that connects to the given IP address or host name. The GrpcChannel uses a TCP socket for
+    /// communication. The communication does not use encryption.
+    /// </summary>
+    /// <param name="address">The IP address or host name that the channel should connect to</param>
+    /// <returns>A GrpcChannel using a TCP socket for communication</returns>
     public static GrpcChannel ForTcpSocket(string address)
     {
         return GrpcChannel.ForAddress($"http://{address}", new GrpcChannelOptions
@@ -63,7 +74,14 @@ public sealed class GrpcLibSpanner : ISpannerLib
             MaxReceiveMessageSize = null,
         });
     }
-
+    
+    /// <summary>
+    /// This enum is used to configure a connection to use either a single bidirectional gRPC stream for all requests
+    /// that are sent to SpannerLib, or to use server streaming RPCs for queries and unary RPCs for all other
+    /// operations.
+    ///
+    /// NOTE: This enum is likely to be removed in a future version.
+    /// </summary>
     public enum CommunicationStyle
     {
         ServerStreaming,
@@ -76,7 +94,7 @@ public sealed class GrpcLibSpanner : ISpannerLib
     private readonly CommunicationStyle _communicationStyle;
     private bool _disposed;
     
-    private V1.SpannerLib.SpannerLibClient Client => _clients[Random.Shared.Next(_clients.Length)];
+    internal V1.SpannerLib.SpannerLibClient Client => _clients[Random.Shared.Next(_clients.Length)];
 
     public GrpcLibSpanner(
         CommunicationStyle communicationStyle = CommunicationStyle.BidiStreaming,
@@ -137,39 +155,6 @@ public sealed class GrpcLibSpanner : ISpannerLib
         }
     }
     
-    private ConnectionStreamResponse ExecuteBidi(GrpcConnection connection, ConnectionStreamRequest request)
-    {
-        var connectionStream = connection.Stream;
-        connectionStream.RequestStream.WriteAsync(request).GetAwaiter().GetResult();
-        if (!connectionStream.ResponseStream.MoveNext(CancellationToken.None).GetAwaiter().GetResult())
-        {
-            throw new SpannerException(new Status { Code = (int)Code.Internal, Message = "No response received" });
-        }
-        if (connectionStream.ResponseStream.Current.Status.Code != (int)Code.Ok)
-        {
-            throw new SpannerException(connectionStream.ResponseStream.Current.Status);
-        }
-        return connectionStream.ResponseStream.Current;
-    }
-
-    private async Task<ConnectionStreamResponse> ExecuteBidiAsync(GrpcConnection connection,
-        ConnectionStreamRequest request, CancellationToken cancellationToken)
-    {
-        var connectionStream = connection.Stream;
-        await connectionStream.RequestStream.WriteAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!await connectionStream.ResponseStream.MoveNext(cancellationToken).ConfigureAwait(false))
-        {
-            throw new SpannerException(new Status { Code = (int)Code.Internal, Message = "No response received" });
-        }
-
-        if (connectionStream.ResponseStream.Current.Status.Code != (int)Code.Ok)
-        {
-            throw new SpannerException(connectionStream.ResponseStream.Current.Status);
-        }
-
-        return connectionStream.ResponseStream.Current;
-    }
-
     public Pool CreatePool(string connectionString)
     {
         return FromProto(TranslateException(() => Client.CreatePool(new CreatePoolRequest
@@ -210,10 +195,6 @@ public sealed class GrpcLibSpanner : ISpannerLib
 
     public CommitResponse? WriteMutations(Connection connection, BatchWriteRequest.Types.MutationGroup mutations)
     {
-        if (_communicationStyle == CommunicationStyle.BidiStreaming && connection is GrpcConnection grpcConnection)
-        {
-            return WriteMutationsBidi(grpcConnection, mutations);
-        }
         var response = TranslateException(() => Client.WriteMutations(new WriteMutationsRequest
         {
             Connection = ToProto(connection),
@@ -221,28 +202,10 @@ public sealed class GrpcLibSpanner : ISpannerLib
         }));
         return response.CommitTimestamp == null ? null : response;
     }
-
-    private CommitResponse? WriteMutationsBidi(GrpcConnection connection,
-        BatchWriteRequest.Types.MutationGroup mutations)
-    {
-        var response = ExecuteBidi(connection, new ConnectionStreamRequest
-        {
-            WriteMutationsRequest = new WriteMutationsRequest
-            {
-                Connection = ToProto(connection),
-                Mutations = mutations,
-            }
-        });
-        return response.WriteMutationsResponse?.CommitTimestamp != null ? response.WriteMutationsResponse : null;
-    }
     
     public async Task<CommitResponse?> WriteMutationsAsync(Connection connection,
         BatchWriteRequest.Types.MutationGroup mutations, CancellationToken cancellationToken = default)
     {
-        if (_communicationStyle == CommunicationStyle.BidiStreaming && connection is GrpcConnection grpcConnection)
-        {
-            return await WriteMutationsBidiAsync(grpcConnection, mutations, cancellationToken).ConfigureAwait(false);
-        }
         try
         {
             var response = await Client.WriteMutationsAsync(new WriteMutationsRequest
@@ -257,63 +220,27 @@ public sealed class GrpcLibSpanner : ISpannerLib
             throw SpannerException.ToSpannerException(exception);
         }
     }
-
-    private async Task<CommitResponse?> WriteMutationsBidiAsync(GrpcConnection connection,
-        BatchWriteRequest.Types.MutationGroup mutations, CancellationToken cancellationToken)
-    {
-        var response = await ExecuteBidiAsync(connection, new ConnectionStreamRequest
-        {
-            WriteMutationsRequest = new WriteMutationsRequest
-            {
-                Connection = ToProto(connection),
-                Mutations = mutations,
-            }
-        }, cancellationToken).ConfigureAwait(false);
-        return response.WriteMutationsResponse?.CommitTimestamp != null ? response.WriteMutationsResponse : null;
-    }
     
     public Rows Execute(Connection connection, ExecuteSqlRequest statement, int prefetchRows = 0)
     {
-        if (_communicationStyle == CommunicationStyle.ServerStreaming) 
-        {
-            return ExecuteStreaming(connection, statement);
-        }
-        if (_communicationStyle == CommunicationStyle.BidiStreaming && connection is GrpcConnection grpcConnection)
-        {
-            return ExecuteBidiStreaming(grpcConnection, statement, prefetchRows);
-        }
-        return FromProto(connection, TranslateException(() => Client.Execute(new ExecuteRequest
-        {
-            Connection = ToProto(connection),
-            ExecuteSqlRequest = statement,
-        })));
+        return ExecuteStreaming(connection, statement, prefetchRows);
     }
 
-    private StreamingRows ExecuteStreaming(Connection connection, ExecuteSqlRequest statement)
+    private StreamingRows ExecuteStreaming(Connection connection, ExecuteSqlRequest statement, int prefetchRows)
     {
         var client = _clients[Random.Shared.Next(_clients.Length)];
         var stream = TranslateException(() => client.ExecuteStreaming(new ExecuteRequest
         {
             Connection = ToProto(connection),
             ExecuteSqlRequest = statement,
+            FetchOptions = new FetchOptions
+            {
+                NumRows = prefetchRows,
+            },
         }));
         return StreamingRows.Create(this, connection, stream);
     }
-
-    private StreamingRows ExecuteBidiStreaming(GrpcConnection connection, ExecuteSqlRequest statement, int prefetchRows)
-    {
-        var response = ExecuteBidi(connection, new ConnectionStreamRequest
-        {
-            ExecuteRequest = new ExecuteRequest
-            {
-                Connection = ToProto(connection),
-                ExecuteSqlRequest = statement,
-                FetchOptions = new FetchOptions { NumRows = prefetchRows },
-            }
-        });
-        return StreamingRows.Create(this, connection, response.ExecuteResponse);
-    }
-
+    
     internal AsyncServerStreamingCall<RowData> ContinueStreaming(Connection connection, long rowsId)
     {
         var client = _clients[Random.Shared.Next(_clients.Length)];
@@ -328,20 +255,7 @@ public sealed class GrpcLibSpanner : ISpannerLib
     {
         try
         {
-            if (_communicationStyle == CommunicationStyle.ServerStreaming)
-            {
-                return await ExecuteStreamingAsync(connection, statement, cancellationToken).ConfigureAwait(false);
-            }
-            if (_communicationStyle == CommunicationStyle.BidiStreaming && connection is GrpcConnection grpcConnection)
-            {
-                return await ExecuteBidiStreamingAsync(grpcConnection, statement, prefetchRows, cancellationToken).ConfigureAwait(false);
-            }
-            var rows = await Client.ExecuteAsync(new ExecuteRequest
-            {
-                Connection = ToProto(connection),
-                ExecuteSqlRequest = statement,
-            }, cancellationToken: cancellationToken).ConfigureAwait(false);
-            return FromProto(connection, rows);
+            return await ExecuteStreamingAsync(connection, statement, prefetchRows, cancellationToken).ConfigureAwait(false);
         }
         catch (RpcException exception)
         {
@@ -349,32 +263,21 @@ public sealed class GrpcLibSpanner : ISpannerLib
         }
     }
 
-    private async Task<StreamingRows> ExecuteStreamingAsync(Connection connection, ExecuteSqlRequest statement, CancellationToken cancellationToken)
+    private async Task<StreamingRows> ExecuteStreamingAsync(Connection connection, ExecuteSqlRequest statement, int prefetchRows, CancellationToken cancellationToken = default)
     {
         var client = _clients[Random.Shared.Next(_clients.Length)];
         var stream = TranslateException(() => client.ExecuteStreaming(new ExecuteRequest
         {
             Connection = ToProto(connection),
             ExecuteSqlRequest = statement,
-        }, cancellationToken: cancellationToken));
+            FetchOptions = new FetchOptions
+            {
+                NumRows = prefetchRows,
+            },
+        }));
         return await StreamingRows.CreateAsync(this, connection, stream, cancellationToken).ConfigureAwait(false);
     }
-
-    private async Task<StreamingRows> ExecuteBidiStreamingAsync(GrpcConnection connection, ExecuteSqlRequest statement, int prefetchRows, CancellationToken cancellationToken)
-    {
-        var response = await ExecuteBidiAsync(connection, new ConnectionStreamRequest
-        {
-            ExecuteRequest = new ExecuteRequest
-            {
-                Connection = ToProto(connection),
-                ExecuteSqlRequest = statement,
-                FetchOptions = new FetchOptions {NumRows = prefetchRows},
-            }
-        }, cancellationToken).ConfigureAwait(false);
-        // ReSharper disable once MethodHasAsyncOverloadWithCancellation
-        return StreamingRows.Create(this, connection, response.ExecuteResponse);
-    }
-
+    
     internal AsyncServerStreamingCall<RowData> ContinueStreamingAsync(Connection connection, long rowsId, CancellationToken cancellationToken)
     {
         var client = _clients[Random.Shared.Next(_clients.Length)];
@@ -387,85 +290,29 @@ public sealed class GrpcLibSpanner : ISpannerLib
 
     public long[] ExecuteBatch(Connection connection, ExecuteBatchDmlRequest statements)
     {
-        if (_communicationStyle == CommunicationStyle.BidiStreaming && connection is GrpcConnection grpcConnection)
-        {
-            return ExecuteBatchBidi(grpcConnection, statements);
-        }
         var response = TranslateException(() => Client.ExecuteBatch(new ExecuteBatchRequest
         {
             Connection = ToProto(connection),
             ExecuteBatchDmlRequest = statements,
         }));
-        return ToUpdateCounts(response);
-    }
-
-    private long[] ExecuteBatchBidi(GrpcConnection connection, ExecuteBatchDmlRequest statements)
-    {
-        var response = ExecuteBidi(connection, new ConnectionStreamRequest
-        {
-            ExecuteBatchRequest = new ExecuteBatchRequest
-            {
-                Connection = ToProto(connection),
-                ExecuteBatchDmlRequest = statements,
-            }
-        });
-        return ToUpdateCounts(response.ExecuteBatchResponse);
+        return ISpannerLib.ToUpdateCounts(response);
     }
 
     public async Task<long[]> ExecuteBatchAsync(Connection connection, ExecuteBatchDmlRequest statements, CancellationToken cancellationToken = default)
     {
-        if (_communicationStyle == CommunicationStyle.BidiStreaming && connection is GrpcConnection grpcConnection)
-        {
-            return await ExecuteBatchBidiAsync(grpcConnection, statements, cancellationToken).ConfigureAwait(false);
-        }
         try
         {
-            var stats = await Client.ExecuteBatchAsync(new ExecuteBatchRequest
+            var response = await Client.ExecuteBatchAsync(new ExecuteBatchRequest
             {
                 Connection = ToProto(connection),
                 ExecuteBatchDmlRequest = statements,
             }, cancellationToken: cancellationToken).ConfigureAwait(false);
-            return ToUpdateCounts(stats);
+            return ISpannerLib.ToUpdateCounts(response);
         }
         catch (RpcException exception)
         {
             throw SpannerException.ToSpannerException(exception);
         }
-    }
-
-    private async Task<long[]> ExecuteBatchBidiAsync(GrpcConnection connection, ExecuteBatchDmlRequest statements,
-        CancellationToken cancellationToken)
-    {
-        var response = await ExecuteBidiAsync(connection, new ConnectionStreamRequest
-        {
-            ExecuteBatchRequest = new ExecuteBatchRequest
-            {
-                Connection = ToProto(connection),
-                ExecuteBatchDmlRequest = statements,
-            }
-        }, cancellationToken).ConfigureAwait(false);
-        return ToUpdateCounts(response.ExecuteBatchResponse);
-    }
-
-    private static long[] ToUpdateCounts(ExecuteBatchDmlResponse response)
-    {
-        var result = new long[response.ResultSets.Count];
-        for (var i = 0; i < result.Length; i++)
-        {
-            if (response.ResultSets[i].Stats.HasRowCountExact)
-            {
-                result[i] = response.ResultSets[i].Stats.RowCountExact;
-            }
-            else if (response.ResultSets[i].Stats.HasRowCountLowerBound)
-            {
-                result[i] = response.ResultSets[i].Stats.RowCountLowerBound;
-            }
-            else
-            {
-                result[i] = -1;
-            }
-        }
-        return result;
     }
 
     public ResultSetMetadata? Metadata(Rows rows)
@@ -512,7 +359,11 @@ public sealed class GrpcLibSpanner : ISpannerLib
         var row = TranslateException(() =>Client.Next(new NextRequest
         {
             Rows = ToProto(rows),
-            FetchOptions = new FetchOptions{NumRows = numRows, Encoding = (long)encoding},
+            FetchOptions = new FetchOptions
+            {
+                NumRows = numRows,
+                Encoding = (long) encoding,
+            },
         }));
         return row.Values.Count == 0 ? null : row;
     }
@@ -524,7 +375,11 @@ public sealed class GrpcLibSpanner : ISpannerLib
             return await Client.NextAsync(new NextRequest
             {
                 Rows = ToProto(rows),
-                FetchOptions = new FetchOptions {NumRows = numRows, Encoding = (long) encoding},
+                FetchOptions = new FetchOptions
+                {
+                    NumRows = numRows,
+                    Encoding = (long) encoding,
+                },
             }, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (RpcException exception)
@@ -552,81 +407,30 @@ public sealed class GrpcLibSpanner : ISpannerLib
 
     public void BeginTransaction(Connection connection, TransactionOptions transactionOptions)
     {
-        if (_communicationStyle == CommunicationStyle.BidiStreaming && connection is GrpcConnection grpcConnection)
-        {
-            BeginTransactionBidi(grpcConnection, transactionOptions);
-            return;
-        }
         TranslateException(() => Client.BeginTransaction(new BeginTransactionRequest
         {
             Connection = ToProto(connection),
             TransactionOptions = transactionOptions,
         }));
     }
-
-    private void BeginTransactionBidi(GrpcConnection connection, TransactionOptions transactionOptions)
-    {
-        ExecuteBidi(connection, new ConnectionStreamRequest
-        {
-            BeginTransactionRequest = new BeginTransactionRequest
-            {
-                Connection = ToProto(connection),
-                TransactionOptions = transactionOptions,
-            }
-        });
-    }
-
+    
     public async Task BeginTransactionAsync(Connection connection, TransactionOptions transactionOptions, CancellationToken cancellationToken = default)
     {
-        if (_communicationStyle == CommunicationStyle.BidiStreaming && connection is GrpcConnection grpcConnection)
-        {
-            await BeginTransactionBidiAsync(grpcConnection, transactionOptions, cancellationToken).ConfigureAwait(false);
-            return;
-        }
         await TranslateException(() => Client.BeginTransactionAsync(new BeginTransactionRequest
         {
             Connection = ToProto(connection),
             TransactionOptions = transactionOptions,
         })).ConfigureAwait(false);
     }
-
-    private async Task BeginTransactionBidiAsync(GrpcConnection connection, TransactionOptions transactionOptions, CancellationToken cancellationToken)
-    {
-        await ExecuteBidiAsync(connection, new ConnectionStreamRequest
-        {
-            BeginTransactionRequest = new BeginTransactionRequest
-            {
-                Connection = ToProto(connection),
-                TransactionOptions = transactionOptions,
-            }
-        }, cancellationToken).ConfigureAwait(false);
-    }
-
+    
     public CommitResponse? Commit(Connection connection)
     {
-        if (_communicationStyle == CommunicationStyle.BidiStreaming && connection is GrpcConnection grpcConnection)
-        {
-            return CommitBidi(grpcConnection);
-        }
         var response = TranslateException(() => Client.Commit(ToProto(connection)));
         return response.CommitTimestamp == null ? null : response;
     }
 
-    private CommitResponse? CommitBidi(GrpcConnection connection)
-    {
-        var response = ExecuteBidi(connection, new ConnectionStreamRequest
-        {
-            CommitRequest = ToProto(connection),
-        });
-        return response.CommitResponse.CommitTimestamp == null ? null : response.CommitResponse;
-    }
-
     public async Task<CommitResponse?> CommitAsync(Connection connection, CancellationToken cancellationToken = default)
     {
-        if (_communicationStyle == CommunicationStyle.BidiStreaming && connection is GrpcConnection grpcConnection)
-        {
-            return await CommitBidiAsync(grpcConnection, cancellationToken).ConfigureAwait(false);
-        }
         try
         {
             var response = await Client.CommitAsync(ToProto(connection), cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -638,40 +442,13 @@ public sealed class GrpcLibSpanner : ISpannerLib
         }
     }
 
-    private async Task<CommitResponse?> CommitBidiAsync(GrpcConnection connection, CancellationToken cancellationToken)
-    {
-        var response = await ExecuteBidiAsync(connection, new ConnectionStreamRequest
-        {
-            CommitRequest = ToProto(connection),
-        }, cancellationToken).ConfigureAwait(false);
-        return response.CommitResponse.CommitTimestamp == null ? null : response.CommitResponse;
-    }
-
     public void Rollback(Connection connection)
     {
-        if (_communicationStyle == CommunicationStyle.BidiStreaming && connection is GrpcConnection grpcConnection)
-        {
-            RollbackBidi(grpcConnection);
-            return;
-        }
         TranslateException(() => Client.Rollback(ToProto(connection)));
-    }
-
-    private void RollbackBidi(GrpcConnection connection)
-    {
-        ExecuteBidi(connection, new ConnectionStreamRequest
-        {
-            RollbackRequest = ToProto(connection),
-        });
     }
 
     public async Task RollbackAsync(Connection connection, CancellationToken cancellationToken = default)
     {
-        if (_communicationStyle == CommunicationStyle.BidiStreaming && connection is GrpcConnection grpcConnection)
-        {
-            await RollbackBidiAsync(grpcConnection, cancellationToken).ConfigureAwait(false);
-            return;
-        }
         try
         {
             await Client.RollbackAsync(ToProto(connection), cancellationToken:  cancellationToken).ConfigureAwait(false);
@@ -682,23 +459,16 @@ public sealed class GrpcLibSpanner : ISpannerLib
         }
     }
 
-    private async Task RollbackBidiAsync(GrpcConnection connection, CancellationToken cancellationToken)
-    {
-        await ExecuteBidiAsync(connection, new ConnectionStreamRequest
-        {
-            RollbackRequest = ToProto(connection),
-        }, cancellationToken).ConfigureAwait(false);
-    }
-
     private Pool FromProto(V1.Pool pool) => new(this, pool.Id);
 
-    private V1.Pool ToProto(Pool pool) => new() { Id = pool.Id };
+    private static V1.Pool ToProto(Pool pool) => new() { Id = pool.Id };
 
-    private GrpcConnection FromProto(Pool pool, V1.Connection proto) => new(_clients[Random.Shared.Next(_clients.Length)], pool, proto.Id);
+    private Connection FromProto(Pool pool, V1.Connection proto) =>
+        _communicationStyle == CommunicationStyle.ServerStreaming
+            ? new Connection(pool, proto.Id)
+            : new GrpcBidiConnection(this, pool, proto.Id);
 
-    private V1.Connection ToProto(Connection connection) => new() { Id = connection.Id, Pool = ToProto(connection.Pool), };
-
-    private Rows FromProto(Connection connection, V1.Rows proto) => new(connection, proto.Id);
+    internal static V1.Connection ToProto(Connection connection) => new() { Id = connection.Id, Pool = ToProto(connection.Pool), };
 
     private V1.Rows ToProto(Rows rows) => new() { Id = rows.Id, Connection = ToProto(rows.SpannerConnection), };
 }

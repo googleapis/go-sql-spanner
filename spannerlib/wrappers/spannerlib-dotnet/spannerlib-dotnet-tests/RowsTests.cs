@@ -52,6 +52,7 @@ public class RowsTests : AbstractMockServerTests
         Assert.That(rows.Metadata, Is.Not.Null);
         Assert.That(rows.Metadata.RowType.Fields.Count, Is.EqualTo(1));
         Assert.That(rows.Next(), Is.Null);
+        // Verify that calling Next() and NextResultSet() continues to return the correct result.
         Assert.That(rows.Next(), Is.Null);
         Assert.That(rows.NextResultSet(), Is.False);
         Assert.That(rows.Next(), Is.Null);
@@ -68,7 +69,7 @@ public class RowsTests : AbstractMockServerTests
         
         using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
-        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = "select * from random" }, prefetchRows: prefetchRows);
+        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = "select * from random" }, prefetchRows);
 
         var rowCount = 0;
         while (rows.Next() is { } row)
@@ -134,7 +135,7 @@ public class RowsTests : AbstractMockServerTests
         var request = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().First();
         Assert.That(request.Transaction?.SingleUse?.ReadOnly?.HasStrong ?? false);
     }
-
+    
     [Test]
     public void TestStopHalfwayTwoQueries([Values] LibType libType, [Values(0, 1, 2, 3)] int prefetchRows)
     {
@@ -183,7 +184,7 @@ public class RowsTests : AbstractMockServerTests
         var sql = string.Join(";", queries);
         using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
-        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = sql }, prefetchRows);
+        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = sql } ,prefetchRows);
         Assert.That(rows.Metadata, Is.Not.Null);
         Assert.That(rows.Metadata.RowType.Fields.Count, Is.EqualTo(rowType.Fields.Count));
 
@@ -206,7 +207,7 @@ public class RowsTests : AbstractMockServerTests
         Assert.That(Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().Count(), Is.EqualTo(numQueries));
         Assert.That(totalRowCount, Is.EqualTo(stopAfterRows.Sum()));
     }
-
+    
     [Test]
     public void TestCloseConnectionWithOpenRows([Values] LibType libType)
     {
@@ -228,23 +229,16 @@ public class RowsTests : AbstractMockServerTests
         // Getting all the rows should not be possible.
         // If the underlying Rows object uses a stream, then it could be that it still receives some rows, but it will
         // eventually fail.
-        var exception = Assert.Catch<Exception>(() =>
+        var exception = Assert.Throws<SpannerException>(() =>
         {
             while (rows.Next() is not null)
             {
                 foundRows++;
             }
         });
-        if (exception is SpannerException spannerException)
-        {
-            // The error is 'Connection not found' or an internal exception from the underlying driver, depending on exactly
-            // when the driver detects that the connection and all related objects have been closed.
-            Assert.That(spannerException.Code is Code.NotFound or Code.Unknown, Is.True);
-        }
-        else
-        {
-            Assert.That(exception, Is.InstanceOf<ObjectDisposedException>());
-        }
+        // The error is 'Connection not found' or an internal exception from the underlying driver, depending on exactly
+        // when the driver detects that the connection and all related objects have been closed.
+        Assert.That(exception.Code is Code.NotFound or Code.Unknown, Is.True);
         Assert.That(foundRows, Is.LessThan(numRows));
     }
 
@@ -502,5 +496,4 @@ public class RowsTests : AbstractMockServerTests
         Assert.That(totalUpdateCount, Is.EqualTo(expectedUpdateCount));
         Assert.That(numResultSets, Is.EqualTo(errorIndex));
     }
-
 }

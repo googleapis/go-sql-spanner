@@ -6,6 +6,16 @@
 package com.google.cloud.spannerlib.v1;
 
 /**
+ * <pre>
+ * ConnectionStreamResponse is returned by the server when it receives a ConnectionStreamRequest.
+ * The contents of the response depends on the request that the client sent.
+ *
+ * The response contains a Status that indicates whether the request succeeded or not. The stream
+ * itself normally does not return an error if a request fails.
+ * The stream only returns an error and is discontinued in case of a network error or other
+ * unexpected internal errors.
+ * </pre>
+ *
  * Protobuf type {@code google.spannerlib.v1.ConnectionStreamResponse}
  */
 @com.google.protobuf.Generated
@@ -97,6 +107,11 @@ private static final long serialVersionUID = 0L;
   public static final int STATUS_FIELD_NUMBER = 1;
   private com.google.rpc.Status status_;
   /**
+   * <pre>
+   * Status indicates whether the request succeeded or failed. The response field only contains
+   * a value if the status code is OK.
+   * </pre>
+   *
    * <code>.google.rpc.Status status = 1;</code>
    * @return Whether the status field is set.
    */
@@ -105,6 +120,11 @@ private static final long serialVersionUID = 0L;
     return ((bitField0_ & 0x00000001) != 0);
   }
   /**
+   * <pre>
+   * Status indicates whether the request succeeded or failed. The response field only contains
+   * a value if the status code is OK.
+   * </pre>
+   *
    * <code>.google.rpc.Status status = 1;</code>
    * @return The status.
    */
@@ -113,6 +133,11 @@ private static final long serialVersionUID = 0L;
     return status_ == null ? com.google.rpc.Status.getDefaultInstance() : status_;
   }
   /**
+   * <pre>
+   * Status indicates whether the request succeeded or failed. The response field only contains
+   * a value if the status code is OK.
+   * </pre>
+   *
    * <code>.google.rpc.Status status = 1;</code>
    */
   @java.lang.Override
@@ -568,6 +593,16 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
+   * <pre>
+   * ConnectionStreamResponse is returned by the server when it receives a ConnectionStreamRequest.
+   * The contents of the response depends on the request that the client sent.
+   *
+   * The response contains a Status that indicates whether the request succeeded or not. The stream
+   * itself normally does not return an error if a request fails.
+   * The stream only returns an error and is discontinued in case of a network error or other
+   * unexpected internal errors.
+   * </pre>
+   *
    * Protobuf type {@code google.spannerlib.v1.ConnectionStreamResponse}
    */
   public static final class Builder extends
@@ -860,6 +895,11 @@ private static final long serialVersionUID = 0L;
     private com.google.protobuf.SingleFieldBuilder<
         com.google.rpc.Status, com.google.rpc.Status.Builder, com.google.rpc.StatusOrBuilder> statusBuilder_;
     /**
+     * <pre>
+     * Status indicates whether the request succeeded or failed. The response field only contains
+     * a value if the status code is OK.
+     * </pre>
+     *
      * <code>.google.rpc.Status status = 1;</code>
      * @return Whether the status field is set.
      */
@@ -867,6 +907,11 @@ private static final long serialVersionUID = 0L;
       return ((bitField0_ & 0x00000001) != 0);
     }
     /**
+     * <pre>
+     * Status indicates whether the request succeeded or failed. The response field only contains
+     * a value if the status code is OK.
+     * </pre>
+     *
      * <code>.google.rpc.Status status = 1;</code>
      * @return The status.
      */
@@ -878,6 +923,11 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
+     * <pre>
+     * Status indicates whether the request succeeded or failed. The response field only contains
+     * a value if the status code is OK.
+     * </pre>
+     *
      * <code>.google.rpc.Status status = 1;</code>
      */
     public Builder setStatus(com.google.rpc.Status value) {
@@ -894,6 +944,11 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * Status indicates whether the request succeeded or failed. The response field only contains
+     * a value if the status code is OK.
+     * </pre>
+     *
      * <code>.google.rpc.Status status = 1;</code>
      */
     public Builder setStatus(
@@ -908,6 +963,11 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * Status indicates whether the request succeeded or failed. The response field only contains
+     * a value if the status code is OK.
+     * </pre>
+     *
      * <code>.google.rpc.Status status = 1;</code>
      */
     public Builder mergeStatus(com.google.rpc.Status value) {
@@ -929,6 +989,11 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * Status indicates whether the request succeeded or failed. The response field only contains
+     * a value if the status code is OK.
+     * </pre>
+     *
      * <code>.google.rpc.Status status = 1;</code>
      */
     public Builder clearStatus() {
@@ -942,6 +1007,11 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * Status indicates whether the request succeeded or failed. The response field only contains
+     * a value if the status code is OK.
+     * </pre>
+     *
      * <code>.google.rpc.Status status = 1;</code>
      */
     public com.google.rpc.Status.Builder getStatusBuilder() {
@@ -950,6 +1020,11 @@ private static final long serialVersionUID = 0L;
       return internalGetStatusFieldBuilder().getBuilder();
     }
     /**
+     * <pre>
+     * Status indicates whether the request succeeded or failed. The response field only contains
+     * a value if the status code is OK.
+     * </pre>
+     *
      * <code>.google.rpc.Status status = 1;</code>
      */
     public com.google.rpc.StatusOrBuilder getStatusOrBuilder() {
@@ -961,6 +1036,11 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
+     * <pre>
+     * Status indicates whether the request succeeded or failed. The response field only contains
+     * a value if the status code is OK.
+     * </pre>
+     *
      * <code>.google.rpc.Status status = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<

@@ -784,6 +784,11 @@ public final class SpannerLibGrpc {
     }
 
     /**
+     * <pre>
+     * ConnectionStream opens a bi-directional gRPC stream between the client and the server.
+     * This stream can be re-used by the client for multiple requests, and normally gives the
+     * lowest possible latency, at the cost of a slightly more complex API.
+     * </pre>
      */
     default io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.ConnectionStreamRequest> connectionStream(
         io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.ConnectionStreamResponse> responseObserver) {
@@ -791,6 +796,12 @@ public final class SpannerLibGrpc {
     }
 
     /**
+     * <pre>
+     * ContinueStreaming returns a server stream that returns the remaining rows of a SQL statement
+     * that has previously been executed using a ConnectionStreamRequest on a bi-directional
+     * ConnectionStream. The client is responsible for calling this RPC if the has_more_data flag
+     * of the ExecuteResponse was true.
+     * </pre>
      */
     default void continueStreaming(com.google.cloud.spannerlib.v1.Rows request,
         io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.RowData> responseObserver) {
@@ -962,6 +973,11 @@ public final class SpannerLibGrpc {
     }
 
     /**
+     * <pre>
+     * ConnectionStream opens a bi-directional gRPC stream between the client and the server.
+     * This stream can be re-used by the client for multiple requests, and normally gives the
+     * lowest possible latency, at the cost of a slightly more complex API.
+     * </pre>
      */
     public io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.ConnectionStreamRequest> connectionStream(
         io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.ConnectionStreamResponse> responseObserver) {
@@ -970,6 +986,12 @@ public final class SpannerLibGrpc {
     }
 
     /**
+     * <pre>
+     * ContinueStreaming returns a server stream that returns the remaining rows of a SQL statement
+     * that has previously been executed using a ConnectionStreamRequest on a bi-directional
+     * ConnectionStream. The client is responsible for calling this RPC if the has_more_data flag
+     * of the ExecuteResponse was true.
+     * </pre>
      */
     public void continueStreaming(com.google.cloud.spannerlib.v1.Rows request,
         io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.RowData> responseObserver) {
@@ -1116,6 +1138,11 @@ public final class SpannerLibGrpc {
     }
 
     /**
+     * <pre>
+     * ConnectionStream opens a bi-directional gRPC stream between the client and the server.
+     * This stream can be re-used by the client for multiple requests, and normally gives the
+     * lowest possible latency, at the cost of a slightly more complex API.
+     * </pre>
      */
     @io.grpc.ExperimentalApi("https://github.com/grpc/grpc-java/issues/10918")
     public io.grpc.stub.BlockingClientCall<com.google.cloud.spannerlib.v1.ConnectionStreamRequest, com.google.cloud.spannerlib.v1.ConnectionStreamResponse>
@@ -1125,6 +1152,12 @@ public final class SpannerLibGrpc {
     }
 
     /**
+     * <pre>
+     * ContinueStreaming returns a server stream that returns the remaining rows of a SQL statement
+     * that has previously been executed using a ConnectionStreamRequest on a bi-directional
+     * ConnectionStream. The client is responsible for calling this RPC if the has_more_data flag
+     * of the ExecuteResponse was true.
+     * </pre>
      */
     @io.grpc.ExperimentalApi("https://github.com/grpc/grpc-java/issues/10918")
     public io.grpc.stub.BlockingClientCall<?, com.google.cloud.spannerlib.v1.RowData>
@@ -1271,6 +1304,12 @@ public final class SpannerLibGrpc {
     }
 
     /**
+     * <pre>
+     * ContinueStreaming returns a server stream that returns the remaining rows of a SQL statement
+     * that has previously been executed using a ConnectionStreamRequest on a bi-directional
+     * ConnectionStream. The client is responsible for calling this RPC if the has_more_data flag
+     * of the ExecuteResponse was true.
+     * </pre>
      */
     public java.util.Iterator<com.google.cloud.spannerlib.v1.RowData> continueStreaming(
         com.google.cloud.spannerlib.v1.Rows request) {

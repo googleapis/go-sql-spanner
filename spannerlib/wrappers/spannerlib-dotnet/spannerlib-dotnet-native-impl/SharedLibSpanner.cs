@@ -225,7 +225,8 @@ public class SharedLibSpanner : ISpannerLib
         });
     }
 
-    public Task BeginTransactionAsync(Connection connection, TransactionOptions transactionOptions, CancellationToken cancellationToken = default)
+    public Task BeginTransactionAsync(Connection connection, TransactionOptions transactionOptions,
+        CancellationToken cancellationToken = default)
     {
         return Task.Run(() => BeginTransaction(connection, transactionOptions), cancellationToken);
     }

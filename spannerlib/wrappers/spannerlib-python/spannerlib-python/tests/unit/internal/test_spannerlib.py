@@ -109,25 +109,54 @@ class TestSpannerlib:
                 SpannerLib()
 
     def test_get_lib_filename_linux(self):
-        """Test _get_lib_filename on Linux."""
+        """Test _get_lib_filename on Linux AMD64."""
         with mock.patch("platform.system", return_value="Linux"):
-            # pylint: disable=protected-access
-            filename = SpannerLib._get_lib_filename()
-            assert filename == "spannerlib.so"
+            with mock.patch("platform.machine", return_value="x86_64"):
+                # pylint: disable=protected-access
+                filename = SpannerLib._get_lib_filename()
+                assert filename == "linux-x64/spannerlib.so"
+
+    def test_get_lib_filename_linux_arm64(self):
+        """Test _get_lib_filename on Linux ARM64."""
+        with mock.patch("platform.system", return_value="Linux"):
+            with mock.patch("platform.machine", return_value="aarch64"):
+                # pylint: disable=protected-access
+                filename = SpannerLib._get_lib_filename()
+                assert filename == "linux-arm64/spannerlib.so"
 
     def test_get_lib_filename_darwin(self):
-        """Test _get_lib_filename on Darwin."""
+        """Test _get_lib_filename on Darwin ARM64."""
         with mock.patch("platform.system", return_value="Darwin"):
-            # pylint: disable=protected-access
-            filename = SpannerLib._get_lib_filename()
-            assert filename == "spannerlib.dylib"
+            with mock.patch("platform.machine", return_value="arm64"):
+                # pylint: disable=protected-access
+                filename = SpannerLib._get_lib_filename()
+                assert filename == "osx-arm64/spannerlib.dylib"
+
+    def test_get_lib_filename_darwin_amd64(self):
+        """Test _get_lib_filename on Darwin AMD64."""
+        with mock.patch("platform.system", return_value="Darwin"):
+            with mock.patch("platform.machine", return_value="x86_64"):
+                # pylint: disable=protected-access
+                filename = SpannerLib._get_lib_filename()
+                assert filename == "osx-x64/spannerlib.dylib"
 
     def test_get_lib_filename_windows(self):
-        """Test _get_lib_filename on Windows."""
+        """Test _get_lib_filename on Windows AMD64."""
         with mock.patch("platform.system", return_value="Windows"):
-            # pylint: disable=protected-access
-            filename = SpannerLib._get_lib_filename()
-            assert filename == "spannerlib.dll"
+            with mock.patch("platform.machine", return_value="AMD64"):
+                # pylint: disable=protected-access
+                filename = SpannerLib._get_lib_filename()
+                assert filename == "win-x64/spannerlib.dll"
+
+    def test_get_lib_filename_unsupported_arch(self):
+        """Test _get_lib_filename on an unsupported architecture."""
+        with mock.patch("platform.system", return_value="Linux"):
+            with mock.patch("platform.machine", return_value="riscv64"):
+                with pytest.raises(
+                    SpannerLibError, match="Unsupported architecture"
+                ):
+                    # pylint: disable=protected-access
+                    SpannerLib._get_lib_filename()
 
     def test_get_lib_filename_unsupported_os(self):
         """Test _get_lib_filename on an unsupported OS."""

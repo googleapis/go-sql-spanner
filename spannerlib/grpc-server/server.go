@@ -148,7 +148,7 @@ func (s *spannerLibServer) streamRows(queryContext context.Context, rows *pb.Row
 
 	first := true
 	for {
-		if row, err := api.Next(queryContext, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id); err != nil {
+		if row, err := api.NextBuffered(queryContext, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id); err != nil {
 			return err
 		} else {
 			if row == nil {
@@ -325,7 +325,7 @@ func (s *spannerLibServer) Metadata(ctx context.Context, rows *pb.Rows) (*spanne
 
 func (s *spannerLibServer) Next(ctx context.Context, request *pb.NextRequest) (*structpb.ListValue, error) {
 	// TODO: Pass in numRows and encoding option.
-	values, err := api.Next(ctx, request.Rows.Connection.Pool.Id, request.Rows.Connection.Id, request.Rows.Id)
+	values, err := api.NextBuffered(ctx, request.Rows.Connection.Pool.Id, request.Rows.Connection.Id, request.Rows.Id)
 	if err != nil {
 		return nil, err
 	}

@@ -401,3 +401,63 @@ func TestTransactionTimeoutSecondStatement(t *testing.T) {
 		t.Fatalf("rollback requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
+
+func BenchmarkReadWriteTransaction(b *testing.B) {
+	db, server, teardown := setupTestDBConnection(b)
+	defer teardown()
+	ctx := context.Background()
+	query := "select * from random_table"
+
+	for _, numRows := range []int{1, 10, 100, 1000, 10000} {
+		resultSet := testutil.CreateRandomResultSet(numRows)
+		_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: resultSet,
+		})
+
+		b.Run(fmt.Sprintf("num-rows-%d", numRows), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+				if err != nil {
+					b.Fatal(err)
+				}
+				//if _, err := tx.ExecContext(ctx, "set local retry_aborts_internally = false"); err != nil {
+				//	b.Fatal(err)
+				//}
+				if _, err := tx.ExecContext(ctx, "set local transaction_tag = 'my_tag'"); err != nil {
+					b.Fatal(err)
+				}
+				rows, err := tx.QueryContext(ctx, query)
+				if err != nil {
+					b.Fatal(err)
+				}
+				for rows.Next() {
+					// Just iterate through the results
+				}
+				if rows.Err() != nil {
+					b.Fatal(rows.Err())
+				}
+				for range 10 {
+					if _, err = tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+						b.Fatal(err)
+					}
+				}
+				if _, err := tx.ExecContext(ctx, "start batch dml"); err != nil {
+					b.Fatal(err)
+				}
+				for range 10 {
+					if _, err = tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+						b.Fatal(err)
+					}
+				}
+				if _, err := tx.ExecContext(ctx, "run batch"); err != nil {
+					b.Fatal(err)
+				}
+				if err := tx.Commit(); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}

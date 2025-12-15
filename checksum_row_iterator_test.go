@@ -15,12 +15,18 @@
 package spannerdriver
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/apiv1/spannerpb"
+	"github.com/googleapis/go-sql-spanner/testutil"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestUpdateChecksum(t *testing.T) {
@@ -101,51 +107,65 @@ func TestUpdateChecksum(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not create row 3: %v", err)
 	}
-	initial1 := new([32]byte)
-	checksum1, err := updateChecksum(initial1, row1)
+
+	it := &checksumRowIterator{}
+	hash1 := sha256.New()
+	err = it.updateChecksum(hash1, row1)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 1: %v", err)
 	}
-	initial2 := new([32]byte)
-	checksum2, err := updateChecksum(initial2, row2)
+	checksum1 := hash1.Sum(nil)
+
+	hash2 := sha256.New()
+	err = it.updateChecksum(hash2, row2)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 2: %v", err)
 	}
-	initial3 := new([32]byte)
-	checksum3, err := updateChecksum(initial3, row3)
+	checksum2 := hash2.Sum(nil)
+
+	hash3 := sha256.New()
+	err = it.updateChecksum(hash3, row3)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 3: %v", err)
 	}
 	// row1 and row2 are different, so the checksums should be different.
-	if *checksum1 == *checksum2 {
+	checksum3 := hash3.Sum(nil)
+
+	if bytes.Equal(checksum1, checksum2) {
 		t.Fatalf("checksum1 should not be equal to checksum2")
 	}
 	// row1 and row3 are equal, and should return the same checksum.
-	if *checksum1 != *checksum3 {
+	if !bytes.Equal(checksum1, checksum3) {
 		t.Fatalf("checksum1 should be equal to checksum3")
 	}
 
 	// Updating checksums 1 and 3 with the data from row 2 should also produce
 	// the same checksum.
-	checksum1_2, err := updateChecksum(checksum1, row2)
+	err = it.updateChecksum(hash1, row2)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 1_2: %v", err)
 	}
-	checksum3_2, err := updateChecksum(checksum3, row2)
+	checksum1_2 := hash1.Sum(nil)
+
+	err = it.updateChecksum(hash3, row2)
 	if err != nil {
-		t.Fatalf("could not calculate checksum 1_2: %v", err)
+		t.Fatalf("could not calculate checksum 3_2: %v", err)
 	}
-	if *checksum1_2 != *checksum3_2 {
+	checksum3_2 := hash3.Sum(nil)
+
+	if !bytes.Equal(checksum1_2, checksum3_2) {
 		t.Fatalf("checksum1_2 should be equal to checksum3_2")
 	}
 
 	// The combination of row 3 and 2 will produce a different checksum than the
 	// combination 2 and 3, because they are in a different order.
-	checksum2_3, err := updateChecksum(checksum2, row3)
+	err = it.updateChecksum(hash2, row3)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 2_3: %v", err)
 	}
-	if *checksum2_3 == *checksum3_2 {
+	checksum2_3 := hash2.Sum(nil)
+
+	if bytes.Equal(checksum2_3, checksum3_2) {
 		t.Fatalf("checksum2_3 should not be equal to checksum3_2")
 	}
 }
@@ -168,24 +188,28 @@ func TestUpdateChecksumForNullValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not create row: %v", err)
 	}
-	initial := new([32]byte)
+	it := &checksumRowIterator{}
+	hash1 := sha256.New()
+	initial := hash1.Sum(nil)
 	// Create the initial checksum.
-	checksum, err := updateChecksum(initial, row)
+	err = it.updateChecksum(hash1, row)
 	if err != nil {
 		t.Fatalf("could not calculate checksum 1: %v", err)
 	}
+	checksum1 := hash1.Sum(nil)
 	// The calculated checksum should not be equal to the initial value, even though it only
 	// contains null values.
-	if *checksum == *initial {
+	if bytes.Equal(initial, checksum1) {
 		t.Fatalf("checksum value should not be equal to the initial value")
 	}
 	// Calculating the same checksum again should yield the same result.
-	initial2 := new([32]byte)
-	checksum2, err := updateChecksum(initial2, row)
+	hash2 := sha256.New()
+	err = it.updateChecksum(hash2, row)
 	if err != nil {
 		t.Fatalf("failed to update checksum: %v", err)
 	}
-	if *checksum != *checksum2 {
+	checksum2 := hash2.Sum(nil)
+	if !bytes.Equal(checksum1, checksum2) {
 		t.Fatalf("recalculated checksum does not match the initial calculation")
 	}
 }
@@ -259,9 +283,63 @@ func BenchmarkChecksumRowIterator(b *testing.B) {
 	)
 
 	for b.Loop() {
-		initial := new([32]byte)
-		checksum, _ := updateChecksum(initial, row1)
-		checksum, _ = updateChecksum(checksum, row2)
-		checksum, _ = updateChecksum(checksum, row3)
+		it := &checksumRowIterator{}
+		hash := sha256.New()
+		if err := it.updateChecksum(hash, row1); err != nil {
+			b.Fatal(err)
+		}
+		if err := it.updateChecksum(hash, row2); err != nil {
+			b.Fatal(err)
+		}
+		if err := it.updateChecksum(hash, row3); err != nil {
+			b.Fatal(err)
+		}
 	}
+}
+
+func BenchmarkChecksumRowIteratorRandom(b *testing.B) {
+	for _, numRows := range []int{1, 10, 100, 1000, 10000} {
+		resultSet := testutil.CreateRandomResultSet(numRows)
+		columnNames := make([]string, len(resultSet.Metadata.RowType.Fields))
+		for i := range columnNames {
+			columnNames[i] = resultSet.Metadata.RowType.Fields[i].Name
+		}
+		var err error
+		rows := make([]*spanner.Row, numRows)
+		for row, values := range resultSet.Rows {
+			columnValues := convertListValuesToColumnValues(resultSet.Metadata, values)
+			c := make([]interface{}, len(columnValues))
+			for i := range columnValues {
+				c[i] = columnValues[i]
+			}
+			rows[row], err = spanner.NewRow(columnNames, c)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+
+		b.Run(fmt.Sprintf("num-rows-%d", numRows), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				it := &checksumRowIterator{}
+				hash, err := it.createMetadataChecksum(resultSet.Metadata)
+				if err != nil {
+					b.Fatal(err)
+				}
+				for _, row := range rows {
+					if err := it.updateChecksum(hash, row); err != nil {
+						b.Fatal(err)
+					}
+				}
+			}
+		})
+	}
+}
+
+func convertListValuesToColumnValues(metadata *spannerpb.ResultSetMetadata, values *structpb.ListValue) []spanner.GenericColumnValue {
+	res := make([]spanner.GenericColumnValue, len(values.Values))
+	for i := range values.Values {
+		res[i] = spanner.GenericColumnValue{Value: values.Values[i], Type: metadata.RowType.Fields[i].Type}
+	}
+	return res
 }

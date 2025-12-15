@@ -35,6 +35,7 @@ import (
 func CloseConnection(ctx context.Context, poolId, connId int64) error {
 	pool, err := findPool(poolId)
 	if err != nil {
+		// Ignore NotFound errors to ensure that closing a non-existing connection is a no-op.
 		if status.Code(err) == codes.NotFound {
 			return nil
 		}
@@ -495,6 +496,9 @@ func extractTimestampBound(statement *spannerpb.ExecuteSqlRequest) *spanner.Time
 			t = spanner.MinReadTimestamp(ro.GetMinReadTimestamp().AsTime())
 		} else if ro.GetReadTimestamp() != nil {
 			t = spanner.ReadTimestamp(ro.GetReadTimestamp().AsTime())
+		} else {
+			// Default to strong read.
+			t = spanner.StrongRead()
 		}
 		return &t
 	}

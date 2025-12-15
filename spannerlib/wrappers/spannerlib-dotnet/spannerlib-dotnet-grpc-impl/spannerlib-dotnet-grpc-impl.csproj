@@ -13,10 +13,6 @@
   <ItemGroup>
     <PackageReference Include="ConfigureAwaitChecker.Analyzer" PrivateAssets="All" Version="5.0.0.1" />
     <PackageReference Include="Alpha.Google.Cloud.SpannerLib.GrpcServer" Version="1.0.0-alpha.20251208195113" />
-    <PackageReference Include="Grpc.Tools" Version="2.76.0">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
   </ItemGroup>
 
   <ItemGroup>

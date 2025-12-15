@@ -1,48 +1,116 @@
+#!/bin/bash
+set -e
+
 # Builds the shared library binaries and copies the binaries to OS/arch specific folders.
-# Binaries can be built for linux/x64, darwin/arm64, and windows/x64.
-# Which ones are actually built depends on the values of the following variables:
-# SKIP_MACOS: If set, will skip the darwin/arm64 build
-# SKIP_LINUX: If set, will skip the linux/x64 build that uses the default C compiler on the system
-# SKIP_LINUX_CROSS_COMPILE: If set, will skip the linux/x64 build that uses the x86_64-unknown-linux-gnu-gcc C compiler.
-#                           This compiler is used when compiling for linux/x64 on MacOS.
-# SKIP_WINDOWS: If set, will skip the windows/x64 build.
+# Binaries can be built for linux/x64, linux/arm64, darwin/arm64, darwin/amd64, and windows/x64.
+#
+# Environment Variables:
+# SKIP_MACOS: If set, will skip all macOS builds.
+# SKIP_LINUX: If set, will skip all Linux builds.
+# SKIP_WINDOWS: If set, will skip all Windows builds.
+# SKIP_LINUX_CROSS_COMPILE: If set, will skip the Linux x64 cross-compile (useful when running on Linux).
+# BUILD_MACOS_AMD64: If set, will build for macOS AMD64.
+# BUILD_LINUX_ARM64: If set, will build for Linux ARM64.
+# CC_LINUX_ARM64: Compiler for Linux ARM64 (default: aarch64-linux-gnu-gcc).
 
-# The binaries are stored in the following files:
-# binaries/osx-arm64/spannerlib.dylib
-# binaries/linux-x64/spannerlib.so
-# binaries/win-x64/spannerlib.dll
+log() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
+}
 
-echo "Skip macOS: $SKIP_MACOS"
-echo "Skip Linux: $SKIP_LINUX"
-echo "Skip Linux cross compile: $SKIP_LINUX_CROSS_COMPILE"
-echo "Skip windows: $SKIP_WINDOWS"
+build_artifact() {
+    local os=$1
+    local arch=$2
+    local output_dir=$3
+    local output_file=$4
+    local cc=$5
 
+    log "Building for $os/$arch..."
+    mkdir -p "$output_dir"
+    
+    if [ -n "$cc" ]; then
+        export CC="$cc"
+    else
+        unset CC
+    fi
+
+    GOOS="$os" GOARCH="$arch" CGO_ENABLED=1 go build -o "$output_dir/$output_file" -buildmode=c-shared shared_lib.go
+    log "Successfully built $output_dir/$output_file"
+}
+
+# Detect current OS to set smart defaults
+CURRENT_OS=$(uname -s)
+
+log "Current OS: $CURRENT_OS"
+log "Skip macOS: ${SKIP_MACOS:-false}"
+log "Skip Linux: ${SKIP_LINUX:-false}"
+log "Skip Linux cross compile: ${SKIP_LINUX_CROSS_COMPILE:-false}"
+log "Skip Windows: ${SKIP_WINDOWS:-false}"
+
+# --- MacOS Builds ---
 if [ -z "$SKIP_MACOS" ]; then
-  echo "Building for darwin/arm64"
-  mkdir -p binaries/osx-arm64
-  GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -o binaries/osx-arm64/spannerlib.dylib -buildmode=c-shared shared_lib.go
+    # MacOS ARM64 (Apple Silicon)
+    build_artifact "darwin" "arm64" "binaries/osx-arm64" "spannerlib.dylib" ""
+
+    # MacOS AMD64 (Intel)
+    if [ -n "$BUILD_MACOS_AMD64" ]; then
+        build_artifact "darwin" "amd64" "binaries/osx-x64" "spannerlib.dylib" ""
+    fi
 fi
 
-if [ -z "$SKIP_LINUX_CROSS_COMPILE" ]; then
-  # The following software is needed for this build, assuming that the build runs on MacOS.
-  #brew tap SergioBenitez/osxct
-  #brew install x86_64-unknown-linux-gnu
-  echo "Building for linux/x64 (cross-compile)"
-  mkdir -p binaries/linux-x64
-  CC=x86_64-unknown-linux-gnu-gcc GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -o binaries/linux-x64/spannerlib.so -buildmode=c-shared shared_lib.go
-elif [ -z "$SKIP_LINUX" ]; then
-  # The following commands assume that the script is running on linux/x64, or at least on some system that is able
-  # to compile to linux/x64 with the default C compiler on the system.
-  echo "Building for linux/x64"
-  mkdir -p binaries/linux-x64
-  GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -o binaries/linux-x64/spannerlib.so -buildmode=c-shared shared_lib.go
+# --- Linux Builds ---
+if [ -z "$SKIP_LINUX" ]; then
+    # Linux x64
+    # Logic: If we are on Linux, we prefer native build. 
+    # If we are NOT on Linux (e.g. Mac), we try cross-compile unless skipped.
+    
+    if [ "$CURRENT_OS" == "Linux" ]; then
+        # Native Linux build
+        build_artifact "linux" "amd64" "binaries/linux-x64" "spannerlib.so" ""
+    else
+        # Cross-compile for Linux x64 (e.g. from Mac)
+        if [ -z "$SKIP_LINUX_CROSS_COMPILE" ]; then
+             # Check for cross-compiler
+             if command -v x86_64-unknown-linux-gnu-gcc >/dev/null 2>&1; then
+                build_artifact "linux" "amd64" "binaries/linux-x64" "spannerlib.so" "x86_64-unknown-linux-gnu-gcc"
+             else
+                log "WARNING: x86_64-unknown-linux-gnu-gcc not found. Skipping Linux x64 cross-compile."
+             fi
+        elif [ -z "$SKIP_LINUX" ]; then
+             # Fallback to standard build if cross-compile explicitly skipped but Linux not skipped
+             # This might fail if no suitable compiler is found, but we'll try.
+             build_artifact "linux" "amd64" "binaries/linux-x64" "spannerlib.so" ""
+        fi
+    fi
+
+    # Linux ARM64
+    if [ -n "$BUILD_LINUX_ARM64" ]; then
+        CC_ARM64=${CC_LINUX_ARM64:-aarch64-linux-gnu-gcc}
+        if command -v "$CC_ARM64" >/dev/null 2>&1; then
+            build_artifact "linux" "arm64" "binaries/linux-arm64" "spannerlib.so" "$CC_ARM64"
+        else
+             log "WARNING: $CC_ARM64 not found. Skipping Linux ARM64 build."
+        fi
+    fi
 fi
 
+# --- Windows Builds ---
 if [ -z "$SKIP_WINDOWS" ]; then
-  # This build requires mingw-w64 or a similar Windows compatible C compiler if it is being executed on a
-  # non-Windows environment.
-  #  brew install mingw-w64
-  echo "Building for windows/x64"
-  mkdir -p binaries/win-x64
-  CC=x86_64-w64-mingw32-gcc GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build -o binaries/win-x64/spannerlib.dll -buildmode=c-shared shared_lib.go
+    # Windows x64
+    CC_WIN="x86_64-w64-mingw32-gcc"
+    
+    # If running on Windows (Git Bash/MSYS2), we might not need the cross-compiler prefix or it might be different.
+    # But usually 'gcc' on Windows targets Windows.
+    if [[ "$CURRENT_OS" == *"MINGW"* ]] || [[ "$CURRENT_OS" == *"CYGWIN"* ]] || [[ "$CURRENT_OS" == *"MSYS"* ]]; then
+        # Native Windows build
+        build_artifact "windows" "amd64" "binaries/win-x64" "spannerlib.dll" ""
+    else
+        # Cross-compile for Windows
+        if command -v "$CC_WIN" >/dev/null 2>&1; then
+            build_artifact "windows" "amd64" "binaries/win-x64" "spannerlib.dll" "$CC_WIN"
+        else
+            log "WARNING: $CC_WIN not found. Skipping Windows x64 build."
+        fi
+    fi
 fi
+
+log "Build process completed."

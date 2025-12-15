@@ -6,6 +6,11 @@
 package com.google.cloud.spannerlib.v1;
 
 /**
+ * <pre>
+ * ConnectionStreamRequest is used by a client to send a request to the server using a
+ * bi-directional gRPC stream. Such a stream is opened by calling the ConnectionStream RPC.
+ * </pre>
+ *
  * Protobuf type {@code google.spannerlib.v1.ConnectionStreamRequest}
  */
 @com.google.protobuf.Generated
@@ -525,6 +530,11 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
+   * <pre>
+   * ConnectionStreamRequest is used by a client to send a request to the server using a
+   * bi-directional gRPC stream. Such a stream is opened by calling the ConnectionStream RPC.
+   * </pre>
+   *
    * Protobuf type {@code google.spannerlib.v1.ConnectionStreamRequest}
    */
   public static final class Builder extends

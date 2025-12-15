@@ -1,0 +1,67 @@
+name: Build Shared SpannerLib
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        go-version: ['1.25.x']
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            target: linux
+          - os: macos-latest
+            target: macos
+          - os: windows-latest
+            target: windows
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: ${{ matrix.go-version }}
+        cache: true
+
+    - name: Install Dependencies (Linux)
+      if: matrix.target == 'linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-aarch64-linux-gnu
+
+    - name: Build Binaries
+      shell: bash
+      run: |
+        cd spannerlib/shared
+        if [ "${{ matrix.target }}" == "linux" ]; then
+          export SKIP_MACOS=true
+          export SKIP_WINDOWS=true
+          # Enable ARM64 build
+          export BUILD_LINUX_ARM64=true
+          export CC_LINUX_ARM64=aarch64-linux-gnu-gcc
+        elif [ "${{ matrix.target }}" == "macos" ]; then
+          export SKIP_LINUX=true
+          export SKIP_WINDOWS=true
+          # Enable AMD64 build (if possible)
+          export BUILD_MACOS_AMD64=true
+        elif [ "${{ matrix.target }}" == "windows" ]; then
+          export SKIP_LINUX=true
+          export SKIP_MACOS=true
+        fi
+        ./build-binaries.sh
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v6
+      with:
+        name: spannerlib-binaries-${{ matrix.target }}
+        path: spannerlib/shared/binaries/

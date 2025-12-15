@@ -149,6 +149,32 @@ public interface ISpannerLib : IDisposable
     public Task<long[]> ExecuteBatchAsync(Connection connection, ExecuteBatchDmlRequest statements, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Converts an ExecuteBatchDmlResponse to an array of update counts.
+    /// </summary>
+    /// <param name="response">The response to convert</param>
+    /// <returns>An array of update counts extracted from the given response</returns>
+    public static long[] ToUpdateCounts(ExecuteBatchDmlResponse response)
+    {
+        var result = new long[response.ResultSets.Count];
+        for (var i = 0; i < result.Length; i++)
+        {
+            if (response.ResultSets[i].Stats.HasRowCountExact)
+            {
+                result[i] = response.ResultSets[i].Stats.RowCountExact;
+            }
+            else if (response.ResultSets[i].Stats.HasRowCountLowerBound)
+            {
+                result[i] = response.ResultSets[i].Stats.RowCountLowerBound;
+            }
+            else
+            {
+                result[i] = -1;
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Returns the ResultSetMetadata of a Rows object. This can be used to inspect the type of data that a Rows object
     /// contains.
     /// </summary>
@@ -250,7 +276,7 @@ public interface ISpannerLib : IDisposable
     /// </param>
     /// <param name="cancellationToken">The cancellation token</param>
     public Task BeginTransactionAsync(Connection connection, TransactionOptions transactionOptions, CancellationToken cancellationToken = default);
-
+    
     /// <summary>
     /// Commits the current transaction on this connection.
     /// </summary>

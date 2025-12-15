@@ -11,16 +11,31 @@ public interface ConnectionStreamResponseOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
+   * <pre>
+   * Status indicates whether the request succeeded or failed. The response field only contains
+   * a value if the status code is OK.
+   * </pre>
+   *
    * <code>.google.rpc.Status status = 1;</code>
    * @return Whether the status field is set.
    */
   boolean hasStatus();
   /**
+   * <pre>
+   * Status indicates whether the request succeeded or failed. The response field only contains
+   * a value if the status code is OK.
+   * </pre>
+   *
    * <code>.google.rpc.Status status = 1;</code>
    * @return The status.
    */
   com.google.rpc.Status getStatus();
   /**
+   * <pre>
+   * Status indicates whether the request succeeded or failed. The response field only contains
+   * a value if the status code is OK.
+   * </pre>
+   *
    * <code>.google.rpc.Status status = 1;</code>
    */
   com.google.rpc.StatusOrBuilder getStatusOrBuilder();

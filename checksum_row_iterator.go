@@ -15,13 +15,12 @@
 package spannerdriver
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
-	"encoding/gob"
 	"hash"
 	"math"
-	"reflect"
 	"sort"
 
 	"cloud.google.com/go/spanner"
@@ -34,16 +33,6 @@ import (
 )
 
 var errNextAfterSTop = status.Errorf(codes.FailedPrecondition, "Next called after Stop")
-
-// init registers the protobuf types with gob so they can be encoded.
-func init() {
-	gob.Register(structpb.Value_BoolValue{})
-	gob.Register(structpb.Value_NumberValue{})
-	gob.Register(structpb.Value_StringValue{})
-	gob.Register(structpb.Value_NullValue{})
-	gob.Register(structpb.Value_ListValue{})
-	gob.Register(structpb.Value_StructValue{})
-}
 
 var _ rowIterator = &checksumRowIterator{}
 
@@ -69,10 +58,12 @@ type checksumRowIterator struct {
 	// the retry has finished.
 	stopped bool
 
-	// checksum contains the current checksum for the results that have been
+	// hash contains the current hash for the results that have been
 	// seen. It is calculated as a SHA256 checksum over all rows that so far
 	// have been returned.
-	checksum *[32]byte
+	hash       hash.Hash
+	int32Buf   [4]byte
+	float64Buf [8]byte
 
 	// errIndex and err indicate any error and the index in the result set
 	// where the error occurred.
@@ -111,7 +102,7 @@ func (it *checksumRowIterator) Next() (row *spanner.Row, err error) {
 			// checksum of the columns that are included in this result. This is
 			// also used to detect the possible difference between two empty
 			// result sets with a different set of columns.
-			it.checksum, err = createMetadataChecksum(it.metadata)
+			it.hash, err = it.createMetadataChecksum(it.metadata)
 			if err != nil {
 				return err
 			}
@@ -120,61 +111,54 @@ func (it *checksumRowIterator) Next() (row *spanner.Row, err error) {
 			return it.err
 		}
 		// Update the current checksum.
-		it.checksum, err = updateChecksum(it.checksum, row)
-		return err
+		return it.updateChecksum(it.hash, row)
 	})
 	return row, err
 }
 
 // updateChecksum calculates the following checksum based on a current checksum
 // and a new row.
-func updateChecksum(currentChecksum *[32]byte, row *spanner.Row) (*[32]byte, error) {
-	hasher := sha256.New()
-	hasher.Write(currentChecksum[:])
+func (it *checksumRowIterator) updateChecksum(hash hash.Hash, row *spanner.Row) error {
 	for i := 0; i < row.Size(); i++ {
 		var v spanner.GenericColumnValue
 		err := row.Column(i, &v)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		hashValue(v.Value, hasher)
+		it.hashValue(v.Value, hash)
 	}
-	res := hasher.Sum(nil)
-	return (*[32]byte)(res), nil
+	return nil
 }
 
-var int32Buf [4]byte
-var float64Buf [8]byte
-
-func hashValue(value *structpb.Value, hasher hash.Hash) {
+func (it *checksumRowIterator) hashValue(value *structpb.Value, digest hash.Hash) {
 	switch value.GetKind().(type) {
 	case *structpb.Value_StringValue:
-		hasher.Write(intToByte(int32Buf, len(value.GetStringValue())))
-		hasher.Write([]byte(value.GetStringValue()))
+		digest.Write(intToByte(it.int32Buf, len(value.GetStringValue())))
+		digest.Write([]byte(value.GetStringValue()))
 	case *structpb.Value_NullValue:
-		hasher.Write([]byte{0})
+		digest.Write([]byte{0})
 	case *structpb.Value_NumberValue:
-		hasher.Write(float64ToByte(float64Buf, value.GetNumberValue()))
+		digest.Write(float64ToByte(it.float64Buf, value.GetNumberValue()))
 	case *structpb.Value_BoolValue:
 		if value.GetBoolValue() {
-			hasher.Write([]byte{1})
+			digest.Write([]byte{1})
 		} else {
-			hasher.Write([]byte{0})
+			digest.Write([]byte{0})
 		}
 	case *structpb.Value_StructValue:
 		fields := make([]string, 0, len(value.GetStructValue().Fields))
-		for field, _ := range value.GetStructValue().Fields {
+		for field := range value.GetStructValue().Fields {
 			fields = append(fields, field)
 		}
 		sort.Strings(fields)
 		for _, field := range fields {
-			hasher.Write(intToByte(int32Buf, len(field)))
-			hasher.Write([]byte(field))
-			hashValue(value.GetStructValue().Fields[field], hasher)
+			digest.Write(intToByte(it.int32Buf, len(field)))
+			digest.Write([]byte(field))
+			it.hashValue(value.GetStructValue().Fields[field], digest)
 		}
 	case *structpb.Value_ListValue:
 		for _, v := range value.GetListValue().GetValues() {
-			hashValue(v, hasher)
+			it.hashValue(v, digest)
 		}
 	}
 }
@@ -192,15 +176,14 @@ func float64ToByte(buf [8]byte, f float64) []byte {
 // createMetadataChecksum calculates the checksum of the metadata of a result.
 // Only the column names and types are included in the checksum. Any transaction
 // metadata is not included.
-func createMetadataChecksum(metadata *sppb.ResultSetMetadata) (*[32]byte, error) {
-	hasher := sha256.New()
+func (it *checksumRowIterator) createMetadataChecksum(metadata *sppb.ResultSetMetadata) (hash.Hash, error) {
+	digest := sha256.New()
 	for _, field := range metadata.RowType.Fields {
-		hasher.Write(intToByte(int32Buf, len(field.Name)))
-		hasher.Write([]byte(field.Name))
-		hasher.Write(intToByte(int32Buf, int(field.Type.Code.Number())))
+		digest.Write(intToByte(it.int32Buf, len(field.Name)))
+		digest.Write([]byte(field.Name))
+		digest.Write(intToByte(it.int32Buf, int(field.Type.Code.Number())))
 	}
-	res := hasher.Sum(nil)
-	return (*[32]byte)(res), nil
+	return digest, nil
 }
 
 // retry implements retriableStatement.retry for queries. It will execute the
@@ -234,12 +217,13 @@ func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteS
 	// Iterate over the new result set as many times as we iterated over the initial
 	// result set. The checksums of the two should be equal. Also, the new result set
 	// should return any error on the same index as the original.
-	var newChecksum *[32]byte
+	// var newChecksum *[32]byte
 	var checksumErr error
+	newHash := sha256.New()
 	for n := int64(0); n < it.nc; n++ {
 		row, err := retryIt.Next()
 		if n == 0 && (err == nil || err == iterator.Done) {
-			newChecksum, checksumErr = createMetadataChecksum(retryIt.Metadata)
+			newHash, checksumErr = it.createMetadataChecksum(retryIt.Metadata)
 			if checksumErr != nil {
 				return failRetry(checksumErr)
 			}
@@ -252,14 +236,14 @@ func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteS
 			}
 			if errorsEqualForRetry(err, it.err) && n == it.errIndex {
 				// Check that the checksums are also equal.
-				if !checksumsEqual(newChecksum, it.checksum) {
+				if !checksumsEqual(newHash, it.hash) {
 					return failRetry(ErrAbortedDueToConcurrentModification)
 				}
 				return replaceIt(nil)
 			}
 			return failRetry(ErrAbortedDueToConcurrentModification)
 		}
-		newChecksum, err = updateChecksum(newChecksum, row)
+		err = it.updateChecksum(newHash, row)
 		if err != nil {
 			return failRetry(err)
 		}
@@ -271,7 +255,7 @@ func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteS
 	if it.err != nil {
 		return failRetry(ErrAbortedDueToConcurrentModification)
 	}
-	if !checksumsEqual(newChecksum, it.checksum) {
+	if !checksumsEqual(newHash, it.hash) {
 		return failRetry(ErrAbortedDueToConcurrentModification)
 	}
 	// Everything seems to be equal, replace the underlying iterator and return
@@ -279,8 +263,13 @@ func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteS
 	return replaceIt(nil)
 }
 
-func checksumsEqual(c1, c2 *[32]byte) bool {
-	return (reflect.ValueOf(c1).IsNil() && reflect.ValueOf(c2).IsNil()) || *c1 == *c2
+func checksumsEqual(h1, h2 hash.Hash) bool {
+	if h1 == nil || h2 == nil {
+		return h1 == h2
+	}
+	c1 := h1.Sum(nil)
+	c2 := h2.Sum(nil)
+	return bytes.Equal(c1, c2)
 }
 
 func (it *checksumRowIterator) Stop() {
