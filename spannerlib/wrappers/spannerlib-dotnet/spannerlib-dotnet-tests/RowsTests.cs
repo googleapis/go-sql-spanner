@@ -100,7 +100,7 @@ public class RowsTests : AbstractMockServerTests
             await cts.CancelAsync();
             var exception = Assert.CatchAsync<Exception>(async () => await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = "select * from random" }, prefetchRows, cts.Token));
             Assert.That(exception, Is.Not.Null);
-            Assert.That(exception, Is.InstanceOf<OperationCanceledException>().Or.InstanceOf<RpcException>().Or.InstanceOf<OperationCanceledException>());
+            Assert.That(exception, Is.InstanceOf<OperationCanceledException>().Or.InstanceOf<RpcException>().Or.InstanceOf<TaskCanceledException>());
         }
         else
         {
@@ -116,7 +116,7 @@ public class RowsTests : AbstractMockServerTests
                     await cts.CancelAsync();
                     var exception = Assert.CatchAsync<Exception>(async () => await rows.NextAsync(cts.Token));
                     Assert.That(exception, Is.Not.Null);
-                    Assert.That(exception, Is.InstanceOf<OperationCanceledException>().Or.InstanceOf<RpcException>().Or.InstanceOf<OperationCanceledException>());
+                    Assert.That(exception, Is.InstanceOf<OperationCanceledException>().Or.InstanceOf<RpcException>().Or.InstanceOf<TaskCanceledException>());
                     break;
                 }
             }

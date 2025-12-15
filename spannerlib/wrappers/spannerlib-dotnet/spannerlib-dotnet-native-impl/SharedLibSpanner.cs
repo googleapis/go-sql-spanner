@@ -163,7 +163,7 @@ public class SharedLibSpanner : ISpannerLib
 
     public async Task<long[]> ExecuteBatchAsync(Connection connection, ExecuteBatchDmlRequest statements, CancellationToken cancellationToken = default)
     {
-        return await Task.Run(() => ExecuteBatch(connection, statements),  cancellationToken).ConfigureAwait(false);
+        return await Task.Run(() => ExecuteBatch(connection, statements), cancellationToken).ConfigureAwait(false);
     }
 
     public ResultSetMetadata? Metadata(Rows rows)
