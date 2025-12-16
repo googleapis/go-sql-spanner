@@ -38,8 +38,7 @@ public class DdlBatchSample
         await ExecuteWithStartBatchDdl(connection, statements);
         
         // Execute a batch of DDL statements as a single command text.
-        // TODO: Enable when the library supports multi-statement SQL strings.
-        // await ExecuteAsSingleCommand(connection, statements);
+        await ExecuteAsSingleCommand(connection, statements);
     }
 
     private static async Task ExecuteAsSingleCommand(SpannerConnection connection, string[] statements)

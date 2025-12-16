@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using Google.Cloud.Spanner.Admin.Database.V1;
 using Google.Cloud.Spanner.DataProvider.Samples.Snippets;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib.MockServer;
@@ -156,5 +157,50 @@ public class SamplesMockServerTests : AbstractMockServerTests
         Assert.That(request.Params.Fields["numeric"].StringValue, Is.EqualTo("3.14"));
         Assert.That(request.Params.Fields["string"].StringValue, Is.EqualTo("test-string"));
         Assert.That(request.Params.Fields["timestamp"].StringValue, Is.Not.Null);
+    }
+
+    [Test]
+    public async Task TestDdlBatchSample()
+    {
+        await DdlBatchSample.Run(ConnectionString);
+        
+        Assert.That(Writer.ToString(), Is.EqualTo(
+            $"Executed ADO.NET batch{Environment.NewLine}" +
+            $"Executed DDL batch{Environment.NewLine}" +
+            $"Executed a single SQL string with multiple DDL statements as one batch.{Environment.NewLine}"));
+
+        var requests = Fixture.DatabaseAdminMock.Requests.OfType<UpdateDatabaseDdlRequest>().ToList();
+        Assert.That(requests.Count, Is.EqualTo(3));
+        foreach (var request in requests)
+        {
+            Assert.That(request.Statements.Count, Is.EqualTo(2));
+        }
+    }
+    
+    [Test]
+    public async Task TestDmlBatchSample()
+    {
+        const string insert =
+            "insert or update into Singers (SingerId, FirstName, LastName) values (@Id, @FirstName, @LastName)";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(insert, StatementResult.CreateUpdateCount(1L));
+        const string update = "update Singers set BirthDate = NULL where BirthDate < DATE '1900-01-01'";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(update, StatementResult.CreateUpdateCount(10L));
+        
+        await DmlBatchSample.Run(ConnectionString);
+        
+        Assert.That(Writer.ToString(), Is.EqualTo(
+            $"Executed ADO.NET batch{Environment.NewLine}" +
+            $"Affected: 13{Environment.NewLine}{Environment.NewLine}" +
+            $"Executed DML batch{Environment.NewLine}" +
+            $"Affected: -1{Environment.NewLine}{Environment.NewLine}"));
+        
+        var executeRequests = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().ToList();
+        Assert.That(executeRequests, Is.Empty);
+        var requests = Fixture.SpannerMock.Requests.OfType<ExecuteBatchDmlRequest>().ToList();
+        Assert.That(requests.Count, Is.EqualTo(2));
+        foreach (var request in requests)
+        {
+            Assert.That(request.Statements.Count, Is.EqualTo(4));
+        }
     }
 }

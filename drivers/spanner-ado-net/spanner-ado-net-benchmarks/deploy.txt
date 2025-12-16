@@ -102,7 +102,7 @@ gcloud run deploy spannerlib-dotnet-benchmark-point-dml-client-lib \
   --source .
   
   
-# SpannerLib, 50 clients - ReadWriteTx
+# SpannerLib, 10 clients - ReadWriteTx
 
 gcloud run deploy spannerlib-dotnet-benchmark-read-write-tx \
   --region=europe-north1 \
@@ -114,7 +114,7 @@ gcloud run deploy spannerlib-dotnet-benchmark-read-write-tx \
   --source .
 
 
-# ClientLib, 50 clients - ReadWriteTx
+# ClientLib, 10 clients - ReadWriteTx
 
 gcloud run deploy spannerlib-dotnet-benchmark-read-write-tx-client-lib \
   --region=europe-north1 \
@@ -137,7 +137,7 @@ gcloud run deploy spannerlib-dotnet-benchmark-read-write-tx-exp \
   --base-image dotnet8 \
   --source .
 
-# SpannerLib, 50 clients - LargeQuery
+# SpannerLib, 5 clients - LargeQuery
 
 gcloud run deploy spannerlib-dotnet-benchmark-large-query \
   --region=europe-north1 \
@@ -148,7 +148,7 @@ gcloud run deploy spannerlib-dotnet-benchmark-large-query \
   --base-image dotnet8 \
   --source .
 
-# ClientLib, 50 clients - LargeQuery
+# ClientLib, 5 clients - LargeQuery
 
 gcloud run deploy spannerlib-dotnet-benchmark-large-query-client-lib \
   --region=europe-north1 \
