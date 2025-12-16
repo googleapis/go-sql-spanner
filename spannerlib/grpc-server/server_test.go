@@ -919,6 +919,95 @@ func TestExecuteBatchBidi(t *testing.T) {
 	}
 }
 
+func TestExecuteBatchDmlScriptBidi(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	server, teardown := setupMockSpannerServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	client, cleanup := startTestSpannerLibServer(t)
+	defer cleanup()
+
+	pool, err := client.CreatePool(ctx, &pb.CreatePoolRequest{ConnectionString: dsn})
+	if err != nil {
+		t.Fatalf("failed to create pool: %v", err)
+	}
+	connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
+	if err != nil {
+		t.Fatalf("failed to create connection: %v", err)
+	}
+	stream, err := client.ConnectionStream(ctx)
+	if err != nil {
+		t.Fatalf("failed to start stream: %v", err)
+	}
+
+	if err := stream.Send(&pb.ConnectionStreamRequest{
+		Request: &pb.ConnectionStreamRequest_ExecuteRequest{
+			ExecuteRequest: &pb.ExecuteRequest{
+				Connection: connection,
+				ExecuteSqlRequest: &sppb.ExecuteSqlRequest{
+					Sql: "START BATCH DML",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to send START BATCH DML request: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to start batch: %v", err)
+	}
+	for range 2 {
+		if err := stream.Send(&pb.ConnectionStreamRequest{
+			Request: &pb.ConnectionStreamRequest_ExecuteRequest{
+				ExecuteRequest: &pb.ExecuteRequest{
+					Connection: connection,
+					ExecuteSqlRequest: &sppb.ExecuteSqlRequest{
+						Sql: testutil.UpdateBarSetFoo,
+					},
+				},
+			},
+		}); err != nil {
+			t.Fatalf("failed to send DML request: %v", err)
+		}
+		_, err := stream.Recv()
+		if err != nil {
+			t.Fatalf("failed to execute dml: %v", err)
+		}
+	}
+	if err := stream.Send(&pb.ConnectionStreamRequest{
+		Request: &pb.ConnectionStreamRequest_ExecuteRequest{
+			ExecuteRequest: &pb.ExecuteRequest{
+				Connection: connection,
+				ExecuteSqlRequest: &sppb.ExecuteSqlRequest{
+					Sql: "RUN BATCH",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to send RUN BATCH request: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to execute batch: %v", err)
+	}
+
+	if err := stream.CloseSend(); err != nil {
+		t.Fatalf("failed to close send: %v", err)
+	}
+	if _, err := client.ClosePool(ctx, pool); err != nil {
+		t.Fatalf("failed to close pool: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 0; g != w {
+		t.Fatalf("num execute requests mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
 func TestTransaction(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

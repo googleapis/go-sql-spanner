@@ -390,3 +390,163 @@ func TestExecuteQueryInBatch(t *testing.T) {
 		t.Fatalf("ClosePool returned unexpected error: %v", err)
 	}
 }
+
+func TestExecuteDmlBatchScript(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolId, err := CreatePool(ctx, dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+
+	for _, useTx := range []bool{true, false} {
+		if useTx {
+			if err := BeginTransaction(ctx, poolId, connId, &spannerpb.TransactionOptions{}); err != nil {
+				t.Fatalf("BeginTransaction returned unexpected error: %v", err)
+			}
+		}
+		id, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: "start batch dml"})
+		if err != nil {
+			t.Fatalf("START BATCH DML returned unexpected error: %v", err)
+		}
+		if err := CloseRows(ctx, poolId, connId, id); err != nil {
+			t.Fatalf("CloseRows returned unexpected error: %v", err)
+		}
+		for range 2 {
+			id, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: testutil.UpdateBarSetFoo})
+			if err != nil {
+				t.Fatalf("DML returned unexpected error: %v", err)
+			}
+			if err := CloseRows(ctx, poolId, connId, id); err != nil {
+				t.Fatalf("CloseRows returned unexpected error: %v", err)
+			}
+		}
+		id, err = Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: "run batch"})
+		if err != nil {
+			t.Fatalf("RUN BATCH returned unexpected error: %v", err)
+		}
+		if err := CloseRows(ctx, poolId, connId, id); err != nil {
+			t.Fatalf("CloseRows returned unexpected error: %v", err)
+		}
+		if useTx {
+			if _, err := Commit(ctx, poolId, connId); err != nil {
+				t.Fatalf("Commit returned unexpected error: %v", err)
+			}
+		}
+
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		// There should be no ExecuteSql requests.
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		if g, w := len(executeRequests), 0; g != w {
+			t.Fatalf("Execute request count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+		if g, w := len(batchRequests), 1; g != w {
+			t.Fatalf("Execute batch request count mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+
+	if err := CloseConnection(ctx, poolId, connId); err != nil {
+		t.Fatalf("CloseConnection returned unexpected error: %v", err)
+	}
+	if err := ClosePool(ctx, poolId); err != nil {
+		t.Fatalf("ClosePool returned unexpected error: %v", err)
+	}
+}
+
+func TestExecuteDdlBatchScript(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+	// Set up a result for a DDL statement on the mock server.
+	var expectedResponse = &emptypb.Empty{}
+	anyMsg, _ := anypb.New(expectedResponse)
+	server.TestDatabaseAdmin.SetResps([]proto.Message{
+		&longrunningpb.Operation{
+			Done:   true,
+			Result: &longrunningpb.Operation_Response{Response: anyMsg},
+			Name:   "test-operation",
+		},
+	})
+
+	poolId, err := CreatePool(ctx, dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+
+	id, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: "start batch ddl"})
+	if err != nil {
+		t.Fatalf("START BATCH DDL returned unexpected error: %v", err)
+	}
+	if err := CloseRows(ctx, poolId, connId, id); err != nil {
+		t.Fatalf("CloseRows returned unexpected error: %v", err)
+	}
+
+	id, err = Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: "create table my_table (id int64 primary key, value string(100))"})
+	if err != nil {
+		t.Fatalf("DDL returned unexpected error: %v", err)
+	}
+	if err := CloseRows(ctx, poolId, connId, id); err != nil {
+		t.Fatalf("CloseRows returned unexpected error: %v", err)
+	}
+
+	id, err = Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: "create index my_index on my_table (value)"})
+	if err != nil {
+		t.Fatalf("DDL returned unexpected error: %v", err)
+	}
+	if err := CloseRows(ctx, poolId, connId, id); err != nil {
+		t.Fatalf("CloseRows returned unexpected error: %v", err)
+	}
+
+	id, err = Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: "run batch"})
+	if err != nil {
+		t.Fatalf("RUN BATCH returned unexpected error: %v", err)
+	}
+	if err := CloseRows(ctx, poolId, connId, id); err != nil {
+		t.Fatalf("CloseRows returned unexpected error: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	// There should be no ExecuteSql requests.
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 0; g != w {
+		t.Fatalf("Execute request count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	// There should also be no ExecuteBatchDml requests.
+	batchDmlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+	if g, w := len(batchDmlRequests), 0; g != w {
+		t.Fatalf("ExecuteBatchDmlRequest count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	adminRequests := server.TestDatabaseAdmin.Reqs()
+	if g, w := len(adminRequests), 1; g != w {
+		t.Fatalf("admin request count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	ddlRequest := adminRequests[0].(*databasepb.UpdateDatabaseDdlRequest)
+	if g, w := len(ddlRequest.Statements), 2; g != w {
+		t.Fatalf("DDL statement count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	if err := CloseConnection(ctx, poolId, connId); err != nil {
+		t.Fatalf("CloseConnection returned unexpected error: %v", err)
+	}
+	if err := ClosePool(ctx, poolId); err != nil {
+		t.Fatalf("ClosePool returned unexpected error: %v", err)
+	}
+}

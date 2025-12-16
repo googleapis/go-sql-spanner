@@ -1056,13 +1056,17 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 	}
 	statementInfo := c.parser.DetectStatementType(query)
 	// DDL statements are not supported in QueryContext so use the execContext method for the execution.
-	if statementInfo.StatementType == parser.StatementTypeDdl {
+	// DML statements that are executed during a DML batch should also be re-routed to execContext for execution.
+	if statementInfo.StatementType == parser.StatementTypeDdl || (c.InDMLBatch() &&
+		statementInfo.StatementType == parser.StatementTypeDml &&
+		!statementInfo.HasThenReturn) {
 		res, err := c.execContext(ctx, query, execOptions, args)
 		if err != nil {
 			return nil, err
 		}
 		return createDriverResultRows(res, cancel, execOptions), nil
 	}
+
 	var iter rowIterator
 	if c.tx == nil {
 		if statementInfo.StatementType == parser.StatementTypeDml {
@@ -1208,7 +1212,7 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions *ExecO
 	}
 
 	// Start an automatic DML batch.
-	if c.AutoBatchDml() && !c.inBatch() && c.inTransaction() && statementInfo.StatementType == parser.StatementTypeDml {
+	if c.AutoBatchDml() && !c.inBatch() && c.inTransaction() && statementInfo.StatementType == parser.StatementTypeDml && !statementInfo.HasThenReturn {
 		if _, err := c.startBatchDML( /* automatic = */ true); err != nil {
 			return nil, err
 		}
