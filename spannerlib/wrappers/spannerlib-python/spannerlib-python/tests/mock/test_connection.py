@@ -26,6 +26,8 @@ class TestConnectionOnMockServer(MockServerTestBaseGoDriver):
 
     def setUp(self):
         super().setUp()
+        self.pool = None
+        self.connection = None
         self.pool = Pool.create_pool(
             get_mockserver_connection_string(self.port)
         )
@@ -49,6 +51,8 @@ class TestConnectionOnMockServer(MockServerTestBaseGoDriver):
         sql = "SELECT 1"
         request = ExecuteSqlRequest(sql=sql)
         rows = self.connection.execute(request)
-        assert rows is not None
-        assert rows.oid > 0
-        rows.close()
+        try:
+            assert rows is not None
+            assert rows.oid > 0
+        finally:
+            rows.close()
