@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spanner-python-driver"
+dynamic = ["version"]
+authors = [
+    { name="Google LLC", email="googleapis-packages@google.com" },
+]
+description = "Spanner Python Driver"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "spannerlib-python", 
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "nox",
+]
+
+[tool.setuptools]
+dynamic = {"version" = {attr = "google.cloud.spanner_python_driver.__version__"}}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["google*"]
