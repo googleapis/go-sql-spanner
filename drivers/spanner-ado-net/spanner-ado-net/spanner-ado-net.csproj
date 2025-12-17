@@ -9,7 +9,7 @@
     <PackageId>Alpha.Google.Cloud.Spanner.DataProvider</PackageId>
     <Title>.NET Data Provider for Spanner</Title>
     <Authors>Google</Authors>
-    <Version>1.0.0-alpha.20251216092833</Version>
+    <Version>1.0.0-alpha.20251217172149</Version>
     <Description>ADO.NET Data Provider.
 
 Alpha version: Not for production use</Description>
@@ -19,10 +19,10 @@ Alpha version: Not for production use</Description>
   </PropertyGroup>
   
   <ItemGroup>
-    <PackageReference Include="Alpha.Google.Cloud.SpannerLib" Version="1.0.0-alpha.20251216092104" />
-    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.Grpc.V1" Version="1.0.0-alpha.20251216092104" />
-    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.GrpcImpl" Version="1.0.0-alpha.20251216092104" />
-    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.NativeImpl" Version="1.0.0-alpha.20251216092104" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib" Version="1.0.0-alpha.20251217171434" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.Grpc.V1" Version="1.0.0-alpha.20251217171434" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.GrpcImpl" Version="1.0.0-alpha.20251217171434" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.NativeImpl" Version="1.0.0-alpha.20251217171434" />
     <PackageReference Include="ConfigureAwaitChecker.Analyzer" Version="5.0.0.1">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

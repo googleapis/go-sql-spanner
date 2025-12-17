@@ -35,6 +35,7 @@ internal class TpccRunner : AbstractRunner
         StockLevel,
     }
     
+    private readonly double _delayBetweenTransactions;
     private readonly Stats _stats;
     private readonly DbConnection _connection;
     private readonly int _numWarehouses;
@@ -46,6 +47,7 @@ internal class TpccRunner : AbstractRunner
     private DbTransaction? _currentTransaction;
     
     internal TpccRunner(
+        long transactionsPerSecond,
         Stats stats,
         DbConnection connection,
         int numWarehouses,
@@ -53,6 +55,14 @@ internal class TpccRunner : AbstractRunner
         int numCustomersPerDistrict = 3000,
         int numItems = 100_000)
     {
+        if (transactionsPerSecond > 0)
+        {
+            _delayBetweenTransactions = 1000d / transactionsPerSecond;
+        }
+        else
+        {
+            _delayBetweenTransactions = 0;
+        }
         _stats = stats;
         _connection = connection;
         _numWarehouses = numWarehouses;
@@ -66,7 +76,20 @@ internal class TpccRunner : AbstractRunner
     {
         while (!cancellationToken.IsCancellationRequested)
         {
+            var stopwatch = Stopwatch.StartNew();
             await RunTransactionAsync(cancellationToken);
+            stopwatch.Stop();
+            int delay;
+            if (_delayBetweenTransactions > 0)
+            {
+                delay = (int) (_delayBetweenTransactions - stopwatch.ElapsedMilliseconds);
+            }
+            else
+            {
+                delay = Random.Shared.Next(10, 100);
+            }
+            delay = Math.Max(delay, 0);
+            await Task.Delay(delay, cancellationToken);
         }
     }
 

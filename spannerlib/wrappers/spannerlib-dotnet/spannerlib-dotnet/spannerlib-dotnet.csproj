@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <LangVersion>default</LangVersion>
     <PackageId>Alpha.Google.Cloud.SpannerLib</PackageId>
-    <Version>1.0.0-alpha.20251208195113</Version>
+    <Version>1.0.0-alpha.20251217171434</Version>
     <Authors>Google</Authors>
   </PropertyGroup>
 

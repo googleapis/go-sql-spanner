@@ -144,10 +144,10 @@ public class BasicTests : AbstractMockServerTests
     }
 
     [Test]
-    public void TestQueryAllDataTypes()
+    public void TestQueryAllDataTypes([Values(0, 1, 10, 49, 50, 51, 100)] int numRows)
     {
         const string sql = "select * from all_types";
-        var result = RandomResultSetGenerator.Generate(10, allowNull: true);
+        var result = RandomResultSetGenerator.Generate(numRows, allowNull: true);
         Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateQuery(result));
         
         using var connection = new SpannerConnection();
@@ -157,6 +157,7 @@ public class BasicTests : AbstractMockServerTests
         using var cmd = connection.CreateCommand();
         cmd.CommandText = sql;
         using var reader = cmd.ExecuteReader();
+        var numRowsFound = 0;
         while (reader.Read())
         {
             var index = 0;
@@ -190,7 +191,9 @@ public class BasicTests : AbstractMockServerTests
             Assert.That(reader.GetFieldValue<List<string?>>(reader.GetOrdinal("col_array_string")), Is.EqualTo(ValueOrNull(reader["col_array_string"])));
             Assert.That(reader.GetFieldValue<List<DateTime?>>(reader.GetOrdinal("col_array_timestamp")), Is.EqualTo(ValueOrNull(reader["col_array_timestamp"])));
             Assert.That(reader.GetFieldValue<List<Guid?>>(reader.GetOrdinal("col_array_uuid")), Is.EqualTo(ValueOrNull(reader["col_array_uuid"])));
+            numRowsFound++;
         }
+        Assert.That(numRowsFound, Is.EqualTo(numRows));
     }
 
     private static object? ValueOrNull(object value)

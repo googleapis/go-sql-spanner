@@ -7,6 +7,7 @@ namespace Google.Cloud.Spanner.DataProvider.Benchmarks.tpcc;
 
 public class BasicsRunner : AbstractRunner
 {
+    private readonly double _delayBetweenTransactions;
     private readonly Stats _stats;
     private readonly DbConnection _connection;
     private readonly Program.BenchmarkType _benchmarkType;
@@ -16,6 +17,7 @@ public class BasicsRunner : AbstractRunner
     private readonly int _numItems;
 
     internal BasicsRunner(
+        long transactionsPerSecond,
         Stats stats,
         DbConnection connection,
         Program.BenchmarkType benchmarkType,
@@ -24,6 +26,14 @@ public class BasicsRunner : AbstractRunner
         int numCustomersPerDistrict = 3000,
         int numItems = 100_000)
     {
+        if (transactionsPerSecond > 0)
+        {
+            _delayBetweenTransactions = 1000d / transactionsPerSecond;
+        }
+        else
+        {
+            _delayBetweenTransactions = 0;
+        }
         _stats = stats;
         _connection = connection;
         _benchmarkType = benchmarkType;
@@ -37,8 +47,19 @@ public class BasicsRunner : AbstractRunner
     {
         while (!cancellationToken.IsCancellationRequested)
         {
+            var stopwatch = Stopwatch.StartNew();
             await RunTransactionAsync(cancellationToken);
-            var delay = Random.Shared.Next(10, 100);
+            stopwatch.Stop();
+            int delay;
+            if (_delayBetweenTransactions > 0)
+            {
+                delay = (int) (_delayBetweenTransactions - stopwatch.ElapsedMilliseconds);
+            }
+            else
+            {
+                delay = Random.Shared.Next(10, 100);
+            }
+            delay = Math.Max(delay, 0);
             await Task.Delay(delay, cancellationToken);
         }
     }
@@ -139,7 +160,7 @@ public class BasicsRunner : AbstractRunner
                 else
                 {
                     await using var cmd = _connection.CreateCommand();
-                    cmd.CommandText = "set local transaction_tag = 'spanner-lib-exp'";
+                    cmd.CommandText = "set local transaction_tag = 'spanner-lib'";
                     await cmd.ExecuteNonQueryAsync(cancellationToken);
                 }
 
@@ -185,37 +206,46 @@ public class BasicsRunner : AbstractRunner
 
                 await transaction.CommitAsync(cancellationToken);
                 watch.Stop();
-                _stats.RegisterOperationLatency(Program.OperationType.ReadWriteTxExp, watch.Elapsed.TotalMilliseconds);
+                _stats.RegisterOperationLatency(Program.OperationType.ReadWriteTx, watch.Elapsed.TotalMilliseconds);
                 break;
             }
             catch (Exception exception)
             {
-                _stats.RegisterFailedOperation(Program.OperationType.ReadWriteTxExp, watch.Elapsed, exception);
+                _stats.RegisterFailedOperation(Program.OperationType.ReadWriteTx, watch.Elapsed, exception);
             }
         }
     }
 
     private async Task LargeQueryAsync(CancellationToken cancellationToken)
     {
-        await using var command = _connection.CreateCommand();
-        command.CommandText = "select * from customer limit $1 offset $2";
-        AddParameter(command, "p1", 100_000L);
-        AddParameter(command, "p2", Random.Shared.Next(1, 1001));
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        // Fetch the first row outside the measurement to ensure a fair comparison between clients that delay the
-        // query execution to the first read, and those that don't.
-        await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
-        
-        var watch = Stopwatch.StartNew();
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        Stopwatch? watch = null;
+        try
         {
-            for (var col = 0; col < reader.FieldCount; col++)
+            await using var command = _connection.CreateCommand();
+            command.CommandText = "select * from customer limit $1 offset $2";
+            AddParameter(command, "p1", 100_000L);
+            AddParameter(command, "p2", Random.Shared.Next(1, 1001));
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            // Fetch the first row outside the measurement to ensure a fair comparison between clients that delay the
+            // query execution to the first read, and those that don't.
+            await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+            
+            watch = Stopwatch.StartNew();
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                _ = reader.GetValue(col);
+                for (var col = 0; col < reader.FieldCount; col++)
+                {
+                    _ = reader.GetValue(col);
+                }
             }
+            watch.Stop();
+            _stats.RegisterOperationLatency(Program.OperationType.LargeQuery, watch.Elapsed.TotalMilliseconds);
         }
-        watch.Stop();
-        _stats.RegisterOperationLatency(Program.OperationType.LargeQuery, watch.Elapsed.TotalMilliseconds);
+        catch (Exception exception)
+        {
+            Console.WriteLine(exception.Message);
+            _stats.RegisterFailedOperation(Program.OperationType.LargeQuery, watch?.Elapsed ?? TimeSpan.Zero, exception);
+        }
     }
 
     private DbCommand CreatePointReadCommand()

@@ -42,7 +42,6 @@ public static class Program
         Scalar,
         PointDml,
         ReadWriteTx,
-        ReadWriteTxExp,
         NewOrder,
         Payment,
         OrderStatus,
@@ -163,10 +162,11 @@ public static class Program
         Console.WriteLine($"Running benchmark {transactionType}...");
         Console.WriteLine($"Client type: {clientType}");
         Console.WriteLine($"Num clients: {numClients}");
+        Console.WriteLine($"Target TPS: {targetTps}");
         Console.WriteLine($"Exporting stats: {exportStats}");
         var stats = new Stats(exportStats, projectName, metricsClient, numTransactionsDescriptor, operationLatencyDescriptor, numClients, clientType, directPath);
 
-        if (targetTps > 0 && transactionType == BenchmarkType.Tpcc)
+        if (false && targetTps > 0 && transactionType == BenchmarkType.Tpcc)
         {
             var maxWaitTime = 2 * 1000 / targetTps;
             Console.WriteLine($"Clients: {numClients}");
@@ -175,7 +175,7 @@ public static class Program
             var runners = new BlockingCollection<AbstractRunner?>();
             for (var client = 0; client < numClients; client++)
             {
-                runners.Add(await CreateRunnerAsync(clientType, transactionType, connectionString, stats, numWarehouses, cancellationTokenSource), cancellationTokenSource.Token);
+                runners.Add(await CreateRunnerAsync(targetTps, clientType, transactionType, connectionString, stats, numWarehouses, cancellationTokenSource), cancellationTokenSource.Token);
             }
             var lastLogTime = DateTime.UtcNow;
             while (!cancellationTokenSource.IsCancellationRequested)
@@ -220,7 +220,7 @@ public static class Program
             var tasks = new List<Task>();
             for (var client = 0; client < numClients; client++)
             {
-                var runner = await CreateRunnerAsync(clientType, transactionType, connectionString, stats, numWarehouses, cancellationTokenSource);
+                var runner = await CreateRunnerAsync(targetTps, clientType, transactionType, connectionString, stats, numWarehouses, cancellationTokenSource);
                 tasks.Add(runner.RunAsync(cancellationTokenSource.Token));
             }
             while (!cancellationTokenSource.Token.IsCancellationRequested)
@@ -234,12 +234,13 @@ public static class Program
 
         if (app != null && webapp != null)
         {
-            await app.StopAsync(cancellationTokenSource.Token);
+            await app.StopAsync(CancellationToken.None);
             await webapp;
         }
     }
 
     private static async Task<AbstractRunner> CreateRunnerAsync(
+        int targetTps,
         ClientType clientType,
         BenchmarkType benchmarkType,
         string connectionString,
@@ -260,8 +261,8 @@ public static class Program
         await connection.OpenAsync(cancellationTokenSource.Token);
         if (benchmarkType == BenchmarkType.Tpcc)
         {
-            return new TpccRunner(stats, connection, numWarehouses);
+            return new TpccRunner(targetTps, stats, connection, numWarehouses);
         }
-        return new BasicsRunner(stats, connection, benchmarkType, numWarehouses);
+        return new BasicsRunner(targetTps, stats, connection, benchmarkType, numWarehouses);
     }
 }

@@ -1,8 +1,10 @@
 # SpannerLib, 50 clients - PointQuery
 
+export GOOGLE_APPLICATION_CREDENTIALS=/home/loite/spanner-staging-testing.json
 export CREATE_ALIVENESS_SERVER=false
 export NUM_WAREHOUSES=100
 export NUM_CLIENTS=50
+export TRANSACTIONS_PER_SECOND=10
 export TRANSACTION_TYPE=PointQuery
 dotnet build --configuration Release
 cd bin/Release/net8.0
@@ -11,9 +13,11 @@ cd bin/Release/net8.0
 
 # ClientLib, 50 clients - PointQuery
 
+export GOOGLE_APPLICATION_CREDENTIALS=/home/loite/spanner-staging-testing.json
 export CREATE_ALIVENESS_SERVER=false
 export NUM_WAREHOUSES=100
 export NUM_CLIENTS=50
+export TRANSACTIONS_PER_SECOND=10
 export TRANSACTION_TYPE=PointQuery
 export CLIENT_TYPE=ClientLib
 dotnet build --configuration Release
@@ -23,9 +27,11 @@ cd bin/Release/net8.0
 
 # SpannerLib, 50 clients - Scalar
 
+export GOOGLE_APPLICATION_CREDENTIALS=/home/loite/spanner-staging-testing.json
 export CREATE_ALIVENESS_SERVER=false
 export NUM_WAREHOUSES=100
 export NUM_CLIENTS=50
+export TRANSACTIONS_PER_SECOND=10
 export TRANSACTION_TYPE=Scalar
 dotnet build --configuration Release
 cd bin/Release/net8.0
@@ -34,9 +40,11 @@ cd bin/Release/net8.0
 
 # ClientLib, 50 clients - Scalar
 
+export GOOGLE_APPLICATION_CREDENTIALS=/home/loite/spanner-staging-testing.json
 export CREATE_ALIVENESS_SERVER=false
 export NUM_WAREHOUSES=100
 export NUM_CLIENTS=50
+export TRANSACTIONS_PER_SECOND=10
 export TRANSACTION_TYPE=Scalar
 export CLIENT_TYPE=ClientLib
 dotnet build --configuration Release
@@ -46,9 +54,11 @@ cd bin/Release/net8.0
 
 # SpannerLib, 50 clients - PointDml
 
+export GOOGLE_APPLICATION_CREDENTIALS=/home/loite/spanner-staging-testing.json
 export CREATE_ALIVENESS_SERVER=false
 export NUM_WAREHOUSES=100
 export NUM_CLIENTS=50
+export TRANSACTIONS_PER_SECOND=10
 export TRANSACTION_TYPE=PointDml
 dotnet build --configuration Release
 cd bin/Release/net8.0
@@ -57,9 +67,11 @@ cd bin/Release/net8.0
 
 # ClientLib, 50 clients - PointDml
 
+export GOOGLE_APPLICATION_CREDENTIALS=/home/loite/spanner-staging-testing.json
 export CREATE_ALIVENESS_SERVER=false
 export NUM_WAREHOUSES=100
 export NUM_CLIENTS=50
+export TRANSACTIONS_PER_SECOND=10
 export TRANSACTION_TYPE=PointDml
 export CLIENT_TYPE=ClientLib
 dotnet build --configuration Release
@@ -67,22 +79,26 @@ cd bin/Release/net8.0
 ./Google.Cloud.Spanner.DataProvider.Benchmarks
 
 
-# SpannerLib, 10 clients - ReadWriteTx
+# SpannerLib, 50 clients - ReadWriteTx
 
+export GOOGLE_APPLICATION_CREDENTIALS=/home/loite/spanner-staging-testing.json
 export CREATE_ALIVENESS_SERVER=false
 export NUM_WAREHOUSES=100
-export NUM_CLIENTS=10
+export NUM_CLIENTS=50
+export TRANSACTIONS_PER_SECOND=2
 export TRANSACTION_TYPE=ReadWriteTx
 dotnet build --configuration Release
 cd bin/Release/net8.0
 ./Google.Cloud.Spanner.DataProvider.Benchmarks
 
 
-# ClientLib, 10 clients - ReadWriteTx
+# ClientLib, 50 clients - ReadWriteTx
 
+export GOOGLE_APPLICATION_CREDENTIALS=/home/loite/spanner-staging-testing.json
 export CREATE_ALIVENESS_SERVER=false
 export NUM_WAREHOUSES=100
-export NUM_CLIENTS=10
+export NUM_CLIENTS=50
+export TRANSACTIONS_PER_SECOND=2
 export TRANSACTION_TYPE=ReadWriteTx
 export CLIENT_TYPE=ClientLib
 dotnet build --configuration Release
@@ -92,9 +108,11 @@ cd bin/Release/net8.0
 
 # SpannerLib, 5 clients - LargeQuery
 
+export GOOGLE_APPLICATION_CREDENTIALS=/home/loite/spanner-staging-testing.json
 export CREATE_ALIVENESS_SERVER=false
 export NUM_WAREHOUSES=100
 export NUM_CLIENTS=5
+export TRANSACTIONS_PER_SECOND=1
 export TRANSACTION_TYPE=LargeQuery
 dotnet build --configuration Release
 cd bin/Release/net8.0
@@ -103,10 +121,39 @@ cd bin/Release/net8.0
 
 # ClientLib, 5 clients - LargeQuery
 
+export GOOGLE_APPLICATION_CREDENTIALS=/home/loite/spanner-staging-testing.json
 export CREATE_ALIVENESS_SERVER=false
 export NUM_WAREHOUSES=100
 export NUM_CLIENTS=5
+export TRANSACTIONS_PER_SECOND=1
 export TRANSACTION_TYPE=LargeQuery
+export CLIENT_TYPE=ClientLib
+dotnet build --configuration Release
+cd bin/Release/net8.0
+./Google.Cloud.Spanner.DataProvider.Benchmarks
+
+
+# SpannerLib, 5 clients - TPC-C
+
+export GOOGLE_APPLICATION_CREDENTIALS=/home/loite/spanner-staging-testing.json
+export CREATE_ALIVENESS_SERVER=false
+export NUM_WAREHOUSES=100
+export NUM_CLIENTS=5
+export TRANSACTIONS_PER_SECOND=1
+export TRANSACTION_TYPE=Tpcc
+dotnet build --configuration Release
+cd bin/Release/net8.0
+./Google.Cloud.Spanner.DataProvider.Benchmarks
+
+
+# ClientLib, 5 clients - TPC-C
+
+export GOOGLE_APPLICATION_CREDENTIALS=/home/loite/spanner-staging-testing.json
+export CREATE_ALIVENESS_SERVER=false
+export NUM_WAREHOUSES=100
+export NUM_CLIENTS=5
+export TRANSACTIONS_PER_SECOND=1
+export TRANSACTION_TYPE=Tpcc
 export CLIENT_TYPE=ClientLib
 dotnet build --configuration Release
 cd bin/Release/net8.0
