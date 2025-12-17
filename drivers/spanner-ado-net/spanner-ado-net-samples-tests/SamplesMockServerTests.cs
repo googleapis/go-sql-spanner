@@ -203,4 +203,41 @@ public class SamplesMockServerTests : AbstractMockServerTests
             Assert.That(request.Statements.Count, Is.EqualTo(4));
         }
     }
+
+    [Test]
+    public async Task TestMutationsSample()
+    {
+        await MutationsSample.Run(ConnectionString);
+        
+        Assert.That(Writer.ToString(), Is.EqualTo($"Inserted data using mutations. Affected: 1{Environment.NewLine}{Environment.NewLine}"));
+        var beginRequests = Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>().ToList();
+        Assert.That(beginRequests, Has.Count.EqualTo(1));
+        var beginRequest = beginRequests[0];
+        Assert.That(beginRequest.MutationKey?.Insert?.Table, Is.Not.Null);
+        Assert.That(beginRequest.MutationKey.Insert.Table, Is.EqualTo("Singers"));
+        Assert.That(beginRequest.Options?.ReadWrite, Is.Not.Null);
+        var commitRequests = Fixture.SpannerMock.Requests.OfType<CommitRequest>().ToList();
+        Assert.That(commitRequests, Has.Count.EqualTo(1));
+        var commitRequest = commitRequests[0];
+        Assert.That(commitRequest.Mutations, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public async Task TestPartitionedDmlSample()
+    {
+        const string sql = "update Singers set BirthDate=date '1900-01-01' where BirthDate is null";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateUpdateCount(100L));
+        
+        await PartitionedDmlSample.Run(ConnectionString);
+        
+        Assert.That(Writer.ToString(), Is.EqualTo($"Executed a Partitioned DML statement. Affected: 100{Environment.NewLine}{Environment.NewLine}"));
+        // var beginRequests = Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>().ToList();
+        // Assert.That(beginRequests, Has.Count.EqualTo(1));
+        // var beginRequest = beginRequests[0];
+        // Assert.That(beginRequest.Options?.PartitionedDml, Is.Not.Null);
+        var executeRequests = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().ToList();
+        Assert.That(executeRequests, Has.Count.EqualTo(1));
+        var executeRequest = executeRequests[0];
+        Assert.That(executeRequest.Transaction?.Begin?.PartitionedDml, Is.Not.Null);
+    }
 }

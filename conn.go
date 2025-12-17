@@ -1055,11 +1055,19 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 		return nil, err
 	}
 	statementInfo := c.parser.DetectStatementType(query)
+
+	// TODO: Refactor queryContext and execContext into one unified method.
 	// DDL statements are not supported in QueryContext so use the execContext method for the execution.
 	// DML statements that are executed during a DML batch should also be re-routed to execContext for execution.
-	if statementInfo.StatementType == parser.StatementTypeDdl || (c.InDMLBatch() &&
+	shouldUseDmlBatch := c.InDMLBatch() &&
 		statementInfo.StatementType == parser.StatementTypeDml &&
-		!statementInfo.HasThenReturn) {
+		!statementInfo.HasThenReturn
+	// DML statements that should use a Partitioned DML transaction should also be re-routed to execContext.
+	shouldUsePDML := !c.inTransaction() &&
+		statementInfo.StatementType == parser.StatementTypeDml &&
+		!statementInfo.HasThenReturn &&
+		c.AutocommitDMLMode() == PartitionedNonAtomic
+	if statementInfo.StatementType == parser.StatementTypeDdl || shouldUseDmlBatch || shouldUsePDML {
 		res, err := c.execContext(ctx, query, execOptions, args)
 		if err != nil {
 			return nil, err

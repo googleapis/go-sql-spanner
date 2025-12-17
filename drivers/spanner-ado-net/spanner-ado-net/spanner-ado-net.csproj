@@ -29,4 +29,11 @@ Alpha version: Not for production use</Description>
     </PackageReference>
   </ItemGroup>
   
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-grpc-impl\spannerlib-dotnet-grpc-impl.csproj" />
+    <ProjectReference Include="..\..\..\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-grpc-v1\spannerlib-dotnet-grpc-v1.csproj" />
+    <ProjectReference Include="..\..\..\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-native-impl\spannerlib-dotnet-native-impl.csproj" />
+    <ProjectReference Include="..\..\..\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet\spannerlib-dotnet.csproj" />
+  </ItemGroup>
+  
 </Project>

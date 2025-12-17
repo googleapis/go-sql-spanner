@@ -499,11 +499,16 @@ type emptyRows struct {
 	stats                        *sppb.ResultSetStats
 }
 
-func createDriverResultRows(_ driver.Result, cancel context.CancelFunc, opts *ExecOptions) *emptyRows {
+func createDriverResultRows(result driver.Result, cancel context.CancelFunc, opts *ExecOptions) *emptyRows {
+	stats := emptyRowsStats
+	if affected, err := result.RowsAffected(); err == nil {
+		stats = &sppb.ResultSetStats{RowCount: &sppb.ResultSetStats_RowCountExact{RowCountExact: affected}}
+	}
 	res := &emptyRows{
 		cancel:                  cancel,
 		returnResultSetMetadata: opts.ReturnResultSetMetadata,
 		returnResultSetStats:    opts.ReturnResultSetStats,
+		stats:                   stats,
 	}
 	if !opts.ReturnResultSetMetadata {
 		res.currentResultSetType = resultSetTypeResults
