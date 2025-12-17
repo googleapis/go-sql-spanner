@@ -203,5 +203,27 @@ public class TransactionTests : AbstractMockServerTests
         var exception = Assert.Throws<SpannerException>(() => connection.WriteMutations(new BatchWriteRequest.Types.MutationGroup()));
         Assert.That(exception.Code, Is.EqualTo(Code.FailedPrecondition));
     }
+
+    [Test]
+    public void TestPartitionedDml([Values] LibType libType)
+    {
+        const string sql = "update my_table set active=true where active is null";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, StatementResult.CreateUpdateCount(100L));
+        
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        using var connection = pool.CreateConnection();
+        using (connection.Execute(new ExecuteSqlRequest { Sql = "set autocommit_dml_mode='partitioned_non_atomic'" }));
+        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = sql });
+        
+        Assert.That(rows.UpdateCount, Is.EqualTo(100L));
+        
+        var beginRequests = Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>().ToList();
+        Assert.That(beginRequests, Has.Count.EqualTo(1));
+        Assert.That(beginRequests[0].Options?.PartitionedDml, Is.Not.Null);
+        var executeRequests = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().ToList();
+        Assert.That(executeRequests, Has.Count.EqualTo(1));
+        Assert.That(executeRequests[0].Transaction?.HasId ?? false, Is.True);
+        Assert.That(Fixture.SpannerMock.Requests.OfType<CommitRequest>(), Is.Empty);
+    }
     
 }

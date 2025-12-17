@@ -66,7 +66,7 @@ public class BasicTests : AbstractMockServerTests
         using var connection = pool.CreateConnection();
         SpannerException exception = Assert.Throws<SpannerException>(() => connection.Execute(new ExecuteSqlRequest { Sql = sql }));
         Assert.That(exception.Code, Is.EqualTo(Code.NotFound));
-        Assert.That(exception.Message, Is.EqualTo("Table not found"));
+        Assert.That(exception.Message, Is.EqualTo($"{StatusCode.NotFound}: Table not found"));
     }
 
     [Test]
