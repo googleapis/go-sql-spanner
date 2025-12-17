@@ -31,3 +31,12 @@ class TestPoolOnMockServer(MockServerTestBaseGoDriver):
         # Test closing again is safe
         pool.close()
         assert pool.closed, "Pool should remain closed"
+
+    def test_pool_context_manager(self) -> None:
+        """Test pool creation and closure using a context manager."""
+        with Pool.create_pool(
+            get_mockserver_connection_string(self.port)
+        ) as pool:
+            assert pool.oid is not None
+            assert not pool.closed
+        assert pool.closed, "Pool should be closed after exiting with block"
