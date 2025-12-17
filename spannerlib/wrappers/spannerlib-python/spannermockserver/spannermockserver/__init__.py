@@ -21,6 +21,8 @@ from .mock_spanner import MockSpanner, SpannerServicer, start_mock_server
 from .testbase.mock_server_test_base import (
     MockServerTestBase,
     add_result,
+    add_result_select_1,
+    add_single_result,
     set_database_dialect,
 )
 
@@ -37,4 +39,6 @@ __all__: list[str] = [
     "MockServerTestBase",
     "add_result",
     "set_database_dialect",
+    "add_result_select_1",
+    "add_single_result",
 ]

@@ -32,6 +32,7 @@ from google.cloud.spanner_v1.database import Database
 from google.cloud.spanner_v1.instance import Instance
 from google.cloud.spanner_v1.types import StructType
 import google.cloud.spanner_v1.types.result_set as result_set
+import google.cloud.spanner_v1.types.type as spanner_type
 import grpc
 
 from spannermockserver.mock_database_admin import DatabaseAdminServicer
@@ -141,3 +142,36 @@ def set_database_dialect(
     )
     result.rows.append([dialect.name])
     add_result(sql, result)
+
+
+def add_result_select_1():
+    add_single_result("select 1", "c", TypeCode.INT64, [("1",)])
+
+
+def add_single_result(
+    sql: str, column_name: str, type_code: spanner_type.TypeCode, row
+):
+    result = result_set.ResultSet(
+        dict(
+            metadata=result_set.ResultSetMetadata(
+                dict(
+                    row_type=spanner_type.StructType(
+                        dict(
+                            fields=[
+                                spanner_type.StructType.Field(
+                                    dict(
+                                        name=column_name,
+                                        type=spanner_type.Type(
+                                            dict(code=type_code)
+                                        ),
+                                    )
+                                )
+                            ]
+                        )
+                    )
+                )
+            ),
+        )
+    )
+    result.rows.extend(row)
+    MockServerTestBase.spanner_service.mock_spanner.add_result(sql, result)
