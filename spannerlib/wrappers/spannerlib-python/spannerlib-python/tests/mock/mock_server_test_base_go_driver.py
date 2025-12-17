@@ -11,20 +11,20 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-"""Helper functions for mock tests."""
 
-PROJECT_ID = "p"
-INSTANCE_ID = "i"
-DATABASE_ID = "d"
+"""
+Base class for tests using the mock Spanner server
+extended for Go driver
+"""
 
-MOCK_CONNECTION_STRING = (
-    "spanner:///"
-    f"projects/{PROJECT_ID}"
-    f"/instances/{INSTANCE_ID}"
-    f"/databases/{DATABASE_ID}"
-    ";use_plain_text=true"
-)
+from google.cloud.spanner_admin_database_v1.types import DatabaseDialect
+from spannermockserver import MockServerTestBase, set_database_dialect
 
 
-def get_mockserver_connection_string(port: int) -> str:
-    return MOCK_CONNECTION_STRING + ";endpoint=localhost:" + str(port)
+class MockServerTestBaseGoDriver(MockServerTestBase):
+
+    def setUp(self, *args, **kwargs):
+        super().setUp(*args, **kwargs)
+        # Seed the mock server with the database dialect result
+        # required by Go driver
+        set_database_dialect(DatabaseDialect.GOOGLE_STANDARD_SQL)

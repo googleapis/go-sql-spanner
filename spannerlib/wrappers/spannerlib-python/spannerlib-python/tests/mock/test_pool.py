@@ -12,31 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-
-from spannermockserver import MockServerTestBase
-
 from google.cloud.spannerlib import Pool
 
 from ._helper import get_mockserver_connection_string
+from .mock_server_test_base_go_driver import MockServerTestBaseGoDriver
 
 
-class TestPoolOnMockServer(MockServerTestBase):
+class TestPoolOnMockServer(MockServerTestBaseGoDriver):
     """End-to-end tests for the Pool class on mock server."""
 
-    @classmethod
-    def setup_class(cls):
-        super().setup_class()
-        os.environ["SPANNER_EMULATOR_HOST"] = f"localhost:{cls.port}"
-
-    @classmethod
-    def teardown_class(cls):
-        if "SPANNER_EMULATOR_HOST" in os.environ:
-            del os.environ["SPANNER_EMULATOR_HOST"]
-        super().teardown_class()
-
-    def test_pool_creation_and_close(self) -> None:
-        pool = Pool.create_pool(get_mockserver_connection_string(self.port))
+    def test_pool_creation_and_close(self):
+        conn_str = get_mockserver_connection_string(self.port)
+        pool = Pool.create_pool(conn_str)
         assert pool.oid is not None, "Pool ID should not be None"
         assert not pool.closed, "Pool should not be closed initially"
         pool.close()
