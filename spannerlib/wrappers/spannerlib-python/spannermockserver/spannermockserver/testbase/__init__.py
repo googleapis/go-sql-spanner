@@ -12,8 +12,14 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from .mock_server_test_base import MockServerTestBase
+from .mock_server_test_base import (
+    MockServerTestBase,
+    add_result,
+    set_database_dialect,
+)
 
 __all__: list[str] = [
     "MockServerTestBase",
+    "add_result",
+    "set_database_dialect",
 ]

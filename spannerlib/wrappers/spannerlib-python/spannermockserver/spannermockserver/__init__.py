@@ -18,9 +18,13 @@ from typing import Final
 
 from .mock_database_admin import DatabaseAdminServicer
 from .mock_spanner import MockSpanner, SpannerServicer, start_mock_server
-from .testbase.mock_server_test_base import MockServerTestBase
+from .testbase.mock_server_test_base import (
+    MockServerTestBase,
+    add_result,
+    set_database_dialect,
+)
 
-__version__: Final[str] = "0.1.1"
+__version__: Final[str] = "0.1.2"
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -31,4 +35,6 @@ __all__: list[str] = [
     "SpannerServicer",
     "DatabaseAdminServicer",
     "MockServerTestBase",
+    "add_result",
+    "set_database_dialect",
 ]
