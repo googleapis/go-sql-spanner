@@ -195,7 +195,7 @@ func queryDmlBatch(ctx context.Context, conn *conn, index int, result *multiStat
 			_ = conn.AbortBatch()
 			return startIndex, err
 		} else {
-			r := createDriverResultRows(res, func() {}, execOpts)
+			r := createDriverResultRows(res /* isPartitionedDml = */, false, func() {}, execOpts)
 			result.results = append(result.results, r)
 		}
 	}

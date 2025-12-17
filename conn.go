@@ -1059,20 +1059,16 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 	// TODO: Refactor queryContext and execContext into one unified method.
 	// DDL statements are not supported in QueryContext so use the execContext method for the execution.
 	// DML statements that are executed during a DML batch should also be re-routed to execContext for execution.
-	shouldUseDmlBatch := c.InDMLBatch() &&
-		statementInfo.StatementType == parser.StatementTypeDml &&
-		!statementInfo.HasThenReturn
+	isPlainDml := statementInfo.StatementType == parser.StatementTypeDml && !statementInfo.HasThenReturn
+	shouldUseDmlBatch := c.InDMLBatch() && isPlainDml
 	// DML statements that should use a Partitioned DML transaction should also be re-routed to execContext.
-	shouldUsePDML := !c.inTransaction() &&
-		statementInfo.StatementType == parser.StatementTypeDml &&
-		!statementInfo.HasThenReturn &&
-		c.AutocommitDMLMode() == PartitionedNonAtomic
+	shouldUsePDML := !c.inTransaction() && c.AutocommitDMLMode() == PartitionedNonAtomic && isPlainDml
 	if statementInfo.StatementType == parser.StatementTypeDdl || shouldUseDmlBatch || shouldUsePDML {
 		res, err := c.execContext(ctx, query, execOptions, args)
 		if err != nil {
 			return nil, err
 		}
-		return createDriverResultRows(res, cancel, execOptions), nil
+		return createDriverResultRows(res, shouldUsePDML, cancel, execOptions), nil
 	}
 
 	var iter rowIterator

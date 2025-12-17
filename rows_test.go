@@ -158,7 +158,7 @@ func TestRows_Next_Unsupported(t *testing.T) {
 }
 
 func TestEmptyRows(t *testing.T) {
-	r := createDriverResultRows(&result{}, func() {}, &ExecOptions{})
+	r := createDriverResultRows(&result{}, false, func() {}, &ExecOptions{})
 
 	if g, w := r.Columns(), []string{"affected_rows"}; !cmp.Equal(g, w) {
 		t.Fatalf("columns mismatch\n Got: %v\nWant: %v", g, w)
@@ -169,7 +169,7 @@ func TestEmptyRows(t *testing.T) {
 }
 
 func TestEmptyRowsWithMetadataAndStats(t *testing.T) {
-	r := createDriverResultRows(&result{}, func() {}, &ExecOptions{ReturnResultSetMetadata: true, ReturnResultSetStats: true})
+	r := createDriverResultRows(&result{}, false, func() {}, &ExecOptions{ReturnResultSetMetadata: true, ReturnResultSetStats: true})
 
 	// The first result set should contain ResultSetMetadata.
 	if g, w := r.Columns(), []string{"metadata"}; !cmp.Equal(g, w) {

@@ -476,6 +476,7 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
         var id = Interlocked.Increment(ref _transactionCounter);
         tx.Id = ByteString.CopyFromUtf8($"{request.SessionAsSessionName}/transactions/{id}");
         _transactions.TryAdd(tx.Id, tx);
+        _transactionOptions.TryAdd(tx.Id, request.Options);
         return Task.FromResult(tx);
     }
 
@@ -739,7 +740,7 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
         return new Status { Code = (int)StatusCode.Unknown, Message = e.Message };
     }
 
-    public override async Task ExecuteStreamingSql(ExecuteSqlRequest request, IServerStreamWriter<PartialResultSet> responseStream, ServerCallContext context)
+    private StatementResult PrepareExecuteSql(string method, ExecuteSqlRequest request, ServerCallContext context, out ExecutionTime? executionTime, out Transaction? transaction, out Transaction? returnTransaction)
     {
         if (!request.Sql.Equals(SDialectQuery))
         {
@@ -747,38 +748,83 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
         }
         _contexts.Enqueue(context);
         _headers.Enqueue(context.RequestHeaders);
-        _executionTimes.TryGetValue(nameof(ExecuteStreamingSql) + request.Sql, out ExecutionTime? executionTime);
+        _executionTimes.TryGetValue(method + request.Sql, out executionTime);
         if (executionTime == null)
         {
-            _executionTimes.TryGetValue(nameof(ExecuteStreamingSql), out executionTime);
+            _executionTimes.TryGetValue(method, out executionTime);
         }
         executionTime?.SimulateExecutionTime();
         TryFindSession(request.SessionAsSessionName);
-        Transaction? returnTransaction = null;
-        var transaction = FindOrBeginTransaction(request.SessionAsSessionName, request.Transaction);
+        returnTransaction = null;
+        transaction = FindOrBeginTransaction(request.SessionAsSessionName, request.Transaction);
         if (request.Transaction != null && (request.Transaction.SelectorCase == TransactionSelector.SelectorOneofCase.Begin || request.Transaction.SelectorCase == TransactionSelector.SelectorOneofCase.SingleUse))
         {
             returnTransaction = transaction;
         }
         if (_results.TryGetValue(request.Sql.Trim(), out StatementResult? result))
         {
-            switch (result.Type)
-            {
-                case StatementResult.StatementResultType.ResultSet:
-                    await WriteResultSet(returnTransaction, result.ResultSet!, responseStream, executionTime, context.CancellationToken);
-                    break;
-                case StatementResult.StatementResultType.UpdateCount:
-                    await WriteUpdateCount(returnTransaction, result.UpdateCount, responseStream);
-                    break;
-                case StatementResult.StatementResultType.Exception:
-                    throw result.Exception!;
-                default:
-                    throw new RpcException(new GrpcCore.Status(StatusCode.InvalidArgument, $"Invalid result type {result.Type} for {request.Sql[..Math.Min(request.Sql.Length, 5000)]}"));
-            }
+            return result;
         }
-        else
+        throw new RpcException(new GrpcCore.Status(StatusCode.InvalidArgument, $"No result found for {request.Sql[..Math.Min(request.Sql.Length, 5000)]}"));
+    }
+
+    public override Task<ResultSet> ExecuteSql(ExecuteSqlRequest request, ServerCallContext context)
+    {
+        var result = PrepareExecuteSql(nameof(ExecuteSql), request, context, out var executionTime, out var transaction, out var returnTransaction);
+        switch (result.Type)
         {
-            throw new RpcException(new GrpcCore.Status(StatusCode.InvalidArgument, $"No result found for {request.Sql[..Math.Min(request.Sql.Length, 5000)]}"));
+            case StatementResult.StatementResultType.ResultSet:
+                var resultSet = result.ResultSet!;
+                resultSet.Metadata.Transaction = returnTransaction;
+                return Task.FromResult(resultSet);
+            case StatementResult.StatementResultType.UpdateCount:
+                TransactionOptions? transactionOptions = null;
+                if (returnTransaction != null)
+                {
+                    if (request.Transaction.SelectorCase == TransactionSelector.SelectorOneofCase.SingleUse)
+                    {
+                        transactionOptions = request.Transaction.SingleUse;
+                    }
+                    else if (request.Transaction.SelectorCase == TransactionSelector.SelectorOneofCase.Begin)
+                    {
+                        transactionOptions = request.Transaction.Begin;
+                    }
+                }
+                else if (transaction != null)
+                {
+                    _transactionOptions.TryGetValue(transaction.Id, out transactionOptions);
+                }
+                var stats = transactionOptions?.PartitionedDml == null
+                    ? new ResultSetStats { RowCountExact = result.UpdateCount }
+                    : new ResultSetStats { RowCountLowerBound = result.UpdateCount };
+                var updateCountResultSet = new ResultSet
+                {
+                    Metadata = new ResultSetMetadata {Transaction = returnTransaction},
+                    Stats = stats,
+                };
+                return Task.FromResult(updateCountResultSet);
+            case StatementResult.StatementResultType.Exception:
+                throw result.Exception!;
+            default:
+                throw new RpcException(new GrpcCore.Status(StatusCode.InvalidArgument, $"Invalid result type {result.Type} for {request.Sql[..Math.Min(request.Sql.Length, 5000)]}"));
+        }
+    }
+
+    public override async Task ExecuteStreamingSql(ExecuteSqlRequest request, IServerStreamWriter<PartialResultSet> responseStream, ServerCallContext context)
+    {
+        var result = PrepareExecuteSql(nameof(ExecuteStreamingSql), request, context, out var executionTime, out var transaction, out var returnTransaction);
+        switch (result.Type)
+        {
+            case StatementResult.StatementResultType.ResultSet:
+                await WriteResultSet(returnTransaction, result.ResultSet!, responseStream, executionTime, context.CancellationToken);
+                break;
+            case StatementResult.StatementResultType.UpdateCount:
+                await WriteUpdateCount(returnTransaction, result.UpdateCount, responseStream);
+                break;
+            case StatementResult.StatementResultType.Exception:
+                throw result.Exception!;
+            default:
+                throw new RpcException(new GrpcCore.Status(StatusCode.InvalidArgument, $"Invalid result type {result.Type} for {request.Sql[..Math.Min(request.Sql.Length, 5000)]}"));
         }
     }
 

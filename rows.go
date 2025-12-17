@@ -499,10 +499,14 @@ type emptyRows struct {
 	stats                        *sppb.ResultSetStats
 }
 
-func createDriverResultRows(result driver.Result, cancel context.CancelFunc, opts *ExecOptions) *emptyRows {
+func createDriverResultRows(result driver.Result, isPartitionedDml bool, cancel context.CancelFunc, opts *ExecOptions) *emptyRows {
 	stats := emptyRowsStats
 	if affected, err := result.RowsAffected(); err == nil {
-		stats = &sppb.ResultSetStats{RowCount: &sppb.ResultSetStats_RowCountExact{RowCountExact: affected}}
+		if isPartitionedDml {
+			stats = &sppb.ResultSetStats{RowCount: &sppb.ResultSetStats_RowCountLowerBound{RowCountLowerBound: affected}}
+		} else {
+			stats = &sppb.ResultSetStats{RowCount: &sppb.ResultSetStats_RowCountExact{RowCountExact: affected}}
+		}
 	}
 	res := &emptyRows{
 		cancel:                  cancel,
