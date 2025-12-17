@@ -24,8 +24,17 @@ namespace Google.Cloud.SpannerLib;
 /// function in SpannerLib returns a non-zero status code.
 /// </summary>
 /// <param name="status">The status that was returned by SpannerLib</param>
-public class SpannerException(Status status) : Exception(status.Message)
+public class SpannerException(Status status) : Exception(CreateMessage(status))
 {
+    private static string CreateMessage(Status status)
+    {
+        if (Enum.IsDefined(typeof(StatusCode), status.Code))
+        {
+            return $"{((StatusCode)status.Code).ToString()}: {status.Message}";
+        }
+        return status.Message;
+    }
+    
     public static SpannerException ToSpannerException(RpcException exception)
     {
         return new SpannerException(new Status { Code = (int) exception.Status.StatusCode, Message = exception.Message });
