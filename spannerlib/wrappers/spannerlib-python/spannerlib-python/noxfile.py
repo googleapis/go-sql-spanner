@@ -28,6 +28,7 @@ TEST_PYTHON_VERSIONS: List[str] = [
     "3.11",
     "3.12",
     "3.13",
+    "3.14",
 ]
 
 
@@ -190,7 +191,7 @@ def mock(session, dialect):
     session.run(
         "py.test",
         MODE,
-        f"--junitxml=mock_googlesql_{session.python}_sponge_log.xml",
+        f"--junitxml=mock_{dialect.lower()}_{session.python}_sponge_log.xml",
         *test_paths,
         env={"SPANNER_DATABASE_DIALECT": dialect},
     )
