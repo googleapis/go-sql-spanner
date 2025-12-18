@@ -14,6 +14,7 @@
 
 using System.Data;
 using System.Data.Common;
+using Google.Cloud.Spanner.V1;
 
 namespace Google.Cloud.Spanner.DataProvider;
 
@@ -26,9 +27,35 @@ public class SpannerBatchCommand : DbBatchCommand
     public override int RecordsAffected => InternalRecordsAffected;
     protected override DbParameterCollection DbParameterCollection { get; } = new SpannerParameterCollection();
     public override bool CanCreateParameter => true;
+    
+    internal SpannerParameterCollection SpannerParameterCollection => (SpannerParameterCollection)DbParameterCollection;
+    
+    internal bool HasMutation => Mutation != null;
+    
+    internal Mutation? Mutation { get; }
+
+    internal SpannerBatchCommand()
+    {
+    }
+
+    internal SpannerBatchCommand(Mutation mutation)
+    {
+        Mutation = mutation;
+    }
 
     public override DbParameter CreateParameter()
     {
         return new SpannerParameter();
+    }
+
+    public SpannerParameter AddParameter(string name, object value)
+    {
+        var parameter = new SpannerParameter
+        {
+            ParameterName = name,
+            Value = value
+        };
+        SpannerParameterCollection.Add(parameter);
+        return parameter;
     }
 }

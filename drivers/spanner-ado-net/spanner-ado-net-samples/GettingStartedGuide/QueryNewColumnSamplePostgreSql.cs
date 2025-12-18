@@ -12,34 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-namespace Google.Cloud.Spanner.DataProvider.Samples.Snippets;
+namespace Google.Cloud.Spanner.DataProvider.Samples.GettingStartedGuide;
 
-/// <summary>
-/// This sample shows how to use request and transaction tags with the Spanner ADO.NET data provider.
-/// </summary>
-public static class TagsSample
+public static class QueryNewColumnSamplePostgreSql
 {
-    public static async Task Run(string connectionString)
+    // [START spanner_query_data_with_new_column]
+    public static async Task QueryNewColumn(string connectionString)
     {
         await using var connection = new SpannerConnection(connectionString);
         await connection.OpenAsync();
         
-        // Set a transaction tag on a read/write transaction.
-        await using var transaction = await connection.BeginTransactionAsync();
-        transaction.Tag = "my_transaction_tag";
-        
-        // Set a request tag on a command.
-        // Assign the transaction to a command to instruct the command to use the transaction and transaction tag.
         await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.Tag = "my_query_tag";
-        command.CommandText = "SELECT 'Hello World' as Message";
+        command.CommandText = "select singer_id, album_id, marketing_budget " +
+                              "from albums " +
+                              "order by singer_id, album_id";
         await using var reader = await command.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
-            Console.WriteLine($"Greeting from Spanner: {reader.GetString(0)}");
+            Console.WriteLine($"{reader["singer_id"]} {reader["album_id"]} {reader["marketing_budget"]}");
         }
-        
-        await transaction.CommitAsync();
     }
+    // [END spanner_query_data_with_new_column]
 }

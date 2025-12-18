@@ -17,7 +17,6 @@ using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
-using System.Reflection.Metadata.Ecma335;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Api.Gax;
@@ -211,6 +210,19 @@ public class SpannerConnection : DbConnection
     }
 
     /// <summary>
+    /// Starts a new read-only transaction with default options.
+    /// </summary>
+    /// <returns>The new transaction</returns>
+    /// <exception cref="InvalidOperationException">If the connection has an active transaction</exception>
+    public ValueTask<SpannerTransaction> BeginReadOnlyTransactionAsync(CancellationToken cancellationToken = default)
+    {
+        return BeginTransactionAsync(new TransactionOptions
+        {
+            ReadOnly = new TransactionOptions.Types.ReadOnly(),
+        }, cancellationToken);
+    }
+
+    /// <summary>
     /// Starts a new read-only transaction using the given options.
     /// </summary>
     /// <param name="readOnlyOptions">The options to use for the new read-only transaction</param>
@@ -222,6 +234,22 @@ public class SpannerConnection : DbConnection
         {
             ReadOnly = readOnlyOptions,
         });
+    }
+
+    /// <summary>
+    /// Starts a new read-only transaction using the given options.
+    /// </summary>
+    /// <param name="readOnlyOptions">The options to use for the new read-only transaction</param>
+    /// <param name="cancellationToken">The cancellation token</param>
+    /// <returns>The new transaction</returns>
+    /// <exception cref="InvalidOperationException">If the connection has an active transaction</exception>
+    public ValueTask<SpannerTransaction> BeginReadOnlyTransactionAsync(
+        TransactionOptions.Types.ReadOnly readOnlyOptions, CancellationToken cancellationToken)
+    {
+        return BeginTransactionAsync(new TransactionOptions
+        {
+            ReadOnly = readOnlyOptions,
+        }, cancellationToken);
     }
 
     /// <summary>

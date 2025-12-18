@@ -18,7 +18,7 @@ namespace Google.Cloud.Spanner.DataProvider.Samples.Snippets;
 
 // Sample that shows how to supply a custom configuration for the Spanner client
 // that is used by the driver.
-public class CustomConfigurationSample
+public static class CustomConfigurationSample
 {
     public static async Task Run(string connectionString)
     {

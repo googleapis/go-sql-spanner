@@ -19,7 +19,7 @@ namespace Google.Cloud.Spanner.DataProvider.Samples.Snippets;
 /// Using query parameters is recommended, as it allows Spanner to cache and reuse the query plan,
 /// and it helps to prevent SQL injection attacks in your application.
 /// </summary>
-public class QueryParametersSample
+public static class QueryParametersSample
 {
     public static async Task Run(string connectionString)
     {

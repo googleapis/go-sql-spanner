@@ -19,7 +19,7 @@ namespace Google.Cloud.Spanner.DataProvider.Samples.Snippets;
 /// Read-only transactions do not take locks on Spanner, and should be used when your application needs
 /// to execute multiple queries that read from the same snapshot of the database.
 /// </summary>
-public class ReadOnlyTransactionSample
+public static class ReadOnlyTransactionSample
 {
     public static async Task Run(string connectionString)
     {

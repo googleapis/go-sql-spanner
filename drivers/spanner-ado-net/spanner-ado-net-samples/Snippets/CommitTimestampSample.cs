@@ -15,7 +15,7 @@
 namespace Google.Cloud.Spanner.DataProvider.Samples.Snippets;
 
 // Example for getting the commit timestamp of a read/write transaction.
-public class CommitTimestampSample
+public static class CommitTimestampSample
 {
     public static async Task Run(string connectionString)
     {

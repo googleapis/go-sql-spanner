@@ -19,7 +19,7 @@ namespace Google.Cloud.Spanner.DataProvider.Samples.Snippets;
 /// <summary>
 /// This sample shows how to execute a read/write transaction using the Spanner ADO.NET data provider.
 /// </summary>
-public class TransactionSample
+public static class TransactionSample
 {
     public static async Task Run(string connectionString)
     {

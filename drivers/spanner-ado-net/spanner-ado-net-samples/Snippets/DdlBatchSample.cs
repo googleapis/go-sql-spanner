@@ -19,7 +19,7 @@ namespace Google.Cloud.Spanner.DataProvider.Samples.Snippets;
 /// Executing multiple DDL statements as a single batch is much more efficient than
 /// executing them as separate statements.
 /// </summary>
-public class DdlBatchSample
+public static class DdlBatchSample
 {
     public static async Task Run(string connectionString)
     {

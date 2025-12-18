@@ -17,7 +17,7 @@ namespace Google.Cloud.Spanner.DataProvider.Samples.Snippets;
 /// <summary>
 /// Example for using Partitioned DML with the Spanner ADO.NET data provider.
 /// </summary>
-public class PartitionedDmlSample
+public static class PartitionedDmlSample
 {
     public static async Task Run(string connectionString)
     {

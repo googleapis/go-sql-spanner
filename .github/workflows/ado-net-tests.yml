@@ -62,3 +62,7 @@ jobs:
         working-directory: drivers/spanner-ado-net/spanner-ado-net-specification-tests
         run: dotnet test --verbosity normal
         shell: bash
+      - name: spanner-ado-net-sample-tests
+        working-directory: drivers/spanner-ado-net/spanner-ado-net-samples-tests
+        run: dotnet test --verbosity normal
+        shell: bash

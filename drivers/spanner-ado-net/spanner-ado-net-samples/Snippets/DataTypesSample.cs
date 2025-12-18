@@ -3,7 +3,7 @@ namespace Google.Cloud.Spanner.DataProvider.Samples.Snippets;
 // Sample showing how to work with the different data types that are supported by Spanner:
 // 1. How to set data of each type as a statement parameter.
 // 2. How to get data from columns of each type.
-public class DataTypesSample
+public static class DataTypesSample
 {
     private const string CreateAllTypesTable = @"
         CREATE TABLE IF NOT EXISTS AllTypes (

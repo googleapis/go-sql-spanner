@@ -133,12 +133,12 @@ cd bin/Release/net8.0
 ./Google.Cloud.Spanner.DataProvider.Benchmarks
 
 
-# SpannerLib, 5 clients - TPC-C
+# SpannerLib, 50 clients - TPC-C
 
 export GOOGLE_APPLICATION_CREDENTIALS=/home/loite/spanner-staging-testing.json
 export CREATE_ALIVENESS_SERVER=false
 export NUM_WAREHOUSES=100
-export NUM_CLIENTS=5
+export NUM_CLIENTS=50
 export TRANSACTIONS_PER_SECOND=1
 export TRANSACTION_TYPE=Tpcc
 dotnet build --configuration Release
@@ -146,12 +146,12 @@ cd bin/Release/net8.0
 ./Google.Cloud.Spanner.DataProvider.Benchmarks
 
 
-# ClientLib, 5 clients - TPC-C
+# ClientLib, 50 clients - TPC-C
 
 export GOOGLE_APPLICATION_CREDENTIALS=/home/loite/spanner-staging-testing.json
 export CREATE_ALIVENESS_SERVER=false
 export NUM_WAREHOUSES=100
-export NUM_CLIENTS=5
+export NUM_CLIENTS=50
 export TRANSACTIONS_PER_SECOND=1
 export TRANSACTION_TYPE=Tpcc
 export CLIENT_TYPE=ClientLib

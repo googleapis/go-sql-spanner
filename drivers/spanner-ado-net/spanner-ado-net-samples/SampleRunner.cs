@@ -13,6 +13,7 @@
 // limitations under the License.
 
 using System.Reflection;
+using Docker.DotNet.Models;
 using Google.Api.Gax;
 using Google.Cloud.Spanner.Common.V1;
 using Google.Cloud.Spanner.DataProvider.Samples.Snippets;
@@ -61,7 +62,7 @@ public static class SampleRunner
         }
     }
 
-    private static void RunSample(string sampleName, bool failOnException)
+    internal static void RunSample(string sampleName, bool failOnException)
     {
         if (sampleName.EndsWith("Sample"))
         {
@@ -93,7 +94,8 @@ public static class SampleRunner
         try
         {
             Console.WriteLine("");
-            if (emulatorRunner.IsEmulatorRunning())
+            PortBinding? portBinding = null;
+            if (EmulatorRunner.IsEmulatorRunning())
             {
                 Console.WriteLine("Emulator is already running. Re-using existing Emulator instance...");
                 Console.WriteLine("");
@@ -101,7 +103,7 @@ public static class SampleRunner
             else
             {
                 Console.WriteLine("Starting emulator...");
-                var portBinding = await emulatorRunner.StartEmulator();
+                portBinding = await emulatorRunner.StartEmulator();
                 Console.WriteLine($"Emulator started on port {portBinding.HostPort}");
                 Console.WriteLine("");
                 startedEmulator = true;
@@ -111,11 +113,16 @@ public static class SampleRunner
             var instanceId = "sample-instance";
             var databaseId = "sample-database";
             DatabaseName databaseName = DatabaseName.FromProjectInstanceDatabase(projectId, instanceId, databaseId);
-            var connectionStringBuilder = new SpannerConnectionStringBuilder()
+            var connectionStringBuilder = new SpannerConnectionStringBuilder
             {
                 DataSource = databaseName.ToString(),
                 AutoConfigEmulator = true,
             };
+            if (portBinding != null)
+            {
+                connectionStringBuilder.Host = portBinding.HostIP;
+                connectionStringBuilder.Port = uint.Parse(portBinding.HostPort);
+            }
             
             await ExecuteScript(connectionStringBuilder.ConnectionString, "create_sample_tables.sql");
             await ExecuteScript(connectionStringBuilder.ConnectionString, "insert_sample_data.sql");

@@ -33,12 +33,17 @@ internal class EmulatorRunner
     private readonly DockerClient _dockerClient;
     private string? _containerId;
 
-    internal EmulatorRunner()
+    internal static DockerClient CreateDockerClient()
     {
-        _dockerClient = new DockerClientConfiguration(new Uri(GetDockerApiUri())).CreateClient();
+        return new DockerClientConfiguration(new Uri(GetDockerApiUri())).CreateClient();
     }
 
-    internal bool IsEmulatorRunning()
+    internal EmulatorRunner()
+    {
+        _dockerClient = CreateDockerClient();
+    }
+
+    internal static bool IsEmulatorRunning()
     {
         using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         try
@@ -104,12 +109,10 @@ internal class EmulatorRunner
         {
             FromImage = SEmulatorImageName,
             Tag = "latest"
-        },
-            new AuthConfig(),
-            new Progress<JSONMessage>());
+        }, new AuthConfig(), new Progress<JSONMessage>());
     }
 
-    private string GetDockerApiUri()
+    private static string GetDockerApiUri()
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {

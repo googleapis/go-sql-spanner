@@ -17,7 +17,7 @@ namespace Google.Cloud.Spanner.DataProvider.Samples.Snippets;
 /// <summary>
 /// Example for using Mutations with the Spanner ADO.NET data provider.
 /// </summary>
-public class MutationsSample
+public static class MutationsSample
 {
     public static async Task Run(string connectionString)
     {

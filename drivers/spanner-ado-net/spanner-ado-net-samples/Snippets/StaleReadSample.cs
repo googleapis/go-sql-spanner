@@ -21,7 +21,7 @@ namespace Google.Cloud.Spanner.DataProvider.Samples.Snippets;
 /// This sample shows how to execute stale reads using both single statements and read-only transaction
 /// with the Spanner ADO.NET data provider.
 /// </summary>
-public class StaleReadSample
+public static class StaleReadSample
 {
     public static async Task Run(string connectionString)
     {
@@ -60,10 +60,15 @@ public class StaleReadSample
     /// <param name="connection"></param>
     private static async Task StaleReadOnlyTransaction(SpannerConnection connection)
     {
+        // Get the current time from Spanner so we can use that as the read-timestamp for the transaction.
+        await using var currentTimeCommand = connection.CreateCommand();
+        currentTimeCommand.CommandText = "SELECT CURRENT_TIMESTAMP";
+        var currentTime = (DateTime?) await currentTimeCommand.ExecuteScalarAsync();
+        
         // Start a read-only transaction using the BeginReadOnlyTransaction method.
         await using var transaction = connection.BeginReadOnlyTransaction(new TransactionOptions.Types.ReadOnly
         {
-            ExactStaleness = Duration.FromTimeSpan(TimeSpan.FromSeconds(10)),
+            ReadTimestamp = Timestamp.FromDateTime(currentTime!.Value),
         });
         
         // Execute a query that uses this transaction.

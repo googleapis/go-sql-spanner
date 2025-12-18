@@ -21,7 +21,7 @@ namespace Google.Cloud.Spanner.DataProvider.Samples.Snippets;
 /// Executing multiple DML statements as a single batch is more efficient than
 /// executing them as separate statements, as it reduces the number of round-trips to Spanner.
 /// </summary>
-public class DmlBatchSample
+public static class DmlBatchSample
 {
     private struct Singer
     {
@@ -74,7 +74,7 @@ public class DmlBatchSample
         // Execute the batch of DML statements.
         long affected = await batch.ExecuteNonQueryAsync();
         
-        Console.WriteLine("Executed ADO.NET batch");
+        Console.WriteLine($"Executed ADO.NET batch");
         Console.WriteLine("Affected: " + affected);
         Console.WriteLine();
     }

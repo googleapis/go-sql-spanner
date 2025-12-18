@@ -43,11 +43,12 @@ public class SamplesMockServerTests : AbstractMockServerTests
     }
 
     [Test]
-    public async Task TestHelloWorld()
+    public async Task TestHelloWorldSample()
     {
         const string sql = "SELECT 'Hello World' as Message";
         Fixture.SpannerMock.AddOrUpdateStatementResult(sql,
             StatementResult.CreateResultSet([Tuple.Create(TypeCode.String, "Message")], [["Hello World"]]));
+        
         await HelloWorldSample.Run(ConnectionString);
         
         Assert.That(Writer.ToString(), Is.EqualTo($"Greeting from Spanner: Hello World{Environment.NewLine}"));
@@ -231,13 +232,158 @@ public class SamplesMockServerTests : AbstractMockServerTests
         await PartitionedDmlSample.Run(ConnectionString);
         
         Assert.That(Writer.ToString(), Is.EqualTo($"Executed a Partitioned DML statement. Affected: 100{Environment.NewLine}{Environment.NewLine}"));
-        // var beginRequests = Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>().ToList();
-        // Assert.That(beginRequests, Has.Count.EqualTo(1));
-        // var beginRequest = beginRequests[0];
-        // Assert.That(beginRequest.Options?.PartitionedDml, Is.Not.Null);
+        var beginRequests = Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>().ToList();
+        Assert.That(beginRequests, Has.Count.EqualTo(1));
+        var beginRequest = beginRequests[0];
+        Assert.That(beginRequest.Options?.PartitionedDml, Is.Not.Null);
         var executeRequests = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().ToList();
         Assert.That(executeRequests, Has.Count.EqualTo(1));
         var executeRequest = executeRequests[0];
-        Assert.That(executeRequest.Transaction?.Begin?.PartitionedDml, Is.Not.Null);
+        Assert.That(executeRequest.Transaction?.Id, Is.Not.Null);
+        Assert.That(Fixture.SpannerMock.Requests.OfType<CommitRequest>(), Is.Empty);
+    }
+    
+    [Test]
+    public async Task TestQueryParametersSample()
+    {
+        const string namedParameters =
+            "SELECT SingerId, FullName FROM Singers WHERE LastName LIKE @lastName    OR FirstName LIKE @firstName ORDER BY LastName, FirstName";
+        const string positionalParameters =
+            "SELECT SingerId, FullName FROM Singers WHERE LastName LIKE @p1    OR FirstName LIKE @p2 ORDER BY LastName, FirstName";
+        var result = StatementResult.CreateResultSet(
+            [Tuple.Create(TypeCode.Int64, "SingerId"), Tuple.Create(TypeCode.String, "FullName")],
+            [[1L, "Pete Allison"], [2L, "Alice Peterson"]]);
+        Fixture.SpannerMock.AddOrUpdateStatementResult(namedParameters, result);
+        Fixture.SpannerMock.AddOrUpdateStatementResult(positionalParameters, result);
+        
+        await QueryParametersSample.Run(ConnectionString);
+        
+        Assert.That(Writer.ToString(), Is.EqualTo(
+            $"Found singer with named parameters: Pete Allison{Environment.NewLine}" +
+            $"Found singer with named parameters: Alice Peterson{Environment.NewLine}" +
+            $"Found singer with positional parameters: Pete Allison{Environment.NewLine}" +
+            $"Found singer with positional parameters: Alice Peterson{Environment.NewLine}"));
+        
+        var requests = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().ToList();
+        Assert.That(requests, Has.Count.EqualTo(2));
+        var index = 0;
+        foreach (var request in requests)
+        {
+            Assert.That(request.Transaction?.SingleUse?.ReadOnly, Is.Not.Null);
+            Assert.That(request.ParamTypes, Is.Empty);
+            Assert.That(request.Params.Fields, Has.Count.EqualTo(2));
+            if (index == 0)
+            {
+                Assert.That(request.Params.Fields["firstName"].StringValue, Is.EqualTo("A%"));
+                Assert.That(request.Params.Fields["lastName"].StringValue, Is.EqualTo("R%"));
+            }
+            else
+            {
+                Assert.That(request.Params.Fields["p1"].StringValue, Is.EqualTo("R%"));
+                Assert.That(request.Params.Fields["p2"].StringValue, Is.EqualTo("A%"));
+            }
+            index++;
+        }
+    }
+
+    [Test]
+    public async Task TestReadOnlyTransactionSample()
+    {
+        const string sql =
+            "SELECT SingerId, FullName FROM Singers WHERE LastName LIKE @lastName    OR FirstName LIKE @firstName ORDER BY LastName, FirstName";
+        var result = StatementResult.CreateResultSet(
+            [Tuple.Create(TypeCode.Int64, "SingerId"), Tuple.Create(TypeCode.String, "FullName")],
+            [[1L, "Pete Allison"], [2L, "Alice Peterson"]]);
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, result);
+        
+        await ReadOnlyTransactionSample.Run(ConnectionString);
+        
+        Assert.That(Writer.ToString(), Is.EqualTo(
+            $"Found singer: Pete Allison{Environment.NewLine}" +
+            $"Found singer: Alice Peterson{Environment.NewLine}"));
+        
+        Assert.That(Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>(), Is.Empty);
+        Assert.That(Fixture.SpannerMock.Requests.OfType<CommitRequest>(), Is.Empty);
+        var requests = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().ToList();
+        Assert.That(requests, Has.Count.EqualTo(1));
+        var request = requests[0];
+        Assert.That(request.Transaction?.Begin?.ReadOnly, Is.Not.Null);
+    }
+
+    [Test]
+    public async Task TestStaleReadSample()
+    {
+        var now = DateTime.UtcNow;
+        const string sql = "SELECT SingerId, FullName FROM Singers ORDER BY LastName, FirstName";
+        var result = StatementResult.CreateResultSet(
+            [Tuple.Create(TypeCode.Int64, "SingerId"), Tuple.Create(TypeCode.String, "FullName")],
+            [[1L, "Pete Allison"], [2L, "Alice Peterson"]]);
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql, result);
+        const string currentTimestamp = "SELECT CURRENT_TIMESTAMP";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(currentTimestamp, StatementResult.CreateResultSet(
+            [Tuple.Create(TypeCode.Timestamp, "CURRENT_TIMESTAMP")],
+            [[now]]));
+        
+        await StaleReadSample.Run(ConnectionString);
+        
+        Assert.That(Writer.ToString(), Is.EqualTo(
+            $"Found singer using a single stale query: Pete Allison{Environment.NewLine}" +
+            $"Found singer using a single stale query: Alice Peterson{Environment.NewLine}" +
+            $"Found singer using a stale read-only transaction: Pete Allison{Environment.NewLine}" +
+            $"Found singer using a stale read-only transaction: Alice Peterson{Environment.NewLine}"));
+        
+        Assert.That(Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>(), Is.Empty);
+        Assert.That(Fixture.SpannerMock.Requests.OfType<CommitRequest>(), Is.Empty);
+        var requests = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().ToList();
+        Assert.That(requests, Has.Count.EqualTo(3));
+        Assert.That(requests[0].Transaction?.SingleUse?.ReadOnly?.MaxStaleness?.Seconds ?? -1, Is.EqualTo(10));
+        Assert.That(requests[1].Transaction?.SingleUse?.ReadOnly, Is.Not.Null);
+        Assert.That(requests[1].Transaction?.SingleUse?.ReadOnly?.MaxStaleness, Is.Null);
+        Assert.That(requests[2].Transaction?.Begin?.ReadOnly?.ReadTimestamp, Is.Not.Null);
+
+        var actual =
+            TimeSpan.FromTicks(TimeSpan.TicksPerSecond * requests[2].Transaction.Begin.ReadOnly.ReadTimestamp.Seconds +
+                               requests[2].Transaction.Begin.ReadOnly.ReadTimestamp.Nanos /
+                               TimeSpan.NanosecondsPerTick);
+        var expected = TimeSpan.FromTicks(now.Ticks - DateTime.UnixEpoch.Ticks);
+        Assert.That(actual, Is.EqualTo(expected));
+    }
+
+    [Test]
+    public async Task TestTagsSample()
+    {
+        const string sql = "SELECT 'Hello World' as Message";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(sql,
+            StatementResult.CreateResultSet([Tuple.Create(TypeCode.String, "Message")], [["Hello World"]]));
+        
+        await TagsSample.Run(ConnectionString);
+        
+        Assert.That(Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>(), Is.Empty);
+        var executeRequest = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().Single();
+        Assert.That(executeRequest.Transaction?.Begin?.ReadWrite, Is.Not.Null);
+        Assert.That(executeRequest.RequestOptions?.TransactionTag ?? "", Is.EqualTo("my_transaction_tag"));
+        Assert.That(executeRequest.RequestOptions?.RequestTag ?? "", Is.EqualTo("my_query_tag"));
+        var commitRequest = Fixture.SpannerMock.Requests.OfType<CommitRequest>().Single();
+        Assert.That(commitRequest.RequestOptions.TransactionTag ?? "", Is.EqualTo("my_transaction_tag"));
+    }
+
+    [Test]
+    public async Task TestTransactionSample()
+    {
+        const string query = "SELECT SingerId FROM Singers WHERE BirthDate IS NULL";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(query,
+            StatementResult.CreateResultSet([Tuple.Create(TypeCode.Int64, "SingerId")], [[1L]]));
+        const string update = "UPDATE Singers SET BirthDate=DATE '1900-01-01' WHERE SingerId=@singerId";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(update, StatementResult.CreateUpdateCount(1L));
+        
+        await TransactionSample.Run(ConnectionString);
+        
+        Assert.That(Writer.ToString(), Is.EqualTo($"Set a default birthdate for 1 singers{Environment.NewLine}"));
+        Assert.That(Fixture.SpannerMock.Requests.OfType<BeginTransactionRequest>(), Is.Empty);
+        Assert.That(Fixture.SpannerMock.Requests.OfType<CommitRequest>().ToList(), Has.Count.EqualTo(1));
+        var requests = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().ToList();
+        Assert.That(requests, Has.Count.EqualTo(2));
+        Assert.That(requests[0].Transaction?.Begin?.ReadWrite, Is.Not.Null);
+        Assert.That(requests[1].Transaction?.Id, Is.Not.Null);
     }
 }

@@ -167,8 +167,11 @@ public class SpannerCommand : DbCommand, ICloneable
         GaxPreconditions.CheckNotNull(SpannerConnection, nameof(SpannerConnection));
         GaxPreconditions.CheckState(!(HasTransaction && SingleUseReadOnlyTransactionOptions != null),
             "Cannot set both a transaction and single-use read-only options");
+        return BuildMutation(_mutation!.Clone(), Parameters);
+    }
 
-        var mutation = _mutation!.Clone();
+    internal static Mutation BuildMutation(Mutation mutation, SpannerParameterCollection parameters)
+    {
         Mutation.Types.Write? write = null;
         Mutation.Types.Delete? delete = mutation.OperationCase == Mutation.OperationOneofCase.Delete
             ? mutation.Delete
@@ -190,9 +193,9 @@ public class SpannerCommand : DbCommand, ICloneable
         }
 
         var values = new ListValue();
-        for (var index = 0; index < DbParameterCollection.Count; index++)
+        for (var index = 0; index < parameters.Count; index++)
         {
-            var param = DbParameterCollection[index];
+            var param = parameters[index];
             if (param is SpannerParameter spannerParameter)
             {
                 if (write != null)
