@@ -54,5 +54,9 @@ class TestConnectionOnMockServer(MockServerTestBaseGoDriver):
         try:
             assert rows is not None
             assert rows.oid > 0
+            row = rows.next()
+            assert row is not None
+            assert row.values[0].string_value == "1"
+            assert rows.next() is None
         finally:
             rows.close()
