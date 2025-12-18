@@ -22,7 +22,7 @@ LINT_PATHS = ["google", "tests", "noxfile.py"]
 
 nox.options.sessions = ["lint", "unit"]
 
-STANDARD_DEPENDENCIES = []
+STANDARD_DEPENDENCIES = ["../spannerlib-python"]
 
 UNIT_TEST_STANDARD_DEPENDENCIES = [
     "pytest",
