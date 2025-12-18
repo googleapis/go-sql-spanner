@@ -20,9 +20,19 @@ import unittest
 
 from google.api_core.client_options import ClientOptions
 from google.auth.credentials import AnonymousCredentials
-from google.cloud.spanner_v1 import Client, FixedSizePool
+from google.cloud.spanner_admin_database_v1.types import DatabaseDialect
+from google.cloud.spanner_v1 import (
+    Client,
+    FixedSizePool,
+    ResultSet,
+    Type,
+    TypeCode,
+)
 from google.cloud.spanner_v1.database import Database
 from google.cloud.spanner_v1.instance import Instance
+from google.cloud.spanner_v1.types import StructType
+import google.cloud.spanner_v1.types.result_set as result_set
+import google.cloud.spanner_v1.types.type as spanner_type
 import grpc
 
 from spannermockserver.mock_database_admin import DatabaseAdminServicer
@@ -49,7 +59,7 @@ class MockServerTestBase(unittest.TestCase):
         self.logger.setLevel(logging.WARN)
 
     @classmethod
-    def setup_class(cls):
+    def setUpClass(cls):
         """Sets up the mock server before any tests run."""
         (
             MockServerTestBase.server,
@@ -59,20 +69,20 @@ class MockServerTestBase(unittest.TestCase):
         ) = start_mock_server()
 
     @classmethod
-    def teardown_class(cls):
+    def tearDownClass(cls):
         """Tears down the mock server after all tests have run."""
         if MockServerTestBase.server is not None:
             MockServerTestBase.server.stop(grace=None)
             Client.NTH_CLIENT.reset()
             MockServerTestBase.server = None
 
-    def setup_method(self, *args, **kwargs):
+    def setUp(self, *args, **kwargs):
         """Sets up the test method."""
         self._client = None
         self._instance = None
         self._database = None
 
-    def teardown_method(self, *args, **kwargs):
+    def tearDown(self, *args, **kwargs):
         """Tears down the test method."""
         MockServerTestBase.spanner_service.clear_requests()
         MockServerTestBase.database_admin_service.clear_requests()
@@ -112,3 +122,45 @@ class MockServerTestBase(unittest.TestCase):
                 logger=self.logger,
             )
         return self._database
+
+
+def add_result(sql: str, result: result_set.ResultSet):
+    MockServerTestBase.spanner_service.mock_spanner.add_result(sql, result)
+
+
+def set_database_dialect(
+    dialect: DatabaseDialect = DatabaseDialect.GOOGLE_STANDARD_SQL,
+):
+
+    sql = (
+        "select option_value from information_schema.database_options"
+        " where option_name='database_dialect'"
+    )
+    result = ResultSet()
+    result.metadata.row_type.fields.append(
+        StructType.Field(name="option_value", type=Type(code=TypeCode.STRING))
+    )
+    result.rows.append([dialect.name])
+    add_result(sql, result)
+
+
+def add_result_select_1():
+    add_single_result("select 1", "c", TypeCode.INT64, [("1",)])
+
+
+def add_single_result(
+    sql: str, column_name: str, type_code: spanner_type.TypeCode, row
+):
+    metadata = result_set.ResultSetMetadata(
+        row_type=spanner_type.StructType(
+            fields=[
+                spanner_type.StructType.Field(
+                    name=column_name,
+                    type=spanner_type.Type(code=type_code),
+                )
+            ]
+        )
+    )
+    result = result_set.ResultSet(metadata=metadata)
+    result.rows.extend(row)
+    MockServerTestBase.spanner_service.mock_spanner.add_result(sql, result)

@@ -11,19 +11,20 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""Helper functions for mock tests."""
 
-from .mock_server_test_base import (
-    MockServerTestBase,
-    add_result,
-    add_result_select_1,
-    add_single_result,
-    set_database_dialect,
+PROJECT_ID = "p"
+INSTANCE_ID = "i"
+DATABASE_ID = "d"
+
+MOCK_CONNECTION_STRING = (
+    "spanner:///"
+    f"projects/{PROJECT_ID}"
+    f"/instances/{INSTANCE_ID}"
+    f"/databases/{DATABASE_ID}"
+    ";use_plain_text=true"
 )
 
-__all__: list[str] = [
-    "MockServerTestBase",
-    "add_result",
-    "set_database_dialect",
-    "add_result_select_1",
-    "add_single_result",
-]
+
+def get_mockserver_connection_string(port: int) -> str:
+    return MOCK_CONNECTION_STRING + ";endpoint=localhost:" + str(port)
