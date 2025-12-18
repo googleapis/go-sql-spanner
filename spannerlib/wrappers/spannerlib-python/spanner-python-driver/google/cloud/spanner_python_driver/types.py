@@ -14,6 +14,9 @@
 """Types."""
 import datetime
 
+from google.cloud.spanner_v1 import TypeCode
+
+
 def Date(year, month, day):
     return datetime.date(year, month, day)
 
@@ -58,3 +61,42 @@ BINARY = DBAPITypeObject("BYTES", "PROTO")
 NUMBER = DBAPITypeObject("INT64", "FLOAT64", "NUMERIC")
 DATETIME = DBAPITypeObject("TIMESTAMP", "DATE")
 ROWID = DBAPITypeObject()
+
+
+class Type(object):
+    STRING = TypeCode.STRING
+    BYTES = TypeCode.BYTES
+    BOOL = TypeCode.BOOL
+    INT64 = TypeCode.INT64
+    FLOAT64 = TypeCode.FLOAT64
+    DATE = TypeCode.DATE
+    TIMESTAMP = TypeCode.TIMESTAMP
+    NUMERIC = TypeCode.NUMERIC
+    JSON = TypeCode.JSON
+    PROTO = TypeCode.PROTO
+    ENUM = TypeCode.ENUM
+
+
+def _type_code_to_dbapi_type(type_code):
+    if type_code == TypeCode.STRING:
+        return STRING
+    if type_code == TypeCode.JSON:
+        return STRING
+    if type_code == TypeCode.BYTES:
+        return BINARY
+    if type_code == TypeCode.PROTO:
+        return BINARY
+    if type_code == TypeCode.BOOL:
+        return NUMBER
+    if type_code == TypeCode.INT64:
+        return NUMBER
+    if type_code == TypeCode.FLOAT64:
+        return NUMBER
+    if type_code == TypeCode.NUMERIC:
+        return NUMBER
+    if type_code == TypeCode.DATE:
+        return DATETIME
+    if type_code == TypeCode.TIMESTAMP:
+        return DATETIME
+
+    return STRING

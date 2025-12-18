@@ -14,6 +14,7 @@
 from google.cloud.spanner_v1 import ExecuteSqlRequest
 
 from . import errors
+from .types import _type_code_to_dbapi_type
 
 
 def check_not_closed(function):
@@ -43,14 +44,30 @@ class Cursor:
 
     @property
     def description(self):
-        if self._rows:
-            # You need to map ResultSetMetadata to the 7-item tuple required
-            # by DB-API (name, type_code, display_size, internal_size,
-            # precision, scale, null_ok)
-            # meta = self._rows.metadata()
-            # ... transformation logic here ...
+        if not self._rows:
             return None
-        return None
+
+        try:
+            metadata = self._rows.metadata()
+            if not metadata or not metadata.row_type:
+                return None
+
+            desc = []
+            for field in metadata.row_type.fields:
+                desc.append(
+                    (
+                        field.name,
+                        _type_code_to_dbapi_type(field.type.code),
+                        None,  # display_size
+                        None,  # internal_size
+                        None,  # precision
+                        None,  # scale
+                        True,  # null_ok
+                    )
+                )
+            return tuple(desc)
+        except Exception:
+            return None
 
     @property
     def rowcount(self):
@@ -68,10 +85,16 @@ class Cursor:
             # Delegate to the internal wrapper connection
             self._rows = self._connection._internal_conn.execute(request)
 
-            # Update rowcount if it's a DML statement
-            update_count = self._rows.update_count()
-            if update_count != -1:
-                self._rowcount = update_count
+            # Check if we have fields (SELECT query) or not (DML/DDL)
+            # If we have fields, we don't want to consume the stream
+            # for stats yet.
+            if self.description:
+                self._rowcount = -1
+            else:
+                # Update rowcount if it's a DML statement
+                update_count = self._rows.update_count()
+                if update_count != -1:
+                    self._rowcount = update_count
 
         except Exception as e:
             raise e
@@ -133,7 +156,22 @@ class Cursor:
     @check_not_closed
     def nextset(self):
         """Skip to the next available set of results."""
-        return None
+        if not self._rows:
+            return None
+
+        try:
+            next_metadata = self._rows.next_result_set()
+            if next_metadata:
+                return True
+            return None
+        except Exception:
+            return None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
     @check_not_closed
     def setinputsizes(self, sizes):

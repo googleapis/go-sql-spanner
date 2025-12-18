@@ -178,3 +178,39 @@ class NotSupportedError(DatabaseError):
     """
 
     pass
+
+
+def map_spanner_error(error):
+    """Map SpannerLibError or GoogleAPICallError to DB API 2.0 errors."""
+    from google.api_core import exceptions
+
+    if isinstance(error, exceptions.AlreadyExists):
+        return IntegrityError(error)
+    if isinstance(error, exceptions.NotFound):
+        return ProgrammingError(error)
+    if isinstance(error, exceptions.InvalidArgument):
+        return ProgrammingError(error)
+    if isinstance(error, exceptions.FailedPrecondition):
+        return OperationalError(error)
+    if isinstance(error, exceptions.OutOfRange):
+        return DataError(error)
+    if isinstance(error, exceptions.Unauthenticated):
+        return OperationalError(error)
+    if isinstance(error, exceptions.PermissionDenied):
+        return OperationalError(error)
+    if isinstance(error, exceptions.DeadlineExceeded):
+        return OperationalError(error)
+    if isinstance(error, exceptions.ServiceUnavailable):
+        return OperationalError(error)
+    if isinstance(error, exceptions.Aborted):
+        return OperationalError(error)
+    if isinstance(error, exceptions.InternalServerError):
+        return InternalError(error)
+    if isinstance(error, exceptions.Unknown):
+        return DatabaseError(error)
+    if isinstance(error, exceptions.Cancelled):
+        return OperationalError(error)
+    if isinstance(error, exceptions.DataLoss):
+        return DatabaseError(error)
+
+    return DatabaseError(error)

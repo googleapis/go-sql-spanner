@@ -47,7 +47,7 @@ class Connection:
     @check_not_closed
     def cursor(self):
         return Cursor(self)
-    
+
     @check_not_closed
     def begin(self):
         try:
@@ -73,6 +73,12 @@ class Connection:
         if not self._closed:
             self._internal_conn.close()
             self._closed = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
 
 def connect(connection_string, **kwargs):
