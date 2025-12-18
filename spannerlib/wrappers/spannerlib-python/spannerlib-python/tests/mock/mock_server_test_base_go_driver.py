@@ -17,8 +17,15 @@ Base class for tests using the mock Spanner server
 extended for Go driver
 """
 
+import os
+
 from google.cloud.spanner_admin_database_v1.types import DatabaseDialect
 from spannermockserver import MockServerTestBase, set_database_dialect
+
+DIALECT_MAP = {
+    "GOOGLE_STANDARD_SQL": DatabaseDialect.GOOGLE_STANDARD_SQL,
+    "POSTGRESQL": DatabaseDialect.POSTGRESQL,
+}
 
 
 class MockServerTestBaseGoDriver(MockServerTestBase):
@@ -27,4 +34,7 @@ class MockServerTestBaseGoDriver(MockServerTestBase):
         super().setUp(*args, **kwargs)
         # Seed the mock server with the database dialect result
         # required by Go driver
-        set_database_dialect(DatabaseDialect.GOOGLE_STANDARD_SQL)
+        dialect_env = os.environ.get(
+            "SPANNER_DATABASE_DIALECT", "GOOGLE_STANDARD_SQL"
+        )
+        set_database_dialect(DIALECT_MAP[dialect_env])

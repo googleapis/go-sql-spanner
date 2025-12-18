@@ -170,8 +170,12 @@ def _build_artifacts(session):
     run_bash_script(session, "./build-shared-lib.sh")
 
 
+DEFAULT_DIALECT = ["GOOGLE_STANDARD_SQL", "POSTGRESQL"]
+
+
 @nox.session(python=TEST_PYTHON_VERSIONS)
-def mock(session):
+@nox.parametrize("dialect", DEFAULT_DIALECT)
+def mock(session, dialect):
     """Run mock tests using spannermockserver."""
     # Build/Copy artifacts using the script
     _build_artifacts(session)
@@ -182,12 +186,13 @@ def mock(session):
     test_paths = (
         session.posargs if session.posargs else [os.path.join("tests", "mock")]
     )
+
     session.run(
         "py.test",
         MODE,
-        f"--junitxml=mock_{session.python}_sponge_log.xml",
+        f"--junitxml=mock_googlesql_{session.python}_sponge_log.xml",
         *test_paths,
-        env={},
+        env={"SPANNER_DATABASE_DIALECT": dialect},
     )
 
 
