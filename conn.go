@@ -666,9 +666,13 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 			ddlStatements[i] = s.SQL
 		}
 		if c.parser.IsCreateDatabaseStatement(ddlStatements[0]) {
+			dialect := c.parser.Dialect
+			if d := propertyDialect.GetValueOrDefault(c.state); d != adminpb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED {
+				dialect = d
+			}
 			op, err := c.adminClient.CreateDatabase(ctx, &adminpb.CreateDatabaseRequest{
 				CreateStatement: ddlStatements[0],
-				DatabaseDialect: c.parser.Dialect,
+				DatabaseDialect: dialect,
 				Parent:          c.instance,
 				ExtraStatements: ddlStatements[1:],
 			})

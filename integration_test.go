@@ -298,6 +298,35 @@ func TestAutoConfigEmulator(t *testing.T) {
 	}
 }
 
+func TestAutoConfigEmulatorPostgreSql(t *testing.T) {
+	skipIfShort(t)
+	if !runsOnEmulator() {
+		t.Skip("autoConfigEmulator=true only works when connected to the emulator")
+	}
+	t.Parallel()
+
+	ctx := context.Background()
+	for range 2 {
+		db, err := sql.Open("spanner", "projects/emulator-project/instances/test-instance/databases/test-database;autoConfigEmulator=true;dialect=postgresql")
+		if err != nil {
+			t.Fatalf("could not connect to emulator: %v", err)
+		}
+		// Execute a query that only works on PostgreSQL.
+		row := db.QueryRowContext(ctx, "select $1", "Hello World")
+		if row.Err() != nil {
+			t.Fatalf("could not execute select: %v", row.Err())
+		}
+		var msg string
+		if err := row.Scan(&msg); err != nil {
+			t.Fatalf("could not scan value from select: %v", err)
+		}
+		if g, w := msg, "Hello World"; g != w {
+			t.Fatalf("value mismatch:\n Got %v\nWant %v", g, w)
+		}
+		_ = db.Close()
+	}
+}
+
 func TestQueryContext(t *testing.T) {
 	skipIfShort(t)
 	t.Parallel()

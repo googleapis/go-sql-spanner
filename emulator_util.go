@@ -20,20 +20,20 @@ import (
 
 	"cloud.google.com/go/spanner"
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
-	databasepb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
-	instancepb "cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
+	"cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 )
 
-func autoConfigEmulator(ctx context.Context, host, project, instance, database string, opts []option.ClientOption) error {
+func autoConfigEmulator(ctx context.Context, host, project, instance, database string, dialect databasepb.DatabaseDialect, opts []option.ClientOption) error {
 	if err := createInstance(project, instance, opts); err != nil {
 		if spanner.ErrCode(err) != codes.AlreadyExists {
 			return err
 		}
 	}
-	if err := createDatabase(project, instance, database, opts); err != nil {
+	if err := createDatabase(project, instance, database, dialect, opts); err != nil {
 		if spanner.ErrCode(err) != codes.AlreadyExists {
 			return err
 		}
@@ -47,7 +47,7 @@ func createInstance(projectId, instanceId string, opts []option.ClientOption) er
 	if err != nil {
 		return err
 	}
-	defer instanceAdmin.Close()
+	defer func() { _ = instanceAdmin.Close() }()
 	op, err := instanceAdmin.CreateInstance(ctx, &instancepb.CreateInstanceRequest{
 		Parent:     fmt.Sprintf("projects/%s", projectId),
 		InstanceId: instanceId,
@@ -67,16 +67,21 @@ func createInstance(projectId, instanceId string, opts []option.ClientOption) er
 	return nil
 }
 
-func createDatabase(projectId, instanceId, databaseId string, opts []option.ClientOption) error {
+func createDatabase(projectId, instanceId, databaseId string, dialect databasepb.DatabaseDialect, opts []option.ClientOption) error {
 	ctx := context.Background()
 	databaseAdminClient, err := database.NewDatabaseAdminClient(ctx, opts...)
 	if err != nil {
 		return err
 	}
-	defer databaseAdminClient.Close()
+	defer func() { _ = databaseAdminClient.Close() }()
+	createStatement := fmt.Sprintf("CREATE DATABASE `%s`", databaseId)
+	if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		createStatement = fmt.Sprintf(`CREATE DATABASE "%s"`, databaseId)
+	}
 	opDB, err := databaseAdminClient.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
 		Parent:          fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId),
-		CreateStatement: fmt.Sprintf("CREATE DATABASE `%s`", databaseId),
+		CreateStatement: createStatement,
+		DatabaseDialect: dialect,
 	})
 	if err != nil {
 		return err
