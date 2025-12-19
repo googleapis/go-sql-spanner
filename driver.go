@@ -683,7 +683,7 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			internaloption.SkipDialSettingsValidation(),
 		}
 		opts = append(emulatorOpts, opts...)
-		if err := autoConfigEmulator(context.Background(), connectorConfig.Host, connectorConfig.Project, connectorConfig.Instance, connectorConfig.Database, opts); err != nil {
+		if err := autoConfigEmulator(context.Background(), connectorConfig.Host, connectorConfig.Project, connectorConfig.Instance, connectorConfig.Database, propertyDialect.GetValueOrDefault(state), opts); err != nil {
 			return nil, err
 		}
 	}
@@ -1546,6 +1546,19 @@ func parseRpcPriority(val string) (spannerpb.RequestOptions_Priority, error) {
 		}
 	}
 	return spannerpb.RequestOptions_PRIORITY_UNSPECIFIED, status.Errorf(codes.InvalidArgument, "invalid or unsupported priority: %v", val)
+}
+
+func parseDatabaseDialect(val string) (databasepb.DatabaseDialect, error) {
+	val = strings.ToUpper(val)
+	if dialect, ok := databasepb.DatabaseDialect_value[val]; ok {
+		return databasepb.DatabaseDialect(dialect), nil
+	}
+	if !strings.HasPrefix(val, "DATABASEDIALECT_") {
+		if dialect, ok := databasepb.DatabaseDialect_value["DATABASEDIALECT_"+val]; ok {
+			return databasepb.DatabaseDialect(dialect), nil
+		}
+	}
+	return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, status.Errorf(codes.InvalidArgument, "invalid or unsupported dialect: %v", val)
 }
 
 func parseIsolationLevel(val string) (sql.IsolationLevel, error) {
