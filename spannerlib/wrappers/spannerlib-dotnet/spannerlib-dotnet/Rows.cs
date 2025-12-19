@@ -62,7 +62,7 @@ public class Rows : AbstractLibObject
             return -1L;
         }
     }
-    
+
     private bool _hasReadAllResults;
 
     public Rows(Connection connection, long id, bool initMetadata = true) : base(connection.Spanner, id)

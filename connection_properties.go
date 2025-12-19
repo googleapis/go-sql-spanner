@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/parser"
@@ -64,6 +65,17 @@ var propertyConnectionStateType = createConnectionProperty(
 	func(value string) (connectionstate.Type, error) {
 		return parseConnectionStateType(value)
 	},
+)
+var propertyDialect = createConnectionProperty(
+	"dialect",
+	"The default dialect to use when creating new databases using this connection. "+
+		"You do not need to set this property for any existing database. The driver will "+
+		"automatically detect the dialect of the database that you connect to.",
+	databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	parseDatabaseDialect,
 )
 var propertyAutoConfigEmulator = createConnectionProperty(
 	"auto_config_emulator",
