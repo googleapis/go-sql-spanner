@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.23.0](https://github.com/googleapis/go-sql-spanner/compare/v1.22.0...v1.23.0) (2025-12-19)
+
+
+### Features
+
+* Add dialect connection property ([#710](https://github.com/googleapis/go-sql-spanner/issues/710)) ([2e92beb](https://github.com/googleapis/go-sql-spanner/commit/2e92beb2d10be9e2e199206a440eaf4e79f700b4))
+
 ## [1.22.0](https://github.com/googleapis/go-sql-spanner/compare/v1.21.0...v1.22.0) (2025-12-15)
 
 
