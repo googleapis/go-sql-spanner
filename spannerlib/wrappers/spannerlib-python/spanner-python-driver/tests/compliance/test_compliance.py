@@ -22,23 +22,8 @@ import unittest
 from google.cloud import spanner_python_driver
 from google.cloud.spanner_python_driver import errors
 
+from ._helper import get_test_connection_string
 from .dbapi20_compliance_testbase import DBAPI20ComplianceTestBase
-
-# Mock dependencies before import
-# sys.modules["google.cloud.spannerlib"] = MagicMock()
-# sys.modules["google.cloud.spannerlib.pool"] = MagicMock()
-# sys.modules["google.cloud.spannerlib.rows"] = MagicMock()
-# sys.modules["google.cloud.spanner_v1"] = MagicMock()
-
-# Mock google.api_core
-# mock_api_core = MagicMock()
-# mock_exceptions = MagicMock()
-# mock_exceptions.GoogleAPICallError = (
-#     Exception  # Use Exception so issubclass works if needed
-# )
-# mock_api_core.exceptions = mock_exceptions
-# sys.modules["google.api_core"] = mock_api_core
-# sys.modules["google.api_core.exceptions"] = mock_exceptions
 
 
 class TestDBAPICompliance(DBAPI20ComplianceTestBase):
@@ -46,6 +31,8 @@ class TestDBAPICompliance(DBAPI20ComplianceTestBase):
     __test__ = True
     driver = spanner_python_driver
     errors = errors
+    connect_args = (get_test_connection_string(),)
+    connect_kw_args = {}
 
 
 if __name__ == "__main__":

@@ -110,14 +110,14 @@ def unit(session):
 
 @nox.session(python=DEFAULT_PYTHON_VERSION)
 def compliance(session):
-    """Run system tests."""
+    """Run compliance tests."""
 
     # Sanity check: Only run tests if the environment variable is set.
-    # if not os.environ.get("SPANNER_EMULATOR_HOST", ""):
-    #     session.skip(
-    #         "Credentials or emulator host must be"
-    #         "set via environment variable"
-    #     )
+    if not os.environ.get("SPANNER_EMULATOR_HOST", ""):
+        session.skip(
+            "Emulator host must be set via "
+            "SPANNER_EMULATOR_HOST environment variable"
+        )
 
     session.install(
         *STANDARD_DEPENDENCIES, *COMPLIANCE_TEST_STANDARD_DEPENDENCIES

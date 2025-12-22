@@ -171,3 +171,29 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
         except AttributeError:
             self.fail("No connect method found in self.driver module")
         return r
+
+    def test_connect(self):
+        conn = self._connect()
+        conn.close()
+
+    def test_cursor(self):
+        con = self._connect()
+        try:
+            curr = con.cursor()
+            self.assertIsNotNone(curr)
+        finally:
+            con.close()
+
+    SELECT_1 = "SELECT 1"
+
+    def _execute_select1(self, cursor):
+        cursor.execute(self.SELECT_1)
+
+    def test_execute_select1(self):
+        con = self._connect()
+        try:
+            cur = con.cursor()
+            self._execute_select1(cur)
+            self.assertEqual(cur.fetchone(), ("1",))
+        finally:
+            con.close()
