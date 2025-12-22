@@ -186,3 +186,20 @@ class Cursor:
         This operation is a no-op implementation.
         """
         pass
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        row = self.fetchone()
+        if row is None:
+            raise StopIteration
+        return row
+
+    @check_not_closed
+    def callproc(self, procname, parameters=None):
+        """Call a stored database procedure with the given name.
+
+        This method is not supported by Spanner.
+        """
+        raise errors.NotSupportedError("Stored procedures are not supported.")

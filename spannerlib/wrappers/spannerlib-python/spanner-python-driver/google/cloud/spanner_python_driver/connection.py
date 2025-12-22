@@ -43,6 +43,12 @@ class Connection:
         """
         self._internal_conn = internal_connection
         self._closed = False
+        self._messages = []
+
+    @property
+    def messages(self):
+        """Return the list of messages sent to the client by the database."""
+        return self._messages
 
     @check_not_closed
     def cursor(self):

@@ -1,0 +1,52 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+DBAPI 2.0 Compliance Test
+Checks for presence of required attributes and methods.
+"""
+
+import unittest
+
+from google.cloud import spanner_python_driver
+from google.cloud.spanner_python_driver import errors
+
+from .dbapi20_compliance_testbase import DBAPI20ComplianceTestBase
+
+# Mock dependencies before import
+# sys.modules["google.cloud.spannerlib"] = MagicMock()
+# sys.modules["google.cloud.spannerlib.pool"] = MagicMock()
+# sys.modules["google.cloud.spannerlib.rows"] = MagicMock()
+# sys.modules["google.cloud.spanner_v1"] = MagicMock()
+
+# Mock google.api_core
+# mock_api_core = MagicMock()
+# mock_exceptions = MagicMock()
+# mock_exceptions.GoogleAPICallError = (
+#     Exception  # Use Exception so issubclass works if needed
+# )
+# mock_api_core.exceptions = mock_exceptions
+# sys.modules["google.api_core"] = mock_api_core
+# sys.modules["google.api_core.exceptions"] = mock_exceptions
+
+
+class TestDBAPICompliance(DBAPI20ComplianceTestBase):
+
+    __test__ = True
+    driver = spanner_python_driver
+    errors = errors
+
+
+if __name__ == "__main__":
+    unittest.main()
