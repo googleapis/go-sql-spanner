@@ -51,6 +51,8 @@ func createExecutableStatement(stmt parser.ParsedStatement) (executableStatement
 		return &executableRunBatchStatement{stmt: stmt}, nil
 	case *parser.ParsedAbortBatchStatement:
 		return &executableAbortBatchStatement{stmt: stmt}, nil
+	case *parser.ParsedRunPartitionedQueryStatement:
+		return &executableRunPartitionedQueryStatement{stmt: stmt}, nil
 	case *parser.ParsedBeginStatement:
 		return &executableBeginStatement{stmt: stmt}, nil
 	case *parser.ParsedCommitStatement:
@@ -272,6 +274,19 @@ func (s *executableAbortBatchStatement) queryContext(ctx context.Context, c *con
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
+}
+
+type executableRunPartitionedQueryStatement struct {
+	stmt *parser.ParsedRunPartitionedQueryStatement
+}
+
+func (s *executableRunPartitionedQueryStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+	return nil, status.Errorf(codes.FailedPrecondition, "cannot use RUN PARTITIONED QUERY with ExecContext")
+}
+
+func (s *executableRunPartitionedQueryStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
+	args := []driver.NamedValue{{Value: opts}}
+	return c.QueryContext(ctx, s.stmt.Statement, args)
 }
 
 type executableBeginStatement struct {

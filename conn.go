@@ -1087,7 +1087,7 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 			c.setCommitResponse(commitResponse)
 		} else if execOptions.PartitionedQueryOptions.PartitionQuery {
 			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "PartitionQuery is only supported in batch read-only transactions"))
-		} else if execOptions.PartitionedQueryOptions.AutoPartitionQuery {
+		} else if execOptions.PartitionedQueryOptions.AutoPartitionQuery || propertyAutoPartitionMode.GetValueOrDefault(c.state) {
 			return c.executeAutoPartitionedQuery(ctx, cancel, query, execOptions, args)
 		} else {
 			// The statement was either detected as being a query, or potentially not recognized at all.
@@ -1591,6 +1591,7 @@ func (c *conn) activateTransaction() (contextTransaction, error) {
 			timestampBoundCallback: func() spanner.TimestampBound {
 				return propertyReadOnlyStaleness.GetValueOrDefault(c.state)
 			},
+			state: c.state,
 		}, nil
 	}
 
