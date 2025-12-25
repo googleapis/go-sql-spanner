@@ -161,6 +161,49 @@ var propertyReadOnlyStaleness = createConnectionProperty(
 	connectionstate.ConvertReadOnlyStaleness,
 )
 
+var propertyAutoPartitionMode = createConnectionProperty(
+	"auto_partition_mode",
+	"Execute all queries on this connection as partitioned queries. "+
+		"Executing a query that cannot be partitioned will fail. "+
+		"Executing a query in a read/write transaction will also fail.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
+var propertyDataBoostEnabled = createConnectionProperty(
+	"data_boost_enabled",
+	"Enable data boost for all partitioned queries that are executed by this connection. "+
+		"This setting is only used for partitioned queries and is ignored by all other statements. "+
+		"Either set `auto_partition_query=true` or execute a query with `RUN PARTITIONED QUERY SELECT ... FROM ...` "+
+		"to execute a query as a partitioned query.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
+var propertyMaxPartitions = createConnectionProperty(
+	"max_partitions",
+	"The max partitions hint value to use for partitioned queries. "+
+		"Set to 0 if you do not want to specify a hint.",
+	0,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertInt64,
+)
+var propertyMaxPartitionedParallelism = createConnectionProperty(
+	"max_partitioned_parallelism",
+	"The maximum number of workers to use to read data from partitioned queries.",
+	0,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertInt,
+)
+
 var propertyAutoBatchDml = createConnectionProperty(
 	"auto_batch_dml",
 	"Automatically buffer DML statements that are executed on this connection and execute them as one batch "+

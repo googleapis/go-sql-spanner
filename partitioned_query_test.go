@@ -240,41 +240,93 @@ func TestAutoPartitionQuery(t *testing.T) {
 	type queryExecutor interface {
 		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	}
+	type autoPartitionTest struct {
+		name                   string
+		useExecOption          bool
+		withTx                 bool
+		maxResultsPerPartition int
+	}
+	tests := make([]autoPartitionTest, 0)
+	for _, useExecOption := range []bool{true, false} {
+		for _, withTx := range []bool{false} {
+			for maxResultsPerPartition := range []int{0, 1, 5, 50, 200} {
+				tests = append(tests, autoPartitionTest{
+					fmt.Sprintf("useExecOption: %v, withTx: %v, maxResultsPerPartition: %v", useExecOption, withTx, maxResultsPerPartition),
+					useExecOption,
+					withTx,
+					maxResultsPerPartition,
+				})
+			}
+		}
+	}
 
-	for _, withTx := range []bool{false} {
-		for maxResultsPerPartition := range []int{0, 1, 5, 50, 200} {
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
 			var tx queryExecutor
 			var err error
-			if withTx {
+			if test.withTx {
 				tx, err = BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{})
 			} else {
-				tx = db
+				tx, err = db.Conn(ctx)
 			}
 			if err != nil {
 				t.Fatal(err)
 			}
+			defer func() {
+				if tx, ok := tx.(*sql.Tx); ok {
+					if err := tx.Commit(); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if tx, ok := tx.(*sql.Conn); ok {
+					if err := tx.Close(); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}()
 
 			// Setup results for each partition.
-			maxPartitions, allResults, err := setupRandomPartitionResults(server, testutil.SelectFooFromBar, maxResultsPerPartition)
+			maxPartitions, allResults, err := setupRandomPartitionResults(server, testutil.SelectFooFromBar, test.maxResultsPerPartition)
 			if err != nil {
 				t.Fatalf("failed to set up partition results: %v", err)
 			}
 
 			// Automatically partition and execute a query.
-			rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar,
-				ExecOptions{
-					PartitionedQueryOptions: PartitionedQueryOptions{
-						AutoPartitionQuery: true,
-						MaxParallelism:     rand.Intn(10) + 1,
-						PartitionOptions: spanner.PartitionOptions{
-							MaxPartitions: int64(maxPartitions),
+			var rows *sql.Rows
+			if test.useExecOption {
+				rows, err = tx.QueryContext(ctx, testutil.SelectFooFromBar,
+					ExecOptions{
+						PartitionedQueryOptions: PartitionedQueryOptions{
+							AutoPartitionQuery: true,
+							MaxParallelism:     rand.Intn(10) + 1,
+							PartitionOptions: spanner.PartitionOptions{
+								MaxPartitions: int64(maxPartitions),
+							},
 						},
-					},
-					QueryOptions: spanner.QueryOptions{DataBoostEnabled: true},
-				})
+						QueryOptions: spanner.QueryOptions{DataBoostEnabled: true},
+					})
+			} else {
+				execOrFail := func(query string) {
+					if r, err := tx.QueryContext(ctx, query); err != nil {
+						t.Fatal(err)
+					} else {
+						_ = r.Close()
+					}
+				}
+				set := "set "
+				if test.withTx {
+					set = set + "local "
+				}
+				execOrFail(set + "auto_partition_mode = true")
+				execOrFail(set + "data_boost_enabled = true")
+				execOrFail(fmt.Sprintf(set+"max_partitioned_parallelism = %d", rand.Intn(10)+1))
+				execOrFail(fmt.Sprintf(set+"max_partitions = %d", maxPartitions))
+				rows, err = tx.QueryContext(ctx, testutil.SelectFooFromBar)
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
+			defer func() { _ = rows.Close() }()
 
 			count := 0
 			for rows.Next() {
@@ -295,12 +347,6 @@ func TestAutoPartitionQuery(t *testing.T) {
 			}
 			if err := rows.Close(); err != nil {
 				t.Fatal(err)
-			}
-
-			if tx, ok := tx.(*sql.Tx); ok {
-				if err := tx.Commit(); err != nil {
-					t.Fatal(err)
-				}
 			}
 
 			requests := server.TestSpanner.DrainRequestsFromServer()
@@ -329,7 +375,7 @@ func TestAutoPartitionQuery(t *testing.T) {
 			if g, w := len(commitRequests), 0; g != w {
 				t.Fatalf("num commit requests mismatch\n Got: %v\nWant: %v", g, w)
 			}
-		}
+		})
 	}
 }
 
@@ -395,6 +441,23 @@ func TestAutoPartitionQuery_ExecuteError(t *testing.T) {
 		if err := tx.Commit(); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestRunPartitionedQuery(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	db.SetMaxOpenConns(1)
+
+	rows, err := db.QueryContext(ctx, "run partitioned query "+testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+
 	}
 }
 
