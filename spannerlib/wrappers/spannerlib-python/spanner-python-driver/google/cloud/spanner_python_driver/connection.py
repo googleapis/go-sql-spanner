@@ -11,10 +11,14 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+import logging
+
 from google.cloud.spannerlib.pool import Pool
 
 from . import errors
 from .cursor import Cursor
+
+logger = logging.getLogger(__name__)
 
 
 def check_not_closed(function):
@@ -56,6 +60,7 @@ class Connection:
 
     @check_not_closed
     def begin(self):
+        logger.debug("Beginning transaction")
         try:
             self._internal_conn.begin()
         except Exception as e:
@@ -63,22 +68,26 @@ class Connection:
 
     @check_not_closed
     def commit(self):
+        logger.debug("Committing transaction")
         try:
             self._internal_conn.commit()
-        except Exception:
-            pass
+        except Exception as e:
             # raise errors.map_spanner_error(e)
+            logger.debug(f"Commit failed {e}")
+            pass
 
     @check_not_closed
     def rollback(self):
+        logger.debug("Rolling back transaction")
         try:
             self._internal_conn.rollback()
-        except Exception:
-            pass
+        except Exception as e:
             # raise errors.map_spanner_error(e)
+            logger.debug(f"Rollback failed {e}")
 
     def close(self):
         if not self._closed:
+            logger.debug("Closing connection")
             self._internal_conn.close()
             self._closed = True
 
@@ -90,6 +99,7 @@ class Connection:
 
 
 def connect(connection_string, **kwargs):
+    logger.debug(f"Connecting to {connection_string}")
     # Create the pool
     pool = Pool.create_pool(connection_string)
 

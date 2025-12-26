@@ -12,11 +12,14 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 from enum import Enum
+import logging
 
 from google.cloud.spanner_v1 import ExecuteSqlRequest
 
 from . import errors
 from .types import _type_code_to_dbapi_type
+
+logger = logging.getLogger(__name__)
 
 
 def check_not_closed(function):
@@ -52,6 +55,7 @@ class Cursor:
 
     @property
     def description(self):
+        logger.debug("Fetching description for cursor")
         if not self._rows:
             return None
 
@@ -83,6 +87,7 @@ class Cursor:
 
     @check_not_closed
     def execute(self, operation, parameters=None):
+        logger.debug(f"Executing operation: {operation}")
 
         request = ExecuteSqlRequest(sql=operation)
 
@@ -101,6 +106,7 @@ class Cursor:
 
     @check_not_closed
     def executemany(self, operation, seq_of_parameters):
+        logger.debug(f"Executing batch operation: {operation}")
         total_rowcount = -1
         accumulated = False
 
@@ -141,6 +147,7 @@ class Cursor:
 
     @check_not_closed
     def fetchone(self):
+        logger.debug("Fetching one row")
         rows = self._fetch(FetchScope.FETCH_ONE)
         if rows:
             return tuple(rows[0])
@@ -148,13 +155,16 @@ class Cursor:
 
     @check_not_closed
     def fetchmany(self, size=None):
+        logger.debug("Fetching many rows")
         return self._fetch(FetchScope.FETCH_MANY, size)
 
     @check_not_closed
     def fetchall(self):
+        logger.debug("Fetching all rows")
         return self._fetch(FetchScope.FETCH_ALL)
 
     def close(self):
+        logger.debug("Closing cursor")
         self._closed = True
         if self._rows:
             self._rows.close()
@@ -162,6 +172,7 @@ class Cursor:
     @check_not_closed
     def nextset(self):
         """Skip to the next available set of results."""
+        logger.debug("Fetching next set of results")
         if not self._rows:
             return None
 
@@ -193,6 +204,7 @@ class Cursor:
         """Predefine memory areas for parameters.
         This operation is a no-op implementation.
         """
+        logger.debug("NO-OP: Setting input sizes")
         pass
 
     @check_not_closed
@@ -200,6 +212,7 @@ class Cursor:
         """Set a column buffer size.
         This operation is a no-op implementation.
         """
+        logger.debug("NO-OP: Setting output size")
         pass
 
     @check_not_closed
@@ -208,4 +221,5 @@ class Cursor:
 
         This method is not supported by Spanner.
         """
+        logger.debug("NO-OP: Calling stored procedure")
         raise errors.NotSupportedError("Stored procedures are not supported.")
