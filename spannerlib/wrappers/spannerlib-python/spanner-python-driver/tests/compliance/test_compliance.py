@@ -17,6 +17,7 @@ DBAPI 2.0 Compliance Test
 Checks for presence of required attributes and methods.
 """
 
+import os
 import unittest
 
 from google.cloud import spanner_python_driver
@@ -33,6 +34,7 @@ class TestDBAPICompliance(DBAPI20ComplianceTestBase):
     errors = errors
     connect_args = (get_test_connection_string(),)
     connect_kw_args = {}
+    dialect = os.environ.get("TEST_DIALECT", "GoogleSQL")
 
 
 if __name__ == "__main__":

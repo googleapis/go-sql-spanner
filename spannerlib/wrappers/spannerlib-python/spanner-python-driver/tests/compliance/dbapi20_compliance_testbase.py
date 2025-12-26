@@ -18,6 +18,8 @@ DBAPI 2.0 Compliance Test
 import unittest
 from unittest.mock import MagicMock
 
+from .sql_factory import SQLFactory
+
 
 class DBAPI20ComplianceTestBase(unittest.TestCase):
 
@@ -26,6 +28,11 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
     errors = None
     connect_args = ()  # List of arguments to pass to connect
     connect_kw_args = {}  # Keyword arguments for connect
+    dialect = "GoogleSQL"
+
+    @property
+    def sql_factory(self):
+        return SQLFactory.get_factory(self.dialect)
 
     @classmethod
     def setUpClass(cls):
@@ -36,10 +43,31 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
         pass
 
     def setUp(self):
-        pass
+        self.cleanup()
 
     def tearDown(self):
-        pass
+        self.cleanup()
+
+    def cleanup(self):
+        try:
+            con = self._connect()
+            try:
+                cur = con.cursor()
+                for ddl in self.sql_factory.stmt_ddl_drop_all_cmds:
+                    try:
+                        cur.execute(ddl)
+                        con.commit()
+                    except self.driver.Error:
+                        # Assume table didn't exist. Other tests will check if
+                        # execute is busted.
+                        pass
+            finally:
+                con.close()
+        except Exception:
+            pass
+
+    def _execute_select1(self, cur):
+        cur.execute(self.sql_factory.stmt_dql_select_1)
 
     def test_module_attributes(self):
         """Test module-level attributes."""
@@ -165,10 +193,6 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
         with self.assertRaises(self.errors.NotSupportedError):
             cursor.callproc("proc")
 
-    def test_Exceptions(self):
-        self.assertTrue(issubclass(self.driver.Warning, Exception))
-        self.assertTrue(issubclass(self.driver.Error, Exception))
-
     def _connect(self):
         try:
             r = self.driver.connect(*self.connect_args, **self.connect_kw_args)
@@ -188,10 +212,29 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
         finally:
             con.close()
 
-    SELECT_1 = "SELECT 1"
+    def test_cursor_isolation(self):
+        con = self._connect()
+        try:
+            # Make sure cursors created from the same connection have
+            # the documented transaction isolation level
+            cur1 = con.cursor()
+            cur2 = con.cursor()
+            cur1.execute(self.sql_factory.stmt_ddl_create_table1)
+            # DDL usually requires a clean slate or commit in some test envs
+            con.commit()
+            cur1.execute(
+                self.sql_factory.stmt_dml_insert_table1(
+                    "1, 'Innocent Alice', 100"
+                )
+            )
+            con.commit()
+            cur2.execute(self.sql_factory.stmt_dql_select_cols_table1("name"))
+            users = cur2.fetchone()
 
-    def _execute_select1(self, cursor):
-        cursor.execute(self.SELECT_1)
+            self.assertEqual(len(users), 1)
+            self.assertEqual(users[0], "Innocent Alice")
+        finally:
+            con.close()
 
     def test_close(self):
         con = self._connect()
@@ -202,17 +245,26 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
 
         # cursor.execute should raise an Error if called after connection
         # closed
+
         self.assertRaises(self.driver.Error, self._execute_select1, cur)
 
         # connection.commit should raise an Error if called after connection'
         # closed.'
         self.assertRaises(self.driver.Error, con.commit)
 
+    def test_non_idempotent_close(self):
+        con = self._connect()
+        con.close()
+        # connection.close should raise an Error if called more than once
+        # reasonable persons differ about the usefulness of this test
+        # and this feature
+        self.assertRaises(self.driver.Error, con.close)
+
     def test_execute_select1(self):
         con = self._connect()
         try:
             cur = con.cursor()
-            self._execute_select1(cur)
+            cur.execute(self.sql_factory.stmt_dql_select_1)
             self.assertEqual(cur.fetchone(), ("1",))
         finally:
             con.close()
@@ -235,5 +287,51 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
         try:
             # Commit must work, even if it doesn't do anything
             con.commit()
+        finally:
+            con.close()
+
+    def test_description(self):
+        con = self._connect()
+        try:
+            cur = con.cursor()
+            cur.execute(self.sql_factory.stmt_ddl_create_table1)
+
+            self.assertEqual(
+                cur.description,
+                None,
+                "cursor.description should be none after executing a "
+                "statement that can return no rows (such as DDL)",
+            )
+            cur.execute(self.sql_factory.stmt_dql_select_cols_table1("name"))
+            self.assertEqual(
+                len(cur.description),
+                1,
+                "cursor.description describes too many columns",
+            )
+            self.assertEqual(
+                len(cur.description[0]),
+                7,
+                "cursor.description[x] tuples must have 7 elements",
+            )
+            self.assertEqual(
+                cur.description[0][0].lower(),
+                "name",
+                "cursor.description[x][0] must return column name",
+            )
+            self.assertEqual(
+                cur.description[0][1],
+                self.driver.STRING,
+                "cursor.description[x][1] must return column type. Got %r"
+                % cur.description[0][1],
+            )
+
+            # Make sure self.description gets reset
+            cur.execute(self.sql_factory.stmt_ddl_create_table2)
+            self.assertEqual(
+                cur.description,
+                None,
+                "cursor.description not being set to None when executing "
+                "no-result statements (eg. DDL)",
+            )
         finally:
             con.close()

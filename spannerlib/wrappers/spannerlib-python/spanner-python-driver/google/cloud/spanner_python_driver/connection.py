@@ -85,6 +85,7 @@ class Connection:
             # raise errors.map_spanner_error(e)
             logger.debug(f"Rollback failed {e}")
 
+    @check_not_closed
     def close(self):
         if not self._closed:
             logger.debug("Closing connection")
