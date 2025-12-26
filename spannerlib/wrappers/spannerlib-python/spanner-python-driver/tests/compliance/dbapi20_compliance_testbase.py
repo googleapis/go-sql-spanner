@@ -165,6 +165,10 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
         with self.assertRaises(self.errors.NotSupportedError):
             cursor.callproc("proc")
 
+    def test_Exceptions(self):
+        self.assertTrue(issubclass(self.driver.Warning, Exception))
+        self.assertTrue(issubclass(self.driver.Error, Exception))
+
     def _connect(self):
         try:
             r = self.driver.connect(*self.connect_args, **self.connect_kw_args)
@@ -189,11 +193,47 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
     def _execute_select1(self, cursor):
         cursor.execute(self.SELECT_1)
 
+    def test_close(self):
+        con = self._connect()
+        try:
+            cur = con.cursor()
+        finally:
+            con.close()
+
+        # cursor.execute should raise an Error if called after connection
+        # closed
+        self.assertRaises(self.driver.Error, self._execute_select1, cur)
+
+        # connection.commit should raise an Error if called after connection'
+        # closed.'
+        self.assertRaises(self.driver.Error, con.commit)
+
     def test_execute_select1(self):
         con = self._connect()
         try:
             cur = con.cursor()
             self._execute_select1(cur)
             self.assertEqual(cur.fetchone(), ("1",))
+        finally:
+            con.close()
+
+    def test_rollback(self):
+        con = self._connect()
+        try:
+            # If rollback is defined, it should either work or throw
+            # the documented exception
+            if hasattr(con, "rollback"):
+                try:
+                    con.rollback()
+                except self.driver.NotSupportedError:
+                    pass
+        finally:
+            con.close()
+
+    def test_commit(self):
+        con = self._connect()
+        try:
+            # Commit must work, even if it doesn't do anything
+            con.commit()
         finally:
             con.close()

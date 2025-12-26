@@ -183,7 +183,10 @@ class NotSupportedError(DatabaseError):
 def map_spanner_error(error):
     """Map SpannerLibError or GoogleAPICallError to DB API 2.0 errors."""
     from google.api_core import exceptions
+    from google.cloud.spannerlib.internal.errors import SpannerLibError
 
+    if isinstance(error, SpannerLibError):
+        return DatabaseError(error)
     if isinstance(error, exceptions.AlreadyExists):
         return IntegrityError(error)
     if isinstance(error, exceptions.NotFound):

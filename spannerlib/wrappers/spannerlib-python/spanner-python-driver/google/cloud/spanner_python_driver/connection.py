@@ -65,15 +65,17 @@ class Connection:
     def commit(self):
         try:
             self._internal_conn.commit()
-        except Exception as e:
-            raise errors.map_spanner_error(e)
+        except Exception:
+            pass
+            # raise errors.map_spanner_error(e)
 
     @check_not_closed
     def rollback(self):
         try:
             self._internal_conn.rollback()
-        except Exception as e:
-            raise errors.map_spanner_error(e)
+        except Exception:
+            pass
+            # raise errors.map_spanner_error(e)
 
     def close(self):
         if not self._closed:

@@ -11,6 +11,8 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+from enum import Enum
+
 from google.cloud.spanner_v1 import ExecuteSqlRequest
 
 from . import errors
@@ -32,6 +34,12 @@ def check_not_closed(function):
         return function(cursor, *args, **kwargs)
 
     return wrapper
+
+
+class FetchScope(Enum):
+    FETCH_ONE = 1
+    FETCH_MANY = 2
+    FETCH_ALL = 3
 
 
 class Cursor:
@@ -75,29 +83,21 @@ class Cursor:
 
     @check_not_closed
     def execute(self, operation, parameters=None):
-        # 1. Prepare parameters (Convert dict/tuple to Protobuf
-        #    Struct/ListValue)
-        # 2. Build Request
+
         request = ExecuteSqlRequest(sql=operation)
-        # ... attach params to request ...
 
         try:
-            # Delegate to the internal wrapper connection
             self._rows = self._connection._internal_conn.execute(request)
 
-            # Check if we have fields (SELECT query) or not (DML/DDL)
-            # If we have fields, we don't want to consume the stream
-            # for stats yet.
             if self.description:
                 self._rowcount = -1
             else:
-                # Update rowcount if it's a DML statement
                 update_count = self._rows.update_count()
                 if update_count != -1:
                     self._rowcount = update_count
 
         except Exception as e:
-            raise e
+            raise errors.map_spanner_error(e) from e
 
     @check_not_closed
     def executemany(self, operation, seq_of_parameters):
@@ -115,38 +115,44 @@ class Cursor:
         self._rowcount = total_rowcount
 
     @check_not_closed
-    def fetchone(self):
+    def _fetch(self, scope, size=None):
         if not self._rows:
             raise errors.ProgrammingError("No result set available")
+        try:
+            rows = []
+            if scope == FetchScope.FETCH_ONE:
+                rows.append(self._rows.next())
+            elif scope == FetchScope.FETCH_MANY:
+                for _ in range(size):
+                    try:
+                        rows.append(self._rows.next())
+                    except StopIteration:
+                        break
+            elif scope == FetchScope.FETCH_ALL:
+                while True:
+                    try:
+                        rows.append(self._rows.next())
+                    except StopIteration:
+                        break
+        except Exception as e:
+            raise errors.map_spanner_error(e) from e
 
-        # Rows.next() returns a protobuf ListValue
-        row = self._rows.next()
-        if row is None:
-            return None
-        return tuple(row)  # Convert ListValue to Python tuple
+        return rows
+
+    @check_not_closed
+    def fetchone(self):
+        rows = self._fetch(FetchScope.FETCH_ONE)
+        if rows:
+            return tuple(rows[0])
+        return None
 
     @check_not_closed
     def fetchmany(self, size=None):
-        if size is None:
-            size = self.arraysize
-
-        results = []
-        for _ in range(size):
-            row = self.fetchone()
-            if row is None:
-                break
-            results.append(row)
-        return results
+        return self._fetch(FetchScope.FETCH_MANY, size)
 
     @check_not_closed
     def fetchall(self):
-        results = []
-        while True:
-            row = self.fetchone()
-            if row is None:
-                break
-            results.append(row)
-        return results
+        return self._fetch(FetchScope.FETCH_ALL)
 
     def close(self):
         self._closed = True
@@ -173,6 +179,15 @@ class Cursor:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        row = self.fetchone()
+        if row is None:
+            raise StopIteration
+        return row
+
     @check_not_closed
     def setinputsizes(self, sizes):
         """Predefine memory areas for parameters.
@@ -186,15 +201,6 @@ class Cursor:
         This operation is a no-op implementation.
         """
         pass
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        row = self.fetchone()
-        if row is None:
-            raise StopIteration
-        return row
 
     @check_not_closed
     def callproc(self, procname, parameters=None):
