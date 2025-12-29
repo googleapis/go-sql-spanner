@@ -496,3 +496,56 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
             self.assertEqual(row[0], None, "NULL value not returned as None")
         finally:
             con.close()
+
+    def test_fetchone(self):
+        con = self._connect()
+        try:
+            cur = con.cursor()
+
+            # cursor.fetchone should raise an Error if called before
+            # executing a select-type query
+            self.assertRaises(self.driver.Error, cur.fetchone)
+
+            # cursor.fetchone should raise an Error if called after
+            # executing a query that cannnot return rows
+            cur.execute(self.sql_factory.stmt_ddl_create_table1)
+            self.assertRaises(self.driver.Error, cur.fetchone)
+
+            cur.execute(self.sql_factory.stmt_dql_select_cols_table1("name"))
+            self.assertEqual(
+                cur.fetchone(),
+                None,
+                "cursor.fetchone should return None if a query retrieves "
+                "no rows",
+            )
+            self.assertTrue(cur.rowcount in (-1, 0))
+
+            # cursor.fetchone should raise an Error if called after
+            # executing a query that cannnot return rows
+            cur.execute(
+                self.sql_factory.stmt_dml_insert_table1(
+                    "1, 'Innocent Alice', 100"
+                )
+            )
+            self.assertRaises(self.driver.Error, cur.fetchone)
+
+            cur.execute(self.sql_factory.stmt_dql_select_cols_table1("name"))
+            row = cur.fetchone()
+            self.assertEqual(
+                len(row),
+                1,
+                "cursor.fetchone should have retrieved a single row",
+            )
+            self.assertEqual(
+                row[0],
+                "Innocent Alice",
+                "cursor.fetchone retrieved incorrect data",
+            )
+            self.assertEqual(
+                cur.fetchone(),
+                None,
+                "cursor.fetchone should return None if no more rows available",
+            )
+            self.assertTrue(cur.rowcount in (-1, 1))
+        finally:
+            con.close()

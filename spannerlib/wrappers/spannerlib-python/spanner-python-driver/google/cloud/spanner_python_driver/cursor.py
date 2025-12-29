@@ -100,6 +100,8 @@ class Cursor:
                 update_count = self._rows.update_count()
                 if update_count != -1:
                     self._rowcount = update_count
+                self._rows.close()
+                self._rows = None
 
         except Exception as e:
             raise errors.map_spanner_error(e) from e
@@ -149,9 +151,9 @@ class Cursor:
     def fetchone(self):
         logger.debug("Fetching one row")
         rows = self._fetch(FetchScope.FETCH_ONE)
-        if rows:
-            return tuple(rows[0])
-        return None
+        if not rows:
+            return
+        return rows[0]
 
     @check_not_closed
     def fetchmany(self, size=None):
