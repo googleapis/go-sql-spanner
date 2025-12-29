@@ -979,3 +979,53 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
     def test_setoutputsize(self):
         # Real test for setoutputsize is driver dependant
         raise NotImplementedError("Driver needed to override this test")
+
+    def help_nextset_setUp(self, cur):
+        sql = "SELECT 1; SELECT 2;"
+        cur.execute(sql)
+
+    def help_nextset_tearDown(self, cur):
+        pass
+
+    def test_no_nextset(self):
+        con = self._connect()
+        try:
+            cur = con.cursor()
+            sql = "SELECT 1;"
+            cur.execute(sql)
+            if not hasattr(cur, "nextset"):
+                return
+
+            try:
+                rows = cur.fetchone()
+                self.assertEqual(len(rows), 1)
+                s = cur.nextset()
+                self.assertEqual(
+                    s, None, "No more return sets, should return None"
+                )
+            finally:
+                self.help_nextset_tearDown(cur)
+
+        finally:
+            con.close()
+
+    def test_nextset(self):
+        con = self._connect()
+        try:
+            cur = con.cursor()
+            if not hasattr(cur, "nextset"):
+                return
+
+            try:
+                self.help_nextset_setUp(cur)
+                rows = cur.fetchone()
+                self.assertEqual(len(rows), 1)
+                s = cur.nextset()
+                self.assertEqual(
+                    s, True, "Has more return sets, should return True"
+                )
+            finally:
+                self.help_nextset_tearDown(cur)
+
+        finally:
+            con.close()
