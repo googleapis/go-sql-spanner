@@ -652,3 +652,65 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
 
         finally:
             con.close()
+
+    def test_fetchall(self):
+        con = self._connect()
+        try:
+            cur = con.cursor()
+            # cursor.fetchall should raise an Error if called
+            # without executing a query that may return rows (such
+            # as a select)
+            self.assertRaises(self.driver.Error, cur.fetchall)
+
+            cur.execute(self.sql_factory.stmt_ddl_create_table1)
+            for sql in self.sql_factory.populate_table1():
+                cur.execute(sql)
+
+            # cursor.fetchall should raise an Error if called
+            # after executing a a statement that cannot return rows
+            self.assertRaises(self.driver.Error, cur.fetchall)
+
+            cur.execute(self.sql_factory.stmt_dql_select_cols_table1("name"))
+            rows = cur.fetchall()
+            self.assertTrue(
+                cur.rowcount in (-1, len(self.sql_factory.names_table1))
+            )
+            self.assertEqual(
+                len(rows),
+                len(self.sql_factory.names_table1),
+                "cursor.fetchall did not retrieve all rows",
+            )
+            rows = [r[0] for r in rows]
+            rows.sort()
+            for i in range(0, len(self.sql_factory.names_table1)):
+                self.assertEqual(
+                    rows[i],
+                    self.sql_factory.names_table1[i],
+                    "cursor.fetchall retrieved incorrect rows",
+                )
+            rows = cur.fetchall()
+            self.assertEqual(
+                len(rows),
+                0,
+                "cursor.fetchall should return an empty list if called "
+                "after the whole result set has been fetched",
+            )
+            self.assertTrue(
+                cur.rowcount in (-1, len(self.sql_factory.names_table1))
+            )
+
+            cur.execute(self.sql_factory.stmt_ddl_create_table2)
+            cur.execute(
+                self.sql_factory.stmt_dql_select_cols_table2("item_name")
+            )
+            rows = cur.fetchall()
+            self.assertTrue(cur.rowcount in (-1, 0))
+            self.assertEqual(
+                len(rows),
+                0,
+                "cursor.fetchall should return an empty list if "
+                "a select query returns no rows",
+            )
+
+        finally:
+            con.close()
