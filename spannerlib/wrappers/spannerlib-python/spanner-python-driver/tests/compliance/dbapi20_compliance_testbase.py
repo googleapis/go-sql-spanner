@@ -714,3 +714,42 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
 
         finally:
             con.close()
+
+    def test_mixedfetch(self):
+        con = self._connect()
+        try:
+            cur = con.cursor()
+            cur.execute(self.sql_factory.stmt_ddl_create_table1)
+            for sql in self.sql_factory.populate_table1():
+                cur.execute(sql)
+
+            cur.execute(self.sql_factory.stmt_dql_select_cols_table1("name"))
+
+            rows1 = cur.fetchone()
+            rows23 = cur.fetchmany(2)
+            rows4 = cur.fetchone()
+            rows5 = cur.fetchall()
+
+            self.assertTrue(
+                cur.rowcount in (-1, len(self.sql_factory.names_table1))
+            )
+            self.assertEqual(
+                len(rows23), 2, "fetchmany returned incorrect number of rows"
+            )
+            self.assertEqual(
+                len(rows5), 1, "fetchall returned incorrect number of rows"
+            )
+
+            rows = [rows1[0]]
+            rows.extend([rows23[0][0], rows23[1][0]])
+            rows.append(rows4[0])
+            rows.extend([rows5[0][0]])
+            rows.sort()
+            for i in range(0, len(self.sql_factory.names_table1)):
+                self.assertEqual(
+                    rows[i],
+                    self.sql_factory.names_table1[i],
+                    "incorrect data retrieved or inserted",
+                )
+        finally:
+            con.close()
