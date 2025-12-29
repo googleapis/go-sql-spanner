@@ -39,6 +39,8 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
     connect_kw_args = {}  # Keyword arguments for connect
     dialect = "GoogleSQL"
 
+    lowerfunc = "lower"  # Name of stored procedure to convert string->lowercase
+
     @property
     def sql_factory(self):
         return SQLFactory.get_factory(self.dialect)
@@ -420,3 +422,77 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
         self.assertTrue(
             hasattr(self.driver, "ROWID"), "module.ROWID must be defined."
         )
+
+    def test_rowcount(self):
+        con = self._connect()
+        try:
+            cur = con.cursor()
+            cur.execute(self.sql_factory.stmt_ddl_create_table1)
+            self.assertTrue(
+                cur.rowcount in (-1, 0),  # Bug #543885
+                "cursor.rowcount should be -1 or 0 after executing no-result "
+                "statements",
+            )
+            cur.execute(
+                self.sql_factory.stmt_dml_insert_table1(
+                    "1, 'Innocent Alice', 100"
+                )
+            )
+            self.assertTrue(
+                cur.rowcount in (-1, 1),
+                "cursor.rowcount should == number or rows inserted, or "
+                "set to -1 after executing an insert statement",
+            )
+            cur.execute(self.sql_factory.stmt_dql_select_cols_table1("name"))
+            self.assertTrue(
+                cur.rowcount in (-1, 1),
+                "cursor.rowcount should == number of rows returned, or "
+                "set to -1 after executing a select statement",
+            )
+            cur.execute(self.sql_factory.stmt_ddl_create_table2)
+            self.assertTrue(
+                cur.rowcount in (-1, 0),  # Bug #543885
+                "cursor.rowcount should be -1 or 0 after executing no-result "
+                "statements",
+            )
+        finally:
+            con.close()
+
+    lower_func = "lower"
+
+    def test_callproc(self):
+        con = self._connect()
+        try:
+            cur = con.cursor()
+            if self.lower_func and hasattr(cur, "callproc"):
+                r = cur.callproc(self.lower_func, ("FOO",))
+                self.assertEqual(len(r), 1)
+                self.assertEqual(r[0], "FOO")
+                r = cur.fetchall()
+                self.assertEqual(len(r), 1, "callproc produced no result set")
+                self.assertEqual(
+                    len(r[0]), 1, "callproc produced invalid result set"
+                )
+                self.assertEqual(
+                    r[0][0], "foo", "callproc produced invalid results"
+                )
+        except self.driver.NotSupportedError:
+            pass
+        finally:
+            con.close()
+
+    def test_None(self):
+        con = self._connect()
+        try:
+            cur = con.cursor()
+            cur.execute(self.sql_factory.stmt_ddl_create_table1)
+            # inserting NULL to the second column, because some drivers might
+            # need the first one to be primary key, which means it needs
+            # to have a non-NULL value
+            cur.execute(self.sql_factory.stmt_dml_insert_table1("1, NULL, 100"))
+            cur.execute(self.sql_factory.stmt_dql_select_cols_table1("name"))
+            row = cur.fetchone()
+            self.assertEqual(len(row), 1)
+            self.assertEqual(row[0], None, "NULL value not returned as None")
+        finally:
+            con.close()
