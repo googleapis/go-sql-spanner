@@ -36,6 +36,9 @@ class TestDBAPICompliance(DBAPI20ComplianceTestBase):
     connect_kw_args = {}
     dialect = os.environ.get("TEST_DIALECT", "GoogleSQL")
 
+    def test_setoutputsize(self):
+        pass
+
 
 if __name__ == "__main__":
     unittest.main()

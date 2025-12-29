@@ -753,3 +753,124 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
                 )
         finally:
             con.close()
+
+    def _parametized_inserts(self, cur):
+        cur.execute(self.sql_factory.stmt_ddl_create_table2)
+        cur.execute(
+            self.sql_factory.stmt_dml_insert_table2(
+                "101, 'Mystery Sandwich', 1, True, ''"
+            )
+        )
+        self.assertTrue(cur.rowcount in (-1, 1))
+
+        if self.driver.paramstyle == "qmark":
+            cur.execute(
+                self.sql_factory.stmt_dml_insert_table2(
+                    "102, ?, 2, True, 'thi%%s :may ca%%(u)se? troub:1e'"
+                ),
+                ("Leftover Pizza",),
+            )
+        elif self.driver.paramstyle == "numeric":
+            cur.execute(
+                self.sql_factory.stmt_dml_insert_table2(
+                    "102, :1, 2, True,'thi%%s :may ca%%(u)se? troub:1e'"
+                ),
+                ("Leftover Pizza",),
+            )
+        elif self.driver.paramstyle == "named":
+            cur.execute(
+                self.sql_factory.stmt_dml_insert_table2(
+                    "102, :item_name, 2, True, "
+                    "'thi%%s :may ca%%(u)se? troub:1e'"
+                ),
+                {"item_name": "Leftover Pizza"},
+            )
+        elif self.driver.paramstyle == "format":
+            cur.execute(
+                self.sql_factory.stmt_dml_insert_table2(
+                    "102, %%s, 2, True, 'thi%%%%s :may ca%%%%(u)se? troub:1e'"
+                ),
+                ("Leftover Pizza",),
+            )
+        elif self.driver.paramstyle == "pyformat":
+            cur.execute(
+                self.sql_factory.stmt_dml_insert_table2(
+                    "102, %%(item_name), 2, True, "
+                    "'thi%%%%s :may ca%%%%(u)se? troub:1e'"
+                ),
+                {"item_name": "Leftover Pizza"},
+            )
+        else:
+            self.fail("Invalid paramstyle")
+
+        self.assertTrue(cur.rowcount in (-1, 1))
+
+        cur.execute(self.sql_factory.stmt_dql_select_all_table2())
+        rows = cur.fetchall()
+
+        self.assertEqual(len(rows), 2, "cursor.fetchall returned too few rows")
+        item_name = [rows[0][1], rows[1][1]]
+        item_name.sort()
+        self.assertEqual(
+            item_name[0],
+            "Innocent Alice",
+            "cursor.fetchall retrieved incorrect data, or data inserted "
+            "incorrectly",
+        )
+        self.assertEqual(
+            item_name[1],
+            "Vegan Sarah",
+            "cursor.fetchall retrieved incorrect data, or data inserted "
+            "incorrectly",
+        )
+
+        trouble = "thi%s :may ca%(u)se? troub:1e"
+        self.assertEqual(
+            rows[0][4],
+            trouble,
+            "cursor.fetchall retrieved incorrect data, or data inserted "
+            "incorrectly. Got=%s, Expected=%s"
+            % (repr(rows[0][4]), repr(trouble)),
+        )
+        self.assertEqual(
+            rows[1][4],
+            trouble,
+            "cursor.fetchall retrieved incorrect data, or data inserted "
+            "incorrectly. Got=%s, Expected=%s"
+            % (repr(rows[1][4]), repr(trouble)),
+        )
+
+    @unittest.skip("Failing as params are not yet handled")
+    def test_execute_with_params(self):
+        con = self._connect()
+        try:
+            cur = con.cursor()
+            self._parametized_inserts(cur)
+        finally:
+            con.close()
+
+    @unittest.skip("Failing as params are not yet handled")
+    def test_setinputsizes(self):
+        con = self._connect()
+        try:
+            cur = con.cursor()
+            cur.setinputsizes((25,))
+            self._parametized_inserts(cur)  # Make sure cursor still works
+        finally:
+            con.close()
+
+    @unittest.skip("Failing as params are not yet handled")
+    def test_setoutputsize_basic(self):
+        # Basic test is to make sure setoutputsize doesn't blow up
+        con = self._connect()
+        try:
+            cur = con.cursor()
+            cur.setoutputsize(1000)
+            cur.setoutputsize(2000, 0)
+            self._parametized_inserts(cur)  # Make sure the cursor still works
+        finally:
+            con.close()
+
+    def test_setoutputsize(self):
+        # Real test for setoutputsize is driver dependant
+        raise NotImplementedError("Driver needed to override this test")

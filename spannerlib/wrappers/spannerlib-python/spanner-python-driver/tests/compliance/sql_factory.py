@@ -28,21 +28,21 @@ TABLE 1: coworkers
 | 5  | 'Suspicious Dave'|    -10      |
 
 TABLE 2: office_fridge
-| item_id | item_name                      | owner_id | is_stolen |
--------------------------------------------------------------------
+| item_id | item_name                      | owner_id | is_stolen | notes |
+---------------------------------------------------------------------------
 -- Alice's perfectly prepped meals (High theft targets)
-|   101   | 'Moms Lasagna'                 |     1    |   True    |
-|   102   | 'Chocolate Brownie'            |     1    |   True    |
+|   101   | 'Moms Lasagna'                 |     1    |   True    | "" |
+|   102   | 'Chocolate Brownie'            |     1    |   True    | "" |
 -- Sarah's food (Safe because it's Kale)
-|   103   | 'Kale & Quinoa Bowl'           |     2    |   False   |
+|   103   | 'Kale & Quinoa Bowl'           |     2    |   False   | "" |
 -- Manager Bob's lunch (Too fancy to steal?)
-|   104   | 'Expensive Sushi'              |     3    |   False   |
+|   104   | 'Expensive Sushi'              |     3    |   False   | "" |
 -- Kevin's drink (The only thing he brought)
-|   105   | 'Mega Energy Drink'            |     4    |   True    |
+|   105   | 'Mega Energy Drink'            |     4    |   True    | "" |
 -- Dave's mystery food (No one dares touch it)
-|   106   | 'Unlabeled Tupperware Sludge'  |     5    |   False   |
+|   106   | 'Unlabeled Tupperware Sludge'  |     5    |   False   | "" |
 -- Alice's sandwich (The label makes it a dare - Trap?)
-|   107   | 'Sandwich labeled - Do Not Eat'|     1    |   True    |
+|   107   | 'Sandwich labeled - Do Not Eat'|     1    |   True    | "" |
 """
 
 
@@ -51,7 +51,7 @@ class SQLFactory(abc.ABC):
     TABLE1 = "coworkers"
     TABLE1_COLS = "id, name, trust_level"
     TABLE2 = "office_fridge"
-    TABLE2_COLS = "item_id, item_name, owner_id, is_stolen"
+    TABLE2_COLS = "item_id, item_name, owner_id, is_stolen, notes"
     SELECT_1 = "SELECT 1"
 
     @property
@@ -145,13 +145,13 @@ class SQLFactory(abc.ABC):
         ]
 
     sample_table2 = [
-        [101, "Mystery Sandwich", 1, True],
-        [102, "Leftover Pizza", 2, True],
-        [103, "Kale & Quinoa Bowl", 3, False],
-        [104, "Expensive Sushi", 4, False],
-        [105, "Mega Energy Drink", 5, True],
-        [106, "Unlabeled Tupperware Sludge", 6, False],
-        [107, "Sandwich labeled - Do Not Eat", 7, True],
+        [101, "Mystery Sandwich", 1, True, ""],
+        [102, "Leftover Pizza", 2, True, ""],
+        [103, "Kale & Quinoa Bowl", 3, False, ""],
+        [104, "Expensive Sushi", 4, False, ""],
+        [105, "Mega Energy Drink", 5, True, ""],
+        [106, "Unlabeled Tupperware Sludge", 6, False, ""],
+        [107, "Sandwich labeled - Do Not Eat", 7, True, ""],
     ]
     item_names_table2 = sorted([row[1] for row in sample_table2])
 
@@ -185,7 +185,7 @@ class GoogleSQLFactory(SQLFactory):
         return (
             "CREATE TABLE %s%s "
             "(item_id INT64, item_name STRING(100), "
-            "owner_id INT64, is_stolen BOOL) "
+            "owner_id INT64, is_stolen BOOL, notes STRING(100)) "
             "PRIMARY KEY (item_id)" % (self.TABLE_PREFIX, self.TABLE2)
         )
 
