@@ -15,10 +15,19 @@
 """
 DBAPI 2.0 Compliance Test
 """
+import time
 import unittest
 from unittest.mock import MagicMock
 
 from .sql_factory import SQLFactory
+
+
+def encode(s: str) -> bytes:
+    return s.encode("utf-8")
+
+
+def decode(b: bytes) -> str:
+    return b.decode("utf-8")
 
 
 class DBAPI20ComplianceTestBase(unittest.TestCase):
@@ -335,3 +344,79 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
             )
         finally:
             con.close()
+
+    def test_arraysize(self):
+        # Not much here - rest of the tests for this are in test_fetchmany
+        con = self._connect()
+        try:
+            cur = con.cursor()
+            self.assertTrue(
+                hasattr(cur, "arraysize"),
+                "cursor.arraysize must be defined",
+            )
+        finally:
+            con.close()
+
+    def test_Date(self):
+        d1 = self.driver.Date(2002, 12, 25)
+        d2 = self.driver.DateFromTicks(
+            time.mktime((2002, 12, 25, 0, 0, 0, 0, 0, 0))
+        )
+        # Can we assume this? API doesn't specify, but it seems implied
+        self.assertEqual(str(d1), str(d2))
+
+    def test_Time(self):
+        # 1. Create the target time
+        t1 = self.driver.Time(13, 45, 30)
+
+        # 2. Create ticks using Local Time (mktime is local)
+        # We use a dummy date (2001-01-01)
+        target_tuple = (2001, 1, 1, 13, 45, 30, 0, 0, 0)
+        ticks = time.mktime(target_tuple)
+
+        t2 = self.driver.TimeFromTicks(ticks)
+
+        # CHECK 1: Ensure they are the same type (likely datetime.time)
+        self.assertIsInstance(t1, type(t2))
+
+        # CHECK 2: Compare value semantics, not string representation
+        # This avoids format differences but still requires timezone alignment
+        self.assertEqual(t1, t2)
+
+    def test_Timestamp(self):
+        t1 = self.driver.Timestamp(2002, 12, 25, 13, 45, 30)
+        t2 = self.driver.TimestampFromTicks(
+            time.mktime((2002, 12, 25, 13, 45, 30, 0, 0, 0))
+        )
+        # Can we assume this? API doesn't specify, but it seems implied
+        self.assertEqual(str(t1), str(t2))
+
+    def test_Binary(self):
+        s = "Something"
+        b = self.driver.Binary(encode(s))
+        self.assertEqual(s, decode(b))
+
+    def test_STRING(self):
+        self.assertTrue(
+            hasattr(self.driver, "STRING"), "module.STRING must be defined"
+        )
+
+    def test_BINARY(self):
+        self.assertTrue(
+            hasattr(self.driver, "BINARY"), "module.BINARY must be defined."
+        )
+
+    def test_NUMBER(self):
+        self.assertTrue(
+            hasattr(self.driver, "NUMBER"), "module.NUMBER must be defined."
+        )
+
+    def test_DATETIME(self):
+        self.assertTrue(
+            hasattr(self.driver, "DATETIME"), "module.DATETIME must be defined."
+        )
+
+    def test_ROWID(self):
+        self.assertTrue(
+            hasattr(self.driver, "ROWID"), "module.ROWID must be defined."
+        )

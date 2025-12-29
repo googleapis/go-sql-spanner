@@ -34,9 +34,7 @@ def DateFromTicks(ticks):
 
 
 def TimeFromTicks(ticks):
-    return datetime.time(
-        *datetime.datetime.fromtimestamp(ticks).timetuple()[:3]
-    )
+    return datetime.datetime.fromtimestamp(ticks).time()
 
 
 def TimestampFromTicks(ticks):
