@@ -754,11 +754,35 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
         finally:
             con.close()
 
-    def _parametized_inserts(self, cur):
+    def _simple_queries(self, cur):
+        # DDL
+        cur.execute(self.sql_factory.stmt_ddl_create_table1)
+        # DML
+        for sql in self.sql_factory.populate_table1():
+            cur.execute(sql)
+        # DQL
+        cur.execute(self.sql_factory.stmt_dql_select_cols_table1("name"))
+        _ = cur.fetchall()
+        self.assertTrue(
+            cur.rowcount in (-1, len(self.sql_factory.names_table1))
+        )
+
+    def test_execute(self):
+        con = self._connect()
+        try:
+            cur = con.cursor()
+            self._simple_queries(cur)
+
+        finally:
+            con.close()
+
+    def _parametized_queries(self, cur):
+        # DDL
         cur.execute(self.sql_factory.stmt_ddl_create_table2)
+        # DML
         cur.execute(
             self.sql_factory.stmt_dml_insert_table2(
-                "101, 'Mystery Sandwich', 1, True, ''"
+                "101, 'Moms Lasagna', 1, True, ''"
             )
         )
         self.assertTrue(cur.rowcount in (-1, 1))
@@ -766,45 +790,46 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
         if self.driver.paramstyle == "qmark":
             cur.execute(
                 self.sql_factory.stmt_dml_insert_table2(
-                    "102, ?, 2, True, 'thi%%s :may ca%%(u)se? troub:1e'"
+                    "102, ?, 1, True, 'thi%%s :may ca%%(u)se? troub:1e'"
                 ),
-                ("Leftover Pizza",),
+                ("Chocolate Brownie",),
             )
         elif self.driver.paramstyle == "numeric":
             cur.execute(
                 self.sql_factory.stmt_dml_insert_table2(
-                    "102, :1, 2, True,'thi%%s :may ca%%(u)se? troub:1e'"
+                    "102, :1, 1, True,'thi%%s :may ca%%(u)se? troub:1e'"
                 ),
-                ("Leftover Pizza",),
+                ("Chocolate Brownie",),
             )
         elif self.driver.paramstyle == "named":
             cur.execute(
                 self.sql_factory.stmt_dml_insert_table2(
-                    "102, :item_name, 2, True, "
+                    "102, :item_name, 1, True, "
                     "'thi%%s :may ca%%(u)se? troub:1e'"
                 ),
-                {"item_name": "Leftover Pizza"},
+                {"item_name": "Chocolate Brownie"},
             )
         elif self.driver.paramstyle == "format":
             cur.execute(
                 self.sql_factory.stmt_dml_insert_table2(
-                    "102, %%s, 2, True, 'thi%%%%s :may ca%%%%(u)se? troub:1e'"
+                    "102, %%s, 1, True, 'thi%%%%s :may ca%%%%(u)se? troub:1e'"
                 ),
-                ("Leftover Pizza",),
+                ("Chocolate Brownie",),
             )
         elif self.driver.paramstyle == "pyformat":
             cur.execute(
                 self.sql_factory.stmt_dml_insert_table2(
-                    "102, %%(item_name), 2, True, "
+                    "102, %%(item_name), 1, True, "
                     "'thi%%%%s :may ca%%%%(u)se? troub:1e'"
                 ),
-                {"item_name": "Leftover Pizza"},
+                {"item_name": "Chocolate Brownie"},
             )
         else:
             self.fail("Invalid paramstyle")
 
         self.assertTrue(cur.rowcount in (-1, 1))
 
+        # DQL
         cur.execute(self.sql_factory.stmt_dql_select_all_table2())
         rows = cur.fetchall()
 
@@ -813,13 +838,13 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
         item_name.sort()
         self.assertEqual(
             item_name[0],
-            "Innocent Alice",
+            "Chocolate Brownie",
             "cursor.fetchall retrieved incorrect data, or data inserted "
             "incorrectly",
         )
         self.assertEqual(
             item_name[1],
-            "Vegan Sarah",
+            "Moms Lasagna",
             "cursor.fetchall retrieved incorrect data, or data inserted "
             "incorrectly",
         )
@@ -845,21 +870,101 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
         con = self._connect()
         try:
             cur = con.cursor()
-            self._parametized_inserts(cur)
+            self._parametized_queries(cur)
         finally:
             con.close()
 
     @unittest.skip("Failing as params are not yet handled")
+    def test_executemany_with_params(self):
+        con = self._connect()
+        try:
+            cur = con.cursor()
+            # DDL
+            cur.execute(self.sql_factory.stmt_ddl_create_table2)
+
+            largs = [("Moms Lasagna",), ("Chocolate Brownie",)]
+            margs = [{"name": "Moms Lasagna"}, {"name": "Chocolate Brownie"}]
+            if self.driver.paramstyle == "qmark":
+                cur.executemany(
+                    self.sql_factory.stmt_dml_insert_table2(
+                        "102, ?, 1, True, 'thi%%s :may ca%%(u)se? troub:1e'"
+                    ),
+                    largs,
+                )
+            elif self.driver.paramstyle == "numeric":
+                cur.executemany(
+                    self.sql_factory.stmt_dml_insert_table2(
+                        "102, :1, 1, True,'thi%%s :may ca%%(u)se? troub:1e'"
+                    ),
+                    largs,
+                )
+            elif self.driver.paramstyle == "named":
+                cur.executemany(
+                    self.sql_factory.stmt_dml_insert_table2(
+                        "102, :item_name, 1, True, "
+                        "'thi%%s :may ca%%(u)se? troub:1e'"
+                    ),
+                    margs,
+                )
+            elif self.driver.paramstyle == "format":
+                cur.executemany(
+                    self.sql_factory.stmt_dml_insert_table2(
+                        "102, %%s, 1, True, "
+                        "'thi%%%%s :may ca%%%%(u)se? troub:1e'"
+                    ),
+                    largs,
+                )
+            elif self.driver.paramstyle == "pyformat":
+                cur.executemany(
+                    self.sql_factory.stmt_dml_insert_table2(
+                        "102, %%(item_name), 1, True, "
+                        "'thi%%%%s :may ca%%%%(u)se? troub:1e'"
+                    ),
+                    margs,
+                )
+            else:
+                self.fail("Unknown paramstyle")
+
+            self.assertTrue(
+                cur.rowcount in (-1, 2),
+                "insert using cursor.executemany set cursor.rowcount to "
+                "incorrect value %r" % cur.rowcount,
+            )
+
+            # DQL
+            cur.execute(self.sql_factory.stmt_dql_select_all_table2())
+            rows = cur.fetchall()
+            self.assertEqual(
+                len(rows),
+                2,
+                "cursor.fetchall retrieved incorrect number of rows",
+            )
+            item_names = [rows[0][1], rows[1][1]]
+            item_names.sort()
+            self.assertEqual(
+                item_names[0],
+                "Chocolate Brownie",
+                "cursor.fetchall retrieved incorrect data, or data inserted "
+                "incorrectly",
+            )
+            self.assertEqual(
+                item_names[1],
+                "Moms Lasagna",
+                "cursor.fetchall retrieved incorrect data, or data inserted "
+                "incorrectly",
+            )
+        finally:
+            con.close()
+
     def test_setinputsizes(self):
         con = self._connect()
         try:
             cur = con.cursor()
             cur.setinputsizes((25,))
-            self._parametized_inserts(cur)  # Make sure cursor still works
+            self._simple_queries(cur)  # Make sure cursor still works
         finally:
             con.close()
 
-    @unittest.skip("Failing as params are not yet handled")
     def test_setoutputsize_basic(self):
         # Basic test is to make sure setoutputsize doesn't blow up
         con = self._connect()
@@ -867,7 +972,7 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
             cur = con.cursor()
             cur.setoutputsize(1000)
             cur.setoutputsize(2000, 0)
-            self._parametized_inserts(cur)  # Make sure the cursor still works
+            self._simple_queries(cur)  # Make sure the cursor still works
         finally:
             con.close()
 
