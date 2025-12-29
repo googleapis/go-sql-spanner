@@ -43,7 +43,9 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
     connect_kw_args = {}  # Keyword arguments for connect
     dialect = "GoogleSQL"
 
-    lower_func = "lower"  # Name of stored procedure to convert string->lowercase
+    lower_func = (
+        "lower"  # Name of stored procedure to convert string->lowercase
+    )
 
     @property
     def sql_factory(self):
@@ -212,9 +214,7 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
         """
         try:
             apilevel = self.driver.apilevel
-            self.assertEqual(
-                apilevel, "2.0", "Driver apilevel must be '2.0'"
-            )
+            self.assertEqual(apilevel, "2.0", "Driver apilevel must be '2.0'")
         except AttributeError:
             self.fail("Driver doesn't define apilevel")
 
@@ -226,7 +226,7 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
             threadsafety = self.driver.threadsafety
             self.assertTrue(
                 threadsafety in (0, 1, 2, 3),
-                "threadsafety must be one of 0, 1, 2, 3"
+                "threadsafety must be one of 0, 1, 2, 3",
             )
         except AttributeError:
             self.fail("Driver doesn't define threadsafety")
@@ -306,14 +306,17 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
         finally:
             con.close()
 
-        # cursor.execute should raise an Error if called after connection closed
+        # cursor.execute should raise an Error if called
+        # after connection closed
         self.assertRaises(self.driver.Error, self._execute_select1, cur)
 
-        # connection.commit should raise an Error if called after connection closed
+        # connection.commit should raise an Error if called
+        # after connection closed
         self.assertRaises(self.driver.Error, con.commit)
 
     def test_non_idempotent_close(self):
-        """Test that calling close() twice raises an Error (optional behavior)."""
+        """Test that calling close() twice raises an Error
+        (optional behavior)."""
         con = self._connect()
         con.close()
         # connection.close should raise an Error if called more than once
@@ -403,7 +406,8 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
         self.assertTrue(hasattr(cursor, "__iter__"))
         self.assertTrue(hasattr(cursor, "__next__"))
 
-        # Test callproc raising NotSupportedError (mandatory by default unless implemented)
+        # Test callproc raising NotSupportedError (mandatory by
+        # default unless implemented)
         with self.assertRaises(self.errors.NotSupportedError):
             cursor.callproc("proc")
 
