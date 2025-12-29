@@ -133,13 +133,19 @@ class Cursor:
             elif scope == FetchScope.FETCH_MANY:
                 for _ in range(size):
                     try:
-                        rows.append(self._rows.next())
+                        row = self._rows.next()
+                        if row is None:
+                            break
+                        rows.append(row)
                     except StopIteration:
                         break
             elif scope == FetchScope.FETCH_ALL:
                 while True:
                     try:
-                        rows.append(self._rows.next())
+                        row = self._rows.next()
+                        if row is None:
+                            break
+                        rows.append(row)
                     except StopIteration:
                         break
         except Exception as e:
@@ -158,6 +164,8 @@ class Cursor:
     @check_not_closed
     def fetchmany(self, size=None):
         logger.debug("Fetching many rows")
+        if size is None:
+            size = self.arraysize
         return self._fetch(FetchScope.FETCH_MANY, size)
 
     @check_not_closed

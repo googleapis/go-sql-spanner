@@ -115,6 +115,52 @@ class SQLFactory(abc.ABC):
     def stmt_dml_insert_table2(self, vals):
         return self.stmt_dml_insert(self.table2, self.TABLE2_COLS, vals)
 
+    sample_table1 = [
+        [1, "Innocent Alice", 100],
+        [2, "Vegan Sarah", 95],
+        [3, "Manager Bob", 50],
+        [4, "Intern Kevin", 15],
+        [5, "Suspicious Dave", -10],
+    ]
+    names_table1 = sorted([row[1] for row in sample_table1])
+
+    def process_row(self, row):
+        def to_sql_literal(value):
+            # Check for boolean first
+            if isinstance(value, bool):
+                return "TRUE" if value else "FALSE"
+            # Wrap strings in single quotes
+            elif isinstance(value, str):
+                return f"'{value}'"
+            # Return numbers and other types as-is
+            else:
+                return str(value)
+
+        return ", ".join(map(to_sql_literal, row))
+
+    def populate_table1(self):
+        return [
+            self.stmt_dml_insert_table1(self.process_row(row))
+            for row in self.sample_table1
+        ]
+
+    sample_table2 = [
+        [101, "Mystery Sandwich", 1, True],
+        [102, "Leftover Pizza", 2, True],
+        [103, "Kale & Quinoa Bowl", 3, False],
+        [104, "Expensive Sushi", 4, False],
+        [105, "Mega Energy Drink", 5, True],
+        [106, "Unlabeled Tupperware Sludge", 6, False],
+        [107, "Sandwich labeled - Do Not Eat", 7, True],
+    ]
+    item_names_table2 = sorted([row[1] for row in sample_table2])
+
+    def populate_table2(self):
+        return [
+            self.stmt_dml_insert_table2(self.process_row(row))
+            for row in self.sample_table2
+        ]
+
     @staticmethod
     def get_factory(dialect):
         if dialect == "PostgreSQL":

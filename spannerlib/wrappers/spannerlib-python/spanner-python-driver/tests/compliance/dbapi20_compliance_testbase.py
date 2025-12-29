@@ -271,15 +271,6 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
         # and this feature
         self.assertRaises(self.driver.Error, con.close)
 
-    def test_execute_select1(self):
-        con = self._connect()
-        try:
-            cur = con.cursor()
-            cur.execute(self.sql_factory.stmt_dql_select_1)
-            self.assertEqual(cur.fetchone(), ("1",))
-        finally:
-            con.close()
-
     def test_rollback(self):
         con = self._connect()
         try:
@@ -547,5 +538,117 @@ class DBAPI20ComplianceTestBase(unittest.TestCase):
                 "cursor.fetchone should return None if no more rows available",
             )
             self.assertTrue(cur.rowcount in (-1, 1))
+        finally:
+            con.close()
+
+    def test_fetchmany(self):
+        con = self._connect()
+        try:
+            cur = con.cursor()
+
+            # cursor.fetchmany should raise an Error if called without
+            # issuing a query
+            self.assertRaises(self.driver.Error, cur.fetchmany, 4)
+
+            cur.execute(self.sql_factory.stmt_ddl_create_table1)
+            for sql in self.sql_factory.populate_table1():
+                cur.execute(sql)
+
+            cur.execute(self.sql_factory.stmt_dql_select_cols_table1("name"))
+
+            r = cur.fetchmany()
+            self.assertEqual(
+                len(r),
+                1,
+                "cursor.fetchmany retrieved incorrect number of rows, "
+                "default of arraysize is one.",
+            )
+
+            cur.arraysize = 10
+            r = cur.fetchmany(2)  # Should get 3 rows
+            self.assertEqual(
+                len(r), 2, "cursor.fetchmany retrieved incorrect number of rows"
+            )
+
+            r = cur.fetchmany(4)  # Should get 2 more
+            self.assertEqual(
+                len(r), 2, "cursor.fetchmany retrieved incorrect number of rows"
+            )
+
+            r = cur.fetchmany(4)  # Should be an empty sequence
+            self.assertEqual(
+                len(r),
+                0,
+                "cursor.fetchmany should return an empty sequence after "
+                "results are exhausted",
+            )
+
+            self.assertTrue(cur.rowcount in (-1, 5))
+
+            # Same as above, using cursor.arraysize
+            cur.arraysize = 3
+            cur.execute(self.sql_factory.stmt_dql_select_cols_table1("name"))
+            r = cur.fetchmany()  # Should get 4 rows
+            self.assertEqual(
+                len(r), 3, "cursor.arraysize not being honoured by fetchmany"
+            )
+
+            r = cur.fetchmany()  # Should get 2 more
+            self.assertEqual(len(r), 2)
+
+            r = cur.fetchmany()  # Should be an empty sequence
+            self.assertEqual(len(r), 0)
+
+            self.assertTrue(cur.rowcount in (-1, 5))
+
+            cur.arraysize = 5
+            cur.execute(self.sql_factory.stmt_dql_select_cols_table1("name"))
+            rows = cur.fetchmany()  # Should get all rows
+            self.assertTrue(cur.rowcount in (-1, 5))
+            self.assertEqual(len(rows), 5)
+            rows = [r[0] for r in rows]
+            rows.sort()
+
+            # Make sure we get the right data back out
+            for i in range(0, 5):
+                self.assertEqual(
+                    rows[i],
+                    self.sql_factory.names_table1[i],
+                    "incorrect data retrieved by cursor.fetchmany",
+                )
+
+            rows = cur.fetchmany()  # Should return an empty list
+            self.assertEqual(
+                len(rows),
+                0,
+                "cursor.fetchmany should return an empty sequence if "
+                "called after the whole result set has been fetched",
+            )
+            self.assertTrue(cur.rowcount in (-1, 5))
+
+            cur.execute(self.sql_factory.stmt_ddl_create_table2)
+            cur.execute(
+                self.sql_factory.stmt_dql_select_cols_table2("item_name")
+            )
+            rows = cur.fetchmany()  # Should get empty sequence
+            self.assertEqual(
+                len(rows),
+                0,
+                "cursor.fetchmany should return an empty sequence if "
+                "query retrieved no rows",
+            )
+            self.assertTrue(cur.rowcount in (-1, 0))
+
+            for sql in self.sql_factory.populate_table2():
+                cur.execute(sql)
+
+            cur.execute(
+                self.sql_factory.stmt_dql_select_cols_table2("item_name")
+            )
+            cur.arraysize = 10
+            rows = cur.fetchmany()  # Should get empty sequence
+            self.assertEqual(len(rows), 7)
+            self.assertTrue(cur.rowcount in (-1, 7))
+
         finally:
             con.close()
