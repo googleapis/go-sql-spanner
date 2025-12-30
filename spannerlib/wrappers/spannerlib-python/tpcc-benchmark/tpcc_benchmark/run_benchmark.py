@@ -17,8 +17,7 @@ import importlib
 import random
 import time
 
-from google.cloud import spanner
-from google.cloud import spanner_admin_database_v1
+from google.cloud import spanner, spanner_admin_database_v1
 from spanner_tpcc import SpannerTPCCDriver
 
 # Constants
@@ -96,29 +95,6 @@ def clean_data(instance_id, database_id, project_id):
         )
 
 
-def load_data(conn):
-    """
-    Creates schema and loads initial TPC-C data into the database.
-
-    Args:
-        conn (object): The DBAPI connection object.
-    """
-    # Schema creation uses Admin API (Driver Independent)
-    print("Ensuring Schema...")
-    import os
-
-    schema_path = os.path.join(os.path.dirname(__file__), "schema.ddl")
-    with open(schema_path, "r") as f:
-        ddl_statements = [s.strip() for s in f.read().split(";") if s.strip()]
-
-    client = spanner_admin_database_v1.DatabaseAdminClient()
-    # We need instance_id/database_id/project_id to use AdminClient.
-    # But now we only have 'conn'.
-    # We should pass them explicitly to load_data or extract them?
-    # Simpler: Keep the signature but remove connect_func?
-    # No, let's keep instance/db/project args for AdminClient usage.
-    pass
-
 def load_data(conn, instance_id, database_id, project_id):
     """
     Creates schema and loads initial TPC-C data into the database.
@@ -131,6 +107,15 @@ def load_data(conn, instance_id, database_id, project_id):
     """
     # Schema creation uses Admin API (Driver Independent)
     print("Ensuring Schema...")
+    import os
+
+    schema_path = os.path.join(os.path.dirname(__file__), "schema.ddl")
+    with open(schema_path, "r") as f:
+        ddl_statements = [s.strip() for s in f.read().split(";") if s.strip()]
+
+    client = spanner_admin_database_v1.DatabaseAdminClient()
+    db_path = client.database_path(project_id, instance_id, database_id)
+
     try:
         op = client.update_database_ddl(
             request={"database": db_path, "statements": ddl_statements}
@@ -138,11 +123,12 @@ def load_data(conn, instance_id, database_id, project_id):
         op.result(timeout=300)
     except Exception as e:
         print(f"Schema update failed: {e}")
-        # If schema update fails, we likely can't proceed with loading data especially if we just cleaned.
+        # If schema update fails, we likely can't proceed
+        # with loading data especially if we just cleaned.
         raise e
 
     # Data Loading uses the selected DBAPI Driver
-    print(f"Loading Data...")
+    print("Loading Data...")
     conn.autocommit = False
     cursor = conn.cursor()
 
@@ -296,7 +282,9 @@ if __name__ == "__main__":
     conn = None
     if args.driver == "google.cloud.spanner_dbapi":
         # Create a Client with metrics disabled to prevent export errors on exit
-        client = spanner.Client(project=args.project, disable_builtin_metrics=True)
+        client = spanner.Client(
+            project=args.project, disable_builtin_metrics=True
+        )
         conn = connect_func(args.instance, args.database, client=client)
     else:
         conn = connect_func(args.instance, args.database, project=args.project)
@@ -304,7 +292,8 @@ if __name__ == "__main__":
     try:
         # Clean Data (if requested)
         if args.clean:
-            # clean_data uses Admin API, doesn't need conn directly but we kept it separate
+            # clean_data uses Admin API, doesn't need conn directly
+            # but we kept it separate
             clean_data(args.instance, args.database, args.project)
 
         # Load Data (if requested)
