@@ -40,7 +40,7 @@ nox -s benchmark
 **Run with explicit arguments:**
 
 ```bash
-nox -s benchmark -- --project my-project --instance my-instance --database my-db --load
+nox -s benchmark -- --project my-project --instance my-instance --database my-db --clean --load
 ```
 
 **Select a specific driver:**
@@ -63,6 +63,7 @@ python tpcc-benchmark/run_benchmark.py \
   --instance my-instance \
   --database my-database \
   --driver google.cloud.spanner_python_driver \
+  --clean \
   --load \
   --duration 60
 ```
@@ -70,6 +71,7 @@ python tpcc-benchmark/run_benchmark.py \
 ## Benchmark Options
 
 *   `--load`: If set, the benchmark will create the schema and load initial data before running the workload. **Warning:** This may take some time.
+*   `--clean`: If set, the benchmark will drop all existing TPC-C tables before creating the schema (if `--load` is also specified).
 *   `--duration`: Duration of the benchmark run in seconds (default: 60).
 *   `--driver`: logic to select the driver.
     *   `google.cloud.spanner_dbapi`: The existing Spanner DBAPI.
@@ -83,3 +85,4 @@ python tpcc-benchmark/run_benchmark.py \
 *   `noxfile.py`: Automation for linting, formatting, and running benchmarks.
 *   `requirements.txt`: Python dependencies.
 *   `schema.ddl`: Database schema definition.
+*   `clean_schema.ddl`: Script to clean the schema(DROP statements).
