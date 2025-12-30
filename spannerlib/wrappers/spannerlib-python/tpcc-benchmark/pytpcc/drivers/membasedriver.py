@@ -27,14 +27,16 @@
 
 from __future__ import with_statement
 
-import os,time
 import logging
-import commands
-import memcache
-from pprint import pprint,pformat
+import os
+from pprint import pformat, pprint
+import time
 
-import constants
 from abstractdriver import *
+import commands
+import constants
+import memcache
+
 MAX_CUSTOMER_ID = 3000
 MAX_ORDER_ID = 2999
 

@@ -91,7 +91,7 @@ BAD_CREDIT = "BC"
 MIN_CARRIER_ID = 1
 MAX_CARRIER_ID = 10
 #  HACK: This is not strictly correct, but it works
-NULL_CARRIER_ID = 0L
+NULL_CARRIER_ID = 0
 #  o_id < than this value, carrier != null, >= -> carrier == null
 NULL_CARRIER_LOWER_BOUND = 2101
 MIN_OL_CNT = 5

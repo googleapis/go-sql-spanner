@@ -6,14 +6,15 @@ Created on May 2, 2011
 Scalaris Driver for CS227 TPCC Benchmark
 '''
 
-from abstractdriver import *
-
-import os, logging, commands, constants
-
 from collections import defaultdict
+import logging
+import os
 
-from api.Scalaris import JSONConnection, Transaction, TransactionSingleOp, NotFoundException
-
+from abstractdriver import *
+from api.Scalaris import (JSONConnection, NotFoundException, Transaction,
+                          TransactionSingleOp)
+import commands
+import constants
 
 #Table Definitions
 TABLE_COLUMNS = {

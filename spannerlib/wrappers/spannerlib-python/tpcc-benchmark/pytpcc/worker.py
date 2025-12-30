@@ -25,23 +25,24 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 # -----------------------------------------------------------------------
 
-import sys
-import os
-import string
-import datetime
-import logging
-import re
 import argparse
+import datetime
 import glob
-import time 
-import message
+import logging
+import os
 import pickle
+from pprint import pformat, pprint
+import re
+import string
+import sys
+import time
 import traceback
-from pprint import pprint,pformat
 
-from util import *
-from runtime import *
 import drivers
+import message
+from runtime import *
+from util import *
+
 
 ## ==============================================
 ## createDriverClass
@@ -75,7 +76,7 @@ def loaderFunc(driverClass, scaleParameters, args, config, w_ids, debug):
         driver.loadFinish()   
     except KeyboardInterrupt:
             return -1
-    except (Exception, AssertionError), ex:
+    except (Exception, AssertionError) as ex:
         logging.warn("Failed to load data: %s" % (ex))
         #if debug:
         traceback.print_exc(file=sys.stdout)

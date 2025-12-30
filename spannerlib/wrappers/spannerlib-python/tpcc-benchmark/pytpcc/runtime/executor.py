@@ -29,14 +29,14 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 # -----------------------------------------------------------------------
 
-import sys
-import multiprocessing
-import time
-import random
-import traceback
-import logging
 from datetime import datetime
-from pprint import pprint,pformat
+import logging
+import multiprocessing
+from pprint import pformat, pprint
+import random
+import sys
+import time
+import traceback
 
 import constants
 from util import *
@@ -66,7 +66,7 @@ class Executor:
                 val = self.driver.executeTransaction(txn, params)
             except KeyboardInterrupt:
                 return -1
-            except (Exception, AssertionError), ex:
+            except (Exception, AssertionError) as ex:
                 logging.warn("Failed to execute Transaction '%s': %s" % (txn, ex))
                 if debug: traceback.print_exc(file=sys.stdout)
                 if self.stop_on_error: raise

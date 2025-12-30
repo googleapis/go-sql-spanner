@@ -1,7 +1,12 @@
-import os, redis, time, sys
 from datetime import datetime
-from pprint import pprint,pformat
+import os
+from pprint import pformat, pprint
+import sys
+import time
+
 from abstractdriver import *
+import redis
+
 
 #----------------------------------------------------------------------------
 # Redis TPC-C Driver

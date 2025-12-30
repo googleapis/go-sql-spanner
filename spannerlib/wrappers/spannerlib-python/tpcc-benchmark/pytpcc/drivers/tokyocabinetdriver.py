@@ -25,15 +25,16 @@
 # -----------------------------------------------------------------------
 
 from __future__ import with_statement
-from abstractdriver import *
-from pprint import pprint, pformat
-from pyrant import protocol
 
-import constants
 import logging
 import os
-import pyrant
+from pprint import pformat, pprint
 import sys
+
+from abstractdriver import *
+import constants
+import pyrant
+from pyrant import protocol
 
 TABLE_COLUMNS = {
 	constants.TABLENAME_ITEM: [

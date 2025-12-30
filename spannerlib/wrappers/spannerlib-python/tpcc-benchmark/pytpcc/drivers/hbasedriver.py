@@ -34,16 +34,18 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 # -----------------------------------------------------------------------
+from pprint import pformat, pprint
 import uuid
-import constants
-from java.lang import Integer, Float, String
-from org.apache.hadoop.hbase import HBaseConfiguration, HTableDescriptor, HColumnDescriptor
-from org.apache.hadoop.hbase.client import HBaseAdmin, HTable, Put, Get, Scan, Delete, Result, ResultScanner
-from org.apache.hadoop.hbase.util import Bytes
-from org.apache.hadoop.hbase.filter import PrefixFilter
-from abstractdriver import AbstractDriver
-from pprint import pprint,pformat
 
+from abstractdriver import AbstractDriver
+import constants
+from java.lang import Float, Integer, String
+from org.apache.hadoop.hbase import (HBaseConfiguration, HColumnDescriptor,
+                                     HTableDescriptor)
+from org.apache.hadoop.hbase.client import (Delete, Get, HBaseAdmin, HTable,
+                                            Put, Result, ResultScanner, Scan)
+from org.apache.hadoop.hbase.filter import PrefixFilter
+from org.apache.hadoop.hbase.util import Bytes
 
 ## ==============================================
 ## HBase Tables Layout

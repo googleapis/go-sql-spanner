@@ -25,20 +25,20 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 # -----------------------------------------------------------------------
 
-import sys
-import os
-import string
-import datetime
-import logging
-import re
 import argparse
+import datetime
 import glob
-import time 
-from pprint import pprint,pformat
+import logging
+import os
+from pprint import pformat, pprint
+import re
+import string
+import sys
+import time
 
-from util import *
-from runtime import *
 import drivers
+from runtime import *
+from util import *
 
 EMPTY = 0
 CMD_LOAD = 1

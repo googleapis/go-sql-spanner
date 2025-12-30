@@ -30,7 +30,8 @@
 # -----------------------------------------------------------------------
 
 import random
-import nurand
+
+from . import nurand
 
 SYLLABLES = [ "BAR", "OUGHT", "ABLE", "PRI", "PRES", "ESE", "ANTI", "CALLY", "ATION", "EING" ]
 
@@ -45,7 +46,7 @@ def NURand(a, x, y):
     global nurandVar
     assert x <= y
     if nurandVar is None:
-		setNURand(nurand.makeForLoad())
+        setNURand(nurand.makeForLoad())
     
     if a == 255:
         c = nurandVar.cLast
@@ -54,7 +55,7 @@ def NURand(a, x, y):
     elif a == 8191:
         c = nurandVar.orderLineItemId
     else:
-        raise Exception("a = " + a + " is not a supported value")
+        raise Exception("a = " + str(a) + " is not a supported value")
     
     return (((number(0, a) | number(x, y)) + c) % (y - x + 1)) + x
 ## DEF
@@ -129,7 +130,7 @@ def makeLastName(number):
     """A last name as defined by TPC-C 4.3.2.3. Not actually random."""
     global SYLLABLES
     assert 0 <= number and number <= 999
-    indicies = [ number/100, (number/10)%10, number%10 ]
+    indicies = [ number//100, (number//10)%10, number%10 ]
     return "".join(map(lambda x: SYLLABLES[x], indicies))
 ## DEF
 
