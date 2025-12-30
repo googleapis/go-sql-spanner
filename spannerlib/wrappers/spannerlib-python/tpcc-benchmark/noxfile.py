@@ -28,6 +28,7 @@ BLACK_VERSION = "black[jupyter]>=23.7.0,<25.11.0"
 ISORT_VERSION = "isort>=5.11.0,<7.0.0"
 
 LINT_PATHS = ["tpcc_benchmark", "noxfile.py"]
+SKIP_PATHS = ["pytpcc"]
 
 nox.options.sessions = ["format", "lint"]
 
@@ -45,11 +46,15 @@ def format(session):
     session.run(
         "isort",
         "--fss",
+        "--skip",
+        *SKIP_PATHS,
         *LINT_PATHS,
     )
     session.run(
         "black",
         "--line-length=80",
+        "--extend-exclude",
+        *SKIP_PATHS,
         *LINT_PATHS,
     )
 
@@ -65,6 +70,8 @@ def lint(session):
     session.run(
         "flake8",
         "--max-line-length=80",
+        "--extend-exclude",
+        *SKIP_PATHS,
         *LINT_PATHS,
     )
 
