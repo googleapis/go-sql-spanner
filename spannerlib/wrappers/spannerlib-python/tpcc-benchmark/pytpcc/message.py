@@ -46,8 +46,10 @@ CMD_EXECUTE = 2
 CMD_STOP = 3
 LOAD_COMPLETED = 4
 EXECUTE_COMPLETED = 5
- 
+
+
 class Message:
-    def __init__(self,header=EMPTY,data=None):
-        self.header=header
-	self.data=data
+    def __init__(self, header=EMPTY, data=None):
+        self.header = header
+
+    self.data = data
