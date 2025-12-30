@@ -33,13 +33,29 @@ import random
 
 from . import nurand
 
-SYLLABLES = [ "BAR", "OUGHT", "ABLE", "PRI", "PRES", "ESE", "ANTI", "CALLY", "ATION", "EING" ]
+SYLLABLES = [
+    "BAR",
+    "OUGHT",
+    "ABLE",
+    "PRI",
+    "PRES",
+    "ESE",
+    "ANTI",
+    "CALLY",
+    "ATION",
+    "EING",
+]
 
-nurandVar = None # NURand
+nurandVar = None  # NURand
+
+
 def setNURand(nu):
     global nurandVar
     nurandVar = nu
+
+
 ## DEF
+
 
 def NURand(a, x, y):
     """A non-uniform random number, as defined by TPC-C 2.1.6. (page 20)."""
@@ -47,7 +63,7 @@ def NURand(a, x, y):
     assert x <= y
     if nurandVar is None:
         setNURand(nurand.makeForLoad())
-    
+
     if a == 255:
         c = nurandVar.cLast
     elif a == 1023:
@@ -56,15 +72,21 @@ def NURand(a, x, y):
         c = nurandVar.orderLineItemId
     else:
         raise Exception("a = " + str(a) + " is not a supported value")
-    
+
     return (((number(0, a) | number(x, y)) + c) % (y - x + 1)) + x
+
+
 ## DEF
+
 
 def number(minimum, maximum):
     value = random.randint(minimum, maximum)
     assert minimum <= value and value <= maximum
     return value
+
+
 ## DEF
+
 
 def numberExcluding(minimum, maximum, excluding):
     """An in the range [minimum, maximum], excluding excluding."""
@@ -72,13 +94,17 @@ def numberExcluding(minimum, maximum, excluding):
     assert minimum <= excluding and excluding <= maximum
 
     ## Generate 1 less number than the range
-    num = number(minimum, maximum-1)
+    num = number(minimum, maximum - 1)
 
     ## Adjust the numbers to remove excluding
-    if num >= excluding: num += 1
+    if num >= excluding:
+        num += 1
     assert minimum <= num and num <= maximum and num != excluding
     return num
-## DEF 
+
+
+## DEF
+
 
 def fixedPoint(decimal_places, minimum, maximum):
     assert decimal_places > 0
@@ -92,7 +118,10 @@ def fixedPoint(decimal_places, minimum, maximum):
     int_max = int(maximum * multiplier + 0.5)
 
     return float(number(int_min, int_max) / float(multiplier))
+
+
 ## DEF
+
 
 def selectUniqueIds(numUnique, minimum, maximum):
     rows = set()
@@ -105,38 +134,56 @@ def selectUniqueIds(numUnique, minimum, maximum):
     ## FOR
     assert len(rows) == numUnique
     return rows
+
+
 ## DEF
+
 
 def astring(minimum_length, maximum_length):
     """A random alphabetic string with length in range [minimum_length, maximum_length]."""
-    return randomString(minimum_length, maximum_length, 'a', 26)
+    return randomString(minimum_length, maximum_length, "a", 26)
+
+
 ## DEF
+
 
 def nstring(minimum_length, maximum_length):
     """A random numeric string with length in range [minimum_length, maximum_length]."""
-    return randomString(minimum_length, maximum_length, '0', 10)
+    return randomString(minimum_length, maximum_length, "0", 10)
+
+
 ## DEF
+
 
 def randomString(minimum_length, maximum_length, base, numCharacters):
     length = number(minimum_length, maximum_length)
     baseByte = ord(base)
     string = ""
     for i in range(length):
-        string += chr(baseByte + number(0, numCharacters-1))
+        string += chr(baseByte + number(0, numCharacters - 1))
     return string
+
+
 ## DEF
+
 
 def makeLastName(number):
     """A last name as defined by TPC-C 4.3.2.3. Not actually random."""
     global SYLLABLES
     assert 0 <= number and number <= 999
-    indicies = [ number//100, (number//10)%10, number%10 ]
+    indicies = [number // 100, (number // 10) % 10, number % 10]
     return "".join(map(lambda x: SYLLABLES[x], indicies))
+
+
 ## DEF
+
 
 def makeRandomLastName(maxCID):
     """A non-uniform random last name, as defined by TPC-C 4.3.2.3. The name will be limited to maxCID."""
     min_cid = 999
-    if (maxCID - 1) < min_cid: min_cid = maxCID - 1
+    if (maxCID - 1) < min_cid:
+        min_cid = maxCID - 1
     return makeLastName(NURand(255, 0, min_cid))
+
+
 ## DEF

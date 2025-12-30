@@ -129,15 +129,15 @@ MAX_PAYMENT = 5000.0
 ORIGINAL_STRING = "ORIGINAL"
 
 # Table Names
-TABLENAME_ITEM       = "ITEM"
-TABLENAME_WAREHOUSE  = "WAREHOUSE"
-TABLENAME_DISTRICT   = "DISTRICT"
-TABLENAME_CUSTOMER   = "CUSTOMER"
-TABLENAME_STOCK      = "STOCK"
-TABLENAME_ORDERS     = "ORDERS"
-TABLENAME_NEW_ORDER  = "NEW_ORDER"
+TABLENAME_ITEM = "ITEM"
+TABLENAME_WAREHOUSE = "WAREHOUSE"
+TABLENAME_DISTRICT = "DISTRICT"
+TABLENAME_CUSTOMER = "CUSTOMER"
+TABLENAME_STOCK = "STOCK"
+TABLENAME_ORDERS = "ORDERS"
+TABLENAME_NEW_ORDER = "NEW_ORDER"
 TABLENAME_ORDER_LINE = "ORDER_LINE"
-TABLENAME_HISTORY    = "HISTORY"
+TABLENAME_HISTORY = "HISTORY"
 
 ALL_TABLES = [
     TABLENAME_ITEM,
@@ -151,11 +151,14 @@ ALL_TABLES = [
     TABLENAME_HISTORY,
 ]
 
+
 # Transaction Types
 def enum(*sequential, **named):
     enums = dict(map(lambda x: (x, x), sequential))
     # dict(zip(sequential, range(len(sequential))), **named)
-    return type('Enum', (), enums)
+    return type("Enum", (), enums)
+
+
 TransactionTypes = enum(
     "DELIVERY",
     "NEW_ORDER",

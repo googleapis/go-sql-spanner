@@ -26,6 +26,7 @@
 # -----------------------------------------------------------------------
 
 import argparse
+import configparser
 import datetime
 import glob
 import logging
@@ -37,7 +38,6 @@ import string
 import sys
 import time
 
-import configparser
 import drivers
 import execnet
 import message
