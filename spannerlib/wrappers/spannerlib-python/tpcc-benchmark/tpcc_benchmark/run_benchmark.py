@@ -53,6 +53,24 @@ def get_connect_func(driver_name):
         raise ValueError(f"Unknown driver: {driver_name}")
 
 
+def get_ddl_statements(filename):
+    """
+    Reads a DDL file and returns a list of DDL statements.
+
+    Args:
+        filename (str): The relative path to the DDL file.
+
+    Returns:
+        list: A list of DDL statements.
+    """
+    import os
+
+    file_path = os.path.join(os.path.dirname(__file__), filename)
+    with open(file_path, "r") as f:
+        return [s.strip() for s in f.read().split(";") if s.strip()]
+
+
+
 def clean_data(instance_id, database_id, project_id):
     """
     Drops all tables defined in clean_schema.ddl.
@@ -63,18 +81,10 @@ def clean_data(instance_id, database_id, project_id):
         project_id (str): GCP project ID.
     """
     print("Cleaning Data (Dropping Tables)...")
-    import os
-
-    clean_schema_path = os.path.join(
-        os.path.dirname(__file__), "clean_schema.ddl"
-    )
     try:
-        with open(clean_schema_path, "r") as f:
-            ddl_statements = [
-                s.strip() for s in f.read().split(";") if s.strip()
-            ]
-    except FileNotFoundError:
-        print(f"Error: {clean_schema_path} not found.")
+        ddl_statements = get_ddl_statements("sql/drop_indexes_and_tables.ddl")
+    except FileNotFoundError as e:
+        print(f"Error: {e.filename} not found.")
         return
 
     client = spanner_admin_database_v1.DatabaseAdminClient()
@@ -107,11 +117,7 @@ def load_data(conn, instance_id, database_id, project_id):
     """
     # Schema creation uses Admin API (Driver Independent)
     print("Ensuring Schema...")
-    import os
-
-    schema_path = os.path.join(os.path.dirname(__file__), "schema.ddl")
-    with open(schema_path, "r") as f:
-        ddl_statements = [s.strip() for s in f.read().split(";") if s.strip()]
+    ddl_statements = get_ddl_statements("sql/schema.ddl")
 
     client = spanner_admin_database_v1.DatabaseAdminClient()
     db_path = client.database_path(project_id, instance_id, database_id)
@@ -270,6 +276,7 @@ if __name__ == "__main__":
     parser.add_argument("--database", required=True)
     parser.add_argument("--clean", action="store_true")
     parser.add_argument("--load", action="store_true")
+    parser.add_argument("--no-execute", action="store_true")
     parser.add_argument("--duration", type=int, default=60)
 
     args = parser.parse_args()
@@ -293,7 +300,6 @@ if __name__ == "__main__":
         # Clean Data (if requested)
         if args.clean:
             # clean_data uses Admin API, doesn't need conn directly
-            # but we kept it separate
             clean_data(args.instance, args.database, args.project)
 
         # Load Data (if requested)
@@ -301,7 +307,8 @@ if __name__ == "__main__":
             load_data(conn, args.instance, args.database, args.project)
 
         # Run Benchmark
-        run_benchmark(conn, args.duration)
+        if not args.no_execute:
+            run_benchmark(conn, args.duration)
 
     finally:
         conn.close()
