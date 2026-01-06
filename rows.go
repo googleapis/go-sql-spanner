@@ -27,6 +27,7 @@ import (
 	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/uuid"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"google.golang.org/api/iterator"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -42,8 +43,9 @@ const (
 
 var _ driver.RowsNextResultSet = &rows{}
 
-func createRows(it rowIterator, cancel context.CancelFunc, opts *ExecOptions) *rows {
+func createRows(state *connectionstate.ConnectionState, it rowIterator, cancel context.CancelFunc, opts *ExecOptions) *rows {
 	return &rows{
+		state:                   state,
 		it:                      it,
 		cancel:                  cancel,
 		decodeOption:            opts.DecodeOption,
@@ -62,6 +64,7 @@ type rows struct {
 	dirtyErr error
 	cols     []string
 
+	state                *connectionstate.ConnectionState
 	decodeOption         DecodeOption
 	decodeToNativeArrays bool
 
@@ -240,14 +243,22 @@ func (r *rows) Next(dest []driver.Value) error {
 				dest[i] = nil
 			}
 		case sppb.TypeCode_NUMERIC:
-			var v spanner.NullNumeric
-			if err := col.Decode(&v); err != nil {
-				return err
-			}
-			if v.Valid {
-				dest[i] = v.Numeric
+			if propertyDecodeNumericToString.GetValueOrDefault(r.state) {
+				if _, ok := col.Value.Kind.(*structpb.Value_NullValue); ok {
+					dest[i] = nil
+				} else {
+					dest[i] = col.Value.GetStringValue()
+				}
 			} else {
-				dest[i] = nil
+				var v spanner.NullNumeric
+				if err := col.Decode(&v); err != nil {
+					return err
+				}
+				if v.Valid {
+					dest[i] = v.Numeric
+				} else {
+					dest[i] = nil
+				}
 			}
 		case sppb.TypeCode_STRING:
 			var v spanner.NullString

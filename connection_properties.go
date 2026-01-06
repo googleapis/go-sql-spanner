@@ -255,6 +255,18 @@ var propertyDecodeToNativeArrays = createConnectionProperty(
 	connectionstate.ContextUser,
 	connectionstate.ConvertBool,
 )
+var propertyDecodeNumericToString = createConnectionProperty(
+	"decode_numeric_to_string",
+	"decode_numeric_to_string determines whether numeric values should be returned as strings or as instances "+
+		"of big.Rat. The latter is the default and is consistent with the type that is used by the Spanner Go client library. "+
+		"Decoding to string is consistent with the database/sql standard and more similar to what other database/sql drivers "+
+		"return.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
 
 // ------------------------------------------------------------------------------------------------
 // Transaction connection properties.
