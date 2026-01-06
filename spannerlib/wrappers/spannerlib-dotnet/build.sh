@@ -48,6 +48,10 @@ dotnet nuget locals global-packages --clear
 echo "Building gRPC server..."
 ./build-grpc-server.sh
 
+# Build socket server
+echo "Building socket server..."
+./build-socket-server.sh
+
 # Build shared library
 echo "Building shared library..."
 ./build-shared-lib.sh
@@ -76,13 +80,25 @@ else
   mkdir -p "$PWD"/spannerlib-dotnet-grpc-server/bin/Release
   dotnet nuget add source "$PWD"/spannerlib-dotnet-grpc-server/bin/Release --name local-grpc-server-build
 fi
+dotnet nuget remove source local-socket-server-build 2>/dev/null
+if [ "$RUNNER_OS" == "Windows" ]; then
+  # PWD does not work on Windows
+  mkdir -p "${GITHUB_WORKSPACE}\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-socket-server\bin\Release"
+  dotnet nuget add source "${GITHUB_WORKSPACE}\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-socket-server\bin\Release" --name local-socket-server-build
+else
+  mkdir -p "$PWD"/spannerlib-dotnet-socket-server/bin/Release
+  dotnet nuget add source "$PWD"/spannerlib-dotnet-socket-server/bin/Release --name local-socket-server-build
+fi
 
-# Create packages for the two components that contain the binaries (shared library + gRPC server)
+# Create packages for the two components that contain the binaries (shared library + gRPC server + socket server)
 find ./**/bin/Release -type f -name "Alpha*.nupkg" -exec rm {} \;
 cd spannerlib-dotnet-native || exit 1
 dotnet pack
 cd .. || exit 1
 cd spannerlib-dotnet-grpc-server || exit 1
+dotnet pack
+cd .. || exit 1
+cd spannerlib-dotnet-socket-server || exit 1
 dotnet pack
 cd .. || exit 1
 
