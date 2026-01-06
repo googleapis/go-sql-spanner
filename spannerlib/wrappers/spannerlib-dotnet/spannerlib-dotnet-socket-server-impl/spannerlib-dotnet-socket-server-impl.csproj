@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <RootNamespace>Google.Cloud.SpannerLib.SocketServer</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>default</LangVersion>
+    <PackageId>Alpha.Google.Cloud.SpannerLib.SocketServerImpl</PackageId>
+    <Version>1.0.0-alpha.20251217171434</Version>
+    <Authors>Google</Authors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ConfigureAwaitChecker.Analyzer" PrivateAssets="All" Version="5.0.0.1" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.SocketServer" Version="1.0.0-alpha.20251217171434" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\spannerlib-dotnet\spannerlib-dotnet.csproj" />
+  </ItemGroup>
+
+</Project>
