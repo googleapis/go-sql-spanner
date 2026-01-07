@@ -1107,7 +1107,7 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 			return nil, err
 		}
 	}
-	res := createRows(iter, cancel, execOptions)
+	res := createRows(c.state, iter, cancel, execOptions)
 	if execOptions.DirectExecuteQuery {
 		if err := c.directExecuteQuery(ctx, cancelCause, res, execOptions); err != nil {
 			return nil, err
