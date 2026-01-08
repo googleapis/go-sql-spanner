@@ -101,7 +101,7 @@ var _ driver.DriverContext = &Driver{}
 var spannerDriver *Driver
 
 func init() {
-	spannerDriver = &Driver{connectors: make(map[string]*connector)}
+	spannerDriver = &Driver{connectors: make(map[string]*connector), connectorUsageCount: make(map[string]int)}
 	sql.Register("spanner", spannerDriver)
 	determineDefaultStatementCacheSize()
 }
@@ -354,8 +354,9 @@ const (
 
 // Driver represents a Google Cloud Spanner database/sql driver.
 type Driver struct {
-	mu         sync.Mutex
-	connectors map[string]*connector
+	mu                  sync.Mutex
+	connectors          map[string]*connector
+	connectorUsageCount map[string]int
 }
 
 // Open opens a connection to a Google Cloud Spanner database.
@@ -565,7 +566,11 @@ func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
 	if d.connectors == nil {
 		d.connectors = make(map[string]*connector)
 	}
+	if d.connectorUsageCount == nil {
+		d.connectorUsageCount = make(map[string]int)
+	}
 	if c, ok := d.connectors[dsn]; ok {
+		d.connectorUsageCount[dsn]++
 		return c, nil
 	}
 
@@ -579,6 +584,7 @@ func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
 	}
 	c.cacheKey = dsn
 	d.connectors[dsn] = c
+	d.connectorUsageCount[dsn] = 1
 	return c, nil
 }
 
@@ -926,6 +932,27 @@ func (c *connector) Driver() driver.Driver {
 }
 
 func (c *connector) Close() error {
+	shouldClose := true
+	if c.cacheKey != "" {
+		c.driver.mu.Lock()
+		if usageCount, ok := c.driver.connectorUsageCount[c.cacheKey]; ok {
+			if usageCount == 1 {
+				delete(c.driver.connectors, c.cacheKey)
+				delete(c.driver.connectorUsageCount, c.cacheKey)
+			} else {
+				c.driver.connectorUsageCount[c.cacheKey] = usageCount - 1
+				shouldClose = false
+			}
+		}
+		c.driver.mu.Unlock()
+	}
+	if shouldClose {
+		return c.close()
+	}
+	return nil
+}
+
+func (c *connector) close() error {
 	c.logger.Debug("closing connector")
 	c.closerMu.Lock()
 	c.closed = true

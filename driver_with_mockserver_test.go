@@ -4512,7 +4512,7 @@ func TestCannotReuseClosedConnector(t *testing.T) {
 	// that other tests might have created, but not cleaned up.
 	connectors := spannerDriver.connectors
 	for _, connector := range connectors {
-		_ = connector.Close()
+		_ = connector.close()
 	}
 
 	db, _, teardown := setupTestDBConnection(t)
@@ -5594,6 +5594,125 @@ func TestInvalidConnectTimeout(t *testing.T) {
 		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
 	} else if db != nil {
 		defer silentClose(db)
+	}
+}
+
+func TestCloseDB(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, _, serverTeardown := setupMockedTestServerWithDialect(t, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+	defer serverTeardown()
+	db1, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(db1)
+	db2, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(db2)
+
+	// Use both databases.
+	if _, err := db1.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db2.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	// Close one database and verify that the other can still be used.
+	if err := db1.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db2.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	// The db that has been closed cannot be used.
+	if _, err := db1.ExecContext(ctx, testutil.UpdateBarSetFoo); err == nil {
+		t.Fatal("missing expected error")
+	}
+}
+
+func TestCloseAndOpenDB(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, _, serverTeardown := setupMockedTestServerWithDialect(t, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+	defer serverTeardown()
+
+	// First create one database and then close it.
+	db1, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(db1)
+
+	if _, err := db1.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	if err := db1.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then create another database and use it. This should not be affected by the other database that has been closed.
+	db2, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(db2)
+
+	if _, err := db2.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCloseDBWithOpenConn(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, _, serverTeardown := setupMockedTestServerWithDialect(t, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+	defer serverTeardown()
+
+	db1, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(db1)
+
+	conn, err := db1.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	// Close the database without closing the connection that we obtained from it.
+	if err := db1.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then create another database and use it. This should not be affected by the other database that has been closed.
+	db2, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(db2)
+
+	if _, err := db2.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
 	}
 }
 
