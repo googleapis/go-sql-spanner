@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.23.0](https://github.com/googleapis/go-sql-spanner/compare/v1.22.0...v1.23.0) (2026-01-08)
+
+
+### Features
+
+* Add dialect connection property ([#710](https://github.com/googleapis/go-sql-spanner/issues/710)) ([2e92beb](https://github.com/googleapis/go-sql-spanner/commit/2e92beb2d10be9e2e199206a440eaf4e79f700b4))
+* Add option to decode NUMERIC to string ([#717](https://github.com/googleapis/go-sql-spanner/issues/717)) ([a2fdf7b](https://github.com/googleapis/go-sql-spanner/commit/a2fdf7b48890f5e88d72fb5779383e7161356f7c))
+
+
+### Bug Fixes
+
+* Only close the connector once the usage count reaches zero ([#718](https://github.com/googleapis/go-sql-spanner/issues/718)) ([60cc893](https://github.com/googleapis/go-sql-spanner/commit/60cc89343d12d252656f65feabd7b87386c9bd1f))
+
 ## [1.22.0](https://github.com/googleapis/go-sql-spanner/compare/v1.21.0...v1.22.0) (2025-12-15)
 
 
