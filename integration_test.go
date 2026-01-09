@@ -483,7 +483,11 @@ func TestTypeRoundTrip(t *testing.T) {
 	defer cleanup()
 
 	// Open db.
-	db, err := sql.Open("spanner", dsn)
+	// send_typed_strings=true is required to include a type code for string values.
+	// Otherwise, string values are sent as untyped strings in order to allow Spanner to infer the type.
+	// Using untyped strings is recommended for most applications, as it allows the application to just use
+	// standard string values for any type that is encoded as strings in Spanner (e.g. JSON, DATE, TIMESTAMP, etc.).
+	db, err := sql.Open("spanner", dsn+";send_typed_strings=true")
 	if err != nil {
 		t.Fatal(err)
 	}
