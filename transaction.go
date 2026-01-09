@@ -27,6 +27,7 @@ import (
 	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/gax-go/v2"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -236,6 +237,7 @@ type readOnlyTransaction struct {
 	timestampBoundMu       sync.Mutex
 	timestampBoundSet      bool
 	timestampBoundCallback func() spanner.TimestampBound
+	state                  *connectionstate.ConnectionState
 }
 
 func (tx *readOnlyTransaction) deadline() (time.Time, bool) {
@@ -273,7 +275,7 @@ func (tx *readOnlyTransaction) resetForRetry(ctx context.Context) error {
 
 func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement, stmtType parser.StatementType, execOptions *ExecOptions) (rowIterator, error) {
 	tx.logger.DebugContext(ctx, "Query", "stmt", stmt.SQL)
-	if execOptions.PartitionedQueryOptions.AutoPartitionQuery {
+	if execOptions.PartitionedQueryOptions.AutoPartitionQuery || propertyAutoPartitionMode.GetValueOrDefault(tx.state) {
 		if tx.boTx == nil {
 			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "AutoPartitionQuery is only supported for batch read-only transactions"))
 		}
@@ -281,7 +283,11 @@ func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement
 		if err != nil {
 			return nil, err
 		}
-		mi := createMergedIterator(tx.logger, pq, execOptions.PartitionedQueryOptions.MaxParallelism)
+		maxParallelism := execOptions.PartitionedQueryOptions.MaxParallelism
+		if maxParallelism == 0 {
+			maxParallelism = propertyMaxPartitionedParallelism.GetValueOrDefault(tx.state)
+		}
+		mi := createMergedIterator(tx.logger, pq, maxParallelism)
 		if err := mi.run(ctx); err != nil {
 			mi.Stop()
 			return nil, err
@@ -311,7 +317,12 @@ func (tx *readOnlyTransaction) createPartitionedQuery(ctx context.Context, stmt 
 	if tx.boTx == nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "partitionQuery is only supported for batch read-only transactions"))
 	}
-	partitions, err := tx.boTx.PartitionQueryWithOptions(ctx, stmt, execOptions.PartitionedQueryOptions.PartitionOptions, execOptions.QueryOptions)
+	partitionOptions := execOptions.PartitionedQueryOptions.PartitionOptions
+	if partitionOptions.MaxPartitions == 0 && partitionOptions.PartitionBytes == 0 {
+		partitionOptions.MaxPartitions = propertyMaxPartitions.GetValueOrDefault(tx.state)
+	}
+	execOptions.QueryOptions.DataBoostEnabled = execOptions.QueryOptions.DataBoostEnabled || propertyDataBoostEnabled.GetValueOrDefault(tx.state)
+	partitions, err := tx.boTx.PartitionQueryWithOptions(ctx, stmt, partitionOptions, execOptions.QueryOptions)
 	if err != nil {
 		return nil, err
 	}
