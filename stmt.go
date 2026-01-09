@@ -20,9 +20,11 @@ import (
 	"database/sql/driver"
 
 	"cloud.google.com/go/spanner"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // SpannerNamedArg can be used for query parameters with a name that (might) start
@@ -87,12 +89,13 @@ func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
 	return s.conn.CheckNamedValue(value)
 }
 
-func prepareSpannerStmt(parser *parser.StatementParser, q string, args []driver.NamedValue) (spanner.Statement, error) {
+func prepareSpannerStmt(state *connectionstate.ConnectionState, parser *parser.StatementParser, q string, args []driver.NamedValue) (spanner.Statement, error) {
 	q, names, err := parser.ParseParameters(q)
 	if err != nil {
 		return spanner.Statement{}, err
 	}
 	ss := spanner.NewStatement(q)
+	typedStrings := propertySendTypedStrings.GetValueOrDefault(state)
 	for i, v := range args {
 		value := v.Value
 		name := args[i].Name
@@ -104,7 +107,7 @@ func prepareSpannerStmt(parser *parser.StatementParser, q string, args []driver.
 			name = names[i]
 		}
 		if name != "" {
-			ss.Params[name] = convertParam(value)
+			ss.Params[name] = convertParam(value, typedStrings)
 		}
 	}
 	// Verify that all parameters have a value.
@@ -116,10 +119,66 @@ func prepareSpannerStmt(parser *parser.StatementParser, q string, args []driver.
 	return ss, nil
 }
 
-func convertParam(v driver.Value) driver.Value {
+func convertParam(v driver.Value, typedStrings bool) driver.Value {
 	switch v := v.(type) {
 	default:
 		return v
+	case string:
+		if typedStrings {
+			return v
+		}
+		// Send strings as untyped parameter values to allow automatic conversion to any type that is encoded as
+		// strings. This for example allows DATE, TIMESTAMP, INTERVAL, JSON, INT64, etc. to all be set as a string
+		// by the application.
+		return spanner.GenericColumnValue{Value: structpb.NewStringValue(v)}
+	case *string:
+		if typedStrings {
+			return v
+		}
+		if v == nil {
+			return spanner.GenericColumnValue{Value: structpb.NewNullValue()}
+		}
+		return spanner.GenericColumnValue{Value: structpb.NewStringValue(*v)}
+	case []string:
+		if typedStrings {
+			return v
+		}
+		if v == nil {
+			return spanner.GenericColumnValue{Value: structpb.NewNullValue()}
+		}
+		values := make([]*structpb.Value, len(v))
+		for i, s := range v {
+			values[i] = structpb.NewStringValue(s)
+		}
+		return spanner.GenericColumnValue{Value: structpb.NewListValue(&structpb.ListValue{Values: values})}
+	case *[]string:
+		if typedStrings {
+			return v
+		}
+		if v == nil {
+			return spanner.GenericColumnValue{Value: structpb.NewNullValue()}
+		}
+		values := make([]*structpb.Value, len(*v))
+		for i, s := range *v {
+			values[i] = structpb.NewStringValue(s)
+		}
+		return spanner.GenericColumnValue{Value: structpb.NewListValue(&structpb.ListValue{Values: values})}
+	case []*string:
+		if typedStrings {
+			return v
+		}
+		if v == nil {
+			return spanner.GenericColumnValue{Value: structpb.NewNullValue()}
+		}
+		values := make([]*structpb.Value, len(v))
+		for i, s := range v {
+			if s == nil {
+				values[i] = structpb.NewNullValue()
+			} else {
+				values[i] = structpb.NewStringValue(*s)
+			}
+		}
+		return spanner.GenericColumnValue{Value: structpb.NewListValue(&structpb.ListValue{Values: values})}
 	case int:
 		return int64(v)
 	case []int:

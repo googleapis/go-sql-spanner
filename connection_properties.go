@@ -267,6 +267,20 @@ var propertyDecodeNumericToString = createConnectionProperty(
 	connectionstate.ContextUser,
 	connectionstate.ConvertBool,
 )
+var propertySendTypedStrings = createConnectionProperty(
+	"send_typed_strings",
+	"send_untyped_strings determines whether the driver should send string query parameters as "+
+		"untyped (default) or typed strings. Using untyped strings is recommended, as it allows the application to send "+
+		"any data type (e.g. JSON, TIMESTAMP, DATE) that is encoded as a string in Spanner using a simple string value. "+
+		"Spanner will the infer the actual data type based on the SQL expression. "+
+		"This property should be set to true if the application executes statements with query parameters where the "+
+		"data type cannot be inferred, such as `SELECT @greeting`.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
 
 // ------------------------------------------------------------------------------------------------
 // Transaction connection properties.

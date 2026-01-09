@@ -976,7 +976,8 @@ func TestQueryWithAllTypes(t *testing.T) {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
-	if g, w := len(req.ParamTypes), 22; g != w {
+	// Generic strings should be sent as untyped values.
+	if g, w := len(req.ParamTypes), 21; g != w {
 		t.Fatalf("param types length mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	if g, w := len(req.Params.Fields), 22; g != w {
@@ -995,7 +996,7 @@ func TestQueryWithAllTypes(t *testing.T) {
 		},
 		{
 			name:  "string",
-			code:  sppb.TypeCode_STRING,
+			code:  sppb.TypeCode_TYPE_CODE_UNSPECIFIED,
 			value: "test",
 		},
 		{
@@ -1169,7 +1170,9 @@ func TestQueryWithAllTypes(t *testing.T) {
 				}
 			}
 		} else {
-			t.Errorf("no param type found for @%s", wantParam.name)
+			if wantParam.code != sppb.TypeCode_TYPE_CODE_UNSPECIFIED {
+				t.Errorf("no param type found for @%s", wantParam.name)
+			}
 		}
 		if val, ok := req.Params.Fields[wantParam.name]; ok {
 			var g interface{}
@@ -1798,7 +1801,8 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
-	if g, w := len(req.ParamTypes), 22; g != w {
+	// Strings should be sent as untyped values.
+	if g, w := len(req.ParamTypes), 20; g != w {
 		t.Fatalf("param types length mismatch\nGot: %v\nWant: %v", g, w)
 	}
 	if g, w := len(req.Params.Fields), 22; g != w {
@@ -1817,7 +1821,7 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
 		},
 		{
 			name:  "string",
-			code:  sppb.TypeCode_STRING,
+			code:  sppb.TypeCode_TYPE_CODE_UNSPECIFIED,
 			value: "test",
 		},
 		{
@@ -1876,7 +1880,7 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
 		},
 		{
 			name:  "stringArray",
-			code:  sppb.TypeCode_STRING,
+			code:  sppb.TypeCode_TYPE_CODE_UNSPECIFIED,
 			array: true,
 			value: &structpb.ListValue{Values: []*structpb.Value{
 				{Kind: &structpb.Value_StringValue{StringValue: "test1"}},
@@ -1980,7 +1984,9 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
 				}
 			}
 		} else {
-			t.Errorf("no param type found for @%s", wantParam.name)
+			if wantParam.code != sppb.TypeCode_TYPE_CODE_UNSPECIFIED {
+				t.Errorf("no param type found for @%s", wantParam.name)
+			}
 		}
 		if val, ok := req.Params.Fields[wantParam.name]; ok {
 			var g interface{}
