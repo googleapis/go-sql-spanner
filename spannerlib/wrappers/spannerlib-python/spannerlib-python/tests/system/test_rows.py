@@ -15,7 +15,8 @@ import os
 import subprocess
 import sys
 
-from google.cloud.spanner_v1 import ExecuteSqlRequest, TypeCode
+from google.cloud.spanner_v1 import ExecuteSqlRequest, Type, TypeCode
+from google.protobuf.struct_pb2 import Struct, Value
 import pytest
 
 from google.cloud.spannerlib import Pool
@@ -121,6 +122,25 @@ class TestRowsE2E:
             assert row2.values[0].string_value == "2"
 
             # Fetch end of rows
+            assert rows.next() is None
+        finally:
+            rows.close()
+
+    def test_next_with_params(self, connection):
+        """Tests fetching rows using next() with parameters."""
+        sql = "SELECT @value AS value"
+        params = Struct(fields={"value": Value(string_value="test_param")})
+        param_types = {"value": Type(code=TypeCode.STRING)}
+        request = ExecuteSqlRequest(
+            sql=sql, params=params, param_types=param_types
+        )
+        rows = connection.execute(request)
+
+        try:
+            row = rows.next()
+            assert row is not None
+            assert len(row.values) == 1
+            assert row.values[0].string_value == "test_param"
             assert rows.next() is None
         finally:
             rows.close()
