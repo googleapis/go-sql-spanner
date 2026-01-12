@@ -41,6 +41,8 @@ var _ driver.StmtExecContext = &stmt{}
 var _ driver.StmtQueryContext = &stmt{}
 var _ driver.NamedValueChecker = &stmt{}
 
+var nullValue = structpb.NewNullValue()
+
 type stmt struct {
 	conn          *conn
 	numArgs       int
@@ -136,7 +138,7 @@ func convertParam(v driver.Value, typedStrings bool) driver.Value {
 			return v
 		}
 		if v == nil {
-			return spanner.GenericColumnValue{Value: structpb.NewNullValue()}
+			return spanner.GenericColumnValue{Value: nullValue}
 		}
 		return spanner.GenericColumnValue{Value: structpb.NewStringValue(*v)}
 	case []string:
@@ -144,7 +146,7 @@ func convertParam(v driver.Value, typedStrings bool) driver.Value {
 			return v
 		}
 		if v == nil {
-			return spanner.GenericColumnValue{Value: structpb.NewNullValue()}
+			return spanner.GenericColumnValue{Value: nullValue}
 		}
 		values := make([]*structpb.Value, len(v))
 		for i, s := range v {
@@ -156,7 +158,7 @@ func convertParam(v driver.Value, typedStrings bool) driver.Value {
 			return v
 		}
 		if v == nil {
-			return spanner.GenericColumnValue{Value: structpb.NewNullValue()}
+			return spanner.GenericColumnValue{Value: nullValue}
 		}
 		values := make([]*structpb.Value, len(*v))
 		for i, s := range *v {
@@ -168,12 +170,12 @@ func convertParam(v driver.Value, typedStrings bool) driver.Value {
 			return v
 		}
 		if v == nil {
-			return spanner.GenericColumnValue{Value: structpb.NewNullValue()}
+			return spanner.GenericColumnValue{Value: nullValue}
 		}
 		values := make([]*structpb.Value, len(v))
 		for i, s := range v {
 			if s == nil {
-				values[i] = structpb.NewNullValue()
+				values[i] = nullValue
 			} else {
 				values[i] = structpb.NewStringValue(*s)
 			}
