@@ -20,8 +20,10 @@ from google.cloud.spanner_v1 import (
     ExecuteBatchDmlRequest,
     ExecuteSqlRequest,
     Mutation,
+    Type,
+    TypeCode,
 )
-from google.protobuf.struct_pb2 import ListValue, Value
+from google.protobuf.struct_pb2 import ListValue, Struct, Value
 import pytest
 
 from google.cloud.spannerlib import Pool
@@ -78,6 +80,19 @@ class TestConnectionE2E:
         """Tests executing a simple SQL query."""
         sql = "SELECT 1"
         request = ExecuteSqlRequest(sql=sql)
+        rows = connection.execute(request)
+        assert rows is not None
+        assert rows.oid > 0
+        rows.close()
+
+    def test_execute_query_with_params(self, connection):
+        """Tests executing a SQL query with parameters."""
+        sql = "SELECT * FROM Singers WHERE SingerId = @id"
+        params = Struct(fields={"id": Value(string_value="1")})
+        param_types = {"id": Type(code=TypeCode.INT64)}
+        request = ExecuteSqlRequest(
+            sql=sql, params=params, param_types=param_types
+        )
         rows = connection.execute(request)
         assert rows is not None
         assert rows.oid > 0
