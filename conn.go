@@ -1054,7 +1054,7 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 		return pq.execute(ctx, cancel, execOptions.PartitionedQueryOptions.ExecutePartition.Index)
 	}
 
-	stmt, err := prepareSpannerStmt(c.parser, query, args)
+	stmt, err := prepareSpannerStmt(c.state, c.parser, query, args)
 	if err != nil {
 		return nil, err
 	}
@@ -1214,7 +1214,7 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions *ExecO
 		return c.execDDL(ctx, spanner.NewStatement(query))
 	}
 
-	ss, err := prepareSpannerStmt(c.parser, query, args)
+	ss, err := prepareSpannerStmt(c.state, c.parser, query, args)
 	if err != nil {
 		return nil, err
 	}
