@@ -282,6 +282,58 @@ var propertySendTypedStrings = createConnectionProperty(
 	connectionstate.ConvertBool,
 )
 
+// DDLExecutionMode determines how DDL statements are executed.
+type DDLExecutionMode int
+
+const (
+	// DDLExecutionModeSync waits for the DDL operation to complete.
+	DDLExecutionModeSync DDLExecutionMode = iota
+	// DDLExecutionModeAsync returns immediately after the DDL operation is started.
+	DDLExecutionModeAsync
+	// DDLExecutionModeAsyncWait waits for the DDL operation to complete, or until a timeout occurs.
+	// If the timeout is reached, the operation is effectively returned as recursive.
+	DDLExecutionModeAsyncWait
+)
+
+func (m DDLExecutionMode) String() string {
+	switch m {
+	case DDLExecutionModeSync:
+		return "SYNC"
+	case DDLExecutionModeAsync:
+		return "ASYNC"
+	case DDLExecutionModeAsyncWait:
+		return "ASYNC_WAIT"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+func parseDDLExecutionMode(value string) (DDLExecutionMode, error) {
+	switch strings.ToUpper(value) {
+	case "SYNC":
+		return DDLExecutionModeSync, nil
+	case "ASYNC":
+		return DDLExecutionModeAsync, nil
+	case "ASYNC_WAIT":
+		return DDLExecutionModeAsyncWait, nil
+	default:
+		return DDLExecutionModeSync, status.Errorf(codes.InvalidArgument, "unknown ddl execution mode: %v", value)
+	}
+}
+
+var propertyDDLExecutionMode = createConnectionProperty(
+	"ddl_execution_mode",
+	"ddl_execution_mode determines how DDL statements are executed.\n"+
+		"SYNC (default): The driver waits for the Long Running Operation (LRO) to complete.\n"+
+		"ASYNC: The driver returns immediately after the server accepts the request.\n"+
+		"ASYNC_WAIT: The driver waits for a fixed duration (10 seconds). If it completes, return success; if it times out, return success and let the operation continue in the background.",
+	DDLExecutionModeSync,
+	false,
+	[]DDLExecutionMode{DDLExecutionModeSync, DDLExecutionModeAsync, DDLExecutionModeAsyncWait},
+	connectionstate.ContextUser,
+	parseDDLExecutionMode,
+)
+
 // ------------------------------------------------------------------------------------------------
 // Transaction connection properties.
 // ------------------------------------------------------------------------------------------------

@@ -285,6 +285,11 @@ type conn struct {
 	// tempTransactionCloseFunc is set right before a transaction is started, and is set as the
 	// close function for that transaction.
 	tempTransactionCloseFunc func()
+
+	// lastDDLOperationID is the ID of the last DDL operation that was executed on this connection.
+	lastDDLOperationID string
+	// mu protects the concurrent access to lastDDLOperationID.
+	mu sync.Mutex
 }
 
 func (c *conn) UnderlyingClient() (*spanner.Client, error) {
@@ -679,8 +684,19 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 			if err != nil {
 				return nil, err
 			}
-			if _, err := op.Wait(ctx); err != nil {
+			c.mu.Lock()
+			c.lastDDLOperationID = op.Name()
+			c.mu.Unlock()
+
+			if err := c.waitForDDLOperation(ctx, op.Name(), func(ctx context.Context) error {
+				_, err := op.Wait(ctx)
+				return err
+			}); err != nil {
 				return nil, err
+			}
+			mode := propertyDDLExecutionMode.GetValueOrDefault(c.state)
+			if mode == DDLExecutionModeAsync || mode == DDLExecutionModeAsyncWait {
+				return &result{operationID: op.Name()}, nil
 			}
 			return driver.ResultNoRows, nil
 		} else if c.parser.IsDropDatabaseStatement(ddlStatements[0]) {
@@ -701,7 +717,13 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 		if err != nil {
 			return nil, err
 		}
-		if err := op.Wait(ctx); err != nil {
+		c.mu.Lock()
+		c.lastDDLOperationID = op.Name()
+		c.mu.Unlock()
+
+		if err := c.waitForDDLOperation(ctx, op.Name(), func(ctx context.Context) error {
+			return op.Wait(ctx)
+		}); err != nil {
 			if len(statements) > 1 {
 				be := &BatchError{
 					Err:               err,
@@ -723,8 +745,34 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 			}
 			return nil, err
 		}
+		mode := propertyDDLExecutionMode.GetValueOrDefault(c.state)
+		if mode == DDLExecutionModeAsync || mode == DDLExecutionModeAsyncWait {
+			return &result{operationID: op.Name()}, nil
+		}
 	}
 	return driver.ResultNoRows, nil
+}
+
+func (c *conn) waitForDDLOperation(ctx context.Context, opName string, waitFunc func(context.Context) error) error {
+	mode := propertyDDLExecutionMode.GetValueOrDefault(c.state)
+	switch mode {
+	case DDLExecutionModeAsync:
+		return nil
+	case DDLExecutionModeAsyncWait:
+		// Create a context with a 10-second timeout.
+		waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		err := waitFunc(waitCtx)
+		if err != nil {
+			// If the error is DeadlineExceeded, then we return success.
+			if status.Code(err) == codes.DeadlineExceeded || errors.Is(err, context.DeadlineExceeded) {
+				return nil
+			}
+		}
+		return err
+	default:
+		return waitFunc(ctx)
+	}
 }
 
 func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement, options *ExecOptions) (SpannerResult, error) {
