@@ -16,6 +16,8 @@ package spannerdriver
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"database/sql/driver"
 	"errors"
@@ -46,6 +48,7 @@ import (
 	"google.golang.org/api/option/internaloption"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -66,6 +69,9 @@ var defaultStatementCacheSize int
 // driver from adding noise to any default logger that has been set for the
 // application.
 const LevelNotice = slog.LevelInfo - 1
+
+const experimentalHostProject = "default"
+const experimentalHostInstance = "default"
 
 // Logger that discards everything and skips (almost) all logs.
 var noopLogger = slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError + 1}))
@@ -96,6 +102,7 @@ var noopLogger = slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{L
 //
 // Example: `localhost:9010/projects/test-project/instances/test-instance/databases/test-database;usePlainText=true;disableRouteToLeader=true;enableEndToEndTracing=true`
 var dsnRegExp = regexp.MustCompile(`((?P<HOSTGROUP>[\w.-]+(?:\.[\w\.-]+)*[\w\-\._~:/?#\[\]@!\$&'\(\)\*\+,;=.]+)/)?projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID)))(/instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+)(/databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?)?(([\?|;])(?P<PARAMSGROUP>.*))?`)
+var expHostDSNRegExp = regexp.MustCompile(`spanner://(?P<HOSTGROUP>[\w.-]+(?::\d+)?)(?:/instances/(?P<INSTANCEGROUP>[a-z0-9-]+))?/databases/(?P<DATABASEGROUP>[a-z][a-z0-9_-]{0,28}[a-z0-9])(?:[?;](?P<PARAMSGROUP>.*))?`)
 
 var _ driver.DriverContext = &Driver{}
 var spannerDriver *Driver
@@ -481,11 +488,21 @@ func (cc *ConnectorConfig) String() string {
 // data source name.
 func ExtractConnectorConfig(dsn string) (ConnectorConfig, error) {
 	match := dsnRegExp.FindStringSubmatch(dsn)
+	isExpHost := false
+
+	if strings.HasPrefix(dsn, "spanner://") {
+		isExpHost = true
+		match = expHostDSNRegExp.FindStringSubmatch(dsn)
+	}
 	if match == nil {
 		return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection string: %s", dsn))
 	}
 	matches := make(map[string]string)
-	for i, name := range dsnRegExp.SubexpNames() {
+	names := dsnRegExp.SubexpNames()
+	if isExpHost {
+		names = expHostDSNRegExp.SubexpNames()
+	}
+	for i, name := range names {
 		if i != 0 && name != "" {
 			matches[name] = match[i]
 		}
@@ -496,14 +513,24 @@ func ExtractConnectorConfig(dsn string) (ConnectorConfig, error) {
 		return ConnectorConfig{}, err
 	}
 
-	return ConnectorConfig{
+	c := ConnectorConfig{
 		Host:     matches["HOSTGROUP"],
 		Project:  matches["PROJECTGROUP"],
 		Instance: matches["INSTANCEGROUP"],
 		Database: matches["DATABASEGROUP"],
 		Params:   params,
 		name:     dsn,
-	}, nil
+	}
+	if isExpHost {
+		c.Configurator = func(config *spanner.ClientConfig, opts *[]option.ClientOption) {
+			config.IsExperimentalHost = true
+		}
+		if matches["INSTANCEGROUP"] == "" {
+			c.Instance = experimentalHostInstance
+		}
+		c.Project = experimentalHostProject
+	}
+	return c, nil
 }
 
 func extractConnectorParams(paramsString string) (map[string]string, error) {
@@ -670,6 +697,22 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	logger = logger.With("config", &connectorConfig)
 	if connectorConfig.Configurator != nil {
 		connectorConfig.Configurator(&config, &opts)
+	}
+	if config.IsExperimentalHost {
+		var caCertFile string
+		var clientCertFile string
+		var clientCertKey string
+		assignPropertyValueIfExists(state, propertyCaCertFile, &caCertFile)
+		assignPropertyValueIfExists(state, propertyClientCertFile, &clientCertFile)
+		assignPropertyValueIfExists(state, propertyClientCertKey, &clientCertKey)
+		if caCertFile != "" {
+			credOpts, err := CreateExperimentalHostCredentials(caCertFile, clientCertFile, clientCertKey)
+			if err != nil {
+				return nil, err
+			}
+			opts = append(opts, credOpts)
+			opts = append(opts, option.WithoutAuthentication())
+		}
 	}
 	if connectorConfig.AutoConfigEmulator {
 		if connectorConfig.Host == "" {
@@ -1655,4 +1698,35 @@ func WithBatchReadOnly(level sql.IsolationLevel) sql.IsolationLevel {
 
 func withBatchReadOnly(level driver.IsolationLevel) driver.IsolationLevel {
 	return driver.IsolationLevel(levelBatchReadOnly)<<8 + level
+}
+
+// CreateExperimentalHostCredentials is only supported for connecting to experimental
+// hosts. It reads the provided CA certificate file and optionally the
+// client certificate and key files to set up TLS or mutual TLS credentials, and
+// creates gRPC dial options to connect to an experimental host endpoint. The method
+// has been kept public to allow integration test to leverage it.
+func CreateExperimentalHostCredentials(caCertFile, clientCertificateFile, clientCertificateKey string) (option.ClientOption, error) {
+	ca, err := os.ReadFile(caCertFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA certificate file: %w", err)
+	}
+	capool := x509.NewCertPool()
+	if !capool.AppendCertsFromPEM(ca) {
+		return nil, fmt.Errorf("failed to append the CA certificate to CA pool")
+	}
+	if clientCertificateFile == "" || clientCertificateKey == "" {
+		// Setting up TLS with only the CA certificate.
+		creds := credentials.NewTLS(&tls.Config{RootCAs: capool})
+		return option.WithGRPCDialOption(grpc.WithTransportCredentials(creds)), nil
+	}
+	// Setting up mutual TLS with both the CA certificate and client certificate.
+	cert, err := tls.LoadX509KeyPair(clientCertificateFile, clientCertificateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load client certificate/key: %w", err)
+	}
+	creds := credentials.NewTLS(&tls.Config{
+		RootCAs:      capool,
+		Certificates: []tls.Certificate{cert},
+	})
+	return option.WithGRPCDialOption(grpc.WithTransportCredentials(creds)), nil
 }

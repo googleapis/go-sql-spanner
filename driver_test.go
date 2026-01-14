@@ -298,6 +298,98 @@ func TestExtractDnsParts(t *testing.T) {
 	}
 }
 
+func TestExpHostDSNRegExp(t *testing.T) {
+	tests := []struct {
+		name      string
+		dsn       string
+		wantMatch bool
+		want      map[string]string
+	}{
+		{
+			name:      "host+instance+db",
+			dsn:       "spanner://localhost:9010/instances/test-instance/databases/test-db",
+			wantMatch: true,
+			want: map[string]string{
+				"HOSTGROUP":     "localhost:9010",
+				"INSTANCEGROUP": "test-instance",
+				"DATABASEGROUP": "test-db",
+				"PARAMSGROUP":   "",
+			},
+		},
+		{
+			name:      "host+db",
+			dsn:       "spanner://localhost/databases/testdb",
+			wantMatch: true,
+			want: map[string]string{
+				"HOSTGROUP":     "localhost",
+				"INSTANCEGROUP": "",
+				"DATABASEGROUP": "testdb",
+				"PARAMSGROUP":   "",
+			},
+		},
+		{
+			name:      "params",
+			dsn:       "spanner://example.com/databases/testdb?usePlainText=true;foo=bar",
+			wantMatch: true,
+			want: map[string]string{
+				"HOSTGROUP":     "example.com",
+				"INSTANCEGROUP": "",
+				"DATABASEGROUP": "testdb",
+				"PARAMSGROUP":   "usePlainText=true;foo=bar",
+			},
+		},
+		{
+			name:      "short-db-fails",
+			dsn:       "spanner://localhost/databases/d",
+			wantMatch: false,
+		},
+		{
+			name:      "uppercase-db-fails",
+			dsn:       "spanner://localhost/databases/TestDB",
+			wantMatch: false,
+		},
+		{
+			name:      "ipv4-with-port",
+			dsn:       "spanner://127.0.0.1:1234/databases/ab",
+			wantMatch: true,
+			want: map[string]string{
+				"HOSTGROUP":     "127.0.0.1:1234",
+				"INSTANCEGROUP": "",
+				"DATABASEGROUP": "ab",
+				"PARAMSGROUP":   "",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := expHostDSNRegExp.FindStringSubmatch(tc.dsn)
+			if tc.wantMatch {
+				if m == nil {
+					t.Fatalf("expected match for %q, got none", tc.dsn)
+				}
+				// collect groups
+				out := map[string]string{}
+				for i, name := range expHostDSNRegExp.SubexpNames() {
+					if name == "" {
+						continue
+					}
+					out[name] = m[i]
+				}
+				for k, v := range tc.want {
+					if out[k] != v {
+						t.Errorf("for %q expected %s=%q got %q", tc.dsn, k, v, out[k])
+					}
+				}
+			} else {
+				if m != nil {
+					t.Fatalf("expected no match for %q, but got %v", tc.dsn, m)
+				}
+			}
+		})
+	}
+}
+
 func TestParseBeginTransactionOption(t *testing.T) {
 	tests := []struct {
 		input   string

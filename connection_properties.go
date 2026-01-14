@@ -557,6 +557,39 @@ var propertyCommitResponse = createReadOnlyConnectionProperty(
 	connectionstate.ContextUser,
 )
 
+var propertyCaCertFile = createConnectionProperty(
+	"ca_cert_file",
+	"The path to the CA certificate file to use for TLS connections to the server. "+
+		"This is only needed when connecting to an experimental host endpoint",
+	"",
+	false,
+	nil,
+	connectionstate.ContextStartup,
+	connectionstate.ConvertString,
+)
+
+var propertyClientCertFile = createConnectionProperty(
+	"client_cert_file",
+	"The path to the client certificate file to use for mTLS connections to the server. "+
+		"This is only needed when connecting to an experimental host endpoint",
+	"",
+	false,
+	nil,
+	connectionstate.ContextStartup,
+	connectionstate.ConvertString,
+)
+
+var propertyClientCertKey = createConnectionProperty(
+	"client_cert_key",
+	"The path to the client certificate key file to use for mTLS connections to the server. "+
+		"This is only needed when connecting to an experimental host endpoint",
+	"",
+	false,
+	nil,
+	connectionstate.ContextStartup,
+	connectionstate.ConvertString,
+)
+
 func createReadOnlyConnectionProperty[T comparable](name, description string, defaultValue T, hasDefaultValue bool, validValues []T, context connectionstate.Context) *connectionstate.TypedConnectionProperty[T] {
 	converter := connectionstate.CreateReadOnlyConverter[T](name)
 	return createConnectionProperty(name, description, defaultValue, hasDefaultValue, validValues, context, converter)

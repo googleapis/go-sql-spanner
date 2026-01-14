@@ -42,13 +42,25 @@ import (
 	"cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 var projectId, instanceId string
 var skipped bool
+var experimentalHost string
+var caCertFile string
+var clientCertFile string
+var clientCertKey string
 
 func init() {
+	flag.StringVar(&experimentalHost, "it.experimental-host", "", "Experimental host integration test flag")
+	flag.StringVar(&caCertFile, "it.ca-cert-file", "", "CA certificate file for experimental host integration test")
+	flag.StringVar(&clientCertFile, "it.client-cert-file", "", "Client certificate file for experimental host integration test")
+	flag.StringVar(&clientCertKey, "it.client-cert-key", "", "Client certificate key file for experimental host integration test")
+
 	var ok bool
 
 	// Get environment variables or set to default.
@@ -153,12 +165,32 @@ func initTestInstance(config string) (cleanup func(), err error) {
 	}, nil
 }
 
+func createExpHostDBAdminClient(ctx context.Context) (*database.DatabaseAdminClient, error) {
+	opts := []option.ClientOption{
+		option.WithEndpoint(experimentalHost),
+		option.WithoutAuthentication(),
+	}
+	if caCertFile != "" {
+		credOpts, err := CreateExperimentalHostCredentials(caCertFile, clientCertFile, clientCertKey)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, credOpts)
+	} else {
+		opts = append(opts, option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())))
+	}
+	return database.NewDatabaseAdminClient(ctx, opts...)
+}
+
 func createTestDB(ctx context.Context, statements ...string) (dsn string, cleanup func(), err error) {
 	return createTestDBWithDialect(ctx, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, statements...)
 }
 
 func createTestDBWithDialect(ctx context.Context, dialect databasepb.DatabaseDialect, statements ...string) (dsn string, cleanup func(), err error) {
 	databaseAdminClient, err := database.NewDatabaseAdminClient(ctx)
+	if experimentalHost != "" {
+		databaseAdminClient, err = createExpHostDBAdminClient(ctx)
+	}
 	if err != nil {
 		return "", nil, err
 	}
@@ -202,8 +234,22 @@ func createTestDBWithDialect(ctx context.Context, dialect databasepb.DatabaseDia
 		}
 	}
 	dsn = "projects/" + projectId + "/instances/" + instanceId + "/databases/" + databaseId
+	if experimentalHost != "" {
+		dsn = "spanner://" + experimentalHost + "/databases/" + databaseId
+		if caCertFile == "" {
+			dsn += "?use_plain_text=true"
+		} else {
+			dsn += "?ca_cert_file=" + caCertFile
+			if clientCertFile != "" && clientCertKey != "" {
+				dsn += ";client_cert_file=" + clientCertFile + ";client_cert_key=" + clientCertKey
+			}
+		}
+	}
 	cleanup = func() {
 		databaseAdminClient, err := database.NewDatabaseAdminClient(ctx)
+		if experimentalHost != "" {
+			databaseAdminClient, err = createExpHostDBAdminClient(ctx)
+		}
 		if err != nil {
 			return
 		}
@@ -218,6 +264,13 @@ func createTestDBWithDialect(ctx context.Context, dialect databasepb.DatabaseDia
 func initIntegrationTests() (cleanup func(), err error) {
 	flag.Parse() // Needed for testing.Short().
 	noop := func() {}
+
+	if experimentalHost != "" {
+		projectId = "default"
+		instanceId = "default"
+		// instance management is not avaialble on experimental host
+		return noop, nil
+	}
 
 	if testing.Short() {
 		log.Println("Integration tests skipped in -short mode.")
