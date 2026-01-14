@@ -29,6 +29,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"google.golang.org/api/iterator"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -250,14 +251,26 @@ func (r *rows) Next(dest []driver.Value) error {
 					dest[i] = col.Value.GetStringValue()
 				}
 			} else {
-				var v spanner.NullNumeric
-				if err := col.Decode(&v); err != nil {
-					return err
-				}
-				if v.Valid {
-					dest[i] = v.Numeric
+				if col.Type.TypeAnnotation == sppb.TypeAnnotationCode_PG_NUMERIC {
+					var v spanner.PGNumeric
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					if v.Valid {
+						dest[i] = v.Numeric
+					} else {
+						dest[i] = nil
+					}
 				} else {
-					dest[i] = nil
+					var v spanner.NullNumeric
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					if v.Valid {
+						dest[i] = v.Numeric
+					} else {
+						dest[i] = nil
+					}
 				}
 			}
 		case sppb.TypeCode_STRING:
@@ -271,14 +284,22 @@ func (r *rows) Next(dest []driver.Value) error {
 				dest[i] = nil
 			}
 		case sppb.TypeCode_JSON:
-			var v spanner.NullJSON
-			if err := col.Decode(&v); err != nil {
-				return err
+			if col.Type.TypeAnnotation == sppb.TypeAnnotationCode_PG_JSONB {
+				var v spanner.PGJsonB
+				if err := col.Decode(&v); err != nil {
+					return err
+				}
+				dest[i] = v
+			} else {
+				var v spanner.NullJSON
+				if err := col.Decode(&v); err != nil {
+					return err
+				}
+				// We always assign `v` to dest[i] here because there is no native type
+				// for JSON in the Go sql package. That means that instead of returning
+				// nil we should return a NullJSON with valid=false.
+				dest[i] = v
 			}
-			// We always assign `v` to dest[i] here because there is no native type
-			// for JSON in the Go sql package. That means that instead of returning
-			// nil we should return a NullJSON with valid=false.
-			dest[i] = v
 		case sppb.TypeCode_UUID:
 			var v spanner.NullUUID
 			if err := col.Decode(&v); err != nil {
@@ -368,11 +389,19 @@ func (r *rows) Next(dest []driver.Value) error {
 					dest[i] = v
 				}
 			case sppb.TypeCode_NUMERIC:
-				var v []spanner.NullNumeric
-				if err := col.Decode(&v); err != nil {
-					return err
+				if col.Type.ArrayElementType.TypeAnnotation == sppb.TypeAnnotationCode_PG_NUMERIC {
+					var v []spanner.PGNumeric
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
+				} else {
+					var v []spanner.NullNumeric
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
 				}
-				dest[i] = v
 			case sppb.TypeCode_STRING:
 				if r.decodeToNativeArrays {
 					var v []string
@@ -388,11 +417,31 @@ func (r *rows) Next(dest []driver.Value) error {
 					dest[i] = v
 				}
 			case sppb.TypeCode_JSON:
-				var v []spanner.NullJSON
-				if err := col.Decode(&v); err != nil {
-					return err
+				if col.Type.ArrayElementType.TypeAnnotation == sppb.TypeAnnotationCode_PG_JSONB {
+					var v []spanner.PGJsonB
+					if err := col.Decode(&v); err != nil {
+						// Workaround for https://github.com/googleapis/google-cloud-go/pull/13602
+						if spanner.ErrCode(err) == codes.InvalidArgument && err.Error() == "spanner: code = \"InvalidArgument\", desc = \"type *[]spanner.PGJsonB cannot be used for decoding ARRAY[JSON]\"" {
+							var tmp []spanner.NullJSON
+							if err := col.Decode(&tmp); err != nil {
+								return err
+							}
+							v = make([]spanner.PGJsonB, 0, len(tmp))
+							for _, j := range tmp {
+								v = append(v, spanner.PGJsonB{Value: j.Value, Valid: j.Valid})
+							}
+						} else {
+							return err
+						}
+					}
+					dest[i] = v
+				} else {
+					var v []spanner.NullJSON
+					if err := col.Decode(&v); err != nil {
+						return err
+					}
+					dest[i] = v
 				}
-				dest[i] = v
 			case sppb.TypeCode_UUID:
 				if r.decodeToNativeArrays {
 					var v []uuid.UUID

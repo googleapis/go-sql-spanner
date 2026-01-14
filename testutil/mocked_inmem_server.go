@@ -242,9 +242,16 @@ func createSingersRow(idx int64) *structpb.ListValue {
 	}
 }
 
-func CreateResultSetMetadataWithAllTypes() *spannerpb.ResultSetMetadata {
+func CreateResultSetMetadataWithAllTypes(dialect databasepb.DatabaseDialect) *spannerpb.ResultSetMetadata {
 	index := 0
-	fields := make([]*spannerpb.StructType_Field, 26)
+	var numFields int
+	if dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL {
+		// GOOGLE_SQL supports protobuf columns
+		numFields = 26
+	} else {
+		numFields = 22
+	}
+	fields := make([]*spannerpb.StructType_Field, numFields)
 	fields[index] = &spannerpb.StructType_Field{
 		Name: "ColBool",
 		Type: &spannerpb.Type{Code: spannerpb.TypeCode_BOOL},
@@ -279,6 +286,9 @@ func CreateResultSetMetadataWithAllTypes() *spannerpb.ResultSetMetadata {
 		Name: "ColNumeric",
 		Type: &spannerpb.Type{Code: spannerpb.TypeCode_NUMERIC},
 	}
+	if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		fields[index].Type.TypeAnnotation = spannerpb.TypeAnnotationCode_PG_NUMERIC
+	}
 	index++
 	fields[index] = &spannerpb.StructType_Field{
 		Name: "ColDate",
@@ -294,20 +304,25 @@ func CreateResultSetMetadataWithAllTypes() *spannerpb.ResultSetMetadata {
 		Name: "ColJson",
 		Type: &spannerpb.Type{Code: spannerpb.TypeCode_JSON},
 	}
+	if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		fields[index].Type.TypeAnnotation = spannerpb.TypeAnnotationCode_PG_JSONB
+	}
 	index++
 	fields[index] = &spannerpb.StructType_Field{
 		Name: "ColUuid",
 		Type: &spannerpb.Type{Code: spannerpb.TypeCode_UUID},
 	}
-	index++
-	fields[index] = &spannerpb.StructType_Field{
-		Name: "ColProto",
-		Type: &spannerpb.Type{Code: spannerpb.TypeCode_PROTO},
-	}
-	index++
-	fields[index] = &spannerpb.StructType_Field{
-		Name: "ColProtoEnum",
-		Type: &spannerpb.Type{Code: spannerpb.TypeCode_ENUM},
+	if dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL {
+		index++
+		fields[index] = &spannerpb.StructType_Field{
+			Name: "ColProto",
+			Type: &spannerpb.Type{Code: spannerpb.TypeCode_PROTO},
+		}
+		index++
+		fields[index] = &spannerpb.StructType_Field{
+			Name: "ColProtoEnum",
+			Type: &spannerpb.Type{Code: spannerpb.TypeCode_ENUM},
+		}
 	}
 	index++
 	fields[index] = &spannerpb.StructType_Field{
@@ -365,6 +380,9 @@ func CreateResultSetMetadataWithAllTypes() *spannerpb.ResultSetMetadata {
 			ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_NUMERIC},
 		},
 	}
+	if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		fields[index].Type.ArrayElementType.TypeAnnotation = spannerpb.TypeAnnotationCode_PG_NUMERIC
+	}
 	index++
 	fields[index] = &spannerpb.StructType_Field{
 		Name: "ColDateArray",
@@ -389,6 +407,9 @@ func CreateResultSetMetadataWithAllTypes() *spannerpb.ResultSetMetadata {
 			ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_JSON},
 		},
 	}
+	if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		fields[index].Type.ArrayElementType.TypeAnnotation = spannerpb.TypeAnnotationCode_PG_JSONB
+	}
 	index++
 	fields[index] = &spannerpb.StructType_Field{
 		Name: "ColUuidArray",
@@ -397,21 +418,23 @@ func CreateResultSetMetadataWithAllTypes() *spannerpb.ResultSetMetadata {
 			ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_UUID},
 		},
 	}
-	index++
-	fields[index] = &spannerpb.StructType_Field{
-		Name: "ColProtoArray",
-		Type: &spannerpb.Type{
-			Code:             spannerpb.TypeCode_ARRAY,
-			ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_PROTO},
-		},
-	}
-	index++
-	fields[index] = &spannerpb.StructType_Field{
-		Name: "ColProtoEnumArray",
-		Type: &spannerpb.Type{
-			Code:             spannerpb.TypeCode_ARRAY,
-			ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_ENUM},
-		},
+	if dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL {
+		index++
+		fields[index] = &spannerpb.StructType_Field{
+			Name: "ColProtoArray",
+			Type: &spannerpb.Type{
+				Code:             spannerpb.TypeCode_ARRAY,
+				ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_PROTO},
+			},
+		}
+		index++
+		fields[index] = &spannerpb.StructType_Field{
+			Name: "ColProtoEnumArray",
+			Type: &spannerpb.Type{
+				Code:             spannerpb.TypeCode_ARRAY,
+				ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_ENUM},
+			},
+		}
 	}
 	rowType := &spannerpb.StructType{
 		Fields: fields,
@@ -421,8 +444,8 @@ func CreateResultSetMetadataWithAllTypes() *spannerpb.ResultSetMetadata {
 	}
 }
 
-func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb.ResultSet {
-	metadata := CreateResultSetMetadataWithAllTypes()
+func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool, dialect databasepb.DatabaseDialect) *spannerpb.ResultSet {
+	metadata := CreateResultSetMetadataWithAllTypes(dialect)
 	fields := metadata.RowType.Fields
 	rows := make([]*structpb.ListValue, 1)
 	rowValue := make([]*structpb.Value, len(fields))
@@ -469,10 +492,12 @@ func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: `{"key": "value", "other-key": ["value1", "value2"]}`}}
 		index++
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: `a4e71944-fe14-4047-9d0a-e68c281602e1`}}
-		index++
-		rowValue[index] = protoMessageProto(&singerProtoMsg)
-		index++
-		rowValue[index] = protoEnumProto(&singerEnumValue)
+		if dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL {
+			index++
+			rowValue[index] = protoMessageProto(&singerProtoMsg)
+			index++
+			rowValue[index] = protoEnumProto(&singerEnumValue)
+		}
 		index++
 		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
 			ListValue: &structpb.ListValue{Values: []*structpb.Value{
@@ -561,22 +586,24 @@ func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb
 				{Kind: &structpb.Value_StringValue{StringValue: `0dd0f9b7-05af-48e0-a5b1-35432a01c6bf`}},
 			}},
 		}}
-		index++
-		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
-			ListValue: &structpb.ListValue{Values: []*structpb.Value{
-				protoMessageProto(&singerProtoMsg),
-				nullValueOrAlt(nullValuesInArrays, protoMessageProto(&singerProtoMsg)),
-				protoMessageProto(&singer2ProtoMsg),
-			}},
-		}}
-		index++
-		rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
-			ListValue: &structpb.ListValue{Values: []*structpb.Value{
-				protoEnumProto(&singerEnumValue),
-				nullValueOrAlt(nullValuesInArrays, protoEnumProto(&singerEnumValue)),
-				protoEnumProto(&singer2ProtoEnum),
-			}},
-		}}
+		if dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL {
+			index++
+			rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
+				ListValue: &structpb.ListValue{Values: []*structpb.Value{
+					protoMessageProto(&singerProtoMsg),
+					nullValueOrAlt(nullValuesInArrays, protoMessageProto(&singerProtoMsg)),
+					protoMessageProto(&singer2ProtoMsg),
+				}},
+			}}
+			index++
+			rowValue[index] = &structpb.Value{Kind: &structpb.Value_ListValue{
+				ListValue: &structpb.ListValue{Values: []*structpb.Value{
+					protoEnumProto(&singerEnumValue),
+					nullValueOrAlt(nullValuesInArrays, protoEnumProto(&singerEnumValue)),
+					protoEnumProto(&singer2ProtoEnum),
+				}},
+			}}
+		}
 	}
 	rows[0] = &structpb.ListValue{
 		Values: rowValue,
@@ -587,8 +614,8 @@ func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool) *spannerpb
 	}
 }
 
-func CreateRandomResultSet(numRows int) *spannerpb.ResultSet {
-	metadata := CreateResultSetMetadataWithAllTypes()
+func CreateRandomResultSet(numRows int, dialect databasepb.DatabaseDialect) *spannerpb.ResultSet {
+	metadata := CreateResultSetMetadataWithAllTypes(dialect)
 	fields := metadata.RowType.Fields
 	rows := make([]*structpb.ListValue, numRows)
 
