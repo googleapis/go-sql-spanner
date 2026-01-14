@@ -263,8 +263,8 @@ func initIntegrationTests() (cleanup func(), err error) {
 	noop := func() {}
 
 	if experimentalHost != "" {
-		projectId = "default"
-		instanceId = "default"
+		projectId = experimentalHostProject
+		instanceId = experimentalHostInstance
 		// instance management is not avaialble on experimental host
 		return noop, nil
 	}
