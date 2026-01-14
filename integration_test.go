@@ -265,7 +265,7 @@ func initIntegrationTests() (cleanup func(), err error) {
 	if experimentalHost != "" {
 		projectId = experimentalHostProject
 		instanceId = experimentalHostInstance
-		// instance management is not avaialble on experimental host
+		// instance management is not available on experimental host
 		return noop, nil
 	}
 
