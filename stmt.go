@@ -44,11 +44,12 @@ var _ driver.NamedValueChecker = &stmt{}
 var nullValue = structpb.NewNullValue()
 
 type stmt struct {
-	conn          *conn
-	numArgs       int
-	query         string
-	statementType parser.StatementType
-	execOptions   *ExecOptions
+	conn            *conn
+	numArgs         int
+	query           string
+	statementInfo   *parser.StatementInfo
+	parsedStatement parser.ParsedStatement
+	execOptions     *ExecOptions
 }
 
 func (s *stmt) Close() error {
@@ -64,7 +65,7 @@ func (s *stmt) Exec(_ []driver.Value) (driver.Result, error) {
 }
 
 func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
-	return s.conn.execContext(ctx, s.query, s.execOptions, args)
+	return s.conn.execParsed(ctx, s.query, s.parsedStatement, s.statementInfo, s.execOptions, args)
 }
 
 func (s *stmt) Query(_ []driver.Value) (driver.Rows, error) {
@@ -72,7 +73,7 @@ func (s *stmt) Query(_ []driver.Value) (driver.Rows, error) {
 }
 
 func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
-	return s.conn.queryContext(ctx, s.query, s.execOptions, args)
+	return s.conn.queryParsed(ctx, s.query, s.parsedStatement, s.statementInfo, s.execOptions, args)
 }
 
 func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
