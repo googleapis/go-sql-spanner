@@ -409,7 +409,7 @@ func BenchmarkReadWriteTransaction(b *testing.B) {
 	query := "select * from random_table"
 
 	for _, numRows := range []int{1, 10, 100, 1000, 10000} {
-		resultSet := testutil.CreateRandomResultSet(numRows)
+		resultSet := testutil.CreateRandomResultSet(numRows, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
 		_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
 			Type:      testutil.StatementResultResultSet,
 			ResultSet: resultSet,

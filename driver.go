@@ -1499,6 +1499,8 @@ func checkIsValidType(v driver.Value) bool {
 	case []big.Rat:
 	case spanner.NullNumeric:
 	case []spanner.NullNumeric:
+	case spanner.PGNumeric:
+	case []spanner.PGNumeric:
 	case *big.Rat:
 	case []*big.Rat:
 	case time.Time:
@@ -1515,6 +1517,8 @@ func checkIsValidType(v driver.Value) bool {
 	case []*civil.Date:
 	case spanner.NullJSON:
 	case []spanner.NullJSON:
+	case spanner.PGJsonB:
+	case []spanner.PGJsonB:
 	case spanner.GenericColumnValue:
 	case uuid.UUID:
 	case *uuid.UUID:

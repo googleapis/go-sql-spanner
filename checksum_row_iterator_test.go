@@ -24,6 +24,7 @@ import (
 
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -299,7 +300,7 @@ func BenchmarkChecksumRowIterator(b *testing.B) {
 
 func BenchmarkChecksumRowIteratorRandom(b *testing.B) {
 	for _, numRows := range []int{1, 10, 100, 1000, 10000} {
-		resultSet := testutil.CreateRandomResultSet(numRows)
+		resultSet := testutil.CreateRandomResultSet(numRows, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
 		columnNames := make([]string, len(resultSet.Metadata.RowType.Fields))
 		for i := range columnNames {
 			columnNames[i] = resultSet.Metadata.RowType.Fields[i].Name
