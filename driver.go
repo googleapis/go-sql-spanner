@@ -706,7 +706,7 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		assignPropertyValueIfExists(state, propertyClientCertFile, &clientCertFile)
 		assignPropertyValueIfExists(state, propertyClientCertKey, &clientCertKey)
 		if caCertFile != "" {
-			credOpts, err := CreateExperimentalHostCredentials(caCertFile, clientCertFile, clientCertKey)
+			credOpts, err := createExperimentalHostCredentials(caCertFile, clientCertFile, clientCertKey)
 			if err != nil {
 				return nil, err
 			}
@@ -1700,12 +1700,11 @@ func withBatchReadOnly(level driver.IsolationLevel) driver.IsolationLevel {
 	return driver.IsolationLevel(levelBatchReadOnly)<<8 + level
 }
 
-// CreateExperimentalHostCredentials is only supported for connecting to experimental
+// createExperimentalHostCredentials is only supported for connecting to experimental
 // hosts. It reads the provided CA certificate file and optionally the
 // client certificate and key files to set up TLS or mutual TLS credentials, and
-// creates gRPC dial options to connect to an experimental host endpoint. The method
-// has been kept public to allow integration test to leverage it.
-func CreateExperimentalHostCredentials(caCertFile, clientCertificateFile, clientCertificateKey string) (option.ClientOption, error) {
+// creates gRPC dial options to connect to an experimental host endpoint.
+func createExperimentalHostCredentials(caCertFile, clientCertificateFile, clientCertificateKey string) (option.ClientOption, error) {
 	ca, err := os.ReadFile(caCertFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read CA certificate file: %w", err)
@@ -1714,19 +1713,24 @@ func CreateExperimentalHostCredentials(caCertFile, clientCertificateFile, client
 	if !capool.AppendCertsFromPEM(ca) {
 		return nil, fmt.Errorf("failed to append the CA certificate to CA pool")
 	}
-	if clientCertificateFile == "" || clientCertificateKey == "" {
-		// Setting up TLS with only the CA certificate.
-		creds := credentials.NewTLS(&tls.Config{RootCAs: capool})
+
+	if clientCertificateFile != "" && clientCertificateKey != "" {
+		// Setting up mutual TLS with both the CA certificate and client certificate.
+		cert, err := tls.LoadX509KeyPair(clientCertificateFile, clientCertificateKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client certificate/key: %w", err)
+		}
+		creds := credentials.NewTLS(&tls.Config{
+			RootCAs:      capool,
+			Certificates: []tls.Certificate{cert},
+		})
 		return option.WithGRPCDialOption(grpc.WithTransportCredentials(creds)), nil
 	}
-	// Setting up mutual TLS with both the CA certificate and client certificate.
-	cert, err := tls.LoadX509KeyPair(clientCertificateFile, clientCertificateKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load client certificate/key: %w", err)
+	if clientCertificateFile != "" || clientCertificateKey != "" {
+		return nil, fmt.Errorf("both client certificate and key must be provided for mTLS, but only one was provided")
 	}
-	creds := credentials.NewTLS(&tls.Config{
-		RootCAs:      capool,
-		Certificates: []tls.Certificate{cert},
-	})
+
+	// Setting up TLS with only the CA certificate.
+	creds := credentials.NewTLS(&tls.Config{RootCAs: capool})
 	return option.WithGRPCDialOption(grpc.WithTransportCredentials(creds)), nil
 }

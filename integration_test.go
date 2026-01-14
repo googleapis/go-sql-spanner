@@ -165,13 +165,16 @@ func initTestInstance(config string) (cleanup func(), err error) {
 	}, nil
 }
 
-func createExpHostDBAdminClient(ctx context.Context) (*database.DatabaseAdminClient, error) {
+func createDBAdminClient(ctx context.Context) (*database.DatabaseAdminClient, error) {
+	if experimentalHost == "" {
+		return database.NewDatabaseAdminClient(ctx)
+	}
 	opts := []option.ClientOption{
 		option.WithEndpoint(experimentalHost),
 		option.WithoutAuthentication(),
 	}
 	if caCertFile != "" {
-		credOpts, err := CreateExperimentalHostCredentials(caCertFile, clientCertFile, clientCertKey)
+		credOpts, err := createExperimentalHostCredentials(caCertFile, clientCertFile, clientCertKey)
 		if err != nil {
 			return nil, err
 		}
@@ -187,10 +190,7 @@ func createTestDB(ctx context.Context, statements ...string) (dsn string, cleanu
 }
 
 func createTestDBWithDialect(ctx context.Context, dialect databasepb.DatabaseDialect, statements ...string) (dsn string, cleanup func(), err error) {
-	databaseAdminClient, err := database.NewDatabaseAdminClient(ctx)
-	if experimentalHost != "" {
-		databaseAdminClient, err = createExpHostDBAdminClient(ctx)
-	}
+	databaseAdminClient, err := createDBAdminClient(ctx)
 	if err != nil {
 		return "", nil, err
 	}
@@ -246,10 +246,7 @@ func createTestDBWithDialect(ctx context.Context, dialect databasepb.DatabaseDia
 		}
 	}
 	cleanup = func() {
-		databaseAdminClient, err := database.NewDatabaseAdminClient(ctx)
-		if experimentalHost != "" {
-			databaseAdminClient, err = createExpHostDBAdminClient(ctx)
-		}
+		databaseAdminClient, err := createDBAdminClient(ctx)
 		if err != nil {
 			return
 		}
