@@ -307,7 +307,7 @@ func TestAutoConfigEmulatorPostgreSql(t *testing.T) {
 
 	ctx := context.Background()
 	for range 2 {
-		db, err := sql.Open("spanner", "projects/emulator-project/instances/test-instance/databases/test-database;autoConfigEmulator=true;dialect=postgresql")
+		db, err := sql.Open("spanner", "projects/emulator-project/instances/test-instance/databases/test-database-pg;autoConfigEmulator=true;dialect=postgresql")
 		if err != nil {
 			t.Fatalf("could not connect to emulator: %v", err)
 		}
