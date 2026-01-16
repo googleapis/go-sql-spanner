@@ -23,7 +23,7 @@ import (
 func TestConvertParam(t *testing.T) {
 	check := func(in, want driver.Value) {
 		t.Helper()
-		got := convertParam(in)
+		got := convertParam(in, false)
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("in:%#v want:%#v got:%#v", in, want, got)
 		}

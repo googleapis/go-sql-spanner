@@ -109,6 +109,57 @@ func TestPrepareDml(t *testing.T) {
 	}
 }
 
+func TestPrepareClientSideStatement(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	c, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(c)
+
+	setStmt, err := c.PrepareContext(ctx, "set autocommit_dml_mode='partitioned_non_atomic'")
+	if err != nil {
+		t.Fatalf("failed to prepare statement: %v", err)
+	}
+	defer silentClose(setStmt)
+
+	_, err = setStmt.ExecContext(ctx)
+	if err != nil {
+		t.Fatalf("failed to execute statement: %v", err)
+	}
+
+	showStmt, err := c.PrepareContext(ctx, "show variable autocommit_dml_mode")
+	if err != nil {
+		t.Fatalf("failed to prepare statement: %v", err)
+	}
+	defer silentClose(showStmt)
+	r, err := showStmt.QueryContext(ctx, ExecOptions{DirectExecuteQuery: true})
+	if err != nil {
+		t.Fatalf("failed to execute statement as a query: %v", err)
+	}
+	defer silentClose(r)
+	for r.Next() {
+		var v string
+		if err := r.Scan(&v); err != nil {
+			t.Fatalf("failed to scan row value: %v", err)
+		}
+		if g, w := v, "Partitioned_Non_Atomic"; g != w {
+			t.Fatalf("row value mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 0; g != w {
+		t.Fatalf("num execute request mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
 func TestPrepareWithValuerScanner(t *testing.T) {
 	t.Parallel()
 
