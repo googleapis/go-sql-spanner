@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Google.Cloud.Spanner.DataProvider.Benchmarks</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Google.Cloud.Spanner.DataProvider.Benchmarks</AssemblyName>
+    <LangVersion>default</LangVersion>
+    <RollForward>LatestMajor</RollForward>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Alpha.Google.Cloud.Spanner.DataProvider" Version="1.0.0-alpha.20251217172149" />
+    <PackageReference Include="Google.Cloud.Monitoring.V3" Version="3.16.0" />
+    <PackageReference Include="Google.Cloud.Spanner.Data" Version="5.8.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="9.0.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\spanner-ado-net\spanner-ado-net.csproj" />
+  </ItemGroup>
+
+</Project>

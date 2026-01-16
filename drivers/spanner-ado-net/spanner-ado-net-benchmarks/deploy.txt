@@ -1,0 +1,212 @@
+
+# SpannerLib, 4 clients - TPCC
+
+gcloud run deploy spannerlib-dotnet-benchmark-tpcc \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=500,NUM_CLIENTS=4 \
+  --base-image dotnet8 \
+  --source .
+
+# SpannerLib, 4 clients - TPCC - No internal retries
+
+gcloud run deploy spannerlib-dotnet-benchmark-tpcc-no-internal-retries \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=500,NUM_CLIENTS=4,RETRY_ABORTS_INTERNALLY=false,CLIENT_TYPE=SpannerLibNoRetries \
+  --base-image dotnet8 \
+  --source .
+
+# ClientLib, 4 clients - TPCC
+
+gcloud run deploy spannerlib-dotnet-benchmark-tpcc-client-lib \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=500,NUM_CLIENTS=4,CLIENT_TYPE=ClientLib \
+  --base-image dotnet8 \
+  --source .
+
+
+
+# SpannerLib, 50 clients - PointQuery
+
+gcloud run deploy spannerlib-dotnet-benchmark-point-query \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=100,NUM_CLIENTS=50,TRANSACTION_TYPE=PointQuery \
+  --base-image dotnet8 \
+  --source .
+
+# ClientLib, 50 clients - PointQuery
+
+gcloud run deploy spannerlib-dotnet-benchmark-point-query-client-lib \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=100,NUM_CLIENTS=50,TRANSACTION_TYPE=PointQuery,CLIENT_TYPE=ClientLib \
+  --base-image dotnet8 \
+  --source .
+
+# SpannerLib, 50 clients - Scalar
+
+gcloud run deploy spannerlib-dotnet-benchmark-scalar \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=100,NUM_CLIENTS=50,TRANSACTION_TYPE=Scalar \
+  --base-image dotnet8 \
+  --source .
+
+# ClientLib, 50 clients - Scalar
+
+gcloud run deploy spannerlib-dotnet-benchmark-scalar-client-lib \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=100,NUM_CLIENTS=50,TRANSACTION_TYPE=Scalar,CLIENT_TYPE=ClientLib \
+  --base-image dotnet8 \
+  --source .
+
+# SpannerLib, 50 clients - PointDML
+
+gcloud run deploy spannerlib-dotnet-benchmark-point-dml \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=100,NUM_CLIENTS=50,TRANSACTION_TYPE=PointDml \
+  --base-image dotnet8 \
+  --source .
+
+
+# ClientLib, 50 clients - PointDML
+
+gcloud run deploy spannerlib-dotnet-benchmark-point-dml-client-lib \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=100,NUM_CLIENTS=50,TRANSACTION_TYPE=PointDml,CLIENT_TYPE=ClientLib \
+  --base-image dotnet8 \
+  --source .
+  
+  
+# SpannerLib, 10 clients - ReadWriteTx
+
+gcloud run deploy spannerlib-dotnet-benchmark-read-write-tx \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=500,NUM_CLIENTS=10,TRANSACTION_TYPE=ReadWriteTx,LOAD_DATA=false \
+  --base-image dotnet8 \
+  --source .
+
+
+# ClientLib, 10 clients - ReadWriteTx
+
+gcloud run deploy spannerlib-dotnet-benchmark-read-write-tx-client-lib \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=500,NUM_CLIENTS=10,TRANSACTION_TYPE=ReadWriteTx,CLIENT_TYPE=ClientLib,LOAD_DATA=false \
+  --base-image dotnet8 \
+  --source .
+
+
+# SpannerLib, 50 clients - ReadWriteTxExp
+
+gcloud run deploy spannerlib-dotnet-benchmark-read-write-tx-exp \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=500,NUM_CLIENTS=10,TRANSACTION_TYPE=ReadWriteTx,LOAD_DATA=false \
+  --base-image dotnet8 \
+  --source .
+
+# SpannerLib, 5 clients - LargeQuery
+
+gcloud run deploy spannerlib-dotnet-benchmark-large-query \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=100,NUM_CLIENTS=5,TRANSACTION_TYPE=LargeQuery \
+  --base-image dotnet8 \
+  --source .
+
+# ClientLib, 5 clients - LargeQuery
+
+gcloud run deploy spannerlib-dotnet-benchmark-large-query-client-lib \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=100,NUM_CLIENTS=5,TRANSACTION_TYPE=LargeQuery,CLIENT_TYPE=ClientLib \
+  --base-image dotnet8 \
+  --source .
+
+
+
+
+
+
+
+gcloud run deploy spannerlib-dotnet-benchmark-tpcc \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=100,TRANSACTIONS_PER_SECOND=50,NUM_CLIENTS=50 \
+  --base-image dotnet8 \
+  --source .
+
+gcloud run deploy spannerlib-dotnet-benchmark-tpcc \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=100,TRANSACTIONS_PER_SECOND=50,NUM_CLIENTS=50,RETRY_ABORTS_INTERNALLY=false \
+  --base-image dotnet8 \
+  --source .
+
+
+gcloud run deploy spannerlib-dotnet-benchmark-tpcc \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=100,CLIENT_TYPE=ClientLib,TRANSACTIONS_PER_SECOND=50,NUM_CLIENTS=50 \
+  --base-image dotnet8 \
+  --source .
+
+gcloud run deploy spannerlib-dotnet-benchmark-tpcc \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=100,CLIENT_TYPE=NativeSpannerLib,TRANSACTIONS_PER_SECOND=50,NUM_CLIENTS=50 \
+  --base-image dotnet8 \
+  --source .
+
+gcloud run deploy spannerlib-dotnet-benchmark-tpcc \
+  --region=europe-north1 \
+  --no-allow-unauthenticated --no-cpu-throttling \
+  --min-instances=1 --max-instances=1 \
+  --cpu=4 --memory=2Gi \
+  --set-env-vars=NUM_WAREHOUSES=100,CLIENT_TYPE=NativeSpannerLib,TRANSACTIONS_PER_SECOND=50,NUM_CLIENTS=50,RETRY_ABORTS_INTERNALLY=false \
+  --base-image dotnet8 \
+  --source .
