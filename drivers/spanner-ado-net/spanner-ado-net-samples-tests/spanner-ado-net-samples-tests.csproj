@@ -30,6 +30,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\spannerlib\wrappers\spannerlib-dotnet\spannerlib-dotnet-mockserver\spannerlib-dotnet-mockserver.csproj" />
+    <ProjectReference Include="..\spanner-ado-net-getting-started-guide\spanner-ado-net-getting-started-guide.csproj" />
     <ProjectReference Include="..\spanner-ado-net-samples\spanner-ado-net-samples.csproj" />
   </ItemGroup>
 

@@ -22,6 +22,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "spannerlib-dotnet-grpc-v1",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "spanner-ado-net-samples-tests", "spanner-ado-net-samples-tests\spanner-ado-net-samples-tests.csproj", "{17F5C0B7-7932-4536-9328-5BBB0EC02A3B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "spanner-ado-net-getting-started-guide", "spanner-ado-net-getting-started-guide\spanner-ado-net-getting-started-guide.csproj", "{D18C11BF-2841-4FC5-B1CA-F3E4EDDEA279}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -72,5 +74,9 @@ Global
 		{17F5C0B7-7932-4536-9328-5BBB0EC02A3B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{17F5C0B7-7932-4536-9328-5BBB0EC02A3B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{17F5C0B7-7932-4536-9328-5BBB0EC02A3B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D18C11BF-2841-4FC5-B1CA-F3E4EDDEA279}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D18C11BF-2841-4FC5-B1CA-F3E4EDDEA279}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D18C11BF-2841-4FC5-B1CA-F3E4EDDEA279}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D18C11BF-2841-4FC5-B1CA-F3E4EDDEA279}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

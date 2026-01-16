@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Google.Cloud.Spanner.DataProvider</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Google.Cloud.Spanner.DataProvider.GettingStartedGuide</AssemblyName>
+    <LangVersion>default</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\spanner-ado-net\spanner-ado-net.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Docker.DotNet" Version="3.125.15" />
+  </ItemGroup>
+
+</Project>
