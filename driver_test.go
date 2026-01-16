@@ -298,92 +298,96 @@ func TestExtractDnsParts(t *testing.T) {
 	}
 }
 
-func TestExpHostDSNRegExp(t *testing.T) {
+func TestExperimentalHostDsn(t *testing.T) {
+	//goland:noinspection GoDeprecation
 	tests := []struct {
-		name      string
-		dsn       string
-		wantMatch bool
-		want      map[string]string
+		name                string
+		dsn                 string
+		wantConnectorConfig ConnectorConfig
+		wantErr             bool
 	}{
 		{
-			name:      "host+instance+db",
-			dsn:       "spanner://localhost:9010/instances/test-instance/databases/test-db",
-			wantMatch: true,
-			want: map[string]string{
-				"HOSTGROUP":     "localhost:9010",
-				"INSTANCEGROUP": "test-instance",
-				"DATABASEGROUP": "test-db",
-				"PARAMSGROUP":   "",
+			name: "no-project",
+			dsn:  "localhost:9010/instances/test-instance/databases/test-db?is_experimental_host=true",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "default",
+				Instance: "test-instance",
+				Database: "test-db",
+				Params: map[string]string{
+					"is_experimental_host": "true",
+				},
 			},
 		},
 		{
-			name:      "host+db",
-			dsn:       "spanner://localhost/databases/testdb",
-			wantMatch: true,
-			want: map[string]string{
-				"HOSTGROUP":     "localhost",
-				"INSTANCEGROUP": "",
-				"DATABASEGROUP": "testdb",
-				"PARAMSGROUP":   "",
+			name: "invalid-project",
+			dsn:  "localhost:9010/projects/test-project/instances/test-instance/databases/test-db?is_experimental_host=true",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "default",
+				Instance: "test-instance",
+				Database: "test-db",
+				Params: map[string]string{
+					"is_experimental_host": "true",
+				},
 			},
 		},
 		{
-			name:      "params",
-			dsn:       "spanner://example.com/databases/testdb?usePlainText=true;foo=bar",
-			wantMatch: true,
-			want: map[string]string{
-				"HOSTGROUP":     "example.com",
-				"INSTANCEGROUP": "",
-				"DATABASEGROUP": "testdb",
-				"PARAMSGROUP":   "usePlainText=true;foo=bar",
+			name: "only-database",
+			dsn:  "localhost:9010/databases/test-db?is_experimental_host=true",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "default",
+				Instance: "default",
+				Database: "test-db",
+				Params: map[string]string{
+					"is_experimental_host": "true",
+				},
 			},
 		},
 		{
-			name:      "short-db-fails",
-			dsn:       "spanner://localhost/databases/d",
-			wantMatch: false,
-		},
-		{
-			name:      "uppercase-db-fails",
-			dsn:       "spanner://localhost/databases/TestDB",
-			wantMatch: false,
-		},
-		{
-			name:      "ipv4-with-port",
-			dsn:       "spanner://127.0.0.1:1234/databases/ab",
-			wantMatch: true,
-			want: map[string]string{
-				"HOSTGROUP":     "127.0.0.1:1234",
-				"INSTANCEGROUP": "",
-				"DATABASEGROUP": "ab",
-				"PARAMSGROUP":   "",
+			name: "only-database",
+			dsn:  "localhost:9010/databases/test-db?is_experimental_host=true",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "default",
+				Instance: "default",
+				Database: "test-db",
+				Params: map[string]string{
+					"is_experimental_host": "true",
+				},
 			},
+		},
+		{
+			name:    "absent-host",
+			dsn:     "databases/test-db?is_experimental_host=true",
+			wantErr: true,
+		},
+		{
+			name:    "project-mandatory-cloud-spanner",
+			dsn:     "localhost:9010/instances/test-instance/databases/test-db",
+			wantErr: true,
+		},
+		{
+			name:    "instance-mandatory-cloud-spanner",
+			dsn:     "localhost:9010/projects/test-project/databases/test-db",
+			wantErr: true,
 		},
 	}
-
 	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			m := expHostDSNRegExp.FindStringSubmatch(tc.dsn)
-			if tc.wantMatch {
-				if m == nil {
-					t.Fatalf("expected match for %q, got none", tc.dsn)
+		t.Run(tc.dsn, func(t *testing.T) {
+			config, err := ExtractConnectorConfig(tc.dsn)
+			if err != nil {
+				if tc.wantErr {
+					return
 				}
-				// collect groups
-				out := map[string]string{}
-				for i, name := range expHostDSNRegExp.SubexpNames() {
-					if name == "" {
-						continue
-					}
-					out[name] = m[i]
-				}
-				for k, v := range tc.want {
-					if out[k] != v {
-						t.Errorf("for %q expected %s=%q got %q", tc.dsn, k, v, out[k])
-					}
-				}
+				t.Errorf("%q: extract failed for %q: %v", tc.name, tc.dsn, err)
 			} else {
-				if m != nil {
-					t.Fatalf("expected no match for %q, but got %v", tc.dsn, m)
+				if tc.wantErr {
+					t.Errorf("%q: did not encounter expected error", tc.name)
+				}
+				if diff := cmp.Diff(config.Params, tc.wantConnectorConfig.Params); diff != "" {
+					t.Errorf("%q: connector config mismatch for %q\n%v", tc.name, tc.dsn, diff)
 				}
 			}
 		})

@@ -235,7 +235,7 @@ func createTestDBWithDialect(ctx context.Context, dialect databasepb.DatabaseDia
 	}
 	dsn = "projects/" + projectId + "/instances/" + instanceId + "/databases/" + databaseId
 	if experimentalHost != "" {
-		dsn = "spanner://" + experimentalHost + "/databases/" + databaseId
+		dsn = experimentalHost + "/databases/" + databaseId
 		if caCertFile == "" {
 			dsn += "?use_plain_text=true"
 		} else {
@@ -244,6 +244,7 @@ func createTestDBWithDialect(ctx context.Context, dialect databasepb.DatabaseDia
 				dsn += ";client_cert_file=" + clientCertFile + ";client_cert_key=" + clientCertKey
 			}
 		}
+		dsn += ";is_experimental_host=true"
 	}
 	cleanup = func() {
 		databaseAdminClient, err := createDBAdminClient(ctx)

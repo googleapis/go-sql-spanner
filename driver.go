@@ -101,8 +101,7 @@ var noopLogger = slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{L
 //     - rpcPriority: Sets the priority for all RPC invocations from this connection (HIGH/MEDIUM/LOW). The default is HIGH.
 //
 // Example: `localhost:9010/projects/test-project/instances/test-instance/databases/test-database;usePlainText=true;disableRouteToLeader=true;enableEndToEndTracing=true`
-var dsnRegExp = regexp.MustCompile(`((?P<HOSTGROUP>[\w.-]+(?:\.[\w\.-]+)*[\w\-\._~:/?#\[\]@!\$&'\(\)\*\+,;=.]+)/)?projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID)))(/instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+)(/databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?)?(([\?|;])(?P<PARAMSGROUP>.*))?`)
-var expHostDSNRegExp = regexp.MustCompile(`spanner://(?P<HOSTGROUP>[\w.-]+(?::\d+)?)(?:/instances/(?P<INSTANCEGROUP>[a-z0-9-]+))?/databases/(?P<DATABASEGROUP>[a-z][a-z0-9_-]{0,28}[a-z0-9])(?:[?;](?P<PARAMSGROUP>.*))?`)
+var dsnRegExp = regexp.MustCompile(`^((?P<HOSTGROUP>[\w.-]+(?:\.[\w\.-]+)*[\w\-\._~:#\[\]@!\$&'\(\)\*\+,=.]+)/)?(projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID))))?((?:/)?instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+))?((?:/)?databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?(([\?|;])(?P<PARAMSGROUP>.*))?$`)
 
 var _ driver.DriverContext = &Driver{}
 var spannerDriver *Driver
@@ -488,21 +487,11 @@ func (cc *ConnectorConfig) String() string {
 // data source name.
 func ExtractConnectorConfig(dsn string) (ConnectorConfig, error) {
 	match := dsnRegExp.FindStringSubmatch(dsn)
-	isExpHost := false
-
-	if strings.HasPrefix(dsn, "spanner://") {
-		isExpHost = true
-		match = expHostDSNRegExp.FindStringSubmatch(dsn)
-	}
 	if match == nil {
 		return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection string: %s", dsn))
 	}
 	matches := make(map[string]string)
-	names := dsnRegExp.SubexpNames()
-	if isExpHost {
-		names = expHostDSNRegExp.SubexpNames()
-	}
-	for i, name := range names {
+	for i, name := range dsnRegExp.SubexpNames() {
 		if i != 0 && name != "" {
 			matches[name] = match[i]
 		}
@@ -521,7 +510,10 @@ func ExtractConnectorConfig(dsn string) (ConnectorConfig, error) {
 		Params:   params,
 		name:     dsn,
 	}
-	if isExpHost {
+	if params[propertyIsExperimentalHost.Key()] == "true" {
+		if c.Host == "" {
+			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "host must be specified for experimental host endpoint"))
+		}
 		c.Configurator = func(config *spanner.ClientConfig, opts *[]option.ClientOption) {
 			config.IsExperimentalHost = true
 		}
@@ -529,6 +521,13 @@ func ExtractConnectorConfig(dsn string) (ConnectorConfig, error) {
 			c.Instance = experimentalHostInstance
 		}
 		c.Project = experimentalHostProject
+	} else {
+		if c.Project == "" {
+			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "project must be specified in connection string"))
+		}
+		if c.Instance == "" {
+			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "instance must be specified in connection string"))
+		}
 	}
 	return c, nil
 }

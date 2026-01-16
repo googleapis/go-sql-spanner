@@ -557,6 +557,17 @@ var propertyCommitResponse = createReadOnlyConnectionProperty(
 	connectionstate.ContextUser,
 )
 
+var propertyIsExperimentalHost = createConnectionProperty(
+	"is_experimental_host",
+	"Indicates whether the connection is to an experimental host endpoint (true/false). "+
+		"Set this value to true when connecting to an experimental host endpoint",
+	false,
+	false,
+	nil,
+	connectionstate.ContextStartup,
+	connectionstate.ConvertBool,
+)
+
 var propertyCaCertFile = createConnectionProperty(
 	"ca_cert_file",
 	"The path to the CA certificate file to use for TLS connections to the server. "+
