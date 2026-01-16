@@ -18,6 +18,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "spannerlib-dotnet-grpc-impl
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "spannerlib-dotnet-grpc-v1", "spannerlib-dotnet-grpc-v1\spannerlib-dotnet-grpc-v1.csproj", "{C2538D0C-6544-4B44-88A7-02517B786FFD}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "spannerlib-dotnet-socket-server", "spannerlib-dotnet-socket-server\spannerlib-dotnet-socket-server.csproj", "{C343D513-6F3D-4AB1-9951-C967C568BCC6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "spannerlib-dotnet-socket-server-impl", "spannerlib-dotnet-socket-server-impl\spannerlib-dotnet-socket-server-impl.csproj", "{90E2B68A-9133-4F36-8E41-479E1F24C5BE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -60,5 +64,13 @@ Global
 		{C2538D0C-6544-4B44-88A7-02517B786FFD}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C2538D0C-6544-4B44-88A7-02517B786FFD}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C2538D0C-6544-4B44-88A7-02517B786FFD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C343D513-6F3D-4AB1-9951-C967C568BCC6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C343D513-6F3D-4AB1-9951-C967C568BCC6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C343D513-6F3D-4AB1-9951-C967C568BCC6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C343D513-6F3D-4AB1-9951-C967C568BCC6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{90E2B68A-9133-4F36-8E41-479E1F24C5BE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{90E2B68A-9133-4F36-8E41-479E1F24C5BE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{90E2B68A-9133-4F36-8E41-479E1F24C5BE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{90E2B68A-9133-4F36-8E41-479E1F24C5BE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
