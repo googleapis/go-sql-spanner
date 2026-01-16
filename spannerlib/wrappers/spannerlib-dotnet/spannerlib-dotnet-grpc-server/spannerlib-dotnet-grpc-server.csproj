@@ -8,7 +8,7 @@
     <PackageId>Alpha.Google.Cloud.SpannerLib.GrpcServer</PackageId>
     <Title>SpannerLib Grpc Server</Title>
     <Authors>Google</Authors>
-    <Version>1.0.0-alpha.20251217171434</Version>
+    <Version>1.0.0-alpha.20260116144609</Version>
   </PropertyGroup>
 
   <ItemGroup>

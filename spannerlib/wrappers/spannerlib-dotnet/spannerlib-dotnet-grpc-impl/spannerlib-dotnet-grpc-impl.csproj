@@ -6,13 +6,13 @@
     <Nullable>enable</Nullable>
     <LangVersion>default</LangVersion>
     <PackageId>Alpha.Google.Cloud.SpannerLib.GrpcImpl</PackageId>
-    <Version>1.0.0-alpha.20251217171434</Version>
+    <Version>1.0.0-alpha.20260116144609</Version>
     <Authors>Google</Authors>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="ConfigureAwaitChecker.Analyzer" PrivateAssets="All" Version="5.0.0.1" />
-    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.GrpcServer" Version="1.0.0-alpha.20251217171434" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.GrpcServer" Version="1.0.0-alpha.20260116144609" />
   </ItemGroup>
 
   <ItemGroup>

@@ -15,7 +15,7 @@
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using Google.Cloud.Spanner.Admin.Database.V1;
-using Google.Cloud.Spanner.DataProvider.Samples.GettingStartedGuide;
+using Google.Cloud.Spanner.DataProvider.GettingStartedGuide;
 
 namespace Google.Cloud.Spanner.DataProvider.Samples.Tests;
 
