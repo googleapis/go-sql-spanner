@@ -510,7 +510,7 @@ func ExtractConnectorConfig(dsn string) (ConnectorConfig, error) {
 		Params:   params,
 		name:     dsn,
 	}
-	if params[propertyIsExperimentalHost.Key()] == "true" {
+	if strings.EqualFold(params[propertyIsExperimentalHost.Key()], "true") {
 		if c.Host == "" {
 			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "host must be specified for experimental host endpoint"))
 		}

@@ -40,7 +40,7 @@ PROD_TEST_CONNECTION_STRING = (
 )
 
 EMULATOR_TEST_CONNECTION_STRING = (
-    f"{SPANNER_EMULATOR_HOST}"
+    f"{SPANNER_EMULATOR_HOST}/"
     f"projects/{PROJECT_ID}"
     f"/instances/{INSTANCE_ID}"
     f"/databases/{DATABASE_ID}"

@@ -535,6 +535,47 @@ var propertyConnectTimeout = createConnectionProperty(
 	connectionstate.ConvertDuration,
 )
 
+var propertyIsExperimentalHost = createConnectionProperty(
+	"is_experimental_host",
+	"Indicates whether the connection is to an experimental host endpoint (true/false). "+
+		"Set this value to true when connecting to an experimental host endpoint",
+	false,
+	false,
+	nil,
+	connectionstate.ContextStartup,
+	connectionstate.ConvertBool,
+)
+var propertyCaCertFile = createConnectionProperty(
+	"ca_cert_file",
+	"The path to the CA certificate file to use for TLS connections to the server. "+
+		"This is only needed when connecting to an experimental host endpoint",
+	"",
+	false,
+	nil,
+	connectionstate.ContextStartup,
+	connectionstate.ConvertString,
+)
+var propertyClientCertFile = createConnectionProperty(
+	"client_cert_file",
+	"The path to the client certificate file to use for mTLS connections to the server. "+
+		"This is only needed when connecting to an experimental host endpoint",
+	"",
+	false,
+	nil,
+	connectionstate.ContextStartup,
+	connectionstate.ConvertString,
+)
+var propertyClientCertKey = createConnectionProperty(
+	"client_cert_key",
+	"The path to the client certificate key file to use for mTLS connections to the server. "+
+		"This is only needed when connecting to an experimental host endpoint",
+	"",
+	false,
+	nil,
+	connectionstate.ContextStartup,
+	connectionstate.ConvertString,
+)
+
 // Generated read-only properties. These cannot be set by the user anywhere.
 var propertyCommitTimestamp = createReadOnlyConnectionProperty(
 	"commit_timestamp",
@@ -555,50 +596,6 @@ var propertyCommitResponse = createReadOnlyConnectionProperty(
 	false,
 	nil,
 	connectionstate.ContextUser,
-)
-
-var propertyIsExperimentalHost = createConnectionProperty(
-	"is_experimental_host",
-	"Indicates whether the connection is to an experimental host endpoint (true/false). "+
-		"Set this value to true when connecting to an experimental host endpoint",
-	false,
-	false,
-	nil,
-	connectionstate.ContextStartup,
-	connectionstate.ConvertBool,
-)
-
-var propertyCaCertFile = createConnectionProperty(
-	"ca_cert_file",
-	"The path to the CA certificate file to use for TLS connections to the server. "+
-		"This is only needed when connecting to an experimental host endpoint",
-	"",
-	false,
-	nil,
-	connectionstate.ContextStartup,
-	connectionstate.ConvertString,
-)
-
-var propertyClientCertFile = createConnectionProperty(
-	"client_cert_file",
-	"The path to the client certificate file to use for mTLS connections to the server. "+
-		"This is only needed when connecting to an experimental host endpoint",
-	"",
-	false,
-	nil,
-	connectionstate.ContextStartup,
-	connectionstate.ConvertString,
-)
-
-var propertyClientCertKey = createConnectionProperty(
-	"client_cert_key",
-	"The path to the client certificate key file to use for mTLS connections to the server. "+
-		"This is only needed when connecting to an experimental host endpoint",
-	"",
-	false,
-	nil,
-	connectionstate.ContextStartup,
-	connectionstate.ConvertString,
 )
 
 func createReadOnlyConnectionProperty[T comparable](name, description string, defaultValue T, hasDefaultValue bool, validValues []T, context connectionstate.Context) *connectionstate.TypedConnectionProperty[T] {
