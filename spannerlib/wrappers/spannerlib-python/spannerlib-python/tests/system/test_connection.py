@@ -87,16 +87,36 @@ class TestConnectionE2E:
 
     def test_execute_query_with_params(self, connection, setup_env):
         """Tests executing a SQL query with parameters."""
-        sql = "SELECT * FROM Singers WHERE SingerId = @id"
-        params = Struct(fields={"id": Value(string_value="1")})
+        singer_id = 50
+        first_name = "Param"
+        last_name = "Query"
+
+        # Insert a singer to query for to make the test self-contained.
+        insert_sql = (
+            "INSERT INTO Singers (SingerId, FirstName, LastName) "
+            "VALUES ({}, '{}', '{}')".format(singer_id, first_name, last_name)
+        )
+        insert_req = ExecuteSqlRequest(sql=insert_sql)
+        insert_rows = connection.execute(insert_req)
+        insert_rows.close()
+
+        sql = "SELECT FirstName, LastName FROM Singers WHERE SingerId = @id"
+        params = Struct(fields={"id": Value(string_value=str(singer_id))})
         param_types = {"id": Type(code=TypeCode.INT64)}
         request = ExecuteSqlRequest(
             sql=sql, params=params, param_types=param_types
         )
         rows = connection.execute(request)
-        assert rows is not None
-        assert rows.oid > 0
-        rows.close()
+        try:
+            assert rows is not None
+            row = rows.next()
+            assert row is not None
+            assert len(row.values) == 2
+            assert row.values[0].string_value == first_name
+            assert row.values[1].string_value == last_name
+            assert rows.next() is None
+        finally:
+            rows.close()
 
     def test_execute_batch_dml(self, connection, setup_env):
         """Tests executing a batch of DML statements."""
