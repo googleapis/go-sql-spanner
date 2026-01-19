@@ -13,8 +13,10 @@
 // limitations under the License.
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 
@@ -22,6 +24,8 @@ namespace Google.Cloud.SpannerLib.Grpc;
 
 public class Server : IDisposable
 {
+    private const string BaseFileName = "spannerlib_grpc_server";
+    
     public enum AddressType
     {
         UnixDomainSocket,
@@ -114,13 +118,14 @@ public class Server : IDisposable
     
     private static string GetBinaryFileName()
     {
+        var tried = new List<string>();
         string? fileName = null;
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             switch (RuntimeInformation.OSArchitecture)
             {
                 case Architecture.X64:
-                    fileName = "runtimes/win-x64/native/grpc_server.exe";
+                    fileName = $"runtimes/win-x64/native/{BaseFileName}.exe";
                     break;
             }
         }
@@ -129,7 +134,7 @@ public class Server : IDisposable
             switch (RuntimeInformation.OSArchitecture)
             {
                 case Architecture.X64:
-                    fileName = "runtimes/linux-x64/native/grpc_server";
+                    fileName = $"runtimes/linux-x64/native/{BaseFileName}";
                     break;
             }
         }
@@ -138,27 +143,78 @@ public class Server : IDisposable
             switch (RuntimeInformation.ProcessArchitecture)
             {
                 case Architecture.Arm64:
-                    fileName = "runtimes/osx-arm64/native/grpc_server";
+                    fileName = $"runtimes/osx-arm64/native/{BaseFileName}";
                     break;
             }
         }
-        if (fileName != null && File.Exists(fileName))
+        if (TryExists(fileName, tried))
         {
-            return fileName;
+            return fileName!;
         }
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+
+        var executing = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? "";
+        var code = Path.GetDirectoryName(typeof(Server).Assembly.Location) ?? "";
+        var assemblyLocations = executing == code ? new [] {code} : [executing, code];
+        foreach (var assemblyLocation in assemblyLocations)
         {
-            if (File.Exists("runtimes/any/native/grpc_server.exe"))
+            if (fileName != null)
             {
-                return "runtimes/any/native/grpc_server.exe";
+                var combined = Path.Combine(assemblyLocation, fileName);
+                if (TryExists(combined, tried))
+                {
+                    return combined;
+                }
             }
         }
-        if (File.Exists("runtimes/any/native/grpc_server"))
+
+        const string anyArchFileNameWindows = $"runtimes/any/native/{BaseFileName}.exe";
+        const string anyArchFileName = $"runtimes/any/native/{BaseFileName}";
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            return "runtimes/any/native/grpc_server";
+            if (TryExists(anyArchFileNameWindows, tried))
+            {
+                return anyArchFileNameWindows;
+            }
         }
-        
-        throw new PlatformNotSupportedException();
+        else
+        {
+            if (TryExists(anyArchFileName, tried))
+            {
+                return anyArchFileName;
+            }
+        }
+
+        foreach (var assemblyLocation in assemblyLocations)
+        {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                var combinedWindows = Path.Combine(assemblyLocation, anyArchFileNameWindows);
+                if (TryExists(combinedWindows, tried))
+                {
+                    return combinedWindows;
+                }
+            }
+            else
+            {
+                var combinedAnyArch = Path.Combine(assemblyLocation, anyArchFileName);
+                if (TryExists(combinedAnyArch, tried))
+                {
+                    return combinedAnyArch;
+                }
+            }
+        }
+
+        throw new PlatformNotSupportedException("Could not find gRPC server executable for SpannerLib. Tried: " + string.Join("\n", tried));
+    }
+
+    private static bool TryExists(string? fileName, List<string> tried)
+    {
+        if (fileName == null)
+        {
+            return false;
+        }
+        tried.Add(fileName);
+        return File.Exists(fileName);
     }
     
     public void Dispose()
