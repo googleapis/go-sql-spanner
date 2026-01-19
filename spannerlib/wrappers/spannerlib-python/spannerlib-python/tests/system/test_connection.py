@@ -85,7 +85,7 @@ class TestConnectionE2E:
         assert rows.oid > 0
         rows.close()
 
-    def test_execute_query_with_params(self, connection):
+    def test_execute_query_with_params(self, connection, setup_env):
         """Tests executing a SQL query with parameters."""
         sql = "SELECT * FROM Singers WHERE SingerId = @id"
         params = Struct(fields={"id": Value(string_value="1")})
