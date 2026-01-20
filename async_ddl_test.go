@@ -199,7 +199,7 @@ func TestDDLExecutionModeAsyncWait_Timeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	
+
 	// Ensure it waited at least the timeout duration
 	if time.Since(start) < 100*time.Millisecond {
 		t.Error("expected to wait at least 100ms for timeout")
@@ -336,4 +336,3 @@ func TestDDLBatchAsyncRunViaQuery(t *testing.T) {
 		t.Fatal("expected only one row, got more")
 	}
 }
-
