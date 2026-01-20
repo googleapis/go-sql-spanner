@@ -746,7 +746,6 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 	return driver.ResultNoRows, nil
 }
 
-
 var ddlAsyncWaitTimeout = 10 * time.Second
 
 func (c *conn) waitForDDLOperation(ctx context.Context, opName string, waitFunc func(context.Context) error) error {
