@@ -18,7 +18,6 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
-	"fmt"
 
 	"cloud.google.com/go/spanner"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
@@ -117,7 +116,7 @@ func prepareSpannerStmt(state *connectionstate.ConnectionState, parser *parser.S
 	// Verify that all parameters have a value.
 	for _, name := range names {
 		if _, ok := ss.Params[name]; !ok {
-			return spanner.Statement{}, fmt.Errorf("parameter @%s not found in the provided arguments", name)
+			return spanner.Statement{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "parameter @%s not found in the provided arguments", name))
 		}
 	}
 	return ss, nil
