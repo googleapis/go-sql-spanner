@@ -6,13 +6,13 @@ cd ../../grpc-server || exit 1
 cd ../wrappers/spannerlib-dotnet || exit 1
 
 mkdir -p spannerlib-dotnet-grpc-server/binaries/any
-rm spannerlib-dotnet-grpc-server/binaries/any/grpc_server 2> /dev/null
+rm spannerlib-dotnet-grpc-server/binaries/any/spannerlib_grpc_server 2> /dev/null
 
 mkdir -p spannerlib-dotnet-grpc-server/binaries/osx-arm64
-cp ../../grpc-server/binaries/osx-arm64/grpc_server spannerlib-dotnet-grpc-server/binaries/osx-arm64/grpc_server
+cp ../../grpc-server/binaries/osx-arm64/spannerlib_grpc_server spannerlib-dotnet-grpc-server/binaries/osx-arm64/spannerlib_grpc_server
 
 mkdir -p spannerlib-dotnet-grpc-server/binaries/linux-x64
-cp ../../grpc-server/binaries/linux-x64/grpc_server spannerlib-dotnet-grpc-server/binaries/linux-x64/grpc_server
+cp ../../grpc-server/binaries/linux-x64/spannerlib_grpc_server spannerlib-dotnet-grpc-server/binaries/linux-x64/spannerlib_grpc_server
 
 mkdir -p spannerlib-dotnet-grpc-server/binaries/win-x64
-cp ../../grpc-server/binaries/win-x64/grpc_server.exe spannerlib-dotnet-grpc-server/binaries/win-x64/grpc_server.exe
+cp ../../grpc-server/binaries/win-x64/spannerlib_grpc_server.exe spannerlib-dotnet-grpc-server/binaries/win-x64/spannerlib_grpc_server.exe
