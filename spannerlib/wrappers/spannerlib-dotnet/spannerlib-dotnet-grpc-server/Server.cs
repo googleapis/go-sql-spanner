@@ -136,6 +136,9 @@ public class Server : IDisposable
                 case Architecture.X64:
                     fileName = $"runtimes/linux-x64/native/{BaseFileName}";
                     break;
+                case Architecture.Arm64:
+                    fileName = $"runtimes/linux-arm64/native/{BaseFileName}";
+                    break;
             }
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
