@@ -1,0 +1,56 @@
+name: Publish SpannerLib .NET NuGet Package
+
+on:
+  # TODO: Remove
+  pull_request:
+  workflow_dispatch:
+
+env:
+  DOTNET_VERSION: '8.0.x' # Set your .NET version here
+  PROJECT_PATH: 'spannerlib/wrappers/spannerlib-dotnet'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    # These permissions are required to push packages to GitHub
+    permissions:
+      packages: write
+      contents: read
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+          source-url: https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
+        env:
+          # This automatically authenticates the setup-dotnet step
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build library
+        run: ./build.sh
+        working-directory: ${{ env.PROJECT_PATH }}
+
+      - name: Restore Dependencies
+        run: dotnet restore ${{ env.PROJECT_PATH }}
+
+      - name: Build
+        run: dotnet build ${{ env.PROJECT_PATH }} --no-restore --configuration Release
+
+      - name: Pack
+        run: |
+          dotnet pack ${{ env.PROJECT_PATH }} \
+            --no-build \
+            --configuration Release \
+            --output ./nupkgs
+
+      - name: Publish to GitHub Packages
+        run: |
+          dotnet nuget push ./nupkgs/*.nupkg \
+            --source https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json \
+            --api-key ${{ secrets.GITHUB_TOKEN }} \
+            --skip-duplicate

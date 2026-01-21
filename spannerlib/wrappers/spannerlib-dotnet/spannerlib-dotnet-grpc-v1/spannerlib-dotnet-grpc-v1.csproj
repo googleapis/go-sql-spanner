@@ -6,13 +6,22 @@
     <Nullable>enable</Nullable>
     <LangVersion>default</LangVersion>
     <PackageId>Alpha.Google.Cloud.SpannerLib.Grpc.V1</PackageId>
-    <Version>1.0.0-alpha.20260119112406</Version>
+    <Version>1.0.0-alpha.20260120171456</Version>
     <Authors>Google</Authors>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <RepositoryUrl>https://github.com/googleapis/go-sql-spanner</RepositoryUrl>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Google.Cloud.Spanner.V1" Version="5.8.0" />
     <PackageReference Include="Google.Protobuf" Version="3.33.4" />
     <PackageReference Include="Grpc.Net.Client" Version="2.71.0" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All"/>
   </ItemGroup>
 
 </Project>
