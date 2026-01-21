@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>Alpha.Google.Cloud.SpannerLib.MockServer</PackageId>
-    <Version>1.0.0-alpha.20260120171456</Version>
+    <Version>1.0.0-alpha.20260121173057</Version>
     <Authors>Google</Authors>
     <LangVersion>default</LangVersion>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>

@@ -858,6 +858,7 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 }
 
 func addStateFromConnectorConfig(c *connector, values map[string]connectionstate.ConnectionPropertyValue) {
+	updateConnectionPropertyValueIfNotExists(propertyDecodeToNativeArrays, values, c.connectorConfig.DecodeToNativeArrays)
 	updateConnectionPropertyValueIfNotExists(propertyIsolationLevel, values, c.connectorConfig.IsolationLevel)
 	updateConnectionPropertyValueIfNotExists(propertyBeginTransactionOption, values, c.connectorConfig.BeginTransactionOption)
 	updateConnectionPropertyValueIfNotExists(propertyRetryAbortsInternally, values, c.retryAbortsInternally)

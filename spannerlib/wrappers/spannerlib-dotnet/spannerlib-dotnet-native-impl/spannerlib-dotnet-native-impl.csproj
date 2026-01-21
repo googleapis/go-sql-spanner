@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <LangVersion>default</LangVersion>
     <PackageId>Alpha.Google.Cloud.SpannerLib.NativeImpl</PackageId>
-    <Version>1.0.0-alpha.20260120171456</Version>
+    <Version>1.0.0-alpha.20260121173057</Version>
     <Authors>Google</Authors>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
@@ -23,7 +23,7 @@
 
   <ItemGroup>
     <PackageReference Include="ConfigureAwaitChecker.Analyzer" PrivateAssets="All" Version="5.0.0.1" />
-    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.Native" Version="1.0.0-alpha.20260120171456" />
+    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.Native" Version="1.0.0-alpha.20260121173057" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All"/>
   </ItemGroup>
 

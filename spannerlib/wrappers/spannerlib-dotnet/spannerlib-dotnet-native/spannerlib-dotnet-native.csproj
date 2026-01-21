@@ -9,7 +9,7 @@
     <PackageId>Alpha.Google.Cloud.SpannerLib.Native</PackageId>
     <Title>.NET wrapper for the native SpannerLib shared library</Title>
     <Authors>Google</Authors>
-    <Version>1.0.0-alpha.20260120171456</Version>
+    <Version>1.0.0-alpha.20260121173057</Version>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <RepositoryUrl>https://github.com/googleapis/go-sql-spanner</RepositoryUrl>

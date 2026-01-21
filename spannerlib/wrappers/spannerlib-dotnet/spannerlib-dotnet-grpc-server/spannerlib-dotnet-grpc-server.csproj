@@ -8,7 +8,7 @@
     <PackageId>Alpha.Google.Cloud.SpannerLib.GrpcServer</PackageId>
     <Title>SpannerLib Grpc Server</Title>
     <Authors>Google</Authors>
-    <Version>1.0.0-alpha.20260120171456</Version>
+    <Version>1.0.0-alpha.20260121173057</Version>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <RepositoryUrl>https://github.com/googleapis/go-sql-spanner</RepositoryUrl>
@@ -26,6 +26,7 @@
   <ItemGroup>
     <None Include="binaries/any/*" Pack="true" PackagePath="runtimes/any/native/" />
     <None Include="binaries/linux-x64/*" Pack="true" PackagePath="runtimes/linux-x64/native/" />
+    <None Include="binaries/linux-arm64/*" Pack="true" PackagePath="runtimes/linux-arm64/native/" />
     <None Include="binaries/osx-arm64/*" Pack="true" PackagePath="runtimes/osx-arm64/native/" />
     <None Include="binaries/win-x64/*" Pack="true" PackagePath="runtimes/win-x64/native/" />
   </ItemGroup>
