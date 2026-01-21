@@ -9,11 +9,19 @@
     <PackageId>Alpha.Google.Cloud.SpannerLib.Native</PackageId>
     <Title>.NET wrapper for the native SpannerLib shared library</Title>
     <Authors>Google</Authors>
-    <Version>1.0.0-alpha.20260119112406</Version>
+    <Version>1.0.0-alpha.20260120171456</Version>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <RepositoryUrl>https://github.com/googleapis/go-sql-spanner</RepositoryUrl>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
   
   <ItemGroup>
     <PackageReference Include="ConfigureAwaitChecker.Analyzer" PrivateAssets="All" Version="5.0.0.1" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All"/>
   </ItemGroup>
   
   <ItemGroup>
