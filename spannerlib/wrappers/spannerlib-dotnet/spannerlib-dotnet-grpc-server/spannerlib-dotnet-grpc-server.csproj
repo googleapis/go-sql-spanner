@@ -16,10 +16,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="binaries/any/*" Pack="true" PackagePath="runtimes/any/native/" />
-    <None Include="binaries/linux-x64/*" Pack="true" PackagePath="runtimes/linux-x64/native/" />
-    <None Include="binaries/linux-arm64/*" Pack="true" PackagePath="runtimes/linux-arm64/native/" />
-    <None Include="binaries/osx-arm64/*" Pack="true" PackagePath="runtimes/osx-arm64/native/" />
-    <None Include="binaries/win-x64/*" Pack="true" PackagePath="runtimes/win-x64/native/" />
+    <None Include="runtimes/any/native/*" Pack="true" PackagePath="runtimes/any/native/" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="runtimes/linux-x64/native/*" Pack="true" PackagePath="runtimes/linux-x64/native/" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="runtimes/linux-arm64/native/*" Pack="true" PackagePath="runtimes/linux-arm64/native/" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="runtimes/osx-arm64/native/*" Pack="true" PackagePath="runtimes/osx-arm64/native/" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="runtimes/win-x64/native/*" Pack="true" PackagePath="runtimes/win-x64/native/" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

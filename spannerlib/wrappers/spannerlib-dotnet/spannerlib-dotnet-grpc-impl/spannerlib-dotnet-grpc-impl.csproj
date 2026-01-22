@@ -12,10 +12,10 @@
 
   <ItemGroup>
     <PackageReference Include="ConfigureAwaitChecker.Analyzer" PrivateAssets="All" Version="5.0.0.1" />
-    <PackageReference Include="Alpha.Google.Cloud.SpannerLib.GrpcServer" Version="1.0.0-alpha.20260119112406" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\spannerlib-dotnet-grpc-server\spannerlib-dotnet-grpc-server.csproj" PrivateAssets="All" />
     <ProjectReference Include="..\spannerlib-dotnet-grpc-v1\spannerlib-dotnet-grpc-v1.csproj" />
     <ProjectReference Include="..\spannerlib-dotnet\spannerlib-dotnet.csproj" />
   </ItemGroup>

@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\spannerlib-dotnet-grpc-impl\spannerlib-dotnet-grpc-impl.csproj" />
+    <ProjectReference Include="..\spannerlib-dotnet-grpc-server\spannerlib-dotnet-grpc-server.csproj" />
   </ItemGroup>
 
 </Project>

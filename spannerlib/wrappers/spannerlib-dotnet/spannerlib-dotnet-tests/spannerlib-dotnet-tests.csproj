@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\spannerlib-dotnet-grpc-impl\spannerlib-dotnet-grpc-impl.csproj" />
+    <ProjectReference Include="..\spannerlib-dotnet-grpc-server\spannerlib-dotnet-grpc-server.csproj" />
     <ProjectReference Include="..\spannerlib-dotnet-mockserver\spannerlib-dotnet-mockserver.csproj" />
     <ProjectReference Include="..\spannerlib-dotnet-native-impl\spannerlib-dotnet-native-impl.csproj" />
   </ItemGroup>

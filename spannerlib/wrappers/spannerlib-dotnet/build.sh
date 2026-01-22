@@ -39,6 +39,8 @@ echo "Skip windows: $SKIP_WINDOWS"
 # Remove existing builds
 rm -r ./spannerlib-dotnet-native/libraries 2> /dev/null
 rm -r ./spannerlib-dotnet-grpc-server/binaries 2> /dev/null
+rm -r ./spannerlib-dotnet-native/runtimes 2> /dev/null
+rm -r ./spannerlib-dotnet-grpc-server/runtimes 2> /dev/null
 rm -r ./*/bin 2> /dev/null
 rm -r ./*/obj 2> /dev/null
 # Remove all local nuget packages to force the use of the new ones that will be built in this script.
