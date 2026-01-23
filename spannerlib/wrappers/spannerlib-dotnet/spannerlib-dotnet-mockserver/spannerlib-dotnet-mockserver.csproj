@@ -12,8 +12,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Google.Cloud.Spanner.Admin.Database.V1" Version="5.8.0" />
-    <PackageReference Include="Google.Cloud.Spanner.V1" Version="5.8.0" />
+    <PackageReference Include="Google.Cloud.Spanner.Admin.Database.V1" Version="5.12.0" />
+    <PackageReference Include="Google.Cloud.Spanner.V1" Version="5.12.0" />
     <PackageReference Include="Grpc.AspNetCore.Server" Version="2.71.0" />
   </ItemGroup>
 
