@@ -12,7 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 """Tests for cursor.py"""
-from google.cloud.spanner_driver import connect
+from google.cloud.spanner_driver import connect, types
 
 from ._helper import get_test_connection_string
 
@@ -36,8 +36,8 @@ class TestCursor:
                 assert cursor.description is not None
                 assert cursor.description[0][0] == "col1"
                 assert (
-                    cursor.description[0][1] == "INT64"
-                )  # TypeCode.INT64 maps to 'INT64' string as per our types.py
+                    cursor.description[0][1] == types.NUMBER
+                )  # TypeCode.INT64 maps to types.NUMBER
 
                 result = cursor.fetchone()
                 assert result == (1,)
