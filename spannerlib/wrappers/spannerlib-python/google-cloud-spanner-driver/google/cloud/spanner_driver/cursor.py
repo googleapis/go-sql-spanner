@@ -1,0 +1,308 @@
+#  Copyright 2026 Google LLC
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#        http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+import base64
+from enum import Enum
+import logging
+from typing import TYPE_CHECKING, Any
+
+from google.cloud.spanner_v1 import ExecuteSqlRequest, Type, TypeCode
+
+from . import errors
+from .types import _type_code_to_dbapi_type
+
+if TYPE_CHECKING:
+    from .connection import Connection
+
+logger = logging.getLogger(__name__)
+
+
+def check_not_closed(function):
+    """`Cursor` class methods decorator.
+
+    Raise an exception if the cursor is closed.
+
+    :raises: :class:`InterfaceError` if the cursor is closed.
+    """
+
+    def wrapper(cursor, *args, **kwargs):
+        if cursor._closed:
+            raise errors.InterfaceError("Cursor is closed")
+
+        return function(cursor, *args, **kwargs)
+
+    return wrapper
+
+
+class FetchScope(Enum):
+    FETCH_ONE = 1
+    FETCH_MANY = 2
+    FETCH_ALL = 3
+
+
+class Cursor:
+    def __init__(self, connection: "Connection"):
+        self._connection = connection
+        self._rows: Any = (
+            None  # Holds the google.cloud.spannerlib.rows.Rows object
+        )
+        self._closed = False
+        self.arraysize = 1
+        self._rowcount = -1
+
+    @property
+    def description(self) -> tuple[tuple[Any, ...], ...] | None:
+        logger.debug("Fetching description for cursor")
+        if not self._rows:
+            return None
+
+        try:
+            metadata = self._rows.metadata()
+            if not metadata or not metadata.row_type:
+                return None
+
+            desc = []
+            for field in metadata.row_type.fields:
+                desc.append(
+                    (
+                        field.name,
+                        _type_code_to_dbapi_type(field.type.code),
+                        None,  # display_size
+                        None,  # internal_size
+                        None,  # precision
+                        None,  # scale
+                        True,  # null_ok
+                    )
+                )
+            return tuple(desc)
+        except Exception:
+            return None
+
+    @property
+    def rowcount(self) -> int:
+        return self._rowcount
+
+    @check_not_closed
+    def execute(
+        self,
+        operation: str,
+        parameters: dict[str, Any] | list[Any] | tuple[Any] | None = None,
+    ) -> None:
+        logger.debug(f"Executing operation: {operation}")
+
+        request = ExecuteSqlRequest(sql=operation)
+        if parameters:
+            converted_params = {}
+            param_types = {}
+            for key, value in parameters.items():
+                if isinstance(value, int) and not isinstance(value, bool):
+                    converted_params[key] = str(value)
+                    param_types[key] = Type(code=TypeCode.INT64)
+                else:
+                    converted_params[key] = value
+
+            request.params = converted_params
+            request.param_types = param_types
+
+        try:
+            self._rows = self._connection._internal_conn.execute(request)
+
+            if self.description:
+                self._rowcount = -1
+            else:
+                update_count = self._rows.update_count()
+                if update_count != -1:
+                    self._rowcount = update_count
+                self._rows.close()
+                self._rows = None
+
+        except Exception as e:
+            raise errors.map_spanner_error(e) from e
+
+    @check_not_closed
+    def executemany(
+        self,
+        operation: str,
+        seq_of_parameters: (
+            list[dict[str, Any]] | list[list[Any]] | list[tuple[Any]]
+        ),
+    ) -> None:
+        logger.debug(f"Executing batch operation: {operation}")
+        total_rowcount = -1
+        accumulated = False
+
+        for parameters in seq_of_parameters:
+            self.execute(operation, parameters)
+            if self._rowcount != -1:
+                if not accumulated:
+                    total_rowcount = 0
+                    accumulated = True
+                total_rowcount += self._rowcount
+
+        self._rowcount = total_rowcount
+
+    def _convert_value(self, value: Any, field_type: Any) -> Any:
+        kind = value.WhichOneof("kind")
+        if kind == "null_value":
+            return None
+        if kind == "bool_value":
+            return value.bool_value
+        if kind == "number_value":
+            return value.number_value
+        if kind == "string_value":
+            code = field_type.code
+            val = value.string_value
+            if code == TypeCode.INT64:
+                return int(val)
+            if code == TypeCode.BYTES or code == TypeCode.PROTO:
+                return base64.b64decode(val)
+            return val
+        if kind == "list_value":
+            return [
+                self._convert_value(v, field_type.array_element_type)
+                for v in value.list_value.values
+            ]
+        # Fallback for complex types (structs) not fully mapped yet
+        return value
+
+    def _convert_row(self, row: Any) -> tuple[Any, ...]:
+        metadata = self._rows.metadata()
+        fields = metadata.row_type.fields
+        converted = []
+        for i, value in enumerate(row.values):
+            converted.append(self._convert_value(value, fields[i].type))
+        return tuple(converted)
+
+    def _fetch(
+        self, scope: FetchScope, size: int | None = None
+    ) -> list[tuple[Any, ...]]:
+        if not self._rows:
+            raise errors.ProgrammingError("No result set available")
+        try:
+            rows = []
+            if scope == FetchScope.FETCH_ONE:
+                try:
+                    row = self._rows.next()
+                    if row is not None:
+                        rows.append(self._convert_row(row))
+                except StopIteration:
+                    pass
+            elif scope == FetchScope.FETCH_MANY:
+                # size is guaranteed to be int if scope is FETCH_MANY and
+                # called from fetchmany but might be None if internal logic
+                # changes, strict check would satisfy type checker
+                limit = size if size is not None else self.arraysize
+                for _ in range(limit):
+                    try:
+                        row = self._rows.next()
+                        if row is None:
+                            break
+                        rows.append(self._convert_row(row))
+                    except StopIteration:
+                        break
+            elif scope == FetchScope.FETCH_ALL:
+                while True:
+                    try:
+                        row = self._rows.next()
+                        if row is None:
+                            break
+                        rows.append(self._convert_row(row))
+                    except StopIteration:
+                        break
+        except Exception as e:
+            raise errors.map_spanner_error(e) from e
+
+        return rows
+
+    @check_not_closed
+    def fetchone(self) -> tuple[Any, ...] | None:
+        logger.debug("Fetching one row")
+        rows = self._fetch(FetchScope.FETCH_ONE)
+        if not rows:
+            return None
+        return rows[0]
+
+    @check_not_closed
+    def fetchmany(self, size: int | None = None) -> list[tuple[Any, ...]]:
+        logger.debug("Fetching many rows")
+        if size is None:
+            size = self.arraysize
+        return self._fetch(FetchScope.FETCH_MANY, size)
+
+    @check_not_closed
+    def fetchall(self) -> list[tuple[Any, ...]]:
+        logger.debug("Fetching all rows")
+        return self._fetch(FetchScope.FETCH_ALL)
+
+    def close(self) -> None:
+        logger.debug("Closing cursor")
+        self._closed = True
+        if self._rows:
+            self._rows.close()
+
+    @check_not_closed
+    def nextset(self) -> bool | None:
+        """Skip to the next available set of results."""
+        logger.debug("Fetching next set of results")
+        if not self._rows:
+            return None
+
+        try:
+            next_metadata = self._rows.next_result_set()
+            if next_metadata:
+                return True
+            return None
+        except Exception:
+            return None
+
+    def __enter__(self) -> "Cursor":
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
+
+    def __iter__(self) -> "Cursor":
+        return self
+
+    def __next__(self) -> tuple[Any, ...]:
+        row = self.fetchone()
+        if row is None:
+            raise StopIteration
+        return row
+
+    @check_not_closed
+    def setinputsizes(self, sizes: list[Any]) -> None:
+        """Predefine memory areas for parameters.
+        This operation is a no-op implementation.
+        """
+        logger.debug("NO-OP: Setting input sizes")
+        pass
+
+    @check_not_closed
+    def setoutputsize(self, size: int, column: int | None = None) -> None:
+        """Set a column buffer size.
+        This operation is a no-op implementation.
+        """
+        logger.debug("NO-OP: Setting output size")
+        pass
+
+    @check_not_closed
+    def callproc(
+        self, procname: str, parameters: list[Any] | tuple[Any] | None = None
+    ) -> None:
+        """Call a stored database procedure with the given name.
+
+        This method is not supported by Spanner.
+        """
+        logger.debug("NO-OP: Calling stored procedure")
+        raise errors.NotSupportedError("Stored procedures are not supported.")
