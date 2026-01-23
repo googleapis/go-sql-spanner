@@ -58,8 +58,8 @@ internal class GrpcBidiConnection(GrpcLibSpanner spanner, Pool pool, long id) : 
     private ConnectionStreamResponse ExecuteBidi(ConnectionStreamRequest request)
     {
         var connectionStream = Stream;
-        connectionStream.RequestStream.WriteAsync(request).GetAwaiter().GetResult();
-        if (!connectionStream.ResponseStream.MoveNext(CancellationToken.None).GetAwaiter().GetResult())
+        Task.Run(() => connectionStream.RequestStream.WriteAsync(request)).GetAwaiter().GetResult();
+        if (!Task.Run(() => connectionStream.ResponseStream.MoveNext(CancellationToken.None)).GetAwaiter().GetResult())
         {
             // This should never happen assuming that the gRPC server is well-behaved.
             throw new SpannerException(new Status { Code = (int)Code.Internal, Message = "No response received" });
