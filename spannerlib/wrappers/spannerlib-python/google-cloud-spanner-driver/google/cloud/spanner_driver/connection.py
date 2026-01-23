@@ -87,10 +87,12 @@ class Connection:
             logger.debug(f"Rollback failed {e}")
 
     def close(self) -> None:
-        if not self._closed:
-            logger.debug("Closing connection")
-            self._internal_conn.close()
-            self._closed = True
+        if self._closed:
+            raise errors.InterfaceError("Connection is already closed")
+
+        logger.debug("Closing connection")
+        self._internal_conn.close()
+        self._closed = True
 
     def __enter__(self) -> "Connection":
         return self
