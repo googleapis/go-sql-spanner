@@ -61,6 +61,7 @@ STRING = DBAPITypeObject("STRING")
 BINARY = DBAPITypeObject("BYTES", "PROTO")
 NUMBER = DBAPITypeObject("INT64", "FLOAT64", "NUMERIC")
 DATETIME = DBAPITypeObject("TIMESTAMP", "DATE")
+BOOLEAN = DBAPITypeObject("BOOL")
 ROWID = DBAPITypeObject()
 
 
@@ -88,7 +89,7 @@ def _type_code_to_dbapi_type(type_code: int) -> DBAPITypeObject:
     if type_code == TypeCode.PROTO:
         return BINARY
     if type_code == TypeCode.BOOL:
-        return NUMBER
+        return BOOLEAN
     if type_code == TypeCode.INT64:
         return NUMBER
     if type_code == TypeCode.FLOAT64:
