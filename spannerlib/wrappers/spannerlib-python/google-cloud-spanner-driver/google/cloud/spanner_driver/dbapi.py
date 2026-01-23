@@ -18,4 +18,4 @@ apilevel: str = "2.0"
 # 2 = Threads may share the module and connections.
 threadsafety: int = 1
 
-paramstyle: str = "format"
+paramstyle: str = "named"
