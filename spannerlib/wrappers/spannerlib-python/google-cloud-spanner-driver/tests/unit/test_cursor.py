@@ -1,0 +1,266 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import unittest
+from unittest import mock
+
+from google.cloud.spanner_v1 import ExecuteSqlRequest, TypeCode
+from google.cloud.spanner_v1.types import StructField, Type
+
+from google.cloud.spanner_driver import cursor
+
+
+class TestCursor(unittest.TestCase):
+    def setUp(self):
+        self.mock_connection = mock.Mock()
+        self.mock_internal_conn = mock.Mock()
+        self.mock_connection._internal_conn = self.mock_internal_conn
+        self.cursor = cursor.Cursor(self.mock_connection)
+
+    def test_init(self):
+        self.assertEqual(self.cursor._connection, self.mock_connection)
+
+    def test_execute(self):
+        operation = "SELECT * FROM table"
+        mock_rows = mock.Mock()
+        # Mocking description to be None so it treats as DML or query with no
+        # result initially? If description calls metadata(), we need to mock
+        # that. logic: if self.description: self._rowcount = -1
+
+        # Scenario 1: SELECT query (returns rows)
+        mock_metadata = mock.Mock()
+        mock_metadata.row_type.fields = [
+            StructField(name="col1", type_=Type(code=TypeCode.INT64))
+        ]
+        mock_rows.metadata.return_value = mock_metadata
+        self.mock_internal_conn.execute.return_value = mock_rows
+
+        self.cursor.execute(operation)
+
+        self.mock_internal_conn.execute.assert_called_once()
+        call_args = self.mock_internal_conn.execute.call_args
+        self.assertIsInstance(call_args[0][0], ExecuteSqlRequest)
+        self.assertEqual(call_args[0][0].sql, operation)
+        self.assertEqual(self.cursor._rowcount, -1)
+        self.assertEqual(self.cursor._rows, mock_rows)
+
+    def test_execute_dml(self):
+        operation = "UPDATE table SET col=1"
+        mock_rows = mock.Mock()
+        # Returns empty metadata or no metadata for DML?
+        # Actually in Spanner, DML returns a ResultSet with stats.
+        # But here we check `if self.description`.
+
+        # Scenario 2: DML (no fields in metadata usually, or we can simulate
+        # it) If metadata calls fail or return empty, description returns
+        # usually None.
+        mock_rows.metadata.return_value = None
+        mock_rows.update_count.return_value = 10
+        self.mock_internal_conn.execute.return_value = mock_rows
+
+        self.cursor.execute(operation)
+
+        self.assertEqual(self.cursor._rowcount, 10)
+        # rows should be closed and set to None for DML in this driver
+        # implementation
+        mock_rows.close.assert_called_once()
+        self.assertIsNone(self.cursor._rows)
+
+    def test_execute_with_params(self):
+        operation = "SELECT * FROM table WHERE id=@id"
+        params = {"id": 1}
+        mock_rows = mock.Mock()
+        mock_rows.metadata.return_value = mock.Mock()
+        self.mock_internal_conn.execute.return_value = mock_rows
+
+        self.cursor.execute(operation, params)
+
+        call_args = self.mock_internal_conn.execute.call_args
+        request = call_args[0][0]
+        self.assertEqual(request.sql, operation)
+        self.assertEqual(request.sql, operation)
+        self.assertEqual(request.params, {"id": "1"})
+        self.assertEqual(
+            request.param_types, {"id": Type(code=TypeCode.INT64)}
+        )
+
+    def test_executemany(self):
+        operation = "INSERT INTO table (id) VALUES (@id)"
+        params_seq = [{"id": 1}, {"id": 2}]
+
+        # Mock execute to set rowcount
+        # We need to side_effect execute to update rowcount?
+        # Or we can just mock the internal connection execute.
+        # executemany calls self.execute.
+
+        with mock.patch.object(self.cursor, "execute") as mock_execute:
+            # We simulate execute updating self._rowcount
+            def side_effect(op, params):
+                self.cursor._rowcount = 1
+
+            mock_execute.side_effect = side_effect
+
+            self.cursor.executemany(operation, params_seq)
+
+            self.assertEqual(mock_execute.call_count, 2)
+            self.assertEqual(self.cursor.rowcount, 2)
+
+    def test_fetchone(self):
+        mock_rows = mock.Mock()
+        self.cursor._rows = mock_rows
+
+        # Mock metadata for type information
+        mock_metadata = mock.Mock()
+        mock_metadata.row_type.fields = [
+            StructField(name="col1", type_=Type(code=TypeCode.INT64))
+        ]
+        mock_rows.metadata.return_value = mock_metadata
+        mock_rows.metadata.return_value = mock_metadata
+
+        # Mock row as object with values attribute
+        mock_row = mock.Mock()
+        mock_val = mock.Mock()
+        mock_val.WhichOneof.return_value = "string_value"
+        mock_val.string_value = "1"
+        mock_row.values = [mock_val]
+
+        mock_rows.next.return_value = mock_row
+
+        row = self.cursor.fetchone()
+        self.assertEqual(row, (1,))
+        mock_rows.next.assert_called_once()
+
+    def test_fetchone_empty(self):
+        mock_rows = mock.Mock()
+        self.cursor._rows = mock_rows
+        mock_rows.next.side_effect = StopIteration
+
+        row = self.cursor.fetchone()
+        self.assertIsNone(row)
+
+    def test_fetchmany(self):
+        mock_rows = mock.Mock()
+        self.cursor._rows = mock_rows
+
+        # Metadata
+        mock_metadata = mock.Mock()
+        mock_metadata.row_type.fields = [
+            StructField(name="col1", type_=Type(code=TypeCode.INT64))
+        ]
+        mock_rows.metadata.return_value = mock_metadata
+        mock_rows.metadata.return_value = mock_metadata
+
+        # Rows
+        mock_row1 = mock.Mock()
+        v1 = mock.Mock()
+        v1.WhichOneof.return_value = "string_value"
+        v1.string_value = "1"
+        mock_row1.values = [v1]
+
+        mock_row2 = mock.Mock()
+        v2 = mock.Mock()
+        v2.WhichOneof.return_value = "string_value"
+        v2.string_value = "2"
+        mock_row2.values = [v2]
+
+        mock_rows.next.side_effect = [mock_row1, mock_row2, StopIteration]
+
+        rows = self.cursor.fetchmany(size=5)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows, [(1,), (2,)])
+
+    def test_fetchall(self):
+        mock_rows = mock.Mock()
+        self.cursor._rows = mock_rows
+
+        # Metadata
+        mock_metadata = mock.Mock()
+        mock_metadata.row_type.fields = [
+            StructField(name="col1", type_=Type(code=TypeCode.INT64))
+        ]
+        mock_rows.metadata.return_value = mock_metadata
+        mock_rows.metadata.return_value = mock_metadata
+
+        # Rows
+        mock_row1 = mock.Mock()
+        v1 = mock.Mock()
+        v1.WhichOneof.return_value = "string_value"
+        v1.string_value = "1"
+        mock_row1.values = [v1]
+
+        mock_row2 = mock.Mock()
+        v2 = mock.Mock()
+        v2.WhichOneof.return_value = "string_value"
+        v2.string_value = "2"
+        mock_row2.values = [v2]
+
+        mock_rows.next.side_effect = [mock_row1, mock_row2, StopIteration]
+
+        rows = self.cursor.fetchall()
+        self.assertEqual(len(rows), 2)
+
+    def test_description(self):
+        mock_rows = mock.Mock()
+        self.cursor._rows = mock_rows
+
+        mock_metadata = mock.Mock()
+        mock_metadata.row_type.fields = [
+            StructField(name="col1", type_=Type(code=TypeCode.INT64)),
+            StructField(name="col2", type_=Type(code=TypeCode.STRING)),
+        ]
+        mock_rows.metadata.return_value = mock_metadata
+
+        desc = self.cursor.description
+        self.assertEqual(len(desc), 2)
+        self.assertEqual(desc[0][0], "col1")
+        self.assertEqual(desc[1][0], "col2")
+
+    def test_close(self):
+        mock_rows = mock.Mock()
+        self.cursor._rows = mock_rows
+
+        self.cursor.close()
+
+        self.assertTrue(self.cursor._closed)
+        mock_rows.close.assert_called_once()
+
+    def test_context_manager(self):
+        with self.cursor as c:
+            self.assertEqual(c, self.cursor)
+        self.assertTrue(self.cursor._closed)
+
+    def test_iterator(self):
+        mock_rows = mock.Mock()
+        self.cursor._rows = mock_rows
+
+        mock_metadata = mock.Mock()
+        mock_metadata.row_type.fields = [
+            StructField(name="col1", type_=Type(code=TypeCode.INT64))
+        ]
+        mock_rows.metadata.return_value = mock_metadata
+        mock_rows.metadata.return_value = mock_metadata
+
+        mock_row = mock.Mock()
+        v1 = mock.Mock()
+        v1.WhichOneof.return_value = "string_value"
+        v1.string_value = "1"
+        mock_row.values = [v1]
+
+        mock_rows.next.side_effect = [mock_row, StopIteration]
+
+        # __next__ calls fetchone
+        it = iter(self.cursor)
+        self.assertEqual(next(it), (1,))
+        with self.assertRaises(StopIteration):
+            next(it)
