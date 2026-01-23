@@ -116,7 +116,7 @@ func prepareSpannerStmt(state *connectionstate.ConnectionState, parser *parser.S
 	// Verify that all parameters have a value.
 	for _, name := range names {
 		if _, ok := ss.Params[name]; !ok {
-			return spanner.Statement{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "missing value for query parameter %v", name))
+			return spanner.Statement{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "parameter @%s not found in the provided arguments", name))
 		}
 	}
 	return ss, nil

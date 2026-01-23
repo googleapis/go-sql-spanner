@@ -23,6 +23,7 @@ import (
 	"io"
 	"net"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -1015,6 +1016,44 @@ func TestConnectorConfigJson(t *testing.T) {
 	_, err := json.Marshal(ConnectorConfig{})
 	if err != nil {
 		t.Fatalf("failed to marshal ConnectorConfig: %v", err)
+	}
+}
+func TestQuery_NamedParameterValidation(t *testing.T) {
+	// 1. Use the repo's internal helper to get a working DB and Mock Server
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	ctx := context.Background()
+
+	tests := []struct {
+		name     string
+		query    string
+		args     []any
+		wantWarn string
+	}{
+		{
+			name:     "Missing named parameter",
+			query:    "SELECT * FROM my_table WHERE id = @my_id",
+			args:     []any{sql.Named("id", 1)}, // User gave 'id', SQL wants 'my_id'
+			wantWarn: "parameter @my_id not found",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Execute query
+			_, err := db.QueryContext(ctx, tc.query, tc.args...)
+
+			// Before your fix, err will be nil (the bug)
+			// After your fix, err will contain "parameter @target_id not found"
+			if err == nil {
+				t.Errorf("%s: expected error containing %q, but got nil", tc.name, tc.wantWarn)
+			} else if !strings.Contains(err.Error(), "not found") {
+				t.Errorf("%s: expected error containing %q, but got %v", tc.name, tc.wantWarn, err)
+			} else {
+				t.Logf("Successfully caught expected error: %v", err)
+			}
+		})
 	}
 }
 
