@@ -54,7 +54,7 @@ class TestTypes(unittest.TestCase):
             types._type_code_to_dbapi_type(TypeCode.INT64), types.NUMBER
         )
         self.assertEqual(
-            types._type_code_to_dbapi_type(TypeCode.BOOL), types.NUMBER
+            types._type_code_to_dbapi_type(TypeCode.BOOL), types.BOOLEAN
         )
         self.assertEqual(
             types._type_code_to_dbapi_type(TypeCode.FLOAT64), types.NUMBER
