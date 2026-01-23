@@ -51,6 +51,11 @@ class FetchScope(Enum):
 
 
 class Cursor:
+    """Cursor object for the Google Cloud Spanner database.
+
+    This class lets you use a cursor to interact with the database.
+    """
+
     def __init__(self, connection: "Connection"):
         self._connection = connection
         self._rows: Any = (
@@ -62,6 +67,27 @@ class Cursor:
 
     @property
     def description(self) -> tuple[tuple[Any, ...], ...] | None:
+        """
+        This read-only attribute is a sequence of 7-item sequences.
+
+        Each of these sequences contains information describing one result
+        column:
+        - name
+        - type_code
+        - display_size
+        - internal_size
+        - precision
+        - scale
+        - null_ok
+
+        The first two items (name and type_code) are mandatory, the other
+        five are optional and are set to None if no meaningful values can be
+        provided.
+
+        This attribute will be None for operations that do not return rows or
+        if the cursor has not had an operation invoked via the .execute*()
+        method yet.
+        """
         logger.debug("Fetching description for cursor")
         if not self._rows:
             return None
@@ -90,6 +116,15 @@ class Cursor:
 
     @property
     def rowcount(self) -> int:
+        """
+        This read-only attribute specifies the number of rows that the last
+        .execute*() produced (for DQL statements like 'select') or affected
+        (for DML statements like 'update' or 'insert').
+
+        The attribute is -1 in case no .execute*() has been performed on the
+        cursor or the rowcount of the last operation cannot be determined by
+        the interface.
+        """
         return self._rowcount
 
     @check_not_closed
@@ -98,6 +133,17 @@ class Cursor:
         operation: str,
         parameters: dict[str, Any] | list[Any] | tuple[Any] | None = None,
     ) -> None:
+        """Prepare and execute a database operation (query or command).
+
+        Parameters may be provided as sequence or mapping and will be bound to
+        variables in the operation. Variables are specified in a
+        database-specific notation (see the module's paramstyle attribute for
+        details).
+
+        Args:
+            operation (str): The SQL statement to execute.
+            parameters (dict | list | tuple, optional): parameters to bind.
+        """
         logger.debug(f"Executing operation: {operation}")
 
         request = ExecuteSqlRequest(sql=operation)
@@ -137,6 +183,14 @@ class Cursor:
             list[dict[str, Any]] | list[list[Any]] | list[tuple[Any]]
         ),
     ) -> None:
+        """Prepare a database operation (query or command) and then execute it
+        against all parameter sequences or mappings found in the sequence
+        seq_of_parameters.
+
+        Args:
+            operation (str): The SQL statement to execute.
+            seq_of_parameters (list): A list of parameter sequences/mappings.
+        """
         logger.debug(f"Executing batch operation: {operation}")
         total_rowcount = -1
         accumulated = False
@@ -226,6 +280,12 @@ class Cursor:
 
     @check_not_closed
     def fetchone(self) -> tuple[Any, ...] | None:
+        """Fetch the next row of a query result set, returning a single
+        sequence, or None when no more data is available.
+
+        Returns:
+            tuple | None: A row of data or None.
+        """
         logger.debug("Fetching one row")
         rows = self._fetch(FetchScope.FETCH_ONE)
         if not rows:
@@ -234,6 +294,20 @@ class Cursor:
 
     @check_not_closed
     def fetchmany(self, size: int | None = None) -> list[tuple[Any, ...]]:
+        """Fetch the next set of rows of a query result, returning a sequence
+        of sequences (e.g. a list of tuples). An empty sequence is returned
+        when no more rows are available.
+
+        The number of rows to fetch per call is specified by the parameter. If
+        it is not given, the cursor's arraysize determines the number of rows
+        to be fetched.
+
+        Args:
+            size (int, optional): The number of rows to fetch.
+
+        Returns:
+            list[tuple]: A list of rows.
+        """
         logger.debug("Fetching many rows")
         if size is None:
             size = self.arraysize
@@ -241,10 +315,22 @@ class Cursor:
 
     @check_not_closed
     def fetchall(self) -> list[tuple[Any, ...]]:
+        """Fetch all (remaining) rows of a query result, returning them as a
+        sequence of sequences (e.g. a list of tuples).
+
+        Returns:
+            list[tuple]: A list of rows.
+        """
         logger.debug("Fetching all rows")
         return self._fetch(FetchScope.FETCH_ALL)
 
     def close(self) -> None:
+        """Close the cursor now.
+
+        The cursor will be unusable from this point forward; an Error (or
+        subclass) exception will be raised if any operation is attempted with
+        the cursor.
+        """
         logger.debug("Closing cursor")
         self._closed = True
         if self._rows:

@@ -67,14 +67,6 @@ class TestConnection(unittest.TestCase):
         self.mock_internal_conn.commit.assert_called_once()
 
     def test_commit_error(self):
-        # Commit error should be logged and suppressed/ignored based on current
-        # implementation. The current implementation catches Exception and logs
-        # it, but proceeds.
-        # Wait, looking at connection.py:
-        # except Exception as e:
-        #     # raise errors.map_spanner_error(e)
-        #     logger.debug(f"Commit failed {e}")
-        #     pass
         self.mock_internal_conn.commit.side_effect = Exception("Commit Failed")
         try:
             self.conn.commit()

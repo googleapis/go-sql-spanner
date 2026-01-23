@@ -11,7 +11,7 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-
+"""DBAPI 2.0 Global Variables."""
 apilevel: str = "2.0"
 
 # 1 = Threads may share the module, but not connections.

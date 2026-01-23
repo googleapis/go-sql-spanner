@@ -40,9 +40,15 @@ def check_not_closed(function):
 
 
 class Connection:
+    """Connection to a Google Cloud Spanner database.
+
+    This class provides a connection to the Spanner database and adheres to
+    PEP 249 (Python Database API Specification v2.0).
+    """
+
     def __init__(self, internal_connection: Any):
         """
-        args:
+        Args:
             internal_connection: An instance of
                 google.cloud.spannerlib.Connection
         """
@@ -57,10 +63,17 @@ class Connection:
 
     @check_not_closed
     def cursor(self) -> Cursor:
+        """Return a new Cursor Object using the connection.
+
+        Returns:
+            Cursor: A cursor object.
+        """
         return Cursor(self)
 
     @check_not_closed
     def begin(self) -> None:
+        """Begin a new transaction.
+        """
         logger.debug("Beginning transaction")
         try:
             self._internal_conn.begin()
@@ -69,16 +82,23 @@ class Connection:
 
     @check_not_closed
     def commit(self) -> None:
+        """Commit any pending transaction to the database.
+
+        This is a no-op if there is no active client transaction.
+        """
         logger.debug("Committing transaction")
         try:
             self._internal_conn.commit()
         except Exception as e:
             # raise errors.map_spanner_error(e)
             logger.debug(f"Commit failed {e}")
-            pass
 
     @check_not_closed
     def rollback(self) -> None:
+        """Rollback any pending transaction to the database.
+
+        This is a no-op if there is no active client transaction.
+        """
         logger.debug("Rolling back transaction")
         try:
             self._internal_conn.rollback()
@@ -87,6 +107,13 @@ class Connection:
             logger.debug(f"Rollback failed {e}")
 
     def close(self) -> None:
+        """Close the connection now.
+
+        The connection will be unusable from this point forward; an Error (or
+        subclass) exception will be raised if any operation is attempted with
+        the connection. The same applies to all cursor objects trying to use
+        the connection.
+        """
         if self._closed:
             raise errors.InterfaceError("Connection is already closed")
 
