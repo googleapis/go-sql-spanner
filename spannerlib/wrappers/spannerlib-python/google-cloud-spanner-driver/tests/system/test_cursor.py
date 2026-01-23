@@ -146,8 +146,3 @@ class TestCursor:
                 assert row[3] == "hello"
                 assert row[4] == b"bytes"
                 assert row[4] == b"bytes"
-                # Date and Timestamp might come back as strings if not fully
-                # mapped in _convert_value yet. Let's check what we have or
-                # update _convert_value if needed. Currently _convert_value
-                # handles INT64, BYTES/PROTO, and defaults others. So
-                # DATE/TIMESTAMP will return as string unless we add handling.
