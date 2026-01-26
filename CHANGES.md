@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.23.0](https://github.com/googleapis/go-sql-spanner/compare/v1.22.0...v1.23.0) (2026-01-26)
+
+
+### Features
+
+* Add dialect connection property ([#710](https://github.com/googleapis/go-sql-spanner/issues/710)) ([2e92beb](https://github.com/googleapis/go-sql-spanner/commit/2e92beb2d10be9e2e199206a440eaf4e79f700b4))
+* Add driver support for experimental host ([#724](https://github.com/googleapis/go-sql-spanner/issues/724)) ([36908a2](https://github.com/googleapis/go-sql-spanner/commit/36908a25d60721547c96e3d28548e210a8dc9a13))
+* Add option to decode NUMERIC to string ([#717](https://github.com/googleapis/go-sql-spanner/issues/717)) ([a2fdf7b](https://github.com/googleapis/go-sql-spanner/commit/a2fdf7b48890f5e88d72fb5779383e7161356f7c))
+* Send string params as untyped values to Spanner ([#720](https://github.com/googleapis/go-sql-spanner/issues/720)) ([4de7250](https://github.com/googleapis/go-sql-spanner/commit/4de7250a740bd1a6f781a0f6be5b670975508076))
+* Support Prepare for client-side statements ([#726](https://github.com/googleapis/go-sql-spanner/issues/726)) ([3a2917f](https://github.com/googleapis/go-sql-spanner/commit/3a2917f7b66332862e40568ebb50b09f24dee5d4))
+
+
+### Bug Fixes
+
+* Correctly decode specific PG JSONB and NUMERIC types ([#725](https://github.com/googleapis/go-sql-spanner/issues/725)) ([032afab](https://github.com/googleapis/go-sql-spanner/commit/032afab4683eddb7f587f355b4daf09f918b607a))
+* DecodeToNativeArrays in ConnectorConfig was ignored ([#734](https://github.com/googleapis/go-sql-spanner/issues/734)) ([97a84c7](https://github.com/googleapis/go-sql-spanner/commit/97a84c7d700b2909d44111b66a6e10b052db2660)), refs [#731](https://github.com/googleapis/go-sql-spanner/issues/731)
+* Only close the connector once the usage count reaches zero ([#718](https://github.com/googleapis/go-sql-spanner/issues/718)) ([60cc893](https://github.com/googleapis/go-sql-spanner/commit/60cc89343d12d252656f65feabd7b87386c9bd1f))
+* Update all dependencies ([#703](https://github.com/googleapis/go-sql-spanner/issues/703)) ([8960e64](https://github.com/googleapis/go-sql-spanner/commit/8960e64242b31fe04f923029e9c76156f1b1b5c5))
+* Update protobuf monorepo ([#721](https://github.com/googleapis/go-sql-spanner/issues/721)) ([a79356f](https://github.com/googleapis/go-sql-spanner/commit/a79356f9587bac364065058b997c53b3cc60a8d4))
+* Update protobuf monorepo ([#723](https://github.com/googleapis/go-sql-spanner/issues/723)) ([3f48e14](https://github.com/googleapis/go-sql-spanner/commit/3f48e144a7212e0a8a5d6dc38f5e66d53c841020))
+
 ## [1.22.0](https://github.com/googleapis/go-sql-spanner/compare/v1.21.0...v1.22.0) (2025-12-15)
 
 
