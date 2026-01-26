@@ -631,9 +631,13 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		opts = append(opts, option.WithGRPCDialOption(grpc.WithAuthority(connectorConfig.Authority)))
 	}
 	if val := propertyCredentials.GetValueOrDefault(state); val != "" {
+		// TODO: Replace with option.WithAuthCredentialsFile and a config option to fall back to this.
+		//lint:ignore SA1019 Needs a change that is backwards compatible
 		opts = append(opts, option.WithCredentialsFile(val))
 	}
 	if val := propertyCredentialsJson.GetValueOrDefault(state); val != "" {
+		// TODO: Replace with option.WithAuthCredentialsJSON and a config option to fall back to this.
+		//lint:ignore SA1019 Needs a change that is backwards compatible
 		opts = append(opts, option.WithCredentialsJSON([]byte(val)))
 	}
 	config := spanner.ClientConfig{
