@@ -98,8 +98,7 @@ class TestConnection(unittest.TestCase):
     def test_close_idempotent(self):
         self.conn.close()
         self.mock_internal_conn.close.reset_mock()
-        self.conn.close()
-        self.mock_internal_conn.close.assert_not_called()
+        self.assertRaises(errors.InterfaceError, self.conn.close)
 
     def test_messages(self):
         self.assertEqual(self.conn.messages, [])
