@@ -253,8 +253,18 @@ func (s *executableRunBatchStatement) execContext(ctx context.Context, c *conn, 
 }
 
 func (s *executableRunBatchStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
-	if _, err := s.execContext(ctx, c, opts); err != nil {
+	res, err := s.execContext(ctx, c, opts)
+	if err != nil {
 		return nil, err
+	}
+	if spannerRes, ok := res.(SpannerResult); ok {
+		if opID, err := spannerRes.OperationID(); err == nil && opID != "" {
+			it, err := createStringIterator("OPERATION_ID", opID)
+			if err != nil {
+				return nil, err
+			}
+			return createRows(c.state, it, nil, opts), nil
+		}
 	}
 	return createEmptyRows(opts), nil
 }

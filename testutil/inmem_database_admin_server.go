@@ -21,7 +21,9 @@ import (
 
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	databasepb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -30,6 +32,7 @@ import (
 // of specific methods for setting mocked results.
 type InMemDatabaseAdminServer interface {
 	databasepb.DatabaseAdminServer
+	longrunningpb.OperationsServer
 	Stop()
 	Resps() []proto.Message
 	SetResps([]proto.Message)
@@ -61,6 +64,32 @@ type inMemDatabaseAdminServer struct {
 func NewInMemDatabaseAdminServer() InMemDatabaseAdminServer {
 	res := &inMemDatabaseAdminServer{ddlResults: make(map[string]*longrunningpb.Operation)}
 	return res
+}
+
+func (s *inMemDatabaseAdminServer) GetOperation(ctx context.Context, req *longrunningpb.GetOperationRequest) (*longrunningpb.Operation, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	if len(s.resps) > 0 {
+		return s.resps[0].(*longrunningpb.Operation), nil
+	}
+	return nil, status.Errorf(codes.NotFound, "Operation not found")
+}
+
+func (s *inMemDatabaseAdminServer) ListOperations(context.Context, *longrunningpb.ListOperationsRequest) (*longrunningpb.ListOperationsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListOperations not implemented")
+}
+
+func (s *inMemDatabaseAdminServer) CancelOperation(context.Context, *longrunningpb.CancelOperationRequest) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CancelOperation not implemented")
+}
+
+func (s *inMemDatabaseAdminServer) DeleteOperation(context.Context, *longrunningpb.DeleteOperationRequest) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteOperation not implemented")
+}
+
+func (s *inMemDatabaseAdminServer) WaitOperation(context.Context, *longrunningpb.WaitOperationRequest) (*longrunningpb.Operation, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method WaitOperation not implemented")
 }
 
 func (s *inMemDatabaseAdminServer) CreateDatabase(ctx context.Context, req *databasepb.CreateDatabaseRequest) (*longrunningpb.Operation, error) {

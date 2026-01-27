@@ -313,6 +313,7 @@ type result struct {
 	hasLastInsertId   bool
 	batchUpdateCounts []int64
 	tx                *sql.Tx
+	operationID       string
 }
 
 var errNoLastInsertId = spanner.ToSpannerError(
@@ -339,4 +340,13 @@ func (r *result) BatchRowsAffected() ([]int64, error) {
 		return nil, errNoBatchRowsAffected
 	}
 	return r.batchUpdateCounts, nil
+}
+
+var errNoOperationID = spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "OperationID is only supported for DDL statements executed in ASYNC mode"))
+
+func (r *result) OperationID() (string, error) {
+	if r.operationID == "" {
+		return "", errNoOperationID
+	}
+	return r.operationID, nil
 }
