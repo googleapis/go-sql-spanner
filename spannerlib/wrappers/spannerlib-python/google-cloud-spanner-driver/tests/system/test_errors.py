@@ -13,6 +13,7 @@
 #  limitations under the License.
 """Tests for error handling in cursor.py and connection.py"""
 import pytest
+
 from google.cloud.spanner_driver import connect, errors
 
 from ._helper import get_test_connection_string
@@ -37,21 +38,19 @@ class TestErrors:
                 cursor.execute(DDL)
 
     def test_programming_error_table_not_found(self):
-        """Test that selecting from a non-existent table raises expected error."""
+        """Test that selecting from a non-existent table
+        raises expected error."""
         connection_string = get_test_connection_string()
-        
+
         with connect(connection_string) as connection:
             with connection.cursor() as cursor:
-                # Assuming ProgrammingError or OperationalError.
-                # DBAPI is bit vague here, but ProgrammingError is likely for syntax/table errors.
-                # Check what actual error is raised, might be wrapped.
                 with pytest.raises(errors.ProgrammingError):
-                     cursor.execute("SELECT * FROM NonExistentTable")
+                    cursor.execute("SELECT * FROM NonExistentTable")
 
     def test_integrity_error_duplicate_pk(self):
         """Test that duplicate primary key raises IntegrityError."""
         connection_string = get_test_connection_string()
-        
+
         with connect(connection_string) as connection:
             with connection.cursor() as cursor:
                 sql = (
@@ -59,17 +58,17 @@ class TestErrors:
                     "VALUES (@id, @first, @last)"
                 )
                 params = {"id": 1, "first": "Alice", "last": "A"}
-                
+
                 cursor.execute(sql, params)
-                
+
                 # Second insert with same PK
                 with pytest.raises(errors.IntegrityError):
                     cursor.execute(sql, params)
 
     def test_operational_error_syntax(self):
-         """Test bad syntax raises ProgrammingError/OperationalError."""
-         connection_string = get_test_connection_string()
-         with connect(connection_string) as connection:
+        """Test bad syntax raises ProgrammingError/OperationalError."""
+        connection_string = get_test_connection_string()
+        with connect(connection_string) as connection:
             with connection.cursor() as cursor:
                 with pytest.raises(errors.ProgrammingError):
                     cursor.execute("SELECT * FROM Singers WHERE")

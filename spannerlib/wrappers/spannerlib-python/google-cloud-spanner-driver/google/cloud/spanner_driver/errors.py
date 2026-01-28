@@ -188,16 +188,20 @@ def map_spanner_error(error: Exception) -> Error:
     from google.cloud.spannerlib.internal.errors import SpannerLibError
 
     match error:
-        # Handle SpannerLibError by matching on the internal error_code attribute
+        # Handle SpannerLibError by matching on the internal
+        # error_code attribute
         case SpannerLibError(error_code=code):
             match code:
                 # 3 - INVALID_ARGUMENT
                 # 5 - NOT_FOUND
-                case 3 | 5: return ProgrammingError(error)
+                case 3 | 5:
+                    return ProgrammingError(error)
                 # 6 - ALREADY_EXISTS
-                case 6: return IntegrityError(error)
+                case 6:
+                    return IntegrityError(error)
                 # 11 - OUT_OF_RANGE
-                case 11: return DataError(error)
+                case 11:
+                    return DataError(error)
                 # 1 - CANCELLED
                 # 4 - DEADLINE_EXCEEDED
                 # 7 - PERMISSION_DENIED
@@ -205,10 +209,13 @@ def map_spanner_error(error: Exception) -> Error:
                 # 10 - ABORTED
                 # 14 - INTERNAL
                 # 16 - UNAUTHENTICATED
-                case 1 | 4 | 7 | 9 | 10 | 14 | 16: return OperationalError(error)
+                case 1 | 4 | 7 | 9 | 10 | 14 | 16:
+                    return OperationalError(error)
                 # 13 - INTERNAL
-                case 13: return InternalError(error)
-                case _: return DatabaseError(error)
+                case 13:
+                    return InternalError(error)
+                case _:
+                    return DatabaseError(error)
 
         # Handle standard api_core exceptions
         case exceptions.InvalidArgument() | exceptions.NotFound():
@@ -217,9 +224,15 @@ def map_spanner_error(error: Exception) -> Error:
             return IntegrityError(error)
         case exceptions.OutOfRange():
             return DataError(error)
-        case exceptions.FailedPrecondition() | exceptions.Unauthenticated() | \
-             exceptions.PermissionDenied() | exceptions.DeadlineExceeded() | \
-             exceptions.ServiceUnavailable() | exceptions.Aborted() | exceptions.Cancelled():
+        case (
+            exceptions.FailedPrecondition()
+            | exceptions.Unauthenticated()
+            | exceptions.PermissionDenied()
+            | exceptions.DeadlineExceeded()
+            | exceptions.ServiceUnavailable()
+            | exceptions.Aborted()
+            | exceptions.Cancelled()
+        ):
             return OperationalError(error)
         case exceptions.InternalServerError():
             return InternalError(error)
