@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import datetime
 import unittest
 from unittest import mock
+import uuid
 
 from google.cloud.spanner_v1 import ExecuteSqlRequest, TypeCode
 from google.cloud.spanner_v1.types import StructField, Type
@@ -91,7 +93,6 @@ class TestCursor(unittest.TestCase):
         self.assertEqual(request.sql, operation)
         self.assertEqual(request.sql, operation)
         self.assertEqual(request.params, {"id": "1"})
-        self.assertEqual(request.param_types, {"id": Type(code=TypeCode.INT64)})
 
     def test_executemany(self):
         operation = "INSERT INTO table (id) VALUES (@id)"
@@ -288,3 +289,63 @@ class TestCursor(unittest.TestCase):
         self.assertEqual(next(it), (1,))
         with self.assertRaises(StopIteration):
             next(it)
+
+    def test_prepare_params(self):
+        # Test 1: None
+        converted, types = self.cursor._prepare_params(None)
+        self.assertEqual(converted, {})
+        self.assertEqual(types, {})
+
+        # Test 2: Dict (GoogleSQL)
+        uuid_val = uuid.uuid4()
+        dt_val = datetime.datetime(2024, 1, 1, 12, 0, 0)
+        date_val = datetime.date(2024, 1, 1)
+        params = {
+            "int_val": 123,
+            "bool_val": True,
+            "float_val": 1.23,
+            "bytes_val": b"bytes",
+            "str_val": "string",
+            "uuid_val": uuid_val,
+            "dt_val": dt_val,
+            "date_val": date_val,
+            "none_val": None,
+        }
+        converted, types = self.cursor._prepare_params(params)
+
+        self.assertEqual(converted["int_val"], "123")
+        self.assertEqual(types["int_val"].code, TypeCode.INT64)
+
+        self.assertEqual(converted["bool_val"], True)
+        self.assertEqual(types["bool_val"].code, TypeCode.BOOL)
+
+        self.assertEqual(converted["float_val"], 1.23)
+        self.assertEqual(types["float_val"].code, TypeCode.FLOAT64)
+
+        self.assertEqual(converted["bytes_val"], b"bytes")
+        self.assertEqual(types["bytes_val"].code, TypeCode.BYTES)
+
+        self.assertEqual(converted["str_val"], "string")
+        self.assertEqual(types["str_val"].code, TypeCode.STRING)
+
+        self.assertEqual(converted["uuid_val"], str(uuid_val))
+        self.assertEqual(types["uuid_val"].code, TypeCode.STRING)
+
+        self.assertEqual(converted["dt_val"], str(dt_val))
+        self.assertEqual(types["dt_val"].code, TypeCode.TIMESTAMP)
+
+        self.assertEqual(converted["date_val"], str(date_val))
+        self.assertEqual(types["date_val"].code, TypeCode.DATE)
+
+        self.assertIsNone(converted["none_val"])
+        self.assertNotIn("none_val", types)
+
+        # Test 3: List (PostgreSQL)
+        params_list = [1, "test"]
+        converted, types = self.cursor._prepare_params(params_list)
+
+        self.assertEqual(converted["P1"], "1")
+        self.assertEqual(types["P1"].code, TypeCode.INT64)
+
+        self.assertEqual(converted["P2"], "test")
+        self.assertEqual(types["P2"].code, TypeCode.STRING)
