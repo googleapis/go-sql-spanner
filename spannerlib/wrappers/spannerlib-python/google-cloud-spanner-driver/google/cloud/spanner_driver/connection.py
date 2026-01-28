@@ -75,7 +75,7 @@ class Connection:
         """Begin a new transaction."""
         logger.debug("Beginning transaction")
         try:
-            self._internal_conn.begin()
+            self._internal_conn.begin_transaction()
         except Exception as e:
             raise errors.map_spanner_error(e)
 
