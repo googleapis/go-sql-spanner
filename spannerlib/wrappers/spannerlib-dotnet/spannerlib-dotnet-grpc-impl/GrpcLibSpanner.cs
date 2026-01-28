@@ -160,6 +160,7 @@ public sealed class GrpcLibSpanner : ISpannerLib
         return FromProto(TranslateException(() => Client.CreatePool(new CreatePoolRequest
         {
             ConnectionString = connectionString,
+            UserAgentSuffix = ISpannerLib.UserAgentSuffix,
         })));
     }
 

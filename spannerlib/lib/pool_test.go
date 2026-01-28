@@ -33,7 +33,7 @@ func TestCreateAndClosePool(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolMsg := CreatePool(ctx, dsn)
+	poolMsg := CreatePool(ctx, "test", dsn)
 	if g, w := poolMsg.Code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -63,7 +63,7 @@ func TestCreatePoolFails(t *testing.T) {
 		KeepError: true,
 	})
 
-	poolMsg := CreatePool(ctx, dsn)
+	poolMsg := CreatePool(ctx, "test", dsn)
 	if g, w := codes.Code(poolMsg.Code), codes.PermissionDenied; g != w {
 		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
 	}

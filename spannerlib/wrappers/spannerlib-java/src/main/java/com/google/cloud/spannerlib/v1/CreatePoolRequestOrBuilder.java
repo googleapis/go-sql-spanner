@@ -21,4 +21,16 @@ public interface CreatePoolRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getConnectionStringBytes();
+
+  /**
+   * <code>string user_agent_suffix = 2;</code>
+   * @return The userAgentSuffix.
+   */
+  java.lang.String getUserAgentSuffix();
+  /**
+   * <code>string user_agent_suffix = 2;</code>
+   * @return The bytes for userAgentSuffix.
+   */
+  com.google.protobuf.ByteString
+      getUserAgentSuffixBytes();
 }

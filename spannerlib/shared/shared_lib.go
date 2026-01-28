@@ -72,10 +72,10 @@ func pin(msg *lib.Message) (int64, int32, int64, int32, unsafe.Pointer) {
 // All connections that are created from a pool share the same underlying Spanner client.
 //
 //export CreatePool
-func CreatePool(connectionString string) (int64, int32, int64, int32, unsafe.Pointer) {
+func CreatePool(userAgentSuffix, connectionString string) (int64, int32, int64, int32, unsafe.Pointer) {
 	// TODO: Allow a user of the shared library to specify a custom context, for example with a custom timeout.
 	ctx := context.Background()
-	msg := lib.CreatePool(ctx, connectionString)
+	msg := lib.CreatePool(ctx, userAgentSuffix, connectionString)
 	return pin(msg)
 }
 

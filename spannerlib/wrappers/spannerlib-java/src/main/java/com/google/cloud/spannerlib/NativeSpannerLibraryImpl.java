@@ -55,7 +55,9 @@ public class NativeSpannerLibraryImpl implements SpannerLibrary {
   @Override
   public Pool createPool(String connectionString) {
     try (MessageHandler message =
-        library.execute(lib -> lib.CreatePool(new GoString(connectionString)))) {
+        library.execute(
+            lib ->
+                lib.CreatePool(new GoString(USER_AGENT_SUFFIX), new GoString(connectionString)))) {
       return new Pool(this, message.getObjectId());
     }
   }

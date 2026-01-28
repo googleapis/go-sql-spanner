@@ -65,6 +65,7 @@ message CreatePoolRequest {
   string connection_string = 1 [
     (google.api.field_behavior) = REQUIRED
   ];
+  string user_agent_suffix = 2;
 }
 
 message CreateConnectionRequest {

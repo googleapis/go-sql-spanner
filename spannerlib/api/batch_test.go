@@ -41,7 +41,7 @@ func TestExecuteDmlBatch(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestExecuteDdlBatch(t *testing.T) {
 		},
 	})
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestExecuteCreateDatabaseInBatch(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestExecuteMixedBatch(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -323,7 +323,7 @@ func TestExecuteDdlBatchInTransaction(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -361,7 +361,7 @@ func TestExecuteQueryInBatch(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -399,7 +399,7 @@ func TestExecuteDmlBatchScript(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -481,7 +481,7 @@ func TestExecuteDdlBatchScript(t *testing.T) {
 		},
 	})
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}

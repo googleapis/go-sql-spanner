@@ -83,7 +83,7 @@ func (s *spannerLibServer) Info(_ context.Context, _ *pb.InfoRequest) (*pb.InfoR
 }
 
 func (s *spannerLibServer) CreatePool(ctx context.Context, request *pb.CreatePoolRequest) (*pb.Pool, error) {
-	id, err := api.CreatePool(ctx, request.ConnectionString)
+	id, err := api.CreatePool(ctx, request.UserAgentSuffix, request.ConnectionString)
 	if err != nil {
 		return nil, err
 	}
