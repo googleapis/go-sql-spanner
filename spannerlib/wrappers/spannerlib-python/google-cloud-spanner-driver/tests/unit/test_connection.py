@@ -58,7 +58,9 @@ class TestConnection(unittest.TestCase):
         self.mock_internal_conn.begin_transaction.assert_called_once()
 
     def test_begin_error(self):
-        self.mock_internal_conn.begin_transaction.side_effect = Exception("Internal Error")
+        self.mock_internal_conn.begin_transaction.side_effect = Exception(
+            "Internal Error"
+        )
         with self.assertRaises(errors.DatabaseError):
             self.conn.begin()
 

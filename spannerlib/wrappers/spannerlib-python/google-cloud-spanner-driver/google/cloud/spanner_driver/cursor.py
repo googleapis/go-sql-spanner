@@ -12,9 +12,11 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 import base64
+import datetime
 from enum import Enum
 import logging
 from typing import TYPE_CHECKING, Any
+import uuid
 
 from google.cloud.spanner_v1 import (
     ExecuteBatchDmlRequest,
@@ -132,6 +134,84 @@ class Cursor:
         """
         return self._rowcount
 
+    def _prepare_params(
+        self, parameters: dict[str, Any] | list[Any] | tuple[Any] | None = None
+    ) -> (dict[str, Any] | None, dict[str, Type] | None):
+        """
+        Prepares parameters for Spanner execution
+
+        Args:
+            parameters: A dictionary (for named parameters/GoogleSQL)
+                        or a list/tuple
+                        (for positional parameters/PostgreSQL).
+
+        Returns:
+            A tuple containing:
+            - converted_params: Dictionary of parameters with values
+            converted for Spanner (e.g. ints to strings).
+            - param_types: Dictionary mapping parameter names to
+            their Spanner Type.
+        """
+        if not parameters:
+            return {}, {}
+
+        converted_params = {}
+        param_types = {}
+
+        # Normalize input to an iterable of (key, value)
+        if isinstance(parameters, (list, tuple)):
+            # PostgreSQL Dialect: Positional parameters $1, $2... are
+            # mapped to P1, P2...
+            iterator = ((f"P{i}", val) for i, val in enumerate(parameters, 1))
+        elif isinstance(parameters, dict):
+            # GoogleSQL Dialect: Named parameters @name are mapped directly.
+            iterator = parameters.items()
+        else:
+            # If strictly required, raise an error for unsupported types
+            return {}, {}
+
+        for key, value in iterator:
+            if value is None:
+                converted_params[key] = None
+                continue
+            # Note: check bool before int, as bool is a subclass of int
+            if isinstance(value, bool):
+                converted_params[key] = value
+                param_types[key] = Type(code=TypeCode.BOOL)
+            elif isinstance(value, int):
+                # Spanner expects INT64 as strings to preserve precision
+                # in JSON
+                converted_params[key] = str(value)
+                param_types[key] = Type(code=TypeCode.INT64)
+            elif isinstance(value, float):
+                converted_params[key] = value
+                param_types[key] = Type(code=TypeCode.FLOAT64)
+            elif isinstance(value, bytes):
+                converted_params[key] = value
+                param_types[key] = Type(code=TypeCode.BYTES)
+            elif isinstance(value, uuid.UUID):
+                # Convert UUID to string as requested
+                converted_params[key] = str(value)
+                # Use STRING type for UUIDs (unless specific UUID type is
+                # required/supported by your backend version)
+                param_types[key] = Type(code=TypeCode.STRING)
+            elif isinstance(value, datetime.datetime):
+                # Convert Datetime to string (RFC 3339 format is standard
+                # for str(datetime))
+                converted_params[key] = str(value)
+                param_types[key] = Type(code=TypeCode.TIMESTAMP)
+            elif isinstance(value, datetime.date):
+                converted_params[key] = str(value)
+                param_types[key] = Type(code=TypeCode.DATE)
+            else:
+                # Fallback for strings and other types
+                converted_params[key] = value
+                # For strings, we can explicitly set the type or let it default.
+                if isinstance(value, str):
+                    param_types[key] = Type(code=TypeCode.STRING)
+
+        return converted_params, param_types
+
     @check_not_closed
     def execute(
         self,
@@ -152,18 +232,8 @@ class Cursor:
         logger.debug(f"Executing operation: {operation}")
 
         request = ExecuteSqlRequest(sql=operation)
-        if parameters:
-            converted_params = {}
-            param_types = {}
-            for key, value in parameters.items():
-                if isinstance(value, int) and not isinstance(value, bool):
-                    converted_params[key] = str(value)
-                    param_types[key] = Type(code=TypeCode.INT64)
-                else:
-                    converted_params[key] = value
-
-            request.params = converted_params
-            request.param_types = param_types
+        params, _ = self._prepare_params(parameters)
+        request.params = params
 
         try:
             self._rows = self._connection._internal_conn.execute(request)
@@ -202,18 +272,8 @@ class Cursor:
 
         for parameters in seq_of_parameters:
             statement = ExecuteBatchDmlRequest.Statement(sql=operation)
-            if parameters:
-                converted_params = {}
-                param_types = {}
-                for key, value in parameters.items():
-                    if isinstance(value, int) and not isinstance(value, bool):
-                        converted_params[key] = str(value)
-                        param_types[key] = Type(code=TypeCode.INT64)
-                    else:
-                        converted_params[key] = value
-
-                statement.params = converted_params
-                statement.param_types = param_types
+            params, _ = self._prepare_params(parameters)
+            statement.params = params
 
             request.statements.append(statement)
 
