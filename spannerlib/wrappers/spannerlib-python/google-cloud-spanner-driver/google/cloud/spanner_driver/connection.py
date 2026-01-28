@@ -72,8 +72,7 @@ class Connection:
 
     @check_not_closed
     def begin(self) -> None:
-        """Begin a new transaction.
-        """
+        """Begin a new transaction."""
         logger.debug("Beginning transaction")
         try:
             self._internal_conn.begin()

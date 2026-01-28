@@ -16,7 +16,12 @@ from enum import Enum
 import logging
 from typing import TYPE_CHECKING, Any
 
-from google.cloud.spanner_v1 import ExecuteSqlRequest, Type, TypeCode
+from google.cloud.spanner_v1 import (
+    ExecuteBatchDmlRequest,
+    ExecuteSqlRequest,
+    Type,
+    TypeCode,
+)
 
 from . import errors
 from .types import _type_code_to_dbapi_type
@@ -192,18 +197,38 @@ class Cursor:
             seq_of_parameters (list): A list of parameter sequences/mappings.
         """
         logger.debug(f"Executing batch operation: {operation}")
-        total_rowcount = -1
-        accumulated = False
+
+        request = ExecuteBatchDmlRequest()
 
         for parameters in seq_of_parameters:
-            self.execute(operation, parameters)
-            if self._rowcount != -1:
-                if not accumulated:
-                    total_rowcount = 0
-                    accumulated = True
-                total_rowcount += self._rowcount
+            statement = ExecuteBatchDmlRequest.Statement(sql=operation)
+            if parameters:
+                converted_params = {}
+                param_types = {}
+                for key, value in parameters.items():
+                    if isinstance(value, int) and not isinstance(value, bool):
+                        converted_params[key] = str(value)
+                        param_types[key] = Type(code=TypeCode.INT64)
+                    else:
+                        converted_params[key] = value
 
-        self._rowcount = total_rowcount
+                statement.params = converted_params
+                statement.param_types = param_types
+
+            request.statements.append(statement)
+
+        try:
+            response = self._connection._internal_conn.execute_batch(request)
+            total_rowcount = 0
+            for result_set in response.result_sets:
+                if result_set.stats.row_count_exact != -1:
+                    total_rowcount += result_set.stats.row_count_exact
+                elif result_set.stats.row_count_lower_bound != -1:
+                    total_rowcount += result_set.stats.row_count_lower_bound
+            self._rowcount = total_rowcount
+
+        except Exception as e:
+            raise errors.map_spanner_error(e) from e
 
     def _convert_value(self, value: Any, field_type: Any) -> Any:
         kind = value.WhichOneof("kind")
