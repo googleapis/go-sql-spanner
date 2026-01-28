@@ -91,29 +91,53 @@ class TestCursor(unittest.TestCase):
         self.assertEqual(request.sql, operation)
         self.assertEqual(request.sql, operation)
         self.assertEqual(request.params, {"id": "1"})
-        self.assertEqual(
-            request.param_types, {"id": Type(code=TypeCode.INT64)}
-        )
+        self.assertEqual(request.param_types, {"id": Type(code=TypeCode.INT64)})
 
     def test_executemany(self):
         operation = "INSERT INTO table (id) VALUES (@id)"
-        params_seq = [{"id": 1}, {"id": 2}]
+        params_seq = [{"id": 1, "name": "val1"}, {"id": 2}]
 
-        # Mock execute to set rowcount
-        # We need to side_effect execute to update rowcount?
-        # Or we can just mock the internal connection execute.
-        # executemany calls self.execute.
+        # Mock execute_batch response
+        mock_response = mock.Mock()
+        mock_result_set1 = mock.Mock()
+        mock_result_set1.stats.row_count_exact = 1
+        mock_result_set2 = mock.Mock()
+        mock_result_set2.stats.row_count_exact = 1
+        mock_response.result_sets = [mock_result_set1, mock_result_set2]
 
-        with mock.patch.object(self.cursor, "execute") as mock_execute:
-            # We simulate execute updating self._rowcount
-            def side_effect(op, params):
-                self.cursor._rowcount = 1
+        self.mock_internal_conn.execute_batch.return_value = mock_response
 
-            mock_execute.side_effect = side_effect
+        # Patch ExecuteBatchDmlRequest in cursor module
+        with mock.patch(
+            "google.cloud.spanner_driver.cursor.ExecuteBatchDmlRequest"
+        ) as MockRequest:
+            # Setup mock request instance and statements list behavior
+            mock_request_instance = MockRequest.return_value
+            mock_request_instance.statements = (
+                []
+            )  # Use a real list to verify append
+
+            # Setup Statement mock
+            MockStatement = mock.Mock()
+            MockRequest.Statement = MockStatement
 
             self.cursor.executemany(operation, params_seq)
 
-            self.assertEqual(mock_execute.call_count, 2)
+            # Verify execute_batch called with our mock request
+            self.mock_internal_conn.execute_batch.assert_called_once_with(
+                mock_request_instance
+            )
+
+            # Verify statements were created and appended
+            self.assertEqual(len(mock_request_instance.statements), 2)
+
+            # Verify first statement
+            call1 = MockStatement.call_args_list[0]
+            self.assertEqual(call1.kwargs["sql"], operation)
+
+            self.assertEqual(MockStatement.call_count, 2)
+
+            # Verify rowcount update
             self.assertEqual(self.cursor.rowcount, 2)
 
     def test_fetchone(self):
