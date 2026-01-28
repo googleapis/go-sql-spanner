@@ -187,35 +187,41 @@ def map_spanner_error(error: Exception) -> Error:
     from google.api_core import exceptions
     from google.cloud.spannerlib.internal.errors import SpannerLibError
 
-    if isinstance(error, SpannerLibError):
-        return DatabaseError(error)
-    if isinstance(error, exceptions.AlreadyExists):
-        return IntegrityError(error)
-    if isinstance(error, exceptions.NotFound):
-        return ProgrammingError(error)
-    if isinstance(error, exceptions.InvalidArgument):
-        return ProgrammingError(error)
-    if isinstance(error, exceptions.FailedPrecondition):
-        return OperationalError(error)
-    if isinstance(error, exceptions.OutOfRange):
-        return DataError(error)
-    if isinstance(error, exceptions.Unauthenticated):
-        return OperationalError(error)
-    if isinstance(error, exceptions.PermissionDenied):
-        return OperationalError(error)
-    if isinstance(error, exceptions.DeadlineExceeded):
-        return OperationalError(error)
-    if isinstance(error, exceptions.ServiceUnavailable):
-        return OperationalError(error)
-    if isinstance(error, exceptions.Aborted):
-        return OperationalError(error)
-    if isinstance(error, exceptions.InternalServerError):
-        return InternalError(error)
-    if isinstance(error, exceptions.Unknown):
-        return DatabaseError(error)
-    if isinstance(error, exceptions.Cancelled):
-        return OperationalError(error)
-    if isinstance(error, exceptions.DataLoss):
-        return DatabaseError(error)
+    match error:
+        # Handle SpannerLibError by matching on the internal error_code attribute
+        case SpannerLibError(error_code=code):
+            match code:
+                # 3 - INVALID_ARGUMENT
+                # 5 - NOT_FOUND
+                case 3 | 5: return ProgrammingError(error)
+                # 6 - ALREADY_EXISTS
+                case 6: return IntegrityError(error)
+                # 11 - OUT_OF_RANGE
+                case 11: return DataError(error)
+                # 1 - CANCELLED
+                # 4 - DEADLINE_EXCEEDED
+                # 7 - PERMISSION_DENIED
+                # 9 - FAILED_PRECONDITION
+                # 10 - ABORTED
+                # 14 - INTERNAL
+                # 16 - UNAUTHENTICATED
+                case 1 | 4 | 7 | 9 | 10 | 14 | 16: return OperationalError(error)
+                # 13 - INTERNAL
+                case 13: return InternalError(error)
+                case _: return DatabaseError(error)
 
-    return DatabaseError(error)
+        # Handle standard api_core exceptions
+        case exceptions.InvalidArgument() | exceptions.NotFound():
+            return ProgrammingError(error)
+        case exceptions.AlreadyExists():
+            return IntegrityError(error)
+        case exceptions.OutOfRange():
+            return DataError(error)
+        case exceptions.FailedPrecondition() | exceptions.Unauthenticated() | \
+             exceptions.PermissionDenied() | exceptions.DeadlineExceeded() | \
+             exceptions.ServiceUnavailable() | exceptions.Aborted() | exceptions.Cancelled():
+            return OperationalError(error)
+        case exceptions.InternalServerError():
+            return InternalError(error)
+        case _:
+            return DatabaseError(error)
