@@ -109,6 +109,7 @@ func (x *InfoResponse) GetVersion() string {
 type CreatePoolRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	ConnectionString string                 `protobuf:"bytes,1,opt,name=connection_string,json=connectionString,proto3" json:"connection_string,omitempty"`
+	UserAgentSuffix  string                 `protobuf:"bytes,2,opt,name=user_agent_suffix,json=userAgentSuffix,proto3" json:"user_agent_suffix,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -146,6 +147,13 @@ func (*CreatePoolRequest) Descriptor() ([]byte, []int) {
 func (x *CreatePoolRequest) GetConnectionString() string {
 	if x != nil {
 		return x.ConnectionString
+	}
+	return ""
+}
+
+func (x *CreatePoolRequest) GetUserAgentSuffix() string {
+	if x != nil {
+		return x.UserAgentSuffix
 	}
 	return ""
 }
@@ -1220,9 +1228,10 @@ const file_google_spannerlib_v1_spannerlib_proto_rawDesc = "" +
 	"%google/spannerlib/v1/spannerlib.proto\x12\x14google.spannerlib.v1\x1a\x1fgoogle/api/field_behavior.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x17google/rpc/status.proto\x1a\"google/spanner/v1/result_set.proto\x1a\x1fgoogle/spanner/v1/spanner.proto\x1a#google/spanner/v1/transaction.proto\"\r\n" +
 	"\vInfoRequest\"(\n" +
 	"\fInfoResponse\x12\x18\n" +
-	"\aversion\x18\x01 \x01(\tR\aversion\"E\n" +
+	"\aversion\x18\x01 \x01(\tR\aversion\"q\n" +
 	"\x11CreatePoolRequest\x120\n" +
-	"\x11connection_string\x18\x01 \x01(\tB\x03\xe0A\x02R\x10connectionString\"N\n" +
+	"\x11connection_string\x18\x01 \x01(\tB\x03\xe0A\x02R\x10connectionString\x12*\n" +
+	"\x11user_agent_suffix\x18\x02 \x01(\tR\x0fuserAgentSuffix\"N\n" +
 	"\x17CreateConnectionRequest\x123\n" +
 	"\x04pool\x18\x01 \x01(\v2\x1a.google.spannerlib.v1.PoolB\x03\xe0A\x02R\x04pool\"O\n" +
 	"\fFetchOptions\x12\x1e\n" +

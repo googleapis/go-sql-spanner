@@ -29,7 +29,7 @@ public static class SpannerLib
 
     [DllImport(SpannerLibName, EntryPoint = "CreatePool")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
-    public static extern Message CreatePool(GoString dsn);
+    public static extern Message CreatePool(GoString userAgentSuffix, GoString dsn);
 
     [DllImport(SpannerLibName, EntryPoint = "ClosePool")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]

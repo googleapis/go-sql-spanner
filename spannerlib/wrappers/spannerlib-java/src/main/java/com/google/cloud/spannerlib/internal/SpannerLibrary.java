@@ -54,7 +54,7 @@ public interface SpannerLibrary extends Library {
   int Release(long pinner);
 
   /** Creates a new Pool. */
-  Message CreatePool(GoString dsn);
+  Message CreatePool(GoString userAgentSuffix, GoString dsn);
 
   /** Closes the given Pool. */
   Message ClosePool(long id);

@@ -28,6 +28,8 @@ namespace Google.Cloud.SpannerLib;
 /// </summary>
 public interface ISpannerLib : IDisposable
 {
+    public const string UserAgentSuffix = "dotnet";
+    
     /// <summary>
     /// RowEncoding is used to specify the format that SpannerLib should use to return row data. 
     /// </summary>

@@ -32,6 +32,10 @@ public class BasicTests : AbstractMockServerTests
     {
         var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         pool.Close();
+
+        var context = Fixture.SpannerMock.Contexts.First();
+        var header = context.RequestHeaders.GetValue("x-goog-api-client");
+        Assert.That(header, Contains.Substring("spanner-lib-dotnet"));
     }
 
     [Test]

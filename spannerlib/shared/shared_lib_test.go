@@ -38,7 +38,7 @@ func TestCreatePool(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	mem, code, poolId, length, data := CreatePool(dsn)
+	mem, code, poolId, length, data := CreatePool("test", dsn)
 	if g, w := mem, int64(0); g != w {
 		t.Fatalf("CreatePool mem mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -68,7 +68,7 @@ func TestCreateConnection(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	_, code, poolId, _, _ := CreatePool(dsn)
+	_, code, poolId, _, _ := CreatePool("test", dsn)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -106,7 +106,7 @@ func TestExecute(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	_, code, poolId, _, _ := CreatePool(dsn)
+	_, code, poolId, _, _ := CreatePool("test", dsn)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -242,7 +242,7 @@ func TestExecuteMultiStatement(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	_, code, poolId, _, _ := CreatePool(dsn)
+	_, code, poolId, _, _ := CreatePool("test", dsn)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -390,7 +390,7 @@ func TestExecuteBatch(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	_, code, poolId, _, _ := CreatePool(dsn)
+	_, code, poolId, _, _ := CreatePool("test", dsn)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -447,7 +447,7 @@ func TestBeginAndCommitTransaction(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	_, code, poolId, _, _ := CreatePool(dsn)
+	_, code, poolId, _, _ := CreatePool("test", dsn)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -502,7 +502,7 @@ func TestBeginAndRollbackTransaction(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	_, code, poolId, _, _ := CreatePool(dsn)
+	_, code, poolId, _, _ := CreatePool("test", dsn)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -557,7 +557,7 @@ func TestWriteMutations(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	_, code, poolId, _, _ := CreatePool(dsn)
+	_, code, poolId, _, _ := CreatePool("test", dsn)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}

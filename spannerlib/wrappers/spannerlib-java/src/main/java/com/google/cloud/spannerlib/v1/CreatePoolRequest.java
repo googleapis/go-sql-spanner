@@ -29,6 +29,7 @@ private static final long serialVersionUID = 0L;
   }
   private CreatePoolRequest() {
     connectionString_ = "";
+    userAgentSuffix_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -83,6 +84,45 @@ private static final long serialVersionUID = 0L;
     }
   }
 
+  public static final int USER_AGENT_SUFFIX_FIELD_NUMBER = 2;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object userAgentSuffix_ = "";
+  /**
+   * <code>string user_agent_suffix = 2;</code>
+   * @return The userAgentSuffix.
+   */
+  @java.lang.Override
+  public java.lang.String getUserAgentSuffix() {
+    java.lang.Object ref = userAgentSuffix_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs = 
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      userAgentSuffix_ = s;
+      return s;
+    }
+  }
+  /**
+   * <code>string user_agent_suffix = 2;</code>
+   * @return The bytes for userAgentSuffix.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getUserAgentSuffixBytes() {
+    java.lang.Object ref = userAgentSuffix_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b = 
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      userAgentSuffix_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -100,6 +140,9 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(connectionString_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 1, connectionString_);
     }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(userAgentSuffix_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 2, userAgentSuffix_);
+    }
     getUnknownFields().writeTo(output);
   }
 
@@ -111,6 +154,9 @@ private static final long serialVersionUID = 0L;
     size = 0;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(connectionString_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(1, connectionString_);
+    }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(userAgentSuffix_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(2, userAgentSuffix_);
     }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
@@ -129,6 +175,8 @@ private static final long serialVersionUID = 0L;
 
     if (!getConnectionString()
         .equals(other.getConnectionString())) return false;
+    if (!getUserAgentSuffix()
+        .equals(other.getUserAgentSuffix())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -142,6 +190,8 @@ private static final long serialVersionUID = 0L;
     hash = (19 * hash) + getDescriptor().hashCode();
     hash = (37 * hash) + CONNECTION_STRING_FIELD_NUMBER;
     hash = (53 * hash) + getConnectionString().hashCode();
+    hash = (37 * hash) + USER_AGENT_SUFFIX_FIELD_NUMBER;
+    hash = (53 * hash) + getUserAgentSuffix().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -274,6 +324,7 @@ private static final long serialVersionUID = 0L;
       super.clear();
       bitField0_ = 0;
       connectionString_ = "";
+      userAgentSuffix_ = "";
       return this;
     }
 
@@ -310,6 +361,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000001) != 0)) {
         result.connectionString_ = connectionString_;
       }
+      if (((from_bitField0_ & 0x00000002) != 0)) {
+        result.userAgentSuffix_ = userAgentSuffix_;
+      }
     }
 
     @java.lang.Override
@@ -327,6 +381,11 @@ private static final long serialVersionUID = 0L;
       if (!other.getConnectionString().isEmpty()) {
         connectionString_ = other.connectionString_;
         bitField0_ |= 0x00000001;
+        onChanged();
+      }
+      if (!other.getUserAgentSuffix().isEmpty()) {
+        userAgentSuffix_ = other.userAgentSuffix_;
+        bitField0_ |= 0x00000002;
         onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
@@ -360,6 +419,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000001;
               break;
             } // case 10
+            case 18: {
+              userAgentSuffix_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000002;
+              break;
+            } // case 18
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -445,6 +509,78 @@ private static final long serialVersionUID = 0L;
       checkByteStringIsUtf8(value);
       connectionString_ = value;
       bitField0_ |= 0x00000001;
+      onChanged();
+      return this;
+    }
+
+    private java.lang.Object userAgentSuffix_ = "";
+    /**
+     * <code>string user_agent_suffix = 2;</code>
+     * @return The userAgentSuffix.
+     */
+    public java.lang.String getUserAgentSuffix() {
+      java.lang.Object ref = userAgentSuffix_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        userAgentSuffix_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <code>string user_agent_suffix = 2;</code>
+     * @return The bytes for userAgentSuffix.
+     */
+    public com.google.protobuf.ByteString
+        getUserAgentSuffixBytes() {
+      java.lang.Object ref = userAgentSuffix_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        userAgentSuffix_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <code>string user_agent_suffix = 2;</code>
+     * @param value The userAgentSuffix to set.
+     * @return This builder for chaining.
+     */
+    public Builder setUserAgentSuffix(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      userAgentSuffix_ = value;
+      bitField0_ |= 0x00000002;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string user_agent_suffix = 2;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearUserAgentSuffix() {
+      userAgentSuffix_ = getDefaultInstance().getUserAgentSuffix();
+      bitField0_ = (bitField0_ & ~0x00000002);
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string user_agent_suffix = 2;</code>
+     * @param value The bytes for userAgentSuffix to set.
+     * @return This builder for chaining.
+     */
+    public Builder setUserAgentSuffixBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      userAgentSuffix_ = value;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }

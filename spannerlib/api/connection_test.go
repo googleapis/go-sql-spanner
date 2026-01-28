@@ -40,7 +40,7 @@ func TestCreateAndCloseConnection(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestCreateTwoConnections(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestCloseConnectionTwice(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestWriteMutations(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestWriteMutationsInReadOnlyTx(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestTags(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -379,7 +379,7 @@ func TestStaleQuery(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -438,7 +438,7 @@ func TestCreateDatabase(t *testing.T) {
 		},
 	})
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}

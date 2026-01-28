@@ -13,12 +13,12 @@
 #  limitations under the License.
 """Module for interacting with the SpannerLib shared library."""
 
-from contextlib import contextmanager
 import ctypes
-from importlib.resources import as_file, files
 import logging
-from pathlib import Path
 import platform
+from contextlib import contextmanager
+from importlib.resources import as_file, files
+from pathlib import Path
 from typing import ClassVar, Final, Generator, Optional
 
 from .errors import SpannerLibError
@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 CURRENT_PACKAGE: Final[str] = __package__ or "google.cloud.spannerlib.internal"
 LIB_DIR_NAME: Final[str] = "lib"
+USER_AGENT_SUFFIX: Final[str] = "python"
 
 
 @contextmanager
@@ -162,9 +163,10 @@ class SpannerLib:
 
             # 2. CreatePool
             # Corresponds to:
-            # CreatePool_return CreatePool(GoString connectionString);
+            # CreatePool_return CreatePool(GoString userAgentSuffix,
+            # GoString connectionString);
             if hasattr(lib, "CreatePool"):
-                lib.CreatePool.argtypes = [GoString]
+                lib.CreatePool.argtypes = [GoString, GoString]
                 lib.CreatePool.restype = Message
 
             # 3. ClosePool
@@ -357,7 +359,7 @@ class SpannerLib:
             Message: The result containing the pool handle.
         """
         go_str = GoString.from_str(conn_str)
-        msg = self.lib.CreatePool(go_str)
+        msg = self.lib.CreatePool(GoString.from_str(USER_AGENT_SUFFIX), go_str)
         return msg.bind_library(self)
 
     def close_pool(self, pool_handle: int) -> Message:

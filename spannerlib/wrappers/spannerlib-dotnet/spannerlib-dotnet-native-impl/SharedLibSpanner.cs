@@ -68,7 +68,8 @@ public class SharedLibSpanner : ISpannerLib
         using var handler = ExecuteLibraryFunction(() =>
         {
             using var goDsn = new GoString(connectionString);
-            return SpannerLib.CreatePool(goDsn);
+            using var userAgentSuffix = new GoString(ISpannerLib.UserAgentSuffix);
+            return SpannerLib.CreatePool(userAgentSuffix, goDsn);
         });
         return new Pool(this, handler.ObjectId());
     }

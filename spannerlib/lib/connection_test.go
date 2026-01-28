@@ -34,7 +34,7 @@ func TestCreateAndCloseConnection(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolMsg := CreatePool(ctx, dsn)
+	poolMsg := CreatePool(ctx, "test", dsn)
 	if g, w := poolMsg.Code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -78,7 +78,7 @@ func TestExecute(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolMsg := CreatePool(ctx, dsn)
+	poolMsg := CreatePool(ctx, "test", dsn)
 	if g, w := poolMsg.Code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -126,7 +126,7 @@ func TestExecuteBatch(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolMsg := CreatePool(ctx, dsn)
+	poolMsg := CreatePool(ctx, "test", dsn)
 	if g, w := poolMsg.Code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -168,7 +168,7 @@ func TestBeginAndCommit(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolMsg := CreatePool(ctx, dsn)
+	poolMsg := CreatePool(ctx, "test", dsn)
 	if g, w := poolMsg.Code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -218,7 +218,7 @@ func TestBeginAndRollback(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolMsg := CreatePool(ctx, dsn)
+	poolMsg := CreatePool(ctx, "test", dsn)
 	if g, w := poolMsg.Code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -268,7 +268,7 @@ func TestWriteMutations(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolMsg := CreatePool(ctx, dsn)
+	poolMsg := CreatePool(ctx, "test", dsn)
 	if g, w := poolMsg.Code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}

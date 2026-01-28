@@ -122,7 +122,10 @@ public class GrpcSpannerLibraryImpl implements SpannerLibrary {
       return new Pool(
           this,
           stub.createPool(
-                  CreatePoolRequest.newBuilder().setConnectionString(connectionString).build())
+                  CreatePoolRequest.newBuilder()
+                      .setUserAgentSuffix(USER_AGENT_SUFFIX)
+                      .setConnectionString(connectionString)
+                      .build())
               .getId());
     } catch (StatusException exception) {
       throw toSpannerLibException(exception);

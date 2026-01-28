@@ -36,7 +36,7 @@ func TestCreateAndClosePool(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestCreatePoolFails(t *testing.T) {
 		KeepError: true,
 	})
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if g, w := spanner.ErrCode(err), codes.PermissionDenied; g != w {
 		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -91,7 +91,7 @@ func TestClosePoolTwice(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestCreateTwoPools(t *testing.T) {
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
 	for range 2 {
-		poolId, err := CreatePool(ctx, dsn)
+		poolId, err := CreatePool(ctx, "test", dsn)
 		if err != nil {
 			t.Fatalf("CreatePool returned unexpected error: %v", err)
 		}

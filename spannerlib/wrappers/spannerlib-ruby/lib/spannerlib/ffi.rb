@@ -28,6 +28,8 @@ require_relative "message_handler"
 module SpannerLib
   extend FFI::Library
 
+  USER_AGENT_SUFFIX = "ruby"
+
   # rubocop:disable Metrics/MethodLength
   def self.platform_dir_from_host
     host_os = RbConfig::CONFIG["host_os"]
@@ -101,7 +103,7 @@ module SpannerLib
   end
 
   # --- Native Function Signatures ---
-  attach_function :CreatePool, [GoString.by_value], Message.by_value
+  attach_function :CreatePool, [GoString.by_value, GoString.by_value], Message.by_value
   attach_function :ClosePool, [:int64], Message.by_value
   attach_function :CreateConnection, [:int64], Message.by_value
   attach_function :CloseConnection, %i[int64 int64], Message.by_value
@@ -120,7 +122,15 @@ module SpannerLib
 
   # --- Ruby-friendly Wrappers ---
 
+  # rubocop:disable Metrics/MethodLength, Metrics/AbcSize
   def self.create_pool(dsn)
+    user_agent_suffix_str = USER_AGENT_SUFFIX.to_s.dup
+    user_agent_suffix_ptr = FFI::MemoryPointer.from_string(user_agent_suffix_str)
+
+    go_user_agent_suffix = GoString.new
+    go_user_agent_suffix[:p] = user_agent_suffix_ptr
+    go_user_agent_suffix[:len] = user_agent_suffix_str.bytesize
+
     dsn_str = dsn.to_s.dup
     dsn_ptr = FFI::MemoryPointer.from_string(dsn_str)
 
@@ -128,9 +138,10 @@ module SpannerLib
     go_dsn[:p] = dsn_ptr
     go_dsn[:len] = dsn_str.bytesize
 
-    message = CreatePool(go_dsn)
+    message = CreatePool(go_user_agent_suffix, go_dsn)
     handle_object_id_response(message, "CreatePool")
   end
+  # rubocop:enable Metrics/MethodLength, Metrics/AbcSize
 
   def self.close_pool(pool_id)
     message = ClosePool(pool_id)

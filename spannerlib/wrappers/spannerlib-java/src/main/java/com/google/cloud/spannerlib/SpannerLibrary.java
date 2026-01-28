@@ -32,6 +32,7 @@ import java.io.Closeable;
  * various supported communication models (e.g. shared library or gRPC).
  */
 public interface SpannerLibrary extends Closeable {
+  String USER_AGENT_SUFFIX = "java";
 
   Pool createPool(String connectionString);
 
