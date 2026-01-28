@@ -31,9 +31,9 @@ TEST_PYTHON_VERSIONS: List[str] = [
     "3.14",
 ]
 
-FLAKE8_VERSION = "flake8>=6.1.0,<7.3.0"
+FLAKE8_VERSION = "flake8>=6.1.0,<=7.3.0"
 BLACK_VERSION = "black[jupyter]>=23.7.0,<25.11.0"
-ISORT_VERSION = "isort>=5.11.0,<7.0.0"
+ISORT_VERSION = "isort>=5.11.0,<=7.0.0"
 
 LINT_PATHS = ["google", "tests", "noxfile.py"]
 
