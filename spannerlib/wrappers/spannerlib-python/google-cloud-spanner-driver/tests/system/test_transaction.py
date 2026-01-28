@@ -38,7 +38,7 @@ class TestTransaction:
     def test_commit(self):
         """Test that changes are visible after commit."""
         connection_string = get_test_connection_string()
-        
+
         # 1. Insert in a transaction
         with connect(connection_string) as conn1:
             conn1.begin()
@@ -89,7 +89,7 @@ class TestTransaction:
 
         conn1 = connect(connection_string)
         conn2 = connect(connection_string)
-        
+
         try:
             conn1.begin()
             curs1 = conn1.cursor()
@@ -102,22 +102,16 @@ class TestTransaction:
                 {"id": 3, "first": "Bob", "last": "Smith"},
             )
 
-            # Check from conn2 (should not see it)
-            curs2.execute(
-                "SELECT FirstName FROM Singers WHERE SingerId = 3"
-            )
+            # Check from conn2
+            curs2.execute("SELECT FirstName FROM Singers WHERE SingerId = 3")
             row = curs2.fetchone()
             assert row is None
 
             # Commit conn1
             conn1.commit()
 
-            # Check from conn2 (should see it now?) 
-            # Note: Spanner reads are usually strong, so if we start a new read 
-            # (which execute does implicitly if not in transaction), it should see it.
-            curs2.execute(
-                "SELECT FirstName FROM Singers WHERE SingerId = 3"
-            )
+            # Check from conn2
+            curs2.execute("SELECT FirstName FROM Singers WHERE SingerId = 3")
             row = curs2.fetchone()
             assert row == ("Bob",)
 

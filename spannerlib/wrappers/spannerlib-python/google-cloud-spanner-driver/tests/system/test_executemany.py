@@ -38,7 +38,7 @@ class TestExecuteMany:
     def test_executemany(self):
         """Test executemany with multiple rows."""
         connection_string = get_test_connection_string()
-        
+
         with connect(connection_string) as connection:
             with connection.cursor() as cursor:
                 sql = (
@@ -50,11 +50,11 @@ class TestExecuteMany:
                     {"id": 2, "first": "Bob", "last": "B"},
                     {"id": 3, "first": "Charlie", "last": "C"},
                 ]
-                
+
                 cursor.executemany(sql, params_seq)
-                
+
                 assert cursor.rowcount == 3
-                
+
                 # Verify rows
                 cursor.execute("SELECT * FROM Singers ORDER BY SingerId")
                 rows = cursor.fetchall()
