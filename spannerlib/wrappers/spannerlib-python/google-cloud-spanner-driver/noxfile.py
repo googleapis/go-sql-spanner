@@ -53,6 +53,7 @@ UNIT_TEST_STANDARD_DEPENDENCIES = [
     "pytest",
     "pytest-cov",
     "pytest-asyncio",
+    "google-cloud-spanner",
 ]
 
 SYSTEM_TEST_STANDARD_DEPENDENCIES = [
