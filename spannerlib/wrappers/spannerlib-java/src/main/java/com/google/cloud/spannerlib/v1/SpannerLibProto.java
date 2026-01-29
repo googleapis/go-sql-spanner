@@ -138,121 +138,121 @@ public final class SpannerLibProto extends com.google.protobuf.GeneratedFile {
       "sult_set.proto\032\037google/spanner/v1/spanne" +
       "r.proto\032#google/spanner/v1/transaction.p" +
       "roto\"\r\n\013InfoRequest\"\037\n\014InfoResponse\022\017\n\007v" +
-      "ersion\030\001 \001(\t\"3\n\021CreatePoolRequest\022\036\n\021con" +
-      "nection_string\030\001 \001(\tB\003\340A\002\"H\n\027CreateConne" +
-      "ctionRequest\022-\n\004pool\030\001 \001(\0132\032.google.span" +
-      "nerlib.v1.PoolB\003\340A\002\"<\n\014FetchOptions\022\025\n\010n" +
-      "um_rows\030\001 \001(\003B\003\340A\002\022\025\n\010encoding\030\002 \001(\003B\003\340A" +
-      "\002\"\316\001\n\016ExecuteRequest\0229\n\nconnection\030\001 \001(\013" +
-      "2 .google.spannerlib.v1.ConnectionB\003\340A\002\022" +
-      "F\n\023execute_sql_request\030\002 \001(\0132$.google.sp" +
-      "anner.v1.ExecuteSqlRequestB\003\340A\002\0229\n\rfetch" +
-      "_options\030\003 \001(\0132\".google.spannerlib.v1.Fe" +
-      "tchOptions\"\243\001\n\023ExecuteBatchRequest\0229\n\nco" +
-      "nnection\030\001 \001(\0132 .google.spannerlib.v1.Co" +
-      "nnectionB\003\340A\002\022Q\n\031execute_batch_dml_reque" +
-      "st\030\002 \001(\0132).google.spanner.v1.ExecuteBatc" +
-      "hDmlRequestB\003\340A\002\"\235\001\n\027BeginTransactionReq" +
-      "uest\0229\n\nconnection\030\001 \001(\0132 .google.spanne" +
-      "rlib.v1.ConnectionB\003\340A\002\022G\n\023transaction_o" +
-      "ptions\030\002 \001(\0132%.google.spanner.v1.Transac" +
-      "tionOptionsB\003\340A\002\"\236\001\n\025WriteMutationsReque" +
-      "st\0229\n\nconnection\030\001 \001(\0132 .google.spannerl" +
-      "ib.v1.ConnectionB\003\340A\002\022J\n\tmutations\030\002 \001(\013" +
-      "22.google.spanner.v1.BatchWriteRequest.M" +
-      "utationGroupB\003\340A\002\"\027\n\004Pool\022\017\n\002id\030\001 \001(\003B\003\340" +
-      "A\002\"L\n\nConnection\022-\n\004pool\030\001 \001(\0132\032.google." +
-      "spannerlib.v1.PoolB\003\340A\002\022\017\n\002id\030\002 \001(\003B\003\340A\002" +
-      "\"R\n\004Rows\0229\n\nconnection\030\001 \001(\0132 .google.sp" +
-      "annerlib.v1.ConnectionB\003\340A\002\022\017\n\002id\030\002 \001(\003B" +
-      "\003\340A\002\"|\n\013NextRequest\022-\n\004rows\030\001 \001(\0132\032.goog" +
-      "le.spannerlib.v1.RowsB\003\340A\002\022>\n\rfetch_opti" +
-      "ons\030\002 \001(\0132\".google.spannerlib.v1.FetchOp" +
-      "tionsB\003\340A\002\"\353\001\n\007RowData\022-\n\004rows\030\001 \001(\0132\032.g" +
-      "oogle.spannerlib.v1.RowsB\003\340A\002\0226\n\010metadat" +
-      "a\030\002 \001(\0132$.google.spanner.v1.ResultSetMet" +
-      "adata\022-\n\004data\030\003 \003(\0132\032.google.protobuf.Li" +
-      "stValueB\003\340A\002\0220\n\005stats\030\004 \001(\0132!.google.spa" +
-      "nner.v1.ResultSetStats\022\030\n\020has_more_resul" +
-      "ts\030\005 \001(\010\"@\n\017MetadataRequest\022-\n\004rows\030\001 \001(" +
-      "\0132\032.google.spannerlib.v1.RowsB\003\340A\002\"F\n\025Re" +
-      "sultSetStatsRequest\022-\n\004rows\030\001 \001(\0132\032.goog" +
-      "le.spannerlib.v1.RowsB\003\340A\002\"\317\003\n\027Connectio" +
-      "nStreamRequest\022?\n\017execute_request\030\001 \001(\0132" +
-      "$.google.spannerlib.v1.ExecuteRequestH\000\022" +
-      "J\n\025execute_batch_request\030\002 \001(\0132).google." +
-      "spannerlib.v1.ExecuteBatchRequestH\000\022R\n\031b" +
-      "egin_transaction_request\030\003 \001(\0132-.google." +
-      "spannerlib.v1.BeginTransactionRequestH\000\022" +
-      ":\n\016commit_request\030\004 \001(\0132 .google.spanner" +
-      "lib.v1.ConnectionH\000\022<\n\020rollback_request\030" +
-      "\005 \001(\0132 .google.spannerlib.v1.ConnectionH" +
-      "\000\022N\n\027write_mutations_request\030\006 \001(\0132+.goo" +
-      "gle.spannerlib.v1.WriteMutationsRequestH" +
-      "\000B\t\n\007request\"\261\001\n\017ExecuteResponse\022-\n\004rows" +
-      "\030\001 \001(\0132\032.google.spannerlib.v1.RowsB\003\340A\002\022" +
-      "1\n\013result_sets\030\002 \003(\0132\034.google.spanner.v1" +
-      ".ResultSet\022\"\n\006status\030\003 \001(\0132\022.google.rpc." +
-      "Status\022\030\n\020has_more_results\030\004 \001(\010\"\323\003\n\030Con" +
-      "nectionStreamResponse\022\"\n\006status\030\001 \001(\0132\022." +
-      "google.rpc.Status\022A\n\020execute_response\030\002 " +
-      "\001(\0132%.google.spannerlib.v1.ExecuteRespon" +
-      "seH\000\022L\n\026execute_batch_response\030\003 \001(\0132*.g" +
-      "oogle.spanner.v1.ExecuteBatchDmlResponse" +
-      "H\000\022<\n\032begin_transaction_response\030\004 \001(\0132\026" +
-      ".google.protobuf.EmptyH\000\022<\n\017commit_respo" +
-      "nse\030\005 \001(\0132!.google.spanner.v1.CommitResp" +
-      "onseH\000\0223\n\021rollback_response\030\006 \001(\0132\026.goog" +
-      "le.protobuf.EmptyH\000\022E\n\030write_mutations_r" +
-      "esponse\030\007 \001(\0132!.google.spanner.v1.Commit" +
-      "ResponseH\000B\n\n\010response2\353\014\n\nSpannerLib\022O\n" +
-      "\004Info\022!.google.spannerlib.v1.InfoRequest" +
-      "\032\".google.spannerlib.v1.InfoResponse\"\000\022S" +
-      "\n\nCreatePool\022\'.google.spannerlib.v1.Crea" +
-      "tePoolRequest\032\032.google.spannerlib.v1.Poo" +
-      "l\"\000\022A\n\tClosePool\022\032.google.spannerlib.v1." +
-      "Pool\032\026.google.protobuf.Empty\"\000\022e\n\020Create" +
-      "Connection\022-.google.spannerlib.v1.Create" +
-      "ConnectionRequest\032 .google.spannerlib.v1" +
-      ".Connection\"\000\022M\n\017CloseConnection\022 .googl" +
-      "e.spannerlib.v1.Connection\032\026.google.prot" +
-      "obuf.Empty\"\000\022M\n\007Execute\022$.google.spanner" +
-      "lib.v1.ExecuteRequest\032\032.google.spannerli" +
-      "b.v1.Rows\"\000\022[\n\020ExecuteStreaming\022$.google" +
-      ".spannerlib.v1.ExecuteRequest\032\035.google.s" +
-      "pannerlib.v1.RowData\"\0000\001\022g\n\014ExecuteBatch" +
-      "\022).google.spannerlib.v1.ExecuteBatchRequ" +
-      "est\032*.google.spanner.v1.ExecuteBatchDmlR" +
-      "esponse\"\000\022N\n\010Metadata\022\032.google.spannerli" +
-      "b.v1.Rows\032$.google.spanner.v1.ResultSetM" +
-      "etadata\"\000\022G\n\004Next\022!.google.spannerlib.v1" +
-      ".NextRequest\032\032.google.protobuf.ListValue" +
-      "\"\000\022Q\n\016ResultSetStats\022\032.google.spannerlib" +
-      ".v1.Rows\032!.google.spanner.v1.ResultSetSt" +
-      "ats\"\000\022S\n\rNextResultSet\022\032.google.spannerl" +
-      "ib.v1.Rows\032$.google.spanner.v1.ResultSet" +
-      "Metadata\"\000\022A\n\tCloseRows\022\032.google.spanner" +
-      "lib.v1.Rows\032\026.google.protobuf.Empty\"\000\022[\n" +
-      "\020BeginTransaction\022-.google.spannerlib.v1" +
-      ".BeginTransactionRequest\032\026.google.protob" +
-      "uf.Empty\"\000\022O\n\006Commit\022 .google.spannerlib" +
-      ".v1.Connection\032!.google.spanner.v1.Commi" +
-      "tResponse\"\000\022F\n\010Rollback\022 .google.spanner" +
-      "lib.v1.Connection\032\026.google.protobuf.Empt" +
-      "y\"\000\022b\n\016WriteMutations\022+.google.spannerli" +
-      "b.v1.WriteMutationsRequest\032!.google.span" +
-      "ner.v1.CommitResponse\"\000\022w\n\020ConnectionStr" +
-      "eam\022-.google.spannerlib.v1.ConnectionStr" +
-      "eamRequest\032..google.spannerlib.v1.Connec" +
-      "tionStreamResponse\"\000(\0010\001\022R\n\021ContinueStre" +
-      "aming\022\032.google.spannerlib.v1.Rows\032\035.goog" +
-      "le.spannerlib.v1.RowData\"\0000\001B\315\001\n\036com.goo" +
-      "gle.cloud.spannerlib.v1B\017SpannerLibProto" +
-      "P\001Z>cloud.google.com/go/spannerlib/apiv1" +
-      "/spannerlibpb;spannerlibpb\252\002\032Google.Clou" +
-      "d.SpannerLib.V1\312\002\032Google\\Cloud\\SpannerLi" +
-      "b\\V1\352\002\035Google::Cloud::SpannerLib::V1b\006pr" +
-      "oto3"
+      "ersion\030\001 \001(\t\"N\n\021CreatePoolRequest\022\036\n\021con" +
+      "nection_string\030\001 \001(\tB\003\340A\002\022\031\n\021user_agent_" +
+      "suffix\030\002 \001(\t\"H\n\027CreateConnectionRequest\022" +
+      "-\n\004pool\030\001 \001(\0132\032.google.spannerlib.v1.Poo" +
+      "lB\003\340A\002\"<\n\014FetchOptions\022\025\n\010num_rows\030\001 \001(\003" +
+      "B\003\340A\002\022\025\n\010encoding\030\002 \001(\003B\003\340A\002\"\316\001\n\016Execute" +
+      "Request\0229\n\nconnection\030\001 \001(\0132 .google.spa" +
+      "nnerlib.v1.ConnectionB\003\340A\002\022F\n\023execute_sq" +
+      "l_request\030\002 \001(\0132$.google.spanner.v1.Exec" +
+      "uteSqlRequestB\003\340A\002\0229\n\rfetch_options\030\003 \001(" +
+      "\0132\".google.spannerlib.v1.FetchOptions\"\243\001" +
+      "\n\023ExecuteBatchRequest\0229\n\nconnection\030\001 \001(" +
+      "\0132 .google.spannerlib.v1.ConnectionB\003\340A\002" +
+      "\022Q\n\031execute_batch_dml_request\030\002 \001(\0132).go" +
+      "ogle.spanner.v1.ExecuteBatchDmlRequestB\003" +
+      "\340A\002\"\235\001\n\027BeginTransactionRequest\0229\n\nconne" +
+      "ction\030\001 \001(\0132 .google.spannerlib.v1.Conne" +
+      "ctionB\003\340A\002\022G\n\023transaction_options\030\002 \001(\0132" +
+      "%.google.spanner.v1.TransactionOptionsB\003" +
+      "\340A\002\"\236\001\n\025WriteMutationsRequest\0229\n\nconnect" +
+      "ion\030\001 \001(\0132 .google.spannerlib.v1.Connect" +
+      "ionB\003\340A\002\022J\n\tmutations\030\002 \001(\01322.google.spa" +
+      "nner.v1.BatchWriteRequest.MutationGroupB" +
+      "\003\340A\002\"\027\n\004Pool\022\017\n\002id\030\001 \001(\003B\003\340A\002\"L\n\nConnect" +
+      "ion\022-\n\004pool\030\001 \001(\0132\032.google.spannerlib.v1" +
+      ".PoolB\003\340A\002\022\017\n\002id\030\002 \001(\003B\003\340A\002\"R\n\004Rows\0229\n\nc" +
+      "onnection\030\001 \001(\0132 .google.spannerlib.v1.C" +
+      "onnectionB\003\340A\002\022\017\n\002id\030\002 \001(\003B\003\340A\002\"|\n\013NextR" +
+      "equest\022-\n\004rows\030\001 \001(\0132\032.google.spannerlib" +
+      ".v1.RowsB\003\340A\002\022>\n\rfetch_options\030\002 \001(\0132\".g" +
+      "oogle.spannerlib.v1.FetchOptionsB\003\340A\002\"\353\001" +
+      "\n\007RowData\022-\n\004rows\030\001 \001(\0132\032.google.spanner" +
+      "lib.v1.RowsB\003\340A\002\0226\n\010metadata\030\002 \001(\0132$.goo" +
+      "gle.spanner.v1.ResultSetMetadata\022-\n\004data" +
+      "\030\003 \003(\0132\032.google.protobuf.ListValueB\003\340A\002\022" +
+      "0\n\005stats\030\004 \001(\0132!.google.spanner.v1.Resul" +
+      "tSetStats\022\030\n\020has_more_results\030\005 \001(\010\"@\n\017M" +
+      "etadataRequest\022-\n\004rows\030\001 \001(\0132\032.google.sp" +
+      "annerlib.v1.RowsB\003\340A\002\"F\n\025ResultSetStatsR" +
+      "equest\022-\n\004rows\030\001 \001(\0132\032.google.spannerlib" +
+      ".v1.RowsB\003\340A\002\"\317\003\n\027ConnectionStreamReques" +
+      "t\022?\n\017execute_request\030\001 \001(\0132$.google.span" +
+      "nerlib.v1.ExecuteRequestH\000\022J\n\025execute_ba" +
+      "tch_request\030\002 \001(\0132).google.spannerlib.v1" +
+      ".ExecuteBatchRequestH\000\022R\n\031begin_transact" +
+      "ion_request\030\003 \001(\0132-.google.spannerlib.v1" +
+      ".BeginTransactionRequestH\000\022:\n\016commit_req" +
+      "uest\030\004 \001(\0132 .google.spannerlib.v1.Connec" +
+      "tionH\000\022<\n\020rollback_request\030\005 \001(\0132 .googl" +
+      "e.spannerlib.v1.ConnectionH\000\022N\n\027write_mu" +
+      "tations_request\030\006 \001(\0132+.google.spannerli" +
+      "b.v1.WriteMutationsRequestH\000B\t\n\007request\"" +
+      "\261\001\n\017ExecuteResponse\022-\n\004rows\030\001 \001(\0132\032.goog" +
+      "le.spannerlib.v1.RowsB\003\340A\002\0221\n\013result_set" +
+      "s\030\002 \003(\0132\034.google.spanner.v1.ResultSet\022\"\n" +
+      "\006status\030\003 \001(\0132\022.google.rpc.Status\022\030\n\020has" +
+      "_more_results\030\004 \001(\010\"\323\003\n\030ConnectionStream" +
+      "Response\022\"\n\006status\030\001 \001(\0132\022.google.rpc.St" +
+      "atus\022A\n\020execute_response\030\002 \001(\0132%.google." +
+      "spannerlib.v1.ExecuteResponseH\000\022L\n\026execu" +
+      "te_batch_response\030\003 \001(\0132*.google.spanner" +
+      ".v1.ExecuteBatchDmlResponseH\000\022<\n\032begin_t" +
+      "ransaction_response\030\004 \001(\0132\026.google.proto" +
+      "buf.EmptyH\000\022<\n\017commit_response\030\005 \001(\0132!.g" +
+      "oogle.spanner.v1.CommitResponseH\000\0223\n\021rol" +
+      "lback_response\030\006 \001(\0132\026.google.protobuf.E" +
+      "mptyH\000\022E\n\030write_mutations_response\030\007 \001(\013" +
+      "2!.google.spanner.v1.CommitResponseH\000B\n\n" +
+      "\010response2\353\014\n\nSpannerLib\022O\n\004Info\022!.googl" +
+      "e.spannerlib.v1.InfoRequest\032\".google.spa" +
+      "nnerlib.v1.InfoResponse\"\000\022S\n\nCreatePool\022" +
+      "\'.google.spannerlib.v1.CreatePoolRequest" +
+      "\032\032.google.spannerlib.v1.Pool\"\000\022A\n\tCloseP" +
+      "ool\022\032.google.spannerlib.v1.Pool\032\026.google" +
+      ".protobuf.Empty\"\000\022e\n\020CreateConnection\022-." +
+      "google.spannerlib.v1.CreateConnectionReq" +
+      "uest\032 .google.spannerlib.v1.Connection\"\000" +
+      "\022M\n\017CloseConnection\022 .google.spannerlib." +
+      "v1.Connection\032\026.google.protobuf.Empty\"\000\022" +
+      "M\n\007Execute\022$.google.spannerlib.v1.Execut" +
+      "eRequest\032\032.google.spannerlib.v1.Rows\"\000\022[" +
+      "\n\020ExecuteStreaming\022$.google.spannerlib.v" +
+      "1.ExecuteRequest\032\035.google.spannerlib.v1." +
+      "RowData\"\0000\001\022g\n\014ExecuteBatch\022).google.spa" +
+      "nnerlib.v1.ExecuteBatchRequest\032*.google." +
+      "spanner.v1.ExecuteBatchDmlResponse\"\000\022N\n\010" +
+      "Metadata\022\032.google.spannerlib.v1.Rows\032$.g" +
+      "oogle.spanner.v1.ResultSetMetadata\"\000\022G\n\004" +
+      "Next\022!.google.spannerlib.v1.NextRequest\032" +
+      "\032.google.protobuf.ListValue\"\000\022Q\n\016ResultS" +
+      "etStats\022\032.google.spannerlib.v1.Rows\032!.go" +
+      "ogle.spanner.v1.ResultSetStats\"\000\022S\n\rNext" +
+      "ResultSet\022\032.google.spannerlib.v1.Rows\032$." +
+      "google.spanner.v1.ResultSetMetadata\"\000\022A\n" +
+      "\tCloseRows\022\032.google.spannerlib.v1.Rows\032\026" +
+      ".google.protobuf.Empty\"\000\022[\n\020BeginTransac" +
+      "tion\022-.google.spannerlib.v1.BeginTransac" +
+      "tionRequest\032\026.google.protobuf.Empty\"\000\022O\n" +
+      "\006Commit\022 .google.spannerlib.v1.Connectio" +
+      "n\032!.google.spanner.v1.CommitResponse\"\000\022F" +
+      "\n\010Rollback\022 .google.spannerlib.v1.Connec" +
+      "tion\032\026.google.protobuf.Empty\"\000\022b\n\016WriteM" +
+      "utations\022+.google.spannerlib.v1.WriteMut" +
+      "ationsRequest\032!.google.spanner.v1.Commit" +
+      "Response\"\000\022w\n\020ConnectionStream\022-.google." +
+      "spannerlib.v1.ConnectionStreamRequest\032.." +
+      "google.spannerlib.v1.ConnectionStreamRes" +
+      "ponse\"\000(\0010\001\022R\n\021ContinueStreaming\022\032.googl" +
+      "e.spannerlib.v1.Rows\032\035.google.spannerlib" +
+      ".v1.RowData\"\0000\001B\315\001\n\036com.google.cloud.spa" +
+      "nnerlib.v1B\017SpannerLibProtoP\001Z>cloud.goo" +
+      "gle.com/go/spannerlib/apiv1/spannerlibpb" +
+      ";spannerlibpb\252\002\032Google.Cloud.SpannerLib." +
+      "V1\312\002\032Google\\Cloud\\SpannerLib\\V1\352\002\035Google" +
+      "::Cloud::SpannerLib::V1b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -282,7 +282,7 @@ public final class SpannerLibProto extends com.google.protobuf.GeneratedFile {
     internal_static_google_spannerlib_v1_CreatePoolRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_google_spannerlib_v1_CreatePoolRequest_descriptor,
-        new java.lang.String[] { "ConnectionString", });
+        new java.lang.String[] { "ConnectionString", "UserAgentSuffix", });
     internal_static_google_spannerlib_v1_CreateConnectionRequest_descriptor =
       getDescriptor().getMessageTypes().get(3);
     internal_static_google_spannerlib_v1_CreateConnectionRequest_fieldAccessorTable = new

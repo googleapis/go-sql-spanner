@@ -54,6 +54,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+const ModuleVersion = "1.23.0"            // x-release-please-version
 const userAgent = "go-sql-spanner/1.23.0" // x-release-please-version
 
 const gormModule = "github.com/googleapis/go-gorm-spanner"

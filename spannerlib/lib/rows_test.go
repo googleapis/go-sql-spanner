@@ -40,7 +40,7 @@ func TestQuery(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolMsg := CreatePool(ctx, dsn)
+	poolMsg := CreatePool(ctx, "test", dsn)
 	if g, w := poolMsg.Code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -123,7 +123,7 @@ func TestDml(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolMsg := CreatePool(ctx, dsn)
+	poolMsg := CreatePool(ctx, "test", dsn)
 	if g, w := poolMsg.Code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -203,7 +203,7 @@ func TestDdl(t *testing.T) {
 
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolMsg := CreatePool(ctx, dsn)
+	poolMsg := CreatePool(ctx, "test", dsn)
 	if g, w := poolMsg.Code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -272,7 +272,7 @@ func TestQueryError(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolMsg := CreatePool(ctx, dsn)
+	poolMsg := CreatePool(ctx, "test", dsn)
 	if g, w := poolMsg.Code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
