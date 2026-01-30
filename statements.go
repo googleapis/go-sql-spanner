@@ -105,7 +105,7 @@ func (s *executableShowStatement) queryContext(ctx context.Context, c *conn, opt
 	if err != nil {
 		return nil, err
 	}
-	return createRows(it /*cancel=*/, nil, opts), nil
+	return createRows(c.state, it /*cancel=*/, nil, opts), nil
 }
 
 // SET [SESSION | LOCAL] [my_extension.]my_property {=|to} <value>

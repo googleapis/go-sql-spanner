@@ -16,6 +16,8 @@ package spannerdriver
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"database/sql/driver"
 	"errors"
@@ -46,12 +48,14 @@ import (
 	"google.golang.org/api/option/internaloption"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
-const userAgent = "go-sql-spanner/1.22.0" // x-release-please-version
+const ModuleVersion = "1.23.0"            // x-release-please-version
+const userAgent = "go-sql-spanner/1.23.0" // x-release-please-version
 
 const gormModule = "github.com/googleapis/go-gorm-spanner"
 const gormUserAgent = "go-gorm-spanner"
@@ -66,6 +70,9 @@ var defaultStatementCacheSize int
 // driver from adding noise to any default logger that has been set for the
 // application.
 const LevelNotice = slog.LevelInfo - 1
+
+const experimentalHostProject = "default"
+const experimentalHostInstance = "default"
 
 // Logger that discards everything and skips (almost) all logs.
 var noopLogger = slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError + 1}))
@@ -95,13 +102,13 @@ var noopLogger = slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{L
 //     - rpcPriority: Sets the priority for all RPC invocations from this connection (HIGH/MEDIUM/LOW). The default is HIGH.
 //
 // Example: `localhost:9010/projects/test-project/instances/test-instance/databases/test-database;usePlainText=true;disableRouteToLeader=true;enableEndToEndTracing=true`
-var dsnRegExp = regexp.MustCompile(`((?P<HOSTGROUP>[\w.-]+(?:\.[\w\.-]+)*[\w\-\._~:/?#\[\]@!\$&'\(\)\*\+,;=.]+)/)?projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID)))(/instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+)(/databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?)?(([\?|;])(?P<PARAMSGROUP>.*))?`)
+var dsnRegExp = regexp.MustCompile(`^((?P<HOSTGROUP>[\w.-]+(?:\.[\w\.-]+)*[\w\-\._~:#\[\]@!\$&'\(\)\*\+,=.]+)/)?(projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID))))?((?:/)?instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+))?((?:/)?databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?(([\?|;])(?P<PARAMSGROUP>.*))?$`)
 
 var _ driver.DriverContext = &Driver{}
 var spannerDriver *Driver
 
 func init() {
-	spannerDriver = &Driver{connectors: make(map[string]*connector)}
+	spannerDriver = &Driver{connectors: make(map[string]*connector), connectorUsageCount: make(map[string]int)}
 	sql.Register("spanner", spannerDriver)
 	determineDefaultStatementCacheSize()
 }
@@ -354,8 +361,9 @@ const (
 
 // Driver represents a Google Cloud Spanner database/sql driver.
 type Driver struct {
-	mu         sync.Mutex
-	connectors map[string]*connector
+	mu                  sync.Mutex
+	connectors          map[string]*connector
+	connectorUsageCount map[string]int
 }
 
 // Open opens a connection to a Google Cloud Spanner database.
@@ -496,14 +504,34 @@ func ExtractConnectorConfig(dsn string) (ConnectorConfig, error) {
 		return ConnectorConfig{}, err
 	}
 
-	return ConnectorConfig{
+	c := ConnectorConfig{
 		Host:     matches["HOSTGROUP"],
 		Project:  matches["PROJECTGROUP"],
 		Instance: matches["INSTANCEGROUP"],
 		Database: matches["DATABASEGROUP"],
 		Params:   params,
 		name:     dsn,
-	}, nil
+	}
+	if strings.EqualFold(params[propertyIsExperimentalHost.Key()], "true") {
+		if c.Host == "" {
+			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "host must be specified for experimental host endpoint"))
+		}
+		c.Configurator = func(config *spanner.ClientConfig, opts *[]option.ClientOption) {
+			config.IsExperimentalHost = true
+		}
+		if matches["INSTANCEGROUP"] == "" {
+			c.Instance = experimentalHostInstance
+		}
+		c.Project = experimentalHostProject
+	} else {
+		if c.Project == "" {
+			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "project must be specified in connection string"))
+		}
+		if c.Instance == "" {
+			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "instance must be specified in connection string"))
+		}
+	}
+	return c, nil
 }
 
 func extractConnectorParams(paramsString string) (map[string]string, error) {
@@ -565,7 +593,11 @@ func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
 	if d.connectors == nil {
 		d.connectors = make(map[string]*connector)
 	}
+	if d.connectorUsageCount == nil {
+		d.connectorUsageCount = make(map[string]int)
+	}
 	if c, ok := d.connectors[dsn]; ok {
+		d.connectorUsageCount[dsn]++
 		return c, nil
 	}
 
@@ -579,6 +611,7 @@ func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
 	}
 	c.cacheKey = dsn
 	d.connectors[dsn] = c
+	d.connectorUsageCount[dsn] = 1
 	return c, nil
 }
 
@@ -599,9 +632,13 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		opts = append(opts, option.WithGRPCDialOption(grpc.WithAuthority(connectorConfig.Authority)))
 	}
 	if val := propertyCredentials.GetValueOrDefault(state); val != "" {
+		// TODO: Replace with option.WithAuthCredentialsFile and a config option to fall back to this.
+		//lint:ignore SA1019 Needs a change that is backwards compatible
 		opts = append(opts, option.WithCredentialsFile(val))
 	}
 	if val := propertyCredentialsJson.GetValueOrDefault(state); val != "" {
+		// TODO: Replace with option.WithAuthCredentialsJSON and a config option to fall back to this.
+		//lint:ignore SA1019 Needs a change that is backwards compatible
 		opts = append(opts, option.WithCredentialsJSON([]byte(val)))
 	}
 	config := spanner.ClientConfig{
@@ -671,6 +708,22 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	if connectorConfig.Configurator != nil {
 		connectorConfig.Configurator(&config, &opts)
 	}
+	if config.IsExperimentalHost {
+		var caCertFile string
+		var clientCertFile string
+		var clientCertKey string
+		assignPropertyValueIfExists(state, propertyCaCertFile, &caCertFile)
+		assignPropertyValueIfExists(state, propertyClientCertFile, &clientCertFile)
+		assignPropertyValueIfExists(state, propertyClientCertKey, &clientCertKey)
+		if caCertFile != "" {
+			credOpts, err := createExperimentalHostCredentials(caCertFile, clientCertFile, clientCertKey)
+			if err != nil {
+				return nil, err
+			}
+			opts = append(opts, credOpts)
+			opts = append(opts, option.WithoutAuthentication())
+		}
+	}
 	if connectorConfig.AutoConfigEmulator {
 		if connectorConfig.Host == "" {
 			connectorConfig.Host = "localhost:9010"
@@ -683,7 +736,7 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			internaloption.SkipDialSettingsValidation(),
 		}
 		opts = append(emulatorOpts, opts...)
-		if err := autoConfigEmulator(context.Background(), connectorConfig.Host, connectorConfig.Project, connectorConfig.Instance, connectorConfig.Database, opts); err != nil {
+		if err := autoConfigEmulator(context.Background(), connectorConfig.Host, connectorConfig.Project, connectorConfig.Instance, connectorConfig.Database, propertyDialect.GetValueOrDefault(state), opts); err != nil {
 			return nil, err
 		}
 	}
@@ -810,6 +863,7 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 }
 
 func addStateFromConnectorConfig(c *connector, values map[string]connectionstate.ConnectionPropertyValue) {
+	updateConnectionPropertyValueIfNotExists(propertyDecodeToNativeArrays, values, c.connectorConfig.DecodeToNativeArrays)
 	updateConnectionPropertyValueIfNotExists(propertyIsolationLevel, values, c.connectorConfig.IsolationLevel)
 	updateConnectionPropertyValueIfNotExists(propertyBeginTransactionOption, values, c.connectorConfig.BeginTransactionOption)
 	updateConnectionPropertyValueIfNotExists(propertyRetryAbortsInternally, values, c.retryAbortsInternally)
@@ -926,6 +980,27 @@ func (c *connector) Driver() driver.Driver {
 }
 
 func (c *connector) Close() error {
+	shouldClose := true
+	if c.cacheKey != "" {
+		c.driver.mu.Lock()
+		if usageCount, ok := c.driver.connectorUsageCount[c.cacheKey]; ok {
+			if usageCount == 1 {
+				delete(c.driver.connectors, c.cacheKey)
+				delete(c.driver.connectorUsageCount, c.cacheKey)
+			} else {
+				c.driver.connectorUsageCount[c.cacheKey] = usageCount - 1
+				shouldClose = false
+			}
+		}
+		c.driver.mu.Unlock()
+	}
+	if shouldClose {
+		return c.close()
+	}
+	return nil
+}
+
+func (c *connector) close() error {
 	c.logger.Debug("closing connector")
 	c.closerMu.Lock()
 	c.closed = true
@@ -1472,6 +1547,8 @@ func checkIsValidType(v driver.Value) bool {
 	case []big.Rat:
 	case spanner.NullNumeric:
 	case []spanner.NullNumeric:
+	case spanner.PGNumeric:
+	case []spanner.PGNumeric:
 	case *big.Rat:
 	case []*big.Rat:
 	case time.Time:
@@ -1488,6 +1565,8 @@ func checkIsValidType(v driver.Value) bool {
 	case []*civil.Date:
 	case spanner.NullJSON:
 	case []spanner.NullJSON:
+	case spanner.PGJsonB:
+	case []spanner.PGJsonB:
 	case spanner.GenericColumnValue:
 	case uuid.UUID:
 	case *uuid.UUID:
@@ -1546,6 +1625,19 @@ func parseRpcPriority(val string) (spannerpb.RequestOptions_Priority, error) {
 		}
 	}
 	return spannerpb.RequestOptions_PRIORITY_UNSPECIFIED, status.Errorf(codes.InvalidArgument, "invalid or unsupported priority: %v", val)
+}
+
+func parseDatabaseDialect(val string) (databasepb.DatabaseDialect, error) {
+	val = strings.ToUpper(val)
+	if dialect, ok := databasepb.DatabaseDialect_value[val]; ok {
+		return databasepb.DatabaseDialect(dialect), nil
+	}
+	if !strings.HasPrefix(val, "DATABASEDIALECT_") {
+		if dialect, ok := databasepb.DatabaseDialect_value["DATABASEDIALECT_"+val]; ok {
+			return databasepb.DatabaseDialect(dialect), nil
+		}
+	}
+	return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, status.Errorf(codes.InvalidArgument, "invalid or unsupported dialect: %v", val)
 }
 
 func parseIsolationLevel(val string) (sql.IsolationLevel, error) {
@@ -1642,4 +1734,39 @@ func WithBatchReadOnly(level sql.IsolationLevel) sql.IsolationLevel {
 
 func withBatchReadOnly(level driver.IsolationLevel) driver.IsolationLevel {
 	return driver.IsolationLevel(levelBatchReadOnly)<<8 + level
+}
+
+// createExperimentalHostCredentials is only supported for connecting to experimental
+// hosts. It reads the provided CA certificate file and optionally the
+// client certificate and key files to set up TLS or mutual TLS credentials, and
+// creates gRPC dial options to connect to an experimental host endpoint.
+func createExperimentalHostCredentials(caCertFile, clientCertificateFile, clientCertificateKey string) (option.ClientOption, error) {
+	ca, err := os.ReadFile(caCertFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA certificate file: %w", err)
+	}
+	capool := x509.NewCertPool()
+	if !capool.AppendCertsFromPEM(ca) {
+		return nil, fmt.Errorf("failed to append the CA certificate to CA pool")
+	}
+
+	if clientCertificateFile != "" && clientCertificateKey != "" {
+		// Setting up mutual TLS with both the CA certificate and client certificate.
+		cert, err := tls.LoadX509KeyPair(clientCertificateFile, clientCertificateKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client certificate/key: %w", err)
+		}
+		creds := credentials.NewTLS(&tls.Config{
+			RootCAs:      capool,
+			Certificates: []tls.Certificate{cert},
+		})
+		return option.WithGRPCDialOption(grpc.WithTransportCredentials(creds)), nil
+	}
+	if clientCertificateFile != "" || clientCertificateKey != "" {
+		return nil, fmt.Errorf("both client certificate and key must be provided for mTLS, but only one was provided")
+	}
+
+	// Setting up TLS with only the CA certificate.
+	creds := credentials.NewTLS(&tls.Config{RootCAs: capool})
+	return option.WithGRPCDialOption(grpc.WithTransportCredentials(creds)), nil
 }

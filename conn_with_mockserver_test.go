@@ -749,6 +749,55 @@ func TestCreateDatabase(t *testing.T) {
 	}
 }
 
+func TestCreateDatabaseWithDialect(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	var expectedResponse = &databasepb.Database{}
+	anyMsg, _ := anypb.New(expectedResponse)
+	server.TestDatabaseAdmin.SetResps([]proto.Message{
+		&longrunningpb.Operation{
+			Done:   true,
+			Result: &longrunningpb.Operation_Response{Response: anyMsg},
+			Name:   "test-operation",
+		},
+	})
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(conn)
+
+	if _, err := conn.ExecContext(ctx, "set dialect = 'postgresql'"); err != nil {
+		t.Fatalf("failed to set dialect: %v", err)
+	}
+	if _, err = conn.ExecContext(ctx, `create database "foo"`); err != nil {
+		t.Fatalf("failed to execute CREATE DATABASE: %v", err)
+	}
+
+	requests := server.TestDatabaseAdmin.Reqs()
+	if g, w := len(requests), 1; g != w {
+		t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	if req, ok := requests[0].(*databasepb.CreateDatabaseRequest); ok {
+		if g, w := req.Parent, "projects/p/instances/i"; g != w {
+			t.Fatalf("parent mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if g, w := req.CreateStatement, `create database "foo"`; g != w {
+			t.Fatalf("CREATE statement mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		if g, w := req.DatabaseDialect, databasepb.DatabaseDialect_POSTGRESQL; g != w {
+			t.Fatalf("dialect mismatch\n Got: %v\nWant: %v", g, w)
+		}
+	} else {
+		t.Fatalf("request type mismatch, got %v", requests[0])
+	}
+}
+
 func TestCreateDatabaseWithExtraStatements(t *testing.T) {
 	t.Parallel()
 

@@ -35,7 +35,7 @@ func TestBeginAndCommit(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestBeginAndRollback(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestCommitWithOpenRows(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestCloseConnectionWithOpenTransaction(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -244,7 +244,7 @@ func TestBeginTransactionWithOpenTransaction(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestCommitWithoutTransaction(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -295,7 +295,7 @@ func TestRollbackWithoutTransaction(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestReadOnlyTransaction(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -385,7 +385,7 @@ func TestDdlInTransaction(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -419,7 +419,7 @@ func TestTransactionOptionsAsSqlStatements(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}
@@ -505,7 +505,7 @@ func TestReadOnlyTransactionOptionsAsSqlStatements(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}

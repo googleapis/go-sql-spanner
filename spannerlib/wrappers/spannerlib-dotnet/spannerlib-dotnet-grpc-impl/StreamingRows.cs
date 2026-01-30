@@ -164,7 +164,7 @@ public class StreamingRows : Rows
         _stream ??= _spanner.ContinueStreaming(SpannerConnection, Id);
         try
         {
-            var hasNext = Task.Run(() => Stream.ResponseStream.MoveNext()).ResultWithUnwrappedExceptions();
+            var hasNext = Task.Run(() => Stream.ResponseStream.MoveNext()).GetAwaiter().GetResult();
             if (!hasNext)
             {
                 MarkDone();

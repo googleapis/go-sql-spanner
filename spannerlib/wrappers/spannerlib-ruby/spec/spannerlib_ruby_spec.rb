@@ -51,11 +51,11 @@ Minitest.after_run do
   end
 
   if $any_failure
-    puts "Tests Failed! Exiting with code 1"
+    puts "Tests Failed! Exiting with code 1" # rubocop:disable RSpec/Output
     $stdout.flush
     Process.exit!(1)
   else
-    puts "Tests Passed! Exiting with code 0"
+    puts "Tests Passed! Exiting with code 0" # rubocop:disable RSpec/Output
     $stdout.flush
     Process.exit!(0)
   end

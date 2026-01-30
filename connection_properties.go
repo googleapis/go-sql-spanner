@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/parser"
@@ -64,6 +65,20 @@ var propertyConnectionStateType = createConnectionProperty(
 	func(value string) (connectionstate.Type, error) {
 		return parseConnectionStateType(value)
 	},
+)
+var propertyDialect = createConnectionProperty(
+	"dialect",
+	"The default dialect to use when creating new databases using this connection. "+
+		"You do not need to set this property for any existing database. The driver will "+
+		"automatically detect the dialect of the database that you connect to. The value of "+
+		"this property is only used when the connection is used to create a new database. "+
+		"If the value of this property is unspecified, then the new database will be created "+
+		"with the same dialect as the current database.",
+	databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	parseDatabaseDialect,
 )
 var propertyAutoConfigEmulator = createConnectionProperty(
 	"auto_config_emulator",
@@ -277,6 +292,32 @@ var propertyDecodeToNativeArrays = createConnectionProperty(
 	"decode_to_native_arrays determines whether arrays that have a Go native type should be decoded to those "+
 		"types rather than the corresponding spanner.NullTypeName type. Enabling this option will for example decode "+
 		"ARRAY<BOOL> to []bool instead of []spanner.NullBool.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
+var propertyDecodeNumericToString = createConnectionProperty(
+	"decode_numeric_to_string",
+	"decode_numeric_to_string determines whether numeric values should be returned as strings or as instances "+
+		"of big.Rat. The latter is the default and is consistent with the type that is used by the Spanner Go client library. "+
+		"Decoding to string is consistent with the database/sql standard and more similar to what other database/sql drivers "+
+		"return.",
+	false,
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertBool,
+)
+var propertySendTypedStrings = createConnectionProperty(
+	"send_typed_strings",
+	"send_untyped_strings determines whether the driver should send string query parameters as "+
+		"untyped (default) or typed strings. Using untyped strings is recommended, as it allows the application to send "+
+		"any data type (e.g. JSON, TIMESTAMP, DATE) that is encoded as a string in Spanner using a simple string value. "+
+		"Spanner will the infer the actual data type based on the SQL expression. "+
+		"This property should be set to true if the application executes statements with query parameters where the "+
+		"data type cannot be inferred, such as `SELECT @greeting`.",
 	false,
 	false,
 	nil,
@@ -549,6 +590,47 @@ var propertyConnectTimeout = createConnectionProperty(
 	nil,
 	connectionstate.ContextStartup,
 	connectionstate.ConvertDuration,
+)
+
+var propertyIsExperimentalHost = createConnectionProperty(
+	"is_experimental_host",
+	"Indicates whether the connection is to an experimental host endpoint (true/false). "+
+		"Set this value to true when connecting to an experimental host endpoint",
+	false,
+	false,
+	nil,
+	connectionstate.ContextStartup,
+	connectionstate.ConvertBool,
+)
+var propertyCaCertFile = createConnectionProperty(
+	"ca_cert_file",
+	"The path to the CA certificate file to use for TLS connections to the server. "+
+		"This is only needed when connecting to an experimental host endpoint",
+	"",
+	false,
+	nil,
+	connectionstate.ContextStartup,
+	connectionstate.ConvertString,
+)
+var propertyClientCertFile = createConnectionProperty(
+	"client_cert_file",
+	"The path to the client certificate file to use for mTLS connections to the server. "+
+		"This is only needed when connecting to an experimental host endpoint",
+	"",
+	false,
+	nil,
+	connectionstate.ContextStartup,
+	connectionstate.ConvertString,
+)
+var propertyClientCertKey = createConnectionProperty(
+	"client_cert_key",
+	"The path to the client certificate key file to use for mTLS connections to the server. "+
+		"This is only needed when connecting to an experimental host endpoint",
+	"",
+	false,
+	nil,
+	connectionstate.ContextStartup,
+	connectionstate.ConvertString,
 )
 
 // Generated read-only properties. These cannot be set by the user anywhere.

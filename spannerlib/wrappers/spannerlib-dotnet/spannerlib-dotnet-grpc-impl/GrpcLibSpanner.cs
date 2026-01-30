@@ -160,6 +160,7 @@ public sealed class GrpcLibSpanner : ISpannerLib
         return FromProto(TranslateException(() => Client.CreatePool(new CreatePoolRequest
         {
             ConnectionString = connectionString,
+            UserAgentSuffix = ISpannerLib.UserAgentSuffix,
         })));
     }
 
@@ -416,11 +417,18 @@ public sealed class GrpcLibSpanner : ISpannerLib
     
     public async Task BeginTransactionAsync(Connection connection, TransactionOptions transactionOptions, CancellationToken cancellationToken = default)
     {
-        await TranslateException(() => Client.BeginTransactionAsync(new BeginTransactionRequest
+        try
         {
-            Connection = ToProto(connection),
-            TransactionOptions = transactionOptions,
-        })).ConfigureAwait(false);
+            await Client.BeginTransactionAsync(new BeginTransactionRequest
+            {
+                Connection = ToProto(connection),
+                TransactionOptions = transactionOptions,
+            }, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (RpcException exception)
+        {
+            throw SpannerException.ToSpannerException(exception);
+        }
     }
     
     public CommitResponse? Commit(Connection connection)

@@ -666,9 +666,13 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 			ddlStatements[i] = s.SQL
 		}
 		if c.parser.IsCreateDatabaseStatement(ddlStatements[0]) {
+			dialect := c.parser.Dialect
+			if d := propertyDialect.GetValueOrDefault(c.state); d != adminpb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED {
+				dialect = d
+			}
 			op, err := c.adminClient.CreateDatabase(ctx, &adminpb.CreateDatabaseRequest{
 				CreateStatement: ddlStatements[0],
-				DatabaseDialect: c.parser.Dialect,
+				DatabaseDialect: dialect,
 				Parent:          c.instance,
 				ExtraStatements: ddlStatements[1:],
 			})
@@ -908,7 +912,12 @@ func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, err
 	if err != nil {
 		return nil, err
 	}
-	return &stmt{conn: c, query: parsedSQL, numArgs: len(args), execOptions: execOptions}, nil
+	info := c.parser.DetectStatementType(query)
+	parsedStatement, err := c.parser.ParseClientSideStatement(query)
+	if err != nil {
+		return nil, err
+	}
+	return &stmt{conn: c, query: parsedSQL, numArgs: len(args), execOptions: execOptions, statementInfo: info, parsedStatement: parsedStatement}, nil
 }
 
 // Adds any statement or transaction timeout to the given context. The deadline of the returned
@@ -1020,6 +1029,11 @@ func (c *conn) querySingle(ctx context.Context, query string, isPartOfMultiState
 		// statement is visible to the next statement in the SQL string.
 		execOptions.DirectExecuteQuery = true
 	}
+	statementInfo := c.parser.DetectStatementType(query)
+	return c.queryParsed(ctx, query, clientStmt, statementInfo, execOptions, args)
+}
+
+func (c *conn) queryParsed(ctx context.Context, query string, clientStmt parser.ParsedStatement, statementInfo *parser.StatementInfo, execOptions *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
 	if clientStmt != nil {
 		execStmt, err := createExecutableStatement(clientStmt)
 		if err != nil {
@@ -1027,11 +1041,10 @@ func (c *conn) querySingle(ctx context.Context, query string, isPartOfMultiState
 		}
 		return execStmt.queryContext(ctx, c, execOptions)
 	}
-
-	return c.queryContext(ctx, query, execOptions, args)
+	return c.queryContext(ctx, query, statementInfo, execOptions, args)
 }
 
-func (c *conn) queryContext(ctx context.Context, query string, execOptions *ExecOptions, args []driver.NamedValue) (returnedRows driver.Rows, returnedErr error) {
+func (c *conn) queryContext(ctx context.Context, query string, statementInfo *parser.StatementInfo, execOptions *ExecOptions, args []driver.NamedValue) (returnedRows driver.Rows, returnedErr error) {
 	ctx, cancelCause := context.WithCancelCause(ctx)
 	cancel := func() {
 		cancelCause(nil)
@@ -1050,11 +1063,10 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 		return pq.execute(ctx, cancel, execOptions.PartitionedQueryOptions.ExecutePartition.Index)
 	}
 
-	stmt, err := prepareSpannerStmt(c.parser, query, args)
+	stmt, err := prepareSpannerStmt(c.state, c.parser, query, args)
 	if err != nil {
 		return nil, err
 	}
-	statementInfo := c.parser.DetectStatementType(query)
 
 	// TODO: Refactor queryContext and execContext into one unified method.
 	// DDL statements are not supported in QueryContext so use the execContext method for the execution.
@@ -1064,7 +1076,7 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 	// DML statements that should use a Partitioned DML transaction should also be re-routed to execContext.
 	shouldUsePDML := !c.inTransaction() && c.AutocommitDMLMode() == PartitionedNonAtomic && isPlainDml
 	if statementInfo.StatementType == parser.StatementTypeDdl || shouldUseDmlBatch || shouldUsePDML {
-		res, err := c.execContext(ctx, query, execOptions, args)
+		res, err := c.execContext(ctx, query, statementInfo, execOptions, args)
 		if err != nil {
 			return nil, err
 		}
@@ -1084,7 +1096,7 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 		} else if execOptions.PartitionedQueryOptions.PartitionQuery {
 			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "PartitionQuery is only supported in batch read-only transactions"))
 		} else if execOptions.PartitionedQueryOptions.AutoPartitionQuery || propertyAutoPartitionMode.GetValueOrDefault(c.state) {
-			return c.executeAutoPartitionedQuery(ctx, cancel, query, execOptions, args)
+			return c.executeAutoPartitionedQuery(ctx, cancel, query, statementInfo, execOptions, args)
 		} else {
 			// The statement was either detected as being a query, or potentially not recognized at all.
 			// In that case, just default to using a single-use read-only transaction and let Spanner
@@ -1103,7 +1115,7 @@ func (c *conn) queryContext(ctx context.Context, query string, execOptions *Exec
 			return nil, err
 		}
 	}
-	res := createRows(iter, cancel, execOptions)
+	res := createRows(c.state, iter, cancel, execOptions)
 	if execOptions.DirectExecuteQuery {
 		if err := c.directExecuteQuery(ctx, cancelCause, res, execOptions); err != nil {
 			return nil, err
@@ -1178,6 +1190,11 @@ func (c *conn) execSingle(ctx context.Context, query string, args []driver.Named
 	if err != nil {
 		return nil, err
 	}
+	statementInfo := c.parser.DetectStatementType(query)
+	return c.execParsed(ctx, query, stmt, statementInfo, execOptions, args)
+}
+
+func (c *conn) execParsed(ctx context.Context, query string, stmt parser.ParsedStatement, statementInfo *parser.StatementInfo, execOptions *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	if stmt != nil {
 		execStmt, err := createExecutableStatement(stmt)
 		if err != nil {
@@ -1185,10 +1202,10 @@ func (c *conn) execSingle(ctx context.Context, query string, args []driver.Named
 		}
 		return execStmt.execContext(ctx, c, execOptions)
 	}
-	return c.execContext(ctx, query, execOptions, args)
+	return c.execContext(ctx, query, statementInfo, execOptions, args)
 }
 
-func (c *conn) execContext(ctx context.Context, query string, execOptions *ExecOptions, args []driver.NamedValue) (returnedResult driver.Result, returnedErr error) {
+func (c *conn) execContext(ctx context.Context, query string, statementInfo *parser.StatementInfo, execOptions *ExecOptions, args []driver.NamedValue) (returnedResult driver.Result, returnedErr error) {
 	// Add the statement/transaction deadline to the context.
 	ctx, cancel, err := c.addStatementAndTransactionTimeout(ctx)
 	if err != nil {
@@ -1198,7 +1215,6 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions *ExecO
 	// Clear the commit timestamp of this connection before we execute the statement.
 	c.clearCommitResponse()
 
-	statementInfo := c.parser.DetectStatementType(query)
 	// Use admin API if DDL statement is provided.
 	if statementInfo.StatementType == parser.StatementTypeDdl {
 		// Spanner does not support DDL in transactions, and although it is technically possible to execute DDL
@@ -1210,7 +1226,7 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions *ExecO
 		return c.execDDL(ctx, spanner.NewStatement(query))
 	}
 
-	ss, err := prepareSpannerStmt(c.parser, query, args)
+	ss, err := prepareSpannerStmt(c.state, c.parser, query, args)
 	if err != nil {
 		return nil, err
 	}
@@ -1706,7 +1722,7 @@ func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.
 	return c.Single().WithTimestampBound(tb).QueryWithOptions(ctx, statement, options.QueryOptions)
 }
 
-func (c *conn) executeAutoPartitionedQuery(ctx context.Context, cancel context.CancelFunc, query string, execOptions *ExecOptions, args []driver.NamedValue) (returnedRows driver.Rows, returnedErr error) {
+func (c *conn) executeAutoPartitionedQuery(ctx context.Context, cancel context.CancelFunc, query string, statementInfo *parser.StatementInfo, execOptions *ExecOptions, args []driver.NamedValue) (returnedRows driver.Rows, returnedErr error) {
 	// The cancel() function is called by the returned Rows object when it is closed.
 	// However, if an error is returned instead of a Rows instance, we need to cancel
 	// the context when we return from this function.
@@ -1719,7 +1735,7 @@ func (c *conn) executeAutoPartitionedQuery(ctx context.Context, cancel context.C
 	if err != nil {
 		return nil, err
 	}
-	r, err := c.queryContext(ctx, query, execOptions, args)
+	r, err := c.queryContext(ctx, query, statementInfo, execOptions, args)
 	if err != nil {
 		_ = tx.Rollback()
 		return nil, err

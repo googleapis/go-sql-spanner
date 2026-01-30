@@ -15,6 +15,7 @@
 package spannerdriver
 
 import (
+	"context"
 	"database/sql/driver"
 	"errors"
 	"fmt"
@@ -25,6 +26,7 @@ import (
 	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -221,5 +223,66 @@ func TestEmptyRowsWithMetadataAndStats(t *testing.T) {
 	// There should be no more result sets.
 	if r.HasNextResultSet() {
 		t.Fatalf("unexpected next result set available")
+	}
+}
+
+func TestScanNumericAsFloat32(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	query := "select d from my_table"
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type: testutil.StatementResultResultSet,
+		ResultSet: &sppb.ResultSet{
+			Metadata: &sppb.ResultSetMetadata{
+				RowType: &sppb.StructType{
+					Fields: []*sppb.StructType_Field{
+						{Name: "d", Type: &sppb.Type{Code: sppb.TypeCode_NUMERIC}},
+					},
+				},
+			},
+			Rows: []*structpb.ListValue{
+				{Values: []*structpb.Value{structpb.NewStringValue("9.99")}},
+			},
+		},
+	})
+
+	for _, decodeToString := range []bool{false, true} {
+		t.Run(fmt.Sprintf("DecodeToString:%v", decodeToString), func(t *testing.T) {
+			c, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := c.ExecContext(ctx, fmt.Sprintf("set decode_numeric_to_string=%v", decodeToString)); err != nil {
+				t.Fatal(err)
+			}
+			r, err := c.QueryContext(ctx, query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = r.Close() }()
+			for r.Next() {
+				var d float32
+				err := r.Scan(&d)
+				// Decoding a numeric value to a more generic Go type is only supported if the driver
+				// decodes the value to a string. The database/sql package then automatically converts
+				// that string into the requested type (e.g. float32).
+				if decodeToString {
+					if err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					if err == nil {
+						t.Fatal("missing expected error")
+					}
+				}
+			}
+			if err := r.Err(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }

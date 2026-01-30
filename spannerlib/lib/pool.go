@@ -23,11 +23,11 @@ import (
 )
 
 // CreatePool creates a new Pool with the given connection string and returns the ID of the pool in a Message instance.
-func CreatePool(ctx context.Context, connectionString string) *Message {
+func CreatePool(ctx context.Context, userAgentSuffix, connectionString string) *Message {
 	// Copy the connection string into Go managed memory, as it is stored in the connector config that is created.
 	connectionString = fmt.Sprintf("%s", connectionString)
 
-	id, err := api.CreatePool(ctx, connectionString)
+	id, err := api.CreatePool(ctx, userAgentSuffix, connectionString)
 	if err != nil {
 		return errMessage(err)
 	}

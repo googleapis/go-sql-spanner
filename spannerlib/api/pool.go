@@ -21,7 +21,9 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"cloud.google.com/go/spanner"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
+	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -43,10 +45,13 @@ type Pool struct {
 // [host:port]/project/<project>/instances/<instance>/databases/<database>[?option1=value1[;option2=value2...]]
 //
 // Creating a pool is a relatively expensive operation, as each pool has its own Spanner client.
-func CreatePool(ctx context.Context, connectionString string) (int64, error) {
+func CreatePool(ctx context.Context, userAgentSuffix, connectionString string) (int64, error) {
 	config, err := spannerdriver.ExtractConnectorConfig(connectionString)
 	if err != nil {
 		return 0, err
+	}
+	config.Configurator = func(config *spanner.ClientConfig, opts *[]option.ClientOption) {
+		config.UserAgent = fmt.Sprintf("spanner-lib-%s/%s", userAgentSuffix, spannerdriver.ModuleVersion)
 	}
 	connector, err := spannerdriver.CreateConnector(config)
 	if err != nil {

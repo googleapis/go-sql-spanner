@@ -17,7 +17,6 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-
 from google.cloud.spannerlib.internal import GoString  # type: ignore
 from google.cloud.spannerlib.internal import Message  # type: ignore
 from google.cloud.spannerlib.internal import SpannerLib  # type: ignore
@@ -207,9 +206,10 @@ class TestSpannerlib:
         # Validate Argument Type
         args, _ = mock_lib_instance.CreatePool.call_args
         assert isinstance(args[0], GoString)
+        assert isinstance(args[1], GoString)
 
         # Validate Signature Setup
-        assert mock_lib_instance.CreatePool.argtypes == [GoString]
+        assert mock_lib_instance.CreatePool.argtypes == [GoString, GoString]
         assert mock_lib_instance.CreatePool.restype == Message
 
         # Verify Library Binding

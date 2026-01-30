@@ -32,7 +32,7 @@ func TestPartitionedDml(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	poolId, err := CreatePool(ctx, dsn)
+	poolId, err := CreatePool(ctx, "test", dsn)
 	if err != nil {
 		t.Fatalf("CreatePool returned unexpected error: %v", err)
 	}

@@ -32,7 +32,7 @@ begin
 
   File.write(ENV["MOCK_PORT_FILE"], port.to_s) if ENV["MOCK_PORT_FILE"]
 
-  puts port
+  puts port # rubocop:disable RSpec/Output
 
   server.run_till_terminated
 rescue SignalException
