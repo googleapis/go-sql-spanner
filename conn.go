@@ -691,7 +691,7 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 			if err := stmt.Parse(c.parser, ddlStatements[0]); err != nil {
 				return nil, err
 			}
-			return (&executableDropDatabaseStatement{stmt}).execContext(ctx, c, nil)
+			return (&executableDropDatabaseStatement{stmt}).execContext(ctx, c, nil, []driver.NamedValue{})
 		}
 
 		op, err := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
@@ -1039,7 +1039,7 @@ func (c *conn) queryParsed(ctx context.Context, query string, clientStmt parser.
 		if err != nil {
 			return nil, err
 		}
-		return execStmt.queryContext(ctx, c, execOptions)
+		return execStmt.queryContext(ctx, c, execOptions, args)
 	}
 	return c.queryContext(ctx, query, statementInfo, execOptions, args)
 }
@@ -1200,7 +1200,7 @@ func (c *conn) execParsed(ctx context.Context, query string, stmt parser.ParsedS
 		if err != nil {
 			return nil, err
 		}
-		return execStmt.execContext(ctx, c, execOptions)
+		return execStmt.execContext(ctx, c, execOptions, args)
 	}
 	return c.execContext(ctx, query, statementInfo, execOptions, args)
 }

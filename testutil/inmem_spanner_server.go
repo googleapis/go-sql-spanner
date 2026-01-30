@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math/rand"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -307,10 +308,15 @@ type InMemSpannerServer interface {
 	// expect a SQL statement, including (batch) DML methods.
 	PutStatementResult(sql string, result *StatementResult) error
 
-	// Puts a mocked result on the server for a specific partition token. The
-	// result will only be used for query requests that specify a partition
-	// token.
+	// PutPartitionResult puts a mocked result on the server for a specific partition token.
+	// The result will only be used for query requests that specify a partition token.
 	PutPartitionResult(partitionToken []byte, result *StatementResult) error
+	// AddResultAsPartitionedResults splits the given result set into a random number of partitions
+	// and adds these are Partitioned Query results.
+	AddResultAsPartitionedResults(sql string, results *spannerpb.ResultSet) error
+	// ClearPartitionResults removes all previously registered partition results
+	// on the mock server.
+	ClearPartitionResults()
 
 	// Adds a PartialResultSetExecutionTime to the server that should be returned
 	// for the specified SQL string.
@@ -451,6 +457,47 @@ func (s *inMemSpannerServer) PutPartitionResult(partitionToken []byte, result *S
 	defer s.mu.Unlock()
 	s.partitionResults[tokenString] = result
 	return nil
+}
+
+func (s *inMemSpannerServer) AddResultAsPartitionedResults(sql string, results *spannerpb.ResultSet) error {
+	// The +4 in this expression is added to create some randomness in the number of partitions that is returned,
+	// even when the number of rows is low (or even zero).
+	numPartitions := rand.Intn(len(results.Rows)/5+4) + 1
+	startIndices := make([]int, numPartitions)
+	if len(results.Rows) > 0 {
+		for i := 1; i < numPartitions; i++ {
+			startIndices[i] = rand.Intn(len(results.Rows)) + 1
+		}
+		slices.Sort(startIndices)
+	}
+	for index := 0; index < numPartitions; index++ {
+		var endIndex int
+		if index == numPartitions-1 {
+			endIndex = len(results.Rows)
+		} else {
+			endIndex = startIndices[index+1]
+		}
+		partitionResult := &spannerpb.ResultSet{
+			Metadata: results.Metadata,
+			Rows:     make([]*structpb.ListValue, 0),
+		}
+		for rowIndex := startIndices[index]; rowIndex < endIndex; rowIndex++ {
+			partitionResult.Rows = append(partitionResult.Rows, results.Rows[rowIndex])
+		}
+		token := fmt.Sprintf("%s: %v", sql, index)
+		if err := s.PutPartitionResult(
+			[]byte(token),
+			&StatementResult{Type: StatementResultResultSet, ResultSet: partitionResult}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *inMemSpannerServer) ClearPartitionResults() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.partitionResults = make(map[string]*StatementResult)
 }
 
 func (s *inMemSpannerServer) AbortTransaction(id []byte) {
@@ -1167,7 +1214,19 @@ func (s *inMemSpannerServer) PartitionQuery(ctx context.Context, req *spannerpb.
 	}
 	numPartitions := req.PartitionOptions.MaxPartitions
 	if numPartitions == 0 {
-		numPartitions = int64(rand.Intn(10) + 1)
+		foundPartitions := 0
+		s.mu.Lock()
+		for k := range s.partitionResults {
+			if strings.HasPrefix(k, req.Sql+":") {
+				foundPartitions++
+			}
+		}
+		s.mu.Unlock()
+		if foundPartitions > 0 {
+			numPartitions = int64(foundPartitions)
+		} else {
+			numPartitions = int64(rand.Intn(10) + 1)
+		}
 	}
 	partitions := make([]*spannerpb.Partition, 0, numPartitions)
 	for i := int64(0); i < numPartitions; i++ {

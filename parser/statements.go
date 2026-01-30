@@ -111,7 +111,6 @@ func isRunBatch(parser *StatementParser, query string) bool {
 		return false
 	}
 	if !sp.hasMoreTokens() {
-		// START is a synonym for START TRANSACTION
 		return false
 	}
 	if sp.eatKeyword("batch") {
@@ -126,7 +125,6 @@ func isRunPartitionedQuery(parser *StatementParser, query string) bool {
 		return false
 	}
 	if !sp.hasMoreTokens() {
-		// START is a synonym for START TRANSACTION
 		return false
 	}
 	if sp.eatKeyword("partitioned") {

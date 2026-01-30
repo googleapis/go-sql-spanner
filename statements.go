@@ -29,8 +29,8 @@ import (
 )
 
 type executableStatement interface {
-	execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error)
-	queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error)
+	execContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error)
+	queryContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error)
 }
 
 func createExecutableStatement(stmt parser.ParsedStatement) (executableStatement, error) {
@@ -67,11 +67,11 @@ type executableShowStatement struct {
 	stmt *parser.ParsedShowStatement
 }
 
-func (s *executableShowStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+func (s *executableShowStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "%q cannot be used with execContext", s.stmt.Query()))
 }
 
-func (s *executableShowStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
+func (s *executableShowStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
 	col := s.stmt.Identifier.String()
 	val, hasValue, err := c.showConnectionVariable(s.stmt.Identifier)
 	if err != nil {
@@ -113,14 +113,14 @@ type executableSetStatement struct {
 	stmt *parser.ParsedSetStatement
 }
 
-func (s *executableSetStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+func (s *executableSetStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	if err := s.execute(c); err != nil {
 		return nil, err
 	}
 	return driver.ResultNoRows, nil
 }
 
-func (s *executableSetStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
+func (s *executableSetStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
 	if err := s.execute(c); err != nil {
 		return nil, err
 	}
@@ -144,14 +144,14 @@ type executableResetStatement struct {
 	stmt *parser.ParsedResetStatement
 }
 
-func (s *executableResetStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+func (s *executableResetStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	if err := c.setConnectionVariable(s.stmt.Identifier, "default", false, false, false); err != nil {
 		return nil, err
 	}
 	return driver.ResultNoRows, nil
 }
 
-func (s *executableResetStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
+func (s *executableResetStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
 	if err := c.setConnectionVariable(s.stmt.Identifier, "default", false, false, false); err != nil {
 		return nil, err
 	}
@@ -173,7 +173,7 @@ type executableCreateDatabaseStatement struct {
 	stmt *parser.ParsedCreateDatabaseStatement
 }
 
-func (s *executableCreateDatabaseStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+func (s *executableCreateDatabaseStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	instance := fmt.Sprintf("projects/%s/instances/%s", c.connector.connectorConfig.Project, c.connector.connectorConfig.Instance)
 	request := &databasepb.CreateDatabaseRequest{
 		CreateStatement: s.stmt.Query(),
@@ -190,8 +190,8 @@ func (s *executableCreateDatabaseStatement) execContext(ctx context.Context, c *
 	return driver.ResultNoRows, nil
 }
 
-func (s *executableCreateDatabaseStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
-	if _, err := s.execContext(ctx, c, opts); err != nil {
+func (s *executableCreateDatabaseStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts, args); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
@@ -201,7 +201,7 @@ type executableDropDatabaseStatement struct {
 	stmt *parser.ParsedDropDatabaseStatement
 }
 
-func (s *executableDropDatabaseStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+func (s *executableDropDatabaseStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	database := fmt.Sprintf(
 		"projects/%s/instances/%s/databases/%s",
 		c.connector.connectorConfig.Project,
@@ -217,8 +217,8 @@ func (s *executableDropDatabaseStatement) execContext(ctx context.Context, c *co
 	return driver.ResultNoRows, nil
 }
 
-func (s *executableDropDatabaseStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
-	if _, err := s.execContext(ctx, c, opts); err != nil {
+func (s *executableDropDatabaseStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts, args); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
@@ -228,7 +228,7 @@ type executableStartBatchStatement struct {
 	stmt *parser.ParsedStartBatchStatement
 }
 
-func (s *executableStartBatchStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+func (s *executableStartBatchStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	switch s.stmt.Type {
 	case parser.BatchTypeDml:
 		return c.startBatchDML( /*automatic = */ false)
@@ -239,8 +239,8 @@ func (s *executableStartBatchStatement) execContext(ctx context.Context, c *conn
 	}
 }
 
-func (s *executableStartBatchStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
-	if _, err := s.execContext(ctx, c, opts); err != nil {
+func (s *executableStartBatchStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts, args); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
@@ -250,12 +250,12 @@ type executableRunBatchStatement struct {
 	stmt *parser.ParsedRunBatchStatement
 }
 
-func (s *executableRunBatchStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+func (s *executableRunBatchStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	return c.runBatch(ctx)
 }
 
-func (s *executableRunBatchStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
-	if _, err := s.execContext(ctx, c, opts); err != nil {
+func (s *executableRunBatchStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts, args); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
@@ -265,12 +265,12 @@ type executableAbortBatchStatement struct {
 	stmt *parser.ParsedAbortBatchStatement
 }
 
-func (s *executableAbortBatchStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+func (s *executableAbortBatchStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	return c.abortBatch()
 }
 
-func (s *executableAbortBatchStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
-	if _, err := s.execContext(ctx, c, opts); err != nil {
+func (s *executableAbortBatchStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts, args); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
@@ -280,12 +280,15 @@ type executableRunPartitionedQueryStatement struct {
 	stmt *parser.ParsedRunPartitionedQueryStatement
 }
 
-func (s *executableRunPartitionedQueryStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+func (s *executableRunPartitionedQueryStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	return nil, status.Errorf(codes.FailedPrecondition, "cannot use RUN PARTITIONED QUERY with ExecContext")
 }
 
-func (s *executableRunPartitionedQueryStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
-	args := []driver.NamedValue{{Value: opts}}
+func (s *executableRunPartitionedQueryStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+	if c.tempExecOptions == nil {
+		c.tempExecOptions = &ExecOptions{}
+	}
+	c.tempExecOptions.PartitionedQueryOptions.AutoPartitionQuery = true
 	return c.QueryContext(ctx, s.stmt.Statement, args)
 }
 
@@ -293,7 +296,7 @@ type executableBeginStatement struct {
 	stmt *parser.ParsedBeginStatement
 }
 
-func (s *executableBeginStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+func (s *executableBeginStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	if len(s.stmt.Identifiers) != len(s.stmt.Literals) {
 		return nil, status.Errorf(codes.InvalidArgument, "statement contains %d identifiers, but %d values given", len(s.stmt.Identifiers), len(s.stmt.Literals))
 	}
@@ -314,8 +317,8 @@ func (s *executableBeginStatement) execContext(ctx context.Context, c *conn, opt
 	return driver.ResultNoRows, nil
 }
 
-func (s *executableBeginStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
-	if _, err := s.execContext(ctx, c, opts); err != nil {
+func (s *executableBeginStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts, args); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
@@ -325,7 +328,7 @@ type executableCommitStatement struct {
 	stmt *parser.ParsedCommitStatement
 }
 
-func (s *executableCommitStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+func (s *executableCommitStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	_, err := c.Commit(ctx)
 	if err != nil {
 		return nil, err
@@ -333,8 +336,8 @@ func (s *executableCommitStatement) execContext(ctx context.Context, c *conn, op
 	return driver.ResultNoRows, nil
 }
 
-func (s *executableCommitStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
-	if _, err := s.execContext(ctx, c, opts); err != nil {
+func (s *executableCommitStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts, args); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil
@@ -344,15 +347,15 @@ type executableRollbackStatement struct {
 	stmt *parser.ParsedRollbackStatement
 }
 
-func (s *executableRollbackStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Result, error) {
+func (s *executableRollbackStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	if err := c.Rollback(ctx); err != nil {
 		return nil, err
 	}
 	return driver.ResultNoRows, nil
 }
 
-func (s *executableRollbackStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions) (driver.Rows, error) {
-	if _, err := s.execContext(ctx, c, opts); err != nil {
+func (s *executableRollbackStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts, args); err != nil {
 		return nil, err
 	}
 	return createEmptyRows(opts), nil

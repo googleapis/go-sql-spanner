@@ -319,7 +319,7 @@ func (tx *readOnlyTransaction) createPartitionedQuery(ctx context.Context, stmt 
 	}
 	partitionOptions := execOptions.PartitionedQueryOptions.PartitionOptions
 	if partitionOptions.MaxPartitions == 0 && partitionOptions.PartitionBytes == 0 {
-		partitionOptions.MaxPartitions = propertyMaxPartitions.GetValueOrDefault(tx.state)
+		partitionOptions.MaxPartitions = int64(propertyMaxPartitions.GetValueOrDefault(tx.state))
 	}
 	execOptions.QueryOptions.DataBoostEnabled = execOptions.QueryOptions.DataBoostEnabled || propertyDataBoostEnabled.GetValueOrDefault(tx.state)
 	partitions, err := tx.boTx.PartitionQueryWithOptions(ctx, stmt, partitionOptions, execOptions.QueryOptions)

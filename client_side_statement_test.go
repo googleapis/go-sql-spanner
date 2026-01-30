@@ -599,7 +599,7 @@ func TestStatementExecutor_UsesExecOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	it, err := execStmt.queryContext(ctx, c, &ExecOptions{DecodeOption: DecodeOptionProto, ReturnResultSetMetadata: true, ReturnResultSetStats: true})
+	it, err := execStmt.queryContext(ctx, c, &ExecOptions{DecodeOption: DecodeOptionProto, ReturnResultSetMetadata: true, ReturnResultSetStats: true}, []driver.NamedValue{})
 	if err != nil {
 		t.Fatalf("could not get current staleness value from connection: %v", err)
 	}

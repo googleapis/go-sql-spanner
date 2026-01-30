@@ -15,15 +15,18 @@
 package spannerdriver
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"fmt"
 	"math/rand"
 	"reflect"
+	"runtime"
 	"slices"
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/grpc/codes"
@@ -249,7 +252,7 @@ func TestAutoPartitionQuery(t *testing.T) {
 	tests := make([]autoPartitionTest, 0)
 	for _, useExecOption := range []bool{true, false} {
 		for _, withTx := range []bool{false} {
-			for maxResultsPerPartition := range []int{0, 1, 5, 50, 200} {
+			for _, maxResultsPerPartition := range []int{0, 1, 5, 50, 200} {
 				tests = append(tests, autoPartitionTest{
 					fmt.Sprintf("useExecOption: %v, withTx: %v, maxResultsPerPartition: %v", useExecOption, withTx, maxResultsPerPartition),
 					useExecOption,
@@ -387,7 +390,7 @@ func TestAutoPartitionQuery_ExecuteError(t *testing.T) {
 	defer teardown()
 	db.SetMaxOpenConns(1)
 
-	for maxResultsPerPartition := range []int{0, 1, 5, 50, 200} {
+	for _, maxResultsPerPartition := range []int{0, 1, 5, 50, 200} {
 		tx, err := BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{})
 		if err != nil {
 			t.Fatal(err)
@@ -448,17 +451,230 @@ func TestRunPartitionedQuery(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	db, _, teardown := setupTestDBConnection(t)
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 	db.SetMaxOpenConns(1)
 
-	rows, err := db.QueryContext(ctx, "run partitioned query "+testutil.SelectFooFromBar)
-	if err != nil {
-		t.Fatal(err)
+	query := "select * from random where tenant=@tenant"
+	type queryExecutor interface {
+		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	}
-	for rows.Next() {
+	type runPartitionedQueryTest struct {
+		name                   string
+		withTx                 bool
+		maxResultsPerPartition int
+	}
+	tests := make([]runPartitionedQueryTest, 0)
+	for _, withTx := range []bool{false} {
+		for _, maxResultsPerPartition := range []int{0, 1, 5, 50, 200} {
+			tests = append(tests, runPartitionedQueryTest{
+				fmt.Sprintf("withTx: %v, maxResultsPerPartition: %v", withTx, maxResultsPerPartition),
+				withTx,
+				maxResultsPerPartition,
+			})
+		}
+	}
 
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var tx queryExecutor
+			var err error
+			if test.withTx {
+				tx, err = BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{})
+			} else {
+				tx, err = db.Conn(ctx)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if tx, ok := tx.(*sql.Tx); ok {
+					if err := tx.Commit(); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if tx, ok := tx.(*sql.Conn); ok {
+					if err := tx.Close(); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}()
+
+			// Setup results for each partition.
+			server.TestSpanner.ClearPartitionResults()
+			maxPartitions, allResults, err := setupRandomPartitionResults(server, " "+query, test.maxResultsPerPartition)
+			if err != nil {
+				t.Fatalf("failed to set up partition results: %v", err)
+			}
+
+			rows, err := tx.QueryContext(ctx, "run partitioned query "+query, ExecOptions{
+				QueryOptions: spanner.QueryOptions{DataBoostEnabled: true},
+			}, "test-tenant-id")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = rows.Close() }()
+
+			count := 0
+			for rows.Next() {
+				var v int64
+				if err := rows.Scan(&v); err != nil {
+					t.Fatal(err)
+				}
+				if !slices.Contains(allResults, v) {
+					t.Fatalf("unexpected row value: %v", v)
+				}
+				count++
+			}
+			if rows.Err() != nil {
+				t.Fatal(rows.Err())
+			}
+			if g, w := count, len(allResults); g != w {
+				t.Fatalf("row count mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			if err := rows.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			requests := server.TestSpanner.DrainRequestsFromServer()
+			beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+			if g, w := len(beginRequests), 1; g != w {
+				t.Fatalf("num begin requests mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			beginRequest := beginRequests[0].(*sppb.BeginTransactionRequest)
+			if !beginRequest.Options.GetReadOnly().GetStrong() {
+				t.Fatal("missing strong timestamp bound option")
+			}
+			partitionRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.PartitionQueryRequest{}))
+			if g, w := len(partitionRequests), 1; g != w {
+				t.Fatalf("num partition requests mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+			if g, w := len(executeRequests), maxPartitions; g != w {
+				t.Fatalf("num execute requests mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			executeRequest := executeRequests[0].(*sppb.ExecuteSqlRequest)
+			if !executeRequest.DataBoostEnabled {
+				t.Fatal("missing DataBoostEnabled option")
+			}
+			// (Batch) read-only transactions should not be committed.
+			commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+			if g, w := len(commitRequests), 0; g != w {
+				t.Fatalf("num commit requests mismatch\n Got: %v\nWant: %v", g, w)
+			}
+		})
 	}
+}
+
+func TestRunPartitionedQueryWithRandomResultSet(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	db.SetMaxOpenConns(1)
+
+	query := "select * from random"
+	type runPartitionedQueryTest struct {
+		name    string
+		numRows int
+	}
+	tests := make([]runPartitionedQueryTest, 0)
+	for _, numRows := range []int{0, 1, 100, 1000, runtime.NumCPU(), rand.Intn(50)} {
+		tests = append(tests, runPartitionedQueryTest{
+			fmt.Sprintf("numRows: %v", numRows),
+			numRows,
+		})
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Setup results for each partition.
+			results := testutil.CreateRandomResultSetWithUuidNullOption(test.numRows /* allowNullUuid = */, false, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+			server.TestSpanner.ClearPartitionResults()
+			if err := server.TestSpanner.AddResultAsPartitionedResults(" "+query, results); err != nil {
+				t.Fatal(err)
+			}
+			// Set up a regular result for the same query.
+			if err := server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{Type: testutil.StatementResultResultSet, ResultSet: results}); err != nil {
+				t.Fatal(err)
+			}
+
+			partitionedRows, err := db.QueryContext(ctx, "run partitioned query "+query, ExecOptions{DecodeOption: DecodeOptionProto})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = partitionedRows.Close() }()
+			partitionedCols, partitionedValues, err := consumeResultsAndReturnResults(partitionedRows)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			regularRows, err := db.QueryContext(ctx, query, ExecOptions{DecodeOption: DecodeOptionProto})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = regularRows.Close() }()
+			regularCols, regularValues, err := consumeResultsAndReturnResults(regularRows)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if g, w := partitionedCols, regularCols; !reflect.DeepEqual(g, w) {
+				t.Fatalf("cols mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			if g, w := partitionedValues, regularValues; !reflect.DeepEqual(g, w) {
+				t.Fatalf("rows mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			if err := partitionedRows.Close(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func consumeResultsAndReturnResults(r *sql.Rows) ([]string, [][]*spanner.GenericColumnValue, error) {
+	cols, err := r.Columns()
+	if err != nil {
+		return nil, nil, err
+	}
+	rowCount := 0
+	values := make([]any, len(cols))
+	results := make([][]*spanner.GenericColumnValue, 0)
+	for i := range values {
+		values[i] = &spanner.GenericColumnValue{}
+	}
+	for r.Next() {
+		if err := r.Scan(values...); err != nil {
+			return nil, nil, err
+		}
+		results = append(results, make([]*spanner.GenericColumnValue, len(cols)))
+		for i, v := range values {
+			gcv := v.(*spanner.GenericColumnValue)
+			results[rowCount][i] = &spanner.GenericColumnValue{Type: gcv.Type, Value: gcv.Value}
+		}
+		rowCount++
+	}
+	if err := r.Err(); err != nil {
+		return nil, nil, err
+	}
+	// Order the results by the UUID column, as that column is guaranteed to be unique.
+	idx := slices.Index(cols, "ColUuid")
+	if idx == -1 {
+		return nil, nil, fmt.Errorf("column uuid not found")
+	}
+	slices.SortFunc(results, func(a, b []*spanner.GenericColumnValue) int {
+		uuidA := a[idx].Value.GetStringValue()
+		uuidB := b[idx].Value.GetStringValue()
+		if uuidA == uuidB || uuidA == "" || uuidB == "" {
+			panic("Same UUID value found")
+		}
+		if uuidA == "" || uuidB == "" {
+			panic("Null UUID value found")
+		}
+		return cmp.Compare(uuidA, uuidB)
+	})
+	return cols, results, nil
 }
 
 func setupRandomPartitionResults(server *testutil.MockedSpannerInMemTestServer, sql string, maxResultsPerPartition int) (maxPartitions int, allResults []int64, err error) {

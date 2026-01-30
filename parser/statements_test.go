@@ -642,28 +642,28 @@ func TestParseRunPartitionedQuery(t *testing.T) {
 		{
 			input: "run partitioned query select * from my_table",
 			want: ParsedRunPartitionedQueryStatement{
-				statement: " select * from my_table",
+				Statement: " select * from my_table",
 				query:     "run partitioned query select * from my_table",
 			},
 		},
 		{
 			input: "run partitioned query\nselect * from my_table",
 			want: ParsedRunPartitionedQueryStatement{
-				statement: "\nselect * from my_table",
+				Statement: "\nselect * from my_table",
 				query:     "run partitioned query\nselect * from my_table",
 			},
 		},
 		{
 			input: "run partitioned query\n--comment\nselect * from my_table",
 			want: ParsedRunPartitionedQueryStatement{
-				statement: "\n--comment\nselect * from my_table",
+				Statement: "\n--comment\nselect * from my_table",
 				query:     "run partitioned query\n--comment\nselect * from my_table",
 			},
 		},
 		{
 			input: "run --comment\n partitioned /* comment */ query select * from my_table",
 			want: ParsedRunPartitionedQueryStatement{
-				statement: " select * from my_table",
+				Statement: " select * from my_table",
 				query:     "run --comment\n partitioned /* comment */ query select * from my_table",
 			},
 		},

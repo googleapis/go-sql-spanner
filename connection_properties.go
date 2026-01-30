@@ -207,7 +207,7 @@ var propertyMaxPartitions = createConnectionProperty(
 	false,
 	nil,
 	connectionstate.ContextUser,
-	connectionstate.ConvertInt64,
+	connectionstate.ConvertInt,
 )
 var propertyMaxPartitionedParallelism = createConnectionProperty(
 	"max_partitioned_parallelism",

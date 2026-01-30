@@ -615,6 +615,10 @@ func CreateResultSetWithAllTypes(nullValues, nullValuesInArrays bool, dialect da
 }
 
 func CreateRandomResultSet(numRows int, dialect databasepb.DatabaseDialect) *spannerpb.ResultSet {
+	return CreateRandomResultSetWithUuidNullOption(numRows, true, dialect)
+}
+
+func CreateRandomResultSetWithUuidNullOption(numRows int, allowNullUuid bool, dialect databasepb.DatabaseDialect) *spannerpb.ResultSet {
 	metadata := CreateResultSetMetadataWithAllTypes(dialect)
 	fields := metadata.RowType.Fields
 	rows := make([]*structpb.ListValue, numRows)
@@ -622,7 +626,7 @@ func CreateRandomResultSet(numRows int, dialect databasepb.DatabaseDialect) *spa
 	for i := 0; i < numRows; i++ {
 		rowValue := make([]*structpb.Value, len(fields))
 		for col := range fields {
-			rowValue[col] = randomValue(fields[col].Type)
+			rowValue[col] = randomValue(fields[col].Type, allowNullUuid)
 		}
 		rows[i] = &structpb.ListValue{Values: rowValue}
 	}
@@ -638,9 +642,11 @@ func init() {
 	nullValue = &structpb.Value{Kind: &structpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}}
 }
 
-func randomValue(t *spannerpb.Type) *structpb.Value {
-	if rand.Intn(10) == 5 {
-		return nullValue
+func randomValue(t *spannerpb.Type, allowNullUuid bool) *structpb.Value {
+	if t.Code != spannerpb.TypeCode_UUID || allowNullUuid {
+		if rand.Intn(10) == 5 {
+			return nullValue
+		}
 	}
 	switch t.Code {
 	case spannerpb.TypeCode_BOOL:
@@ -669,7 +675,7 @@ func randomValue(t *spannerpb.Type) *structpb.Value {
 		numElements := rand.Intn(10)
 		value := &structpb.Value{Kind: &structpb.Value_ListValue{ListValue: &structpb.ListValue{Values: make([]*structpb.Value, numElements)}}}
 		for i := range numElements {
-			value.GetListValue().Values[i] = randomValue(t.ArrayElementType)
+			value.GetListValue().Values[i] = randomValue(t.ArrayElementType, true)
 		}
 		return value
 	}
