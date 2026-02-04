@@ -62,7 +62,6 @@ Minitest.after_run do
 end
 
 describe "Connection" do
-  # rubocop:disable Metrics/AbcSize
   def self.spawn_server
     project_root = File.expand_path("..", __dir__)
     runner_path = File.join(project_root, "spec", "mock_server_runner.rb")
@@ -87,7 +86,6 @@ describe "Connection" do
 
     spawn(env_vars, *cmd, out: $stdout, err: $stderr)
   end
-  # rubocop:enable Metrics/AbcSize
 
   def self.wait_for_port
     start_time = Time.now
