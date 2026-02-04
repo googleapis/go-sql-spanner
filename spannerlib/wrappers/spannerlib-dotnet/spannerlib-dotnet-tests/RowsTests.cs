@@ -86,6 +86,45 @@ public class RowsTests : AbstractMockServerTests
     }
 
     [Test]
+    public async Task TestPartitionedQuery([Values] LibType libType, [Values(0, 1, 10, 500)] int numRows, [Values(0, 1, 5, 9, 10, 11)] int prefetchRows)
+    {
+        const string query = "select * from random";
+        var numPartitions = Random.Shared.NextInt64(1, Math.Max(10, Environment.ProcessorCount));
+        
+        var rowType = RandomResultSetGenerator.GenerateAllTypesRowType();
+        var remainingRows = numRows;
+        for (var n = 0; n < numPartitions; n++)
+        {
+            var key = $"{query}: {n}";
+            int numRowsInPartition;
+            if (remainingRows == 0 || n == numPartitions - 1)
+            {
+                numRowsInPartition = remainingRows;
+            }
+            else
+            {
+                numRowsInPartition = Random.Shared.Next(remainingRows);
+            }
+            remainingRows -= numRowsInPartition;
+            var results = RandomResultSetGenerator.Generate(rowType, numRowsInPartition);
+            Fixture.SpannerMock.AddOrUpdateStatementResult(key, StatementResult.CreateQuery(results));
+        }
+        
+        await using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        await using var connection = pool.CreateConnection();
+        await using var _ = await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = $"set max_partitions={numPartitions}" });
+        await using var rows = await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = $"run partitioned query {query}" }, prefetchRows);
+
+        var rowCount = 0;
+        while (await rows.NextAsync() is { } row)
+        {
+            rowCount++;
+            Assert.That(row.Values.Count, Is.EqualTo(rowType.Fields.Count));
+        }
+        Assert.That(rowCount, Is.EqualTo(numRows));
+    }
+
+    [Test]
     public async Task TestCancellation([Values] LibType libType, [Values(0, 1, 10)] int numRows, [Values(0, 1, 5, 9, 10, 11)] int prefetchRows)
     {
         var rowType = RandomResultSetGenerator.GenerateAllTypesRowType();
