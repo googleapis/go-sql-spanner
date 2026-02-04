@@ -43,7 +43,11 @@ func parseStatement(parser *StatementParser, keyword, query string) (ParsedState
 			stmt = &ParsedStartBatchStatement{}
 		}
 	} else if isRunStatementKeyword(keyword) {
-		stmt = &ParsedRunBatchStatement{}
+		if isRunBatch(parser, query) {
+			stmt = &ParsedRunBatchStatement{}
+		} else if isRunPartitionedQuery(parser, query) {
+			stmt = &ParsedRunPartitionedQueryStatement{}
+		}
 	} else if isAbortStatementKeyword(keyword) {
 		stmt = &ParsedAbortBatchStatement{}
 	} else if isBeginStatementKeyword(keyword) {
@@ -53,6 +57,9 @@ func parseStatement(parser *StatementParser, keyword, query string) (ParsedState
 	} else if isRollbackStatementKeyword(keyword) {
 		stmt = &ParsedRollbackStatement{}
 	} else {
+		return nil, nil
+	}
+	if stmt == nil {
 		return nil, nil
 	}
 	if err := stmt.parse(parser, query); err != nil {
@@ -93,6 +100,34 @@ func isStartTransaction(parser *StatementParser, query string) bool {
 		return true
 	}
 	if sp.eatKeyword("transaction") || sp.eatKeyword("work") {
+		return true
+	}
+	return false
+}
+
+func isRunBatch(parser *StatementParser, query string) bool {
+	sp := &simpleParser{sql: []byte(query), statementParser: parser}
+	if !sp.eatKeyword("run") {
+		return false
+	}
+	if !sp.hasMoreTokens() {
+		return false
+	}
+	if sp.eatKeyword("batch") {
+		return true
+	}
+	return false
+}
+
+func isRunPartitionedQuery(parser *StatementParser, query string) bool {
+	sp := &simpleParser{sql: []byte(query), statementParser: parser}
+	if !sp.eatKeyword("run") {
+		return false
+	}
+	if !sp.hasMoreTokens() {
+		return false
+	}
+	if sp.eatKeyword("partitioned") {
 		return true
 	}
 	return false
@@ -505,6 +540,34 @@ func (s *ParsedAbortBatchStatement) parse(parser *StatementParser, query string)
 	if sp.hasMoreTokens() {
 		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
 	}
+	s.query = query
+	return nil
+}
+
+type ParsedRunPartitionedQueryStatement struct {
+	query     string
+	Statement string
+}
+
+func (s *ParsedRunPartitionedQueryStatement) Name() string {
+	return "RUN PARTITIONED QUERY"
+}
+
+func (s *ParsedRunPartitionedQueryStatement) Query() string {
+	return s.query
+}
+
+func (s *ParsedRunPartitionedQueryStatement) parse(parser *StatementParser, query string) error {
+	// Parse a statement of the form
+	// RUN PARTITIONED QUERY <sql>
+	sp := &simpleParser{sql: []byte(query), statementParser: parser}
+	if !sp.eatKeywords([]string{"RUN", "PARTITIONED", "QUERY"}) {
+		return status.Error(codes.InvalidArgument, "statement does not start with RUN PARTITIONED QUERY")
+	}
+	if !sp.hasMoreTokens() {
+		return status.Errorf(codes.InvalidArgument, "missing statement after RUN PARTITIONED QUERY: %q", sp.sql)
+	}
+	s.Statement = query[sp.pos:]
 	s.query = query
 	return nil
 }

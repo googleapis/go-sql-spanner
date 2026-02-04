@@ -691,7 +691,7 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 			if err := stmt.Parse(c.parser, ddlStatements[0]); err != nil {
 				return nil, err
 			}
-			return (&executableDropDatabaseStatement{stmt}).execContext(ctx, c, nil)
+			return (&executableDropDatabaseStatement{stmt}).execContext(ctx, c, nil, []driver.NamedValue{})
 		}
 
 		op, err := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
@@ -1039,7 +1039,7 @@ func (c *conn) queryParsed(ctx context.Context, query string, clientStmt parser.
 		if err != nil {
 			return nil, err
 		}
-		return execStmt.queryContext(ctx, c, execOptions)
+		return execStmt.queryContext(ctx, c, execOptions, args)
 	}
 	return c.queryContext(ctx, query, statementInfo, execOptions, args)
 }
@@ -1095,7 +1095,7 @@ func (c *conn) queryContext(ctx context.Context, query string, statementInfo *pa
 			c.setCommitResponse(commitResponse)
 		} else if execOptions.PartitionedQueryOptions.PartitionQuery {
 			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "PartitionQuery is only supported in batch read-only transactions"))
-		} else if execOptions.PartitionedQueryOptions.AutoPartitionQuery {
+		} else if execOptions.PartitionedQueryOptions.AutoPartitionQuery || propertyAutoPartitionMode.GetValueOrDefault(c.state) {
 			return c.executeAutoPartitionedQuery(ctx, cancel, query, statementInfo, execOptions, args)
 		} else {
 			// The statement was either detected as being a query, or potentially not recognized at all.
@@ -1200,7 +1200,7 @@ func (c *conn) execParsed(ctx context.Context, query string, stmt parser.ParsedS
 		if err != nil {
 			return nil, err
 		}
-		return execStmt.execContext(ctx, c, execOptions)
+		return execStmt.execContext(ctx, c, execOptions, args)
 	}
 	return c.execContext(ctx, query, statementInfo, execOptions, args)
 }
@@ -1603,6 +1603,7 @@ func (c *conn) activateTransaction() (contextTransaction, error) {
 			timestampBoundCallback: func() spanner.TimestampBound {
 				return propertyReadOnlyStaleness.GetValueOrDefault(c.state)
 			},
+			state: c.state,
 		}, nil
 	}
 

@@ -629,3 +629,86 @@ func TestParseBeginStatementPostgreSQL(t *testing.T) {
 		})
 	}
 }
+
+func TestParseRunPartitionedQuery(t *testing.T) {
+	t.Parallel()
+
+	type test struct {
+		input   string
+		want    ParsedRunPartitionedQueryStatement
+		wantErr bool
+	}
+	tests := []test{
+		{
+			input: "run partitioned query select * from my_table",
+			want: ParsedRunPartitionedQueryStatement{
+				Statement: " select * from my_table",
+				query:     "run partitioned query select * from my_table",
+			},
+		},
+		{
+			input: "run partitioned query\nselect * from my_table",
+			want: ParsedRunPartitionedQueryStatement{
+				Statement: "\nselect * from my_table",
+				query:     "run partitioned query\nselect * from my_table",
+			},
+		},
+		{
+			input: "run partitioned query\n--comment\nselect * from my_table",
+			want: ParsedRunPartitionedQueryStatement{
+				Statement: "\n--comment\nselect * from my_table",
+				query:     "run partitioned query\n--comment\nselect * from my_table",
+			},
+		},
+		{
+			input: "run --comment\n partitioned /* comment */ query select * from my_table",
+			want: ParsedRunPartitionedQueryStatement{
+				Statement: " select * from my_table",
+				query:     "run --comment\n partitioned /* comment */ query select * from my_table",
+			},
+		},
+		{
+			input:   "run partitioned query",
+			wantErr: true,
+		},
+		{
+			input:   "run partitioned query /* comment */",
+			wantErr: true,
+		},
+		{
+			input:   "run partitioned query -- comment\n",
+			wantErr: true,
+		},
+		{
+			input:   "run partitioned select * from my_table",
+			wantErr: true,
+		},
+	}
+	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			sp := &simpleParser{sql: []byte(test.input), statementParser: parser}
+			keyword := strings.ToUpper(sp.readKeyword())
+			stmt, err := parseStatement(parser, keyword, test.input)
+			if test.wantErr {
+				if err == nil {
+					t.Fatalf("parseStatement(%q) should have failed", test.input)
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				runStmt, ok := stmt.(*ParsedRunPartitionedQueryStatement)
+				if !ok {
+					t.Fatalf("parseStatement(%q) should have returned a *parsedRunPartitionedQueryStatement", test.input)
+				}
+				if !reflect.DeepEqual(*runStmt, test.want) {
+					t.Errorf("parseStatement(%q) mismatch\n Got: %v\nWant: %v", test.input, *runStmt, test.want)
+				}
+			}
+		})
+	}
+}
