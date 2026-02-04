@@ -96,15 +96,9 @@ public class RowsTests : AbstractMockServerTests
         for (var n = 0; n < numPartitions; n++)
         {
             var key = $"{query}: {n}";
-            int numRowsInPartition;
-            if (remainingRows == 0 || n == numPartitions - 1)
-            {
-                numRowsInPartition = remainingRows;
-            }
-            else
-            {
-                numRowsInPartition = Random.Shared.Next(remainingRows);
-            }
+            var numRowsInPartition = n < numPartitions - 1
+                ? Random.Shared.Next(remainingRows + 1)
+                : remainingRows;
             remainingRows -= numRowsInPartition;
             var results = RandomResultSetGenerator.Generate(rowType, numRowsInPartition);
             Fixture.SpannerMock.AddOrUpdateStatementResult(key, StatementResult.CreateQuery(results));
