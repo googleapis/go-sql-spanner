@@ -23,7 +23,7 @@
       <dependency>
         <groupId>com.google.cloud</groupId>
         <artifactId>google-cloud-spanner-bom</artifactId>
-        <version>6.107.0</version>
+        <version>6.108.0</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
@@ -37,7 +37,7 @@
       <dependency>
         <groupId>io.grpc</groupId>
         <artifactId>grpc-bom</artifactId>
-        <version>1.77.0</version>
+        <version>1.79.0</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
@@ -45,6 +45,11 @@
   </dependencyManagement>
 
   <dependencies>
+    <dependency>
+      <groupId>com.google.errorprone</groupId>
+      <artifactId>error_prone_annotations</artifactId>
+      <version>2.45.0</version>
+    </dependency>
     <dependency>
       <groupId>com.google.api.grpc</groupId>
       <artifactId>proto-google-cloud-spanner-v1</artifactId>
