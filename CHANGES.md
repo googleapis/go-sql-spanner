@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.24.0](https://github.com/googleapis/go-sql-spanner/compare/v1.23.0...v1.24.0) (2026-02-05)
+
+
+### Features
+
+* Support partitioned queries through SQL statements ([#714](https://github.com/googleapis/go-sql-spanner/issues/714)) ([db0a239](https://github.com/googleapis/go-sql-spanner/commit/db0a239e6f5296122893672f4938e531b802dea6))
+
+
+### Bug Fixes
+
+* Update all dependencies ([#741](https://github.com/googleapis/go-sql-spanner/issues/741)) ([3dd5a9c](https://github.com/googleapis/go-sql-spanner/commit/3dd5a9cc5404eab407d899649a69e29d9b37e4be))
+* Update dependency io.grpc:grpc-bom to v1.79.0 ([#745](https://github.com/googleapis/go-sql-spanner/issues/745)) ([258759f](https://github.com/googleapis/go-sql-spanner/commit/258759fbaf590e451f38f2e2a3d9088c20553a60))
+* Update protobuf monorepo ([#743](https://github.com/googleapis/go-sql-spanner/issues/743)) ([a28cf8a](https://github.com/googleapis/go-sql-spanner/commit/a28cf8a26d7fd788d67a7d53db4540afcd5104d9))
+
 ## [1.23.0](https://github.com/googleapis/go-sql-spanner/compare/v1.22.0...v1.23.0) (2026-01-26)
 
 
