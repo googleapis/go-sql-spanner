@@ -669,6 +669,31 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
         throw new RpcException(new GrpcCore.Status(StatusCode.NotFound, $"Session not found: {name}"));
     }
 
+    public override Task<PartitionResponse> PartitionQuery(PartitionQueryRequest request, ServerCallContext context)
+    {
+        _requests.Enqueue(request);
+        _contexts.Enqueue(context);
+        _headers.Enqueue(context.RequestHeaders);
+        _executionTimes.TryGetValue(nameof(PartitionQuery), out ExecutionTime? executionTime);
+        executionTime?.SimulateExecutionTime();
+        
+        _ = TryFindSession(request.SessionAsSessionName);
+        var transaction = FindOrBeginTransaction(request.SessionAsSessionName, request.Transaction);
+        var numPartitions = request.PartitionOptions.MaxPartitions;
+        if (numPartitions == 0)
+        {
+            numPartitions = Random.Shared.NextInt64(1, Math.Max(4, 2 * Environment.ProcessorCount));
+        }
+        var response = new PartitionResponse();
+        for (var n = 0; n < numPartitions; n++)
+        {
+            var token = ByteString.CopyFromUtf8(request.Sql + ": " + n);
+            response.Partitions.Add(new Partition{PartitionToken = token});
+        }
+        response.Transaction = transaction;
+        return Task.FromResult(response);
+    }
+
     public override Task<ExecuteBatchDmlResponse> ExecuteBatchDml(ExecuteBatchDmlRequest request, ServerCallContext context)
     {
         _requests.Enqueue(request);
@@ -761,7 +786,12 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
         {
             returnTransaction = transaction;
         }
-        if (_results.TryGetValue(request.Sql.Trim(), out StatementResult? result))
+        var resultKey = request.Sql.Trim();
+        if (!request.PartitionToken.IsEmpty)
+        {
+            resultKey = request.PartitionToken.ToStringUtf8().Trim();
+        }
+        if (_results.TryGetValue(resultKey, out StatementResult? result))
         {
             return result;
         }
