@@ -2334,7 +2334,7 @@ func TestQueryWithReusedPositionalParameter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Verify that 'bar' is used for both instances of the parameter @name.
+	// Verify that 'foo' is used for both instances of the parameter @name.
 	requests := server.TestSpanner.DrainRequestsFromServer()
 	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if len(sqlRequests) != 1 {
@@ -2344,7 +2344,7 @@ func TestQueryWithReusedPositionalParameter(t *testing.T) {
 	if g, w := len(req.Params.Fields), 1; g != w {
 		t.Fatalf("params count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	if g, w := req.Params.Fields["name"].GetStringValue(), "bar"; g != w {
+	if g, w := req.Params.Fields["name"].GetStringValue(), "foo"; g != w {
 		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }

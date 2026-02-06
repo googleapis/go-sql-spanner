@@ -18,6 +18,8 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"fmt"
+	"strconv"
 
 	"cloud.google.com/go/spanner"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
@@ -93,7 +95,7 @@ func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
 }
 
 func prepareSpannerStmt(state *connectionstate.ConnectionState, parser *parser.StatementParser, q string, args []driver.NamedValue) (spanner.Statement, error) {
-	q, names, err := parser.ParseParameters(q)
+	q, names, namesToIndex, err := parser.ParseParameters(q)
 	if err != nil {
 		return spanner.Statement{}, err
 	}
@@ -108,6 +110,8 @@ func prepareSpannerStmt(state *connectionstate.ConnectionState, parser *parser.S
 		}
 		if name == "" && len(names) > i {
 			name = names[i]
+		} else if index, ok := namesToIndex[name]; ok {
+			name = "p" + strconv.Itoa(index)
 		}
 		if name != "" {
 			ss.Params[name] = convertParam(value, typedStrings)
@@ -116,7 +120,14 @@ func prepareSpannerStmt(state *connectionstate.ConnectionState, parser *parser.S
 	// Verify that all parameters have a value.
 	for _, name := range names {
 		if _, ok := ss.Params[name]; !ok {
-			return spanner.Statement{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "missing value for query parameter %v", name))
+			originalName := name
+			for k, v := range namesToIndex {
+				if fmt.Sprintf("p%d", v) == name {
+					originalName = k
+					break
+				}
+			}
+			return spanner.Statement{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "missing value for query parameter @%s", originalName))
 		}
 	}
 	return ss, nil
