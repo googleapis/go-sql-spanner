@@ -135,6 +135,11 @@ type SpannerResult interface {
 	// BatchRowsAffected returns the affected rows per statement in a DML batch.
 	// It returns an error if the statement was not a DML batch.
 	BatchRowsAffected() ([]int64, error)
+
+	// OperationID returns the operation ID for a DDL statement that was executed
+	// in asynchronous mode. It returns an error if the statement was not a DDL
+	// statement or if it was not executed in asynchronous mode.
+	OperationID() (string, error)
 }
 
 // ExecOptions can be passed in as an argument to the Query, QueryContext,
