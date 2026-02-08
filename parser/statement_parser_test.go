@@ -525,7 +525,7 @@ func FuzzParseParameters(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _, err = parser.ParseParameters(input)
+		_, _, _, err = parser.ParseParameters(input)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -534,7 +534,7 @@ func FuzzParseParameters(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _, err = parser.ParseParameters(input)
+		_, _, _, err = parser.ParseParameters(input)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -551,69 +551,84 @@ func TestFindParams(t *testing.T) {
 		"id=@id": {
 			input: `SELECT * FROM PersonsTable WHERE id=@id`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `SELECT * FROM PersonsTable WHERE id=@id`,
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `SELECT * FROM PersonsTable WHERE id=@id`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `SELECT * FROM PersonsTable WHERE id=$1`,
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"id"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"id"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1"},
 			},
 		},
 		"simple multi-line comment": {
 			input: `/* comment */ SELECT * FROM PersonsTable WHERE id=@id`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `/* comment */ SELECT * FROM PersonsTable WHERE id=@id`,
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `/* comment */ SELECT * FROM PersonsTable WHERE id=@id`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `/* comment */ SELECT * FROM PersonsTable WHERE id=$1`,
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"id"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"id"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1"},
 			},
 		},
 		"simple single-line comment": {
 			input: `-- comment
 SELECT * FROM PersonsTable WHERE id=@id`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `-- comment
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `-- comment
 SELECT * FROM PersonsTable WHERE id=@id`,
+				databasepb.DatabaseDialect_POSTGRESQL: `-- comment
+SELECT * FROM PersonsTable WHERE id=$1`,
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"id"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"id"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1"},
 			},
 		},
 		"single-line hash comment with potential query parameter": {
 			input: `# This is not a @param in GoogleSQL, but it is in PostgreSQL
 SELECT * FROM PersonsTable WHERE id=@id`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `# This is not a @param in GoogleSQL, but it is in PostgreSQL
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `# This is not a @param in GoogleSQL, but it is in PostgreSQL
 SELECT * FROM PersonsTable WHERE id=@id`,
+				databasepb.DatabaseDialect_POSTGRESQL: `# This is not a $1 in GoogleSQL, but it is in PostgreSQL
+SELECT * FROM PersonsTable WHERE id=$2`,
 			},
 			want: map[databasepb.DatabaseDialect][]string{
 				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"id"},
-				databasepb.DatabaseDialect_POSTGRESQL:          {"param", "id"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1", "p2"},
 			},
 		},
 		"commented where clause": {
 			input: `SELECT * FROM PersonsTable WHERE id=@id /* and value=@value */`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `SELECT * FROM PersonsTable WHERE id=@id /* and value=@value */`,
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `SELECT * FROM PersonsTable WHERE id=@id /* and value=@value */`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `SELECT * FROM PersonsTable WHERE id=$1 /* and value=@value */`,
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"id"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"id"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1"},
 			},
 		},
 		"id=@id and name=@name": {
 			input: `SELECT * FROM PersonsTable WHERE id=@id AND name=@name`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `SELECT * FROM PersonsTable WHERE id=@id AND name=@name`,
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `SELECT * FROM PersonsTable WHERE id=@id AND name=@name`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `SELECT * FROM PersonsTable WHERE id=$1 AND name=$2`,
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"id", "name"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"id", "name"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1", "p2"},
 			},
 		},
 		"id=@id and email literal": {
 			input: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `SELECT * FROM PersonsTable WHERE Name like $1 AND Email='test@test.com'`,
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"name"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"name"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1"},
 			},
 		},
 		"multibyte character in string literal": {
@@ -621,10 +636,13 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 			input: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='@test.com'`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
 				//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='@test.com'`,
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `SELECT * FROM PersonsTable WHERE Name like @name AND Email='@test.com'`,
+				//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
+				databasepb.DatabaseDialect_POSTGRESQL: `SELECT * FROM PersonsTable WHERE Name like $1 AND Email='@test.com'`,
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"name"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"name"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1"},
 			},
 		},
 		"multibyte character in comment": {
@@ -632,10 +650,13 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 			input: `/*  */SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
 				//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `/*  */SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `/*  */SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+				//lint:ignore ST1018 allow control characters to verify the correct behavior of multibyte chars.
+				databasepb.DatabaseDialect_POSTGRESQL: `/*  */SELECT * FROM PersonsTable WHERE Name like $1 AND Email='test@test.com'`,
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"name"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"name"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1"},
 			},
 		},
 		"table name with @": {
@@ -643,48 +664,60 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 		@table
 		""" WHERE Name like @name AND Email='test@test.com'`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `SELECT * FROM """strange
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `SELECT * FROM """strange
 		@table
 		""" WHERE Name like @name AND Email='test@test.com'`,
+				databasepb.DatabaseDialect_POSTGRESQL: `SELECT * FROM """strange
+		@table
+		""" WHERE Name like $1 AND Email='test@test.com'`,
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"name"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"name"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1"},
 			},
 		},
 		"statement hint": {
 			input: `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
 			wantSQL: map[databasepb.DatabaseDialect]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable WHERE Name like @name AND Email='test@test.com'`,
+				databasepb.DatabaseDialect_POSTGRESQL:          `@{JOIN_METHOD=HASH_JOIN} SELECT * FROM PersonsTable WHERE Name like $1 AND Email='test@test.com'`,
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"name"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"name"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1"},
 			},
 		},
 		"multiple parameters": {
 			input: "INSERT INTO Foo (Col1, Col2, Col3) VALUES (@param1, @param2, @param3)",
 			wantSQL: map[databasepb.DatabaseDialect]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "INSERT INTO Foo (Col1, Col2, Col3) VALUES (@param1, @param2, @param3)",
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "INSERT INTO Foo (Col1, Col2, Col3) VALUES (@param1, @param2, @param3)",
+				databasepb.DatabaseDialect_POSTGRESQL:          "INSERT INTO Foo (Col1, Col2, Col3) VALUES ($1, $2, $3)",
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"param1", "param2", "param3"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"param1", "param2", "param3"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1", "p2", "p3"},
 			},
 		},
 		"force index hint with quoted index name": {
 			input: "SELECT * FROM PersonsTable@{FORCE_INDEX=`my_index`} WHERE id=@id AND name=@name",
 			wantSQL: map[databasepb.DatabaseDialect]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "SELECT * FROM PersonsTable@{FORCE_INDEX=`my_index`} WHERE id=@id AND name=@name",
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "SELECT * FROM PersonsTable@{FORCE_INDEX=`my_index`} WHERE id=@id AND name=@name",
+				databasepb.DatabaseDialect_POSTGRESQL:          "SELECT * FROM PersonsTable@{FORCE_INDEX=`my_index`} WHERE id=$1 AND name=$2",
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"id", "name"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"id", "name"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1", "p2"},
 			},
 		},
 		"force index hint": {
 			input: "SELECT * FROM PersonsTable @{FORCE_INDEX=my_index} WHERE id=@id AND name=@name",
 			wantSQL: map[databasepb.DatabaseDialect]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: "SELECT * FROM PersonsTable @{FORCE_INDEX=my_index} WHERE id=@id AND name=@name",
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: "SELECT * FROM PersonsTable @{FORCE_INDEX=my_index} WHERE id=@id AND name=@name",
+				databasepb.DatabaseDialect_POSTGRESQL:          "SELECT * FROM PersonsTable @{FORCE_INDEX=my_index} WHERE id=$1 AND name=$2",
 			},
 			want: map[databasepb.DatabaseDialect][]string{
-				databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED: {"id", "name"},
+				databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL: {"id", "name"},
+				databasepb.DatabaseDialect_POSTGRESQL:          {"p1", "p2"},
 			},
 		},
 		"positional parameter": {
@@ -967,7 +1000,7 @@ SELECT * FROM PersonsTable WHERE id=@id`,
 		for name, tc := range tests {
 			t.Run(name, func(t *testing.T) {
 				sql := tc.input
-				gotSQL, got, err := parser.ParseParameters(sql)
+				gotSQL, got, _, err := parser.ParseParameters(sql)
 				wantErr := expectedTestValue(dialect, tc.wantErr)
 				if err != nil && wantErr == nil {
 					t.Error(err)
@@ -1231,7 +1264,7 @@ SELECT * FROM PersonsTable WHERE id=$1`,
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			sql := tc.input
-			gotSQL, got, err := parser.ParseParameters(sql)
+			gotSQL, got, _, err := parser.ParseParameters(sql)
 			if err != nil && tc.wantErr == nil {
 				t.Error(err)
 			}
@@ -1413,7 +1446,7 @@ func TestFindParamsWithCommentsPostgreSQL(t *testing.T) {
 			} {
 				input := fmt.Sprintf(test.input, comment)
 				wantSQL := fmt.Sprintf(test.wantSQL, comment)
-				got, params, err := parser.findParams(input)
+				got, params, _, err := parser.findParams(input)
 				if err != nil && test.wantErr == nil {
 					t.Errorf("got unexpected error: %v", err)
 				} else if err != nil && test.wantErr != nil {
@@ -1443,13 +1476,13 @@ func FuzzFindParams(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _, _ = parser.ParseParameters(input)
+		_, _, _, _ = parser.ParseParameters(input)
 
 		parser, err = NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _, _ = parser.ParseParameters(input)
+		_, _, _, _ = parser.ParseParameters(input)
 	})
 }
 
@@ -1758,11 +1791,11 @@ func TestRemoveCommentsAndTrim_Errors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = parser.ParseParameters("SELECT 'Hello World FROM SomeTable")
+	_, _, _, err = parser.ParseParameters("SELECT 'Hello World FROM SomeTable")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}
-	_, _, err = parser.ParseParameters("SELECT 'Hello World\nFROM SomeTable")
+	_, _, _, err = parser.ParseParameters("SELECT 'Hello World\nFROM SomeTable")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}
@@ -1773,11 +1806,11 @@ func TestFindParams_Errors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = parser.findParams("SELECT 'Hello World FROM SomeTable WHERE id=@id")
+	_, _, _, err = parser.findParams("SELECT 'Hello World FROM SomeTable WHERE id=@id")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}
-	_, _, err = parser.findParams("SELECT 'Hello World\nFROM SomeTable WHERE id=@id")
+	_, _, _, err = parser.findParams("SELECT 'Hello World\nFROM SomeTable WHERE id=@id")
 	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
 		t.Errorf("error code mismatch\nGot: %v\nWant: %v\n", g, w)
 	}
@@ -2520,7 +2553,7 @@ func TestCachedParamsAreImmutable(t *testing.T) {
 		t.Fatal(err)
 	}
 	for n := 0; n < 2; n++ {
-		_, params, err := parser.findParams("select * from test where id=?")
+		_, params, _, err := parser.findParams("select * from test where id=?")
 		if err != nil {
 			t.Fatal(err)
 		}

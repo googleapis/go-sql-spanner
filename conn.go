@@ -908,7 +908,7 @@ func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, err
 	if err != nil {
 		return nil, err
 	}
-	parsedSQL, args, err := c.parser.ParseParameters(query)
+	_, args, _, err := c.parser.ParseParameters(query)
 	if err != nil {
 		return nil, err
 	}
@@ -917,7 +917,7 @@ func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, err
 	if err != nil {
 		return nil, err
 	}
-	return &stmt{conn: c, query: parsedSQL, numArgs: len(args), execOptions: execOptions, statementInfo: info, parsedStatement: parsedStatement}, nil
+	return &stmt{conn: c, query: query, numArgs: len(args), execOptions: execOptions, statementInfo: info, parsedStatement: parsedStatement}, nil
 }
 
 // Adds any statement or transaction timeout to the given context. The deadline of the returned
