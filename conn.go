@@ -746,7 +746,6 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 	return driver.ResultNoRows, nil
 }
 
-
 func (c *conn) waitForDDLOperation(ctx context.Context, opName string, waitFunc func(context.Context) error) error {
 	mode := propertyDDLExecutionMode.GetValueOrDefault(c.state)
 	switch mode {
