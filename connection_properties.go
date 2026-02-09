@@ -377,6 +377,17 @@ var propertyDDLExecutionMode = createConnectionProperty(
 	parseDDLExecutionMode,
 )
 
+var propertyDDLAsyncWaitTimeout = createConnectionProperty(
+"ddl_async_wait_timeout",
+"The timeout to wait for a DDL operation to finish when ddl_execution_mode is set to ASYNC_WAIT. " +
+"The default timeout is 10 seconds.",
+10 * time.Second,
+false,
+nil,
+connectionstate.ContextUser,
+connectionstate.ConvertDuration,
+)
+
 // ------------------------------------------------------------------------------------------------
 // Transaction connection properties.
 // ------------------------------------------------------------------------------------------------

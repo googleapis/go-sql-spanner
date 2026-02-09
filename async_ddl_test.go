@@ -88,7 +88,7 @@ func TestDDLExecutionModeAsync(t *testing.T) {
 func TestDDLExecutionModeAsyncWait_Success(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnectionWithParams(t, "ddl_execution_mode=ASYNC_WAIT")
+	db, server, teardown := setupTestDBConnectionWithParams(t, "ddl_execution_mode=ASYNC_WAIT;ddl_async_wait_timeout=100ms")
 	defer teardown()
 	ctx := context.Background()
 
@@ -142,15 +142,11 @@ func TestDDLExecutionModeAsyncWait_Success(t *testing.T) {
 }
 
 func TestDDLExecutionModeAsyncWait_Timeout(t *testing.T) {
-	// Don't run in parallel as we modify a global variable.
-	// t.Parallel()
 
-	// Reduce timeout for testing
-	originalTimeout := ddlAsyncWaitTimeout
-	ddlAsyncWaitTimeout = 100 * time.Millisecond
-	defer func() { ddlAsyncWaitTimeout = originalTimeout }()
+	t.Parallel()
 
-	db, server, teardown := setupTestDBConnectionWithParams(t, "ddl_execution_mode=ASYNC_WAIT")
+
+	db, server, teardown := setupTestDBConnectionWithParams(t, "ddl_execution_mode=ASYNC_WAIT;ddl_async_wait_timeout=100ms")
 	defer teardown()
 	ctx := context.Background()
 
@@ -334,5 +330,33 @@ func TestDDLBatchAsyncRunViaQuery(t *testing.T) {
 
 	if rows.Next() {
 		t.Fatal("expected only one row, got more")
+	}
+}
+
+func TestDDLAsyncWaitTimeout_Default(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnectionWithParams(t, "ddl_execution_mode=ASYNC_WAIT")
+	defer teardown()
+	ctx := context.Background()
+
+	c, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(c)
+
+	err = c.Raw(func(driverConn interface{}) error {
+sc, ok := driverConn.(*conn)
+if !ok {
+return fmt.Errorf("expected *conn, got %T", driverConn)
+}
+if timeout := propertyDDLAsyncWaitTimeout.GetValueOrDefault(sc.state); timeout != 10*time.Second {
+			return fmt.Errorf("expected default timeout 10s, got %v", timeout)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

@@ -746,7 +746,6 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 	return driver.ResultNoRows, nil
 }
 
-var ddlAsyncWaitTimeout = 10 * time.Second
 
 func (c *conn) waitForDDLOperation(ctx context.Context, opName string, waitFunc func(context.Context) error) error {
 	mode := propertyDDLExecutionMode.GetValueOrDefault(c.state)
@@ -755,6 +754,7 @@ func (c *conn) waitForDDLOperation(ctx context.Context, opName string, waitFunc 
 		return nil
 	case DDLExecutionModeAsyncWait:
 		// Create a context with a timeout.
+		ddlAsyncWaitTimeout := propertyDDLAsyncWaitTimeout.GetValueOrDefault(c.state)
 		waitCtx, cancel := context.WithTimeout(ctx, ddlAsyncWaitTimeout)
 		defer cancel()
 		err := waitFunc(waitCtx)
