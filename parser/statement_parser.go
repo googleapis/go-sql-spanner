@@ -16,6 +16,7 @@ package parser
 
 import (
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"sync"
@@ -67,10 +68,11 @@ func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 }
 
 type statementsCacheEntry struct {
-	sql             string
-	params          []string
-	info            *StatementInfo
-	parsedStatement ParsedStatement
+	sql                       string
+	params                    []string
+	namedParamsToIndexedParam map[string]int
+	info                      *StatementInfo
+	parsedStatement           ParsedStatement
 }
 
 var createParserLock sync.Mutex
@@ -278,14 +280,29 @@ func (p *StatementParser) positionalParameterToNamed(positionalParameterIndex in
 	return "@p" + strconv.Itoa(positionalParameterIndex)
 }
 
-// ParseParameters returns the parameters in the given sql string, if the input
-// sql contains positional parameters it returns the converted sql string with
+func (p *StatementParser) engineSupportsNamedParametersWithPrefix(prefix byte) bool {
+	if p.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		return prefix == '$'
+	}
+	return prefix == '@'
+}
+
+// ParseParameters returns the parameters in the given sql string. If the input
+// sql contains positional parameters, it returns the converted sql string with
 // all positional parameters replaced with named parameters.
 // The sql string must be a valid Cloud Spanner sql statement. It may contain
 // comments and (string) literals without any restrictions. That is, string
 // literals containing for example an email address ('test@test.com') will be
 // recognized as a string literal and not returned as a named parameter.
-func (p *StatementParser) ParseParameters(sql string) (string, []string, error) {
+//
+// Returns:
+//   - The modified SQL string that should be sent to Spanner.
+//   - The list of query parameter names that were found in the SQL string.
+//   - Only for PostgreSQL: If named parameters are used with a PostgreSQL-dialect database,
+//     then the parser replaces the named parameters with PostgreSQL-style query parameters.
+//     The returned map contains a mapping from named query parameter to the PostgreSQL
+//     query parameter index (e.g. @id => $1, @value => $2).
+func (p *StatementParser) ParseParameters(sql string) (string, []string, map[string]int, error) {
 	return p.findParams(sql)
 }
 
@@ -482,29 +499,39 @@ func (p *StatementParser) skipQuoted(sql []byte, pos int, quote byte) (int, int,
 
 // findParams finds all query parameters in the given SQL string.
 // The SQL string may contain comments and statement hints.
-func (p *StatementParser) findParams(sql string) (string, []string, error) {
+func (p *StatementParser) findParams(sql string) (string, []string, map[string]int, error) {
 	if !p.useCache {
 		return p.calculateFindParamsResult(sql)
 	}
 	if val, ok := p.statementsCache.Get(sql); ok {
-		return val.sql, val.params, nil
+		return val.sql, val.params, val.namedParamsToIndexedParam, nil
 	} else {
-		namedParamsSql, params, err := p.calculateFindParamsResult(sql)
+		namedParamsSql, params, namedParamsToIndexedParam, err := p.calculateFindParamsResult(sql)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 		info := p.DetectStatementType(sql)
 		cachedParams := make([]string, len(params))
 		copy(cachedParams, params)
-		p.statementsCache.Add(sql, &statementsCacheEntry{sql: namedParamsSql, params: cachedParams, info: info})
-		return namedParamsSql, params, nil
+		cachedNamedParamsToIndexedParam := make(map[string]int, len(namedParamsToIndexedParam))
+		maps.Copy(cachedNamedParamsToIndexedParam, namedParamsToIndexedParam)
+		p.statementsCache.Add(sql, &statementsCacheEntry{
+			sql:                       namedParamsSql,
+			params:                    cachedParams,
+			namedParamsToIndexedParam: cachedNamedParamsToIndexedParam,
+			info:                      info,
+		})
+		return namedParamsSql, params, namedParamsToIndexedParam, nil
 	}
 }
 
-func (p *StatementParser) calculateFindParamsResult(sql string) (string, []string, error) {
+const onlyOneParameterStyle = "statement must only use one parameter style (named or positional): %s"
+
+func (p *StatementParser) calculateFindParamsResult(sql string) (string, []string, map[string]int, error) {
 	const positionalParamChar = '?'
 	paramPrefixes := p.paramPrefixes()
 	hasNamedParameter := false
+	hasIndexedParameter := false
 	hasPositionalParameter := false
 	numPotentialParams := strings.Count(sql, string(positionalParamChar))
 	for prefix := range paramPrefixes {
@@ -516,10 +543,35 @@ func (p *StatementParser) calculateFindParamsResult(sql string) (string, []strin
 	// the SQL string happens to contain a string literal that contains
 	// a lot of question marks.
 	namedParams := make([]string, 0, min(numPotentialParams, 950))
+	namedParamsToIndexedParam := make(map[string]int)
+	foundParams := make(map[string]bool)
 	parsedSQL := strings.Builder{}
 	parsedSQL.Grow(len(sql))
 	positionalParameterIndex := 1
 	parser := &simpleParser{sql: []byte(sql), statementParser: p}
+	addNamedParam := func(startIndex, endIndex int, paramPrefix byte, paramNamePrefix string) {
+		paramName := paramNamePrefix + string(parser.sql[startIndex:endIndex])
+		if p.engineSupportsNamedParametersWithPrefix(paramPrefix) {
+			if !foundParams[paramName] {
+				foundParams[paramName] = true
+				namedParams = append(namedParams, paramName)
+			}
+		} else {
+			index, ok := namedParamsToIndexedParam[paramName]
+			if !ok {
+				namedParamsToIndexedParam[paramName] = positionalParameterIndex
+				index = positionalParameterIndex
+				positionalParameterIndex++
+			}
+			translatedParamName := fmt.Sprintf("p%d", index)
+			if !foundParams[translatedParamName] {
+				foundParams[translatedParamName] = true
+				namedParams = append(namedParams, translatedParamName)
+			}
+			// Use $1, $2, etc. in the SQL string.
+			parsedSQL.Write([]byte(fmt.Sprintf("$%d", index)))
+		}
+	}
 	for parser.pos < len(parser.sql) {
 		startPos := parser.pos
 		parser.skipWhitespacesAndComments()
@@ -542,35 +594,51 @@ func (p *StatementParser) calculateFindParamsResult(sql string) (string, []strin
 		// The reason for this is that other PostgreSQL drivers for Go also do this.
 		if _, ok := paramPrefixes[c]; ok && len(parser.sql) > parser.pos+1 && p.isValidParamsFirstChar(c, parser.sql[parser.pos+1]) {
 			if hasPositionalParameter {
-				return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement must not contain both named and positional parameter: %s", sql))
+				return sql, nil, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, onlyOneParameterStyle, sql))
 			}
 			paramPrefix := c
 			paramNamePrefix := ""
 			if paramPrefix == '$' {
 				paramNamePrefix = "p"
+				if hasNamedParameter {
+					return sql, nil, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, onlyOneParameterStyle, sql))
+				}
+				hasIndexedParameter = true
+			} else {
+				if hasIndexedParameter {
+					return sql, nil, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, onlyOneParameterStyle, sql))
+				}
+				hasNamedParameter = true
 			}
-			parsedSQL.WriteByte(paramPrefix)
+			// Only write the parameter name to the SQL string if the backend engine
+			// actually supports named parameters. Otherwise, we replace it with a
+			// positional parameter.
+			if p.engineSupportsNamedParametersWithPrefix(paramPrefix) {
+				parsedSQL.WriteByte(paramPrefix)
+			}
 			parser.pos++
 			startIndex := parser.pos
 			for parser.pos < len(parser.sql) {
-				if parser.isMultibyte() || !p.isValidParamsChar(paramPrefix, parser.sql[parser.pos]) {
-					hasNamedParameter = true
-					namedParams = append(namedParams, paramNamePrefix+string(parser.sql[startIndex:parser.pos]))
-					parsedSQL.WriteByte(parser.sql[parser.pos])
+				if parser.isMultibyte() || parser.pos == len(parser.sql)-1 || !p.isValidParamsChar(paramPrefix, parser.sql[parser.pos]) {
+					if parser.pos == len(parser.sql)-1 && p.isValidParamsChar(paramPrefix, parser.sql[parser.pos]) {
+						// Include the current character in the parameter name, as the reason that we are stopping
+						// the search here, is that we have reached the end of the statement.
+						if p.engineSupportsNamedParametersWithPrefix(paramPrefix) {
+							parsedSQL.WriteByte(parser.sql[parser.pos])
+						}
+						parser.pos++
+					}
+					addNamedParam(startIndex, parser.pos, paramPrefix, paramNamePrefix)
 					break
 				}
-				if parser.pos == len(parser.sql)-1 {
-					hasNamedParameter = true
-					namedParams = append(namedParams, paramNamePrefix+string(parser.sql[startIndex:]))
+				if p.engineSupportsNamedParametersWithPrefix(paramPrefix) {
 					parsedSQL.WriteByte(parser.sql[parser.pos])
-					break
 				}
-				parsedSQL.WriteByte(parser.sql[parser.pos])
 				parser.pos++
 			}
 		} else if c == positionalParamChar {
-			if hasNamedParameter {
-				return sql, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "statement must not contain both named and positional parameter: %s", sql))
+			if hasNamedParameter || hasIndexedParameter {
+				return sql, nil, nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, onlyOneParameterStyle, sql))
 			}
 			hasPositionalParameter = true
 			parsedSQL.WriteString(p.positionalParameterToNamed(positionalParameterIndex))
@@ -581,16 +649,16 @@ func (p *StatementParser) calculateFindParamsResult(sql string) (string, []strin
 			startPos = parser.pos
 			newPos, err := p.skip(parser.sql, parser.pos)
 			if err != nil {
-				return sql, nil, err
+				return sql, nil, nil, err
 			}
 			parsedSQL.Write(parser.sql[startPos:newPos])
 			parser.pos = newPos
 		}
 	}
-	if hasNamedParameter {
-		return sql, namedParams, nil
+	if hasNamedParameter && len(namedParamsToIndexedParam) == 0 {
+		return sql, namedParams, nil, nil
 	}
-	return parsedSQL.String(), namedParams, nil
+	return parsedSQL.String(), namedParams, namedParamsToIndexedParam, nil
 }
 
 // ParseClientSideStatement returns the executableClientSideStatement that
@@ -783,9 +851,14 @@ func (p *StatementParser) DetectStatementType(sql string) *StatementInfo {
 		return val.info
 	} else {
 		info := p.calculateDetectStatementType(sql)
-		namedParamsSql, params, err := p.calculateFindParamsResult(sql)
+		namedParamsSql, params, namedParamsToIndexedParam, err := p.calculateFindParamsResult(sql)
 		if err == nil {
-			p.statementsCache.Add(sql, &statementsCacheEntry{sql: namedParamsSql, params: params, info: info})
+			p.statementsCache.Add(sql, &statementsCacheEntry{
+				sql:                       namedParamsSql,
+				params:                    params,
+				namedParamsToIndexedParam: namedParamsToIndexedParam,
+				info:                      info,
+			})
 		}
 		return info
 	}
