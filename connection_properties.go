@@ -369,7 +369,7 @@ var propertyDDLExecutionMode = createConnectionProperty(
 	"ddl_execution_mode determines how DDL statements are executed.\n"+
 		"SYNC (default): The driver waits for the Long Running Operation (LRO) to complete.\n"+
 		"ASYNC: The driver returns immediately after the server accepts the request.\n"+
-		"ASYNC_WAIT: The driver waits for a fixed duration (10 seconds). If it completes, return success; if it times out, return success and let the operation continue in the background.",
+		"ASYNC_WAIT: The driver waits for a configurable duration (default: 10 seconds). If it completes, return success; if it times out, return success and let the operation continue in the background.",
 	DDLExecutionModeSync,
 	false,
 	[]DDLExecutionMode{DDLExecutionModeSync, DDLExecutionModeAsync, DDLExecutionModeAsyncWait},
