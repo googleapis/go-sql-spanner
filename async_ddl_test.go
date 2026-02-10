@@ -114,13 +114,14 @@ func TestDDLExecutionModeAsyncWait_Timeout(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		timeoutVal string
-		waitMin    time.Duration
+		timeoutVal         string
+		expectedTimeoutVal string
+		waitMin            time.Duration
 	}{
-		{"100ms", 100 * time.Millisecond},
-		{"50ms", 50 * time.Millisecond},
-		{"NULL", 0},
-		{"0ms", 0},
+		{"100ms", "100ms", 100 * time.Millisecond},
+		{"50ms", "50ms", 50 * time.Millisecond},
+		{"NULL", "0s", 0},
+		{"0ms", "0s", 0},
 	}
 
 	for _, tc := range tests {
@@ -157,6 +158,7 @@ func TestDDLExecutionModeAsyncWait_Timeout(t *testing.T) {
 			}
 
 			verifyDDLExecutionMode(ctx, t, c, "ASYNC_WAIT")
+			verifyDDLAsyncWaitTimeout(ctx, t, c, tc.expectedTimeoutVal)
 		})
 	}
 }
