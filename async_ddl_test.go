@@ -113,38 +113,52 @@ func TestDDLExecutionModeAsyncWait_Success(t *testing.T) {
 func TestDDLExecutionModeAsyncWait_Timeout(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnectionWithParams(t, "ddl_execution_mode=ASYNC_WAIT;ddl_async_wait_timeout=100ms")
-	defer teardown()
-	ctx := context.Background()
-
-	// Mock an operation that is NOT done and will not finish within 100ms.
-	opName := "projects/p/instances/i/databases/d/operations/op-timeout"
-	server.TestDatabaseAdmin.SetResps([]proto.Message{
-		&longrunningpb.Operation{
-			Name: opName,
-			Done: false, // Operation is not done
-		},
-	})
-
-	c, err := db.Conn(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer silentClose(c)
-
-	start := time.Now()
-	// Execute DDL
-	err = executeDDLAndVerifyOpID(ctx, c, opName)
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		timeoutVal string
+		waitMin    time.Duration
+	}{
+		{"100ms", 100 * time.Millisecond},
+		{"50ms", 50 * time.Millisecond},
+		{"NULL", 0},
+		{"0ms", 0},
 	}
 
-	// Ensure it waited at least the timeout duration
-	if time.Since(start) < 100*time.Millisecond {
-		t.Error("expected to wait at least 100ms for timeout")
-	}
+	for _, tc := range tests {
+		t.Run(tc.timeoutVal, func(t *testing.T) {
+			db, server, teardown := setupTestDBConnectionWithParams(t, "ddl_execution_mode=ASYNC_WAIT;ddl_async_wait_timeout="+tc.timeoutVal)
+			defer teardown()
+			ctx := context.Background()
 
-	verifyDDLExecutionMode(ctx, t, c, "ASYNC_WAIT")
+			// Mock an operation that is NOT done and will not finish within the timeout.
+			opName := "projects/p/instances/i/databases/d/operations/op-timeout"
+			server.TestDatabaseAdmin.SetResps([]proto.Message{
+				&longrunningpb.Operation{
+					Name: opName,
+					Done: false, // Operation is not done
+				},
+			})
+
+			c, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer silentClose(c)
+
+			start := time.Now()
+			// Execute DDL
+			err = executeDDLAndVerifyOpID(ctx, c, opName)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Ensure it waited at least the timeout duration
+			if time.Since(start) < tc.waitMin {
+				t.Errorf("expected to wait at least %v for timeout", tc.waitMin)
+			}
+
+			verifyDDLExecutionMode(ctx, t, c, "ASYNC_WAIT")
+		})
+	}
 }
 
 func TestDDLExecutionModeSync(t *testing.T) {
