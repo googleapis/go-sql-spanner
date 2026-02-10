@@ -117,17 +117,32 @@ func TestDDLExecutionModeAsyncWait_Timeout(t *testing.T) {
 		timeoutVal         string
 		expectedTimeoutVal string
 		waitMin            time.Duration
+		wantErr            bool
 	}{
-		{"100ms", "100ms", 100 * time.Millisecond},
-		{"50ms", "50ms", 50 * time.Millisecond},
-		{"NULL", "0s", 0},
-		{"0ms", "0s", 0},
+		{"100ms", "100ms", 100 * time.Millisecond, false},
+		{"50ms", "50ms", 50 * time.Millisecond, false},
+		{"NULL", "0s", 0, false},
+		{"0ms", "0s", 0, false},
+		{"-100ms", "", 0, true},
+		{"Xms", "", 0, true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.timeoutVal, func(t *testing.T) {
-			db, server, teardown := setupTestDBConnectionWithParams(t, "ddl_execution_mode=ASYNC_WAIT;ddl_async_wait_timeout="+tc.timeoutVal)
-			defer teardown()
+			server, _, serverTeardown := setupMockedTestServerWithDialect(t, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+			defer serverTeardown()
+			db, err := sql.Open(
+				"spanner",
+				fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;ddl_execution_mode=ASYNC_WAIT;ddl_async_wait_timeout=%s", server.Address, tc.timeoutVal))
+
+			if err != nil {
+				if tc.wantErr {
+					return
+				}
+				t.Fatalf("unexpected error opening db: %v", err)
+			}
+			defer func() { _ = db.Close() }()
+
 			ctx := context.Background()
 
 			// Mock an operation that is NOT done and will not finish within the timeout.
@@ -141,7 +156,13 @@ func TestDDLExecutionModeAsyncWait_Timeout(t *testing.T) {
 
 			c, err := db.Conn(ctx)
 			if err != nil {
-				t.Fatal(err)
+				if tc.wantErr {
+					return
+				}
+				t.Fatalf("unexpected error getting conn: %v", err)
+			}
+			if tc.wantErr {
+				t.Fatal("expected error, got none")
 			}
 			defer silentClose(c)
 
