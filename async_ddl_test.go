@@ -75,7 +75,7 @@ func TestDDLExecutionModeAsync(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	verifyDDLExecutionMode(ctx, t, c, "ASYNC")
+  verifyConnectionPropertyValue(t, c, "ddl_execution_mode", "ASYNC")
 }
 
 func TestDDLExecutionModeAsyncWait_Success(t *testing.T) {
@@ -178,8 +178,8 @@ func TestDDLExecutionModeAsyncWait_Timeout(t *testing.T) {
 				t.Errorf("expected to wait at least %v for timeout", tc.waitMin)
 			}
 
-			verifyDDLExecutionMode(ctx, t, c, "ASYNC_WAIT")
-			verifyDDLAsyncWaitTimeout(ctx, t, c, tc.expectedTimeoutVal)
+			verifyConnectionPropertyValue(t, c, "ddl_execution_mode", "ASYNC_WAIT")
+			verifyConnectionPropertyValue(t, c, "ddl_async_wait_timeout", tc.expectedTimeoutVal)
 		})
 	}
 }
@@ -213,7 +213,7 @@ func TestDDLExecutionModeSync(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	verifyDDLExecutionMode(ctx, t, c, "SYNC")
+	verifyConnectionPropertyValue(t, c, "ddl_execution_mode", "SYNC")
 }
 
 func TestDDLExecutionModeDefault(t *testing.T) {
@@ -246,7 +246,7 @@ func TestDDLExecutionModeDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	verifyDDLExecutionMode(ctx, t, c, "SYNC")
+	verifyConnectionPropertyValue(t, c, "ddl_execution_mode", "SYNC")
 }
 
 func TestDDLBatchAsyncRunViaQuery(t *testing.T) {
@@ -319,7 +319,7 @@ func TestDDLAsyncWaitTimeout_Default(t *testing.T) {
 	}
 	defer silentClose(c)
 
-	verifyDDLAsyncWaitTimeout(ctx, t, c, "10s")
+	verifyConnectionPropertyValue(t, c, "ddl_async_wait_timeout", "10s")
 }
 
 func executeDDLAndVerifyOpID(ctx context.Context, c *sql.Conn, opName string) error {
@@ -348,28 +348,4 @@ func executeDDLAndVerifyOpID(ctx context.Context, c *sql.Conn, opName string) er
 		}
 		return nil
 	})
-}
-
-func verifyDDLExecutionMode(ctx context.Context, t *testing.T, c *sql.Conn, expectedMode string) {
-	t.Helper()
-	row := c.QueryRowContext(ctx, "show variable ddl_execution_mode")
-	var mode string
-	if err := row.Scan(&mode); err != nil {
-		t.Fatalf("failed to query ddl_execution_mode: %v", err)
-	}
-	if mode != expectedMode {
-		t.Fatalf("expected mode %v, got %v", expectedMode, mode)
-	}
-}
-
-func verifyDDLAsyncWaitTimeout(ctx context.Context, t *testing.T, c *sql.Conn, expectedTimeout string) {
-	t.Helper()
-	row := c.QueryRowContext(ctx, "show variable ddl_async_wait_timeout")
-	var timeout string
-	if err := row.Scan(&timeout); err != nil {
-		t.Fatalf("failed to query ddl_async_wait_timeout: %v", err)
-	}
-	if timeout != expectedTimeout {
-		t.Fatalf("expected timeout %v, got %v", expectedTimeout, timeout)
-	}
 }
