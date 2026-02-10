@@ -74,6 +74,8 @@ func TestDDLExecutionModeAsync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	verifyDDLExecutionMode(ctx, t, c, "ASYNC")
 }
 
 func TestDDLExecutionModeAsyncWait_Success(t *testing.T) {
@@ -141,6 +143,8 @@ func TestDDLExecutionModeAsyncWait_Timeout(t *testing.T) {
 	if time.Since(start) < 100*time.Millisecond {
 		t.Error("expected to wait at least 100ms for timeout")
 	}
+
+	verifyDDLExecutionMode(ctx, t, c, "ASYNC_WAIT")
 }
 
 func TestDDLExecutionModeSync(t *testing.T) {
@@ -171,6 +175,8 @@ func TestDDLExecutionModeSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	verifyDDLExecutionMode(ctx, t, c, "SYNC")
 }
 
 func TestDDLExecutionModeDefault(t *testing.T) {
@@ -203,20 +209,7 @@ func TestDDLExecutionModeDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Check mode is SYNC
-	err = c.Raw(func(driverConn interface{}) error {
-		sc, ok := driverConn.(*conn)
-		if !ok {
-			return fmt.Errorf("expected *conn, got %T", driverConn)
-		}
-		if mode := propertyDDLExecutionMode.GetValueOrDefault(sc.state); mode != DDLExecutionModeSync {
-			return fmt.Errorf("expected default mode SYNC, got %v", mode)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	verifyDDLExecutionMode(ctx, t, c, "SYNC")
 }
 
 func TestDDLBatchAsyncRunViaQuery(t *testing.T) {
@@ -289,19 +282,7 @@ func TestDDLAsyncWaitTimeout_Default(t *testing.T) {
 	}
 	defer silentClose(c)
 
-	err = c.Raw(func(driverConn interface{}) error {
-		sc, ok := driverConn.(*conn)
-		if !ok {
-			return fmt.Errorf("expected *conn, got %T", driverConn)
-		}
-		if timeout := propertyDDLAsyncWaitTimeout.GetValueOrDefault(sc.state); timeout != 10*time.Second {
-			return fmt.Errorf("expected default timeout 10s, got %v", timeout)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	verifyDDLAsyncWaitTimeout(ctx, t, c, "10s")
 }
 
 func executeDDLAndVerifyOpID(ctx context.Context, c *sql.Conn, opName string) error {
@@ -330,4 +311,28 @@ func executeDDLAndVerifyOpID(ctx context.Context, c *sql.Conn, opName string) er
 		}
 		return nil
 	})
+}
+
+func verifyDDLExecutionMode(ctx context.Context, t *testing.T, c *sql.Conn, expectedMode string) {
+	t.Helper()
+	row := c.QueryRowContext(ctx, "show variable ddl_execution_mode")
+	var mode string
+	if err := row.Scan(&mode); err != nil {
+		t.Fatalf("failed to query ddl_execution_mode: %v", err)
+	}
+	if mode != expectedMode {
+		t.Fatalf("expected mode %v, got %v", expectedMode, mode)
+	}
+}
+
+func verifyDDLAsyncWaitTimeout(ctx context.Context, t *testing.T, c *sql.Conn, expectedTimeout string) {
+	t.Helper()
+	row := c.QueryRowContext(ctx, "show variable ddl_async_wait_timeout")
+	var timeout string
+	if err := row.Scan(&timeout); err != nil {
+		t.Fatalf("failed to query ddl_async_wait_timeout: %v", err)
+	}
+	if timeout != expectedTimeout {
+		t.Fatalf("expected timeout %v, got %v", expectedTimeout, timeout)
+	}
 }

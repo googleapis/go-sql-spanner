@@ -371,7 +371,7 @@ var propertyDDLExecutionMode = createConnectionProperty(
 		"ASYNC: The driver returns immediately after the server accepts the request.\n"+
 		"ASYNC_WAIT: The driver waits for a configurable duration (default: 10 seconds). If it completes, return success; if it times out, return success and let the operation continue in the background.",
 	DDLExecutionModeSync,
-	false,
+	true,
 	[]DDLExecutionMode{DDLExecutionModeSync, DDLExecutionModeAsync, DDLExecutionModeAsyncWait},
 	connectionstate.ContextUser,
 	parseDDLExecutionMode,
@@ -382,7 +382,7 @@ var propertyDDLAsyncWaitTimeout = createConnectionProperty(
 	"The timeout to wait for a DDL operation to finish when ddl_execution_mode is set to ASYNC_WAIT. "+
 		"The default timeout is 10 seconds.",
 	10*time.Second,
-	false,
+	true,
 	nil,
 	connectionstate.ContextUser,
 	connectionstate.ConvertDuration,
