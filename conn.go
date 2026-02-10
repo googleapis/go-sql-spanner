@@ -689,11 +689,7 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 			}); err != nil {
 				return nil, err
 			}
-			mode := propertyDDLExecutionMode.GetValueOrDefault(c.state)
-			if mode == DDLExecutionModeAsync || mode == DDLExecutionModeAsyncWait {
-				return &result{operationID: op.Name()}, nil
-			}
-			return driver.ResultNoRows, nil
+			return &result{operationID: op.Name()}, nil
 		} else if c.parser.IsDropDatabaseStatement(ddlStatements[0]) {
 			if len(ddlStatements) > 1 {
 				return nil, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "DROP DATABASE cannot be used in a batch with other statements"))
@@ -738,10 +734,7 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 			}
 			return nil, err
 		}
-		mode := propertyDDLExecutionMode.GetValueOrDefault(c.state)
-		if mode == DDLExecutionModeAsync || mode == DDLExecutionModeAsyncWait {
-			return &result{operationID: op.Name()}, nil
-		}
+		return &result{operationID: op.Name()}, nil
 	}
 	return driver.ResultNoRows, nil
 }

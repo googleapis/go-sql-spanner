@@ -16,6 +16,7 @@ package spannerdriver
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
 	"fmt"
 	"testing"
@@ -49,38 +50,14 @@ func TestDDLExecutionModeAsync(t *testing.T) {
 	}
 	defer silentClose(c)
 
+	start := time.Now()
 	// Execute DDL via Raw to verify driver.Result behavior (since sql.Result wraps it).
-	err = c.Raw(func(driverConn interface{}) error {
-		execer, ok := driverConn.(driver.ExecerContext)
-		if !ok {
-			return fmt.Errorf("driverConn does not implement ExecerContext")
-		}
-
-		start := time.Now()
-		res, err := execer.ExecContext(ctx, "CREATE TABLE Foo (Id INT64) PRIMARY KEY (Id)", nil)
-		if err != nil {
-			return fmt.Errorf("failed to execute DDL: %w", err)
-		}
-		if time.Since(start) > 1*time.Second {
-			return fmt.Errorf("ExecContext took too long for ASYNC mode")
-		}
-
-		// Verify result implements SpannerResult and has correct OperationID
-		spannerRes, ok := res.(SpannerResult)
-		if !ok {
-			return fmt.Errorf("expected result to implement SpannerResult, got %T", res)
-		}
-		gotOpID, err := spannerRes.OperationID()
-		if err != nil {
-			return fmt.Errorf("failed to get operation ID: %w", err)
-		}
-		if gotOpID != opName {
-			return fmt.Errorf("expected operation ID %q, got %q", opName, gotOpID)
-		}
-		return nil
-	})
+	err = executeDDLAndVerifyOpID(ctx, c, opName)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if time.Since(start) > 1*time.Second {
+		t.Fatalf("ExecContext took too long for ASYNC mode")
 	}
 
 	// Double check that the internal operation ID is also set (legacy check)
@@ -125,31 +102,7 @@ func TestDDLExecutionModeAsyncWait_Success(t *testing.T) {
 	defer silentClose(c)
 
 	// Verify operation ID is returned in result.
-	err = c.Raw(func(driverConn interface{}) error {
-		execer, ok := driverConn.(driver.ExecerContext)
-		if !ok {
-			return fmt.Errorf("driverConn does not implement ExecerContext")
-		}
-
-		res, err := execer.ExecContext(ctx, "CREATE TABLE Foo (Id INT64) PRIMARY KEY (Id)", nil)
-		if err != nil {
-			return fmt.Errorf("failed to execute DDL: %w", err)
-		}
-
-		// Verify result implements SpannerResult and has correct OperationID
-		spannerRes, ok := res.(SpannerResult)
-		if !ok {
-			return fmt.Errorf("expected result to implement SpannerResult, got %T", res)
-		}
-		gotOpID, err := spannerRes.OperationID()
-		if err != nil {
-			return fmt.Errorf("failed to get operation ID: %w", err)
-		}
-		if gotOpID != opName {
-			return fmt.Errorf("expected operation ID %q, got %q", opName, gotOpID)
-		}
-		return nil
-	})
+	err = executeDDLAndVerifyOpID(ctx, c, opName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,31 +132,7 @@ func TestDDLExecutionModeAsyncWait_Timeout(t *testing.T) {
 
 	start := time.Now()
 	// Execute DDL
-	err = c.Raw(func(driverConn interface{}) error {
-		execer, ok := driverConn.(driver.ExecerContext)
-		if !ok {
-			return fmt.Errorf("driverConn does not implement ExecerContext")
-		}
-
-		res, err := execer.ExecContext(ctx, "CREATE TABLE Foo (Id INT64) PRIMARY KEY (Id)", nil)
-		if err != nil {
-			return fmt.Errorf("failed to execute DDL: %w", err)
-		}
-
-		// Verify result implements SpannerResult and has correct OperationID
-		spannerRes, ok := res.(SpannerResult)
-		if !ok {
-			return fmt.Errorf("expected result to implement SpannerResult, got %T", res)
-		}
-		gotOpID, err := spannerRes.OperationID()
-		if err != nil {
-			return fmt.Errorf("failed to get operation ID: %w", err)
-		}
-		if gotOpID != opName {
-			return fmt.Errorf("expected operation ID %q, got %q", opName, gotOpID)
-		}
-		return nil
-	})
+	err = executeDDLAndVerifyOpID(ctx, c, opName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,8 +167,9 @@ func TestDDLExecutionModeSync(t *testing.T) {
 	}
 	defer silentClose(c)
 
-	if _, err := c.ExecContext(ctx, "CREATE TABLE Foo (Id INT64) PRIMARY KEY (Id)"); err != nil {
-		t.Fatalf("failed to execute DDL: %v", err)
+	err = executeDDLAndVerifyOpID(ctx, c, opName)
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -268,8 +198,9 @@ func TestDDLExecutionModeDefault(t *testing.T) {
 	}
 	defer silentClose(c)
 
-	if _, err := c.ExecContext(ctx, "CREATE TABLE Foo (Id INT64) PRIMARY KEY (Id)"); err != nil {
-		t.Fatalf("failed to execute DDL: %v", err)
+	err = executeDDLAndVerifyOpID(ctx, c, opName)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	// Check mode is SYNC
@@ -371,4 +302,32 @@ func TestDDLAsyncWaitTimeout_Default(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func executeDDLAndVerifyOpID(ctx context.Context, c *sql.Conn, opName string) error {
+	return c.Raw(func(driverConn interface{}) error {
+		execer, ok := driverConn.(driver.ExecerContext)
+		if !ok {
+			return fmt.Errorf("driverConn does not implement ExecerContext")
+		}
+
+		res, err := execer.ExecContext(ctx, "CREATE TABLE Foo (Id INT64) PRIMARY KEY (Id)", nil)
+		if err != nil {
+			return fmt.Errorf("failed to execute DDL: %w", err)
+		}
+
+		// Verify result implements SpannerResult and has correct OperationID
+		spannerRes, ok := res.(SpannerResult)
+		if !ok {
+			return fmt.Errorf("expected result to implement SpannerResult, got %T", res)
+		}
+		gotOpID, err := spannerRes.OperationID()
+		if err != nil {
+			return fmt.Errorf("failed to get operation ID: %w", err)
+		}
+		if gotOpID != opName {
+			return fmt.Errorf("expected operation ID %q, got %q", opName, gotOpID)
+		}
+		return nil
+	})
 }
