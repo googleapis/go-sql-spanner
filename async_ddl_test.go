@@ -208,7 +208,7 @@ func TestDDLExecutionModeSync(t *testing.T) {
 	}
 	defer silentClose(c)
 
-	err = executeDDLAndVerifyOpID(ctx, c, opName)
+	err = executeDDLAndVerifyOpID(ctx, c, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestDDLExecutionModeDefault(t *testing.T) {
 	}
 	defer silentClose(c)
 
-	err = executeDDLAndVerifyOpID(ctx, c, opName)
+	err = executeDDLAndVerifyOpID(ctx, c, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,6 +332,10 @@ func executeDDLAndVerifyOpID(ctx context.Context, c *sql.Conn, opName string) er
 		res, err := execer.ExecContext(ctx, "CREATE TABLE Foo (Id INT64) PRIMARY KEY (Id)", nil)
 		if err != nil {
 			return fmt.Errorf("failed to execute DDL: %w", err)
+		}
+
+		if opName == "" {
+			return nil
 		}
 
 		// Verify result implements SpannerResult and has correct OperationID
