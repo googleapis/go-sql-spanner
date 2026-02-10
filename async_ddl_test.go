@@ -75,7 +75,7 @@ func TestDDLExecutionModeAsync(t *testing.T) {
 		t.Fatal(err)
 	}
 
-  verifyConnectionPropertyValue(t, c, "ddl_execution_mode", "ASYNC")
+	verifyConnectionPropertyValue(t, c, "ddl_execution_mode", "ASYNC")
 }
 
 func TestDDLExecutionModeAsyncWait_Success(t *testing.T) {
