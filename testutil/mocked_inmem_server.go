@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
@@ -123,6 +124,7 @@ func (s *MockedSpannerInMemTestServer) setupMockedServerWithAddr(t testing.TB, a
 	spannerpb.RegisterSpannerServer(s.server, s.TestSpanner)
 	instancepb.RegisterInstanceAdminServer(s.server, s.TestInstanceAdmin)
 	databasepb.RegisterDatabaseAdminServer(s.server, s.TestDatabaseAdmin)
+	longrunningpb.RegisterOperationsServer(s.server, s.TestDatabaseAdmin)
 
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
