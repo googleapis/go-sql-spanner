@@ -64,15 +64,13 @@ func TestNoLeak(t *testing.T) {
 		runTests()
 	}
 	goleak.VerifyNone(t, ignoreCurrent,
-		goleak.IgnoreTopFunction("cloud.google.com/go/spanner.(*healthChecker).worker"),
-		goleak.IgnoreTopFunction("cloud.google.com/go/spanner.(*healthChecker).multiplexSessionWorker"),
-		goleak.IgnoreTopFunction("cloud.google.com/go/spanner.(*healthChecker).maintainer"),
+		goleak.IgnoreTopFunction("cloud.google.com/go/spanner.(*sessionManager).multiplexSessionWorker"),
 		goleak.IgnoreTopFunction("google.golang.org/grpc/internal/transport.(*controlBuffer).get"),
 		goleak.IgnoreTopFunction("google.golang.org/grpc/internal/transport.(*http2Server).keepalive"),
 		goleak.IgnoreTopFunction("google.golang.org/grpc/internal/transport.(*http2Client).keepalive"),
 		goleak.IgnoreTopFunction("internal/poll.runtime_pollWait"),
 		goleak.IgnoreTopFunction("google.golang.org/grpc/internal/grpcsync.(*CallbackSerializer).run"),
-		goleak.IgnoreTopFunction("cloud.google.com/go/spanner.(*sessionPool).createMultiplexedSession"),
+		goleak.IgnoreTopFunction("cloud.google.com/go/spanner.(*sessionManager).createMultiplexedSession"),
 	)
 }
 

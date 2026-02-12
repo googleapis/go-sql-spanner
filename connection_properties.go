@@ -569,7 +569,9 @@ var propertyDisableNativeMetrics = createConnectionProperty(
 )
 var propertyMinSessions = createConnectionProperty(
 	"min_sessions",
-	fmt.Sprintf("The minimum number of sessions in the backing session pool. The default is %d.", spanner.DefaultSessionPoolConfig.MinOpened),
+	//lint:ignore SA1019 Session pool has been removed. This property has also been marked as deprecated.
+	fmt.Sprintf("(Deprecated) The minimum number of sessions in the backing session pool. The default is %d.", spanner.DefaultSessionPoolConfig.MinOpened),
+	//lint:ignore SA1019 Session pool has been removed. This property has also been marked as deprecated.
 	spanner.DefaultSessionPoolConfig.MinOpened,
 	false,
 	nil,
@@ -578,7 +580,9 @@ var propertyMinSessions = createConnectionProperty(
 )
 var propertyMaxSessions = createConnectionProperty(
 	"max_sessions",
-	fmt.Sprintf("The maximum number of sessions in the backing session pool. The default is %d.", spanner.DefaultSessionPoolConfig.MaxOpened),
+	//lint:ignore SA1019 Session pool has been removed. This property has also been marked as deprecated.
+	fmt.Sprintf("(Deprecated) The maximum number of sessions in the backing session pool. The default is %d.", spanner.DefaultSessionPoolConfig.MaxOpened),
+	//lint:ignore SA1019 Session pool has been removed. This property has also been marked as deprecated.
 	spanner.DefaultSessionPoolConfig.MaxOpened,
 	false,
 	nil,
