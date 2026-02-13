@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.24.0](https://github.com/googleapis/go-sql-spanner/compare/v1.23.0...v1.24.0) (2026-02-13)
+
+
+### Features
+
+* Introduce asynchronous DDL execution modes ([#729](https://github.com/googleapis/go-sql-spanner/issues/729)) ([13253b4](https://github.com/googleapis/go-sql-spanner/commit/13253b422508c10318a3dee2e35a3a64194d0b83))
+* Support partitioned queries through SQL statements ([#714](https://github.com/googleapis/go-sql-spanner/issues/714)) ([db0a239](https://github.com/googleapis/go-sql-spanner/commit/db0a239e6f5296122893672f4938e531b802dea6))
+
+
+### Bug Fixes
+
+* Translate named parameters for PostgreSQL ([#749](https://github.com/googleapis/go-sql-spanner/issues/749)) ([32c334d](https://github.com/googleapis/go-sql-spanner/commit/32c334df943bb87584f51a775a10cca530c3c4f5)), refs [#738](https://github.com/googleapis/go-sql-spanner/issues/738) [#601](https://github.com/googleapis/go-sql-spanner/issues/601) [#730](https://github.com/googleapis/go-sql-spanner/issues/730)
+* Update all dependencies ([#741](https://github.com/googleapis/go-sql-spanner/issues/741)) ([3dd5a9c](https://github.com/googleapis/go-sql-spanner/commit/3dd5a9cc5404eab407d899649a69e29d9b37e4be))
+* Update all dependencies ([#748](https://github.com/googleapis/go-sql-spanner/issues/748)) ([12785b2](https://github.com/googleapis/go-sql-spanner/commit/12785b2f2915751ac5604c29592b9fdbf6fad300))
+* Update dependency io.grpc:grpc-bom to v1.79.0 ([#745](https://github.com/googleapis/go-sql-spanner/issues/745)) ([258759f](https://github.com/googleapis/go-sql-spanner/commit/258759fbaf590e451f38f2e2a3d9088c20553a60))
+* Update protobuf monorepo ([#743](https://github.com/googleapis/go-sql-spanner/issues/743)) ([a28cf8a](https://github.com/googleapis/go-sql-spanner/commit/a28cf8a26d7fd788d67a7d53db4540afcd5104d9))
+
+
+### Performance Improvements
+
+* Remove session pool ([#751](https://github.com/googleapis/go-sql-spanner/issues/751)) ([4ea9f31](https://github.com/googleapis/go-sql-spanner/commit/4ea9f31a5321ad20c16895b4aa2bc89b333ed4e3))
+
 ## [1.23.0](https://github.com/googleapis/go-sql-spanner/compare/v1.22.0...v1.23.0) (2026-01-26)
 
 
