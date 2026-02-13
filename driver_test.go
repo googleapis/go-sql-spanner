@@ -58,6 +58,7 @@ func TestExtractDnsParts(t *testing.T) {
 				Params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Removing would need a breaking change
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 				UserAgent:         userAgent,
 			},
@@ -71,6 +72,7 @@ func TestExtractDnsParts(t *testing.T) {
 				Params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 				UserAgent:         userAgent,
 			},
@@ -85,6 +87,7 @@ func TestExtractDnsParts(t *testing.T) {
 				Params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 				UserAgent:         userAgent,
 			},
@@ -99,6 +102,7 @@ func TestExtractDnsParts(t *testing.T) {
 				Params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 				UserAgent:         userAgent,
 			},
@@ -115,6 +119,7 @@ func TestExtractDnsParts(t *testing.T) {
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
 				UserAgent:            userAgent,
 				DisableNativeMetrics: true,
@@ -132,6 +137,7 @@ func TestExtractDnsParts(t *testing.T) {
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 				UserAgent:         userAgent,
 			},
@@ -149,6 +155,7 @@ func TestExtractDnsParts(t *testing.T) {
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 				UserAgent:         userAgent,
 			},
@@ -165,6 +172,7 @@ func TestExtractDnsParts(t *testing.T) {
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
 				UserAgent:            userAgent,
 				DisableNativeMetrics: true,
@@ -182,6 +190,7 @@ func TestExtractDnsParts(t *testing.T) {
 				IsolationLevel: sql.LevelRepeatableRead,
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 				UserAgent:         userAgent,
 			},
@@ -198,6 +207,7 @@ func TestExtractDnsParts(t *testing.T) {
 				BeginTransactionOption: spanner.ExplicitBeginTransaction,
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 				UserAgent:         userAgent,
 			},
@@ -214,6 +224,7 @@ func TestExtractDnsParts(t *testing.T) {
 				StatementCacheSize: 100,
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 				UserAgent:         userAgent,
 			},
@@ -239,16 +250,18 @@ func TestExtractDnsParts(t *testing.T) {
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Removing would need a breaking change
 				SessionPoolConfig: spanner.SessionPoolConfig{
 					MinOpened:                         200,
 					MaxOpened:                         1000,
-					WriteSessions:                     0.2,
-					HealthCheckInterval:               spanner.DefaultSessionPoolConfig.HealthCheckInterval,
-					HealthCheckWorkers:                spanner.DefaultSessionPoolConfig.HealthCheckWorkers,
-					MaxBurst:                          spanner.DefaultSessionPoolConfig.MaxBurst, //lint:ignore SA1019 because it's a spanner default.
-					MaxIdle:                           spanner.DefaultSessionPoolConfig.MaxIdle,
-					TrackSessionHandles:               spanner.DefaultSessionPoolConfig.TrackSessionHandles,
-					InactiveTransactionRemovalOptions: spanner.DefaultSessionPoolConfig.InactiveTransactionRemovalOptions,
+					WriteSessions:                     spanner.DefaultSessionPoolConfig.WriteSessions,                     //lint:ignore SA1019 Needed to verify correctness in test
+					HealthCheckInterval:               spanner.DefaultSessionPoolConfig.HealthCheckInterval,               //lint:ignore SA1019 Needed to verify correctness in test
+					HealthCheckWorkers:                spanner.DefaultSessionPoolConfig.HealthCheckWorkers,                //lint:ignore SA1019 Needed to verify correctness in test
+					MaxBurst:                          spanner.DefaultSessionPoolConfig.MaxBurst,                          //lint:ignore SA1019 Needed to verify correctness in test
+					MaxIdle:                           spanner.DefaultSessionPoolConfig.MaxIdle,                           //lint:ignore SA1019 Needed to verify correctness in test
+					TrackSessionHandles:               spanner.DefaultSessionPoolConfig.TrackSessionHandles,               //lint:ignore SA1019 Needed to verify correctness in test
+					InactiveTransactionRemovalOptions: spanner.DefaultSessionPoolConfig.InactiveTransactionRemovalOptions, //lint:ignore SA1019 Needed to verify correctness in test
+					MultiplexSessionCheckInterval:     spanner.DefaultSessionPoolConfig.MultiplexSessionCheckInterval,     //lint:ignore SA1019 Needed to verify correctness in test
 				},
 				UserAgent:             userAgent,
 				DisableRouteToLeader:  true,
@@ -285,6 +298,7 @@ func TestExtractDnsParts(t *testing.T) {
 				if err != nil {
 					t.Fatalf("failed to get connector for %q: %v", tc.input, err)
 				}
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				if diff := cmp.Diff(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{}, spanner.InactiveTransactionRemovalOptions{}, spannerpb.ExecuteSqlRequest_QueryOptions{}, spanner.TransactionOptions{})); diff != "" {
 					t.Errorf("connector Spanner client config mismatch for %q\n%v", tc.input, diff)
 				}

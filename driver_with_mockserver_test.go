@@ -3637,9 +3637,9 @@ func TestSetCommitTimestampInConnectionString(t *testing.T) {
 }
 
 func TestMinSessions(t *testing.T) {
-	// MinSessions only has an effect if we are not using multiplexed sessions.
-	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
+	t.Parallel()
 
+	// MinSessions has no effect, as the entire session pool has been removed.
 	minSessions := int32(10)
 	ctx := context.Background()
 	db, server, teardown := setupTestDBConnectionWithParams(t, fmt.Sprintf("minSessions=%v", minSessions))
@@ -3653,33 +3653,21 @@ func TestMinSessions(t *testing.T) {
 	if err := conn.QueryRowContext(ctx, "SELECT 1").Scan(&res); err != nil {
 		t.Fatalf("failed to execute query on connection: %v", err)
 	}
-	// Wait until all sessions have been created.
-	waitFor(t, func() error {
-		created := int32(server.TestSpanner.TotalSessionsCreated())
-		if created != minSessions {
-			return fmt.Errorf("num open sessions mismatch\n Got: %d\nWant: %d", created, minSessions)
-		}
-		return nil
-	})
 	_ = conn.Close()
 	_ = db.Close()
 
-	// Verify that the connector created 10 sessions on the server.
+	// Verify that no regular sessions were created.
 	reqs := server.TestSpanner.DrainRequestsFromServer()
 	createReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
-	numCreated := int32(0)
-	for _, req := range createReqs {
-		numCreated += req.(*sppb.BatchCreateSessionsRequest).SessionCount
-	}
-	if g, w := numCreated, minSessions; g != w {
-		t.Errorf("session creation count mismatch\n Got: %v\nWant: %v", g, w)
+	if g, w := len(createReqs), 0; g != w {
+		t.Fatalf("number of BatchCreateSessions mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
 func TestMaxSessions(t *testing.T) {
-	// MaxSessions only has an effect if we are not using multiplexed sessions.
-	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
+	t.Parallel()
 
+	// MaxSessions has no effect, as the entire session pool has been removed.
 	ctx := context.Background()
 	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=0;maxSessions=2")
 	defer teardown()
@@ -3702,29 +3690,25 @@ func TestMaxSessions(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Verify that the connector only created 2 sessions on the server.
+	// Verify that no regular sessions have been created.
 	reqs := server.TestSpanner.DrainRequestsFromServer()
 	createReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
-	numCreated := int32(0)
-	for _, req := range createReqs {
-		numCreated += req.(*sppb.BatchCreateSessionsRequest).SessionCount
-	}
-	if g, w := numCreated, int32(2); g != w {
-		t.Errorf("session creation count mismatch\n Got: %v\nWant: %v", g, w)
+	if g, w := len(createReqs), 0; g != w {
+		t.Fatalf("number of BatchCreateSessions mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
 func TestClientReuse(t *testing.T) {
-	// MinSessions only has an effect if we are not using multiplexed sessions.
-	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
+	// This test is intentionally not parallel, as the internal caching of clients could
+	// be impacted by other parallel tests.
 
+	numConnectors := len(spannerDriver.connectors)
 	ctx := context.Background()
-	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=2")
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	// Repeatedly get a connection and close it using the same DB instance. These
-	// connections should all share the same Spanner client, and only initialized
-	// one session pool.
+	// connections should all share the same Spanner client.
 	for i := 0; i < 5; i++ {
 		conn, err := db.Conn(ctx)
 		if err != nil {
@@ -3736,25 +3720,22 @@ func TestClientReuse(t *testing.T) {
 		}
 		_ = conn.Close()
 	}
-	// Verify that the connector only created 2 sessions on the server.
-	reqs := server.TestSpanner.DrainRequestsFromServer()
-	createReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
-	numCreated := int32(0)
-	for _, req := range createReqs {
-		numCreated += req.(*sppb.BatchCreateSessionsRequest).SessionCount
-	}
-	if g, w := numCreated, int32(2); g != w {
-		t.Errorf("session creation count mismatch\n Got: %v\nWant: %v", g, w)
+	// Verify that the connector only created one client.
+	if g, w := len(spannerDriver.connectors), numConnectors+1; g != w {
+		t.Fatalf("number of connectors mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
 	// Now close the DB instance and create a new DB connection.
 	// This should cause the first Spanner client to be closed and
 	// a new one to be opened.
 	_ = db.Close()
+	if g, w := len(spannerDriver.connectors), numConnectors; g != w {
+		t.Fatalf("number of connectors mismatch\n Got: %v\nWant: %v", g, w)
+	}
 
 	db, err := sql.Open(
 		"spanner",
-		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;minSessions=2", server.Address))
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address))
 	if err != nil {
 		t.Fatalf("failed to open new DB instance: %v", err)
 	}
@@ -3762,28 +3743,18 @@ func TestClientReuse(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "SELECT 1").Scan(&res); err != nil {
 		t.Fatalf("failed to execute query on db: %v", err)
 	}
-	reqs = server.TestSpanner.DrainRequestsFromServer()
-	createReqs = testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
-	numCreated = int32(0)
-	for _, req := range createReqs {
-		numCreated += req.(*sppb.BatchCreateSessionsRequest).SessionCount
-	}
-	if g, w := numCreated, int32(2); g != w {
-		t.Errorf("session creation count mismatch\n Got: %v\nWant: %v", g, w)
+	if g, w := len(spannerDriver.connectors), numConnectors+1; g != w {
+		t.Fatalf("number of connectors mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
 func TestStressClientReuse(t *testing.T) {
-	// MinSessions only has an effect if we are not using multiplexed sessions.
-	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
-
 	ctx := context.Background()
 	_, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	numSessions := 10
 	numClients := 5
 	numParallel := 50
 	var wg sync.WaitGroup
@@ -3792,7 +3763,7 @@ func TestStressClientReuse(t *testing.T) {
 		// the underlying client will be different from the other connections that use a
 		// different number.
 		db, err := sql.Open("spanner",
-			fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;minSessions=%v;maxSessions=%v;randomNumber=%v", server.Address, numSessions, numSessions, clientIndex))
+			fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;randomNumber=%v", server.Address, clientIndex))
 		if err != nil {
 			t.Fatalf("failed to open DB: %v", err)
 		}
@@ -3825,13 +3796,10 @@ func TestStressClientReuse(t *testing.T) {
 
 	// Verify that each unique connection string created numSessions (10) sessions on the server.
 	reqs := server.TestSpanner.DrainRequestsFromServer()
-	createReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
-	numCreated := int32(0)
-	for _, req := range createReqs {
-		numCreated += req.(*sppb.BatchCreateSessionsRequest).SessionCount
-	}
-	if g, w := numCreated, int32(numSessions*numClients); g != w {
-		t.Errorf("session creation count mismatch\n Got: %v\nWant: %v", g, w)
+	createReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.CreateSessionRequest{}))
+	// TODO: Fix when the client lib has been fixed to only create max one session per client.
+	if g, w := len(createReqs), numClients+1; g != w {
+		t.Fatalf("number of CreateSessions mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	sqlReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlReqs), numClients*numParallel; g != w {
@@ -4561,12 +4529,7 @@ func TestTag_RunTransactionWithOptions_IsNotSticky(t *testing.T) {
 }
 
 func TestMaxIdleConnectionsNonZero(t *testing.T) {
-	// MinSessions only has an effect if we are not using multiplexed sessions.
-	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
-
-	// Set MinSessions=1, so we can use the number of BatchCreateSessions requests as an indication
-	// of the number of clients that was created.
-	db, server, teardown := setupTestDBConnectionWithParams(t, "MinSessions=1")
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	db.SetMaxIdleConns(2)
@@ -4577,19 +4540,16 @@ func TestMaxIdleConnectionsNonZero(t *testing.T) {
 	// Verify that only one client was created.
 	// This happens because we have a non-zero value for the number of idle connections.
 	requests := server.TestSpanner.DrainRequestsFromServer()
-	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
-	if g, w := len(batchRequests), 1; g != w {
-		t.Fatalf("BatchCreateSessions requests count mismatch\n Got: %v\nWant: %v", g, w)
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CreateSessionRequest{}))
+	// TODO: Fix this when the client library has been fixed, so that it only creates one multiplexed
+	//       session per client.
+	if g, w := len(batchRequests), 2; g != w {
+		t.Fatalf("CreateSession requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
 func TestMaxIdleConnectionsZero(t *testing.T) {
-	// MinSessions only has an effect if we are not using multiplexed sessions.
-	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
-
-	// Set MinSessions=1, so we can use the number of BatchCreateSessions requests as an indication
-	// of the number of clients that was created.
-	db, server, teardown := setupTestDBConnectionWithParams(t, "MinSessions=1")
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	db.SetMaxIdleConns(0)
@@ -4600,9 +4560,11 @@ func TestMaxIdleConnectionsZero(t *testing.T) {
 	// Verify that two clients were created and closed.
 	// This should happen because we do not keep any idle connections open.
 	requests := server.TestSpanner.DrainRequestsFromServer()
-	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
-	if g, w := len(batchRequests), 2; g != w {
-		t.Fatalf("BatchCreateSessions requests count mismatch\n Got: %v\nWant: %v", g, w)
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CreateSessionRequest{}))
+	// TODO: Fix this when the client library has been fixed, so that it only creates one multiplexed
+	//       session per client.
+	if g, w := len(batchRequests), 3; g != w {
+		t.Fatalf("CreateSession requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
@@ -5696,7 +5658,7 @@ func TestConnectTimeout(t *testing.T) {
 	defer silentClose(db)
 
 	// Make the ExecuteStreamingSql method a bit slow, so the query that is used to detect the dialect responds a bit slowly.
-	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: time.Millisecond * 10})
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: time.Millisecond * 50})
 
 	// Try to get/create a connection using a context without a deadline.
 	// This will cause the connect_timeout to be used.

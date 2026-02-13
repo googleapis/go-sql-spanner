@@ -647,6 +647,7 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		opts = append(opts, option.WithCredentialsJSON([]byte(val)))
 	}
 	config := spanner.ClientConfig{
+		//lint:ignore SA1019 Needs a change that is backwards compatible
 		SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 	}
 	// Disable client config logging by default.
@@ -663,7 +664,9 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	assignPropertyValueIfExists(state, propertyAutoBatchDml, &connectorConfig.AutoBatchDml)
 	assignPropertyValueIfExists(state, propertyAutoBatchDmlUpdateCount, &connectorConfig.AutoBatchDmlUpdateCount)
 	assignNegatedPropertyValueIfExists(state, propertyAutoBatchDmlUpdateCountVerification, &connectorConfig.DisableAutoBatchDmlUpdateCountVerification)
+	//lint:ignore SA1019 Needs a change that is backwards compatible
 	assignPropertyValueIfExists(state, propertyMinSessions, &config.MinOpened)
+	//lint:ignore SA1019 Needs a change that is backwards compatible
 	assignPropertyValueIfExists(state, propertyMaxSessions, &config.MaxOpened)
 	if val := propertyNumChannels.GetValueOrDefault(state); val > 0 {
 		opts = append(opts, option.WithGRPCConnectionPool(val))
