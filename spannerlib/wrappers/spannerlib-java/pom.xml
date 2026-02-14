@@ -23,7 +23,7 @@
       <dependency>
         <groupId>com.google.cloud</groupId>
         <artifactId>google-cloud-spanner-bom</artifactId>
-        <version>6.110.0</version>
+        <version>6.111.0</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
@@ -94,13 +94,13 @@
     <dependency>
       <groupId>net.bytebuddy</groupId>
       <artifactId>byte-buddy</artifactId>
-      <version>1.18.4</version>
+      <version>1.18.5</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>net.bytebuddy</groupId>
       <artifactId>byte-buddy-agent</artifactId>
-      <version>1.18.4</version>
+      <version>1.18.5</version>
       <scope>test</scope>
     </dependency>
     <dependency>
