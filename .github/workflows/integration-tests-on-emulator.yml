@@ -46,7 +46,7 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.4.8'
+          ruby-version: '4.0.1'
           working-directory: spannerlib/wrappers/spannerlib-ruby
           bundler-cache: true
       - name: Compile and Run Ruby Integration Tests

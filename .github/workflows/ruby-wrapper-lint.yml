@@ -23,7 +23,7 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.4.8'       
+          ruby-version: '4.0.1'       
           bundler-cache: true 
           working-directory: spannerlib/wrappers/spannerlib-ruby 
 
