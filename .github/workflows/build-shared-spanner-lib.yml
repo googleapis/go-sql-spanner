@@ -33,9 +33,9 @@ jobs:
     - name: Install Cross-Compilers (Ubuntu)
       if: matrix.os == 'ubuntu-latest'
       run: |
-        sudo apt-get update
+        apt-get update
         # Install ARM64 cross-compiler and MinGW for Windows cross-compilation
-        sudo apt-get install -y git build-essential gcc-aarch64-linux-gnu gcc-mingw-w64 curl
+        apt-get install -y git build-essential gcc-aarch64-linux-gnu gcc-mingw-w64 curl
 
     - name: Build Binaries
       shell: bash
