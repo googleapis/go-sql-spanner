@@ -74,7 +74,7 @@ if [ "${SKIP_LINUX:-false}" != "true" ]; then
         build_artifact "linux" "amd64" "binaries/linux-x64" "spannerlib.so" ""
     else
         # Cross-compile for Linux x64 from Mac
-        if [ -z "$SKIP_LINUX_CROSS_COMPILE" ] && command -v x86_64-unknown-linux-gnu-gcc >/dev/null 2>&1; then
+        if [ "${SKIP_LINUX_CROSS_COMPILE:-false}" != "true" ] && command -v x86_64-unknown-linux-gnu-gcc >/dev/null 2>&1; then
              build_artifact "linux" "amd64" "binaries/linux-x64" "spannerlib.so" "x86_64-unknown-linux-gnu-gcc"
         else
              log "Skipping Linux x64 cross-compile (compiler not found or skipped)."
