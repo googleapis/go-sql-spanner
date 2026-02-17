@@ -33,6 +33,7 @@ build_artifact() {
         unset CC
     fi
 
+    # Run the build
     GOOS="$os" GOARCH="$arch" CGO_ENABLED=1 go build -o "$output_dir/$output_file" -buildmode=c-shared shared_lib.go
     log "Successfully built $output_dir/$output_file"
 }
@@ -47,38 +48,36 @@ log "Skip Linux cross compile: ${SKIP_LINUX_CROSS_COMPILE:-false}"
 log "Skip Windows: ${SKIP_WINDOWS:-false}"
 
 # --- MacOS Builds ---
-if [ -z "$SKIP_MACOS" ]; then
-    # MacOS ARM64 (Apple Silicon)
-    build_artifact "darwin" "arm64" "binaries/osx-arm64" "spannerlib.dylib" ""
+if [ "${SKIP_MACOS:-false}" != "true" ]; then
+    # Only build Mac if we are actually on Darwin (macOS)
+    if [ "$CURRENT_OS" == "Darwin" ]; then
+        # MacOS ARM64 (Apple Silicon)
+        build_artifact "darwin" "arm64" "binaries/osx-arm64" "spannerlib.dylib" ""
 
-    # MacOS AMD64 (Intel)
-    if [ -n "$BUILD_MACOS_AMD64" ]; then
-        build_artifact "darwin" "amd64" "binaries/osx-x64" "spannerlib.dylib" ""
+        # MacOS AMD64 (Intel)
+        if [ -n "$BUILD_MACOS_AMD64" ]; then
+            build_artifact "darwin" "amd64" "binaries/osx-x64" "spannerlib.dylib" ""
+        fi
+    else
+        log "Skipping macOS build (Not on macOS host)"
     fi
 fi
 
 # --- Linux Builds ---
-if [ -z "$SKIP_LINUX" ]; then
+if [ "${SKIP_LINUX:-false}" != "true" ]; then
     # Linux x64
     # Logic: If we are on Linux, we prefer native build. 
     # If we are NOT on Linux (e.g. Mac), we try cross-compile unless skipped.
-    
+
     if [ "$CURRENT_OS" == "Linux" ]; then
         # Native Linux build
         build_artifact "linux" "amd64" "binaries/linux-x64" "spannerlib.so" ""
     else
-        # Cross-compile for Linux x64 (e.g. from Mac)
-        if [ -z "$SKIP_LINUX_CROSS_COMPILE" ]; then
-             # Check for cross-compiler
-             if command -v x86_64-unknown-linux-gnu-gcc >/dev/null 2>&1; then
-                build_artifact "linux" "amd64" "binaries/linux-x64" "spannerlib.so" "x86_64-unknown-linux-gnu-gcc"
-             else
-                log "WARNING: x86_64-unknown-linux-gnu-gcc not found. Skipping Linux x64 cross-compile."
-             fi
-        elif [ -z "$SKIP_LINUX" ]; then
-             # Fallback to standard build if cross-compile explicitly skipped but Linux not skipped
-             # This might fail if no suitable compiler is found, but we'll try.
-             build_artifact "linux" "amd64" "binaries/linux-x64" "spannerlib.so" ""
+        # Cross-compile for Linux x64 from Mac
+        if [ -z "$SKIP_LINUX_CROSS_COMPILE" ] && command -v x86_64-unknown-linux-gnu-gcc >/dev/null 2>&1; then
+             build_artifact "linux" "amd64" "binaries/linux-x64" "spannerlib.so" "x86_64-unknown-linux-gnu-gcc"
+        else
+             log "Skipping Linux x64 cross-compile (compiler not found or skipped)."
         fi
     fi
 
@@ -94,8 +93,9 @@ if [ -z "$SKIP_LINUX" ]; then
 fi
 
 # --- Windows Builds ---
-if [ -z "$SKIP_WINDOWS" ]; then
+if [ "${SKIP_WINDOWS:-false}" != "true" ]; then
     # Windows x64
+    # Standard MinGW compiler name on Ubuntu/Debian
     CC_WIN="x86_64-w64-mingw32-gcc"
     
     # If running on Windows (Git Bash/MSYS2), we might not need the cross-compiler prefix or it might be different.
