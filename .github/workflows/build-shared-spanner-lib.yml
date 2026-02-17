@@ -35,7 +35,7 @@ jobs:
       run: |
         sudo apt-get update
         # Install ARM64 cross-compiler and MinGW for Windows cross-compilation
-        apt-get install -y git build-essential gcc-aarch64-linux-gnu gcc-mingw-w64 curl
+        sudo apt-get install -y git build-essential gcc-aarch64-linux-gnu gcc-mingw-w64 curl
 
     - name: Build Binaries
       shell: bash
