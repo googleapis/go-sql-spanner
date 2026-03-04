@@ -248,10 +248,10 @@ describe "Connection" do
     exec_req = requests.find { |r| r.is_a?(Google::Cloud::Spanner::V1::ExecuteSqlRequest) }
     _(exec_req).wont_be_nil
 
-    commit_reqs = requests.select { |r| r.is_a?(Google::Cloud::Spanner::V1::CommitRequest) }
+    commit_reqs = requests.grep(Google::Cloud::Spanner::V1::CommitRequest)
     _(commit_reqs).must_be_empty "Expected no Commit requests for read-only transaction"
 
-    rollback_reqs = requests.select { |r| r.is_a?(Google::Cloud::Spanner::V1::RollbackRequest) }
+    rollback_reqs = requests.grep(Google::Cloud::Spanner::V1::RollbackRequest)
     _(rollback_reqs).must_be_empty "Expected no Rollback requests for read-only transaction"
   end
 
