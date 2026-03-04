@@ -12,7 +12,7 @@
   <ItemGroup>
     <PackageReference Include="Google.Cloud.Spanner.V1" Version="5.12.0" />
     <PackageReference Include="Google.Protobuf" Version="3.33.5" />
-    <PackageReference Include="Grpc.Net.Client" Version="2.71.0" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.76.0" />
   </ItemGroup>
 
 </Project>
