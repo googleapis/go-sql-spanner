@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"math/big"
 	"math/rand"
+	"os"
 	"reflect"
 	"sync"
 	"testing"
@@ -37,8 +38,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/google/uuid"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"github.com/googleapis/go-sql-spanner/testutil"
-	lru "github.com/hashicorp/golang-lru/v2"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -82,20 +83,20 @@ func TestStatementCacheSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error for connection: %v", err)
 	}
-	var cache *lru.Cache[string, *statementsCacheEntry]
+	var p *parser.StatementParser
 	if err := c.Raw(func(driverConn any) error {
 		sc, ok := driverConn.(*conn)
 		if !ok {
 			return fmt.Errorf("driverConn is not a Spanner conn")
 		}
-		cache = sc.parser.statementsCache
+		p = sc.parser
 		return nil
 	}); err != nil {
 		t.Fatalf("unexpected error for raw: %v", err)
 	}
 
 	// The cache should initially be empty.
-	if g, w := cache.Len(), 0; g != w {
+	if g, w := p.CacheSize(), 0; g != w {
 		t.Fatalf("cache size mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
@@ -112,7 +113,7 @@ func TestStatementCacheSize(t *testing.T) {
 	}
 
 	// Executing the same query multiple times should add the statement once to the cache.
-	if g, w := cache.Len(), 1; g != w {
+	if g, w := p.CacheSize(), 1; g != w {
 		t.Fatalf("cache size mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
@@ -120,7 +121,7 @@ func TestStatementCacheSize(t *testing.T) {
 	if _, err := db.ExecContext(context.Background(), testutil.UpdateBarSetFoo); err != nil {
 		t.Fatal(err)
 	}
-	if g, w := cache.Len(), 2; g != w {
+	if g, w := p.CacheSize(), 2; g != w {
 		t.Fatalf("cache size mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
@@ -134,7 +135,7 @@ func TestStatementCacheSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The cache size should still be 2.
-	if g, w := cache.Len(), 2; g != w {
+	if g, w := p.CacheSize(), 2; g != w {
 		t.Fatalf("cache size mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
@@ -149,20 +150,20 @@ func TestDisableStatementCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error for connection: %v", err)
 	}
-	var cache *lru.Cache[string, *statementsCacheEntry]
+	var p *parser.StatementParser
 	if err := c.Raw(func(driverConn any) error {
 		sc, ok := driverConn.(*conn)
 		if !ok {
 			return fmt.Errorf("driverConn is not a Spanner conn")
 		}
-		cache = sc.parser.statementsCache
+		p = sc.parser
 		return nil
 	}); err != nil {
 		t.Fatalf("unexpected error for raw: %v", err)
 	}
 
 	// There should be no cache.
-	if cache != nil {
+	if p.UseCache() {
 		t.Fatalf("statement cache should be disabled")
 	}
 
@@ -214,8 +215,8 @@ func TestSimpleQuery(t *testing.T) {
 	if rows.Err() != nil {
 		t.Fatal(rows.Err())
 	}
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -247,8 +248,8 @@ func TestDirectExecuteQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 	// There should be no request on the server.
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 0; g != w {
 		t.Fatalf("sql requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -256,8 +257,8 @@ func TestDirectExecuteQuery(t *testing.T) {
 		t.Fatal("no rows")
 	}
 	// The request should now be present on the server.
-	requests = drainRequestsFromServer(server.TestSpanner)
-	sqlRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests = server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
 		t.Fatalf("sql requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -269,8 +270,8 @@ func TestDirectExecuteQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The request should be present on the server.
-	requests = drainRequestsFromServer(server.TestSpanner)
-	sqlRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests = server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
 		t.Fatalf("sql requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -338,8 +339,8 @@ func TestSingleQueryWithTimestampBound(t *testing.T) {
 		t.Fatal(rows.Err())
 	}
 	_ = rows.Close()
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -370,8 +371,8 @@ func TestSingleQueryWithTimestampBound(t *testing.T) {
 		t.Fatal(rows.Err())
 	}
 	_ = rows.Close()
-	requests = drainRequestsFromServer(server.TestSpanner)
-	sqlRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests = server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -431,8 +432,8 @@ func TestSimpleReadOnlyTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
 		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -445,11 +446,11 @@ func TestSimpleReadOnlyTransaction(t *testing.T) {
 	}
 	// Read-only transactions are not really committed on Cloud Spanner, so
 	// there should be no commit request on the server.
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 0; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	beginReadOnlyRequests := filterBeginReadOnlyRequests(requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
+	beginReadOnlyRequests := filterBeginReadOnlyRequests(testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
 	if g, w := len(beginReadOnlyRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -488,12 +489,12 @@ func TestReadOnlyTransactionWithStaleness(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	beginReadOnlyRequests := filterBeginReadOnlyRequests(requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	beginReadOnlyRequests := filterBeginReadOnlyRequests(testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
 	if g, w := len(beginReadOnlyRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	executeRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), 1; g != w {
 		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -541,12 +542,12 @@ func TestReadOnlyTransactionWithOptions(t *testing.T) {
 	}
 	useTx(tx)
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	beginReadOnlyRequests := filterBeginReadOnlyRequests(requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	beginReadOnlyRequests := filterBeginReadOnlyRequests(testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
 	if g, w := len(beginReadOnlyRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	executeRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), 1; g != w {
 		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -567,12 +568,12 @@ func TestReadOnlyTransactionWithOptions(t *testing.T) {
 	}
 	useTx(tx)
 
-	requests = drainRequestsFromServer(server.TestSpanner)
-	beginReadOnlyRequests = filterBeginReadOnlyRequests(requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
+	requests = server.TestSpanner.DrainRequestsFromServer()
+	beginReadOnlyRequests = filterBeginReadOnlyRequests(testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{})))
 	if g, w := len(beginReadOnlyRequests), 0; g != w {
-		t.Fatalf("begin requests count mismatch\nGot: %v\nWant: %v", g, w)
+		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	executeRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	executeRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), 1; g != w {
 		t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -636,12 +637,12 @@ func TestSimpleReadWriteTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
 	if g, w := len(beginRequests), 0; g != w {
 		t.Fatalf("begin requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
 		t.Fatalf("ExecuteSqlRequests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -655,11 +656,14 @@ func TestSimpleReadWriteTransaction(t *testing.T) {
 	if req.LastStatement {
 		t.Fatalf("last statement set for ExecuteSqlRequest")
 	}
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("commit requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	commitReq := commitRequests[0].(*sppb.CommitRequest)
+	if commitReq.MaxCommitDelay == nil {
+		t.Fatal("missing max commit delay for CommitRequest")
+	}
 	if g, w := commitReq.MaxCommitDelay.Nanos, int32(time.Millisecond*10); g != w {
 		t.Fatalf("max_commit_delay mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -702,8 +706,8 @@ func TestPreparedQuery(t *testing.T) {
 	if rows.Err() != nil {
 		t.Fatal(rows.Err())
 	}
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -759,442 +763,549 @@ func TestQueryWithAllTypes(t *testing.T) {
              AND   ColTimestampArray=@timestampArray
              AND   ColJsonArray=@jsonArray
              AND   ColUuidArray=@uuidArray`
-	_ = server.TestSpanner.PutStatementResult(
-		query,
-		&testutil.StatementResult{
-			Type:      testutil.StatementResultResultSet,
-			ResultSet: testutil.CreateResultSetWithAllTypes(false, true),
-		},
-	)
 
-	stmt, err := db.Prepare(query)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer silentClose(stmt)
-	ts, _ := time.Parse(time.RFC3339Nano, "2021-07-22T10:26:17.123Z")
-	ts1, _ := time.Parse(time.RFC3339Nano, "2021-07-21T21:07:59.339911800Z")
-	ts2, _ := time.Parse(time.RFC3339Nano, "2021-07-27T21:07:59.339911800Z")
-	rows, err := stmt.QueryContext(
-		context.Background(),
-		true,
-		"test",
-		[]byte("testbytes"),
-		uint(5),
-		float32(3.14),
-		3.14,
-		numeric("6.626"),
-		civil.Date{Year: 2021, Month: 7, Day: 21},
-		ts,
-		nullJson(true, `{"key":"value","other-key":["value1","value2"]}`),
-		uuid.MustParse("a4e71944-fe14-4047-9d0a-e68c281602e1"),
-		[]spanner.NullBool{{Valid: true, Bool: true}, {}, {Valid: true, Bool: false}},
-		[]spanner.NullString{{Valid: true, StringVal: "test1"}, {}, {Valid: true, StringVal: "test2"}},
-		[][]byte{[]byte("testbytes1"), nil, []byte("testbytes2")},
-		[]spanner.NullInt64{{Valid: true, Int64: 1}, {}, {Valid: true, Int64: 2}},
-		[]spanner.NullFloat32{{Valid: true, Float32: 3.14}, {}, {Valid: true, Float32: -99.99}},
-		[]spanner.NullFloat64{{Valid: true, Float64: 6.626}, {}, {Valid: true, Float64: 10.01}},
-		[]spanner.NullNumeric{nullNumeric(true, "3.14"), {}, nullNumeric(true, "10.01")},
-		[]spanner.NullDate{{Valid: true, Date: civil.Date{Year: 2000, Month: 2, Day: 29}}, {}, {Valid: true, Date: civil.Date{Year: 2021, Month: 7, Day: 27}}},
-		[]spanner.NullTime{{Valid: true, Time: ts1}, {}, {Valid: true, Time: ts2}},
-		[]spanner.NullJSON{
-			nullJson(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`),
-			nullJson(false, ""),
-			nullJson(true, `{"key2": "value2", "other-key2": ["value1", "value2"]}`),
-		},
-		[]spanner.NullUUID{
-			nullUuid(true, `d0546638-6d51-4d7c-a4a9-9062204ee5bb`),
-			nullUuid(false, ""),
-			nullUuid(true, `0dd0f9b7-05af-48e0-a5b1-35432a01c6bf`),
-		},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer silentClose(rows)
+	for _, dialect := range []databasepb.DatabaseDialect{databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, databasepb.DatabaseDialect_POSTGRESQL} {
+		t.Run(dialect.String(), func(t *testing.T) {
+			resultSet := testutil.CreateResultSetWithAllTypes( /*nullValues=*/ false /*nullValuesInArrays=*/, true, dialect)
+			_ = server.TestSpanner.PutStatementResult(
+				query,
+				&testutil.StatementResult{
+					Type:      testutil.StatementResultResultSet,
+					ResultSet: resultSet,
+				},
+			)
 
-	for rows.Next() {
-		var b bool
-		var s string
-		var bt []byte
-		var i int64
-		var f32 float32
-		var f float64
-		var r big.Rat
-		var d civil.Date
-		var ts time.Time
-		var j spanner.NullJSON
-		var u uuid.UUID
-		var p []byte
-		var e int64
-		var bArray []spanner.NullBool
-		var sArray []spanner.NullString
-		var btArray [][]byte
-		var iArray []spanner.NullInt64
-		var f32Array []spanner.NullFloat32
-		var fArray []spanner.NullFloat64
-		var rArray []spanner.NullNumeric
-		var dArray []spanner.NullDate
-		var tsArray []spanner.NullTime
-		var jArray []spanner.NullJSON
-		var uArray []spanner.NullUUID
-		var pArray [][]byte
-		var eArray []spanner.NullInt64
-		err = rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &u, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &uArray, &pArray, &eArray)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if g, w := b, true; g != w {
-			t.Errorf("row value mismatch for bool\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := s, "test"; g != w {
-			t.Errorf("row value mismatch for string\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := bt, []byte("testbytes"); !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for bytes\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := i, int64(5); g != w {
-			t.Errorf("row value mismatch for int64\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := f32, float32(3.14); g != w {
-			t.Errorf("row value mismatch for float32\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := f, 3.14; g != w {
-			t.Errorf("row value mismatch for float64\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := r, numeric("6.626"); g.Cmp(&w) != 0 {
-			t.Errorf("row value mismatch for numeric\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := d, date("2021-07-21"); !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for date\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := ts, time.Date(2021, 7, 21, 21, 7, 59, 339911800, time.UTC); g != w {
-			t.Errorf("row value mismatch for timestamp\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := j, nullJson(true, `{"key":"value","other-key":["value1","value2"]}`); !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for json\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := u, uuid.MustParse(`a4e71944-fe14-4047-9d0a-e68c281602e1`); !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for uuid\nGot: %v\nWant: %v", g, w)
-		}
-		wantSingerEnumValue := pb.Genre_ROCK
-		wantSingerProtoMsg := pb.SingerInfo{
-			SingerId:    proto.Int64(1),
-			BirthDate:   proto.String("January"),
-			Nationality: proto.String("Country1"),
-			Genre:       &wantSingerEnumValue,
-		}
-		gotSingerProto := pb.SingerInfo{}
-		if err := proto.Unmarshal(p, &gotSingerProto); err != nil {
-			t.Fatalf("failed to unmarshal proto: %v", err)
-		}
-		if g, w := &gotSingerProto, &wantSingerProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
-			t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := pb.Genre(e), wantSingerEnumValue; g != w {
-			t.Errorf("row value mismatch for enum\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := bArray, []spanner.NullBool{{Valid: true, Bool: true}, {}, {Valid: true, Bool: false}}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for bool array\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := sArray, []spanner.NullString{{Valid: true, StringVal: "test1"}, {}, {Valid: true, StringVal: "test2"}}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for string array\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := btArray, [][]byte{[]byte("testbytes1"), nil, []byte("testbytes2")}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for bytes array\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := iArray, []spanner.NullInt64{{Valid: true, Int64: 1}, {}, {Valid: true, Int64: 2}}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for int array\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := f32Array, []spanner.NullFloat32{{Valid: true, Float32: 3.14}, {}, {Valid: true, Float32: -99.99}}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for float32 array\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := fArray, []spanner.NullFloat64{{Valid: true, Float64: 6.626}, {}, {Valid: true, Float64: 10.01}}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for float64 array\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := rArray, []spanner.NullNumeric{nullNumeric(true, "3.14"), {}, nullNumeric(true, "10.01")}; !cmp.Equal(g, w, cmp.AllowUnexported(big.Rat{}, big.Int{})) {
-			t.Errorf("row value mismatch for numeric array\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := dArray, []spanner.NullDate{{Valid: true, Date: civil.Date{Year: 2000, Month: 2, Day: 29}}, {}, {Valid: true, Date: civil.Date{Year: 2021, Month: 7, Day: 27}}}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for date array\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := tsArray, []spanner.NullTime{{Valid: true, Time: ts1}, {}, {Valid: true, Time: ts2}}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for timestamp array\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := jArray, []spanner.NullJSON{
-			nullJson(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`),
-			nullJson(false, ""),
-			nullJson(true, `{"key2": "value2", "other-key2": ["value1", "value2"]}`),
-		}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for json array\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := uArray, []spanner.NullUUID{
-			nullUuid(true, `d0546638-6d51-4d7c-a4a9-9062204ee5bb`),
-			nullUuid(false, ""),
-			nullUuid(true, `0dd0f9b7-05af-48e0-a5b1-35432a01c6bf`),
-		}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for json array\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := len(pArray), 3; g != w {
-			t.Errorf("row value length mismatch for proto array\nGot: %v\nWant: %v", g, w)
-		}
-		wantSinger2ProtoEnum := pb.Genre_FOLK
-		wantSinger2ProtoMsg := pb.SingerInfo{
-			SingerId:    proto.Int64(2),
-			BirthDate:   proto.String("February"),
-			Nationality: proto.String("Country2"),
-			Genre:       &wantSinger2ProtoEnum,
-		}
-		gotSingerProto1 := pb.SingerInfo{}
-		if err := proto.Unmarshal(pArray[0], &gotSingerProto1); err != nil {
-			t.Fatalf("failed to unmarshal proto: %v", err)
-		}
-		gotSingerProto2 := pb.SingerInfo{}
-		if err := proto.Unmarshal(pArray[2], &gotSingerProto2); err != nil {
-			t.Fatalf("failed to unmarshal proto: %v", err)
-		}
-		if g, w := &gotSingerProto1, &wantSingerProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
-			t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := pArray[1], []byte(nil); !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := &gotSingerProto2, &wantSinger2ProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
-			t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
-		}
-	}
-	if rows.Err() != nil {
-		t.Fatal(rows.Err())
-	}
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
-	if g, w := len(sqlRequests), 1; g != w {
-		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
-	}
-	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
-	if g, w := len(req.ParamTypes), 22; g != w {
-		t.Fatalf("param types length mismatch\nGot: %v\nWant: %v", g, w)
-	}
-	if g, w := len(req.Params.Fields), 22; g != w {
-		t.Fatalf("params length mismatch\nGot: %v\nWant: %v", g, w)
-	}
-	wantParams := []struct {
-		name  string
-		code  sppb.TypeCode
-		array bool
-		value interface{}
-	}{
-		{
-			name:  "bool",
-			code:  sppb.TypeCode_BOOL,
-			value: true,
-		},
-		{
-			name:  "string",
-			code:  sppb.TypeCode_STRING,
-			value: "test",
-		},
-		{
-			name:  "bytes",
-			code:  sppb.TypeCode_BYTES,
-			value: base64.StdEncoding.EncodeToString([]byte("testbytes")),
-		},
-		{
-			name:  "int64",
-			code:  sppb.TypeCode_INT64,
-			value: "5",
-		},
-		{
-			name:  "float32",
-			code:  sppb.TypeCode_FLOAT32,
-			value: float64(float32(3.14)),
-		},
-		{
-			name:  "float64",
-			code:  sppb.TypeCode_FLOAT64,
-			value: 3.14,
-		},
-		{
-			name:  "numeric",
-			code:  sppb.TypeCode_NUMERIC,
-			value: "6.626000000",
-		},
-		{
-			name:  "date",
-			code:  sppb.TypeCode_DATE,
-			value: "2021-07-21",
-		},
-		{
-			name:  "timestamp",
-			code:  sppb.TypeCode_TIMESTAMP,
-			value: "2021-07-22T10:26:17.123Z",
-		},
-		{
-			name:  "json",
-			code:  sppb.TypeCode_JSON,
-			value: `{"key":"value","other-key":["value1","value2"]}`,
-		},
-		{
-			name:  "uuid",
-			code:  sppb.TypeCode_UUID,
-			value: `a4e71944-fe14-4047-9d0a-e68c281602e1`,
-		},
-		{
-			name:  "boolArray",
-			code:  sppb.TypeCode_BOOL,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_BoolValue{BoolValue: true}},
-				{Kind: &structpb.Value_NullValue{}},
-				{Kind: &structpb.Value_BoolValue{BoolValue: false}},
-			}},
-		},
-		{
-			name:  "stringArray",
-			code:  sppb.TypeCode_STRING,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_StringValue{StringValue: "test1"}},
-				{Kind: &structpb.Value_NullValue{}},
-				{Kind: &structpb.Value_StringValue{StringValue: "test2"}},
-			}},
-		},
-		{
-			name:  "bytesArray",
-			code:  sppb.TypeCode_BYTES,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString([]byte("testbytes1"))}},
-				{Kind: &structpb.Value_NullValue{}},
-				{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString([]byte("testbytes2"))}},
-			}},
-		},
-		{
-			name:  "int64Array",
-			code:  sppb.TypeCode_INT64,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_StringValue{StringValue: "1"}},
-				{Kind: &structpb.Value_NullValue{}},
-				{Kind: &structpb.Value_StringValue{StringValue: "2"}},
-			}},
-		},
-		{
-			name:  "float32Array",
-			code:  sppb.TypeCode_FLOAT32,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_NumberValue{NumberValue: float64(float32(3.14))}},
-				{Kind: &structpb.Value_NullValue{}},
-				{Kind: &structpb.Value_NumberValue{NumberValue: float64(float32(-99.99))}},
-			}},
-		},
-		{
-			name:  "float64Array",
-			code:  sppb.TypeCode_FLOAT64,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_NumberValue{NumberValue: 6.626}},
-				{Kind: &structpb.Value_NullValue{}},
-				{Kind: &structpb.Value_NumberValue{NumberValue: 10.01}},
-			}},
-		},
-		{
-			name:  "numericArray",
-			code:  sppb.TypeCode_NUMERIC,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_StringValue{StringValue: "3.140000000"}},
-				{Kind: &structpb.Value_NullValue{}},
-				{Kind: &structpb.Value_StringValue{StringValue: "10.010000000"}},
-			}},
-		},
-		{
-			name:  "dateArray",
-			code:  sppb.TypeCode_DATE,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_StringValue{StringValue: "2000-02-29"}},
-				{Kind: &structpb.Value_NullValue{}},
-				{Kind: &structpb.Value_StringValue{StringValue: "2021-07-27"}},
-			}},
-		},
-		{
-			name:  "timestampArray",
-			code:  sppb.TypeCode_TIMESTAMP,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_StringValue{StringValue: "2021-07-21T21:07:59.3399118Z"}},
-				{Kind: &structpb.Value_NullValue{}},
-				{Kind: &structpb.Value_StringValue{StringValue: "2021-07-27T21:07:59.3399118Z"}},
-			}},
-		},
-		{
-			name:  "jsonArray",
-			code:  sppb.TypeCode_JSON,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_StringValue{StringValue: `{"key1":"value1","other-key1":["value1","value2"]}`}},
-				{Kind: &structpb.Value_NullValue{}},
-				{Kind: &structpb.Value_StringValue{StringValue: `{"key2":"value2","other-key2":["value1","value2"]}`}},
-			}},
-		},
-		{
-			name:  "uuidArray",
-			code:  sppb.TypeCode_UUID,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_StringValue{StringValue: `d0546638-6d51-4d7c-a4a9-9062204ee5bb`}},
-				{Kind: &structpb.Value_NullValue{}},
-				{Kind: &structpb.Value_StringValue{StringValue: `0dd0f9b7-05af-48e0-a5b1-35432a01c6bf`}},
-			}},
-		},
-	}
-	for _, wantParam := range wantParams {
-		if pt, ok := req.ParamTypes[wantParam.name]; ok {
-			if wantParam.array {
-				if g, w := pt.Code, sppb.TypeCode_ARRAY; g != w {
-					t.Errorf("param type mismatch\nGot: %v\nWant: %v", g, w)
-				}
-				if g, w := pt.ArrayElementType.Code, wantParam.code; g != w {
-					t.Errorf("param array element type mismatch\nGot: %v\nWant: %v", g, w)
+			stmt, err := db.Prepare(query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer silentClose(stmt)
+			ts, _ := time.Parse(time.RFC3339Nano, "2021-07-22T10:26:17.123Z")
+			ts1, _ := time.Parse(time.RFC3339Nano, "2021-07-21T21:07:59.339911800Z")
+			ts2, _ := time.Parse(time.RFC3339Nano, "2021-07-27T21:07:59.339911800Z")
+			var numericParam interface{}
+			if dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL {
+				numericParam = numeric("6.626")
+			} else {
+				numericParam = "6.626"
+			}
+			var numericArrayParam interface{}
+			if dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL {
+				numericArrayParam = []spanner.NullNumeric{nullNumeric(true, "3.14"), {}, nullNumeric(true, "10.01")}
+			} else {
+				numericArrayParam = []spanner.PGNumeric{{Valid: true, Numeric: "3.14"}, {}, {Valid: true, Numeric: "10.01"}}
+			}
+			var jsonParam interface{}
+			if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+				jsonParam = jsonb(true, `{"key":"value","other-key":["value1","value2"]}`)
+			} else {
+				jsonParam = nullJson(true, `{"key":"value","other-key":["value1","value2"]}`)
+			}
+			var jsonArrayParam interface{}
+			if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+				jsonArrayParam = []spanner.PGJsonB{
+					jsonb(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`),
+					jsonb(false, ""),
+					jsonb(true, `{"key2": "value2", "other-key2": ["value1", "value2"]}`),
 				}
 			} else {
-				if g, w := pt.Code, wantParam.code; g != w {
-					t.Errorf("param type mismatch\nGot: %v\nWant: %v", g, w)
+				jsonArrayParam = []spanner.NullJSON{
+					nullJson(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`),
+					nullJson(false, ""),
+					nullJson(true, `{"key2": "value2", "other-key2": ["value1", "value2"]}`),
 				}
 			}
-		} else {
-			t.Errorf("no param type found for @%s", wantParam.name)
-		}
-		if val, ok := req.Params.Fields[wantParam.name]; ok {
-			var g interface{}
-			if wantParam.array {
-				g = val.GetListValue()
-			} else {
-				switch wantParam.code {
-				case sppb.TypeCode_BOOL:
-					g = val.GetBoolValue()
-				case sppb.TypeCode_FLOAT32:
-					g = val.GetNumberValue()
-				case sppb.TypeCode_FLOAT64:
-					g = val.GetNumberValue()
-				default:
-					g = val.GetStringValue()
+			rows, err := stmt.QueryContext(
+				context.Background(),
+				true,
+				"test",
+				[]byte("testbytes"),
+				uint(5),
+				float32(3.14),
+				3.14,
+				numericParam,
+				civil.Date{Year: 2021, Month: 7, Day: 21},
+				ts,
+				jsonParam,
+				uuid.MustParse("a4e71944-fe14-4047-9d0a-e68c281602e1"),
+				[]spanner.NullBool{{Valid: true, Bool: true}, {}, {Valid: true, Bool: false}},
+				[]spanner.NullString{{Valid: true, StringVal: "test1"}, {}, {Valid: true, StringVal: "test2"}},
+				[][]byte{[]byte("testbytes1"), nil, []byte("testbytes2")},
+				[]spanner.NullInt64{{Valid: true, Int64: 1}, {}, {Valid: true, Int64: 2}},
+				[]spanner.NullFloat32{{Valid: true, Float32: 3.14}, {}, {Valid: true, Float32: -99.99}},
+				[]spanner.NullFloat64{{Valid: true, Float64: 6.626}, {}, {Valid: true, Float64: 10.01}},
+				numericArrayParam,
+				[]spanner.NullDate{{Valid: true, Date: civil.Date{Year: 2000, Month: 2, Day: 29}}, {}, {Valid: true, Date: civil.Date{Year: 2021, Month: 7, Day: 27}}},
+				[]spanner.NullTime{{Valid: true, Time: ts1}, {}, {Valid: true, Time: ts2}},
+				jsonArrayParam,
+				[]spanner.NullUUID{
+					nullUuid(true, `d0546638-6d51-4d7c-a4a9-9062204ee5bb`),
+					nullUuid(false, ""),
+					nullUuid(true, `0dd0f9b7-05af-48e0-a5b1-35432a01c6bf`),
+				},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer silentClose(rows)
+
+			for rows.Next() {
+				var b bool
+				var s string
+				var bt []byte
+				var i int64
+				var f32 float32
+				var f float64
+				var r big.Rat
+				var pgNumeric string
+				var d civil.Date
+				var ts time.Time
+				var j spanner.NullJSON
+				var jb spanner.PGJsonB
+				var u uuid.UUID
+				var p []byte
+				var e int64
+				var bArray []spanner.NullBool
+				var sArray []spanner.NullString
+				var btArray [][]byte
+				var iArray []spanner.NullInt64
+				var f32Array []spanner.NullFloat32
+				var fArray []spanner.NullFloat64
+				var rArray []spanner.NullNumeric
+				var pgNumericArray []spanner.PGNumeric
+				var dArray []spanner.NullDate
+				var tsArray []spanner.NullTime
+				var jArray []spanner.NullJSON
+				var jbArray []spanner.PGJsonB
+				var uArray []spanner.NullUUID
+				var pArray [][]byte
+				var eArray []spanner.NullInt64
+				if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+					err = rows.Scan(&b, &s, &bt, &i, &f32, &f, &pgNumeric, &d, &ts, &jb, &u, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &pgNumericArray, &dArray, &tsArray, &jbArray, &uArray)
+				} else {
+					err = rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &u, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &uArray, &pArray, &eArray)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if g, w := b, true; g != w {
+					t.Errorf("row value mismatch for bool\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := s, "test"; g != w {
+					t.Errorf("row value mismatch for string\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := bt, []byte("testbytes"); !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for bytes\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := i, int64(5); g != w {
+					t.Errorf("row value mismatch for int64\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := f32, float32(3.14); g != w {
+					t.Errorf("row value mismatch for float32\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := f, 3.14; g != w {
+					t.Errorf("row value mismatch for float64\nGot: %v\nWant: %v", g, w)
+				}
+				if dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL {
+					if g, w := r, numeric("6.626"); g.Cmp(&w) != 0 {
+						t.Errorf("row value mismatch for numeric\n Got: %v\nWant: %v", g, w)
+					}
+				} else {
+					if g, w := pgNumeric, "6.626"; g != w {
+						t.Errorf("row value mismatch for numeric\n Got: %v\nWant: %v", g, w)
+					}
+				}
+				if g, w := d, date("2021-07-21"); !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for date\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := ts, time.Date(2021, 7, 21, 21, 7, 59, 339911800, time.UTC); g != w {
+					t.Errorf("row value mismatch for timestamp\nGot: %v\nWant: %v", g, w)
+				}
+				if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+					if g, w := jb, jsonb(true, `{"key":"value","other-key":["value1","value2"]}`); !cmp.Equal(g, w) {
+						t.Errorf("row value mismatch for json\n Got: %v\nWant: %v", g, w)
+					}
+				} else {
+					if g, w := j, nullJson(true, `{"key":"value","other-key":["value1","value2"]}`); !cmp.Equal(g, w) {
+						t.Errorf("row value mismatch for json\n Got: %v\nWant: %v", g, w)
+					}
+				}
+				if g, w := u, uuid.MustParse(`a4e71944-fe14-4047-9d0a-e68c281602e1`); !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for uuid\nGot: %v\nWant: %v", g, w)
+				}
+				wantSingerEnumValue := pb.Genre_ROCK
+				wantSingerProtoMsg := pb.SingerInfo{
+					SingerId:    proto.Int64(1),
+					BirthDate:   proto.String("January"),
+					Nationality: proto.String("Country1"),
+					Genre:       &wantSingerEnumValue,
+				}
+				if dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL {
+					gotSingerProto := pb.SingerInfo{}
+					if err := proto.Unmarshal(p, &gotSingerProto); err != nil {
+						t.Fatalf("failed to unmarshal proto: %v", err)
+					}
+					if g, w := &gotSingerProto, &wantSingerProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
+						t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
+					}
+					if g, w := pb.Genre(e), wantSingerEnumValue; g != w {
+						t.Errorf("row value mismatch for enum\nGot: %v\nWant: %v", g, w)
+					}
+				}
+				if g, w := bArray, []spanner.NullBool{{Valid: true, Bool: true}, {}, {Valid: true, Bool: false}}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for bool array\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := sArray, []spanner.NullString{{Valid: true, StringVal: "test1"}, {}, {Valid: true, StringVal: "test2"}}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for string array\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := btArray, [][]byte{[]byte("testbytes1"), nil, []byte("testbytes2")}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for bytes array\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := iArray, []spanner.NullInt64{{Valid: true, Int64: 1}, {}, {Valid: true, Int64: 2}}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for int array\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := f32Array, []spanner.NullFloat32{{Valid: true, Float32: 3.14}, {}, {Valid: true, Float32: -99.99}}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for float32 array\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := fArray, []spanner.NullFloat64{{Valid: true, Float64: 6.626}, {}, {Valid: true, Float64: 10.01}}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for float64 array\nGot: %v\nWant: %v", g, w)
+				}
+				if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+					if g, w := pgNumericArray, []spanner.PGNumeric{{Valid: true, Numeric: "3.14"}, {}, {Valid: true, Numeric: "10.01"}}; !cmp.Equal(g, w) {
+						t.Errorf("row value mismatch for numeric array\n Got: %v\nWant: %v", g, w)
+					}
+				} else {
+					if g, w := rArray, []spanner.NullNumeric{nullNumeric(true, "3.14"), {}, nullNumeric(true, "10.01")}; !cmp.Equal(g, w, cmp.AllowUnexported(big.Rat{}, big.Int{})) {
+						t.Errorf("row value mismatch for numeric array\n Got: %v\nWant: %v", g, w)
+					}
+				}
+				if g, w := dArray, []spanner.NullDate{{Valid: true, Date: civil.Date{Year: 2000, Month: 2, Day: 29}}, {}, {Valid: true, Date: civil.Date{Year: 2021, Month: 7, Day: 27}}}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for date array\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := tsArray, []spanner.NullTime{{Valid: true, Time: ts1}, {}, {Valid: true, Time: ts2}}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for timestamp array\nGot: %v\nWant: %v", g, w)
+				}
+				if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+					if g, w := jbArray, []spanner.PGJsonB{
+						jsonb(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`),
+						jsonb(false, ""),
+						jsonb(true, `{"key2": "value2", "other-key2": ["value1", "value2"]}`),
+					}; !cmp.Equal(g, w) {
+						t.Errorf("row value mismatch for jsonb array\n Got: %v\nWant: %v", g, w)
+					}
+				} else {
+					if g, w := jArray, []spanner.NullJSON{
+						nullJson(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`),
+						nullJson(false, ""),
+						nullJson(true, `{"key2": "value2", "other-key2": ["value1", "value2"]}`),
+					}; !cmp.Equal(g, w) {
+						t.Errorf("row value mismatch for json array\n Got: %v\nWant: %v", g, w)
+					}
+				}
+				if g, w := uArray, []spanner.NullUUID{
+					nullUuid(true, `d0546638-6d51-4d7c-a4a9-9062204ee5bb`),
+					nullUuid(false, ""),
+					nullUuid(true, `0dd0f9b7-05af-48e0-a5b1-35432a01c6bf`),
+				}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for json array\nGot: %v\nWant: %v", g, w)
+				}
+				if dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL {
+					if g, w := len(pArray), 3; g != w {
+						t.Errorf("row value length mismatch for proto array\nGot: %v\nWant: %v", g, w)
+					}
+					wantSinger2ProtoEnum := pb.Genre_FOLK
+					wantSinger2ProtoMsg := pb.SingerInfo{
+						SingerId:    proto.Int64(2),
+						BirthDate:   proto.String("February"),
+						Nationality: proto.String("Country2"),
+						Genre:       &wantSinger2ProtoEnum,
+					}
+					gotSingerProto1 := pb.SingerInfo{}
+					if err := proto.Unmarshal(pArray[0], &gotSingerProto1); err != nil {
+						t.Fatalf("failed to unmarshal proto: %v", err)
+					}
+					gotSingerProto2 := pb.SingerInfo{}
+					if err := proto.Unmarshal(pArray[2], &gotSingerProto2); err != nil {
+						t.Fatalf("failed to unmarshal proto: %v", err)
+					}
+					if g, w := &gotSingerProto1, &wantSingerProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
+						t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
+					}
+					if g, w := pArray[1], []byte(nil); !cmp.Equal(g, w) {
+						t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
+					}
+					if g, w := &gotSingerProto2, &wantSinger2ProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
+						t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
+					}
 				}
 			}
-			if wantParam.array {
-				if !cmp.Equal(g, wantParam.value, cmpopts.IgnoreUnexported(structpb.ListValue{}, structpb.Value{})) {
-					t.Errorf("array param value mismatch\nGot:  %v\nWant: %v", g, wantParam.value)
+			if rows.Err() != nil {
+				t.Fatal(rows.Err())
+			}
+			requests := server.TestSpanner.DrainRequestsFromServer()
+			sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+			if g, w := len(sqlRequests), 1; g != w {
+				t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
+			}
+			req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+			// Generic strings should be sent as untyped values.
+			// The PG query also sends the numeric parameter as an untyped string.
+			expectedParamTypes := 21
+			if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+				expectedParamTypes = 20
+			}
+			if g, w := len(req.ParamTypes), expectedParamTypes; g != w {
+				t.Fatalf("param types length mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			if g, w := len(req.Params.Fields), 22; g != w {
+				t.Fatalf("params length mismatch\n Got: %v\nWant: %v", g, w)
+			}
+			numericTypeCode := func(dialect databasepb.DatabaseDialect) sppb.TypeCode {
+				if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+					return sppb.TypeCode_TYPE_CODE_UNSPECIFIED
 				}
-			} else {
-				if g != wantParam.value {
-					t.Errorf("param value mismatch\nGot: %v\nWant: %v", g, wantParam.value)
+				return sppb.TypeCode_NUMERIC
+			}
+			numericValue := func(dialect databasepb.DatabaseDialect) string {
+				if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+					return "6.626"
+				}
+				return "6.626000000"
+			}
+			firstNumericArrayValue := func(dialect databasepb.DatabaseDialect) string {
+				if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+					return "3.14"
+				}
+				return "3.140000000"
+			}
+			secondNumericArrayValue := func(dialect databasepb.DatabaseDialect) string {
+				if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+					return "10.01"
+				}
+				return "10.010000000"
+			}
+
+			wantParams := []struct {
+				name  string
+				code  sppb.TypeCode
+				array bool
+				value interface{}
+			}{
+				{
+					name:  "bool",
+					code:  sppb.TypeCode_BOOL,
+					value: true,
+				},
+				{
+					name:  "string",
+					code:  sppb.TypeCode_TYPE_CODE_UNSPECIFIED,
+					value: "test",
+				},
+				{
+					name:  "bytes",
+					code:  sppb.TypeCode_BYTES,
+					value: base64.StdEncoding.EncodeToString([]byte("testbytes")),
+				},
+				{
+					name:  "int64",
+					code:  sppb.TypeCode_INT64,
+					value: "5",
+				},
+				{
+					name:  "float32",
+					code:  sppb.TypeCode_FLOAT32,
+					value: float64(float32(3.14)),
+				},
+				{
+					name:  "float64",
+					code:  sppb.TypeCode_FLOAT64,
+					value: 3.14,
+				},
+				{
+					name:  "numeric",
+					code:  numericTypeCode(dialect),
+					value: numericValue(dialect),
+				},
+				{
+					name:  "date",
+					code:  sppb.TypeCode_DATE,
+					value: "2021-07-21",
+				},
+				{
+					name:  "timestamp",
+					code:  sppb.TypeCode_TIMESTAMP,
+					value: "2021-07-22T10:26:17.123Z",
+				},
+				{
+					name:  "json",
+					code:  sppb.TypeCode_JSON,
+					value: `{"key":"value","other-key":["value1","value2"]}`,
+				},
+				{
+					name:  "uuid",
+					code:  sppb.TypeCode_UUID,
+					value: `a4e71944-fe14-4047-9d0a-e68c281602e1`,
+				},
+				{
+					name:  "boolArray",
+					code:  sppb.TypeCode_BOOL,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_BoolValue{BoolValue: true}},
+						{Kind: &structpb.Value_NullValue{}},
+						{Kind: &structpb.Value_BoolValue{BoolValue: false}},
+					}},
+				},
+				{
+					name:  "stringArray",
+					code:  sppb.TypeCode_STRING,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: "test1"}},
+						{Kind: &structpb.Value_NullValue{}},
+						{Kind: &structpb.Value_StringValue{StringValue: "test2"}},
+					}},
+				},
+				{
+					name:  "bytesArray",
+					code:  sppb.TypeCode_BYTES,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString([]byte("testbytes1"))}},
+						{Kind: &structpb.Value_NullValue{}},
+						{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString([]byte("testbytes2"))}},
+					}},
+				},
+				{
+					name:  "int64Array",
+					code:  sppb.TypeCode_INT64,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: "1"}},
+						{Kind: &structpb.Value_NullValue{}},
+						{Kind: &structpb.Value_StringValue{StringValue: "2"}},
+					}},
+				},
+				{
+					name:  "float32Array",
+					code:  sppb.TypeCode_FLOAT32,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_NumberValue{NumberValue: float64(float32(3.14))}},
+						{Kind: &structpb.Value_NullValue{}},
+						{Kind: &structpb.Value_NumberValue{NumberValue: float64(float32(-99.99))}},
+					}},
+				},
+				{
+					name:  "float64Array",
+					code:  sppb.TypeCode_FLOAT64,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_NumberValue{NumberValue: 6.626}},
+						{Kind: &structpb.Value_NullValue{}},
+						{Kind: &structpb.Value_NumberValue{NumberValue: 10.01}},
+					}},
+				},
+				{
+					name:  "numericArray",
+					code:  sppb.TypeCode_NUMERIC,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: firstNumericArrayValue(dialect)}},
+						{Kind: &structpb.Value_NullValue{}},
+						{Kind: &structpb.Value_StringValue{StringValue: secondNumericArrayValue(dialect)}},
+					}},
+				},
+				{
+					name:  "dateArray",
+					code:  sppb.TypeCode_DATE,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: "2000-02-29"}},
+						{Kind: &structpb.Value_NullValue{}},
+						{Kind: &structpb.Value_StringValue{StringValue: "2021-07-27"}},
+					}},
+				},
+				{
+					name:  "timestampArray",
+					code:  sppb.TypeCode_TIMESTAMP,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: "2021-07-21T21:07:59.3399118Z"}},
+						{Kind: &structpb.Value_NullValue{}},
+						{Kind: &structpb.Value_StringValue{StringValue: "2021-07-27T21:07:59.3399118Z"}},
+					}},
+				},
+				{
+					name:  "jsonArray",
+					code:  sppb.TypeCode_JSON,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: `{"key1":"value1","other-key1":["value1","value2"]}`}},
+						{Kind: &structpb.Value_NullValue{}},
+						{Kind: &structpb.Value_StringValue{StringValue: `{"key2":"value2","other-key2":["value1","value2"]}`}},
+					}},
+				},
+				{
+					name:  "uuidArray",
+					code:  sppb.TypeCode_UUID,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: `d0546638-6d51-4d7c-a4a9-9062204ee5bb`}},
+						{Kind: &structpb.Value_NullValue{}},
+						{Kind: &structpb.Value_StringValue{StringValue: `0dd0f9b7-05af-48e0-a5b1-35432a01c6bf`}},
+					}},
+				},
+			}
+			for _, wantParam := range wantParams {
+				if pt, ok := req.ParamTypes[wantParam.name]; ok {
+					if wantParam.array {
+						if g, w := pt.Code, sppb.TypeCode_ARRAY; g != w {
+							t.Errorf("param type mismatch\nGot: %v\nWant: %v", g, w)
+						}
+						if g, w := pt.ArrayElementType.Code, wantParam.code; g != w {
+							t.Errorf("param array element type mismatch\nGot: %v\nWant: %v", g, w)
+						}
+					} else {
+						if g, w := pt.Code, wantParam.code; g != w {
+							t.Errorf("param type mismatch\nGot: %v\nWant: %v", g, w)
+						}
+					}
+				} else {
+					if wantParam.code != sppb.TypeCode_TYPE_CODE_UNSPECIFIED {
+						t.Errorf("no param type found for @%s", wantParam.name)
+					}
+				}
+				if val, ok := req.Params.Fields[wantParam.name]; ok {
+					var g interface{}
+					if wantParam.array {
+						g = val.GetListValue()
+					} else {
+						switch wantParam.code {
+						case sppb.TypeCode_BOOL:
+							g = val.GetBoolValue()
+						case sppb.TypeCode_FLOAT32:
+							g = val.GetNumberValue()
+						case sppb.TypeCode_FLOAT64:
+							g = val.GetNumberValue()
+						default:
+							g = val.GetStringValue()
+						}
+					}
+					if wantParam.array {
+						if !cmp.Equal(g, wantParam.value, cmpopts.IgnoreUnexported(structpb.ListValue{}, structpb.Value{})) {
+							t.Errorf("array param value mismatch\nGot:  %v\nWant: %v", g, wantParam.value)
+						}
+					} else {
+						if g != wantParam.value {
+							t.Errorf("param value mismatch\nGot: %v\nWant: %v", g, wantParam.value)
+						}
+					}
+				} else {
+					t.Errorf("no value found for param @%s", wantParam.name)
 				}
 			}
-		} else {
-			t.Errorf("no value found for param @%s", wantParam.name)
-		}
+		})
 	}
 }
 
@@ -1231,7 +1342,7 @@ func TestQueryWithNullParameters(t *testing.T) {
 		query,
 		&testutil.StatementResult{
 			Type:      testutil.StatementResultResultSet,
-			ResultSet: testutil.CreateResultSetWithAllTypes(true, true),
+			ResultSet: testutil.CreateResultSetWithAllTypes(true, true, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL),
 		},
 	)
 
@@ -1416,8 +1527,8 @@ func TestQueryWithNullParameters(t *testing.T) {
 		if rows.Err() != nil {
 			t.Fatal(rows.Err())
 		}
-		requests := drainRequestsFromServer(server.TestSpanner)
-		sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 		if g, w := len(sqlRequests), 1; g != w {
 			t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
 		}
@@ -1447,7 +1558,7 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 		query,
 		&testutil.StatementResult{
 			Type:      testutil.StatementResultResultSet,
-			ResultSet: testutil.CreateResultSetWithAllTypes(false, true),
+			ResultSet: testutil.CreateResultSetWithAllTypes(false, true, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL),
 		},
 	)
 
@@ -1552,9 +1663,23 @@ func TestQueryWithAllTypes_ReturnProto(t *testing.T) {
 func TestQueryWithAllNativeTypes(t *testing.T) {
 	t.Parallel()
 
-	db, server, teardown := setupTestDBConnectionWithParams(t, "DecodeToNativeArrays=true")
-	defer teardown()
-	query := `SELECT *
+	for _, useConnectorConfig := range []bool{true, false} {
+		t.Run(fmt.Sprintf("UseConnectorConfig:%v", useConnectorConfig), func(t *testing.T) {
+			var db *sql.DB
+			var server *testutil.MockedSpannerInMemTestServer
+			var teardown func()
+			if useConnectorConfig {
+				db, server, teardown = setupTestDBConnectionWithConnectorConfig(t, ConnectorConfig{
+					Project:              "p",
+					Instance:             "i",
+					Database:             "d",
+					DecodeToNativeArrays: true,
+				})
+			} else {
+				db, server, teardown = setupTestDBConnectionWithParams(t, "DecodeToNativeArrays=true")
+			}
+			defer teardown()
+			query := `SELECT *
              FROM Test
              WHERE ColBool=@bool 
              AND   ColString=@string
@@ -1578,434 +1703,439 @@ func TestQueryWithAllNativeTypes(t *testing.T) {
              AND   ColTimestampArray=@timestampArray
              AND   ColJsonArray=@jsonArray
              AND   ColUuidArray=@uuidArray`
-	_ = server.TestSpanner.PutStatementResult(
-		query,
-		&testutil.StatementResult{
-			Type:      testutil.StatementResultResultSet,
-			ResultSet: testutil.CreateResultSetWithAllTypes(false, false),
-		},
-	)
+			_ = server.TestSpanner.PutStatementResult(
+				query,
+				&testutil.StatementResult{
+					Type:      testutil.StatementResultResultSet,
+					ResultSet: testutil.CreateResultSetWithAllTypes(false, false, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL),
+				},
+			)
 
-	stmt, err := db.Prepare(query)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer silentClose(stmt)
-	ts, _ := time.Parse(time.RFC3339Nano, "2021-07-22T10:26:17.123Z")
-	ts1, _ := time.Parse(time.RFC3339Nano, "2021-07-21T21:07:59.339911800Z")
-	ts2, _ := time.Parse(time.RFC3339Nano, "2021-07-27T21:07:59.339911800Z")
-	tsAlt, _ := time.Parse(time.RFC3339Nano, "2000-01-01T00:00:00Z")
-	rows, err := stmt.QueryContext(
-		context.Background(),
-		true,
-		"test",
-		[]byte("testbytes"),
-		uint(5),
-		float32(3.14),
-		3.14,
-		numeric("6.626"),
-		civil.Date{Year: 2021, Month: 7, Day: 21},
-		ts,
-		nullJson(true, `{"key":"value","other-key":["value1","value2"]}`),
-		uuid.MustParse("a4e71944-fe14-4047-9d0a-e68c281602e1"),
-		[]bool{true, false},
-		[]string{"test1", "test2"},
-		[][]byte{[]byte("testbytes1"), []byte("testbytes2")},
-		[]int64{1, 2},
-		[]float32{3.14, -99.99},
-		[]float64{6.626, 10.01},
-		[]spanner.NullNumeric{nullNumeric(true, "3.14"), nullNumeric(true, "10.01")},
-		[]civil.Date{{Year: 2000, Month: 2, Day: 29}, {Year: 2021, Month: 7, Day: 27}},
-		[]time.Time{ts1, ts2},
-		[]spanner.NullJSON{
-			nullJson(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`),
-			nullJson(true, `{"key2": "value2", "other-key2": ["value1", "value2"]}`),
-		},
-		[]uuid.UUID{
-			uuid.MustParse("d0546638-6d51-4d7c-a4a9-9062204ee5bb"),
-			uuid.MustParse("0dd0f9b7-05af-48e0-a5b1-35432a01c6bf"),
-		},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer silentClose(rows)
+			stmt, err := db.Prepare(query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer silentClose(stmt)
+			ts, _ := time.Parse(time.RFC3339Nano, "2021-07-22T10:26:17.123Z")
+			ts1, _ := time.Parse(time.RFC3339Nano, "2021-07-21T21:07:59.339911800Z")
+			ts2, _ := time.Parse(time.RFC3339Nano, "2021-07-27T21:07:59.339911800Z")
+			tsAlt, _ := time.Parse(time.RFC3339Nano, "2000-01-01T00:00:00Z")
+			rows, err := stmt.QueryContext(
+				context.Background(),
+				true,
+				"test",
+				[]byte("testbytes"),
+				uint(5),
+				float32(3.14),
+				3.14,
+				numeric("6.626"),
+				civil.Date{Year: 2021, Month: 7, Day: 21},
+				ts,
+				nullJson(true, `{"key":"value","other-key":["value1","value2"]}`),
+				uuid.MustParse("a4e71944-fe14-4047-9d0a-e68c281602e1"),
+				[]bool{true, false},
+				[]string{"test1", "test2"},
+				[][]byte{[]byte("testbytes1"), []byte("testbytes2")},
+				[]int64{1, 2},
+				[]float32{3.14, -99.99},
+				[]float64{6.626, 10.01},
+				[]spanner.NullNumeric{nullNumeric(true, "3.14"), nullNumeric(true, "10.01")},
+				[]civil.Date{{Year: 2000, Month: 2, Day: 29}, {Year: 2021, Month: 7, Day: 27}},
+				[]time.Time{ts1, ts2},
+				[]spanner.NullJSON{
+					nullJson(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`),
+					nullJson(true, `{"key2": "value2", "other-key2": ["value1", "value2"]}`),
+				},
+				[]uuid.UUID{
+					uuid.MustParse("d0546638-6d51-4d7c-a4a9-9062204ee5bb"),
+					uuid.MustParse("0dd0f9b7-05af-48e0-a5b1-35432a01c6bf"),
+				},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer silentClose(rows)
 
-	for rows.Next() {
-		var b bool
-		var s string
-		var bt []byte
-		var i int64
-		var f32 float32
-		var f float64
-		var r big.Rat
-		var d civil.Date
-		var ts time.Time
-		var j spanner.NullJSON
-		var u uuid.UUID
-		var p []byte
-		var e int64
-		var bArray []bool
-		var sArray []string
-		var btArray [][]byte
-		var iArray []int64
-		var f32Array []float32
-		var fArray []float64
-		var rArray []spanner.NullNumeric
-		var dArray []civil.Date
-		var tsArray []time.Time
-		var jArray []spanner.NullJSON
-		var uArray []uuid.UUID
-		var pArray [][]byte
-		var eArray []int64
-		err = rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &u, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &uArray, &pArray, &eArray)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if g, w := b, true; g != w {
-			t.Errorf("row value mismatch for bool\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := s, "test"; g != w {
-			t.Errorf("row value mismatch for string\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := bt, []byte("testbytes"); !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for bytes\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := i, int64(5); g != w {
-			t.Errorf("row value mismatch for int64\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := f32, float32(3.14); g != w {
-			t.Errorf("row value mismatch for float32\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := f, 3.14; g != w {
-			t.Errorf("row value mismatch for float64\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := r, numeric("6.626"); g.Cmp(&w) != 0 {
-			t.Errorf("row value mismatch for numeric\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := d, date("2021-07-21"); !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for date\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := ts, time.Date(2021, 7, 21, 21, 7, 59, 339911800, time.UTC); g != w {
-			t.Errorf("row value mismatch for timestamp\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := j, nullJson(true, `{"key":"value","other-key":["value1","value2"]}`); !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for json\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := u, uuid.MustParse("a4e71944-fe14-4047-9d0a-e68c281602e1"); !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for uuid\n Got: %v\nWant: %v", g, w)
-		}
-		wantSingerEnumValue := pb.Genre_ROCK
-		wantSingerProtoMsg := pb.SingerInfo{
-			SingerId:    proto.Int64(1),
-			BirthDate:   proto.String("January"),
-			Nationality: proto.String("Country1"),
-			Genre:       &wantSingerEnumValue,
-		}
-		gotSingerProto := pb.SingerInfo{}
-		if err := proto.Unmarshal(p, &gotSingerProto); err != nil {
-			t.Fatalf("failed to unmarshal proto: %v", err)
-		}
-		if g, w := &gotSingerProto, &wantSingerProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
-			t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := pb.Genre(e), wantSingerEnumValue; g != w {
-			t.Errorf("row value mismatch for enum\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := bArray, []bool{true, true, false}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for bool array\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := sArray, []string{"test1", "alt", "test2"}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for string array\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := btArray, [][]byte{[]byte("testbytes1"), []byte("altbytes"), []byte("testbytes2")}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for bytes array\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := iArray, []int64{1, 0, 2}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for int array\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := f32Array, []float32{3.14, 0.0, -99.99}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for float32 array\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := fArray, []float64{6.626, 0.0, 10.01}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for float64 array\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := rArray, []spanner.NullNumeric{nullNumeric(true, "3.14"), nullNumeric(true, "1.0"), nullNumeric(true, "10.01")}; !cmp.Equal(g, w, cmp.AllowUnexported(big.Rat{}, big.Int{})) {
-			t.Errorf("row value mismatch for numeric array\n Got: %v\nWant: %v", g, w)
-		}
-		if g, w := dArray, []civil.Date{{Year: 2000, Month: 2, Day: 29}, {Year: 2000, Month: 1, Day: 1}, {Year: 2021, Month: 7, Day: 27}}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for date array\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := tsArray, []time.Time{ts1, tsAlt, ts2}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for timestamp array\n Got: %v\nWant: %v", g, w)
-		}
-		if g, w := jArray, []spanner.NullJSON{
-			nullJson(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`),
-			nullJson(true, "{}"),
-			nullJson(true, `{"key2": "value2", "other-key2": ["value1", "value2"]}`),
-		}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for json array\n Got: %v\nWant: %v", g, w)
-		}
-		if g, w := uArray, []uuid.UUID{
-			uuid.MustParse("d0546638-6d51-4d7c-a4a9-9062204ee5bb"),
-			uuid.MustParse("00000000-0000-0000-0000-000000000000"),
-			uuid.MustParse("0dd0f9b7-05af-48e0-a5b1-35432a01c6bf"),
-		}; !cmp.Equal(g, w) {
-			t.Errorf("row value mismatch for json array\n Got: %v\nWant: %v", g, w)
-		}
-		if g, w := len(pArray), 3; g != w {
-			t.Errorf("row value length mismatch for proto array\nGot: %v\nWant: %v", g, w)
-		}
-		wantSinger2ProtoEnum := pb.Genre_FOLK
-		wantSinger2ProtoMsg := pb.SingerInfo{
-			SingerId:    proto.Int64(2),
-			BirthDate:   proto.String("February"),
-			Nationality: proto.String("Country2"),
-			Genre:       &wantSinger2ProtoEnum,
-		}
-		gotSingerProto1 := pb.SingerInfo{}
-		if err := proto.Unmarshal(pArray[0], &gotSingerProto1); err != nil {
-			t.Fatalf("failed to unmarshal proto: %v", err)
-		}
-		gotSingerProtoAlt := pb.SingerInfo{}
-		if err := proto.Unmarshal(pArray[1], &gotSingerProtoAlt); err != nil {
-			t.Fatalf("failed to unmarshal proto: %v", err)
-		}
-		gotSingerProto2 := pb.SingerInfo{}
-		if err := proto.Unmarshal(pArray[2], &gotSingerProto2); err != nil {
-			t.Fatalf("failed to unmarshal proto: %v", err)
-		}
-		if g, w := &gotSingerProto1, &wantSingerProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
-			t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
-		}
-		if g, w := &gotSingerProtoAlt, &wantSingerProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
-			t.Errorf("row value mismatch for proto\n Got: %v\nWant: %v", g, w)
-		}
-		if g, w := &gotSingerProto2, &wantSinger2ProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
-			t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
-		}
-	}
-	if rows.Err() != nil {
-		t.Fatal(rows.Err())
-	}
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
-	if g, w := len(sqlRequests), 1; g != w {
-		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
-	}
-	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
-	if g, w := len(req.ParamTypes), 22; g != w {
-		t.Fatalf("param types length mismatch\nGot: %v\nWant: %v", g, w)
-	}
-	if g, w := len(req.Params.Fields), 22; g != w {
-		t.Fatalf("params length mismatch\nGot: %v\nWant: %v", g, w)
-	}
-	wantParams := []struct {
-		name  string
-		code  sppb.TypeCode
-		array bool
-		value interface{}
-	}{
-		{
-			name:  "bool",
-			code:  sppb.TypeCode_BOOL,
-			value: true,
-		},
-		{
-			name:  "string",
-			code:  sppb.TypeCode_STRING,
-			value: "test",
-		},
-		{
-			name:  "bytes",
-			code:  sppb.TypeCode_BYTES,
-			value: base64.StdEncoding.EncodeToString([]byte("testbytes")),
-		},
-		{
-			name:  "int64",
-			code:  sppb.TypeCode_INT64,
-			value: "5",
-		},
-		{
-			name:  "float32",
-			code:  sppb.TypeCode_FLOAT32,
-			value: float64(float32(3.14)),
-		},
-		{
-			name:  "float64",
-			code:  sppb.TypeCode_FLOAT64,
-			value: 3.14,
-		},
-		{
-			name:  "numeric",
-			code:  sppb.TypeCode_NUMERIC,
-			value: "6.626000000",
-		},
-		{
-			name:  "date",
-			code:  sppb.TypeCode_DATE,
-			value: "2021-07-21",
-		},
-		{
-			name:  "timestamp",
-			code:  sppb.TypeCode_TIMESTAMP,
-			value: "2021-07-22T10:26:17.123Z",
-		},
-		{
-			name:  "json",
-			code:  sppb.TypeCode_JSON,
-			value: `{"key":"value","other-key":["value1","value2"]}`,
-		},
-		{
-			name:  "uuid",
-			code:  sppb.TypeCode_UUID,
-			value: `a4e71944-fe14-4047-9d0a-e68c281602e1`,
-		},
-		{
-			name:  "boolArray",
-			code:  sppb.TypeCode_BOOL,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_BoolValue{BoolValue: true}},
-				{Kind: &structpb.Value_BoolValue{BoolValue: false}},
-			}},
-		},
-		{
-			name:  "stringArray",
-			code:  sppb.TypeCode_STRING,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_StringValue{StringValue: "test1"}},
-				{Kind: &structpb.Value_StringValue{StringValue: "test2"}},
-			}},
-		},
-		{
-			name:  "bytesArray",
-			code:  sppb.TypeCode_BYTES,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString([]byte("testbytes1"))}},
-				{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString([]byte("testbytes2"))}},
-			}},
-		},
-		{
-			name:  "int64Array",
-			code:  sppb.TypeCode_INT64,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_StringValue{StringValue: "1"}},
-				{Kind: &structpb.Value_StringValue{StringValue: "2"}},
-			}},
-		},
-		{
-			name:  "float32Array",
-			code:  sppb.TypeCode_FLOAT32,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_NumberValue{NumberValue: float64(float32(3.14))}},
-				{Kind: &structpb.Value_NumberValue{NumberValue: float64(float32(-99.99))}},
-			}},
-		},
-		{
-			name:  "float64Array",
-			code:  sppb.TypeCode_FLOAT64,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_NumberValue{NumberValue: 6.626}},
-				{Kind: &structpb.Value_NumberValue{NumberValue: 10.01}},
-			}},
-		},
-		{
-			name:  "numericArray",
-			code:  sppb.TypeCode_NUMERIC,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_StringValue{StringValue: "3.140000000"}},
-				{Kind: &structpb.Value_StringValue{StringValue: "10.010000000"}},
-			}},
-		},
-		{
-			name:  "dateArray",
-			code:  sppb.TypeCode_DATE,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_StringValue{StringValue: "2000-02-29"}},
-				{Kind: &structpb.Value_StringValue{StringValue: "2021-07-27"}},
-			}},
-		},
-		{
-			name:  "timestampArray",
-			code:  sppb.TypeCode_TIMESTAMP,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_StringValue{StringValue: "2021-07-21T21:07:59.3399118Z"}},
-				{Kind: &structpb.Value_StringValue{StringValue: "2021-07-27T21:07:59.3399118Z"}},
-			}},
-		},
-		{
-			name:  "jsonArray",
-			code:  sppb.TypeCode_JSON,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_StringValue{StringValue: `{"key1":"value1","other-key1":["value1","value2"]}`}},
-				{Kind: &structpb.Value_StringValue{StringValue: `{"key2":"value2","other-key2":["value1","value2"]}`}},
-			}},
-		},
-		{
-			name:  "uuidArray",
-			code:  sppb.TypeCode_UUID,
-			array: true,
-			value: &structpb.ListValue{Values: []*structpb.Value{
-				{Kind: &structpb.Value_StringValue{StringValue: `d0546638-6d51-4d7c-a4a9-9062204ee5bb`}},
-				{Kind: &structpb.Value_StringValue{StringValue: `0dd0f9b7-05af-48e0-a5b1-35432a01c6bf`}},
-			}},
-		},
-	}
-	for _, wantParam := range wantParams {
-		if pt, ok := req.ParamTypes[wantParam.name]; ok {
-			if wantParam.array {
-				if g, w := pt.Code, sppb.TypeCode_ARRAY; g != w {
-					t.Errorf("param type mismatch\nGot: %v\nWant: %v", g, w)
+			for rows.Next() {
+				var b bool
+				var s string
+				var bt []byte
+				var i int64
+				var f32 float32
+				var f float64
+				var r big.Rat
+				var d civil.Date
+				var ts time.Time
+				var j spanner.NullJSON
+				var u uuid.UUID
+				var p []byte
+				var e int64
+				var bArray []bool
+				var sArray []string
+				var btArray [][]byte
+				var iArray []int64
+				var f32Array []float32
+				var fArray []float64
+				var rArray []spanner.NullNumeric
+				var dArray []civil.Date
+				var tsArray []time.Time
+				var jArray []spanner.NullJSON
+				var uArray []uuid.UUID
+				var pArray [][]byte
+				var eArray []int64
+				err = rows.Scan(&b, &s, &bt, &i, &f32, &f, &r, &d, &ts, &j, &u, &p, &e, &bArray, &sArray, &btArray, &iArray, &f32Array, &fArray, &rArray, &dArray, &tsArray, &jArray, &uArray, &pArray, &eArray)
+				if err != nil {
+					t.Fatal(err)
 				}
-				if g, w := pt.ArrayElementType.Code, wantParam.code; g != w {
-					t.Errorf("param array element type mismatch\nGot: %v\nWant: %v", g, w)
+				if g, w := b, true; g != w {
+					t.Errorf("row value mismatch for bool\nGot: %v\nWant: %v", g, w)
 				}
-			} else {
-				if g, w := pt.Code, wantParam.code; g != w {
-					t.Errorf("param type mismatch\nGot: %v\nWant: %v", g, w)
+				if g, w := s, "test"; g != w {
+					t.Errorf("row value mismatch for string\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := bt, []byte("testbytes"); !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for bytes\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := i, int64(5); g != w {
+					t.Errorf("row value mismatch for int64\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := f32, float32(3.14); g != w {
+					t.Errorf("row value mismatch for float32\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := f, 3.14; g != w {
+					t.Errorf("row value mismatch for float64\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := r, numeric("6.626"); g.Cmp(&w) != 0 {
+					t.Errorf("row value mismatch for numeric\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := d, date("2021-07-21"); !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for date\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := ts, time.Date(2021, 7, 21, 21, 7, 59, 339911800, time.UTC); g != w {
+					t.Errorf("row value mismatch for timestamp\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := j, nullJson(true, `{"key":"value","other-key":["value1","value2"]}`); !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for json\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := u, uuid.MustParse("a4e71944-fe14-4047-9d0a-e68c281602e1"); !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for uuid\n Got: %v\nWant: %v", g, w)
+				}
+				wantSingerEnumValue := pb.Genre_ROCK
+				wantSingerProtoMsg := pb.SingerInfo{
+					SingerId:    proto.Int64(1),
+					BirthDate:   proto.String("January"),
+					Nationality: proto.String("Country1"),
+					Genre:       &wantSingerEnumValue,
+				}
+				gotSingerProto := pb.SingerInfo{}
+				if err := proto.Unmarshal(p, &gotSingerProto); err != nil {
+					t.Fatalf("failed to unmarshal proto: %v", err)
+				}
+				if g, w := &gotSingerProto, &wantSingerProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
+					t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := pb.Genre(e), wantSingerEnumValue; g != w {
+					t.Errorf("row value mismatch for enum\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := bArray, []bool{true, true, false}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for bool array\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := sArray, []string{"test1", "alt", "test2"}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for string array\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := btArray, [][]byte{[]byte("testbytes1"), []byte("altbytes"), []byte("testbytes2")}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for bytes array\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := iArray, []int64{1, 0, 2}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for int array\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := f32Array, []float32{3.14, 0.0, -99.99}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for float32 array\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := fArray, []float64{6.626, 0.0, 10.01}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for float64 array\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := rArray, []spanner.NullNumeric{nullNumeric(true, "3.14"), nullNumeric(true, "1.0"), nullNumeric(true, "10.01")}; !cmp.Equal(g, w, cmp.AllowUnexported(big.Rat{}, big.Int{})) {
+					t.Errorf("row value mismatch for numeric array\n Got: %v\nWant: %v", g, w)
+				}
+				if g, w := dArray, []civil.Date{{Year: 2000, Month: 2, Day: 29}, {Year: 2000, Month: 1, Day: 1}, {Year: 2021, Month: 7, Day: 27}}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for date array\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := tsArray, []time.Time{ts1, tsAlt, ts2}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for timestamp array\n Got: %v\nWant: %v", g, w)
+				}
+				if g, w := jArray, []spanner.NullJSON{
+					nullJson(true, `{"key1": "value1", "other-key1": ["value1", "value2"]}`),
+					nullJson(true, "{}"),
+					nullJson(true, `{"key2": "value2", "other-key2": ["value1", "value2"]}`),
+				}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for json array\n Got: %v\nWant: %v", g, w)
+				}
+				if g, w := uArray, []uuid.UUID{
+					uuid.MustParse("d0546638-6d51-4d7c-a4a9-9062204ee5bb"),
+					uuid.MustParse("00000000-0000-0000-0000-000000000000"),
+					uuid.MustParse("0dd0f9b7-05af-48e0-a5b1-35432a01c6bf"),
+				}; !cmp.Equal(g, w) {
+					t.Errorf("row value mismatch for json array\n Got: %v\nWant: %v", g, w)
+				}
+				if g, w := len(pArray), 3; g != w {
+					t.Errorf("row value length mismatch for proto array\nGot: %v\nWant: %v", g, w)
+				}
+				wantSinger2ProtoEnum := pb.Genre_FOLK
+				wantSinger2ProtoMsg := pb.SingerInfo{
+					SingerId:    proto.Int64(2),
+					BirthDate:   proto.String("February"),
+					Nationality: proto.String("Country2"),
+					Genre:       &wantSinger2ProtoEnum,
+				}
+				gotSingerProto1 := pb.SingerInfo{}
+				if err := proto.Unmarshal(pArray[0], &gotSingerProto1); err != nil {
+					t.Fatalf("failed to unmarshal proto: %v", err)
+				}
+				gotSingerProtoAlt := pb.SingerInfo{}
+				if err := proto.Unmarshal(pArray[1], &gotSingerProtoAlt); err != nil {
+					t.Fatalf("failed to unmarshal proto: %v", err)
+				}
+				gotSingerProto2 := pb.SingerInfo{}
+				if err := proto.Unmarshal(pArray[2], &gotSingerProto2); err != nil {
+					t.Fatalf("failed to unmarshal proto: %v", err)
+				}
+				if g, w := &gotSingerProto1, &wantSingerProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
+					t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
+				}
+				if g, w := &gotSingerProtoAlt, &wantSingerProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
+					t.Errorf("row value mismatch for proto\n Got: %v\nWant: %v", g, w)
+				}
+				if g, w := &gotSingerProto2, &wantSinger2ProtoMsg; !cmp.Equal(g, w, cmpopts.IgnoreUnexported(pb.SingerInfo{})) {
+					t.Errorf("row value mismatch for proto\nGot: %v\nWant: %v", g, w)
 				}
 			}
-		} else {
-			t.Errorf("no param type found for @%s", wantParam.name)
-		}
-		if val, ok := req.Params.Fields[wantParam.name]; ok {
-			var g interface{}
-			if wantParam.array {
-				g = val.GetListValue()
-			} else {
-				switch wantParam.code {
-				case sppb.TypeCode_BOOL:
-					g = val.GetBoolValue()
-				case sppb.TypeCode_FLOAT32:
-					g = val.GetNumberValue()
-				case sppb.TypeCode_FLOAT64:
-					g = val.GetNumberValue()
-				default:
-					g = val.GetStringValue()
+			if rows.Err() != nil {
+				t.Fatal(rows.Err())
+			}
+			requests := server.TestSpanner.DrainRequestsFromServer()
+			sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+			if g, w := len(sqlRequests), 1; g != w {
+				t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
+			}
+			req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+			// Strings should be sent as untyped values.
+			if g, w := len(req.ParamTypes), 20; g != w {
+				t.Fatalf("param types length mismatch\nGot: %v\nWant: %v", g, w)
+			}
+			if g, w := len(req.Params.Fields), 22; g != w {
+				t.Fatalf("params length mismatch\nGot: %v\nWant: %v", g, w)
+			}
+			wantParams := []struct {
+				name  string
+				code  sppb.TypeCode
+				array bool
+				value interface{}
+			}{
+				{
+					name:  "bool",
+					code:  sppb.TypeCode_BOOL,
+					value: true,
+				},
+				{
+					name:  "string",
+					code:  sppb.TypeCode_TYPE_CODE_UNSPECIFIED,
+					value: "test",
+				},
+				{
+					name:  "bytes",
+					code:  sppb.TypeCode_BYTES,
+					value: base64.StdEncoding.EncodeToString([]byte("testbytes")),
+				},
+				{
+					name:  "int64",
+					code:  sppb.TypeCode_INT64,
+					value: "5",
+				},
+				{
+					name:  "float32",
+					code:  sppb.TypeCode_FLOAT32,
+					value: float64(float32(3.14)),
+				},
+				{
+					name:  "float64",
+					code:  sppb.TypeCode_FLOAT64,
+					value: 3.14,
+				},
+				{
+					name:  "numeric",
+					code:  sppb.TypeCode_NUMERIC,
+					value: "6.626000000",
+				},
+				{
+					name:  "date",
+					code:  sppb.TypeCode_DATE,
+					value: "2021-07-21",
+				},
+				{
+					name:  "timestamp",
+					code:  sppb.TypeCode_TIMESTAMP,
+					value: "2021-07-22T10:26:17.123Z",
+				},
+				{
+					name:  "json",
+					code:  sppb.TypeCode_JSON,
+					value: `{"key":"value","other-key":["value1","value2"]}`,
+				},
+				{
+					name:  "uuid",
+					code:  sppb.TypeCode_UUID,
+					value: `a4e71944-fe14-4047-9d0a-e68c281602e1`,
+				},
+				{
+					name:  "boolArray",
+					code:  sppb.TypeCode_BOOL,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_BoolValue{BoolValue: true}},
+						{Kind: &structpb.Value_BoolValue{BoolValue: false}},
+					}},
+				},
+				{
+					name:  "stringArray",
+					code:  sppb.TypeCode_TYPE_CODE_UNSPECIFIED,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: "test1"}},
+						{Kind: &structpb.Value_StringValue{StringValue: "test2"}},
+					}},
+				},
+				{
+					name:  "bytesArray",
+					code:  sppb.TypeCode_BYTES,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString([]byte("testbytes1"))}},
+						{Kind: &structpb.Value_StringValue{StringValue: base64.StdEncoding.EncodeToString([]byte("testbytes2"))}},
+					}},
+				},
+				{
+					name:  "int64Array",
+					code:  sppb.TypeCode_INT64,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: "1"}},
+						{Kind: &structpb.Value_StringValue{StringValue: "2"}},
+					}},
+				},
+				{
+					name:  "float32Array",
+					code:  sppb.TypeCode_FLOAT32,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_NumberValue{NumberValue: float64(float32(3.14))}},
+						{Kind: &structpb.Value_NumberValue{NumberValue: float64(float32(-99.99))}},
+					}},
+				},
+				{
+					name:  "float64Array",
+					code:  sppb.TypeCode_FLOAT64,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_NumberValue{NumberValue: 6.626}},
+						{Kind: &structpb.Value_NumberValue{NumberValue: 10.01}},
+					}},
+				},
+				{
+					name:  "numericArray",
+					code:  sppb.TypeCode_NUMERIC,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: "3.140000000"}},
+						{Kind: &structpb.Value_StringValue{StringValue: "10.010000000"}},
+					}},
+				},
+				{
+					name:  "dateArray",
+					code:  sppb.TypeCode_DATE,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: "2000-02-29"}},
+						{Kind: &structpb.Value_StringValue{StringValue: "2021-07-27"}},
+					}},
+				},
+				{
+					name:  "timestampArray",
+					code:  sppb.TypeCode_TIMESTAMP,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: "2021-07-21T21:07:59.3399118Z"}},
+						{Kind: &structpb.Value_StringValue{StringValue: "2021-07-27T21:07:59.3399118Z"}},
+					}},
+				},
+				{
+					name:  "jsonArray",
+					code:  sppb.TypeCode_JSON,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: `{"key1":"value1","other-key1":["value1","value2"]}`}},
+						{Kind: &structpb.Value_StringValue{StringValue: `{"key2":"value2","other-key2":["value1","value2"]}`}},
+					}},
+				},
+				{
+					name:  "uuidArray",
+					code:  sppb.TypeCode_UUID,
+					array: true,
+					value: &structpb.ListValue{Values: []*structpb.Value{
+						{Kind: &structpb.Value_StringValue{StringValue: `d0546638-6d51-4d7c-a4a9-9062204ee5bb`}},
+						{Kind: &structpb.Value_StringValue{StringValue: `0dd0f9b7-05af-48e0-a5b1-35432a01c6bf`}},
+					}},
+				},
+			}
+			for _, wantParam := range wantParams {
+				if pt, ok := req.ParamTypes[wantParam.name]; ok {
+					if wantParam.array {
+						if g, w := pt.Code, sppb.TypeCode_ARRAY; g != w {
+							t.Errorf("param type mismatch\nGot: %v\nWant: %v", g, w)
+						}
+						if g, w := pt.ArrayElementType.Code, wantParam.code; g != w {
+							t.Errorf("param array element type mismatch\nGot: %v\nWant: %v", g, w)
+						}
+					} else {
+						if g, w := pt.Code, wantParam.code; g != w {
+							t.Errorf("param type mismatch\nGot: %v\nWant: %v", g, w)
+						}
+					}
+				} else {
+					if wantParam.code != sppb.TypeCode_TYPE_CODE_UNSPECIFIED {
+						t.Errorf("no param type found for @%s", wantParam.name)
+					}
+				}
+				if val, ok := req.Params.Fields[wantParam.name]; ok {
+					var g interface{}
+					if wantParam.array {
+						g = val.GetListValue()
+					} else {
+						switch wantParam.code {
+						case sppb.TypeCode_BOOL:
+							g = val.GetBoolValue()
+						case sppb.TypeCode_FLOAT32:
+							g = val.GetNumberValue()
+						case sppb.TypeCode_FLOAT64:
+							g = val.GetNumberValue()
+						default:
+							g = val.GetStringValue()
+						}
+					}
+					if wantParam.array {
+						if !cmp.Equal(g, wantParam.value, cmpopts.IgnoreUnexported(structpb.ListValue{}, structpb.Value{})) {
+							t.Errorf("array param value mismatch\nGot:  %v\nWant: %v", g, wantParam.value)
+						}
+					} else {
+						if g != wantParam.value {
+							t.Errorf("param value mismatch\nGot: %v\nWant: %v", g, wantParam.value)
+						}
+					}
+				} else {
+					t.Errorf("no value found for param @%s", wantParam.name)
 				}
 			}
-			if wantParam.array {
-				if !cmp.Equal(g, wantParam.value, cmpopts.IgnoreUnexported(structpb.ListValue{}, structpb.Value{})) {
-					t.Errorf("array param value mismatch\nGot:  %v\nWant: %v", g, wantParam.value)
-				}
-			} else {
-				if g != wantParam.value {
-					t.Errorf("param value mismatch\nGot: %v\nWant: %v", g, wantParam.value)
-				}
-			}
-		} else {
-			t.Errorf("no value found for param @%s", wantParam.name)
-		}
+		})
 	}
 }
 
@@ -2036,8 +2166,8 @@ func TestDmlInAutocommit(t *testing.T) {
 	if g, w := affected, int64(testutil.UpdateBarSetFooRowCount); g != w {
 		t.Fatalf("row count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
 		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -2053,7 +2183,7 @@ func TestDmlInAutocommit(t *testing.T) {
 	if !req.LastStatement {
 		t.Fatal("missing LastStatement for ExecuteSqlRequest")
 	}
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -2082,8 +2212,8 @@ func TestQueryWithDuplicateNamedParameter(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Verify that 'bar' is used for both instances of the parameter @name.
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if len(sqlRequests) != 1 {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
 	}
@@ -2092,6 +2222,39 @@ func TestQueryWithDuplicateNamedParameter(t *testing.T) {
 		t.Fatalf("params count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	if g, w := req.Params.Fields["name"].GetStringValue(), "bar"; g != w {
+		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestQueryWithDuplicateNamedParameterStartingWithUnderscore(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	// database/sql does not allow named arguments to start with an underscore.
+	// The Spanner database/sql driver allows a workaround for this by specifying those named arguments with a
+	// SpannerNamedArg.
+	s := "insert into users (id, name) values (@__name, @__name)"
+	_ = server.TestSpanner.PutStatementResult(s, &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	_, err := db.Exec(s, sql.Named("p__name", SpannerNamedArg{NameInQuery: "__name", Value: "foo"}), sql.Named("p__name", SpannerNamedArg{NameInQuery: "__name", Value: "bar"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify that 'bar' is used for both instances of the parameter @__name.
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 1 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := len(req.Params.Fields), 1; g != w {
+		t.Fatalf("params count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := req.Params.Fields["__name"].GetStringValue(), "bar"; g != w {
 		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
@@ -2112,8 +2275,8 @@ func TestQueryWithReusedNamedParameter(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Verify that 'foo' is used for both instances of the parameter @name.
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if len(sqlRequests) != 1 {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
 	}
@@ -2122,6 +2285,36 @@ func TestQueryWithReusedNamedParameter(t *testing.T) {
 		t.Fatalf("params count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	if g, w := req.Params.Fields["name"].GetStringValue(), "foo"; g != w {
+		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestQueryWithReusedNamedParameterStartingWithUnderscore(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	s := "insert into users (id, name) values (@__name, @__name)"
+	_ = server.TestSpanner.PutStatementResult(s, &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	_, err := db.Exec(s, sql.Named("p__name", SpannerNamedArg{NameInQuery: "__name", Value: "foo"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify that 'foo' is used for both instances of the parameter @__name.
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if len(sqlRequests) != 1 {
+		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if g, w := len(req.Params.Fields), 1; g != w {
+		t.Fatalf("params count mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := req.Params.Fields["__name"].GetStringValue(), "foo"; g != w {
 		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
@@ -2141,9 +2334,9 @@ func TestQueryWithReusedPositionalParameter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Verify that 'bar' is used for both instances of the parameter @name.
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	// Verify that 'foo' is used for both instances of the parameter @name.
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if len(sqlRequests) != 1 {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
 	}
@@ -2151,7 +2344,7 @@ func TestQueryWithReusedPositionalParameter(t *testing.T) {
 	if g, w := len(req.Params.Fields), 1; g != w {
 		t.Fatalf("params count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	if g, w := req.Params.Fields["name"].GetStringValue(), "bar"; g != w {
+	if g, w := req.Params.Fields["name"].GetStringValue(), "foo"; g != w {
 		t.Fatalf("param value mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
@@ -2172,8 +2365,8 @@ func TestQueryWithMissingPositionalParameter(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Verify that 'foo' is used for the parameter @name.
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if len(sqlRequests) != 1 {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
 	}
@@ -2233,15 +2426,15 @@ func TestDmlReturningInAutocommit(t *testing.T) {
 		}
 
 		// Verify that a read/write transaction was used.
-		requests := drainRequestsFromServer(server.TestSpanner)
-		sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 		if g, w := len(sqlRequests), 1; g != w {
 			t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
 		}
 		if !sqlRequests[0].(*sppb.ExecuteSqlRequest).LastStatement {
 			t.Fatal("missing LastStatement for ExecuteSqlRequest")
 		}
-		commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+		commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 		if g, w := len(commitRequests), 1; g != w {
 			t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 		}
@@ -2388,8 +2581,8 @@ func TestApplyMutations(t *testing.T) {
 
 	// Even though the Apply method is used outside a transaction, the connection will internally start a read/write
 	// transaction for the mutations.
-	requests := drainRequestsFromServer(server.TestSpanner)
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -2460,8 +2653,8 @@ func TestBufferWriteMutations(t *testing.T) {
 		t.Fatalf("failed to commit transaction: %v", err)
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -2657,6 +2850,9 @@ func TestShowAndSetVariableRetryAbortsInternally(t *testing.T) {
 
 		// Check that the behavior matches the setting.
 		tx, _ := c.BeginTx(ctx, nil)
+		if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+			t.Fatal(err)
+		}
 		server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
 			Errors: []error{gstatus.Error(codes.Aborted, "Aborted")},
 		})
@@ -2679,8 +2875,9 @@ func TestShowAndSetVariableRetryAbortsInternally(t *testing.T) {
 	if _, err := c.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
 		t.Fatal(err)
 	}
+	// Verify that the property can still be set, but it does not have any effect on the current transaction.
 	_, err = c.ExecContext(ctx, "SET RETRY_ABORTS_INTERNALLY = TRUE")
-	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+	if g, w := spanner.ErrCode(err), codes.OK; g != w {
 		t.Fatalf("error code mismatch for setting retry_aborts_internally during a transaction\nGot: %v\nWant: %v", g, w)
 	}
 	_ = tx.Rollback()
@@ -2724,8 +2921,8 @@ func TestPartitionedDml(t *testing.T) {
 	if affected != 200 {
 		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 200)
 	}
-	requests := drainRequestsFromServer(server.TestSpanner)
-	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
 	var beginPdml *sppb.BeginTransactionRequest
 	for _, req := range beginRequests {
 		if req.(*sppb.BeginTransactionRequest).Options.GetPartitionedDml() != nil {
@@ -2736,7 +2933,7 @@ func TestPartitionedDml(t *testing.T) {
 	if beginPdml == nil {
 		t.Fatal("no begin request for Partitioned DML found")
 	}
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if len(sqlRequests) != 1 {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
 	}
@@ -2794,12 +2991,12 @@ func TestAutocommitBatchDml(t *testing.T) {
 	}
 
 	// There should be no ExecuteSqlRequest statements on the server.
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if len(sqlRequests) != 0 {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 0)
 	}
-	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	if len(batchRequests) != 0 {
 		t.Fatalf("BatchDML requests count mismatch\nGot: %v\nWant: %v", len(batchRequests), 0)
 	}
@@ -2817,13 +3014,13 @@ func TestAutocommitBatchDml(t *testing.T) {
 		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 2)
 	}
 
-	requests = drainRequestsFromServer(server.TestSpanner)
+	requests = server.TestSpanner.DrainRequestsFromServer()
 	// There should still be no ExecuteSqlRequests on the server.
-	sqlRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	sqlRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if len(sqlRequests) != 0 {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 0)
 	}
-	batchRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	batchRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	if len(batchRequests) != 1 {
 		t.Fatalf("BatchDML requests count mismatch\nGot: %v\nWant: %v", len(batchRequests), 1)
 	}
@@ -2831,7 +3028,7 @@ func TestAutocommitBatchDml(t *testing.T) {
 		t.Fatal("last statements flag not set")
 	}
 	// The transaction should also have been committed.
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if len(commitRequests) != 1 {
 		t.Fatalf("Commit requests count mismatch\nGot: %v\nWant: %v", len(commitRequests), 1)
 	}
@@ -2880,13 +3077,13 @@ func TestExecuteBatchDml(t *testing.T) {
 		t.Fatalf("affected batch rows mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
+	requests := server.TestSpanner.DrainRequestsFromServer()
 	// There should be no ExecuteSqlRequests on the server.
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 0; g != w {
 		t.Fatalf("sql requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	if g, w := len(batchRequests), 1; g != w {
 		t.Fatalf("BatchDML requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -2894,7 +3091,7 @@ func TestExecuteBatchDml(t *testing.T) {
 		t.Fatal("last statements flag not set")
 	}
 	// The transaction should have been committed.
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("Commit requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -2927,13 +3124,13 @@ func TestExecuteBatchDmlError(t *testing.T) {
 		t.Fatalf("failed to execute dml batch: %v", err)
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
+	requests := server.TestSpanner.DrainRequestsFromServer()
 	// There should be no requests on the server.
-	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	if g, w := len(batchRequests), 0; g != w {
 		t.Fatalf("BatchDML requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 0; g != w {
 		t.Fatalf("Commit requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -3008,12 +3205,12 @@ func TestTransactionBatchDml(t *testing.T) {
 	}
 
 	// There should be no ExecuteSqlRequest statements on the server.
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if len(sqlRequests) != 0 {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 0)
 	}
-	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	if len(batchRequests) != 0 {
 		t.Fatalf("BatchDML requests count mismatch\nGot: %v\nWant: %v", len(batchRequests), 0)
 	}
@@ -3031,13 +3228,13 @@ func TestTransactionBatchDml(t *testing.T) {
 		t.Fatalf("affected rows mismatch\nGot: %v\nWant: %v", affected, 2)
 	}
 
-	requests = drainRequestsFromServer(server.TestSpanner)
+	requests = server.TestSpanner.DrainRequestsFromServer()
 	// There should still be no ExecuteSqlRequests on the server.
-	sqlRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	sqlRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if len(sqlRequests) != 0 {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 0)
 	}
-	batchRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	batchRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	if len(batchRequests) != 1 {
 		t.Fatalf("BatchDML requests count mismatch\nGot: %v\nWant: %v", len(batchRequests), 1)
 	}
@@ -3045,7 +3242,7 @@ func TestTransactionBatchDml(t *testing.T) {
 		t.Fatal("last statements flag set")
 	}
 	// The transaction should still be active.
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if len(commitRequests) != 0 {
 		t.Fatalf("Commit requests count mismatch\nGot: %v\nWant: %v", len(commitRequests), 0)
 	}
@@ -3063,19 +3260,19 @@ func TestTransactionBatchDml(t *testing.T) {
 		t.Fatalf("failed to commit transaction after batch: %v", err)
 	}
 
-	requests = drainRequestsFromServer(server.TestSpanner)
+	requests = server.TestSpanner.DrainRequestsFromServer()
 	// There should now be one ExecuteSqlRequests on the server.
-	sqlRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	sqlRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if len(sqlRequests) != 1 {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", len(sqlRequests), 1)
 	}
 	// There should be no new Batch DML requests.
-	batchRequests = requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	batchRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	if len(batchRequests) != 0 {
 		t.Fatalf("BatchDML requests count mismatch\nGot: %v\nWant: %v", len(batchRequests), 0)
 	}
 	// The transaction should now be committed.
-	commitRequests = requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if len(commitRequests) != 1 {
 		t.Fatalf("Commit requests count mismatch\nGot: %v\nWant: %v", len(commitRequests), 1)
 	}
@@ -3136,20 +3333,20 @@ func TestExecuteBatchDmlTransaction(t *testing.T) {
 		t.Fatalf("failed to commit transaction after batch: %v", err)
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
+	requests := server.TestSpanner.DrainRequestsFromServer()
 	// There should be no ExecuteSqlRequests on the server.
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 0; g != w {
 		t.Fatalf("sql requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	if g, w := len(batchRequests), 1; g != w {
 		t.Fatalf("BatchDML requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	if batchRequests[0].(*sppb.ExecuteBatchDmlRequest).LastStatements {
 		t.Fatal("last statements flag was set, this should not happen for batches in a transaction")
 	}
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("Commit requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -3174,6 +3371,9 @@ func TestCommitResponse(t *testing.T) {
 	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatalf("failed to start transaction: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit failed: %v", err)
@@ -3343,6 +3543,9 @@ func TestShowVariableCommitTimestamp(t *testing.T) {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
 	tx, err := conn.BeginTx(ctx, nil)
+	if _, err := conn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
 	if err != nil {
 		t.Fatalf("failed to start transaction: %v", err)
 	}
@@ -3360,11 +3563,83 @@ func TestShowVariableCommitTimestamp(t *testing.T) {
 			t.Fatalf("got zero commit timestamp: %v", ts)
 		}
 	}
+
+	// Verify that we cannot manually set the commit_timestamp variable.
+	_, err = conn.ExecContext(ctx, "set commit_timestamp='2025-09-02T10:00:00Z'")
+	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Fatalf("set commit timestamp error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := err.Error(), "rpc error: code = FailedPrecondition desc = property commit_timestamp is read-only"; g != w {
+		t.Fatalf("set commit timestamp error message mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestShowVariableCommitResponse(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("failed to start transaction: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit failed: %v", err)
+	}
+	// Get the commit response from the connection using a custom SQL statement.
+	// We do this in a simple loop to verify that we can get it multiple times.
+	for i := 0; i < 2; i++ {
+		var resp string
+		if err := conn.QueryRowContext(ctx, "SHOW VARIABLE commit_response").Scan(&resp); err != nil {
+			t.Fatalf("failed to get commit response: %v", err)
+		}
+		if resp == "" {
+			t.Fatalf("got empty commit response: %v", resp)
+		}
+	}
+
+	// Verify that we cannot manually set the commit_response variable.
+	_, err = conn.ExecContext(ctx, "set commit_response='2025-09-02T10:00:00Z'")
+	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Fatalf("set commit response error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := err.Error(), "rpc error: code = FailedPrecondition desc = property commit_response is read-only"; g != w {
+		t.Fatalf("set commit response error message mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
+
+func TestSetCommitTimestampInConnectionString(t *testing.T) {
+	t.Parallel()
+
+	_, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	_, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;commit_timestamp='2025-09-02T10:00:00Z'", server.Address))
+	if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := err.Error(), "rpc error: code = FailedPrecondition desc = property commit_timestamp is read-only"; g != w {
+		t.Fatalf("error message mismatch\n Got: %v\nWant: %v", g, w)
+	}
 }
 
 func TestMinSessions(t *testing.T) {
 	t.Parallel()
 
+	// MinSessions has no effect, as the entire session pool has been removed.
 	minSessions := int32(10)
 	ctx := context.Background()
 	db, server, teardown := setupTestDBConnectionWithParams(t, fmt.Sprintf("minSessions=%v", minSessions))
@@ -3378,32 +3653,21 @@ func TestMinSessions(t *testing.T) {
 	if err := conn.QueryRowContext(ctx, "SELECT 1").Scan(&res); err != nil {
 		t.Fatalf("failed to execute query on connection: %v", err)
 	}
-	// Wait until all sessions have been created.
-	waitFor(t, func() error {
-		created := int32(server.TestSpanner.TotalSessionsCreated())
-		if created != minSessions {
-			return fmt.Errorf("num open sessions mismatch\n Got: %d\nWant: %d", created, minSessions)
-		}
-		return nil
-	})
 	_ = conn.Close()
 	_ = db.Close()
 
-	// Verify that the connector created 10 sessions on the server.
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	createReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
-	numCreated := int32(0)
-	for _, req := range createReqs {
-		numCreated += req.(*sppb.BatchCreateSessionsRequest).SessionCount
-	}
-	if g, w := numCreated, minSessions; g != w {
-		t.Errorf("session creation count mismatch\n Got: %v\nWant: %v", g, w)
+	// Verify that no regular sessions were created.
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	createReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
+	if g, w := len(createReqs), 0; g != w {
+		t.Fatalf("number of BatchCreateSessions mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
 func TestMaxSessions(t *testing.T) {
 	t.Parallel()
 
+	// MaxSessions has no effect, as the entire session pool has been removed.
 	ctx := context.Background()
 	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=0;maxSessions=2")
 	defer teardown()
@@ -3426,28 +3690,25 @@ func TestMaxSessions(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Verify that the connector only created 2 sessions on the server.
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	createReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
-	numCreated := int32(0)
-	for _, req := range createReqs {
-		numCreated += req.(*sppb.BatchCreateSessionsRequest).SessionCount
-	}
-	if g, w := numCreated, int32(2); g != w {
-		t.Errorf("session creation count mismatch\n Got: %v\nWant: %v", g, w)
+	// Verify that no regular sessions have been created.
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	createReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
+	if g, w := len(createReqs), 0; g != w {
+		t.Fatalf("number of BatchCreateSessions mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
 func TestClientReuse(t *testing.T) {
-	t.Parallel()
+	// This test is intentionally not parallel, as the internal caching of clients could
+	// be impacted by other parallel tests.
 
+	numConnectors := len(spannerDriver.connectors)
 	ctx := context.Background()
-	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=2")
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	// Repeatedly get a connection and close it using the same DB instance. These
-	// connections should all share the same Spanner client, and only initialized
-	// one session pool.
+	// connections should all share the same Spanner client.
 	for i := 0; i < 5; i++ {
 		conn, err := db.Conn(ctx)
 		if err != nil {
@@ -3459,25 +3720,22 @@ func TestClientReuse(t *testing.T) {
 		}
 		_ = conn.Close()
 	}
-	// Verify that the connector only created 2 sessions on the server.
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	createReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
-	numCreated := int32(0)
-	for _, req := range createReqs {
-		numCreated += req.(*sppb.BatchCreateSessionsRequest).SessionCount
-	}
-	if g, w := numCreated, int32(2); g != w {
-		t.Errorf("session creation count mismatch\n Got: %v\nWant: %v", g, w)
+	// Verify that the connector only created one client.
+	if g, w := len(spannerDriver.connectors), numConnectors+1; g != w {
+		t.Fatalf("number of connectors mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
 	// Now close the DB instance and create a new DB connection.
 	// This should cause the first Spanner client to be closed and
 	// a new one to be opened.
 	_ = db.Close()
+	if g, w := len(spannerDriver.connectors), numConnectors; g != w {
+		t.Fatalf("number of connectors mismatch\n Got: %v\nWant: %v", g, w)
+	}
 
 	db, err := sql.Open(
 		"spanner",
-		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;minSessions=2", server.Address))
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address))
 	if err != nil {
 		t.Fatalf("failed to open new DB instance: %v", err)
 	}
@@ -3485,27 +3743,18 @@ func TestClientReuse(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "SELECT 1").Scan(&res); err != nil {
 		t.Fatalf("failed to execute query on db: %v", err)
 	}
-	reqs = drainRequestsFromServer(server.TestSpanner)
-	createReqs = requestsOfType(reqs, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
-	numCreated = int32(0)
-	for _, req := range createReqs {
-		numCreated += req.(*sppb.BatchCreateSessionsRequest).SessionCount
-	}
-	if g, w := numCreated, int32(2); g != w {
-		t.Errorf("session creation count mismatch\n Got: %v\nWant: %v", g, w)
+	if g, w := len(spannerDriver.connectors), numConnectors+1; g != w {
+		t.Fatalf("number of connectors mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
 func TestStressClientReuse(t *testing.T) {
-	t.Parallel()
-
 	ctx := context.Background()
 	_, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	numSessions := 10
 	numClients := 5
 	numParallel := 50
 	var wg sync.WaitGroup
@@ -3514,7 +3763,7 @@ func TestStressClientReuse(t *testing.T) {
 		// the underlying client will be different from the other connections that use a
 		// different number.
 		db, err := sql.Open("spanner",
-			fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;minSessions=%v;maxSessions=%v;randomNumber=%v", server.Address, numSessions, numSessions, clientIndex))
+			fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;randomNumber=%v", server.Address, clientIndex))
 		if err != nil {
 			t.Fatalf("failed to open DB: %v", err)
 		}
@@ -3546,16 +3795,13 @@ func TestStressClientReuse(t *testing.T) {
 	wg.Wait()
 
 	// Verify that each unique connection string created numSessions (10) sessions on the server.
-	reqs := drainRequestsFromServer(server.TestSpanner)
-	createReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
-	numCreated := int32(0)
-	for _, req := range createReqs {
-		numCreated += req.(*sppb.BatchCreateSessionsRequest).SessionCount
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	createReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.CreateSessionRequest{}))
+	// TODO: Fix when the client lib has been fixed to only create max one session per client.
+	if g, w := len(createReqs), numClients+1; g != w {
+		t.Fatalf("number of CreateSessions mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	if g, w := numCreated, int32(numSessions*numClients); g != w {
-		t.Errorf("session creation count mismatch\n Got: %v\nWant: %v", g, w)
-	}
-	sqlReqs := requestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	sqlReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlReqs), numClients*numParallel; g != w {
 		t.Errorf("ExecuteSql request count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -3591,8 +3837,8 @@ func TestExcludeTxnFromChangeStreams_AutoCommitUpdate(t *testing.T) {
 	if _, err = conn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
 		t.Fatal(err)
 	}
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
 		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -3638,8 +3884,8 @@ func TestExcludeTxnFromChangeStreams_AutoCommitBatchDml(t *testing.T) {
 	if _, err := conn.ExecContext(ctx, "run batch"); err != nil {
 		t.Fatal(err)
 	}
-	requests := drainRequestsFromServer(server.TestSpanner)
-	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	if g, w := len(batchRequests), 1; g != w {
 		t.Fatalf("ExecuteBatchDmlRequest count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -3682,8 +3928,8 @@ func TestExcludeTxnFromChangeStreams_PartitionedDml(t *testing.T) {
 	if _, err := conn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
 		t.Fatal(err)
 	}
-	requests := drainRequestsFromServer(server.TestSpanner)
-	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
 	if g, w := len(beginRequests), 1; g != w {
 		t.Fatalf("BeginTransactionRequest count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -3711,7 +3957,7 @@ func TestExcludeTxnFromChangeStreams_Transaction(t *testing.T) {
 	}
 
 	var exclude bool
-	if err := conn.QueryRowContext(ctx, "SHOW VARIABLE EXCLUDE_TXN_FROM_CHANGE_STREAMS").Scan(&exclude); err != nil {
+	if err := conn.QueryRowContext(ctx, "SHOW VARIABLE exclude_txn_from_change_streams").Scan(&exclude); err != nil {
 		t.Fatalf("failed to get exclude setting: %v", err)
 	}
 	if g, w := exclude, false; g != w {
@@ -3725,12 +3971,12 @@ func TestExcludeTxnFromChangeStreams_Transaction(t *testing.T) {
 	_, _ = conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
 	_ = tx.Commit()
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	beginRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
 	if g, w := len(beginRequests), 0; g != w {
 		t.Fatalf("BeginTransactionRequest count mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	executeRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), 1; g != w {
 		t.Fatalf("ExecuteSqlRequest count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -3781,9 +4027,9 @@ func TestTag_Query_AutoCommit(t *testing.T) {
 	}
 	_ = iter.Close()
 
-	requests := drainRequestsFromServer(server.TestSpanner)
+	requests := server.TestSpanner.DrainRequestsFromServer()
 	// The ExecuteSqlRequest and CommitRequest should have a transaction tag.
-	execRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(execRequests), 1; g != w {
 		t.Fatalf("number of execute requests mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -3826,9 +4072,9 @@ func TestTag_Update_AutoCommit(t *testing.T) {
 	_, _ = conn.ExecContext(ctx, "set statement_tag = 'tag_1'")
 	_, _ = conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
 
-	requests := drainRequestsFromServer(server.TestSpanner)
+	requests := server.TestSpanner.DrainRequestsFromServer()
 	// The ExecuteSqlRequest and CommitRequest should have a transaction tag.
-	execRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(execRequests), 1; g != w {
 		t.Fatalf("number of execute requests mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -3839,7 +4085,7 @@ func TestTag_Update_AutoCommit(t *testing.T) {
 	if g, w := execRequest.RequestOptions.RequestTag, "tag_1"; g != w {
 		t.Fatalf("statement tag mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("number of commit request mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -3882,9 +4128,9 @@ func TestTag_AutoCommit_BatchDml(t *testing.T) {
 	_, _ = conn.ExecContext(ctx, testutil.UpdateBarSetFoo)
 	_, _ = conn.ExecContext(ctx, "run batch")
 
-	requests := drainRequestsFromServer(server.TestSpanner)
+	requests := server.TestSpanner.DrainRequestsFromServer()
 	// The ExecuteBatchDmlRequest and CommitRequest should have a transaction tag.
-	execRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	if g, w := len(execRequests), 1; g != w {
 		t.Fatalf("number of execute requests mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -3895,7 +4141,7 @@ func TestTag_AutoCommit_BatchDml(t *testing.T) {
 	if g, w := execRequest.RequestOptions.RequestTag, "tag_1"; g != w {
 		t.Fatalf("statement tag mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("number of commit request mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -3958,9 +4204,9 @@ func TestTag_ReadWriteTransaction(t *testing.T) {
 	_, _ = tx.ExecContext(ctx, "run batch")
 	_ = tx.Commit()
 
-	requests := drainRequestsFromServer(server.TestSpanner)
+	requests := server.TestSpanner.DrainRequestsFromServer()
 	// The ExecuteSqlRequest and CommitRequest should have a transaction tag.
-	execRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(execRequests), 2; g != w {
 		t.Fatalf("number of execute requests mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -3974,7 +4220,7 @@ func TestTag_ReadWriteTransaction(t *testing.T) {
 		}
 	}
 
-	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 	if g, w := len(batchRequests), 1; g != w {
 		t.Fatalf("number of batch request mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -3986,7 +4232,7 @@ func TestTag_ReadWriteTransaction(t *testing.T) {
 		t.Fatalf("statement tag mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("number of commit request mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -4067,9 +4313,9 @@ func TestTag_ReadWriteTransaction_Retry(t *testing.T) {
 		})
 		_ = tx.Commit()
 
-		requests := drainRequestsFromServer(server.TestSpanner)
+		requests := server.TestSpanner.DrainRequestsFromServer()
 		// The ExecuteSqlRequest and CommitRequest should have a transaction tag.
-		execRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+		execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 		if g, w := len(execRequests), 4; g != w {
 			t.Fatalf("number of execute requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -4083,7 +4329,7 @@ func TestTag_ReadWriteTransaction_Retry(t *testing.T) {
 			}
 		}
 
-		batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+		batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 		if g, w := len(batchRequests), 2; g != w {
 			t.Fatalf("number of batch request mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -4097,7 +4343,7 @@ func TestTag_ReadWriteTransaction_Retry(t *testing.T) {
 			}
 		}
 
-		commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+		commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 		if g, w := len(commitRequests), 2; g != w {
 			t.Fatalf("number of commit request mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -4179,9 +4425,9 @@ func TestTag_RunTransaction_Retry(t *testing.T) {
 			t.Fatalf("failed to run transaction: %v", err)
 		}
 
-		requests := drainRequestsFromServer(server.TestSpanner)
+		requests := server.TestSpanner.DrainRequestsFromServer()
 		// The ExecuteSqlRequest and CommitRequest should have a transaction tag.
-		execRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+		execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 		if g, w := len(execRequests), 4; g != w {
 			t.Fatalf("number of execute requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -4195,7 +4441,7 @@ func TestTag_RunTransaction_Retry(t *testing.T) {
 			}
 		}
 
-		batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+		batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
 		if g, w := len(batchRequests), 2; g != w {
 			t.Fatalf("number of batch request mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -4209,7 +4455,7 @@ func TestTag_RunTransaction_Retry(t *testing.T) {
 			}
 		}
 
-		commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+		commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 		if g, w := len(commitRequests), 2; g != w {
 			t.Fatalf("number of commit request mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -4249,8 +4495,8 @@ func TestTag_RunTransactionWithOptions_IsNotSticky(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	requests := drainRequestsFromServer(server.TestSpanner)
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("number of commit request mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -4270,8 +4516,8 @@ func TestTag_RunTransactionWithOptions_IsNotSticky(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	requests = drainRequestsFromServer(server.TestSpanner)
-	commitRequests = requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	requests = server.TestSpanner.DrainRequestsFromServer()
+	commitRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("number of commit request mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -4283,11 +4529,7 @@ func TestTag_RunTransactionWithOptions_IsNotSticky(t *testing.T) {
 }
 
 func TestMaxIdleConnectionsNonZero(t *testing.T) {
-	t.Parallel()
-
-	// Set MinSessions=1, so we can use the number of BatchCreateSessions requests as an indication
-	// of the number of clients that was created.
-	db, server, teardown := setupTestDBConnectionWithParams(t, "MinSessions=1")
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	db.SetMaxIdleConns(2)
@@ -4297,19 +4539,17 @@ func TestMaxIdleConnectionsNonZero(t *testing.T) {
 
 	// Verify that only one client was created.
 	// This happens because we have a non-zero value for the number of idle connections.
-	requests := drainRequestsFromServer(server.TestSpanner)
-	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
-	if g, w := len(batchRequests), 1; g != w {
-		t.Fatalf("BatchCreateSessions requests count mismatch\n Got: %v\nWant: %v", g, w)
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CreateSessionRequest{}))
+	// TODO: Fix this when the client library has been fixed, so that it only creates one multiplexed
+	//       session per client.
+	if g, w := len(batchRequests), 2; g != w {
+		t.Fatalf("CreateSession requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
 func TestMaxIdleConnectionsZero(t *testing.T) {
-	t.Parallel()
-
-	// Set MinSessions=1, so we can use the number of BatchCreateSessions requests as an indication
-	// of the number of clients that was created.
-	db, server, teardown := setupTestDBConnectionWithParams(t, "MinSessions=1")
+	db, server, teardown := setupTestDBConnection(t)
 	defer teardown()
 
 	db.SetMaxIdleConns(0)
@@ -4319,10 +4559,12 @@ func TestMaxIdleConnectionsZero(t *testing.T) {
 
 	// Verify that two clients were created and closed.
 	// This should happen because we do not keep any idle connections open.
-	requests := drainRequestsFromServer(server.TestSpanner)
-	batchRequests := requestsOfType(requests, reflect.TypeOf(&sppb.BatchCreateSessionsRequest{}))
-	if g, w := len(batchRequests), 2; g != w {
-		t.Fatalf("BatchCreateSessions requests count mismatch\n Got: %v\nWant: %v", g, w)
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CreateSessionRequest{}))
+	// TODO: Fix this when the client library has been fixed, so that it only creates one multiplexed
+	//       session per client.
+	if g, w := len(batchRequests), 3; g != w {
+		t.Fatalf("CreateSession requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 }
 
@@ -4351,8 +4593,15 @@ func openAndCloseConn(t *testing.T, db *sql.DB) {
 func TestCannotReuseClosedConnector(t *testing.T) {
 	// Note: This test cannot be parallel, as it inspects the size of the shared
 	// map of connectors in the driver. There is no guarantee how many connectors
-	// will be open when the test is running, if there are also other tests running
+	// will be open when the test is running, if there are other tests running
 	// in parallel.
+
+	// Make sure we start with an empty list of connectors. This cleans up connectors
+	// that other tests might have created, but not cleaned up.
+	connectors := spannerDriver.connectors
+	for _, connector := range connectors {
+		_ = connector.close()
+	}
 
 	db, _, teardown := setupTestDBConnection(t)
 	defer teardown()
@@ -4363,9 +4612,8 @@ func TestCannotReuseClosedConnector(t *testing.T) {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
 	_ = conn.Close()
-	connectors := db.Driver().(*Driver).connectors
 	if g, w := len(connectors), 1; g != w {
-		t.Fatal("underlying connector has not been created")
+		t.Fatalf("underlying connector count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	var connector *connector
 	for _, v := range connectors {
@@ -4412,12 +4660,13 @@ func TestRunTransaction(t *testing.T) {
 		defer silentClose(rows)
 		// Verify that internal retries are disabled during RunTransaction
 		txi := reflect.ValueOf(tx).Elem().FieldByName("txi")
-		rwTx := (*readWriteTransaction)(txi.Elem().UnsafePointer())
+		delegatingTx := (*delegatingTransaction)(txi.Elem().UnsafePointer())
+		rwTx, ok := delegatingTx.contextTransaction.(*readWriteTransaction)
 		// Verify that getting the transaction through reflection worked.
-		if g, w := rwTx.ctx, ctx; g != w {
+		if !ok {
 			return fmt.Errorf("getting the transaction through reflection failed")
 		}
-		if rwTx.retryAborts {
+		if rwTx.retryAborts() {
 			return fmt.Errorf("internal retries should be disabled during RunTransaction")
 		}
 
@@ -4456,8 +4705,8 @@ func TestRunTransaction(t *testing.T) {
 		t.Fatal("internal retries should be enabled after RunTransaction")
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
 		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -4468,7 +4717,7 @@ func TestRunTransaction(t *testing.T) {
 	if req.Transaction.GetBegin() == nil {
 		t.Fatalf("missing begin selector for ExecuteSqlRequest")
 	}
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -4522,13 +4771,13 @@ func TestRunTransactionCommitAborted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	// There should be two requests, as the transaction is aborted and retried.
 	if g, w := len(sqlRequests), 2; g != w {
 		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 2; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -4602,13 +4851,13 @@ func TestRunTransactionQueryAborted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	// There should be two ExecuteSql requests, as the transaction is aborted and retried.
 	if g, w := len(sqlRequests), 2; g != w {
 		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	// There should be only 1 CommitRequest, as the transaction is aborted before
 	// the first commit attempt.
 	if g, w := len(commitRequests), 1; g != w {
@@ -4673,12 +4922,12 @@ func TestRunTransactionQueryError(t *testing.T) {
 		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
 		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	// There should be no CommitRequest, as the transaction failed
 	if g, w := len(commitRequests), 0; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
@@ -4686,7 +4935,7 @@ func TestRunTransactionQueryError(t *testing.T) {
 	// There is no RollbackRequest, as the transaction was never started.
 	// The ExecuteSqlRequest included a BeginTransaction option, but because that
 	// request failed, the transaction was not started.
-	rollbackRequests := requestsOfType(requests, reflect.TypeOf(&sppb.RollbackRequest{}))
+	rollbackRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.RollbackRequest{}))
 	if g, w := len(rollbackRequests), 0; g != w {
 		t.Fatalf("rollback requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -4740,12 +4989,12 @@ func TestRunTransactionCommitError(t *testing.T) {
 		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
 		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	// There should be no CommitRequest, as the transaction failed
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
@@ -4755,7 +5004,7 @@ func TestRunTransactionCommitError(t *testing.T) {
 	// a RollbackRequest if a Commit fails.
 	// TODO: Revisit once the client library has been checked whether it is really
 	//       necessary to send a Rollback after a failed Commit.
-	rollbackRequests := requestsOfType(requests, reflect.TypeOf(&sppb.RollbackRequest{}))
+	rollbackRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.RollbackRequest{}))
 	if g, w := len(rollbackRequests), 1; g != w {
 		t.Fatalf("rollback requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -4826,8 +5075,8 @@ func TestTransactionWithLevelDisableRetryAborts(t *testing.T) {
 		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
 		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -4838,7 +5087,7 @@ func TestTransactionWithLevelDisableRetryAborts(t *testing.T) {
 	if req.Transaction.GetBegin() == nil {
 		t.Fatalf("missing begin selector for ExecuteSqlRequest")
 	}
-	commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -4873,12 +5122,13 @@ func TestBeginReadWriteTransaction(t *testing.T) {
 		}
 		// Verify that internal retries are disabled during this transaction.
 		txi := reflect.ValueOf(tx).Elem().FieldByName("txi")
-		rwTx := (*readWriteTransaction)(txi.Elem().UnsafePointer())
+		delegatingTx := (*delegatingTransaction)(txi.Elem().UnsafePointer())
+		rwTx, ok := delegatingTx.contextTransaction.(*readWriteTransaction)
 		// Verify that getting the transaction through reflection worked.
-		if g, w := rwTx.ctx, ctx; g != w {
+		if !ok {
 			t.Fatal("getting the transaction through reflection failed")
 		}
-		if rwTx.retryAborts {
+		if rwTx.retryAborts() {
 			t.Fatal("internal retries should be disabled during this transaction")
 		}
 
@@ -4916,8 +5166,8 @@ func TestBeginReadWriteTransaction(t *testing.T) {
 			t.Fatal("internal retries should still be enabled")
 		}
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 		if g, w := len(sqlRequests), 1; g != w {
 			t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
 		}
@@ -4926,12 +5176,12 @@ func TestBeginReadWriteTransaction(t *testing.T) {
 			t.Fatalf("missing transaction for ExecuteSqlRequest")
 		}
 		if req.Transaction.GetId() == nil {
-			t.Fatalf("missing begin selector for ExecuteSqlRequest")
+			t.Fatalf("missing ID selector for ExecuteSqlRequest")
 		}
 		if g, w := req.RequestOptions.TransactionTag, tag; g != w {
 			t.Fatalf("transaction tag mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		commitRequests := requestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+		commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
 		if g, w := len(commitRequests), 1; g != w {
 			t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
 		}
@@ -4987,8 +5237,8 @@ func TestCustomClientConfig(t *testing.T) {
 	if rows.Err() != nil {
 		t.Fatal(rows.Err())
 	}
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
 		t.Fatalf("sql requests count mismatch\nGot: %v\nWant: %v", g, w)
 	}
@@ -5047,8 +5297,8 @@ func TestPostgreSQLDialect(t *testing.T) {
 	if rows.Err() != nil {
 		t.Fatal(rows.Err())
 	}
-	requests := drainRequestsFromServer(server.TestSpanner)
-	sqlRequests := requestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
 	if g, w := len(sqlRequests), 1; g != w {
 		t.Fatalf("sql requests count mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -5234,6 +5484,73 @@ func TestReturnResultSetStats(t *testing.T) {
 	}
 }
 
+func TestReturnResultSetStatsForQuery(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	query := "select id from singers where id=42598"
+	resultSet := testutil.CreateSingleColumnInt64ResultSet([]int64{42598}, "id")
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type:      testutil.StatementResultResultSet,
+		ResultSet: resultSet,
+	})
+
+	rows, err := db.QueryContext(context.Background(), query, ExecOptions{ReturnResultSetStats: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	// The first result set should contain the data.
+	for want := int64(42598); rows.Next(); want++ {
+		cols, err := rows.Columns()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !cmp.Equal(cols, []string{"id"}) {
+			t.Fatalf("cols mismatch\nGot: %v\nWant: %v", cols, []string{"id"})
+		}
+		var got int64
+		err = rows.Scan(&got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("value mismatch\nGot: %v\nWant: %v", got, want)
+		}
+	}
+	if rows.Err() != nil {
+		t.Fatal(rows.Err())
+	}
+
+	// The next result set should contain the stats.
+	if !rows.NextResultSet() {
+		t.Fatal("missing stats result set")
+	}
+
+	// Get the stats.
+	if !rows.Next() {
+		t.Fatal("no stats rows")
+	}
+	var stats *sppb.ResultSetStats
+	if err := rows.Scan(&stats); err != nil {
+		t.Fatalf("failed to scan stats: %v", err)
+	}
+	// The stats should not contain any update count.
+	if stats.GetRowCount() != nil {
+		t.Fatalf("got update count for query")
+	}
+	if rows.Next() {
+		t.Fatal("more rows than expected")
+	}
+
+	// There should be no more result sets.
+	if rows.NextResultSet() {
+		t.Fatal("more result sets than expected")
+	}
+}
+
 func TestReturnResultSetMetadataAndStats(t *testing.T) {
 	t.Parallel()
 
@@ -5327,6 +5644,166 @@ func TestReturnResultSetMetadataAndStats(t *testing.T) {
 	}
 }
 
+func TestConnectTimeout(t *testing.T) {
+	t.Parallel()
+
+	server, _, serverTeardown := setupMockedTestServerWithDialect(t, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+	defer serverTeardown()
+	db, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;connect_timeout=1ms", server.Address))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(db)
+
+	// Make the ExecuteStreamingSql method a bit slow, so the query that is used to detect the dialect responds a bit slowly.
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: time.Millisecond * 50})
+
+	// Try to get/create a connection using a context without a deadline.
+	// This will cause the connect_timeout to be used.
+	c, err := db.Conn(context.Background())
+	if g, w := spanner.ErrCode(err), codes.DeadlineExceeded; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	} else if c != nil {
+		_ = c.Close()
+	}
+}
+
+func TestInvalidConnectTimeout(t *testing.T) {
+	t.Parallel()
+
+	server, _, serverTeardown := setupMockedTestServerWithDialect(t, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+	defer serverTeardown()
+	db, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;connect_timeout='very long'", server.Address))
+	if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
+		t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	} else if db != nil {
+		defer silentClose(db)
+	}
+}
+
+func TestCloseDB(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, _, serverTeardown := setupMockedTestServerWithDialect(t, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+	defer serverTeardown()
+	db1, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(db1)
+	db2, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(db2)
+
+	// Use both databases.
+	if _, err := db1.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db2.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	// Close one database and verify that the other can still be used.
+	if err := db1.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db2.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	// The db that has been closed cannot be used.
+	if _, err := db1.ExecContext(ctx, testutil.UpdateBarSetFoo); err == nil {
+		t.Fatal("missing expected error")
+	}
+}
+
+func TestCloseAndOpenDB(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, _, serverTeardown := setupMockedTestServerWithDialect(t, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+	defer serverTeardown()
+
+	// First create one database and then close it.
+	db1, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(db1)
+
+	if _, err := db1.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	if err := db1.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then create another database and use it. This should not be affected by the other database that has been closed.
+	db2, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(db2)
+
+	if _, err := db2.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCloseDBWithOpenConn(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, _, serverTeardown := setupMockedTestServerWithDialect(t, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+	defer serverTeardown()
+
+	db1, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(db1)
+
+	conn, err := db1.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+	// Close the database without closing the connection that we obtained from it.
+	if err := db1.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then create another database and use it. This should not be affected by the other database that has been closed.
+	db2, err := sql.Open(
+		"spanner",
+		fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(db2)
+
+	if _, err := db2.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func numeric(v string) big.Rat {
 	res, _ := big.NewRat(1, 1).SetString(v)
 	return *res
@@ -5360,6 +5837,15 @@ func nullJson(valid bool, v string) spanner.NullJSON {
 	return spanner.NullJSON{Valid: true, Value: m}
 }
 
+func jsonb(valid bool, v string) spanner.PGJsonB {
+	if !valid {
+		return spanner.PGJsonB{}
+	}
+	var m map[string]interface{}
+	_ = json.Unmarshal([]byte(v), &m)
+	return spanner.PGJsonB{Valid: true, Value: m}
+}
+
 func nullUuid(valid bool, v string) spanner.NullUUID {
 	if !valid {
 		return spanner.NullUUID{}
@@ -5367,19 +5853,19 @@ func nullUuid(valid bool, v string) spanner.NullUUID {
 	return spanner.NullUUID{Valid: true, UUID: uuid.MustParse(v)}
 }
 
-func setupTestDBConnection(t *testing.T) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+func setupTestDBConnection(t testing.TB) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
 	return setupTestDBConnectionWithParams(t, "")
 }
 
-func setupTestDBConnectionWithDialect(t *testing.T, dialect databasepb.DatabaseDialect) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+func setupTestDBConnectionWithDialect(t testing.TB, dialect databasepb.DatabaseDialect) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
 	return setupTestDBConnectionWithParamsAndDialect(t, "", dialect)
 }
 
-func setupTestDBConnectionWithParams(t *testing.T, params string) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+func setupTestDBConnectionWithParams(t testing.TB, params string) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
 	return setupTestDBConnectionWithParamsAndDialect(t, params, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
 }
 
-func setupTestDBConnectionWithParamsAndDialect(t *testing.T, params string, dialect databasepb.DatabaseDialect) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+func setupTestDBConnectionWithParamsAndDialect(t testing.TB, params string, dialect databasepb.DatabaseDialect) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
 	server, _, serverTeardown := setupMockedTestServerWithDialect(t, dialect)
 	db, err := sql.Open(
 		"spanner",
@@ -5394,7 +5880,7 @@ func setupTestDBConnectionWithParamsAndDialect(t *testing.T, params string, dial
 	}
 }
 
-func setupTestDBConnectionWithConfigurator(t *testing.T, params string, configurator func(config *spanner.ClientConfig, opts *[]option.ClientOption)) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+func setupTestDBConnectionWithConfigurator(t testing.TB, params string, configurator func(config *spanner.ClientConfig, opts *[]option.ClientOption)) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
 	server, _, serverTeardown := setupMockedTestServer(t)
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;%s", server.Address, params)
 	config, err := ExtractConnectorConfig(dsn)
@@ -5415,7 +5901,7 @@ func setupTestDBConnectionWithConfigurator(t *testing.T, params string, configur
 	}
 }
 
-func setupTestDBConnectionWithConnectorConfig(t *testing.T, config ConnectorConfig) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
+func setupTestDBConnectionWithConnectorConfig(t testing.TB, config ConnectorConfig) (db *sql.DB, server *testutil.MockedSpannerInMemTestServer, teardown func()) {
 	server, _, serverTeardown := setupMockedTestServer(t)
 	config.Host = server.Address
 	if config.Params == nil {
@@ -5434,23 +5920,23 @@ func setupTestDBConnectionWithConnectorConfig(t *testing.T, config ConnectorConf
 	}
 }
 
-func setupMockedTestServer(t *testing.T) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
+func setupMockedTestServer(t testing.TB) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
 	return setupMockedTestServerWithConfig(t, spanner.ClientConfig{})
 }
 
-func setupMockedTestServerWithDialect(t *testing.T, dialect databasepb.DatabaseDialect) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
+func setupMockedTestServerWithDialect(t testing.TB, dialect databasepb.DatabaseDialect) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
 	return setupMockedTestServerWithConfigAndClientOptionsAndDialect(t, spanner.ClientConfig{}, []option.ClientOption{}, dialect)
 }
 
-func setupMockedTestServerWithConfig(t *testing.T, config spanner.ClientConfig) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
+func setupMockedTestServerWithConfig(t testing.TB, config spanner.ClientConfig) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
 	return setupMockedTestServerWithConfigAndClientOptions(t, config, []option.ClientOption{})
 }
 
-func setupMockedTestServerWithConfigAndClientOptions(t *testing.T, config spanner.ClientConfig, clientOptions []option.ClientOption) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
+func setupMockedTestServerWithConfigAndClientOptions(t testing.TB, config spanner.ClientConfig, clientOptions []option.ClientOption) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
 	return setupMockedTestServerWithConfigAndClientOptionsAndDialect(t, config, clientOptions, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
 }
 
-func setupMockedTestServerWithConfigAndClientOptionsAndDialect(t *testing.T, config spanner.ClientConfig, clientOptions []option.ClientOption, dialect databasepb.DatabaseDialect) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
+func setupMockedTestServerWithConfigAndClientOptionsAndDialect(t testing.TB, config spanner.ClientConfig, clientOptions []option.ClientOption, dialect databasepb.DatabaseDialect) (server *testutil.MockedSpannerInMemTestServer, client *spanner.Client, teardown func()) {
 	server, opts, serverTeardown := testutil.NewMockedSpannerInMemTestServer(t)
 	server.SetupSelectDialectResult(dialect)
 
@@ -5458,6 +5944,10 @@ func setupMockedTestServerWithConfigAndClientOptionsAndDialect(t *testing.T, con
 	ctx := context.Background()
 	formattedDatabase := fmt.Sprintf("projects/%s/instances/%s/databases/%s", "[PROJECT]", "[INSTANCE]", "[DATABASE]")
 	config.DisableNativeMetrics = true
+	// Disable client config logging by default.
+	if _, found := os.LookupEnv("GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS"); !found {
+		_ = os.Setenv("GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS", "true")
+	}
 	client, err := spanner.NewClientWithConfig(ctx, formattedDatabase, config, opts...)
 	if err != nil {
 		t.Fatal(err)
@@ -5478,30 +5968,6 @@ func filterBeginReadOnlyRequests(requests []interface{}) []*sppb.BeginTransactio
 		}
 	}
 	return res
-}
-
-func requestsOfType(requests []interface{}, t reflect.Type) []interface{} {
-	res := make([]interface{}, 0)
-	for _, req := range requests {
-		if reflect.TypeOf(req) == t {
-			res = append(res, req)
-		}
-	}
-	return res
-}
-
-func drainRequestsFromServer(server testutil.InMemSpannerServer) []interface{} {
-	var reqs []interface{}
-loop:
-	for {
-		select {
-		case req := <-server.ReceivedRequests():
-			reqs = append(reqs, req)
-		default:
-			break loop
-		}
-	}
-	return reqs
 }
 
 func waitFor(t *testing.T, assert func() error) {

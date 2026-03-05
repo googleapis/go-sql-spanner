@@ -42,13 +42,25 @@ import (
 	"cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 var projectId, instanceId string
 var skipped bool
+var experimentalHost string
+var caCertFile string
+var clientCertFile string
+var clientCertKey string
 
 func init() {
+	flag.StringVar(&experimentalHost, "it.experimental-host", "", "Experimental host integration test flag")
+	flag.StringVar(&caCertFile, "it.ca-cert-file", "", "CA certificate file for experimental host integration test")
+	flag.StringVar(&clientCertFile, "it.client-cert-file", "", "Client certificate file for experimental host integration test")
+	flag.StringVar(&clientCertKey, "it.client-cert-key", "", "Client certificate key file for experimental host integration test")
+
 	var ok bool
 
 	// Get environment variables or set to default.
@@ -153,12 +165,32 @@ func initTestInstance(config string) (cleanup func(), err error) {
 	}, nil
 }
 
+func createDBAdminClient(ctx context.Context) (*database.DatabaseAdminClient, error) {
+	if experimentalHost == "" {
+		return database.NewDatabaseAdminClient(ctx)
+	}
+	opts := []option.ClientOption{
+		option.WithEndpoint(experimentalHost),
+		option.WithoutAuthentication(),
+	}
+	if caCertFile != "" {
+		credOpts, err := createExperimentalHostCredentials(caCertFile, clientCertFile, clientCertKey)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, credOpts)
+	} else {
+		opts = append(opts, option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())))
+	}
+	return database.NewDatabaseAdminClient(ctx, opts...)
+}
+
 func createTestDB(ctx context.Context, statements ...string) (dsn string, cleanup func(), err error) {
 	return createTestDBWithDialect(ctx, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, statements...)
 }
 
 func createTestDBWithDialect(ctx context.Context, dialect databasepb.DatabaseDialect, statements ...string) (dsn string, cleanup func(), err error) {
-	databaseAdminClient, err := database.NewDatabaseAdminClient(ctx)
+	databaseAdminClient, err := createDBAdminClient(ctx)
 	if err != nil {
 		return "", nil, err
 	}
@@ -202,8 +234,20 @@ func createTestDBWithDialect(ctx context.Context, dialect databasepb.DatabaseDia
 		}
 	}
 	dsn = "projects/" + projectId + "/instances/" + instanceId + "/databases/" + databaseId
+	if experimentalHost != "" {
+		dsn = experimentalHost + "/databases/" + databaseId
+		if caCertFile == "" {
+			dsn += "?use_plain_text=true"
+		} else {
+			dsn += "?ca_cert_file=" + caCertFile
+			if clientCertFile != "" && clientCertKey != "" {
+				dsn += ";client_cert_file=" + clientCertFile + ";client_cert_key=" + clientCertKey
+			}
+		}
+		dsn += ";is_experimental_host=true"
+	}
 	cleanup = func() {
-		databaseAdminClient, err := database.NewDatabaseAdminClient(ctx)
+		databaseAdminClient, err := createDBAdminClient(ctx)
 		if err != nil {
 			return
 		}
@@ -218,6 +262,13 @@ func createTestDBWithDialect(ctx context.Context, dialect databasepb.DatabaseDia
 func initIntegrationTests() (cleanup func(), err error) {
 	flag.Parse() // Needed for testing.Short().
 	noop := func() {}
+
+	if experimentalHost != "" {
+		projectId = experimentalHostProject
+		instanceId = experimentalHostInstance
+		// instance management is not available on experimental host
+		return noop, nil
+	}
 
 	if testing.Short() {
 		log.Println("Integration tests skipped in -short mode.")
@@ -293,6 +344,35 @@ func TestAutoConfigEmulator(t *testing.T) {
 		}
 		if g, w := v, int64(1); g != w {
 			t.Fatalf("value mismatch:\n Got %d\nWant %d", g, w)
+		}
+		_ = db.Close()
+	}
+}
+
+func TestAutoConfigEmulatorPostgreSql(t *testing.T) {
+	skipIfShort(t)
+	if !runsOnEmulator() {
+		t.Skip("autoConfigEmulator=true only works when connected to the emulator")
+	}
+	t.Parallel()
+
+	ctx := context.Background()
+	for range 2 {
+		db, err := sql.Open("spanner", "projects/emulator-project/instances/test-instance/databases/test-database-pg;autoConfigEmulator=true;dialect=postgresql")
+		if err != nil {
+			t.Fatalf("could not connect to emulator: %v", err)
+		}
+		// Execute a query that only works on PostgreSQL.
+		row := db.QueryRowContext(ctx, "select $1", "Hello World")
+		if row.Err() != nil {
+			t.Fatalf("could not execute select: %v", row.Err())
+		}
+		var msg string
+		if err := row.Scan(&msg); err != nil {
+			t.Fatalf("could not scan value from select: %v", err)
+		}
+		if g, w := msg, "Hello World"; g != w {
+			t.Fatalf("value mismatch:\n Got %v\nWant %v", g, w)
 		}
 		_ = db.Close()
 	}
@@ -454,7 +534,11 @@ func TestTypeRoundTrip(t *testing.T) {
 	defer cleanup()
 
 	// Open db.
-	db, err := sql.Open("spanner", dsn)
+	// send_typed_strings=true is required to include a type code for string values.
+	// Otherwise, string values are sent as untyped strings in order to allow Spanner to infer the type.
+	// Using untyped strings is recommended for most applications, as it allows the application to just use
+	// standard string values for any type that is encoded as strings in Spanner (e.g. JSON, DATE, TIMESTAMP, etc.).
+	db, err := sql.Open("spanner", dsn+";send_typed_strings=true")
 	if err != nil {
 		t.Fatal(err)
 	}

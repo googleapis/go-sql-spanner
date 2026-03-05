@@ -16,24 +16,42 @@ package spannerdriver
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
+	"fmt"
+	"strconv"
 
 	"cloud.google.com/go/spanner"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/structpb"
 )
+
+// SpannerNamedArg can be used for query parameters with a name that (might) start
+// with an underscore. The generic database/sql package does not allow query parameters
+// to start with an underscore, but Spanner allows this, and this struct can be used to
+// work around the limitation in database/sql.
+type SpannerNamedArg struct {
+	NameInQuery string
+	Value       any
+}
 
 var _ driver.Stmt = &stmt{}
 var _ driver.StmtExecContext = &stmt{}
 var _ driver.StmtQueryContext = &stmt{}
 var _ driver.NamedValueChecker = &stmt{}
 
+var nullValue = structpb.NewNullValue()
+
 type stmt struct {
-	conn          *conn
-	numArgs       int
-	query         string
-	statementType statementType
-	execOptions   ExecOptions
+	conn            *conn
+	numArgs         int
+	query           string
+	statementInfo   *parser.StatementInfo
+	parsedStatement parser.ParsedStatement
+	execOptions     *ExecOptions
 }
 
 func (s *stmt) Close() error {
@@ -49,7 +67,7 @@ func (s *stmt) Exec(_ []driver.Value) (driver.Result, error) {
 }
 
 func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
-	return s.conn.execContext(ctx, s.query, s.execOptions, args)
+	return s.conn.execParsed(ctx, s.query, s.parsedStatement, s.statementInfo, s.execOptions, args)
 }
 
 func (s *stmt) Query(_ []driver.Value) (driver.Rows, error) {
@@ -57,7 +75,7 @@ func (s *stmt) Query(_ []driver.Value) (driver.Rows, error) {
 }
 
 func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
-	return s.conn.queryContext(ctx, s.query, s.execOptions, args)
+	return s.conn.queryParsed(ctx, s.query, s.parsedStatement, s.statementInfo, s.execOptions, args)
 }
 
 func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
@@ -66,40 +84,115 @@ func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
 	}
 
 	if execOptions, ok := value.Value.(ExecOptions); ok {
+		s.execOptions = &execOptions
+		return driver.ErrRemoveArgument
+	}
+	if execOptions, ok := value.Value.(*ExecOptions); ok {
 		s.execOptions = execOptions
 		return driver.ErrRemoveArgument
 	}
 	return s.conn.CheckNamedValue(value)
 }
 
-func prepareSpannerStmt(parser *statementParser, q string, args []driver.NamedValue) (spanner.Statement, error) {
-	q, names, err := parser.parseParameters(q)
+func prepareSpannerStmt(state *connectionstate.ConnectionState, parser *parser.StatementParser, q string, args []driver.NamedValue) (spanner.Statement, error) {
+	q, names, namesToIndex, err := parser.ParseParameters(q)
 	if err != nil {
 		return spanner.Statement{}, err
 	}
 	ss := spanner.NewStatement(q)
+	typedStrings := propertySendTypedStrings.GetValueOrDefault(state)
 	for i, v := range args {
+		value := v.Value
 		name := args[i].Name
+		if sa, ok := args[i].Value.(SpannerNamedArg); ok {
+			name = sa.NameInQuery
+			value = sa.Value
+		}
 		if name == "" && len(names) > i {
 			name = names[i]
+		} else if index, ok := namesToIndex[name]; ok {
+			name = "p" + strconv.Itoa(index)
 		}
 		if name != "" {
-			ss.Params[name] = convertParam(v.Value)
+			ss.Params[name] = convertParam(value, typedStrings)
 		}
 	}
 	// Verify that all parameters have a value.
 	for _, name := range names {
 		if _, ok := ss.Params[name]; !ok {
-			return spanner.Statement{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "missing value for query parameter %v", name))
+			originalName := name
+			for k, v := range namesToIndex {
+				if fmt.Sprintf("p%d", v) == name {
+					originalName = k
+					break
+				}
+			}
+			return spanner.Statement{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "missing value for query parameter @%s", originalName))
 		}
 	}
 	return ss, nil
 }
 
-func convertParam(v driver.Value) driver.Value {
+func convertParam(v driver.Value, typedStrings bool) driver.Value {
 	switch v := v.(type) {
 	default:
 		return v
+	case string:
+		if typedStrings {
+			return v
+		}
+		// Send strings as untyped parameter values to allow automatic conversion to any type that is encoded as
+		// strings. This for example allows DATE, TIMESTAMP, INTERVAL, JSON, INT64, etc. to all be set as a string
+		// by the application.
+		return spanner.GenericColumnValue{Value: structpb.NewStringValue(v)}
+	case *string:
+		if typedStrings {
+			return v
+		}
+		if v == nil {
+			return spanner.GenericColumnValue{Value: nullValue}
+		}
+		return spanner.GenericColumnValue{Value: structpb.NewStringValue(*v)}
+	case []string:
+		if typedStrings {
+			return v
+		}
+		if v == nil {
+			return spanner.GenericColumnValue{Value: nullValue}
+		}
+		values := make([]*structpb.Value, len(v))
+		for i, s := range v {
+			values[i] = structpb.NewStringValue(s)
+		}
+		return spanner.GenericColumnValue{Value: structpb.NewListValue(&structpb.ListValue{Values: values})}
+	case *[]string:
+		if typedStrings {
+			return v
+		}
+		if v == nil {
+			return spanner.GenericColumnValue{Value: nullValue}
+		}
+		values := make([]*structpb.Value, len(*v))
+		for i, s := range *v {
+			values[i] = structpb.NewStringValue(s)
+		}
+		return spanner.GenericColumnValue{Value: structpb.NewListValue(&structpb.ListValue{Values: values})}
+	case []*string:
+		if typedStrings {
+			return v
+		}
+		if v == nil {
+			return spanner.GenericColumnValue{Value: nullValue}
+		}
+		values := make([]*structpb.Value, len(v))
+		for i, s := range v {
+			if s == nil {
+				values[i] = nullValue
+			} else {
+				values[i] = structpb.NewStringValue(*s)
+			}
+		}
+		return spanner.GenericColumnValue{Value: structpb.NewListValue(&structpb.ListValue{Values: values})}
 	case int:
 		return int64(v)
 	case []int:
@@ -230,6 +323,8 @@ type result struct {
 	lastInsertId      int64
 	hasLastInsertId   bool
 	batchUpdateCounts []int64
+	tx                *sql.Tx
+	operationID       string
 }
 
 var errNoLastInsertId = spanner.ToSpannerError(
@@ -256,4 +351,13 @@ func (r *result) BatchRowsAffected() ([]int64, error) {
 		return nil, errNoBatchRowsAffected
 	}
 	return r.batchUpdateCounts, nil
+}
+
+var errNoOperationID = spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "OperationID is only supported for DDL statements executed in ASYNC mode"))
+
+func (r *result) OperationID() (string, error) {
+	if r.operationID == "" {
+		return "", errNoOperationID
+	}
+	return r.operationID, nil
 }

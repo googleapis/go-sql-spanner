@@ -4,7 +4,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 func CreateTicketOrder(orderNumber string, date int64, shippingAddress *Address, items []*Item) *TicketOrder {

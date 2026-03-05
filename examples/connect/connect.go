@@ -34,7 +34,7 @@ func connect(projectId, instanceId, databaseId string) error {
 	defer func() { _ = db.Close() }()
 
 	fmt.Printf("Connected to %s\n", dsn)
-	row := db.QueryRowContext(ctx, "select @greeting", "Hello from Spanner")
+	row := db.QueryRowContext(ctx, "select cast(@greeting as string)", "Hello from Spanner")
 	var greeting string
 	if err := row.Scan(&greeting); err != nil {
 		return fmt.Errorf("failed to get greeting: %v", err)

@@ -31,6 +31,8 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 )
@@ -56,6 +58,7 @@ func TestExtractDnsParts(t *testing.T) {
 				Params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Removing would need a breaking change
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 				UserAgent:         userAgent,
 			},
@@ -69,6 +72,7 @@ func TestExtractDnsParts(t *testing.T) {
 				Params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 				UserAgent:         userAgent,
 			},
@@ -83,6 +87,7 @@ func TestExtractDnsParts(t *testing.T) {
 				Params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 				UserAgent:         userAgent,
 			},
@@ -97,6 +102,7 @@ func TestExtractDnsParts(t *testing.T) {
 				Params:   map[string]string{},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 				UserAgent:         userAgent,
 			},
@@ -113,6 +119,7 @@ func TestExtractDnsParts(t *testing.T) {
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
 				UserAgent:            userAgent,
 				DisableNativeMetrics: true,
@@ -130,6 +137,7 @@ func TestExtractDnsParts(t *testing.T) {
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 				UserAgent:         userAgent,
 			},
@@ -147,6 +155,7 @@ func TestExtractDnsParts(t *testing.T) {
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 				UserAgent:         userAgent,
 			},
@@ -163,6 +172,7 @@ func TestExtractDnsParts(t *testing.T) {
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
 				UserAgent:            userAgent,
 				DisableNativeMetrics: true,
@@ -180,6 +190,7 @@ func TestExtractDnsParts(t *testing.T) {
 				IsolationLevel: sql.LevelRepeatableRead,
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 				UserAgent:         userAgent,
 			},
@@ -196,6 +207,7 @@ func TestExtractDnsParts(t *testing.T) {
 				BeginTransactionOption: spanner.ExplicitBeginTransaction,
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 				UserAgent:         userAgent,
 			},
@@ -212,6 +224,7 @@ func TestExtractDnsParts(t *testing.T) {
 				StatementCacheSize: 100,
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
 				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 				UserAgent:         userAgent,
 			},
@@ -237,16 +250,18 @@ func TestExtractDnsParts(t *testing.T) {
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Removing would need a breaking change
 				SessionPoolConfig: spanner.SessionPoolConfig{
 					MinOpened:                         200,
 					MaxOpened:                         1000,
-					WriteSessions:                     0.2,
-					HealthCheckInterval:               spanner.DefaultSessionPoolConfig.HealthCheckInterval,
-					HealthCheckWorkers:                spanner.DefaultSessionPoolConfig.HealthCheckWorkers,
-					MaxBurst:                          spanner.DefaultSessionPoolConfig.MaxBurst, //lint:ignore SA1019 because it's a spanner default.
-					MaxIdle:                           spanner.DefaultSessionPoolConfig.MaxIdle,
-					TrackSessionHandles:               spanner.DefaultSessionPoolConfig.TrackSessionHandles,
-					InactiveTransactionRemovalOptions: spanner.DefaultSessionPoolConfig.InactiveTransactionRemovalOptions,
+					WriteSessions:                     spanner.DefaultSessionPoolConfig.WriteSessions,                     //lint:ignore SA1019 Needed to verify correctness in test
+					HealthCheckInterval:               spanner.DefaultSessionPoolConfig.HealthCheckInterval,               //lint:ignore SA1019 Needed to verify correctness in test
+					HealthCheckWorkers:                spanner.DefaultSessionPoolConfig.HealthCheckWorkers,                //lint:ignore SA1019 Needed to verify correctness in test
+					MaxBurst:                          spanner.DefaultSessionPoolConfig.MaxBurst,                          //lint:ignore SA1019 Needed to verify correctness in test
+					MaxIdle:                           spanner.DefaultSessionPoolConfig.MaxIdle,                           //lint:ignore SA1019 Needed to verify correctness in test
+					TrackSessionHandles:               spanner.DefaultSessionPoolConfig.TrackSessionHandles,               //lint:ignore SA1019 Needed to verify correctness in test
+					InactiveTransactionRemovalOptions: spanner.DefaultSessionPoolConfig.InactiveTransactionRemovalOptions, //lint:ignore SA1019 Needed to verify correctness in test
+					MultiplexSessionCheckInterval:     spanner.DefaultSessionPoolConfig.MultiplexSessionCheckInterval,     //lint:ignore SA1019 Needed to verify correctness in test
 				},
 				UserAgent:             userAgent,
 				DisableRouteToLeader:  true,
@@ -281,15 +296,112 @@ func TestExtractDnsParts(t *testing.T) {
 				}
 				conn, err := newOrCachedConnector(&Driver{connectors: make(map[string]*connector)}, tc.input)
 				if err != nil {
-					t.Errorf("failed to get connector for %q: %v", tc.input, err)
+					t.Fatalf("failed to get connector for %q: %v", tc.input, err)
 				}
-				if diff := cmp.Diff(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{}, spanner.InactiveTransactionRemovalOptions{}, spannerpb.ExecuteSqlRequest_QueryOptions{})); diff != "" {
+				//lint:ignore SA1019 Needs a change that is backwards compatible
+				if diff := cmp.Diff(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{}, spanner.InactiveTransactionRemovalOptions{}, spannerpb.ExecuteSqlRequest_QueryOptions{}, spanner.TransactionOptions{})); diff != "" {
 					t.Errorf("connector Spanner client config mismatch for %q\n%v", tc.input, diff)
 				}
 				actualConfig := conn.connectorConfig
 				actualConfig.name = ""
 				if diff := cmp.Diff(actualConfig, tc.wantConnectorConfig, cmp.AllowUnexported(ConnectorConfig{})); diff != "" {
 					t.Errorf("actual connector config mismatch for %q\n%v", tc.input, diff)
+				}
+			}
+		})
+	}
+}
+
+func TestExperimentalHostDsn(t *testing.T) {
+	//goland:noinspection GoDeprecation
+	tests := []struct {
+		name                string
+		dsn                 string
+		wantConnectorConfig ConnectorConfig
+		wantErr             bool
+	}{
+		{
+			name: "no-project",
+			dsn:  "localhost:9010/instances/test-instance/databases/test-db?is_experimental_host=true",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "default",
+				Instance: "test-instance",
+				Database: "test-db",
+				Params: map[string]string{
+					"is_experimental_host": "true",
+				},
+			},
+		},
+		{
+			name: "invalid-project",
+			dsn:  "localhost:9010/projects/test-project/instances/test-instance/databases/test-db?is_experimental_host=true",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "default",
+				Instance: "test-instance",
+				Database: "test-db",
+				Params: map[string]string{
+					"is_experimental_host": "true",
+				},
+			},
+		},
+		{
+			name: "only-database",
+			dsn:  "localhost:9010/databases/test-db?is_experimental_host=true",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "default",
+				Instance: "default",
+				Database: "test-db",
+				Params: map[string]string{
+					"is_experimental_host": "true",
+				},
+			},
+		},
+		{
+			name: "only-database",
+			dsn:  "localhost:9010/databases/test-db?is_experimental_host=true",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "default",
+				Instance: "default",
+				Database: "test-db",
+				Params: map[string]string{
+					"is_experimental_host": "true",
+				},
+			},
+		},
+		{
+			name:    "absent-host",
+			dsn:     "databases/test-db?is_experimental_host=true",
+			wantErr: true,
+		},
+		{
+			name:    "project-mandatory-cloud-spanner",
+			dsn:     "localhost:9010/instances/test-instance/databases/test-db",
+			wantErr: true,
+		},
+		{
+			name:    "instance-mandatory-cloud-spanner",
+			dsn:     "localhost:9010/projects/test-project/databases/test-db",
+			wantErr: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.dsn, func(t *testing.T) {
+			config, err := ExtractConnectorConfig(tc.dsn)
+			if err != nil {
+				if tc.wantErr {
+					return
+				}
+				t.Errorf("%q: extract failed for %q: %v", tc.name, tc.dsn, err)
+			} else {
+				if tc.wantErr {
+					t.Errorf("%q: did not encounter expected error", tc.name)
+				}
+				if diff := cmp.Diff(config.Params, tc.wantConnectorConfig.Params); diff != "" {
+					t.Errorf("%q: connector config mismatch for %q\n%v", tc.name, tc.dsn, diff)
 				}
 			}
 		})
@@ -406,6 +518,14 @@ func TestParseIsolationLevel(t *testing.T) {
 			want:  sql.LevelReadUncommitted,
 		},
 		{
+			input: "readuncommitted",
+			want:  sql.LevelReadUncommitted,
+		},
+		{
+			input: "read_uncommitted",
+			want:  sql.LevelReadUncommitted,
+		},
+		{
 			input: "  read_uncommitted\n",
 			want:  sql.LevelReadUncommitted,
 		},
@@ -414,11 +534,47 @@ func TestParseIsolationLevel(t *testing.T) {
 			want:  sql.LevelReadCommitted,
 		},
 		{
+			input: "readcommitted",
+			want:  sql.LevelReadCommitted,
+		},
+		{
+			input: "read_committed",
+			want:  sql.LevelReadCommitted,
+		},
+		{
 			input: "write committed",
 			want:  sql.LevelWriteCommitted,
 		},
 		{
+			input: "writecommitted",
+			want:  sql.LevelWriteCommitted,
+		},
+		{
+			input: "write_committed",
+			want:  sql.LevelWriteCommitted,
+		},
+		{
 			input: "repeatable read",
+			want:  sql.LevelRepeatableRead,
+		},
+		{
+			input: "repeatableread",
+			want:  sql.LevelRepeatableRead,
+		},
+		{
+			input: "repeatable_read",
+			want:  sql.LevelRepeatableRead,
+		},
+		{
+			input: "  \n repeatable read \t",
+			want:  sql.LevelRepeatableRead,
+		},
+		{
+			input: "  repeatableread    ",
+			want:  sql.LevelRepeatableRead,
+		},
+		{
+			input: "   repeatable_read  ",
 			want:  sql.LevelRepeatableRead,
 		},
 		{
@@ -486,27 +642,32 @@ func TestConnection_Reset(t *testing.T) {
 		connector: &connector{
 			connectorConfig: ConnectorConfig{},
 		},
-		readOnlyStaleness: spanner.ExactStaleness(time.Second),
-		batch:             &batch{tp: dml},
-		commitResponse:    &spanner.CommitResponse{},
-		tx: &readOnlyTransaction{
+		state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{
+			propertyCommitResponse.Key(): propertyCommitResponse.CreateTypedInitialValue(nil),
+		}),
+		batch: &batch{tp: parser.BatchTypeDml},
+		tx: &delegatingTransaction{contextTransaction: &readOnlyTransaction{
 			logger: noopLogger,
-			close: func() {
+			close: func(_ txResult) {
 				txClosed = true
 			},
-		},
+		}},
 	}
 
+	c.setCommitResponse(&spanner.CommitResponse{})
+	if err := c.SetReadOnlyStaleness(spanner.ExactStaleness(time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	if err := c.ResetSession(context.Background()); err != nil {
 		t.Fatalf("failed to reset session: %v", err)
 	}
-	if !cmp.Equal(c.readOnlyStaleness, spanner.TimestampBound{}, cmp.AllowUnexported(spanner.TimestampBound{})) {
+	if !cmp.Equal(c.ReadOnlyStaleness(), spanner.TimestampBound{}, cmp.AllowUnexported(spanner.TimestampBound{})) {
 		t.Error("failed to reset read-only staleness")
 	}
 	if c.inBatch() {
 		t.Error("failed to clear batch")
 	}
-	if c.commitResponse != nil {
+	if _, err := c.CommitResponse(); err == nil {
 		t.Errorf("failed to clear commit response")
 	}
 	if !txClosed {
@@ -517,7 +678,8 @@ func TestConnection_Reset(t *testing.T) {
 func TestConnection_NoNestedTransactions(t *testing.T) {
 	c := conn{
 		logger: noopLogger,
-		tx:     &readOnlyTransaction{},
+		state:  createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		tx:     &delegatingTransaction{},
 	}
 	_, err := c.BeginTx(context.Background(), driver.TxOptions{})
 	if err == nil {
@@ -526,7 +688,7 @@ func TestConnection_NoNestedTransactions(t *testing.T) {
 }
 
 func TestConn_AbortBatch(t *testing.T) {
-	c := &conn{logger: noopLogger}
+	c := &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 	if err := c.StartBatchDDL(); err != nil {
 		t.Fatalf("failed to start DDL batch: %v", err)
 	}
@@ -560,12 +722,12 @@ func TestConn_StartBatchDdl(t *testing.T) {
 		c       *conn
 		wantErr bool
 	}{
-		{"Default", &conn{logger: noopLogger}, false},
-		{"In DDL batch", &conn{logger: noopLogger, batch: &batch{tp: ddl}}, true},
-		{"In DML batch", &conn{logger: noopLogger, batch: &batch{tp: dml}}, true},
-		{"In read/write transaction", &conn{logger: noopLogger, tx: &readWriteTransaction{}}, true},
-		{"In read-only transaction", &conn{logger: noopLogger, tx: &readOnlyTransaction{}}, true},
-		{"In read/write transaction with a DML batch", &conn{logger: noopLogger, tx: &readWriteTransaction{batch: &batch{tp: dml}}}, true},
+		{"Default", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, false},
+		{"In DDL batch", &conn{logger: noopLogger, batch: &batch{tp: parser.BatchTypeDdl}, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, true},
+		{"In DML batch", &conn{logger: noopLogger, batch: &batch{tp: parser.BatchTypeDml}, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, true},
+		{"In read/write transaction", &conn{logger: noopLogger, tx: &delegatingTransaction{contextTransaction: &readWriteTransaction{}}, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, true},
+		{"In read-only transaction", &conn{logger: noopLogger, tx: &delegatingTransaction{contextTransaction: &readOnlyTransaction{}}, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, true},
+		{"In read/write transaction with a DML batch", &conn{logger: noopLogger, tx: &delegatingTransaction{contextTransaction: &readWriteTransaction{batch: &batch{tp: parser.BatchTypeDml}}}, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, true},
 	} {
 		err := test.c.StartBatchDDL()
 		if test.wantErr {
@@ -589,12 +751,12 @@ func TestConn_StartBatchDml(t *testing.T) {
 		c       *conn
 		wantErr bool
 	}{
-		{"Default", &conn{logger: noopLogger}, false},
-		{"In DDL batch", &conn{logger: noopLogger, batch: &batch{tp: ddl}}, true},
-		{"In DML batch", &conn{logger: noopLogger, batch: &batch{tp: dml}}, true},
-		{"In read/write transaction", &conn{logger: noopLogger, tx: &readWriteTransaction{logger: noopLogger}}, false},
-		{"In read-only transaction", &conn{logger: noopLogger, tx: &readOnlyTransaction{logger: noopLogger}}, true},
-		{"In read/write transaction with a DML batch", &conn{logger: noopLogger, tx: &readWriteTransaction{logger: noopLogger, batch: &batch{tp: dml}}}, true},
+		{"Default", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{})}, false},
+		{"In DDL batch", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}), batch: &batch{tp: parser.BatchTypeDdl}}, true},
+		{"In DML batch", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}), batch: &batch{tp: parser.BatchTypeDml}}, true},
+		{"In read/write transaction", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}), tx: &delegatingTransaction{contextTransaction: &readWriteTransaction{logger: noopLogger}}}, false},
+		{"In read-only transaction", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}), tx: &delegatingTransaction{contextTransaction: &readOnlyTransaction{logger: noopLogger}}}, true},
+		{"In read/write transaction with a DML batch", &conn{logger: noopLogger, state: createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}), tx: &delegatingTransaction{contextTransaction: &readWriteTransaction{logger: noopLogger, batch: &batch{tp: parser.BatchTypeDml}}}}, true},
 	} {
 		err := test.c.StartBatchDML()
 		if test.wantErr {
@@ -613,22 +775,22 @@ func TestConn_StartBatchDml(t *testing.T) {
 }
 
 func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, err := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := &conn{
-		parser:            parser,
-		logger:            noopLogger,
-		autocommitDMLMode: Transactional,
-		batch:             &batch{tp: ddl},
-		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
+		parser: p,
+		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		batch:  &batch{tp: parser.BatchTypeDdl},
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, *spanner.CommitResponse, error) {
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
 			return &result{}, &spanner.CommitResponse{}, nil
 		},
-		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
+		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -653,21 +815,22 @@ func TestConn_NonDdlStatementsInDdlBatch(t *testing.T) {
 }
 
 func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, err := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := &conn{
-		parser: parser,
+		parser: p,
 		logger: noopLogger,
-		batch:  &batch{tp: dml},
-		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		batch:  &batch{tp: parser.BatchTypeDml},
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, *spanner.CommitResponse, error) {
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
 			return &result{}, &spanner.CommitResponse{}, nil
 		},
-		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
+		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -695,12 +858,12 @@ func TestConn_NonDmlStatementsInDmlBatch(t *testing.T) {
 func TestConn_GetBatchedStatements(t *testing.T) {
 	t.Parallel()
 
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, err := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	c := &conn{logger: noopLogger, parser: parser}
+	c := &conn{logger: noopLogger, parser: p, state: createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{})}
 	if !reflect.DeepEqual(c.GetBatchedStatements(), []spanner.Statement{}) {
 		t.Fatal("conn should return an empty slice when no batch is active")
 	}
@@ -743,22 +906,22 @@ func TestConn_GetBatchedStatements(t *testing.T) {
 }
 
 func TestConn_GetCommitResponseAfterAutocommitDml(t *testing.T) {
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, err := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := &spanner.CommitResponse{CommitTs: time.Now()}
 	c := &conn{
-		parser:            parser,
-		logger:            noopLogger,
-		autocommitDMLMode: Transactional,
-		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
+		parser: p,
+		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, *spanner.CommitResponse, error) {
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
 			return &result{}, want, nil
 		},
-		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
+		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error) {
 			return 0, nil
 		},
 	}
@@ -783,20 +946,21 @@ func TestConn_GetCommitResponseAfterAutocommitDml(t *testing.T) {
 }
 
 func TestConn_GetCommitResponseAfterAutocommitQuery(t *testing.T) {
-	parser, err := newStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	p, err := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := &conn{
-		parser: parser,
+		parser: p,
 		logger: noopLogger,
-		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
+		state:  createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		execSingleQuery: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
 			return &spanner.RowIterator{}
 		},
-		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, *spanner.CommitResponse, error) {
+		execSingleDMLTransactional: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
 			return &result{}, &spanner.CommitResponse{}, nil
 		},
-		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
+		execSingleDMLPartitioned: func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error) {
 			return 0, nil
 		},
 	}

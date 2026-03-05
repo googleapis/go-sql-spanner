@@ -20,13 +20,14 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
+	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
-	"github.com/golang/protobuf/ptypes/timestamp"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
@@ -36,6 +37,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 var (
@@ -134,7 +136,7 @@ type PartialResultSetExecutionTime struct {
 // ToPartialResultSets converts a ResultSet to a PartialResultSet. This method
 // is used to convert a mocked result to a PartialResultSet when one of the
 // streaming methods are called.
-func (s *StatementResult) ToPartialResultSets(resumeToken []byte) (result []*spannerpb.PartialResultSet, err error) {
+func (s *StatementResult) ToPartialResultSets(resumeToken []byte, metadata *spannerpb.ResultSetMetadata) (result []*spannerpb.PartialResultSet, err error) {
 	var startIndex uint64
 	if len(resumeToken) > 0 {
 		if startIndex, err = DecodeResumeToken(resumeToken); err != nil {
@@ -163,9 +165,12 @@ func (s *StatementResult) ToPartialResultSets(resumeToken []byte) (result []*spa
 				rt = s.ResumeTokens[startIndex]
 			}
 			partial := &spannerpb.PartialResultSet{
-				Metadata:    s.ResultSet.Metadata,
 				Values:      values,
 				ResumeToken: rt,
+			}
+			// Only include the metadata in the first PartialResultSet
+			if len(result) == 0 {
+				partial.Metadata = metadata
 			}
 			result = append(result, partial)
 
@@ -178,7 +183,7 @@ func (s *StatementResult) ToPartialResultSets(resumeToken []byte) (result []*spa
 	} else {
 		result = append(result, &spannerpb.PartialResultSet{
 			Last:     true,
-			Metadata: s.ResultSet.Metadata,
+			Metadata: metadata,
 		})
 	}
 	if s.UpdateCount > 0 {
@@ -237,7 +242,7 @@ func (s *StatementResult) convertUpdateCountToResultSet(exact bool) *spannerpb.R
 	return rs
 }
 
-func (s StatementResult) getResultSetWithTransactionSet(selector *spannerpb.TransactionSelector, tx []byte) *StatementResult {
+func (s *StatementResult) getResultSetWithTransactionSet(selector *spannerpb.TransactionSelector, tx []byte) *StatementResult {
 	res := &StatementResult{
 		Type:         s.Type,
 		Err:          s.Err,
@@ -246,10 +251,16 @@ func (s StatementResult) getResultSetWithTransactionSet(selector *spannerpb.Tran
 	}
 	if s.ResultSet != nil {
 		res.ResultSet = &spannerpb.ResultSet{
-			Metadata: s.ResultSet.Metadata,
-			Rows:     s.ResultSet.Rows,
-			Stats:    s.ResultSet.Stats,
+			// Only copy the static fields of the ResultSetMetadata from the stored result to the one that will be
+			// returned for the current query. This prevents potential data races on the Transaction field.
+			Metadata: &spannerpb.ResultSetMetadata{
+				RowType:              s.ResultSet.Metadata.RowType,
+				UndeclaredParameters: s.ResultSet.Metadata.UndeclaredParameters,
+			},
+			Rows:  s.ResultSet.Rows,
+			Stats: s.ResultSet.Stats,
 		}
+
 	}
 	if _, ok := selector.GetSelector().(*spannerpb.TransactionSelector_Begin); ok {
 		if res.ResultSet == nil {
@@ -297,10 +308,15 @@ type InMemSpannerServer interface {
 	// expect a SQL statement, including (batch) DML methods.
 	PutStatementResult(sql string, result *StatementResult) error
 
-	// Puts a mocked result on the server for a specific partition token. The
-	// result will only be used for query requests that specify a partition
-	// token.
+	// PutPartitionResult puts a mocked result on the server for a specific partition token.
+	// The result will only be used for query requests that specify a partition token.
 	PutPartitionResult(partitionToken []byte, result *StatementResult) error
+	// AddResultAsPartitionedResults splits the given result set into a random number of partitions
+	// and adds these are Partitioned Query results.
+	AddResultAsPartitionedResults(sql string, results *spannerpb.ResultSet) error
+	// ClearPartitionResults removes all previously registered partition results
+	// on the mock server.
+	ClearPartitionResults()
 
 	// Adds a PartialResultSetExecutionTime to the server that should be returned
 	// for the specified SQL string.
@@ -326,6 +342,7 @@ type InMemSpannerServer interface {
 	SetMaxSessionsReturnedByServerInTotal(sessionCount int32)
 
 	ReceivedRequests() chan interface{}
+	DrainRequestsFromServer() []interface{}
 	DumpSessions() map[string]bool
 	ClearPings()
 	DumpPings() []string
@@ -440,6 +457,47 @@ func (s *inMemSpannerServer) PutPartitionResult(partitionToken []byte, result *S
 	defer s.mu.Unlock()
 	s.partitionResults[tokenString] = result
 	return nil
+}
+
+func (s *inMemSpannerServer) AddResultAsPartitionedResults(sql string, results *spannerpb.ResultSet) error {
+	// The +4 in this expression is added to create some randomness in the number of partitions that is returned,
+	// even when the number of rows is low (or even zero).
+	numPartitions := rand.Intn(len(results.Rows)/5+4) + 1
+	startIndices := make([]int, numPartitions)
+	if len(results.Rows) > 0 {
+		for i := 1; i < numPartitions; i++ {
+			startIndices[i] = rand.Intn(len(results.Rows)) + 1
+		}
+		slices.Sort(startIndices)
+	}
+	for index := 0; index < numPartitions; index++ {
+		var endIndex int
+		if index == numPartitions-1 {
+			endIndex = len(results.Rows)
+		} else {
+			endIndex = startIndices[index+1]
+		}
+		partitionResult := &spannerpb.ResultSet{
+			Metadata: results.Metadata,
+			Rows:     make([]*structpb.ListValue, 0),
+		}
+		for rowIndex := startIndices[index]; rowIndex < endIndex; rowIndex++ {
+			partitionResult.Rows = append(partitionResult.Rows, results.Rows[rowIndex])
+		}
+		token := fmt.Sprintf("%s: %v", sql, index)
+		if err := s.PutPartitionResult(
+			[]byte(token),
+			&StatementResult{Type: StatementResultResultSet, ResultSet: partitionResult}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *inMemSpannerServer) ClearPartitionResults() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.partitionResults = make(map[string]*StatementResult)
 }
 
 func (s *inMemSpannerServer) AbortTransaction(id []byte) {
@@ -583,9 +641,8 @@ func (s *inMemSpannerServer) updateSessionLastUseTime(session string) {
 	s.sessionLastUseTime[session] = time.Now()
 }
 
-func getCurrentTimestamp() *timestamp.Timestamp {
-	t := time.Now()
-	return &timestamp.Timestamp{Seconds: t.Unix(), Nanos: int32(t.Nanosecond())}
+func getCurrentTimestamp() *timestamppb.Timestamp {
+	return timestamppb.New(time.Now())
 }
 
 // Gets the transaction id from the transaction selector. If the selector
@@ -731,11 +788,16 @@ func (s *inMemSpannerServer) CreateSession(ctx context.Context, req *spannerpb.C
 	}
 	sessionName := s.generateSessionNameLocked(req.Database)
 	ts := getCurrentTimestamp()
-	var creatorRole string
-	if req.Session != nil {
-		creatorRole = req.Session.CreatorRole
+	if req.Session == nil {
+		req.Session = &spannerpb.Session{}
 	}
-	session := &spannerpb.Session{Name: sessionName, CreateTime: ts, ApproximateLastUseTime: ts, CreatorRole: creatorRole}
+	session := &spannerpb.Session{
+		Name:                   sessionName,
+		CreateTime:             ts,
+		ApproximateLastUseTime: ts,
+		CreatorRole:            req.Session.CreatorRole,
+		Multiplexed:            req.Session.Multiplexed,
+	}
 	s.totalSessionsCreated++
 	s.sessions[sessionName] = session
 	return session, nil
@@ -936,7 +998,7 @@ func (s *inMemSpannerServer) executeStreamingSQL(req *spannerpb.ExecuteSqlReques
 	case StatementResultError:
 		return statementResult.Err
 	case StatementResultResultSet:
-		parts, err := statementResult.ToPartialResultSets(req.ResumeToken)
+		parts, err := statementResult.ToPartialResultSets(req.ResumeToken, resWithTx.ResultSet.Metadata)
 		if err != nil {
 			return err
 		}
@@ -1152,7 +1214,19 @@ func (s *inMemSpannerServer) PartitionQuery(ctx context.Context, req *spannerpb.
 	}
 	numPartitions := req.PartitionOptions.MaxPartitions
 	if numPartitions == 0 {
-		numPartitions = int64(rand.Intn(10) + 1)
+		foundPartitions := 0
+		s.mu.Lock()
+		for k := range s.partitionResults {
+			if strings.HasPrefix(k, req.Sql+":") {
+				foundPartitions++
+			}
+		}
+		s.mu.Unlock()
+		if foundPartitions > 0 {
+			numPartitions = int64(foundPartitions)
+		} else {
+			numPartitions = int64(rand.Intn(10) + 1)
+		}
 	}
 	partitions := make([]*spannerpb.Partition, 0, numPartitions)
 	for i := int64(0); i < numPartitions; i++ {
@@ -1180,6 +1254,30 @@ func (s *inMemSpannerServer) PartitionRead(ctx context.Context, req *spannerpb.P
 			req.Table,
 		),
 	})
+}
+
+func (s *inMemSpannerServer) DrainRequestsFromServer() []interface{} {
+	var reqs []interface{}
+loop:
+	for {
+		select {
+		case req := <-s.ReceivedRequests():
+			reqs = append(reqs, req)
+		default:
+			break loop
+		}
+	}
+	return reqs
+}
+
+func RequestsOfType(requests []interface{}, t reflect.Type) []interface{} {
+	res := make([]interface{}, 0)
+	for _, req := range requests {
+		if reflect.TypeOf(req) == t {
+			res = append(res, req)
+		}
+	}
+	return res
 }
 
 // EncodeResumeToken return mock resume token encoding for an uint64 integer.

@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spannerlib-python"
+dynamic = ["version"]
+authors = [
+    { name="Google LLC", email="googleapis-packages@google.com" },
+]
+description = "A Python wrapper for the Go spannerlib. This is an internal library that can make breaking changes without prior notice."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = [
+    "LICENSE",
+]
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "google-cloud-spanner",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "nox",
+]
+
+[tool.setuptools]
+dynamic = {"version" = {attr = "google.cloud.spannerlib.__version__"}}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["google*"]
+
+[project.urls]
+Homepage = "https://github.com/googleapis/go-sql-spanner/tree/main/spannerlib/wrappers/spannerlib-python/spannerlib-python/README.md"
+Repository = "https://github.com/googleapis/go-sql-spanner/tree/main/spannerlib/wrappers/spannerlib-python/spannerlib-python"

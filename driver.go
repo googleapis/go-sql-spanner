@@ -16,6 +16,8 @@ package spannerdriver
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"database/sql/driver"
 	"errors"
@@ -39,16 +41,21 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/uuid"
 	"github.com/googleapis/gax-go/v2"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
-const userAgent = "go-sql-spanner/1.16.3" // x-release-please-version
+const ModuleVersion = "1.24.0"            // x-release-please-version
+const userAgent = "go-sql-spanner/1.24.0" // x-release-please-version
 
 const gormModule = "github.com/googleapis/go-gorm-spanner"
 const gormUserAgent = "go-gorm-spanner"
@@ -63,6 +70,9 @@ var defaultStatementCacheSize int
 // driver from adding noise to any default logger that has been set for the
 // application.
 const LevelNotice = slog.LevelInfo - 1
+
+const experimentalHostProject = "default"
+const experimentalHostInstance = "default"
 
 // Logger that discards everything and skips (almost) all logs.
 var noopLogger = slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError + 1}))
@@ -84,21 +94,21 @@ var noopLogger = slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{L
 //     The default is false
 //     - enableEndToEndTracing: Boolean that indicates if end-to-end tracing is enabled
 //     The default is false
-//     - minSessions: The minimum number of sessions in the backing session pool. The default is 100.
-//     - maxSessions: The maximum number of sessions in the backing session pool. The default is 400.
+//     - minSessions (DEPRECATED): The minimum number of sessions in the backing session pool. The default is 100. This option is deprecated, as the driver by default uses a single multiplexed session for all operations.
+//     - maxSessions (DEPRECATED): The maximum number of sessions in the backing session pool. The default is 400. This option is deprecated, as the driver by default uses a single multiplexed session for all operations.
 //     - numChannels: The number of gRPC channels to use to communicate with Cloud Spanner. The default is 4.
 //     - optimizerVersion: Sets the default query optimizer version to use for this connection.
 //     - optimizerStatisticsPackage: Sets the default query optimizer statistic package to use for this connection.
 //     - rpcPriority: Sets the priority for all RPC invocations from this connection (HIGH/MEDIUM/LOW). The default is HIGH.
 //
 // Example: `localhost:9010/projects/test-project/instances/test-instance/databases/test-database;usePlainText=true;disableRouteToLeader=true;enableEndToEndTracing=true`
-var dsnRegExp = regexp.MustCompile(`((?P<HOSTGROUP>[\w.-]+(?:\.[\w\.-]+)*[\w\-\._~:/?#\[\]@!\$&'\(\)\*\+,;=.]+)/)?projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID)))(/instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+)(/databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?)?(([\?|;])(?P<PARAMSGROUP>.*))?`)
+var dsnRegExp = regexp.MustCompile(`^((?P<HOSTGROUP>[\w.-]+(?:\.[\w\.-]+)*[\w\-\._~:#\[\]@!\$&'\(\)\*\+,=.]+)/)?(projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID))))?((?:/)?instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+))?((?:/)?databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?(([\?|;])(?P<PARAMSGROUP>.*))?$`)
 
 var _ driver.DriverContext = &Driver{}
 var spannerDriver *Driver
 
 func init() {
-	spannerDriver = &Driver{connectors: make(map[string]*connector)}
+	spannerDriver = &Driver{connectors: make(map[string]*connector), connectorUsageCount: make(map[string]int)}
 	sql.Register("spanner", spannerDriver)
 	determineDefaultStatementCacheSize()
 }
@@ -125,6 +135,11 @@ type SpannerResult interface {
 	// BatchRowsAffected returns the affected rows per statement in a DML batch.
 	// It returns an error if the statement was not a DML batch.
 	BatchRowsAffected() ([]int64, error)
+
+	// OperationID returns the operation ID for a DDL statement that was executed
+	// in asynchronous mode. It returns an error if the statement was not a DDL
+	// statement or if it was not executed in asynchronous mode.
+	OperationID() (string, error)
 }
 
 // ExecOptions can be passed in as an argument to the Query, QueryContext,
@@ -170,6 +185,10 @@ type ExecOptions struct {
 	TransactionOptions spanner.TransactionOptions
 	// QueryOptions are the query options that will be used for the statement.
 	QueryOptions spanner.QueryOptions
+	// TimestampBound is the timestamp bound that will be used for the statement
+	// if it is a query outside a transaction. Setting this option will override
+	// the default TimestampBound that is set on the connection.
+	TimestampBound *spanner.TimestampBound
 
 	// PartitionedQueryOptions are used for partitioned queries, and ignored
 	// for all other statements.
@@ -201,12 +220,132 @@ type ExecOptions struct {
 	// order to move to the result set that contains the spannerpb.ResultSetStats.
 	ReturnResultSetStats bool
 
-	// DirectExecute determines whether a query is executed directly when the
+	// DirectExecuteQuery determines whether a query is executed directly when the
 	// [sql.DB.QueryContext] method is called, or whether the actual query execution
 	// is delayed until the first call to [sql.Rows.Next]. The default is to delay
 	// the execution. Set this flag to true to execute the query directly when
 	// [sql.DB.QueryContext] is called.
 	DirectExecuteQuery bool
+
+	// DirectExecuteContext is the context that is used for the execution of a query
+	// when DirectExecuteQuery is enabled.
+	DirectExecuteContext context.Context
+
+	// PropertyValues contains a list of connection state property values that
+	// should be used while executing the statement. These values will only be used for
+	// this statement, and will not be persisted on the connection.
+	PropertyValues []PropertyValue
+}
+
+func (dest *ExecOptions) merge(src *ExecOptions) {
+	if src == nil || dest == nil {
+		return
+	}
+	if src.DecodeOption != DecodeOptionNormal {
+		dest.DecodeOption = src.DecodeOption
+	}
+	if src.DecodeToNativeArrays {
+		dest.DecodeToNativeArrays = src.DecodeToNativeArrays
+	}
+	if src.ReturnResultSetStats {
+		dest.ReturnResultSetStats = src.ReturnResultSetStats
+	}
+	if src.ReturnResultSetMetadata {
+		dest.ReturnResultSetMetadata = src.ReturnResultSetMetadata
+	}
+	if src.DirectExecuteQuery {
+		dest.DirectExecuteQuery = src.DirectExecuteQuery
+	}
+	if src.DirectExecuteContext != nil {
+		dest.DirectExecuteContext = src.DirectExecuteContext
+	}
+	if src.AutocommitDMLMode != Unspecified {
+		dest.AutocommitDMLMode = src.AutocommitDMLMode
+	}
+	if src.TimestampBound != nil {
+		dest.TimestampBound = src.TimestampBound
+	}
+	if src.PropertyValues != nil {
+		dest.PropertyValues = append(dest.PropertyValues, src.PropertyValues...)
+	}
+	(&dest.PartitionedQueryOptions).merge(&src.PartitionedQueryOptions)
+	mergeQueryOptions(&dest.QueryOptions, &src.QueryOptions)
+	mergeTransactionOptions(&dest.TransactionOptions, &src.TransactionOptions)
+}
+
+func mergeTransactionOptions(dest *spanner.TransactionOptions, src *spanner.TransactionOptions) {
+	if src == nil || dest == nil {
+		return
+	}
+	if src.ExcludeTxnFromChangeStreams {
+		dest.ExcludeTxnFromChangeStreams = src.ExcludeTxnFromChangeStreams
+	}
+	if src.TransactionTag != "" {
+		dest.TransactionTag = src.TransactionTag
+	}
+	if src.ReadLockMode != spannerpb.TransactionOptions_ReadWrite_READ_LOCK_MODE_UNSPECIFIED {
+		dest.ReadLockMode = src.ReadLockMode
+	}
+	if src.IsolationLevel != spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED {
+		dest.IsolationLevel = src.IsolationLevel
+	}
+	if src.CommitPriority != spannerpb.RequestOptions_PRIORITY_UNSPECIFIED {
+		dest.CommitPriority = src.CommitPriority
+	}
+	if src.BeginTransactionOption != spanner.DefaultBeginTransaction {
+		dest.BeginTransactionOption = src.BeginTransactionOption
+	}
+	mergeCommitOptions(&dest.CommitOptions, &src.CommitOptions)
+}
+
+func mergeCommitOptions(dest *spanner.CommitOptions, src *spanner.CommitOptions) {
+	if src == nil || dest == nil {
+		return
+	}
+	if src.ReturnCommitStats {
+		dest.ReturnCommitStats = src.ReturnCommitStats
+	}
+	if src.MaxCommitDelay != nil {
+		dest.MaxCommitDelay = src.MaxCommitDelay
+	}
+}
+
+func mergeQueryOptions(dest *spanner.QueryOptions, src *spanner.QueryOptions) {
+	if src == nil || dest == nil {
+		return
+	}
+	if src.ExcludeTxnFromChangeStreams {
+		dest.ExcludeTxnFromChangeStreams = src.ExcludeTxnFromChangeStreams
+	}
+	if src.DataBoostEnabled {
+		dest.DataBoostEnabled = src.DataBoostEnabled
+	}
+	if src.LastStatement {
+		dest.LastStatement = src.LastStatement
+	}
+	if src.Options != nil {
+		if dest.Options != nil {
+			proto.Merge(dest.Options, src.Options)
+		} else {
+			dest.Options = src.Options
+		}
+	}
+	if src.DirectedReadOptions != nil {
+		if dest.DirectedReadOptions == nil {
+			dest.DirectedReadOptions = src.DirectedReadOptions
+		} else {
+			proto.Merge(dest.DirectedReadOptions, src.DirectedReadOptions)
+		}
+	}
+	if src.Mode != nil {
+		dest.Mode = src.Mode
+	}
+	if src.Priority != spannerpb.RequestOptions_PRIORITY_UNSPECIFIED {
+		dest.Priority = src.Priority
+	}
+	if src.RequestTag != "" {
+		dest.RequestTag = src.RequestTag
+	}
 }
 
 type DecodeOption int
@@ -227,8 +366,9 @@ const (
 
 // Driver represents a Google Cloud Spanner database/sql driver.
 type Driver struct {
-	mu         sync.Mutex
-	connectors map[string]*connector
+	mu                  sync.Mutex
+	connectors          map[string]*connector
+	connectorUsageCount map[string]int
 }
 
 // Open opens a connection to a Google Cloud Spanner database.
@@ -267,6 +407,10 @@ type ConnectorConfig struct {
 	// Leave this empty to use the standard Spanner API endpoint.
 	Host string
 
+	// The expected server name in the TLS handshake.
+	// Leave this empty to use the endpoint hostname.
+	Authority string
+
 	// Project, Instance, and Database identify the database that the connector
 	// should create connections for.
 	Project  string
@@ -293,6 +437,17 @@ type ConnectorConfig struct {
 	//    any of those do not yet exist.
 	AutoConfigEmulator bool
 
+	// ConnectionStateType determines the behavior of changes to connection state
+	// during a transaction.
+	// connectionstate.TypeTransactional means that changes during a transaction
+	// are only persisted if the transaction is committed. If the transaction is
+	// rolled back, any changes to the connection state during the transaction
+	// will be lost.
+	// connectionstate.TypeNonTransactional means that changes to the connection
+	// state during a transaction are persisted directly, and are always visible
+	// after the transaction, regardless whether the transaction was committed or
+	// rolled back.
+	ConnectionStateType connectionstate.Type
 	// Params contains key/value pairs for commonly used configuration parameters
 	// for connections. The valid values are the same as the parameters that can
 	// be added to a connection string.
@@ -354,14 +509,34 @@ func ExtractConnectorConfig(dsn string) (ConnectorConfig, error) {
 		return ConnectorConfig{}, err
 	}
 
-	return ConnectorConfig{
+	c := ConnectorConfig{
 		Host:     matches["HOSTGROUP"],
 		Project:  matches["PROJECTGROUP"],
 		Instance: matches["INSTANCEGROUP"],
 		Database: matches["DATABASEGROUP"],
 		Params:   params,
 		name:     dsn,
-	}, nil
+	}
+	if strings.EqualFold(params[propertyIsExperimentalHost.Key()], "true") {
+		if c.Host == "" {
+			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "host must be specified for experimental host endpoint"))
+		}
+		c.Configurator = func(config *spanner.ClientConfig, opts *[]option.ClientOption) {
+			config.IsExperimentalHost = true
+		}
+		if matches["INSTANCEGROUP"] == "" {
+			c.Instance = experimentalHostInstance
+		}
+		c.Project = experimentalHostProject
+	} else {
+		if c.Project == "" {
+			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "project must be specified in connection string"))
+		}
+		if c.Instance == "" {
+			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "instance must be specified in connection string"))
+		}
+	}
+	return c, nil
 }
 
 func extractConnectorParams(paramsString string) (map[string]string, error) {
@@ -386,10 +561,11 @@ func extractConnectorParams(paramsString string) (map[string]string, error) {
 }
 
 type connector struct {
-	driver          *Driver
-	connectorConfig ConnectorConfig
-	cacheKey        string
-	logger          *slog.Logger
+	driver                *Driver
+	connectorConfig       ConnectorConfig
+	initialPropertyValues map[string]connectionstate.ConnectionPropertyValue
+	cacheKey              string
+	logger                *slog.Logger
 
 	closerMu sync.RWMutex
 	closed   bool
@@ -413,7 +589,7 @@ type connector struct {
 	adminClient    *adminapi.DatabaseAdminClient
 	adminClientErr error
 	connCount      int32
-	parser         *statementParser
+	parser         *parser.StatementParser
 }
 
 func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
@@ -422,7 +598,11 @@ func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
 	if d.connectors == nil {
 		d.connectors = make(map[string]*connector)
 	}
+	if d.connectorUsageCount == nil {
+		d.connectorUsageCount = make(map[string]int)
+	}
 	if c, ok := d.connectors[dsn]; ok {
+		d.connectorUsageCount[dsn]++
 		return c, nil
 	}
 
@@ -436,144 +616,82 @@ func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
 	}
 	c.cacheKey = dsn
 	d.connectors[dsn] = c
+	d.connectorUsageCount[dsn] = 1
 	return c, nil
 }
 
 func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, error) {
 	opts := make([]option.ClientOption, 0)
+	initialPropertyValues, err := connectionstate.ExtractValues(connectionProperties, connectorConfig.Params)
+	if err != nil {
+		return nil, err
+	}
+	state := createConfiguredConnectionState(initialPropertyValues)
+
+	assignPropertyValueIfExists(state, propertyEndpoint, &connectorConfig.Host)
 	if connectorConfig.Host != "" {
 		opts = append(opts, option.WithEndpoint(connectorConfig.Host))
 	}
-	if strval, ok := connectorConfig.Params["credentials"]; ok {
-		opts = append(opts, option.WithCredentialsFile(strval))
+	assignPropertyValueIfExists(state, propertyAuthority, &connectorConfig.Authority)
+	if connectorConfig.Authority != "" {
+		opts = append(opts, option.WithGRPCDialOption(grpc.WithAuthority(connectorConfig.Authority)))
 	}
-	if strval, ok := connectorConfig.Params["credentialsjson"]; ok {
-		opts = append(opts, option.WithCredentialsJSON([]byte(strval)))
+	if val := propertyCredentials.GetValueOrDefault(state); val != "" {
+		// TODO: Replace with option.WithAuthCredentialsFile and a config option to fall back to this.
+		//lint:ignore SA1019 Needs a change that is backwards compatible
+		opts = append(opts, option.WithCredentialsFile(val))
+	}
+	if val := propertyCredentialsJson.GetValueOrDefault(state); val != "" {
+		// TODO: Replace with option.WithAuthCredentialsJSON and a config option to fall back to this.
+		//lint:ignore SA1019 Needs a change that is backwards compatible
+		opts = append(opts, option.WithCredentialsJSON([]byte(val)))
 	}
 	config := spanner.ClientConfig{
+		//lint:ignore SA1019 Needs a change that is backwards compatible
 		SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 	}
-	if strval, ok := connectorConfig.Params["useplaintext"]; ok {
-		if val, err := strconv.ParseBool(strval); err == nil && val {
-			opts = append(opts,
-				option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
-				option.WithoutAuthentication())
-			// TODO: Add connection string property for disabling native metrics.
-			config.DisableNativeMetrics = true
-		}
+	// Disable client config logging by default.
+	if _, found := os.LookupEnv("GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS"); !found {
+		_ = os.Setenv("GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS", "true")
 	}
-	retryAbortsInternally := true
-	if strval, ok := connectorConfig.Params["retryabortsinternally"]; ok {
-		if val, err := strconv.ParseBool(strval); err == nil && !val {
-			retryAbortsInternally = false
-		}
+
+	if propertyUsePlainText.GetValueOrDefault(state) {
+		opts = append(opts,
+			option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+			option.WithoutAuthentication())
+		config.DisableNativeMetrics = true
 	}
-	if strval, ok := connectorConfig.Params[strings.ToLower("AutoBatchDml")]; ok {
-		if val, err := strconv.ParseBool(strval); err == nil {
-			connectorConfig.AutoBatchDml = val
-		}
+	assignPropertyValueIfExists(state, propertyAutoBatchDml, &connectorConfig.AutoBatchDml)
+	assignPropertyValueIfExists(state, propertyAutoBatchDmlUpdateCount, &connectorConfig.AutoBatchDmlUpdateCount)
+	assignNegatedPropertyValueIfExists(state, propertyAutoBatchDmlUpdateCountVerification, &connectorConfig.DisableAutoBatchDmlUpdateCountVerification)
+	//lint:ignore SA1019 Needs a change that is backwards compatible
+	assignPropertyValueIfExists(state, propertyMinSessions, &config.MinOpened)
+	//lint:ignore SA1019 Needs a change that is backwards compatible
+	assignPropertyValueIfExists(state, propertyMaxSessions, &config.MaxOpened)
+	if val := propertyNumChannels.GetValueOrDefault(state); val > 0 {
+		opts = append(opts, option.WithGRPCConnectionPool(val))
 	}
-	if strval, ok := connectorConfig.Params[strings.ToLower("AutoBatchDmlUpdateCount")]; ok {
-		if val, err := strconv.ParseInt(strval, 10, 64); err == nil {
-			connectorConfig.AutoBatchDmlUpdateCount = val
-		}
+	assignPropertyValueIfExists(state, propertyRpcPriority, &config.ReadOptions.Priority)
+	assignPropertyValueIfExists(state, propertyRpcPriority, &config.TransactionOptions.CommitPriority)
+	assignPropertyValueIfExists(state, propertyRpcPriority, &config.QueryOptions.Priority)
+
+	config.QueryOptions.Options = &spannerpb.ExecuteSqlRequest_QueryOptions{}
+	assignPropertyValueIfExists(state, propertyOptimizerVersion, &config.QueryOptions.Options.OptimizerVersion)
+	assignPropertyValueIfExists(state, propertyOptimizerStatisticsPackage, &config.QueryOptions.Options.OptimizerStatisticsPackage)
+	if config.QueryOptions.Options.OptimizerVersion == "" && config.QueryOptions.Options.OptimizerStatisticsPackage == "" {
+		config.QueryOptions.Options = nil
 	}
-	if strval, ok := connectorConfig.Params[strings.ToLower("AutoBatchDmlUpdateCountVerification")]; ok {
-		if val, err := strconv.ParseBool(strval); err == nil {
-			connectorConfig.DisableAutoBatchDmlUpdateCountVerification = !val
-		}
-	}
-	if strval, ok := connectorConfig.Params["minsessions"]; ok {
-		if val, err := strconv.ParseUint(strval, 10, 64); err == nil {
-			config.MinOpened = val
-		}
-	}
-	if strval, ok := connectorConfig.Params["maxsessions"]; ok {
-		if val, err := strconv.ParseUint(strval, 10, 64); err == nil {
-			config.MaxOpened = val
-		}
-	}
-	if strval, ok := connectorConfig.Params["numchannels"]; ok {
-		if val, err := strconv.Atoi(strval); err == nil && val > 0 {
-			opts = append(opts, option.WithGRPCConnectionPool(val))
-		}
-	}
-	if strval, ok := connectorConfig.Params["rpcpriority"]; ok {
-		var priority spannerpb.RequestOptions_Priority
-		switch strings.ToUpper(strval) {
-		case "LOW":
-			priority = spannerpb.RequestOptions_PRIORITY_LOW
-		case "MEDIUM":
-			priority = spannerpb.RequestOptions_PRIORITY_MEDIUM
-		case "HIGH":
-			priority = spannerpb.RequestOptions_PRIORITY_HIGH
-		default:
-			priority = spannerpb.RequestOptions_PRIORITY_UNSPECIFIED
-		}
-		config.ReadOptions.Priority = priority
-		config.TransactionOptions.CommitPriority = priority
-		config.QueryOptions.Priority = priority
-	}
-	if strval, ok := connectorConfig.Params["optimizerversion"]; ok {
-		if config.QueryOptions.Options == nil {
-			config.QueryOptions.Options = &spannerpb.ExecuteSqlRequest_QueryOptions{}
-		}
-		config.QueryOptions.Options.OptimizerVersion = strval
-	}
-	if strval, ok := connectorConfig.Params["optimizerstatisticspackage"]; ok {
-		if config.QueryOptions.Options == nil {
-			config.QueryOptions.Options = &spannerpb.ExecuteSqlRequest_QueryOptions{}
-		}
-		config.QueryOptions.Options.OptimizerStatisticsPackage = strval
-	}
-	if strval, ok := connectorConfig.Params["databaserole"]; ok {
-		config.DatabaseRole = strval
-	}
-	if strval, ok := connectorConfig.Params["disableroutetoleader"]; ok {
-		if val, err := strconv.ParseBool(strval); err == nil {
-			config.DisableRouteToLeader = val
-		}
-	}
-	if strval, ok := connectorConfig.Params["enableendtoendtracing"]; ok {
-		if val, err := strconv.ParseBool(strval); err == nil {
-			config.EnableEndToEndTracing = val
-		}
-	}
-	if strval, ok := connectorConfig.Params["disablenativemetrics"]; ok {
-		if val, err := strconv.ParseBool(strval); err == nil {
-			config.DisableNativeMetrics = val
-		}
-	}
-	if strval, ok := connectorConfig.Params[strings.ToLower("DecodeToNativeArrays")]; ok {
-		if val, err := strconv.ParseBool(strval); err == nil {
-			connectorConfig.DecodeToNativeArrays = val
-		}
-	}
-	if strval, ok := connectorConfig.Params[strings.ToLower("AutoConfigEmulator")]; ok {
-		if val, err := strconv.ParseBool(strval); err == nil {
-			connectorConfig.AutoConfigEmulator = val
-		}
-	}
-	if strval, ok := connectorConfig.Params[strings.ToLower("IsolationLevel")]; ok {
-		if val, err := parseIsolationLevel(strval); err == nil {
-			connectorConfig.IsolationLevel = val
-		}
-	}
-	if strval, ok := connectorConfig.Params[strings.ToLower("BeginTransactionOption")]; ok {
-		if val, err := parseBeginTransactionOption(strval); err == nil {
-			connectorConfig.BeginTransactionOption = val
-		}
-	}
-	if strval, ok := connectorConfig.Params[strings.ToLower("StatementCacheSize")]; ok {
-		if val, err := strconv.Atoi(strval); err == nil {
-			connectorConfig.StatementCacheSize = val
-		}
-	}
-	if strval, ok := connectorConfig.Params[strings.ToLower("DisableStatementCache")]; ok {
-		if val, err := strconv.ParseBool(strval); err == nil {
-			connectorConfig.DisableStatementCache = val
-		}
-	}
+
+	assignPropertyValueIfExists(state, propertyDatabaseRole, &config.DatabaseRole)
+	assignPropertyValueIfExists(state, propertyDisableRouteToLeader, &config.DisableRouteToLeader)
+	assignPropertyValueIfExists(state, propertyEnableEndToEndTracing, &config.EnableEndToEndTracing)
+	assignPropertyValueIfExists(state, propertyDisableNativeMetrics, &config.DisableNativeMetrics)
+	assignPropertyValueIfExists(state, propertyDecodeToNativeArrays, &connectorConfig.DecodeToNativeArrays)
+	assignPropertyValueIfExists(state, propertyAutoConfigEmulator, &connectorConfig.AutoConfigEmulator)
+	assignPropertyValueIfExists(state, propertyIsolationLevel, &connectorConfig.IsolationLevel)
+	assignPropertyValueIfExists(state, propertyBeginTransactionOption, &connectorConfig.BeginTransactionOption)
+	assignPropertyValueIfExists(state, propertyStatementCacheSize, &connectorConfig.StatementCacheSize)
+	assignPropertyValueIfExists(state, propertyDisableStatementCache, &connectorConfig.DisableStatementCache)
 
 	// Check if it is Spanner gorm that is creating the connection.
 	// If so, we should set a different user-agent header than the
@@ -598,6 +716,22 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	if connectorConfig.Configurator != nil {
 		connectorConfig.Configurator(&config, &opts)
 	}
+	if config.IsExperimentalHost {
+		var caCertFile string
+		var clientCertFile string
+		var clientCertKey string
+		assignPropertyValueIfExists(state, propertyCaCertFile, &caCertFile)
+		assignPropertyValueIfExists(state, propertyClientCertFile, &clientCertFile)
+		assignPropertyValueIfExists(state, propertyClientCertKey, &clientCertKey)
+		if caCertFile != "" {
+			credOpts, err := createExperimentalHostCredentials(caCertFile, clientCertFile, clientCertKey)
+			if err != nil {
+				return nil, err
+			}
+			opts = append(opts, credOpts)
+			opts = append(opts, option.WithoutAuthentication())
+		}
+	}
 	if connectorConfig.AutoConfigEmulator {
 		if connectorConfig.Host == "" {
 			connectorConfig.Host = "localhost:9010"
@@ -610,7 +744,7 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			internaloption.SkipDialSettingsValidation(),
 		}
 		opts = append(emulatorOpts, opts...)
-		if err := autoConfigEmulator(context.Background(), connectorConfig.Host, connectorConfig.Project, connectorConfig.Instance, connectorConfig.Database, opts); err != nil {
+		if err := autoConfigEmulator(context.Background(), connectorConfig.Host, connectorConfig.Project, connectorConfig.Instance, connectorConfig.Database, propertyDialect.GetValueOrDefault(state), opts); err != nil {
 			return nil, err
 		}
 	}
@@ -618,12 +752,27 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	c := &connector{
 		driver:                d,
 		connectorConfig:       connectorConfig,
+		initialPropertyValues: initialPropertyValues,
 		logger:                logger,
 		spannerClientConfig:   config,
 		options:               opts,
-		retryAbortsInternally: retryAbortsInternally,
+		// TODO: Remove retryAbortsInternally from this struct
+		retryAbortsInternally: propertyRetryAbortsInternally.GetValueOrDefault(state),
 	}
+	addStateFromConnectorConfig(c, c.initialPropertyValues)
 	return c, nil
+}
+
+func assignPropertyValueIfExists[T comparable](state *connectionstate.ConnectionState, property *connectionstate.TypedConnectionProperty[T], field *T) {
+	if val, _, err := property.GetValueOrError(state); err == nil {
+		*field = val
+	}
+}
+
+func assignNegatedPropertyValueIfExists(state *connectionstate.ConnectionState, property *connectionstate.TypedConnectionProperty[bool], field *bool) {
+	if val, _, err := property.GetValueOrError(state); err == nil {
+		*field = !val
+	}
 }
 
 func isConnectionFromGorm() bool {
@@ -666,11 +815,26 @@ func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
 func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 	opts := c.options
 	c.logger.Log(ctx, LevelNotice, "opening connection")
+	instanceName := fmt.Sprintf(
+		"projects/%s/instances/%s",
+		c.connectorConfig.Project,
+		c.connectorConfig.Instance)
 	databaseName := fmt.Sprintf(
 		"projects/%s/instances/%s/databases/%s",
 		c.connectorConfig.Project,
 		c.connectorConfig.Instance,
 		c.connectorConfig.Database)
+	if value, ok := c.initialPropertyValues[propertyConnectTimeout.Key()]; ok {
+		if timeout, err := value.GetValue(); err == nil {
+			if duration, ok := timeout.(time.Duration); ok {
+				var cancel context.CancelFunc
+				// This will set the actual timeout of the context to the lower of the
+				// current context timeout (if any) and the value from the connection property.
+				ctx, cancel = context.WithTimeout(ctx, duration)
+				defer cancel()
+			}
+		}
+	}
 
 	if err := c.increaseConnCount(ctx, databaseName, opts); err != nil {
 		return nil, err
@@ -678,20 +842,24 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 
 	connId := uuid.New().String()
 	logger := c.logger.With("connId", connId)
+	connectionStateType := c.connectorConfig.ConnectionStateType
+	if connectionStateType == connectionstate.TypeDefault {
+		if c.parser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+			connectionStateType = connectionstate.TypeTransactional
+		} else {
+			connectionStateType = connectionstate.TypeNonTransactional
+		}
+	}
 	connection := &conn{
-		parser:      c.parser,
-		connector:   c,
-		client:      c.client,
-		adminClient: c.adminClient,
-		connId:      connId,
-		logger:      logger,
-		database:    databaseName,
-		retryAborts: c.retryAbortsInternally,
-
-		autoBatchDml:                        c.connectorConfig.AutoBatchDml,
-		autoBatchDmlUpdateCount:             c.connectorConfig.AutoBatchDmlUpdateCount,
-		autoBatchDmlUpdateCountVerification: !c.connectorConfig.DisableAutoBatchDmlUpdateCountVerification,
-
+		parser:                       c.parser,
+		connector:                    c,
+		client:                       c.client,
+		adminClient:                  c.adminClient,
+		connId:                       connId,
+		logger:                       logger,
+		instance:                     instanceName,
+		database:                     databaseName,
+		state:                        createInitialConnectionState(connectionStateType, c.initialPropertyValues),
 		execSingleQuery:              queryInSingleUse,
 		execSingleQueryTransactional: queryInNewRWTransaction,
 		execSingleDMLTransactional:   execInNewRWTransaction,
@@ -700,6 +868,22 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 	// Initialize the session.
 	_ = connection.ResetSession(context.Background())
 	return connection, nil
+}
+
+func addStateFromConnectorConfig(c *connector, values map[string]connectionstate.ConnectionPropertyValue) {
+	updateConnectionPropertyValueIfNotExists(propertyDecodeToNativeArrays, values, c.connectorConfig.DecodeToNativeArrays)
+	updateConnectionPropertyValueIfNotExists(propertyIsolationLevel, values, c.connectorConfig.IsolationLevel)
+	updateConnectionPropertyValueIfNotExists(propertyBeginTransactionOption, values, c.connectorConfig.BeginTransactionOption)
+	updateConnectionPropertyValueIfNotExists(propertyRetryAbortsInternally, values, c.retryAbortsInternally)
+	updateConnectionPropertyValueIfNotExists(propertyAutoBatchDml, values, c.connectorConfig.AutoBatchDml)
+	updateConnectionPropertyValueIfNotExists(propertyAutoBatchDmlUpdateCount, values, c.connectorConfig.AutoBatchDmlUpdateCount)
+	updateConnectionPropertyValueIfNotExists(propertyAutoBatchDmlUpdateCountVerification, values, !c.connectorConfig.DisableAutoBatchDmlUpdateCountVerification)
+}
+
+func updateConnectionPropertyValueIfNotExists[T comparable](property *connectionstate.TypedConnectionProperty[T], values map[string]connectionstate.ConnectionPropertyValue, value T) {
+	if _, ok := values[property.Key()]; !ok {
+		values[property.Key()] = property.CreateTypedInitialValue(value)
+	}
 }
 
 // increaseConnCount initializes the client and increases the number of connections that are active.
@@ -736,7 +920,7 @@ func (c *connector) increaseConnCount(ctx context.Context, databaseName string, 
 			} else if c.connectorConfig.StatementCacheSize == 0 {
 				cacheSize = defaultStatementCacheSize
 			}
-			c.parser, err = newStatementParser(dialect, cacheSize)
+			c.parser, err = parser.NewStatementParser(dialect, cacheSize)
 			if err != nil {
 				closeClient()
 				return err
@@ -804,6 +988,27 @@ func (c *connector) Driver() driver.Driver {
 }
 
 func (c *connector) Close() error {
+	shouldClose := true
+	if c.cacheKey != "" {
+		c.driver.mu.Lock()
+		if usageCount, ok := c.driver.connectorUsageCount[c.cacheKey]; ok {
+			if usageCount == 1 {
+				delete(c.driver.connectors, c.cacheKey)
+				delete(c.driver.connectorUsageCount, c.cacheKey)
+			} else {
+				c.driver.connectorUsageCount[c.cacheKey] = usageCount - 1
+				shouldClose = false
+			}
+		}
+		c.driver.mu.Unlock()
+	}
+	if shouldClose {
+		return c.close()
+	}
+	return nil
+}
+
+func (c *connector) close() error {
 	c.logger.Debug("closing connector")
 	c.closerMu.Lock()
 	c.closed = true
@@ -917,6 +1122,7 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		_ = conn.Close()
 	}()
 
+	tx, err := conn.BeginTx(ctx, opts)
 	// We don't need to keep track of a running checksum for retries when using
 	// this method, so we disable internal retries.
 	// Retries will instead be handled by the loop below.
@@ -932,13 +1138,12 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 			// It is not a Spanner connection, so just ignore and continue without any special handling.
 			return nil
 		}
-		spannerConn.withTempTransactionOptions(transactionOptions)
+		spannerConn.setReadWriteTransactionOptions(transactionOptions)
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 
-	tx, err := conn.BeginTx(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -1036,7 +1241,15 @@ func getCommitResponse(conn *sql.Conn) (resp *spanner.CommitResponse, err error)
 	return resp, nil
 }
 
+type baseTransactionOptions struct {
+	// implicit indicates whether the transaction should be marked as an implicit
+	// transaction block.
+	implicit bool
+}
+
 type ReadWriteTransactionOptions struct {
+	baseTransactionOptions
+
 	// TransactionOptions are passed through to the Spanner client to use for
 	// the read/write transaction.
 	TransactionOptions spanner.TransactionOptions
@@ -1051,8 +1264,6 @@ type ReadWriteTransactionOptions struct {
 	// disabled, and any Aborted error from Spanner is propagated to the
 	// application.
 	DisableInternalRetries bool
-
-	close func()
 }
 
 // BeginReadWriteTransaction begins a read/write transaction on a Spanner database.
@@ -1067,17 +1278,18 @@ func BeginReadWriteTransaction(ctx context.Context, db *sql.DB, options ReadWrit
 	if err != nil {
 		return nil, err
 	}
-	options.close = func() {
+	if err := withTransactionCloseFunc(conn, func() {
 		// Close the connection asynchronously, as the transaction will still
 		// be active when we hit this point.
 		go conn.Close()
-	}
-	if err := withTempReadWriteTransactionOptions(conn, &options); err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+	if err := withTempReadWriteTransactionOptions(conn, &options); err != nil {
+		return nil, err
+	}
 	if err != nil {
-		clearTempReadWriteTransactionOptions(conn)
 		return nil, err
 	}
 	return tx, nil
@@ -1090,23 +1302,18 @@ func withTempReadWriteTransactionOptions(conn *sql.Conn, options *ReadWriteTrans
 			// It is not a Spanner connection.
 			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
 		}
-		spannerConn.withTempTransactionOptions(options)
+		spannerConn.setReadWriteTransactionOptions(options)
 		return nil
 	})
-}
-
-func clearTempReadWriteTransactionOptions(conn *sql.Conn) {
-	_ = withTempReadWriteTransactionOptions(conn, nil)
-	_ = conn.Close()
 }
 
 // ReadOnlyTransactionOptions can be used to create a read-only transaction
 // on a Spanner connection.
 type ReadOnlyTransactionOptions struct {
+	baseTransactionOptions
+
 	TimestampBound         spanner.TimestampBound
 	BeginTransactionOption spanner.BeginTransactionOption
-
-	close func()
 }
 
 // BeginReadOnlyTransaction begins a read-only transaction on a Spanner database.
@@ -1119,20 +1326,34 @@ func BeginReadOnlyTransaction(ctx context.Context, db *sql.DB, options ReadOnlyT
 	if err != nil {
 		return nil, err
 	}
-	options.close = func() {
+	if err := withTransactionCloseFunc(conn, func() {
 		// Close the connection asynchronously, as the transaction will still
 		// be active when we hit this point.
 		go conn.Close()
-	}
-	if err := withTempReadOnlyTransactionOptions(conn, &options); err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err := withTempReadOnlyTransactionOptions(conn, &options); err != nil {
+		return nil, err
+	}
 	if err != nil {
 		clearTempReadOnlyTransactionOptions(conn)
 		return nil, err
 	}
 	return tx, nil
+}
+
+func withTransactionCloseFunc(conn *sql.Conn, close func()) error {
+	return conn.Raw(func(driverConn any) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			// It is not a Spanner connection.
+			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
+		}
+		spannerConn.withTransactionCloseFunc(close)
+		return nil
+	})
 }
 
 func withTempReadOnlyTransactionOptions(conn *sql.Conn, options *ReadOnlyTransactionOptions) error {
@@ -1142,7 +1363,7 @@ func withTempReadOnlyTransactionOptions(conn *sql.Conn, options *ReadOnlyTransac
 			// It is not a Spanner connection.
 			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
 		}
-		spannerConn.withTempReadOnlyTransactionOptions(options)
+		spannerConn.setReadOnlyTransactionOptions(options)
 		return nil
 	})
 }
@@ -1334,6 +1555,8 @@ func checkIsValidType(v driver.Value) bool {
 	case []big.Rat:
 	case spanner.NullNumeric:
 	case []spanner.NullNumeric:
+	case spanner.PGNumeric:
+	case []spanner.PGNumeric:
 	case *big.Rat:
 	case []*big.Rat:
 	case time.Time:
@@ -1350,6 +1573,8 @@ func checkIsValidType(v driver.Value) bool {
 	case []*civil.Date:
 	case spanner.NullJSON:
 	case []spanner.NullJSON:
+	case spanner.PGJsonB:
+	case []spanner.PGJsonB:
 	case spanner.GenericColumnValue:
 	case uuid.UUID:
 	case *uuid.UUID:
@@ -1373,17 +1598,70 @@ func parseBeginTransactionOption(val string) (spanner.BeginTransactionOption, er
 	return spanner.DefaultBeginTransaction, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid or unsupported BeginTransactionOption: %v", val))
 }
 
+func parseConnectionStateType(val string) (connectionstate.Type, error) {
+	switch strings.ToLower(val) {
+	case strings.ToLower("Default"):
+		return connectionstate.TypeDefault, nil
+	case strings.ToLower("Transactional"):
+		return connectionstate.TypeTransactional, nil
+	case strings.ToLower("NonTransactional"):
+		return connectionstate.TypeNonTransactional, nil
+	}
+	return connectionstate.TypeDefault, status.Errorf(codes.InvalidArgument, "invalid or unsupported connection state type: %v", val)
+}
+
+func parseAutocommitDmlMode(val string) (AutocommitDMLMode, error) {
+	// Allow both 'partitioned_non_atomic' and 'PartitionedNonAtomic'.
+	val = strings.Replace(val, "_", "", -1)
+	switch strings.ToLower(val) {
+	case strings.ToLower("Transactional"):
+		return Transactional, nil
+	case strings.ToLower("PartitionedNonAtomic"):
+		return PartitionedNonAtomic, nil
+	}
+	return Unspecified, status.Errorf(codes.InvalidArgument, "invalid or unsupported autocommit dml mode: %v", val)
+}
+
+func parseRpcPriority(val string) (spannerpb.RequestOptions_Priority, error) {
+	val = strings.ToUpper(val)
+	if priority, ok := spannerpb.RequestOptions_Priority_value[val]; ok {
+		return spannerpb.RequestOptions_Priority(priority), nil
+	}
+	if !strings.HasPrefix(val, "PRIORITY_") {
+		if priority, ok := spannerpb.RequestOptions_Priority_value["PRIORITY_"+val]; ok {
+			return spannerpb.RequestOptions_Priority(priority), nil
+		}
+	}
+	return spannerpb.RequestOptions_PRIORITY_UNSPECIFIED, status.Errorf(codes.InvalidArgument, "invalid or unsupported priority: %v", val)
+}
+
+func parseDatabaseDialect(val string) (databasepb.DatabaseDialect, error) {
+	val = strings.ToUpper(val)
+	if dialect, ok := databasepb.DatabaseDialect_value[val]; ok {
+		return databasepb.DatabaseDialect(dialect), nil
+	}
+	if !strings.HasPrefix(val, "DATABASEDIALECT_") {
+		if dialect, ok := databasepb.DatabaseDialect_value["DATABASEDIALECT_"+val]; ok {
+			return databasepb.DatabaseDialect(dialect), nil
+		}
+	}
+	return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, status.Errorf(codes.InvalidArgument, "invalid or unsupported dialect: %v", val)
+}
+
 func parseIsolationLevel(val string) (sql.IsolationLevel, error) {
-	switch strings.Replace(strings.ToLower(strings.TrimSpace(val)), " ", "_", 1) {
+	s := strings.ToLower(strings.TrimSpace(val))
+	s = strings.ReplaceAll(s, " ", "")
+	s = strings.ReplaceAll(s, "_", "")
+	switch s {
 	case "default":
 		return sql.LevelDefault, nil
-	case "read_uncommitted":
+	case "readuncommitted":
 		return sql.LevelReadUncommitted, nil
-	case "read_committed":
+	case "readcommitted":
 		return sql.LevelReadCommitted, nil
-	case "write_committed":
+	case "writecommitted":
 		return sql.LevelWriteCommitted, nil
-	case "repeatable_read":
+	case "repeatableread":
 		return sql.LevelRepeatableRead, nil
 	case "snapshot":
 		return sql.LevelSnapshot, nil
@@ -1416,6 +1694,29 @@ func toProtoIsolationLevel(level sql.IsolationLevel) (spannerpb.TransactionOptio
 	return spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid or unsupported isolation level: %v", level))
 }
 
+func toProtoIsolationLevelOrDefault(level sql.IsolationLevel) spannerpb.TransactionOptions_IsolationLevel {
+	res, _ := toProtoIsolationLevel(level)
+	return res
+}
+
+func toSqlIsolationLevel(level spannerpb.TransactionOptions_IsolationLevel) (sql.IsolationLevel, error) {
+	switch level {
+	case spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED:
+		return sql.LevelDefault, nil
+	case spannerpb.TransactionOptions_SERIALIZABLE:
+		return sql.LevelSerializable, nil
+	case spannerpb.TransactionOptions_REPEATABLE_READ:
+		return sql.LevelRepeatableRead, nil
+	default:
+	}
+	return sql.LevelDefault, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid or unsupported isolation level: %v", level))
+}
+
+func toSqlIsolationLevelOrDefault(level spannerpb.TransactionOptions_IsolationLevel) sql.IsolationLevel {
+	res, _ := toSqlIsolationLevel(level)
+	return res
+}
+
 type spannerIsolationLevel sql.IsolationLevel
 
 const (
@@ -1441,4 +1742,39 @@ func WithBatchReadOnly(level sql.IsolationLevel) sql.IsolationLevel {
 
 func withBatchReadOnly(level driver.IsolationLevel) driver.IsolationLevel {
 	return driver.IsolationLevel(levelBatchReadOnly)<<8 + level
+}
+
+// createExperimentalHostCredentials is only supported for connecting to experimental
+// hosts. It reads the provided CA certificate file and optionally the
+// client certificate and key files to set up TLS or mutual TLS credentials, and
+// creates gRPC dial options to connect to an experimental host endpoint.
+func createExperimentalHostCredentials(caCertFile, clientCertificateFile, clientCertificateKey string) (option.ClientOption, error) {
+	ca, err := os.ReadFile(caCertFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA certificate file: %w", err)
+	}
+	capool := x509.NewCertPool()
+	if !capool.AppendCertsFromPEM(ca) {
+		return nil, fmt.Errorf("failed to append the CA certificate to CA pool")
+	}
+
+	if clientCertificateFile != "" && clientCertificateKey != "" {
+		// Setting up mutual TLS with both the CA certificate and client certificate.
+		cert, err := tls.LoadX509KeyPair(clientCertificateFile, clientCertificateKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client certificate/key: %w", err)
+		}
+		creds := credentials.NewTLS(&tls.Config{
+			RootCAs:      capool,
+			Certificates: []tls.Certificate{cert},
+		})
+		return option.WithGRPCDialOption(grpc.WithTransportCredentials(creds)), nil
+	}
+	if clientCertificateFile != "" || clientCertificateKey != "" {
+		return nil, fmt.Errorf("both client certificate and key must be provided for mTLS, but only one was provided")
+	}
+
+	// Setting up TLS with only the CA certificate.
+	creds := credentials.NewTLS(&tls.Config{RootCAs: capool})
+	return option.WithGRPCDialOption(grpc.WithTransportCredentials(creds)), nil
 }

@@ -103,10 +103,10 @@ tx.QueryContext(ctx, "SELECT SingerId, Name FROM Singers WHERE SingerId = ?", 12
 
 ## Transactions
 
-- Read-write transactions always uses the strongest isolation level and ignore the user-specified level.
+- Read-write transactions support isolation levels `Serializable`, `Snapshot` and `RepeatableRead`.
 - Read-only transactions do strong-reads by default. Read-only transactions must be ended by calling
   either Commit or Rollback. Calling either of these methods will end the current read-only
-  transaction and return the session that is used to the session pool.
+  transaction.
 
 ```go
 tx, err := db.BeginTx(ctx, &sql.TxOptions{}) // Read-write transaction.
@@ -225,6 +225,11 @@ emulator.
 $ gcloud beta emulators spanner start
 $ export SPANNER_EMULATOR_HOST=localhost:9010
 ```
+
+### Automatically Create Instance and Database on the Emulator
+You can also add the `autoConfigEmulator=true` option to the connection string. This will instruct the driver
+to connect to the Spanner emulator, and to automatically create the Spanner instance and database on the
+emulator. See [examples/emulator](examples/emulator) for a working example.
 
 ## Spanner PostgreSQL Interface
 

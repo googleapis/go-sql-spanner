@@ -14,19 +14,44 @@
 
 package spannerdriver
 
-import "cloud.google.com/go/spanner"
-
-type batchType int
-
-const (
-	ddl batchType = iota
-	dml
+import (
+	"cloud.google.com/go/spanner"
+	"github.com/googleapis/go-sql-spanner/parser"
 )
 
 type batch struct {
-	tp           batchType
+	tp           parser.BatchType
 	statements   []spanner.Statement
 	returnValues []int64
-	options      ExecOptions
+	options      *ExecOptions
 	automatic    bool
+}
+
+func toBatchError(res *result, err error) error {
+	if err == nil {
+		return err
+	}
+	if res == nil {
+		return &BatchError{
+			Err:               err,
+			BatchUpdateCounts: []int64{},
+		}
+	}
+	return &BatchError{
+		BatchUpdateCounts: res.batchUpdateCounts,
+		Err:               err,
+	}
+}
+
+type BatchError struct {
+	BatchUpdateCounts []int64
+	Err               error
+}
+
+func (be *BatchError) Error() string {
+	return be.Err.Error()
+}
+
+func (be *BatchError) Unwrap() error {
+	return be.Err
 }

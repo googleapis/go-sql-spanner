@@ -19,14 +19,18 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/spanner"
 	adminapi "cloud.google.com/go/spanner/admin/database/apiv1"
 	adminpb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -125,6 +129,38 @@ type SpannerConn interface {
 	// transactions on this connection.
 	SetIsolationLevel(level sql.IsolationLevel) error
 
+	// ReadLockMode returns the current read lock mode that is used for read/write
+	// transactions on this connection.
+	ReadLockMode() spannerpb.TransactionOptions_ReadWrite_ReadLockMode
+	// SetReadLockMode sets the read lock mode to use for read/write transactions
+	// on this connection.
+	//
+	// The read lock mode option controls the locking behavior for read operations and queries within a
+	// read-write transaction. It works in conjunction with the transaction's isolation level.
+	//
+	// PESSIMISTIC: Read locks are acquired immediately on read. This mode only applies to SERIALIZABLE
+	// isolation. This mode prevents concurrent modifications by locking data throughout the transaction.
+	// This reduces commit-time aborts due to conflicts but can increase how long transactions wait for
+	// locks and the overall contention.
+	//
+	// OPTIMISTIC: Locks for reads within the transaction are not acquired on read. Instead, the locks
+	// are acquired on commit to validate that read/queried data has not changed since the transaction
+	// started. If a conflict is detected, the transaction will fail. This mode only applies to SERIALIZABLE
+	// isolation. This mode defers locking until commit, which can reduce contention and improve throughput.
+	// However, be aware that this increases the risk of transaction aborts if there's significant write
+	// competition on the same data.
+	//
+	// READ_LOCK_MODE_UNSPECIFIED: This is the default if no mode is set. The locking behavior depends on
+	// the isolation level:
+	//
+	// REPEATABLE_READ isolation: Locking semantics default to OPTIMISTIC. However, validation checks at
+	// commit are only performed for queries using SELECT FOR UPDATE, statements with LOCK_SCANNED_RANGES
+	// hints, and DML statements. Note: It is an error to explicitly set ReadLockMode when the isolation
+	// level is REPEATABLE_READ.
+	//
+	// For all other isolation levels: If the read lock mode is not set, it defaults to PESSIMISTIC locking.
+	SetReadLockMode(mode spannerpb.TransactionOptions_ReadWrite_ReadLockMode) error
+
 	// TransactionTag returns the transaction tag that will be applied to the next
 	// read/write transaction on this connection. The transaction tag that is set
 	// on the connection is cleared when a read/write transaction is started.
@@ -187,111 +223,158 @@ type SpannerConn interface {
 	// return the same Spanner client.
 	UnderlyingClient() (client *spanner.Client, err error)
 
+	// DetectStatementType returns the type of SQL statement.
+	DetectStatementType(query string) parser.StatementType
+
 	// resetTransactionForRetry resets the current transaction after it has
 	// been aborted by Spanner. Calling this function on a transaction that
 	// has not been aborted is not supported and will cause an error to be
 	// returned.
 	resetTransactionForRetry(ctx context.Context, errDuringCommit bool) error
 
-	// withTempTransactionOptions sets the TransactionOptions that should be used
-	// for the next read/write transaction. This method should only be called
-	// directly before starting a new read/write transaction.
-	withTempTransactionOptions(options *ReadWriteTransactionOptions)
+	// withTransactionCloseFunc sets the close function that should be registered
+	// on the next transaction on this connection. This method should only be called
+	// directly before starting a new transaction.
+	withTransactionCloseFunc(close func())
 
-	// withTempReadOnlyTransactionOptions sets the options that should be used
-	// for the next read-only transaction. This method should only be called
-	// directly before starting a new read-only transaction.
-	withTempReadOnlyTransactionOptions(options *ReadOnlyTransactionOptions)
+	// setReadWriteTransactionOptions sets the ReadWriteTransactionOptions that should be
+	// used for the current read/write transaction. This method should be called right
+	// after starting a new read/write transaction.
+	setReadWriteTransactionOptions(options *ReadWriteTransactionOptions)
 
-	// withTempBatchReadOnlyTransactionOptions sets the options that should be used
-	// for the next batch read-only transaction. This method should only be called
-	// directly before starting a new batch read-only transaction.
-	withTempBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransactionOptions)
+	// setReadOnlyTransactionOptions sets the options that should be used
+	// for the current read-only transaction. This method should be called
+	// right after starting a new read-only transaction.
+	setReadOnlyTransactionOptions(options *ReadOnlyTransactionOptions)
+
+	// setBatchReadOnlyTransactionOptions sets the options that should be used
+	// for the current batch read-only transaction. This method should be called
+	// right after starting a new batch read-only transaction.
+	setBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransactionOptions)
 }
 
 var _ SpannerConn = &conn{}
 
 type conn struct {
-	parser         *statementParser
-	connector      *connector
-	closed         bool
-	client         *spanner.Client
-	adminClient    *adminapi.DatabaseAdminClient
-	connId         string
-	logger         *slog.Logger
-	tx             contextTransaction
-	prevTx         contextTransaction
-	resetForRetry  bool
-	commitResponse *spanner.CommitResponse
-	database       string
-	retryAborts    bool
+	parser        *parser.StatementParser
+	connector     *connector
+	closed        bool
+	client        *spanner.Client
+	adminClient   *adminapi.DatabaseAdminClient
+	connId        string
+	logger        *slog.Logger
+	tx            *delegatingTransaction
+	prevTx        *delegatingTransaction
+	resetForRetry bool
+	instance      string
+	database      string
 
-	execSingleQuery              func(ctx context.Context, c *spanner.Client, statement spanner.Statement, bound spanner.TimestampBound, options ExecOptions) *spanner.RowIterator
-	execSingleQueryTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (rowIterator, *spanner.CommitResponse, error)
-	execSingleDMLTransactional   func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, *spanner.CommitResponse, error)
-	execSingleDMLPartitioned     func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error)
+	execSingleQuery              func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, bound spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator
+	execSingleQueryTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (rowIterator, *spanner.CommitResponse, error)
+	execSingleDMLTransactional   func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error)
+	execSingleDMLPartitioned     func(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error)
 
+	// state contains the current ConnectionState for this connection.
+	state *connectionstate.ConnectionState
 	// batch is the currently active DDL or DML batch on this connection.
 	batch *batch
-	// autoBatchDml determines whether DML statements should automatically
-	// be batched and sent to Spanner when a non-DML statement is encountered.
-	autoBatchDml bool
-	// autoBatchDmlUpdateCount determines the update count that is returned for
-	// DML statements that are executed when autoBatchDml is true.
-	autoBatchDmlUpdateCount int64
-	// autoBatchDmlUpdateCountVerification enables/disables the verification
-	// that the update count that was returned for automatically batched DML
-	// statements was correct.
-	autoBatchDmlUpdateCountVerification bool
 
-	// autocommitDMLMode determines the type of DML to use when a single DML
-	// statement is executed on a connection. The default is Transactional, but
-	// it can also be set to PartitionedNonAtomic to execute the statement as
-	// Partitioned DML.
-	autocommitDMLMode AutocommitDMLMode
-	// readOnlyStaleness is used for queries in autocommit mode and for read-only transactions.
-	readOnlyStaleness spanner.TimestampBound
-	// isolationLevel determines the default isolation level that is used for read/write
-	// transactions on this connection. This default is ignored if the BeginTx function is
-	// called with an isolation level other than sql.LevelDefault.
-	isolationLevel sql.IsolationLevel
-	// beginTransactionOption determines the default transactions start mode.
-	beginTransactionOption spanner.BeginTransactionOption
-
-	// execOptions are applied to the next statement or transaction that is executed
-	// on this connection. It can also be set by passing it in as an argument to
-	// ExecContext or QueryContext.
-	execOptions ExecOptions
-
-	tempTransactionOptions *ReadWriteTransactionOptions
-	// tempReadOnlyTransactionOptions are temporarily set right before a read-only
-	// transaction is started on a Spanner connection.
-	tempReadOnlyTransactionOptions *ReadOnlyTransactionOptions
-	// tempBatchReadOnlyTransactionOptions are temporarily set right before a
-	// batch read-only transaction is started on a Spanner connection.
-	tempBatchReadOnlyTransactionOptions *BatchReadOnlyTransactionOptions
+	// tempExecOptions can be set by passing it in as an argument to ExecContext or QueryContext
+	// and are applied only to that statement.
+	tempExecOptions *ExecOptions
+	// tempTransactionCloseFunc is set right before a transaction is started, and is set as the
+	// close function for that transaction.
+	tempTransactionCloseFunc func()
+	// lastDDLOperationID is the ID of the last DDL operation that was executed on this connection.
+	lastDDLOperationID string
 }
 
 func (c *conn) UnderlyingClient() (*spanner.Client, error) {
 	return c.client, nil
 }
 
+func (c *conn) DetectStatementType(query string) parser.StatementType {
+	info := c.parser.DetectStatementType(query)
+	return info.StatementType
+}
+
 func (c *conn) CommitTimestamp() (time.Time, error) {
-	if c.commitResponse == nil {
+	ts := propertyCommitTimestamp.GetValueOrDefault(c.state)
+	if ts == nil {
 		return time.Time{}, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "this connection has not executed a read/write transaction that committed successfully"))
 	}
-	return c.commitResponse.CommitTs, nil
+	return *ts, nil
 }
 
 func (c *conn) CommitResponse() (commitResponse *spanner.CommitResponse, err error) {
-	if c.commitResponse == nil {
+	resp := propertyCommitResponse.GetValueOrDefault(c.state)
+	if resp == nil {
 		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "this connection has not executed a read/write transaction that committed successfully"))
 	}
-	return c.commitResponse, nil
+	return resp, nil
+}
+
+func (c *conn) clearCommitResponse() {
+	_ = propertyCommitResponse.SetValue(c.state, nil, connectionstate.ContextUser)
+	_ = propertyCommitTimestamp.SetValue(c.state, nil, connectionstate.ContextUser)
+}
+
+func (c *conn) setCommitResponse(commitResponse *spanner.CommitResponse) {
+	if commitResponse == nil {
+		c.clearCommitResponse()
+		return
+	}
+	_ = propertyCommitResponse.SetValue(c.state, commitResponse, connectionstate.ContextUser)
+	_ = propertyCommitTimestamp.SetValue(c.state, &commitResponse.CommitTs, connectionstate.ContextUser)
+}
+
+func (c *conn) showConnectionVariable(identifier parser.Identifier) (any, bool, error) {
+	extension, name, err := toExtensionAndName(identifier)
+	if err != nil {
+		return nil, false, err
+	}
+	return c.state.GetValue(extension, name)
+}
+
+func (c *conn) setConnectionVariable(identifier parser.Identifier, value string, local bool, transaction bool, statementScoped bool) error {
+	if transaction && !local {
+		// When transaction == true, then local must also be true.
+		// We should never hit this condition, as this is an indication of a bug in the driver code.
+		return status.Errorf(codes.FailedPrecondition, "transaction properties must be set as a local value")
+	}
+	if statementScoped && local {
+		return status.Errorf(codes.FailedPrecondition, "cannot specify both statementScoped and local")
+	}
+	extension, name, err := toExtensionAndName(identifier)
+	if err != nil {
+		return err
+	}
+	if statementScoped {
+		return c.state.SetStatementScopedValue(extension, name, value)
+	}
+	if local {
+		return c.state.SetLocalValue(extension, name, value, transaction)
+	}
+	return c.state.SetValue(extension, name, value, connectionstate.ContextUser)
+}
+
+func toExtensionAndName(identifier parser.Identifier) (string, string, error) {
+	var extension string
+	var name string
+	if len(identifier.Parts) == 1 {
+		extension = ""
+		name = identifier.Parts[0]
+	} else if len(identifier.Parts) == 2 {
+		extension = identifier.Parts[0]
+		name = identifier.Parts[1]
+	} else {
+		return "", "", status.Errorf(codes.InvalidArgument, "invalid variable name: %s", identifier)
+	}
+	return extension, name, nil
 }
 
 func (c *conn) RetryAbortsInternally() bool {
-	return c.retryAborts
+	return propertyRetryAbortsInternally.GetValueOrDefault(c.state)
 }
 
 func (c *conn) SetRetryAbortsInternally(retry bool) error {
@@ -300,15 +383,14 @@ func (c *conn) SetRetryAbortsInternally(retry bool) error {
 }
 
 func (c *conn) setRetryAbortsInternally(retry bool) (driver.Result, error) {
-	if c.inTransaction() {
-		return c.tx.setRetryAbortsInternally(retry)
+	if err := propertyRetryAbortsInternally.SetValue(c.state, retry, connectionstate.ContextUser); err != nil {
+		return nil, err
 	}
-	c.retryAborts = retry
 	return driver.ResultNoRows, nil
 }
 
 func (c *conn) AutocommitDMLMode() AutocommitDMLMode {
-	return c.autocommitDMLMode
+	return propertyAutocommitDmlMode.GetValueOrDefault(c.state)
 }
 
 func (c *conn) SetAutocommitDMLMode(mode AutocommitDMLMode) error {
@@ -320,12 +402,14 @@ func (c *conn) SetAutocommitDMLMode(mode AutocommitDMLMode) error {
 }
 
 func (c *conn) setAutocommitDMLMode(mode AutocommitDMLMode) (driver.Result, error) {
-	c.autocommitDMLMode = mode
+	if err := propertyAutocommitDmlMode.SetValue(c.state, mode, connectionstate.ContextUser); err != nil {
+		return nil, err
+	}
 	return driver.ResultNoRows, nil
 }
 
 func (c *conn) ReadOnlyStaleness() spanner.TimestampBound {
-	return c.readOnlyStaleness
+	return propertyReadOnlyStaleness.GetValueOrDefault(c.state)
 }
 
 func (c *conn) SetReadOnlyStaleness(staleness spanner.TimestampBound) error {
@@ -334,115 +418,110 @@ func (c *conn) SetReadOnlyStaleness(staleness spanner.TimestampBound) error {
 }
 
 func (c *conn) setReadOnlyStaleness(staleness spanner.TimestampBound) (driver.Result, error) {
-	c.readOnlyStaleness = staleness
+	if err := propertyReadOnlyStaleness.SetValue(c.state, staleness, connectionstate.ContextUser); err != nil {
+		return nil, err
+	}
 	return driver.ResultNoRows, nil
+}
+
+func (c *conn) readOnlyStalenessPointer() *spanner.TimestampBound {
+	val := propertyReadOnlyStaleness.GetConnectionPropertyValue(c.state)
+	if val == nil || !val.HasValue() {
+		return nil
+	}
+	staleness, _ := val.GetValue()
+	timestampBound := staleness.(spanner.TimestampBound)
+	return &timestampBound
 }
 
 func (c *conn) IsolationLevel() sql.IsolationLevel {
-	return c.isolationLevel
+	return propertyIsolationLevel.GetValueOrDefault(c.state)
 }
 
 func (c *conn) SetIsolationLevel(level sql.IsolationLevel) error {
-	c.isolationLevel = level
-	return nil
+	return propertyIsolationLevel.SetValue(c.state, level, connectionstate.ContextUser)
+}
+
+func (c *conn) ReadLockMode() spannerpb.TransactionOptions_ReadWrite_ReadLockMode {
+	return propertyReadLockMode.GetValueOrDefault(c.state)
+}
+
+func (c *conn) SetReadLockMode(mode spannerpb.TransactionOptions_ReadWrite_ReadLockMode) error {
+	return propertyReadLockMode.SetValue(c.state, mode, connectionstate.ContextUser)
 }
 
 func (c *conn) MaxCommitDelay() time.Duration {
-	return *c.execOptions.TransactionOptions.CommitOptions.MaxCommitDelay
+	return propertyMaxCommitDelay.GetValueOrDefault(c.state)
+}
+
+func (c *conn) maxCommitDelayPointer() *time.Duration {
+	val := propertyMaxCommitDelay.GetConnectionPropertyValue(c.state)
+	if val == nil || !val.HasValue() {
+		return nil
+	}
+	maxCommitDelay, _ := val.GetValue()
+	duration := maxCommitDelay.(time.Duration)
+	return &duration
 }
 
 func (c *conn) SetMaxCommitDelay(delay time.Duration) error {
-	_, err := c.setMaxCommitDelay(delay)
-	return err
-}
-
-func (c *conn) setMaxCommitDelay(delay time.Duration) (driver.Result, error) {
-	c.execOptions.TransactionOptions.CommitOptions.MaxCommitDelay = &delay
-	return driver.ResultNoRows, nil
+	return propertyMaxCommitDelay.SetValue(c.state, delay, connectionstate.ContextUser)
 }
 
 func (c *conn) ExcludeTxnFromChangeStreams() bool {
-	return c.execOptions.TransactionOptions.ExcludeTxnFromChangeStreams
+	return propertyExcludeTxnFromChangeStreams.GetValueOrDefault(c.state)
 }
 
 func (c *conn) SetExcludeTxnFromChangeStreams(excludeTxnFromChangeStreams bool) error {
-	_, err := c.setExcludeTxnFromChangeStreams(excludeTxnFromChangeStreams)
-	return err
-}
-
-func (c *conn) setExcludeTxnFromChangeStreams(excludeTxnFromChangeStreams bool) (driver.Result, error) {
-	if c.inTransaction() {
-		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot set ExcludeTxnFromChangeStreams while a transaction is active"))
-	}
-	c.execOptions.TransactionOptions.ExcludeTxnFromChangeStreams = excludeTxnFromChangeStreams
-	return driver.ResultNoRows, nil
+	return propertyExcludeTxnFromChangeStreams.SetValue(c.state, excludeTxnFromChangeStreams, connectionstate.ContextUser)
 }
 
 func (c *conn) DecodeToNativeArrays() bool {
-	return c.execOptions.DecodeToNativeArrays
+	return propertyDecodeToNativeArrays.GetValueOrDefault(c.state)
 }
 
 func (c *conn) SetDecodeToNativeArrays(decodeToNativeArrays bool) error {
-	c.execOptions.DecodeToNativeArrays = decodeToNativeArrays
-	return nil
+	return propertyDecodeToNativeArrays.SetValue(c.state, decodeToNativeArrays, connectionstate.ContextUser)
 }
 
 func (c *conn) TransactionTag() string {
-	return c.execOptions.TransactionOptions.TransactionTag
+	return propertyTransactionTag.GetValueOrDefault(c.state)
 }
 
 func (c *conn) SetTransactionTag(transactionTag string) error {
-	_, err := c.setTransactionTag(transactionTag)
-	return err
-}
-
-func (c *conn) setTransactionTag(transactionTag string) (driver.Result, error) {
-	if c.inTransaction() {
-		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot set transaction tag while a transaction is active"))
-	}
-	c.execOptions.TransactionOptions.TransactionTag = transactionTag
-	return driver.ResultNoRows, nil
+	return propertyTransactionTag.SetValue(c.state, transactionTag, connectionstate.ContextUser)
 }
 
 func (c *conn) StatementTag() string {
-	return c.execOptions.QueryOptions.RequestTag
+	return propertyStatementTag.GetValueOrDefault(c.state)
 }
 
 func (c *conn) SetStatementTag(statementTag string) error {
-	_, err := c.setStatementTag(statementTag)
-	return err
-}
-
-func (c *conn) setStatementTag(statementTag string) (driver.Result, error) {
-	c.execOptions.QueryOptions.RequestTag = statementTag
-	return driver.ResultNoRows, nil
+	return propertyStatementTag.SetValue(c.state, statementTag, connectionstate.ContextUser)
 }
 
 func (c *conn) AutoBatchDml() bool {
-	return c.autoBatchDml
+	return propertyAutoBatchDml.GetValueOrDefault(c.state)
 }
 
 func (c *conn) SetAutoBatchDml(autoBatch bool) error {
-	c.autoBatchDml = autoBatch
-	return nil
+	return propertyAutoBatchDml.SetValue(c.state, autoBatch, connectionstate.ContextUser)
 }
 
 func (c *conn) AutoBatchDmlUpdateCount() int64 {
-	return c.autoBatchDmlUpdateCount
+	return propertyAutoBatchDmlUpdateCount.GetValueOrDefault(c.state)
 }
 
 func (c *conn) SetAutoBatchDmlUpdateCount(updateCount int64) error {
-	c.autoBatchDmlUpdateCount = updateCount
-	return nil
+	return propertyAutoBatchDmlUpdateCount.SetValue(c.state, updateCount, connectionstate.ContextUser)
 }
 
 func (c *conn) AutoBatchDmlUpdateCountVerification() bool {
-	return c.autoBatchDmlUpdateCountVerification
+	return propertyAutoBatchDmlUpdateCountVerification.GetValueOrDefault(c.state)
 }
 
 func (c *conn) SetAutoBatchDmlUpdateCountVerification(verify bool) error {
-	c.autoBatchDmlUpdateCountVerification = verify
-	return nil
+	return propertyAutoBatchDmlUpdateCountVerification.SetValue(c.state, verify, connectionstate.ContextUser)
 }
 
 func (c *conn) StartBatchDDL() error {
@@ -463,6 +542,9 @@ func (c *conn) RunBatch(ctx context.Context) error {
 func (c *conn) RunDmlBatch(ctx context.Context) (SpannerResult, error) {
 	res, err := c.runBatch(ctx)
 	if err != nil {
+		if spannerRes, ok := res.(SpannerResult); ok {
+			return spannerRes, err
+		}
 		return nil, err
 	}
 	spannerRes, ok := res.(SpannerResult)
@@ -478,11 +560,11 @@ func (c *conn) AbortBatch() error {
 }
 
 func (c *conn) InDDLBatch() bool {
-	return c.batch != nil && c.batch.tp == ddl
+	return c.batch != nil && c.batch.tp == parser.BatchTypeDdl
 }
 
 func (c *conn) InDMLBatch() bool {
-	return (c.batch != nil && c.batch.tp == dml) || (c.inReadWriteTransaction() && c.tx.(*readWriteTransaction).batch != nil)
+	return (c.batch != nil && c.batch.tp == parser.BatchTypeDml) || (c.inTransaction() && c.tx.IsInBatch())
 }
 
 func (c *conn) GetBatchedStatements() []spanner.Statement {
@@ -504,12 +586,15 @@ func (c *conn) startBatchDDL() (driver.Result, error) {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection has an active transaction. DDL batches in transactions are not supported."))
 	}
 	c.logger.Debug("started ddl batch")
-	c.batch = &batch{tp: ddl}
+	c.batch = &batch{tp: parser.BatchTypeDdl}
 	return driver.ResultNoRows, nil
 }
 
 func (c *conn) startBatchDML(automatic bool) (driver.Result, error) {
-	execOptions := c.options( /*reset = */ true)
+	execOptions, err := c.options( /* reset = */ true)
+	if err != nil {
+		return nil, err
+	}
 
 	if c.inTransaction() {
 		return c.tx.StartBatchDML(execOptions.QueryOptions, automatic)
@@ -518,11 +603,8 @@ func (c *conn) startBatchDML(automatic bool) (driver.Result, error) {
 	if c.batch != nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection already has an active batch."))
 	}
-	if c.inReadOnlyTransaction() {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection has an active read-only transaction. Read-only transactions cannot execute DML batches."))
-	}
 	c.logger.Debug("starting dml batch outside transaction")
-	c.batch = &batch{tp: dml, options: execOptions}
+	c.batch = &batch{tp: parser.BatchTypeDml, options: execOptions}
 	return driver.ResultNoRows, nil
 }
 
@@ -535,9 +617,9 @@ func (c *conn) runBatch(ctx context.Context) (driver.Result, error) {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection does not have an active batch"))
 	}
 	switch c.batch.tp {
-	case ddl:
+	case parser.BatchTypeDdl:
 		return c.runDDLBatch(ctx)
-	case dml:
+	case parser.BatchTypeDml:
 		return c.runDMLBatch(ctx)
 	default:
 		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "Unknown batch type: %d", c.batch.tp))
@@ -572,10 +654,10 @@ func (c *conn) abortBatch() (driver.Result, error) {
 }
 
 func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (driver.Result, error) {
-	if c.batch != nil && c.batch.tp == dml {
+	if c.batch != nil && c.batch.tp == parser.BatchTypeDml {
 		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This connection has an active DML batch"))
 	}
-	if c.batch != nil && c.batch.tp == ddl {
+	if c.batch != nil && c.batch.tp == parser.BatchTypeDdl {
 		c.batch.statements = append(c.batch.statements, statements...)
 		return driver.ResultNoRows, nil
 	}
@@ -585,6 +667,44 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 		for i, s := range statements {
 			ddlStatements[i] = s.SQL
 		}
+		if c.parser.IsCreateDatabaseStatement(ddlStatements[0]) {
+			dialect := c.parser.Dialect
+			if d := propertyDialect.GetValueOrDefault(c.state); d != adminpb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED {
+				dialect = d
+			}
+			op, err := c.adminClient.CreateDatabase(ctx, &adminpb.CreateDatabaseRequest{
+				CreateStatement: ddlStatements[0],
+				DatabaseDialect: dialect,
+				Parent:          c.instance,
+				ExtraStatements: ddlStatements[1:],
+			})
+			if err != nil {
+				return nil, err
+			}
+			c.lastDDLOperationID = op.Name()
+
+			if err := c.waitForDDLOperation(ctx, op.Name(), func(ctx context.Context) error {
+				_, err := op.Wait(ctx)
+				return err
+			}); err != nil {
+				return nil, err
+			}
+			mode := propertyDDLExecutionMode.GetValueOrDefault(c.state)
+			if mode == DDLExecutionModeAsync || mode == DDLExecutionModeAsyncWait {
+				return &result{operationID: op.Name()}, nil
+			}
+			return driver.ResultNoRows, nil
+		} else if c.parser.IsDropDatabaseStatement(ddlStatements[0]) {
+			if len(ddlStatements) > 1 {
+				return nil, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "DROP DATABASE cannot be used in a batch with other statements"))
+			}
+			stmt := &parser.ParsedDropDatabaseStatement{}
+			if err := stmt.Parse(c.parser, ddlStatements[0]); err != nil {
+				return nil, err
+			}
+			return (&executableDropDatabaseStatement{stmt}).execContext(ctx, c, nil, []driver.NamedValue{})
+		}
+
 		op, err := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
 			Database:   c.database,
 			Statements: ddlStatements,
@@ -592,22 +712,72 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 		if err != nil {
 			return nil, err
 		}
-		if err := op.Wait(ctx); err != nil {
+		c.lastDDLOperationID = op.Name()
+
+		if err := c.waitForDDLOperation(ctx, op.Name(), func(ctx context.Context) error {
+			return op.Wait(ctx)
+		}); err != nil {
+			if len(statements) > 1 {
+				be := &BatchError{
+					Err:               err,
+					BatchUpdateCounts: []int64{},
+				}
+				metadata, err := op.Metadata()
+				if err != nil {
+					c.logger.WarnContext(ctx, fmt.Sprintf("Error getting metadata for UpdateDatabaseDdl: %v", err))
+				} else if metadata != nil {
+					for _, ts := range metadata.CommitTimestamps {
+						if ts != nil {
+							be.BatchUpdateCounts = append(be.BatchUpdateCounts, int64(-1))
+						} else {
+							break
+						}
+					}
+				}
+				return nil, be
+			}
 			return nil, err
+		}
+		mode := propertyDDLExecutionMode.GetValueOrDefault(c.state)
+		if mode == DDLExecutionModeAsync || mode == DDLExecutionModeAsyncWait {
+			return &result{operationID: op.Name()}, nil
 		}
 	}
 	return driver.ResultNoRows, nil
 }
 
-func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement, options ExecOptions) (SpannerResult, error) {
+func (c *conn) waitForDDLOperation(ctx context.Context, opName string, waitFunc func(context.Context) error) error {
+	mode := propertyDDLExecutionMode.GetValueOrDefault(c.state)
+	switch mode {
+	case DDLExecutionModeAsync:
+		return nil
+	case DDLExecutionModeAsyncWait:
+		// Create a context with a timeout.
+		ddlAsyncWaitTimeout := propertyDDLAsyncWaitTimeout.GetValueOrDefault(c.state)
+		waitCtx, cancel := context.WithTimeout(ctx, ddlAsyncWaitTimeout)
+		defer cancel()
+		err := waitFunc(waitCtx)
+		if err != nil {
+			// If the error is DeadlineExceeded, then we return success.
+			if status.Code(err) == codes.DeadlineExceeded || errors.Is(err, context.DeadlineExceeded) {
+				return nil
+			}
+		}
+		return err
+	default:
+		return waitFunc(ctx)
+	}
+}
+
+func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement, options *ExecOptions) (SpannerResult, error) {
 	if len(statements) == 0 {
 		return &result{}, nil
 	}
 
 	var affected []int64
 	var err error
-	if c.inTransaction() {
-		tx, ok := c.tx.(*readWriteTransaction)
+	if c.inTransaction() && c.tx.contextTransaction != nil {
+		tx, ok := c.tx.contextTransaction.(*readWriteTransaction)
 		if !ok {
 			return nil, status.Errorf(codes.FailedPrecondition, "connection is in a transaction that is not a read/write transaction")
 		}
@@ -618,7 +788,9 @@ func (c *conn) execBatchDML(ctx context.Context, statements []spanner.Statement,
 			return err
 		}, options.TransactionOptions)
 	}
-	return &result{rowsAffected: sum(affected), batchUpdateCounts: affected}, err
+	res := &result{rowsAffected: sum(affected), batchUpdateCounts: affected}
+	ba := toBatchError(res, err)
+	return res, ba
 }
 
 func sum(affected []int64) int64 {
@@ -627,6 +799,27 @@ func sum(affected []int64) int64 {
 		sum += c
 	}
 	return sum
+}
+
+// WriteMutations is not part of the public API of the database/sql driver.
+// It is exported for internal reasons, and may receive breaking changes without prior notice.
+//
+// WriteMutations writes mutations using this connection. The mutations are either buffered in the current transaction,
+// or written directly to Spanner using a new read/write transaction if the connection does not have a transaction.
+//
+// The function returns an error if the connection currently has a read-only transaction.
+//
+// The returned CommitResponse is nil if the connection currently has a transaction, as the mutations will only be
+// applied to Spanner when the transaction commits.
+func (c *conn) WriteMutations(ctx context.Context, ms []*spanner.Mutation) (*spanner.CommitResponse, error) {
+	if c.inTransaction() {
+		return nil, c.BufferWrite(ms)
+	}
+	ts, err := c.Apply(ctx, ms)
+	if err != nil {
+		return nil, err
+	}
+	return &spanner.CommitResponse{CommitTs: ts}, nil
 }
 
 func (c *conn) Apply(ctx context.Context, ms []*spanner.Mutation, opts ...spanner.ApplyOption) (commitTimestamp time.Time, err error) {
@@ -681,26 +874,19 @@ func (c *conn) ResetSession(_ context.Context) error {
 			return driver.ErrBadConn
 		}
 	}
-	c.commitResponse = nil
 	c.batch = nil
-	c.autoBatchDml = c.connector.connectorConfig.AutoBatchDml
-	c.autoBatchDmlUpdateCount = c.connector.connectorConfig.AutoBatchDmlUpdateCount
-	c.autoBatchDmlUpdateCountVerification = !c.connector.connectorConfig.DisableAutoBatchDmlUpdateCountVerification
-	c.retryAborts = c.connector.retryAbortsInternally
-	c.isolationLevel = c.connector.connectorConfig.IsolationLevel
-	c.beginTransactionOption = c.connector.connectorConfig.BeginTransactionOption
-	// TODO: Reset the following fields to the connector default
-	c.autocommitDMLMode = Transactional
-	c.readOnlyStaleness = spanner.TimestampBound{}
-	c.execOptions = ExecOptions{
-		DecodeToNativeArrays: c.connector.connectorConfig.DecodeToNativeArrays,
-	}
+
+	_ = c.state.Reset(connectionstate.ContextUser)
+	c.tempExecOptions = nil
 	return nil
 }
 
 // IsValid implements the driver.Validator interface.
 func (c *conn) IsValid() bool {
-	return !c.closed
+	// Mark the connection as invalid if it is still in a read/write transaction.
+	// This ensures that the database/sql package discards the connection and releases
+	// any locks this connection might hold.
+	return !c.closed && !c.inReadWriteTransaction()
 }
 
 func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
@@ -709,9 +895,11 @@ func (c *conn) CheckNamedValue(value *driver.NamedValue) error {
 	}
 
 	if execOptions, ok := value.Value.(ExecOptions); ok {
-		// TODO: This should use a temp value to prevent ExecOptions for one
-		//       statement from becoming 'sticky' for all following statements.
-		c.execOptions = execOptions
+		c.tempExecOptions = &execOptions
+		return driver.ErrRemoveArgument
+	}
+	if execOptions, ok := value.Value.(*ExecOptions); ok {
+		c.tempExecOptions = execOptions
 		return driver.ErrRemoveArgument
 	}
 
@@ -758,107 +946,319 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 }
 
 func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, error) {
-	execOptions := c.options( /* reset = */ true)
-	parsedSQL, args, err := c.parser.parseParameters(query)
+	execOptions, err := c.options( /* reset = */ true)
 	if err != nil {
 		return nil, err
 	}
-	return &stmt{conn: c, query: parsedSQL, numArgs: len(args), execOptions: execOptions}, nil
+	_, args, _, err := c.parser.ParseParameters(query)
+	if err != nil {
+		return nil, err
+	}
+	info := c.parser.DetectStatementType(query)
+	parsedStatement, err := c.parser.ParseClientSideStatement(query)
+	if err != nil {
+		return nil, err
+	}
+	return &stmt{conn: c, query: query, numArgs: len(args), execOptions: execOptions, statementInfo: info, parsedStatement: parsedStatement}, nil
+}
+
+// Adds any statement or transaction timeout to the given context. The deadline of the returned
+// context will be the earliest of:
+// 1. Any existing deadline on the input context.
+// 2. Any existing transaction deadline.
+// 3. A deadline calculated from the current time + the value of statement_timeout.
+func (c *conn) addStatementAndTransactionTimeout(ctx context.Context) (context.Context, context.CancelFunc, error) {
+	var statementDeadline time.Time
+	var transactionDeadline time.Time
+	var deadline time.Time
+	var hasStatementDeadline bool
+	var hasTransactionDeadline bool
+
+	// Check if the connection has a value for statement_timeout.
+	statementTimeout := propertyStatementTimeout.GetValueOrDefault(c.state)
+	if statementTimeout != time.Duration(0) {
+		hasStatementDeadline = true
+		statementDeadline = time.Now().Add(statementTimeout)
+	}
+	// Check if the current transaction has a deadline.
+	transactionDeadline, hasTransactionDeadline, err := c.transactionDeadline()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// If there is no statement_timeout and no current transaction deadline,
+	// then can just use the input context as-is.
+	if !hasStatementDeadline && !hasTransactionDeadline {
+		return ctx, func() {}, nil
+	}
+
+	// If there is both a transaction and a statement deadline, then we use the earliest
+	// of those two.
+	if hasTransactionDeadline && hasStatementDeadline {
+		if statementDeadline.Before(transactionDeadline) {
+			deadline = statementDeadline
+		} else {
+			deadline = transactionDeadline
+		}
+	} else if hasStatementDeadline {
+		deadline = statementDeadline
+	} else {
+		deadline = transactionDeadline
+	}
+	// context.WithDeadline automatically selects the earliest deadline of
+	// the existing deadline on the context and the given deadline.
+	newCtx, cancel := context.WithDeadline(ctx, deadline)
+	return newCtx, cancel, nil
+}
+
+// transactionDeadline returns the deadline of the current transaction
+// on the connection. This also activates the transaction if it is not
+// yet activated.
+func (c *conn) transactionDeadline() (time.Time, bool, error) {
+	if c.tx == nil {
+		return time.Time{}, false, nil
+	}
+	if err := c.tx.ensureActivated(); err != nil {
+		return time.Time{}, false, err
+	}
+	deadline, hasDeadline := c.tx.deadline()
+	return deadline, hasDeadline, nil
+}
+
+func (c *conn) applyStatementScopedValues(execOptions *ExecOptions) (cleanup func(), returnedErr error) {
+	if execOptions == nil {
+		return func() {}, nil
+	}
+
+	defer func() {
+		if returnedErr != nil {
+			// Clear any statement values that might have been set if we return an error, as that also means that we
+			// are not returning a cleanup function.
+			c.state.ClearStatementScopedValues()
+		}
+	}()
+	values := execOptions.PropertyValues
+	for _, value := range values {
+		if err := c.setConnectionVariable(value.Identifier, value.Value /*local=*/, false /*transaction=*/, false /*statementScoped=*/, true); err != nil {
+			return func() {}, err
+		}
+	}
+	return c.state.ClearStatementScopedValues, nil
 }
 
 func (c *conn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	// Remove the ExecOptions once all statements in the SQL string have been executed.
+	defer func() { c.tempExecOptions = nil }()
+
+	if ok, statements, _ := c.parser.Split(query); ok {
+		return queryMultiple(ctx, c, statements, args)
+	}
+	return c.querySingle(ctx, query /* isPartOfMultiStatementString = */, false, args)
+}
+
+func (c *conn) querySingle(ctx context.Context, query string, isPartOfMultiStatementString bool, args []driver.NamedValue) (driver.Rows, error) {
 	// Execute client side statement if it is one.
-	clientStmt, err := c.parser.parseClientSideStatement(c, query)
+	clientStmt, err := c.parser.ParseClientSideStatement(query)
 	if err != nil {
 		return nil, err
 	}
-	execOptions := c.options( /* reset = */ clientStmt == nil)
-	if clientStmt != nil {
-		return clientStmt.QueryContext(ctx, execOptions, args)
+	execOptions, err := c.options( /* reset = */ clientStmt == nil)
+	if err != nil {
+		return nil, err
 	}
-
-	return c.queryContext(ctx, query, execOptions, args)
+	if isPartOfMultiStatementString {
+		// Statements in a multi-statement SQL string must always be executed directly to ensure that the effects of the
+		// statement is visible to the next statement in the SQL string.
+		execOptions.DirectExecuteQuery = true
+	}
+	statementInfo := c.parser.DetectStatementType(query)
+	return c.queryParsed(ctx, query, clientStmt, statementInfo, execOptions, args)
 }
 
-func (c *conn) queryContext(ctx context.Context, query string, execOptions ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+func (c *conn) queryParsed(ctx context.Context, query string, clientStmt parser.ParsedStatement, statementInfo *parser.StatementInfo, execOptions *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+	if clientStmt != nil {
+		execStmt, err := createExecutableStatement(clientStmt)
+		if err != nil {
+			return nil, err
+		}
+		return execStmt.queryContext(ctx, c, execOptions, args)
+	}
+	return c.queryContext(ctx, query, statementInfo, execOptions, args)
+}
+
+func (c *conn) queryContext(ctx context.Context, query string, statementInfo *parser.StatementInfo, execOptions *ExecOptions, args []driver.NamedValue) (returnedRows driver.Rows, returnedErr error) {
+	ctx, cancelCause := context.WithCancelCause(ctx)
+	cancel := func() {
+		cancelCause(nil)
+	}
+	defer func() {
+		if returnedErr != nil {
+			cancel()
+		}
+	}()
 	// Clear the commit timestamp of this connection before we execute the query.
-	c.commitResponse = nil
+	c.clearCommitResponse()
+
 	// Check if the execution options contains an instruction to execute
 	// a specific partition of a PartitionedQuery.
 	if pq := execOptions.PartitionedQueryOptions.ExecutePartition.PartitionedQuery; pq != nil {
-		return pq.execute(ctx, execOptions.PartitionedQueryOptions.ExecutePartition.Index)
+		return pq.execute(ctx, cancel, execOptions.PartitionedQueryOptions.ExecutePartition.Index)
 	}
 
-	stmt, err := prepareSpannerStmt(c.parser, query, args)
+	stmt, err := prepareSpannerStmt(c.state, c.parser, query, args)
 	if err != nil {
 		return nil, err
 	}
-	statementType := c.parser.detectStatementType(query)
-	// DDL statements are not supported in QueryContext so fail early.
-	if statementType.statementType == statementTypeDdl {
-		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "QueryContext does not support DDL statements, use ExecContext instead"))
+
+	// TODO: Refactor queryContext and execContext into one unified method.
+	// DDL statements are not supported in QueryContext so use the execContext method for the execution.
+	// DML statements that are executed during a DML batch should also be re-routed to execContext for execution.
+	isPlainDml := statementInfo.StatementType == parser.StatementTypeDml && !statementInfo.HasThenReturn
+	shouldUseDmlBatch := c.InDMLBatch() && isPlainDml
+	// DML statements that should use a Partitioned DML transaction should also be re-routed to execContext.
+	shouldUsePDML := !c.inTransaction() && c.AutocommitDMLMode() == PartitionedNonAtomic && isPlainDml
+	if statementInfo.StatementType == parser.StatementTypeDdl || shouldUseDmlBatch || shouldUsePDML {
+		res, err := c.execContext(ctx, query, statementInfo, execOptions, args)
+		if err != nil {
+			return nil, err
+		}
+		return createDriverResultRows(res, shouldUsePDML, cancel, execOptions), nil
 	}
+
 	var iter rowIterator
 	if c.tx == nil {
-		if statementType.statementType == statementTypeDml {
+		if statementInfo.StatementType == parser.StatementTypeDml {
 			// Use a read/write transaction to execute the statement.
 			var commitResponse *spanner.CommitResponse
-			iter, commitResponse, err = c.execSingleQueryTransactional(ctx, c.client, stmt, execOptions)
+			iter, commitResponse, err = c.execSingleQueryTransactional(ctx, c.client, stmt, statementInfo, execOptions)
 			if err != nil {
 				return nil, err
 			}
-			c.commitResponse = commitResponse
+			c.setCommitResponse(commitResponse)
 		} else if execOptions.PartitionedQueryOptions.PartitionQuery {
 			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "PartitionQuery is only supported in batch read-only transactions"))
-		} else if execOptions.PartitionedQueryOptions.AutoPartitionQuery {
-			return c.executeAutoPartitionedQuery(ctx, query, args)
+		} else if execOptions.PartitionedQueryOptions.AutoPartitionQuery || propertyAutoPartitionMode.GetValueOrDefault(c.state) {
+			return c.executeAutoPartitionedQuery(ctx, cancel, query, statementInfo, execOptions, args)
 		} else {
 			// The statement was either detected as being a query, or potentially not recognized at all.
 			// In that case, just default to using a single-use read-only transaction and let Spanner
 			// return an error if the statement is not suited for that type of transaction.
-			iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt, c.readOnlyStaleness, execOptions)}
+			iter = &readOnlyRowIterator{c.execSingleQuery(ctx, c.client, stmt, statementInfo, c.ReadOnlyStaleness(), execOptions), statementInfo.StatementType}
 		}
 	} else {
 		if execOptions.PartitionedQueryOptions.PartitionQuery {
+			// The driver.Rows instance that is returned for partitionQuery does not
+			// contain a context, and therefore also does not cancel the context when it is closed.
+			defer cancel()
 			return c.tx.partitionQuery(ctx, stmt, execOptions)
 		}
-		iter, err = c.tx.Query(ctx, stmt, execOptions)
+		iter, err = c.tx.Query(ctx, stmt, statementInfo.StatementType, execOptions)
 		if err != nil {
 			return nil, err
 		}
 	}
-	res := createRows(iter, execOptions)
+	res := createRows(c.state, iter, cancel, execOptions)
 	if execOptions.DirectExecuteQuery {
-		// This call to res.getColumns() triggers the execution of the statement, as it needs to fetch the metadata.
-		res.getColumns()
-		if res.dirtyErr != nil && !errors.Is(res.dirtyErr, iterator.Done) {
-			_ = res.Close()
-			return nil, res.dirtyErr
+		if err := c.directExecuteQuery(ctx, cancelCause, res, execOptions); err != nil {
+			return nil, err
 		}
 	}
 	return res, nil
 }
 
+// directExecuteQuery blocks until the first PartialResultSet has been returned by Spanner. Any statement_timeout and/or
+// transaction_timeout is used while waiting for the first result to be returned.
+func (c *conn) directExecuteQuery(ctx context.Context, cancelQuery context.CancelCauseFunc, res *rows, execOptions *ExecOptions) error {
+	statementCtx := ctx
+	if execOptions.DirectExecuteContext != nil {
+		statementCtx = execOptions.DirectExecuteContext
+	}
+	// Add the statement or transaction deadline to the context.
+	statementCtx, cancelStatement, err := c.addStatementAndTransactionTimeout(statementCtx)
+	if err != nil {
+		return err
+	}
+	defer cancelStatement()
+
+	// Asynchronously fetch the first partial result set from Spanner.
+	done := make(chan struct{})
+	go func() {
+		// Calling res.getColumns() ensures that the first PartialResultSet has been returned, as it contains the
+		// metadata of the query.
+		defer close(done)
+		res.getColumns()
+	}()
+	// Wait until either the done channel is closed or the context is done.
+	var statementErr error
+	select {
+	case <-statementCtx.Done():
+		statementErr = statementCtx.Err()
+		// Cancel the query execution.
+		cancelQuery(statementCtx.Err())
+	case <-done:
+	}
+
+	// Now wait until done channel is closed. This could be because the execution finished
+	// successfully, or because the context was cancelled, which again causes the execution
+	// to (eventually) fail.
+	<-done
+	if res.dirtyErr != nil && !errors.Is(res.dirtyErr, iterator.Done) {
+		_ = res.Close()
+		if statementErr != nil {
+			// Create a status error from the statement error and wrap both the Spanner error and the status error into
+			// one error. This will preserve the DeadlineExceeded error code from statementErr, and include the request
+			// ID from the Spanner error.
+			s := status.FromContextError(statementErr)
+			return errors.Join(s.Err(), res.dirtyErr)
+		}
+		return res.dirtyErr
+	}
+	return nil
+}
+
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	// TODO: Implement support for multi-statement SQL strings.
+	defer func() { c.tempExecOptions = nil }()
+	return c.execSingle(ctx, query, args)
+}
+
+func (c *conn) execSingle(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	// Execute client side statement if it is one.
-	stmt, err := c.parser.parseClientSideStatement(c, query)
+	stmt, err := c.parser.ParseClientSideStatement(query)
 	if err != nil {
 		return nil, err
 	}
-	execOptions := c.options( /*reset = */ stmt == nil)
-	if stmt != nil {
-		return stmt.ExecContext(ctx, execOptions, args)
+	execOptions, err := c.options( /*reset = */ stmt == nil)
+	if err != nil {
+		return nil, err
 	}
-	return c.execContext(ctx, query, execOptions, args)
+	statementInfo := c.parser.DetectStatementType(query)
+	return c.execParsed(ctx, query, stmt, statementInfo, execOptions, args)
 }
 
-func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOptions, args []driver.NamedValue) (driver.Result, error) {
-	// Clear the commit timestamp of this connection before we execute the statement.
-	c.commitResponse = nil
+func (c *conn) execParsed(ctx context.Context, query string, stmt parser.ParsedStatement, statementInfo *parser.StatementInfo, execOptions *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
+	if stmt != nil {
+		execStmt, err := createExecutableStatement(stmt)
+		if err != nil {
+			return nil, err
+		}
+		return execStmt.execContext(ctx, c, execOptions, args)
+	}
+	return c.execContext(ctx, query, statementInfo, execOptions, args)
+}
 
-	statementInfo := c.parser.detectStatementType(query)
+func (c *conn) execContext(ctx context.Context, query string, statementInfo *parser.StatementInfo, execOptions *ExecOptions, args []driver.NamedValue) (returnedResult driver.Result, returnedErr error) {
+	// Add the statement/transaction deadline to the context.
+	ctx, cancel, err := c.addStatementAndTransactionTimeout(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	// Clear the commit timestamp of this connection before we execute the statement.
+	c.clearCommitResponse()
+
 	// Use admin API if DDL statement is provided.
-	if statementInfo.statementType == statementTypeDdl {
+	if statementInfo.StatementType == parser.StatementTypeDdl {
 		// Spanner does not support DDL in transactions, and although it is technically possible to execute DDL
 		// statements while a transaction is active, we return an error to avoid any confusion whether the DDL
 		// statement is executed as part of the active transaction or not.
@@ -868,13 +1268,13 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 		return c.execDDL(ctx, spanner.NewStatement(query))
 	}
 
-	ss, err := prepareSpannerStmt(c.parser, query, args)
+	ss, err := prepareSpannerStmt(c.state, c.parser, query, args)
 	if err != nil {
 		return nil, err
 	}
 
 	// Start an automatic DML batch.
-	if c.autoBatchDml && !c.inBatch() && c.inReadWriteTransaction() {
+	if c.AutoBatchDml() && !c.inBatch() && c.inTransaction() && statementInfo.StatementType == parser.StatementTypeDml && !statementInfo.HasThenReturn {
 		if _, err := c.startBatchDML( /* automatic = */ true); err != nil {
 			return nil, err
 		}
@@ -887,14 +1287,14 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 			c.batch.statements = append(c.batch.statements, ss)
 			res = &result{}
 		} else {
-			dmlMode := c.autocommitDMLMode
+			dmlMode := c.AutocommitDMLMode()
 			if execOptions.AutocommitDMLMode != Unspecified {
 				dmlMode = execOptions.AutocommitDMLMode
 			}
 			if dmlMode == Transactional {
 				res, commitResponse, err = c.execSingleDMLTransactional(ctx, c.client, ss, statementInfo, execOptions)
 				if err == nil {
-					c.commitResponse = commitResponse
+					c.setCommitResponse(commitResponse)
 				}
 			} else if dmlMode == PartitionedNonAtomic {
 				var rowsAffected int64
@@ -914,17 +1314,59 @@ func (c *conn) execContext(ctx context.Context, query string, execOptions ExecOp
 }
 
 // options returns and optionally resets the ExecOptions for the next statement.
-func (c *conn) options(reset bool) ExecOptions {
-	if reset {
+func (c *conn) options(resetTags bool) (*ExecOptions, error) {
+	if resetTags {
 		defer func() {
-			c.execOptions.TransactionOptions.TransactionTag = ""
-			c.execOptions.QueryOptions.RequestTag = ""
+			// Only reset the transaction tag if there is no active transaction on the connection.
+			if !c.inTransaction() {
+				_ = propertyTransactionTag.ResetValue(c.state, connectionstate.ContextUser)
+			}
+			_ = propertyStatementTag.ResetValue(c.state, connectionstate.ContextUser)
 		}()
 	}
-	return c.execOptions
+	// TODO: Refactor this to only use connection state as the (temporary) storage, and remove the tempExecOptions field
+	if c.tempExecOptions != nil {
+		cleanup, err := c.applyStatementScopedValues(c.tempExecOptions)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+	}
+
+	// TODO: Refactor this to work 'the other way around'. That is:
+	//       The ExecOptions that are given for a statement should update the connection state.
+	//       The statement execution should read the state from the connection state.
+	effectiveOptions := &ExecOptions{
+		AutocommitDMLMode:    c.AutocommitDMLMode(),
+		DecodeToNativeArrays: c.DecodeToNativeArrays(),
+		QueryOptions: spanner.QueryOptions{
+			RequestTag: c.StatementTag(),
+			Priority:   propertyRpcPriority.GetValueOrDefault(c.state),
+		},
+		TransactionOptions: spanner.TransactionOptions{
+			ExcludeTxnFromChangeStreams: c.ExcludeTxnFromChangeStreams(),
+			TransactionTag:              c.TransactionTag(),
+			IsolationLevel:              toProtoIsolationLevelOrDefault(c.IsolationLevel()),
+			ReadLockMode:                c.ReadLockMode(),
+			CommitPriority:              propertyCommitPriority.GetValueOrDefault(c.state),
+			CommitOptions: spanner.CommitOptions{
+				MaxCommitDelay:    c.maxCommitDelayPointer(),
+				ReturnCommitStats: propertyReturnCommitStats.GetValueOrDefault(c.state),
+			},
+		},
+		PartitionedQueryOptions: PartitionedQueryOptions{},
+		TimestampBound:          c.readOnlyStalenessPointer(),
+	}
+	if c.tempExecOptions != nil {
+		effectiveOptions.merge(c.tempExecOptions)
+	}
+	return effectiveOptions, nil
 }
 
 func (c *conn) Close() error {
+	if c.inTransaction() {
+		_ = c.Rollback(context.Background())
+	}
 	return c.connector.decreaseConnCount()
 }
 
@@ -938,6 +1380,18 @@ func (c *conn) resetTransactionForRetry(ctx context.Context, errDuringCommit boo
 			return noTransaction()
 		}
 		c.tx = c.prevTx
+		// If the aborted error happened during the Commit, then the transaction
+		// context has been cancelled, and we need to create a new one.
+		if rwTx, ok := c.tx.contextTransaction.(*readWriteTransaction); ok {
+			newCtx, cancel := c.addTransactionTimeout(c.tx.ctx)
+			rwTx.ctx = newCtx
+			// Make sure that we cancel the new context when the transaction is closed.
+			origClose := rwTx.close
+			rwTx.close = func(result txResult, commitResponse *spanner.CommitResponse, commitErr error) {
+				origClose(result, commitResponse, commitErr)
+				cancel()
+			}
+		}
 		c.resetForRetry = true
 	} else if c.tx == nil {
 		return noTransaction()
@@ -945,98 +1399,159 @@ func (c *conn) resetTransactionForRetry(ctx context.Context, errDuringCommit boo
 	return c.tx.resetForRetry(ctx)
 }
 
-func (c *conn) withTempTransactionOptions(options *ReadWriteTransactionOptions) {
-	c.tempTransactionOptions = options
+func (c *conn) withTransactionCloseFunc(close func()) {
+	c.tempTransactionCloseFunc = close
 }
 
-func (c *conn) getTransactionOptions() ReadWriteTransactionOptions {
-	if c.tempTransactionOptions != nil {
-		defer func() { c.tempTransactionOptions = nil }()
-		opts := *c.tempTransactionOptions
-		opts.TransactionOptions.BeginTransactionOption = c.convertDefaultBeginTransactionOption(opts.TransactionOptions.BeginTransactionOption)
-		return opts
+func (c *conn) setReadWriteTransactionOptions(options *ReadWriteTransactionOptions) {
+	if options == nil {
+		return
 	}
-	// Clear the transaction tag that has been set on the connection after returning
-	// from this function.
-	defer func() {
-		c.execOptions.TransactionOptions.TransactionTag = ""
-	}()
+	if options.DisableInternalRetries {
+		_ = propertyRetryAbortsInternally.SetLocalValue(c.state, !options.DisableInternalRetries)
+	}
+	if options.TransactionOptions.BeginTransactionOption != spanner.DefaultBeginTransaction {
+		_ = propertyBeginTransactionOption.SetLocalValue(c.state, options.TransactionOptions.BeginTransactionOption)
+	}
+	if options.TransactionOptions.CommitOptions.MaxCommitDelay != nil {
+		_ = propertyMaxCommitDelay.SetLocalValue(c.state, *options.TransactionOptions.CommitOptions.MaxCommitDelay)
+	}
+	if options.TransactionOptions.CommitOptions.ReturnCommitStats {
+		_ = propertyReturnCommitStats.SetLocalValue(c.state, options.TransactionOptions.CommitOptions.ReturnCommitStats)
+	}
+	if options.TransactionOptions.TransactionTag != "" {
+		_ = propertyTransactionTag.SetLocalValue(c.state, options.TransactionOptions.TransactionTag)
+	}
+	if options.TransactionOptions.ReadLockMode != spannerpb.TransactionOptions_ReadWrite_READ_LOCK_MODE_UNSPECIFIED {
+		_ = propertyReadLockMode.SetLocalValue(c.state, options.TransactionOptions.ReadLockMode)
+	}
+	if options.TransactionOptions.IsolationLevel != spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED {
+		_ = propertyIsolationLevel.SetLocalValue(c.state, toSqlIsolationLevelOrDefault(options.TransactionOptions.IsolationLevel))
+	}
+	if options.TransactionOptions.ExcludeTxnFromChangeStreams {
+		_ = propertyExcludeTxnFromChangeStreams.SetLocalValue(c.state, options.TransactionOptions.ExcludeTxnFromChangeStreams)
+	}
+	if options.TransactionOptions.CommitPriority != spannerpb.RequestOptions_PRIORITY_UNSPECIFIED {
+		_ = propertyCommitPriority.SetLocalValue(c.state, options.TransactionOptions.CommitPriority)
+	}
+}
+
+func (c *conn) getTransactionOptions(execOptions *ExecOptions) ReadWriteTransactionOptions {
 	txOpts := ReadWriteTransactionOptions{
-		TransactionOptions:     c.execOptions.TransactionOptions,
-		DisableInternalRetries: !c.retryAborts,
+		TransactionOptions:     execOptions.TransactionOptions,
+		DisableInternalRetries: !c.RetryAbortsInternally(),
 	}
 	// Only use the default isolation level from the connection if the ExecOptions
 	// did not contain a more specific isolation level.
 	if txOpts.TransactionOptions.IsolationLevel == spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED {
 		// This should never really return an error, but we check just to be absolutely sure.
-		level, err := toProtoIsolationLevel(c.isolationLevel)
+		level, err := toProtoIsolationLevel(c.IsolationLevel())
 		if err == nil {
 			txOpts.TransactionOptions.IsolationLevel = level
 		}
 	}
 	if txOpts.TransactionOptions.BeginTransactionOption == spanner.DefaultBeginTransaction {
-		txOpts.TransactionOptions.BeginTransactionOption = c.convertDefaultBeginTransactionOption(c.beginTransactionOption)
+		txOpts.TransactionOptions.BeginTransactionOption = c.convertDefaultBeginTransactionOption(propertyBeginTransactionOption.GetValueOrDefault(c.state))
 	}
 	return txOpts
 }
 
-func (c *conn) withTempReadOnlyTransactionOptions(options *ReadOnlyTransactionOptions) {
-	c.tempReadOnlyTransactionOptions = options
+func (c *conn) setReadOnlyTransactionOptions(options *ReadOnlyTransactionOptions) {
+	if options == nil {
+		return
+	}
+	if options.BeginTransactionOption != spanner.DefaultBeginTransaction {
+		_ = propertyBeginTransactionOption.SetLocalValue(c.state, options.BeginTransactionOption)
+	}
+	if options.TimestampBound.String() != "(strong)" {
+		_ = propertyReadOnlyStaleness.SetLocalValue(c.state, options.TimestampBound)
+	}
 }
 
 func (c *conn) getReadOnlyTransactionOptions() ReadOnlyTransactionOptions {
-	if c.tempReadOnlyTransactionOptions != nil {
-		defer func() { c.tempReadOnlyTransactionOptions = nil }()
-		opts := *c.tempReadOnlyTransactionOptions
-		opts.BeginTransactionOption = c.convertDefaultBeginTransactionOption(opts.BeginTransactionOption)
-		return opts
-	}
-	return ReadOnlyTransactionOptions{TimestampBound: c.readOnlyStaleness, BeginTransactionOption: c.convertDefaultBeginTransactionOption(c.beginTransactionOption)}
+	return ReadOnlyTransactionOptions{TimestampBound: c.ReadOnlyStaleness(), BeginTransactionOption: c.convertDefaultBeginTransactionOption(propertyBeginTransactionOption.GetValueOrDefault(c.state))}
 }
 
-func (c *conn) withTempBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransactionOptions) {
-	c.tempBatchReadOnlyTransactionOptions = options
+func (c *conn) setBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransactionOptions) {
+	if options == nil {
+		return
+	}
+	if options.TimestampBound.String() != "(strong)" {
+		_ = propertyReadOnlyStaleness.SetLocalValue(c.state, options.TimestampBound)
+	}
 }
 
 func (c *conn) getBatchReadOnlyTransactionOptions() BatchReadOnlyTransactionOptions {
-	if c.tempBatchReadOnlyTransactionOptions != nil {
-		defer func() { c.tempBatchReadOnlyTransactionOptions = nil }()
-		return *c.tempBatchReadOnlyTransactionOptions
+	return BatchReadOnlyTransactionOptions{TimestampBound: c.ReadOnlyStaleness()}
+}
+
+// BeginReadOnlyTransaction is not part of the public API of the database/sql driver.
+// It is exported for internal reasons, and may receive breaking changes without prior notice.
+//
+// BeginReadOnlyTransaction starts a new read-only transaction on this connection.
+func (c *conn) BeginReadOnlyTransaction(ctx context.Context, options *ReadOnlyTransactionOptions, close func()) (driver.Tx, error) {
+	tx, err := c.beginTx(ctx, driver.TxOptions{ReadOnly: true}, close, options.implicit)
+	c.setReadOnlyTransactionOptions(options)
+	if err != nil {
+		return nil, err
 	}
-	return BatchReadOnlyTransactionOptions{TimestampBound: c.readOnlyStaleness}
+	return tx, nil
+}
+
+// BeginReadWriteTransaction is not part of the public API of the database/sql driver.
+// It is exported for internal reasons, and may receive breaking changes without prior notice.
+//
+// BeginReadWriteTransaction starts a new read/write transaction on this connection.
+func (c *conn) BeginReadWriteTransaction(ctx context.Context, options *ReadWriteTransactionOptions, close func()) (driver.Tx, error) {
+	tx, err := c.beginTx(ctx, driver.TxOptions{}, close, options.implicit)
+	c.setReadWriteTransactionOptions(options)
+	if err != nil {
+		return nil, err
+	}
+	return tx, nil
 }
 
 func (c *conn) Begin() (driver.Tx, error) {
 	return c.BeginTx(context.Background(), driver.TxOptions{})
 }
 
-func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
+func (c *conn) BeginTx(ctx context.Context, driverOpts driver.TxOptions) (driver.Tx, error) {
+	defer func() {
+		c.tempTransactionCloseFunc = nil
+	}()
+	return c.beginTx(ctx, driverOpts, c.tempTransactionCloseFunc, false)
+}
+
+func (c *conn) beginTx(ctx context.Context, driverOpts driver.TxOptions, closeFunc func(), implicitBegin bool) (driver.Tx, error) {
 	if c.resetForRetry {
 		c.resetForRetry = false
 		return c.tx, nil
 	}
-	readOnlyTxOpts := c.getReadOnlyTransactionOptions()
-	batchReadOnlyTxOpts := c.getBatchReadOnlyTransactionOptions()
-	readWriteTransactionOptions := c.getTransactionOptions()
 	if c.inTransaction() {
+		if c.tx.implicit && !implicitBegin {
+			// Switch the current transaction block from implicit to explicit.
+			c.tx.implicit = false
+			return c.tx, nil
+		}
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "already in a transaction"))
 	}
 	if c.inBatch() {
 		return nil, status.Error(codes.FailedPrecondition, "This connection has an active batch. Run or abort the batch before starting a new transaction.")
 	}
 
+	isolationLevelFromTxOpts := spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED
 	// Determine whether internal retries have been disabled using a special
 	// value for the transaction isolation level.
 	disableRetryAborts := false
 	batchReadOnly := false
-	sil := opts.Isolation >> 8
-	opts.Isolation = opts.Isolation - sil<<8
-	if opts.Isolation != driver.IsolationLevel(sql.LevelDefault) {
-		level, err := toProtoIsolationLevel(sql.IsolationLevel(opts.Isolation))
+	sil := driverOpts.Isolation >> 8
+	driverOpts.Isolation = driverOpts.Isolation - sil<<8
+	if driverOpts.Isolation != driver.IsolationLevel(sql.LevelDefault) {
+		level, err := toProtoIsolationLevel(sql.IsolationLevel(driverOpts.Isolation))
 		if err != nil {
 			return nil, err
 		}
-		readWriteTransactionOptions.TransactionOptions.IsolationLevel = level
+		isolationLevelFromTxOpts = level
 	}
 	if sil > 0 {
 		switch spannerIsolationLevel(sil) {
@@ -1048,76 +1563,150 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 			// ignore
 		}
 	}
-	if batchReadOnly && !opts.ReadOnly {
+	if batchReadOnly && !driverOpts.ReadOnly {
 		return nil, status.Error(codes.InvalidArgument, "levelBatchReadOnly can only be used for read-only transactions")
 	}
+	if closeFunc == nil {
+		closeFunc = func() {}
+	}
+	if err := c.state.Begin(); err != nil {
+		return nil, err
+	}
+	c.clearCommitResponse()
 
-	if opts.ReadOnly {
+	if isolationLevelFromTxOpts != spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED {
+		_ = propertyIsolationLevel.SetLocalValue(c.state, sql.IsolationLevel(driverOpts.Isolation))
+	}
+	// TODO: Figure out how to distinguish between 'use the default' and 'use read/write'.
+	if driverOpts.ReadOnly {
+		_ = propertyTransactionReadOnly.SetLocalValue(c.state, true)
+	}
+	if batchReadOnly {
+		_ = propertyTransactionBatchReadOnly.SetLocalValue(c.state, true)
+	}
+	if disableRetryAborts {
+		_ = propertyRetryAbortsInternally.SetLocalValue(c.state, false)
+	}
+
+	c.tx = &delegatingTransaction{
+		conn: c,
+		ctx:  ctx,
+		close: func(result txResult) {
+			closeFunc()
+			if result == txResultCommit {
+				_ = c.state.Commit()
+			} else {
+				_ = c.state.Rollback()
+			}
+			c.tx = nil
+		},
+		implicit: implicitBegin,
+	}
+	return c.tx, nil
+}
+
+// addTransactionTimeout creates a new derived context with the current transaction_timeout.
+func (c *conn) addTransactionTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	timeout := propertyTransactionTimeout.GetValueOrDefault(c.state)
+	if timeout == time.Duration(0) {
+		return ctx, func() {}
+	}
+	// Note that this will set the actual deadline to the earliest of the existing deadline on ctx and the calculated
+	// deadline based on the timeout.
+	return context.WithTimeout(ctx, timeout)
+}
+
+func (c *conn) activateTransaction() (contextTransaction, error) {
+	closeFunc := c.tx.close
+	if propertyTransactionReadOnly.GetValueOrDefault(c.state) {
 		var logger *slog.Logger
 		var ro *spanner.ReadOnlyTransaction
 		var bo *spanner.BatchReadOnlyTransaction
-		if batchReadOnly {
+		if propertyTransactionBatchReadOnly.GetValueOrDefault(c.state) {
 			logger = c.logger.With("tx", "batchro")
 			var err error
-			bo, err = c.client.BatchReadOnlyTransaction(ctx, batchReadOnlyTxOpts.TimestampBound)
+			// BatchReadOnly transactions (currently) do not support inline-begin.
+			// This means that the transaction options must be supplied here, and not through a callback.
+			bo, err = c.client.BatchReadOnlyTransaction(c.tx.ctx, propertyReadOnlyStaleness.GetValueOrDefault(c.state))
 			if err != nil {
 				return nil, err
 			}
 			ro = &bo.ReadOnlyTransaction
 		} else {
 			logger = c.logger.With("tx", "ro")
-			ro = c.client.ReadOnlyTransaction().WithBeginTransactionOption(readOnlyTxOpts.BeginTransactionOption).WithTimestampBound(readOnlyTxOpts.TimestampBound)
+			beginTxOpt := c.convertDefaultBeginTransactionOption(propertyBeginTransactionOption.GetValueOrDefault(c.state))
+			ro = c.client.ReadOnlyTransaction().WithBeginTransactionOption(beginTxOpt)
 		}
-		c.tx = &readOnlyTransaction{
+		return &readOnlyTransaction{
 			roTx:   ro,
 			boTx:   bo,
 			logger: logger,
-			close: func() {
-				if batchReadOnlyTxOpts.close != nil {
-					batchReadOnlyTxOpts.close()
-				}
-				if readOnlyTxOpts.close != nil {
-					readOnlyTxOpts.close()
-				}
-				c.tx = nil
+			close:  closeFunc,
+			timestampBoundCallback: func() spanner.TimestampBound {
+				return propertyReadOnlyStaleness.GetValueOrDefault(c.state)
 			},
-		}
-		return c.tx, nil
+			state: c.state,
+		}, nil
 	}
 
-	tx, err := spanner.NewReadWriteStmtBasedTransactionWithOptions(ctx, c.client, readWriteTransactionOptions.TransactionOptions)
+	opts := spanner.TransactionOptions{}
+	opts.BeginTransactionOption = c.convertDefaultBeginTransactionOption(propertyBeginTransactionOption.GetValueOrDefault(c.state))
+
+	// Add the current value of transaction_timeout to the context that is registered
+	// on the transaction.
+	ctx, cancel := c.addTransactionTimeout(c.tx.ctx)
+	tx, err := spanner.NewReadWriteStmtBasedTransactionWithCallbackForOptions(ctx, c.client, opts, func() spanner.TransactionOptions {
+		defer func() {
+			// Reset the transaction_tag after starting the transaction.
+			_ = propertyTransactionTag.ResetValue(c.state, connectionstate.ContextUser)
+		}()
+		execOptions, err := c.options( /*reset=*/ true)
+		if err != nil {
+			execOptions = &ExecOptions{}
+		}
+		return c.effectiveTransactionOptions(spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED, execOptions)
+	})
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	logger := c.logger.With("tx", "rw")
-	c.tx = &readWriteTransaction{
+	return &readWriteTransaction{
 		ctx:    ctx,
 		conn:   c,
 		logger: logger,
 		rwTx:   tx,
-		close: func(commitResponse *spanner.CommitResponse, commitErr error) {
-			if readWriteTransactionOptions.close != nil {
-				readWriteTransactionOptions.close()
-			}
+		close: func(result txResult, commitResponse *spanner.CommitResponse, commitErr error) {
 			c.prevTx = c.tx
-			c.tx = nil
 			if commitErr == nil {
-				c.commitResponse = commitResponse
+				c.setCommitResponse(commitResponse)
+				closeFunc(result)
+			} else {
+				closeFunc(txResultRollback)
 			}
+			cancel()
 		},
-		// Disable internal retries if any of these options have been set.
-		retryAborts: !readWriteTransactionOptions.DisableInternalRetries && !disableRetryAborts,
+		retryAborts: sync.OnceValue(func() bool {
+			return c.RetryAbortsInternally()
+		}),
+	}, nil
+}
+
+func (c *conn) effectiveTransactionOptions(isolationLevelFromTxOpts spannerpb.TransactionOptions_IsolationLevel, execOptions *ExecOptions) spanner.TransactionOptions {
+	readWriteTransactionOptions := c.getTransactionOptions(execOptions)
+	res := readWriteTransactionOptions.TransactionOptions
+	if isolationLevelFromTxOpts != spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED {
+		res.IsolationLevel = isolationLevelFromTxOpts
 	}
-	c.commitResponse = nil
-	return c.tx, nil
+	return res
 }
 
 func (c *conn) convertDefaultBeginTransactionOption(opt spanner.BeginTransactionOption) spanner.BeginTransactionOption {
 	if opt == spanner.DefaultBeginTransaction {
-		if c.beginTransactionOption == spanner.DefaultBeginTransaction {
+		if propertyBeginTransactionOption.GetValueOrDefault(c.state) == spanner.DefaultBeginTransaction {
 			return spanner.InlinedBeginTransaction
 		}
-		return c.beginTransactionOption
+		return propertyBeginTransactionOption.GetValueOrDefault(c.state)
 	}
 	return opt
 }
@@ -1126,53 +1715,96 @@ func (c *conn) inTransaction() bool {
 	return c.tx != nil
 }
 
-func (c *conn) inReadOnlyTransaction() bool {
-	if c.tx != nil {
-		_, ok := c.tx.(*readOnlyTransaction)
-		return ok
-	}
-	return false
-}
-
 func (c *conn) inReadWriteTransaction() bool {
 	if c.tx != nil {
-		_, ok := c.tx.(*readWriteTransaction)
+		_, ok := c.tx.contextTransaction.(*readWriteTransaction)
 		return ok
 	}
 	return false
 }
 
-func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement, tb spanner.TimestampBound, options ExecOptions) *spanner.RowIterator {
+func (c *conn) inImplicitTransaction() bool {
+	return c.tx != nil && c.tx.implicit
+}
+
+// Commit is not part of the public API of the database/sql driver.
+// It is exported for internal reasons, and may receive breaking changes without prior notice.
+//
+// Commit commits the current transaction on this connection.
+func (c *conn) Commit(ctx context.Context) (*spanner.CommitResponse, error) {
+	if !c.inTransaction() {
+		return nil, status.Errorf(codes.FailedPrecondition, "this connection does not have a transaction")
+	}
+	// TODO: Pass in context to the tx.Commit() function.
+	if err := c.tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	// This will return either the commit response or nil, depending on whether the transaction was a
+	// read/write transaction or a read-only transaction.
+	return propertyCommitResponse.GetValueOrDefault(c.state), nil
+}
+
+// Rollback is not part of the public API of the database/sql driver.
+// It is exported for internal reasons, and may receive breaking changes without prior notice.
+//
+// Rollback rollbacks the current transaction on this connection.
+func (c *conn) Rollback(ctx context.Context) error {
+	if !c.inTransaction() {
+		return status.Errorf(codes.FailedPrecondition, "this connection does not have a transaction")
+	}
+	// TODO: Pass in context to the tx.Rollback() function.
+	return c.tx.Rollback()
+}
+
+func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
+	if options.TimestampBound != nil {
+		tb = *options.TimestampBound
+	}
 	return c.Single().WithTimestampBound(tb).QueryWithOptions(ctx, statement, options.QueryOptions)
 }
 
-func (c *conn) executeAutoPartitionedQuery(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+func (c *conn) executeAutoPartitionedQuery(ctx context.Context, cancel context.CancelFunc, query string, statementInfo *parser.StatementInfo, execOptions *ExecOptions, args []driver.NamedValue) (returnedRows driver.Rows, returnedErr error) {
+	// The cancel() function is called by the returned Rows object when it is closed.
+	// However, if an error is returned instead of a Rows instance, we need to cancel
+	// the context when we return from this function.
+	defer func() {
+		if returnedErr != nil {
+			cancel()
+		}
+	}()
 	tx, err := c.BeginTx(ctx, driver.TxOptions{ReadOnly: true, Isolation: withBatchReadOnly(driver.IsolationLevel(sql.LevelDefault))})
 	if err != nil {
 		return nil, err
 	}
-	r, err := c.QueryContext(ctx, query, args)
+	r, err := c.queryContext(ctx, query, statementInfo, execOptions, args)
 	if err != nil {
 		_ = tx.Rollback()
 		return nil, err
 	}
 	if rows, ok := r.(*rows); ok {
 		rows.close = func() error {
+			defer cancel()
 			return tx.Commit()
 		}
 	}
 	return r, nil
 }
 
-func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (rowIterator, *spanner.CommitResponse, error) {
+func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (rowIterator, *spanner.CommitResponse, error) {
 	var result *wrappedRowIterator
 	options.QueryOptions.LastStatement = true
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
+		if result != nil {
+			// in case of a retry
+			result.Stop()
+		}
 		it := tx.QueryWithOptions(ctx, statement, options.QueryOptions)
 		row, err := it.Next()
 		if err == iterator.Done {
 			result = &wrappedRowIterator{
 				RowIterator: it,
+				stmtType:    statementInfo.StatementType,
 				noRows:      true,
 			}
 		} else if err != nil {
@@ -1181,6 +1813,7 @@ func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement s
 		} else {
 			result = &wrappedRowIterator{
 				RowIterator: it,
+				stmtType:    statementInfo.StatementType,
 				firstRow:    row,
 			}
 		}
@@ -1188,6 +1821,9 @@ func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement s
 	}
 	resp, err := c.ReadWriteTransactionWithOptions(ctx, fn, options.TransactionOptions)
 	if err != nil {
+		if result != nil {
+			result.Stop()
+		}
 		return nil, nil, err
 	}
 	return result, &resp, nil
@@ -1195,7 +1831,7 @@ func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement s
 
 var errInvalidDmlForExecContext = spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "Exec and ExecContext can only be used with INSERT statements with a THEN RETURN clause that return exactly one row with one column of type INT64. Use Query or QueryContext for DML statements other than INSERT and/or with THEN RETURN clauses that return other/more data."))
 
-func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *statementInfo, options ExecOptions) (*result, *spanner.CommitResponse, error) {
+func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
 	var res *result
 	options.QueryOptions.LastStatement = true
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
@@ -1213,7 +1849,7 @@ func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement sp
 	return res, &resp, nil
 }
 
-func execTransactionalDML(ctx context.Context, tx spannerTransaction, statement spanner.Statement, statementInfo *statementInfo, options spanner.QueryOptions) (*result, error) {
+func execTransactionalDML(ctx context.Context, tx spannerTransaction, statement spanner.Statement, statementInfo *parser.StatementInfo, options spanner.QueryOptions) (*result, error) {
 	var rowsAffected int64
 	var lastInsertId int64
 	var hasLastInsertId bool
@@ -1225,7 +1861,7 @@ func execTransactionalDML(ctx context.Context, tx spannerTransaction, statement 
 	}
 	if len(it.Metadata.RowType.Fields) != 0 && !(len(it.Metadata.RowType.Fields) == 1 &&
 		it.Metadata.RowType.Fields[0].Type.Code == spannerpb.TypeCode_INT64 &&
-		statementInfo.dmlType == dmlTypeInsert) {
+		statementInfo.DmlType == parser.DmlTypeInsert) {
 		return nil, errInvalidDmlForExecContext
 	}
 	if err != iterator.Done {
@@ -1245,7 +1881,7 @@ func execTransactionalDML(ctx context.Context, tx spannerTransaction, statement 
 	return &result{rowsAffected: rowsAffected, lastInsertId: lastInsertId, hasLastInsertId: hasLastInsertId}, nil
 }
 
-func execAsPartitionedDML(ctx context.Context, c *spanner.Client, statement spanner.Statement, options ExecOptions) (int64, error) {
+func execAsPartitionedDML(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error) {
 	queryOptions := options.QueryOptions
 	queryOptions.ExcludeTxnFromChangeStreams = options.TransactionOptions.ExcludeTxnFromChangeStreams
 	return c.PartitionedUpdateWithOptions(ctx, statement, queryOptions)

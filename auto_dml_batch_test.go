@@ -49,8 +49,8 @@ func TestAutoBatchDml_Basics(t *testing.T) {
 			t.Fatalf("failed to commit: %v", err)
 		}
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		batchDmlRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		batchDmlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
 		if g, w := len(batchDmlRequests), 1; g != w {
 			t.Fatalf("num BatchDML requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -58,7 +58,7 @@ func TestAutoBatchDml_Basics(t *testing.T) {
 		if g, w := len(batchDmlRequest.Statements), 2; g != w {
 			t.Fatalf("num statements in batch requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		commitRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+		commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
 		if g, w := len(commitRequests), 1; g != w {
 			t.Fatalf("num commit requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -94,8 +94,8 @@ func TestAutoBatchDml_UpdateCount(t *testing.T) {
 			t.Fatalf("failed to commit: %v", err)
 		}
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		batchDmlRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		batchDmlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
 		if g, w := len(batchDmlRequests), 1; g != w {
 			t.Fatalf("num BatchDML requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -103,7 +103,7 @@ func TestAutoBatchDml_UpdateCount(t *testing.T) {
 		if g, w := len(batchDmlRequest.Statements), 2; g != w {
 			t.Fatalf("num statements in batch requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		commitRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+		commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
 		if g, w := len(commitRequests), 1; g != w {
 			t.Fatalf("num commit requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -135,8 +135,8 @@ func TestAutoBatchDml_UpdateCountVerificationFailsBeforeCommit(t *testing.T) {
 			t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
 		}
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		batchDmlRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		batchDmlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
 		if g, w := len(batchDmlRequests), 1; g != w {
 			t.Fatalf("num BatchDML requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -144,11 +144,11 @@ func TestAutoBatchDml_UpdateCountVerificationFailsBeforeCommit(t *testing.T) {
 		if g, w := len(batchDmlRequest.Statements), 1; g != w {
 			t.Fatalf("num statements in batch requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		commitRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+		commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
 		if g, w := len(commitRequests), 0; g != w {
 			t.Fatalf("num commit requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		rollbackRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.RollbackRequest{}))
+		rollbackRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.RollbackRequest{}))
 		if g, w := len(rollbackRequests), 1; g != w {
 			t.Fatalf("num rollback requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -183,8 +183,8 @@ func TestAutoBatchDml_UpdateCountVerificationFailsBeforeQuery(t *testing.T) {
 			t.Fatalf("failed to commit transaction: %v", err)
 		}
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		batchDmlRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		batchDmlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
 		if g, w := len(batchDmlRequests), 1; g != w {
 			t.Fatalf("num BatchDML requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -192,15 +192,15 @@ func TestAutoBatchDml_UpdateCountVerificationFailsBeforeQuery(t *testing.T) {
 		if g, w := len(batchDmlRequest.Statements), 1; g != w {
 			t.Fatalf("num statements in batch requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 		if g, w := len(executeRequests), 0; g != w {
 			t.Fatalf("num ExecuteSql requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		commitRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+		commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
 		if g, w := len(commitRequests), 1; g != w {
 			t.Fatalf("num commit requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		rollbackRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.RollbackRequest{}))
+		rollbackRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.RollbackRequest{}))
 		if g, w := len(rollbackRequests), 0; g != w {
 			t.Fatalf("num rollback requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -218,18 +218,18 @@ func TestAutoBatchDml_OutsideTransaction(t *testing.T) {
 		execContext(t, ctx, db, insert, 1, 1)
 		execContext(t, ctx, db, insert, 1, 2)
 
-		requests := drainRequestsFromServer(server.TestSpanner)
+		requests := server.TestSpanner.DrainRequestsFromServer()
 		// DML auto-batching only works in transactions.
-		batchDmlRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+		batchDmlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
 		if g, w := len(batchDmlRequests), 0; g != w {
 			t.Fatalf("num BatchDML requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 		if g, w := len(executeRequests), 2; g != w {
 			t.Fatalf("num ExecuteSql requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
 		// Each statement is committed after execution, so we should see 2 commit requests.
-		commitRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+		commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
 		if g, w := len(commitRequests), 2; g != w {
 			t.Fatalf("num commit requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -255,16 +255,16 @@ func TestAutoBatchDml_FollowedByQuery(t *testing.T) {
 			t.Fatalf("failed to commit: %v", err)
 		}
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		batchDmlRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		batchDmlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
 		if g, w := len(batchDmlRequests), 1; g != w {
 			t.Fatalf("num BatchDML requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 		if g, w := len(executeRequests), 1; g != w {
 			t.Fatalf("num ExecuteSql requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		commitRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+		commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
 		if g, w := len(commitRequests), 1; g != w {
 			t.Fatalf("num commit requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -289,25 +289,25 @@ func TestAutoBatchDml_FollowedByRollback(t *testing.T) {
 			t.Fatalf("failed to rollback: %v", err)
 		}
 
-		requests := drainRequestsFromServer(server.TestSpanner)
-		batchDmlRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		batchDmlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
 		// The batch should be aborted and no requests should be sent to Spanner.
 		if g, w := len(batchDmlRequests), 0; g != w {
 			t.Fatalf("num BatchDML requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		executeRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 		if g, w := len(executeRequests), 0; g != w {
 			t.Fatalf("num ExecuteSql requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		commitRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+		commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
 		if g, w := len(commitRequests), 0; g != w {
 			t.Fatalf("num commit requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		beginRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+		beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
 		if g, w := len(beginRequests), 0; g != w {
 			t.Fatalf("num BeginTransaction requests mismatch\n Got: %v\nWant: %v", g, w)
 		}
-		rollbackRequests := requestsOfType(requests, reflect.TypeOf(&spannerpb.RollbackRequest{}))
+		rollbackRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.RollbackRequest{}))
 		// There are no rollback requests sent to Spanner, as the transaction is never started.
 		if g, w := len(rollbackRequests), 0; g != w {
 			t.Fatalf("num rollback requests mismatch\n Got: %v\nWant: %v", g, w)

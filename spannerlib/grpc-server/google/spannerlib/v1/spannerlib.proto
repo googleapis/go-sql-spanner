@@ -1,0 +1,229 @@
+syntax = "proto3";
+
+package google.spannerlib.v1;
+
+import "google/api/field_behavior.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/struct.proto";
+import "google/rpc/status.proto";
+import "google/spanner/v1/result_set.proto";
+import "google/spanner/v1/spanner.proto";
+import "google/spanner/v1/transaction.proto";
+
+option csharp_namespace = "Google.Cloud.SpannerLib.V1";
+option go_package = "cloud.google.com/go/spannerlib/apiv1/spannerlibpb;spannerlibpb";
+option java_multiple_files = true;
+option java_outer_classname = "SpannerLibProto";
+option java_package = "com.google.cloud.spannerlib.v1";
+option php_namespace = "Google\\Cloud\\SpannerLib\\V1";
+option ruby_package = "Google::Cloud::SpannerLib::V1";
+
+service SpannerLib {
+  rpc Info(InfoRequest) returns (InfoResponse) {}
+
+  rpc CreatePool(CreatePoolRequest) returns (Pool) {}
+  rpc ClosePool(Pool) returns (google.protobuf.Empty) {}
+
+  rpc CreateConnection(CreateConnectionRequest) returns (Connection) {}
+  rpc CloseConnection(Connection) returns (google.protobuf.Empty) {}
+
+  rpc Execute(ExecuteRequest) returns (Rows) {}
+  rpc ExecuteStreaming(ExecuteRequest) returns (stream RowData) {}
+  rpc ExecuteBatch(ExecuteBatchRequest) returns (google.spanner.v1.ExecuteBatchDmlResponse) {}
+  rpc Metadata(Rows) returns (google.spanner.v1.ResultSetMetadata) {}
+  rpc Next(NextRequest) returns (google.protobuf.ListValue) {}
+  rpc ResultSetStats(Rows) returns (google.spanner.v1.ResultSetStats) {}
+  rpc NextResultSet(Rows) returns (google.spanner.v1.ResultSetMetadata) {}
+  rpc CloseRows(Rows) returns (google.protobuf.Empty) {}
+
+  rpc BeginTransaction(BeginTransactionRequest) returns (google.protobuf.Empty) {}
+  rpc Commit(Connection) returns (google.spanner.v1.CommitResponse) {}
+  rpc Rollback(Connection) returns (google.protobuf.Empty) {}
+
+  rpc WriteMutations(WriteMutationsRequest) returns (google.spanner.v1.CommitResponse) {}
+
+  // ConnectionStream opens a bi-directional gRPC stream between the client and the server.
+  // This stream can be re-used by the client for multiple requests, and normally gives the
+  // lowest possible latency, at the cost of a slightly more complex API.
+  rpc ConnectionStream(stream ConnectionStreamRequest) returns (stream ConnectionStreamResponse) {}
+
+  // ContinueStreaming returns a server stream that returns the remaining rows of a SQL statement
+  // that has previously been executed using a ConnectionStreamRequest on a bi-directional
+  // ConnectionStream. The client is responsible for calling this RPC if the has_more_data flag
+  // of the ExecuteResponse was true.
+  rpc ContinueStreaming(Rows) returns (stream RowData) {}
+}
+
+message InfoRequest {
+}
+
+message InfoResponse {
+  string version = 1;
+}
+
+message CreatePoolRequest {
+  string connection_string = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  string user_agent_suffix = 2;
+}
+
+message CreateConnectionRequest {
+  Pool pool = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message FetchOptions {
+  int64 num_rows = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  int64 encoding = 2 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message ExecuteRequest {
+  Connection connection = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  google.spanner.v1.ExecuteSqlRequest execute_sql_request = 2 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  FetchOptions fetch_options = 3;
+}
+
+message ExecuteBatchRequest {
+  Connection connection = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  google.spanner.v1.ExecuteBatchDmlRequest execute_batch_dml_request = 2 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message BeginTransactionRequest {
+  Connection connection = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  google.spanner.v1.TransactionOptions transaction_options = 2 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message WriteMutationsRequest {
+  Connection connection = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  google.spanner.v1.BatchWriteRequest.MutationGroup mutations = 2 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message Pool {
+  int64 id = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message Connection {
+  Pool pool = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  int64 id = 2 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message Rows {
+  Connection connection = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  int64 id = 2 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message NextRequest {
+  Rows rows = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  FetchOptions fetch_options = 2 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message RowData {
+  Rows rows = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  google.spanner.v1.ResultSetMetadata metadata = 2;
+  repeated google.protobuf.ListValue data = 3 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  google.spanner.v1.ResultSetStats stats = 4;
+  bool has_more_results = 5;
+}
+
+message MetadataRequest {
+  Rows rows = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message ResultSetStatsRequest {
+  Rows rows = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+// ConnectionStreamRequest is used by a client to send a request to the server using a
+// bi-directional gRPC stream. Such a stream is opened by calling the ConnectionStream RPC.
+message ConnectionStreamRequest {
+  oneof request {
+    ExecuteRequest execute_request = 1;
+    ExecuteBatchRequest execute_batch_request = 2;
+    BeginTransactionRequest begin_transaction_request = 3;
+    Connection commit_request = 4;
+    Connection rollback_request = 5;
+    WriteMutationsRequest write_mutations_request = 6;
+  }
+}
+
+// ExecuteResponse is returned by the server when it receives an ExecuteRequest on a bi-directional
+// ConnectionStream. The response contains the first N rows, the metadata, and an indication whether
+// the result contains more data than in the initial response. The client should fetch the remaining
+// data by calling the ContinueStreaming RPC. This will start a separate server stream with the
+// remaining results. The client can continue to send additional requests on the ConnectionStream
+// while the additional server stream is open.
+//
+// The initial response also contains the ResultSetStats if there is no more data to be returned.
+message ExecuteResponse {
+  Rows rows = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  repeated google.spanner.v1.ResultSet result_sets = 2;
+  google.rpc.Status status = 3;
+  bool has_more_results = 4;
+}
+
+// ConnectionStreamResponse is returned by the server when it receives a ConnectionStreamRequest.
+// The contents of the response depends on the request that the client sent.
+//
+// The response contains a Status that indicates whether the request succeeded or not. The stream
+// itself normally does not return an error if a request fails.
+// The stream only returns an error and is discontinued in case of a network error or other
+// unexpected internal errors.
+message ConnectionStreamResponse {
+  // Status indicates whether the request succeeded or failed. The response field only contains
+  // a value if the status code is OK.
+  google.rpc.Status status = 1;
+  oneof response {
+    ExecuteResponse execute_response = 2;
+    google.spanner.v1.ExecuteBatchDmlResponse execute_batch_response = 3;
+    google.protobuf.Empty begin_transaction_response = 4;
+    google.spanner.v1.CommitResponse commit_response = 5;
+    google.protobuf.Empty rollback_response = 6;
+    google.spanner.v1.CommitResponse write_mutations_response = 7;
+  }
+}
