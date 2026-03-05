@@ -22,14 +22,16 @@ import (
 	"os"
 	"time"
 
+	"cloud.google.com/go/spanner"
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
-	databasepb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
-	instancepb "cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
+	"cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	"google.golang.org/grpc/codes"
 )
 
 var cli *client.Client
@@ -69,6 +71,10 @@ func RunSampleOnEmulatorWithDialect(sample func(string, string, string) error, d
 }
 
 func startEmulator() error {
+	if os.Getenv("SPANNER_EMULATOR_HOST") != "" {
+		return nil
+	}
+
 	ctx := context.Background()
 	if err := os.Setenv("SPANNER_EMULATOR_HOST", "localhost:9010"); err != nil {
 		return err
@@ -130,7 +136,7 @@ func createInstance(projectId, instanceId string) error {
 	if err != nil {
 		return err
 	}
-	defer instanceAdmin.Close()
+	defer silentClose(instanceAdmin)
 	op, err := instanceAdmin.CreateInstance(ctx, &instancepb.CreateInstanceRequest{
 		Parent:     fmt.Sprintf("projects/%s", projectId),
 		InstanceId: instanceId,
@@ -141,6 +147,9 @@ func createInstance(projectId, instanceId string) error {
 		},
 	})
 	if err != nil {
+		if spanner.ErrCode(err) == codes.AlreadyExists {
+			return nil
+		}
 		return fmt.Errorf("could not create instance %s: %v", fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId), err)
 	}
 	// Wait for the instance creation to finish.
@@ -156,7 +165,13 @@ func createSampleDB(projectId, instanceId, databaseId string, dialect databasepb
 	if err != nil {
 		return err
 	}
-	defer databaseAdminClient.Close()
+	defer silentClose(databaseAdminClient)
+
+	// Drop the database if it already exists.
+	_ = databaseAdminClient.DropDatabase(ctx, &databasepb.DropDatabaseRequest{
+		Database: fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId),
+	})
+
 	var createStatement string
 	if dialect == databasepb.DatabaseDialect_POSTGRESQL {
 		createStatement = fmt.Sprintf(`CREATE DATABASE "%s"`, databaseId)
@@ -188,4 +203,8 @@ func stopEmulator() {
 	if err := cli.ContainerStop(ctx, containerId, container.StopOptions{Timeout: &timeout}); err != nil {
 		log.Printf("failed to stop emulator: %v\n", err)
 	}
+}
+
+func silentClose(c io.Closer) {
+	_ = c.Close()
 }
