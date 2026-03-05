@@ -16,7 +16,6 @@ package spannerdriver
 
 import (
 	"context"
-	"database/sql"
 	"database/sql/driver"
 	"fmt"
 	"strconv"
@@ -323,7 +322,6 @@ type result struct {
 	lastInsertId      int64
 	hasLastInsertId   bool
 	batchUpdateCounts []int64
-	tx                *sql.Tx
 	operationID       string
 }
 

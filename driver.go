@@ -688,6 +688,7 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	assignPropertyValueIfExists(state, propertyDisableNativeMetrics, &config.DisableNativeMetrics)
 	assignPropertyValueIfExists(state, propertyDecodeToNativeArrays, &connectorConfig.DecodeToNativeArrays)
 	assignPropertyValueIfExists(state, propertyAutoConfigEmulator, &connectorConfig.AutoConfigEmulator)
+	assignPropertyValueIfExists(state, propertyConnectionStateType, &connectorConfig.ConnectionStateType)
 	assignPropertyValueIfExists(state, propertyIsolationLevel, &connectorConfig.IsolationLevel)
 	assignPropertyValueIfExists(state, propertyBeginTransactionOption, &connectorConfig.BeginTransactionOption)
 	assignPropertyValueIfExists(state, propertyStatementCacheSize, &connectorConfig.StatementCacheSize)

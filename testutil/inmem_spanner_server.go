@@ -65,15 +65,6 @@ var random struct {
 
 func init() { random.rand = rand.New(rand.NewSource(time.Now().UnixNano())) }
 
-func randBytes(n int) []byte {
-	random.mu.Lock()
-	defer random.mu.Unlock()
-
-	data := make([]byte, n)
-	_, _ = random.rand.Read(data)
-	return data
-}
-
 func randDuration(max time.Duration) time.Duration {
 	random.mu.Lock()
 	defer random.mu.Unlock()

@@ -717,24 +717,8 @@ func isDDLKeyword(keyword string) bool {
 	return isStatementKeyword(keyword, ddlStatements)
 }
 
-// isDml returns true if the given sql string is a Dml statement.
-// This function assumes that any comments and hints at the start
-// of the sql string have been removed.
-func (p *StatementParser) isDml(query string) bool {
-	info := p.DetectStatementType(query)
-	return info.StatementType == StatementTypeDml
-}
-
 func isDmlKeyword(keyword string) bool {
 	return isStatementKeyword(keyword, dmlStatements)
-}
-
-// isQuery returns true if the given sql string is a SELECT statement.
-// This function assumes that any comments and hints at the start
-// of the sql string have been removed.
-func (p *StatementParser) isQuery(query string) bool {
-	info := p.DetectStatementType(query)
-	return info.StatementType == StatementTypeQuery
 }
 
 func isQueryKeyword(keyword string) bool {

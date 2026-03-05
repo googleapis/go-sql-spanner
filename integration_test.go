@@ -315,12 +315,6 @@ func skipIfShort(t *testing.T) {
 	}
 }
 
-func skipIfEmulator(t *testing.T, msg string) {
-	if runsOnEmulator() {
-		t.Skip(msg)
-	}
-}
-
 func TestAutoConfigEmulator(t *testing.T) {
 	skipIfShort(t)
 	if !runsOnEmulator() {

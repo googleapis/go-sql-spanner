@@ -1418,6 +1418,7 @@ func TestGenericConnectionState_GoogleSQL(t *testing.T) {
 	verifyConnectionPropertyValue(t, conn, "max_commit_delay", "100ms")
 	// Verify that other connection variables have a default value.
 	verifyConnectionPropertyValue(t, conn, "auto_batch_dml", false)
+	verifyConnectionPropertyValue(t, conn, propertyTransactionDeferrable.Key(), false)
 
 	// Verify that changing a connection variable value outside a transaction works.
 	setConnectionPropertyValue(t, conn, "max_commit_delay", "50ms")

@@ -38,6 +38,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/google/uuid"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/parser"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/api/option"
@@ -3698,6 +3699,47 @@ func TestMaxSessions(t *testing.T) {
 	}
 }
 
+func TestConnectionStateType(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnectionWithParams(t, "connection_state_type=TRANSACTIONAL")
+	defer teardown()
+
+	c, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get a connection: %v", err)
+	}
+
+	verifyConnectionPropertyValue(t, c, "connection_state_type", connectionstate.TypeTransactional)
+	// Check that the behavior is actually transactional.
+	verifyConnectionPropertyValue(t, c, "data_boost_enabled", false)
+	tx, err := c.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("failed to begin transaction: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, "set data_boost_enabled = true"); err != nil {
+		t.Fatalf("failed to set data_boost_enabled: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("failed to commit transaction: %v", err)
+	}
+	verifyConnectionPropertyValue(t, c, "data_boost_enabled", true)
+
+	tx, err = c.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("failed to begin transaction: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, "set data_boost_enabled = false"); err != nil {
+		t.Fatalf("failed to set data_boost_enabled: %v", err)
+	}
+	// Rolling back the transaction should also roll back the change to data_boost_enabled.
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("failed to rollback transaction: %v", err)
+	}
+	verifyConnectionPropertyValue(t, c, "data_boost_enabled", true)
+}
+
 func TestClientReuse(t *testing.T) {
 	// This test is intentionally not parallel, as the internal caching of clients could
 	// be impacted by other parallel tests.
@@ -5821,13 +5863,6 @@ func date(v string) civil.Date {
 	return res
 }
 
-func nullDate(valid bool, v string) spanner.NullDate {
-	if !valid {
-		return spanner.NullDate{}
-	}
-	return spanner.NullDate{Valid: true, Date: date(v)}
-}
-
 func nullJson(valid bool, v string) spanner.NullJSON {
 	if !valid {
 		return spanner.NullJSON{}
@@ -5968,29 +6003,4 @@ func filterBeginReadOnlyRequests(requests []interface{}) []*sppb.BeginTransactio
 		}
 	}
 	return res
-}
-
-func waitFor(t *testing.T, assert func() error) {
-	t.Helper()
-	timeout := 5 * time.Second
-	ta := time.After(timeout)
-
-	for {
-		select {
-		case <-ta:
-			if err := assert(); err != nil {
-				t.Fatalf("after %v waiting, got %v", timeout, err)
-			}
-			return
-		default:
-		}
-
-		if err := assert(); err != nil {
-			// Fail. Let's pause and retry.
-			time.Sleep(time.Millisecond)
-			continue
-		}
-
-		return
-	}
 }
