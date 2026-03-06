@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.24.1](https://github.com/googleapis/go-sql-spanner/compare/v1.24.0...v1.24.1) (2026-03-06)
+
+
+### Bug Fixes
+
+* Update all dependencies ([#750](https://github.com/googleapis/go-sql-spanner/issues/750)) ([107c133](https://github.com/googleapis/go-sql-spanner/commit/107c1331cf1f3d61c7ad6c533e18fdc8566e8771))
+* Update dependency com.google.errorprone:error_prone_annotations to v2.48.0 ([#757](https://github.com/googleapis/go-sql-spanner/issues/757)) ([fe99422](https://github.com/googleapis/go-sql-spanner/commit/fe99422f2a4a0edd2100a571f60ffb7c830273b0))
+* Update dependency io.netty:netty-transport-native-epoll to v4.2.10.final ([#702](https://github.com/googleapis/go-sql-spanner/issues/702)) ([a078428](https://github.com/googleapis/go-sql-spanner/commit/a07842819492f8f95f2377524dcc765ad0f2b556))
+* Update protobuf monorepo ([#755](https://github.com/googleapis/go-sql-spanner/issues/755)) ([666615c](https://github.com/googleapis/go-sql-spanner/commit/666615c7fede6f2b37dc1196706c4201f4f63d14))
+
 ## [1.24.0](https://github.com/googleapis/go-sql-spanner/compare/v1.23.0...v1.24.0) (2026-02-13)
 
 
