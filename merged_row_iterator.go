@@ -168,12 +168,6 @@ func (m *mergedRowIterator) produceRowsFromPartition(ctx context.Context, index 
 	}
 }
 
-func (m *mergedRowIterator) isStopped() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.err != nil
-}
-
 func (m *mergedRowIterator) hasErr() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()

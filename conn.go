@@ -1468,10 +1468,6 @@ func (c *conn) setReadOnlyTransactionOptions(options *ReadOnlyTransactionOptions
 	}
 }
 
-func (c *conn) getReadOnlyTransactionOptions() ReadOnlyTransactionOptions {
-	return ReadOnlyTransactionOptions{TimestampBound: c.ReadOnlyStaleness(), BeginTransactionOption: c.convertDefaultBeginTransactionOption(propertyBeginTransactionOption.GetValueOrDefault(c.state))}
-}
-
 func (c *conn) setBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransactionOptions) {
 	if options == nil {
 		return
@@ -1479,10 +1475,6 @@ func (c *conn) setBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransact
 	if options.TimestampBound.String() != "(strong)" {
 		_ = propertyReadOnlyStaleness.SetLocalValue(c.state, options.TimestampBound)
 	}
-}
-
-func (c *conn) getBatchReadOnlyTransactionOptions() BatchReadOnlyTransactionOptions {
-	return BatchReadOnlyTransactionOptions{TimestampBound: c.ReadOnlyStaleness()}
 }
 
 // BeginReadOnlyTransaction is not part of the public API of the database/sql driver.

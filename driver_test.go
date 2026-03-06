@@ -278,6 +278,23 @@ func TestExtractDnsParts(t *testing.T) {
 			input:   "project/p/instances/i/databases/d",
 			wantErr: true,
 		},
+		{
+			input: "projects/p/instances/i/databases/d?connection_state_type=TRANSACTIONAL",
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
+					"connection_state_type": "TRANSACTIONAL",
+				},
+				ConnectionStateType: connectionstate.TypeTransactional,
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
+			},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
@@ -1052,4 +1069,21 @@ type ValuerNil struct {
 // test the driver for its ability to handle nil pointers to structs that implement driver.Valuer via value receivers
 func (v ValuerNil) Value() (driver.Value, error) {
 	return v.Name, nil
+}
+
+func TestConnectionStateTypeInitialization(t *testing.T) {
+	dsn := "projects/p/instances/i/databases/d?connection_state_type=TRANSACTIONAL"
+	config, err := ExtractConnectorConfig(dsn)
+	if err != nil {
+		t.Fatalf("ExtractConnectorConfig failed: %v", err)
+	}
+
+	c, err := createConnector(&Driver{}, config)
+	if err != nil {
+		t.Fatalf("createConnector failed: %v", err)
+	}
+
+	if c.connectorConfig.ConnectionStateType != connectionstate.TypeTransactional {
+		t.Errorf("ConnectionStateType mismatch. Got: %v, Want: %v", c.connectorConfig.ConnectionStateType, connectionstate.TypeTransactional)
+	}
 }

@@ -180,10 +180,6 @@ func (p *simpleParser) isValidIdentifierChar() bool {
 	return p.sql[p.pos] == '_' || p.sql[p.pos] == '$' || isLatinLetter(p.sql[p.pos]) || isLatinDigit(p.sql[p.pos])
 }
 
-func (p *simpleParser) isValidDollarTagIdentifierChar() bool {
-	return p.isValidIdentifierChar() && !p.isDollar()
-}
-
 func (p *simpleParser) isDollar() bool {
 	return !p.isMultibyte() && p.sql[p.pos] == '$'
 }
