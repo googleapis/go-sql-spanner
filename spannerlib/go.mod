@@ -2,7 +2,7 @@ module spannerlib
 
 go 1.25.0
 
-toolchain go1.26.0
+toolchain go1.26.1
 
 replace github.com/googleapis/go-sql-spanner => ..
 
@@ -11,11 +11,11 @@ require (
 	cloud.google.com/go/spanner v1.88.0
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
-	github.com/googleapis/go-sql-spanner v1.24.0
+	github.com/googleapis/go-sql-spanner v1.24.1
 	google.golang.org/api v0.269.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171
-	google.golang.org/grpc v1.79.1
+	google.golang.org/grpc v1.79.2
 	google.golang.org/protobuf v1.36.11
 )
 
