@@ -97,7 +97,9 @@ func createResultSetStats(it *spanner.RowIterator, stmtType parser.StatementType
 		QueryPlan: it.QueryPlan,
 	}
 	if len(it.QueryStats) > 0 {
-		if s, err := structpb.NewStruct(it.QueryStats); err == nil {
+		if s, err := structpb.NewStruct(it.QueryStats); err != nil {
+			slog.Warn("failed to convert QueryStats to structpb.Struct", "err", err)
+		} else {
 			stats.QueryStats = s
 		}
 	}
