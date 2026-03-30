@@ -31,6 +31,7 @@ import (
 	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // spannerTransaction is the generic interface for both spanner.ReadWriteTransaction
@@ -90,10 +91,15 @@ func (ri *readOnlyRowIterator) ResultSetStats() *sppb.ResultSetStats {
 }
 
 func createResultSetStats(it *spanner.RowIterator, stmtType parser.StatementType) *sppb.ResultSetStats {
-	// TODO: The Spanner client library should offer an option to get the full
-	//       ResultSetStats, instead of only the RowCount and QueryPlan.
+	// Stats.QueryStats is set on the last PartialResultSet; RowIterator already exposes it as QueryStats.
+	// Populate ResultSetStats.QueryStats from that map.
 	stats := &sppb.ResultSetStats{
 		QueryPlan: it.QueryPlan,
+	}
+	if len(it.QueryStats) > 0 {
+		if s, err := structpb.NewStruct(it.QueryStats); err == nil {
+			stats.QueryStats = s
+		}
 	}
 	if stmtType == parser.StatementTypeDml {
 		stats.RowCount = &sppb.ResultSetStats_RowCountExact{RowCountExact: it.RowCount}
