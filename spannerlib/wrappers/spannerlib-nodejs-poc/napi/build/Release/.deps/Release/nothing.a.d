@@ -1,1 +1,0 @@
-cmd_Release/nothing.a := rm -f Release/nothing.a && /Users/gargsurbhi/.asdf/installs/python/3.9.23/bin/python3 gyp-mac-tool filter-libtool libtool  -static -o Release/nothing.a Release/obj.target/nothing/node_modules/node-addon-api/nothing.o

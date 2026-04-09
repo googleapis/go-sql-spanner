@@ -6,7 +6,7 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "node-gyp rebuild",
+    "build": "node-gyp rebuild && install_name_tool -change libspanner.so @loader_path/libspanner.so ./build/Release/spanner_napi.node",
     "test": "node test.js",
     "setup": "node setup_db.js"
   },
