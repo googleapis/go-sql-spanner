@@ -1,4 +1,4 @@
-const { CreateConnection, CloseConnection, Execute } = require('../ffi/bindings.js');
+const { CreateConnection, CloseConnection, Execute, Metadata } = require('../ffi/bindings.js');
 const { toGoSlice, invokeAsync } = require('../ffi/utils.js');
 const { spannerLib } = require('./spannerlib.js');
 const { Rows } = require('./rows.js');
@@ -56,17 +56,37 @@ class Connection {
         const ExecuteSqlRequestProto = google.spanner.v1.ExecuteSqlRequest;
         const serializedPb = ExecuteSqlRequestProto.encode(requestObj).finish();
 
-        // 2. Transmit the standard protobuf binary buffer over CGO FFI seamlessly
-        const handled = await invokeAsync(
+        // 1. Execute the SQL to get a Rows identifier
+        const rowsResult = await invokeAsync(
             Execute,
-            null, // Rows gets constructed afterward
+            null,
             null,
             this.pool.oid,
             this.oid,
             toGoSlice(serializedPb)
         );
+        const rowsId = rowsResult.objectId;
+
+        // 2. Fetch the metadata to get column names
+        const metadataResult = await invokeAsync(
+            Metadata,
+            null,
+            null,
+            this.pool.oid,
+            this.oid,
+            rowsId
+        );
         
-        return new Rows(this, handled.objectId);
+        // 3. Decode the metadata protobuf to get column names and types
+        const ResultSetMetadataProto = google.spanner.v1.ResultSetMetadata;
+        const metadata = ResultSetMetadataProto.decode(metadataResult.protobufBytes);
+        const columnInfo = metadata.rowType.fields.map(field => ({
+            name: field.name,
+            typeCode: field.type.code
+        }));
+        
+        // 4. Return a new Rows object, now equipped with the column info
+        return new Rows(this, rowsId, columnInfo);
     }
 
     /**

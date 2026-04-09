@@ -1,5 +1,8 @@
 const { koffi } = require('./bindings.js');
 
+const ENCODING_JSON = 0;
+const ENCODING_PROTOBUF = 1;
+
 class SpannerLibError extends Error {
     constructor(code, message) {
         super(`Spanner Native Error (Code ${code}): ${message}`);
@@ -67,6 +70,8 @@ function invokeAsync(koffiFunc, refInstance, pinManager, ...args) {
 }
 
 module.exports = {
+    ENCODING_JSON,
+    ENCODING_PROTOBUF,
     SpannerLibError,
     toGoString,
     toGoSlice,

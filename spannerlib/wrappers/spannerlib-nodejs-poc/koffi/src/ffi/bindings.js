@@ -40,6 +40,7 @@ module.exports = {
     CreateConnection: lib.func('CreateConnection', GoReturnTuple, ['int64']),
     CloseConnection: lib.func('CloseConnection', GoReturnTuple, ['int64', 'int64']),
     Execute: lib.func('Execute', GoReturnTuple, ['int64', 'int64', GoSlice]),
+    Metadata: lib.func('Metadata', GoReturnTuple, ['int64', 'int64', 'int64']),
     Next: lib.func('Next', GoReturnTuple, ['int64', 'int64', 'int64', 'int32', 'int32']),
     CloseRows: lib.func('CloseRows', GoReturnTuple, ['int64', 'int64', 'int64']),
     Release: lib.func('Release', 'int32', ['int64'])
