@@ -247,6 +247,49 @@ Napi::Value NextWrapper(const Napi::CallbackInfo& info) {
     return env.Undefined();
 }
 
+//
+// Worker 7: Metadata asynchronously
+//
+class MetadataWorker : public Napi::AsyncWorker {
+public:
+    MetadataWorker(Napi::Function& callback, int64_t poolId, int64_t connId, int64_t rowsId)
+        : AsyncWorker(callback), poolId_(poolId), connId_(connId), rowsId_(rowsId), result_({0, 0, 0, 0, nullptr}) {}
+
+    void Execute() override {
+        result_ = ::Metadata(poolId_, connId_, rowsId_);
+    }
+
+    void OnOK() override {
+        Napi::Env env = Env();
+        Napi::Object obj = Napi::Object::New(env);
+        obj.Set("r0", Napi::Number::New(env, result_.r0));
+        obj.Set("r1", Napi::Number::New(env, result_.r1));
+        obj.Set("r2", Napi::Number::New(env, result_.r2));
+        obj.Set("r3", Napi::Number::New(env, result_.r3));
+        if (result_.r4 != nullptr && result_.r3 > 0) {
+            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
+        } else {
+            obj.Set("r4", env.Null());
+        }
+        Callback().Call({env.Null(), obj});
+    }
+private:
+    int64_t poolId_, connId_, rowsId_;
+    Metadata_return result_;
+};
+
+Napi::Value MetadataWrapper(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    int64_t pid = info[0].As<Napi::Number>().Int64Value();
+    int64_t cid = info[1].As<Napi::Number>().Int64Value();
+    int64_t rid = info[2].As<Napi::Number>().Int64Value();
+    Napi::Function cb = info[3].As<Napi::Function>();
+    
+    MetadataWorker* worker = new MetadataWorker(cb, pid, cid, rid);
+    worker->Queue();
+    return env.Undefined();
+}
+
 // Memory Release (Synchronous as it is just freeing RAM via GC)
 Napi::Value NativeRelease(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
@@ -288,6 +331,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("CloseRows", Napi::Function::New(env, CloseRowsWrapper));
     exports.Set("Release", Napi::Function::New(env, NativeRelease));
     
+    exports.Set("Metadata", Napi::Function::New(env, MetadataWrapper));
     return exports;
 }
 

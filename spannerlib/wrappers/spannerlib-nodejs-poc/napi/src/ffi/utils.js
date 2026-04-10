@@ -1,5 +1,8 @@
 const addon = require('../../build/Release/spanner_napi.node');
 
+const ENCODING_JSON = 0;
+const ENCODING_PROTOBUF = 1;
+
 /**
  * Normalizes C++ responses to look structurally identical to what Koffi did.
  * Koffi returned: { r0: int, r1: int, r2: int, r3: int, r4: pointer/buffer }
@@ -43,6 +46,8 @@ function invokeAsync(funcName, constructor1, constructor2, ...args) {
 const Release = addon.Release;
 
 module.exports = {
+    ENCODING_JSON,
+    ENCODING_PROTOBUF,
     invokeAsync,
     Release
 };

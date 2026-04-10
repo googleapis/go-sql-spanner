@@ -1,70 +1,96 @@
-const { CloseRows, Next } = require('../ffi/bindings.js');
-const { invokeAsync } = require('../ffi/utils.js');
+const { invokeAsync, ENCODING_PROTOBUF } = require('../ffi/utils.js');
 const { spannerLib } = require('./spannerlib.js');
 const { google } = require('@google-cloud/spanner/build/protos/protos.js');
+const ListValue = google.protobuf.ListValue;
+
+/**
+ * Parses a binary `ListValue` protobuf message into a key-value row object.
+ * @param {Buffer} buffer The binary buffer from the Go library.
+ * @param {Array<{name: string, typeCode: number}>} columnInfo An array of objects with column names and types.
+ * @returns {object|null}
+ */
+function parseRowToObject(buffer, columnInfo) {
+    if (!buffer || buffer.length === 0) {
+        return null; // End of result set
+    }
+
+    const listValue = ListValue.decode(buffer);
+    const rowObject = {};
+    const values = listValue.values;
+
+    columnInfo.forEach((column, index) => {
+        const value = values[index];
+        const columnName = column.name;
+        let parsedValue;
+
+        // The decoded `value` object has a 'kind' oneof field.
+        // We check which property is set to get the primitive value.
+        switch (value.kind) {
+            case 'nullValue':
+                parsedValue = null;
+                break;
+            case 'numberValue':
+                parsedValue = value.numberValue;
+                break;
+            case 'stringValue':
+                parsedValue = value.stringValue;
+                break;
+            case 'boolValue':
+                parsedValue = value.boolValue;
+                break;
+            default:
+                parsedValue = undefined;
+        }
+        rowObject[columnName] = parsedValue;
+    });
+
+    return rowObject;
+}
 
 class Rows {
     /**
-     * @param {import('./connection.js').Connection} conn 
-     * @param {Number} objectId - The OID identifying these rows inside the Go Driver
+     * @param {import('./connection.js').Connection} connection
+     * @param {Number} oid
+     * @param {Array<{name: string, typeCode: number}>} columnInfo
      */
-    constructor(conn, objectId) {
-        this.conn = conn;
-
-        /**
-         * The Object ID (OID). 
-         * Used to execute operations like `.next()` against THIS specific ResultSet inside Go.
-         * @type {Number|null}
-         */
-        this.oid = objectId;
-
+    constructor(connection, oid, columnInfo) {
+        this.connection = connection;
+        this.oid = oid;
+        this.pinnerId = null;
         this.closed = false;
-        
-        // FinalizationRegistry could optionally be mapped to this via 
-        // spannerLib.register(this, pinnerId_from_execute)
-        // For the POC, we won't fully map the Rows Pinner unless needed
-        // by the Next() function iterator.
+        this.columnInfo = columnInfo; // Store column names and types
     }
 
     /**
-     * Iterates to the next result chunk.
-     * In a full implementation, it would call `Next(poolId, connId, rowsId, ...)` natively.
+     * Fetches the next row from the result set.
+     * @returns {Promise<object|null>} A promise that resolves to a row object, or null if there are no more rows.
      */
     async next() {
-        if (this.closed) throw new Error("Rows object is already closed");
+        if (this.closed) throw new Error("Rows are already closed");
 
-        // Go Signature: Next(poolId, connId, rowsId, numRows, encodeRowOption) 
-        // We pass 1 for numRows, and 0 for encodeRowOption as per POC defaults
-        const handled = await invokeAsync(Next, null, null, this.conn.pool.oid, this.conn.oid, this.oid, 1, 0);
+        const handled = await invokeAsync(
+            "Next",
+            null,
+            null,
+            this.connection.pool.oid,
+            this.connection.oid,
+            this.oid,
+            1, // Fetch one row at a time
+            ENCODING_PROTOBUF
+        );
 
-        // Handle EOF case (The chunk buffer is perfectly empty or contains no message)
-        if (!handled.protobufBytes || handled.protobufBytes.length === 0) {
-            return null; // Signals end of rows to the caller
-        }
-
-        // The returned message contains a google.protobuf.ListValue according to the spec!
-        // We natively unpack those bytes matching standard Protobuf conventions.
-        const listValueProto = google.protobuf.ListValue;
-        const decodedList = listValueProto.decode(handled.protobufBytes);
-
-        // This converts the complex generic Protobuf ListValue deeply into native Javascript!
-        const jsonRecord = listValueProto.toObject(decodedList, {
-            longs: String, // Ensure Int64 types from Spanner decode as Strings instead of mangled JS doubles
-            enums: String,
-            bytes: String,
-        });
-
-        return jsonRecord.values || [];
+        // The result for `Next` is a binary `ListValue` protobuf message.
+        return parseRowToObject(handled.protobufBytes, this.columnInfo);
     }
 
-    /**
-     * Closes the rows object safely, waiting on the network.
-     */
     async close() {
         if (!this.closed) {
             this.closed = true;
-            // Native FFI execution in the background
-            await invokeAsync(CloseRows, null, spannerLib, this.conn.pool.oid, this.conn.oid, this.oid);
+            try {
+                await invokeAsync("CloseRows", this, spannerLib, this.connection.pool.oid, this.connection.oid, this.oid);
+            } finally {
+                spannerLib.unregister(this, this.pinnerId);
+            }
         }
     }
 }

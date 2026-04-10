@@ -39,10 +39,16 @@
         }],
         ['OS=="linux"', {
           'ldflags': [
-            '-Wl,-rpath,\'$$ORIGIN/../../../shared\''
+            '-Wl,-rpath,$$ORIGIN'
           ],
           'libraries': [
             '<(module_root_dir)/../../../shared/libspanner.so'
+          ],
+          'copies': [
+            {
+                'destination': '<(PRODUCT_DIR)',
+                'files': [ '<(module_root_dir)/../../../shared/libspanner.so' ]
+            }
           ]
         }]
       ]

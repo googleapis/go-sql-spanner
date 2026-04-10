@@ -6,7 +6,8 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "node-gyp rebuild && install_name_tool -change libspanner.so @loader_path/libspanner.so ./build/Release/spanner_napi.node",
+    "build": "node-gyp rebuild",
+    "postbuild": "node -e \"if (process.platform === 'darwin') require('child_process').execSync('install_name_tool -change libspanner.so @loader_path/libspanner.so ./build/Release/spanner_napi.node')\"",
     "test": "node test.js",
     "setup": "node setup_db.js"
   },

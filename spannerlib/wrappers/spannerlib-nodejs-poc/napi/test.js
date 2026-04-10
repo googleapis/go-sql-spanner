@@ -34,12 +34,19 @@ async function runTest() {
         rows = await connection.executeSql(sqlQuery);
         console.log(`Executed SQL successfully in ${(performance.now() - startTime).toFixed(3)}ms (Rows OID: ${rows.oid})`);
 
-        console.log("\n[JS-App] 4. Fetching ResultSet Native Types (Int, String, Float, Bool)...");
-        let nextRow;
-        while ((nextRow = await rows.next()) !== null) {
-            // nextRow is an array of Value protobuf objects (Google Protobuf Structs)
-            console.log(" - Fetched native row chunk ->");
-            console.log("    " + JSON.stringify(nextRow));
+        console.log("\n[JS-App] 4. Fetching ResultSet as Objects...");
+        let row;
+        const results = [];
+        while ((row = await rows.next()) !== null) {
+            results.push(row);
+        }
+        
+        console.log(" - Fetched rows ->");
+        console.log(JSON.stringify(results, null, 2));
+
+        // Example of accessing a property on the first row
+        if (results.length > 0) {
+            console.log(`\nExample access: results[0].FirstName is "${results[0].FirstName}"`);
         }
 
     } catch (err) {

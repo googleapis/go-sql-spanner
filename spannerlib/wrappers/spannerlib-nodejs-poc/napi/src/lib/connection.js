@@ -56,17 +56,37 @@ class Connection {
         const ExecuteSqlRequestProto = google.spanner.v1.ExecuteSqlRequest;
         const serializedPb = ExecuteSqlRequestProto.encode(requestObj).finish();
 
-        // 2. Transmit the standard protobuf binary buffer over CGO FFI seamlessly
-        const handled = await invokeAsync(
-            Execute,
-            null, // Rows gets constructed afterward
+        // 1. Execute the SQL to get a Rows identifier
+        const rowsResult = await invokeAsync(
+            "Execute",
+            null,
             null,
             this.pool.oid,
             this.oid,
             serializedPb
         );
+        const rowsId = rowsResult.objectId;
 
-        return new Rows(this, handled.objectId);
+        // 2. Fetch the metadata to get column names
+        const metadataResult = await invokeAsync(
+            "Metadata",
+            null,
+            null,
+            this.pool.oid,
+            this.oid,
+            rowsId
+        );
+        
+        // 3. Decode the metadata protobuf
+        const ResultSetMetadataProto = google.spanner.v1.ResultSetMetadata;
+        const metadata = ResultSetMetadataProto.decode(metadataResult.protobufBytes);
+        const columnInfo = metadata.rowType.fields.map(field => ({
+            name: field.name,
+            typeCode: field.type.code
+        }));
+        
+        // 4. Return a new Rows object, now equipped with the column info
+        return new Rows(this, rowsId, columnInfo);
     }
 
     /**
