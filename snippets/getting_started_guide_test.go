@@ -28,8 +28,8 @@ import (
 	adminpb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
 	"cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
-	"github.com/docker/docker/api/types/container"
 	"github.com/googleapis/go-sql-spanner/examples/samples"
+	"github.com/moby/moby/api/types/container"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"google.golang.org/grpc/codes"
@@ -145,7 +145,7 @@ func startEmulator(projectID, instanceID, databaseID string, dialect adminpb.Dat
 	if err != nil {
 		return emulator, fmt.Errorf("failed to get mapped port: %v", err)
 	}
-	port := mappedPort.Int()
+	port := mappedPort.Port()
 	// Set the env var to connect to the emulator.
 	if err := os.Setenv("SPANNER_EMULATOR_HOST", fmt.Sprintf("%s:%v", host, port)); err != nil {
 		return emulator, fmt.Errorf("failed to set env var for emulator: %v", err)

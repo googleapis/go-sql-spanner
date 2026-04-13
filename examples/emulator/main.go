@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/docker/docker/api/types/container"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
+	"github.com/moby/moby/api/types/container"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -115,7 +115,7 @@ func startEmulator() (testcontainers.Container, string, error) {
 	if err != nil {
 		return emulator, "", fmt.Errorf("failed to get mapped port: %v", err)
 	}
-	port := mappedPort.Int()
+	port := mappedPort.Port()
 
 	return emulator, fmt.Sprintf("%s:%v", host, port), nil
 }
