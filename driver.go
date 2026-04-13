@@ -825,7 +825,10 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		c.connectorConfig.Project,
 		c.connectorConfig.Instance,
 		c.connectorConfig.Database)
-	if value, ok := c.initialPropertyValues[propertyConnectTimeout.Key()]; ok {
+	c.clientMu.Lock()
+	value, ok := c.initialPropertyValues[propertyConnectTimeout.Key()]
+	c.clientMu.Unlock()
+	if ok {
 		if timeout, err := value.GetValue(); err == nil {
 			if duration, ok := timeout.(time.Duration); ok {
 				var cancel context.CancelFunc
@@ -838,6 +841,7 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 	}
 
 	if err := c.increaseConnCount(ctx, databaseName, opts); err != nil {
+
 		return nil, err
 	}
 
@@ -851,6 +855,7 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 			connectionStateType = connectionstate.TypeNonTransactional
 		}
 	}
+
 	connection := &conn{
 		parser:                       c.parser,
 		connector:                    c,
@@ -866,9 +871,11 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		execSingleDMLTransactional:   execInNewRWTransaction,
 		execSingleDMLPartitioned:     execAsPartitionedDML,
 	}
+
 	// Initialize the session.
 	_ = connection.ResetSession(context.Background())
 	return connection, nil
+
 }
 
 func addStateFromConnectorConfig(c *connector, values map[string]connectionstate.ConnectionPropertyValue) {
@@ -926,6 +933,7 @@ func (c *connector) increaseConnCount(ctx context.Context, databaseName string, 
 				closeClient()
 				return err
 			}
+			updateConnectionPropertyValueIfNotExists(propertyDatabaseDialect, c.initialPropertyValues, dialect)
 		}
 
 		c.logger.Log(ctx, LevelNotice, "creating Spanner Admin client")

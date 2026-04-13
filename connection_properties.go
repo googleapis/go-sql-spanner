@@ -721,6 +721,14 @@ var propertyCommitResponse = createReadOnlyConnectionProperty(
 	nil,
 	connectionstate.ContextUser,
 )
+var propertyDatabaseDialect = createReadOnlyConnectionProperty(
+	"database_dialect",
+	"The dialect of the database that the connection is connected to. This property is read-only and is automatically determined at startup.",
+	databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED,
+	false,
+	nil,
+	connectionstate.ContextUser,
+)
 
 func createReadOnlyConnectionProperty[T comparable](name, description string, defaultValue T, hasDefaultValue bool, validValues []T, context connectionstate.Context) *connectionstate.TypedConnectionProperty[T] {
 	converter := connectionstate.CreateReadOnlyConverter[T](name)
