@@ -91,11 +91,12 @@ func (ri *readOnlyRowIterator) ResultSetStats() *sppb.ResultSetStats {
 }
 
 func createResultSetStats(it *spanner.RowIterator, stmtType parser.StatementType) *sppb.ResultSetStats {
-	// Stats.QueryStats is set on the last PartialResultSet; RowIterator already exposes it as QueryStats.
-	// Populate ResultSetStats.QueryStats from that map.
+	// TODO: The Spanner client library should offer an option to get the full
+	//       ResultSetStats proto object.
 	stats := &sppb.ResultSetStats{
 		QueryPlan: it.QueryPlan,
 	}
+	// Get QueryStats from the RowIterator.
 	if len(it.QueryStats) > 0 {
 		if s, err := structpb.NewStruct(it.QueryStats); err != nil {
 			slog.Warn("failed to convert QueryStats to structpb.Struct", "err", err)
