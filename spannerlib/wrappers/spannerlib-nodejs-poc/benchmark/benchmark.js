@@ -2,6 +2,12 @@ const { bench, run } = require('mitata');
 const fs = require('fs');
 const path = require('path');
 
+// Handle Ctrl+C to ensure the script stops immediately
+process.on('SIGINT', () => {
+    console.log('\n[Benchmark] Interrupted by user. Exiting...');
+    process.exit(1);
+});
+
 // Helper to read DB name from any of the POC directories
 function getDbName() {
     const paths = [
@@ -63,10 +69,8 @@ async function measure(name, conn, executeMethod, iterations = 500, runs = 5, sl
     const runResults = [];
     
     for (let r = 0; r < runs; r++) {
-        if (r > 0) {
-            console.log(`  Sleeping for ${sleepMs}ms to let DB cool down...`);
-            await new Promise(resolve => setTimeout(resolve, sleepMs));
-        }
+        console.log(`  Sleeping for ${sleepMs}ms to let DB cool down...`);
+        await new Promise(resolve => setTimeout(resolve, sleepMs));
         
         console.log(`  Run ${r + 1}/${runs}...`);
         if (global.gc) global.gc();
@@ -75,9 +79,8 @@ async function measure(name, conn, executeMethod, iterations = 500, runs = 5, sl
         const startMemory = process.memoryUsage().heapUsed;
         const startTime = performance.now();
         
-        let min = Infinity;
-        let max = 0;
         let total = 0;
+        const samples = [];
         
         for (let i = 0; i < iterations; i++) {
             const opStart = performance.now();
@@ -87,8 +90,7 @@ async function measure(name, conn, executeMethod, iterations = 500, runs = 5, sl
             const opEnd = performance.now();
             
             const opDiff = opEnd - opStart;
-            if (opDiff < min) min = opDiff;
-            if (opDiff > max) max = opDiff;
+            samples.push(opDiff);
             total += opDiff;
         }
         
@@ -101,15 +103,21 @@ async function measure(name, conn, executeMethod, iterations = 500, runs = 5, sl
         const memoryUsed = (endMemory - startMemory) / 1024 / 1024;
         const avgLatency = total / iterations;
         
+        samples.sort((a, b) => a - b);
+        const p50 = samples[Math.floor(samples.length * 0.50)];
+        const p90 = samples[Math.floor(samples.length * 0.90)];
+        const p99 = samples[Math.floor(samples.length * 0.99)];
+        
         console.log(`    Throughput: ${opsPerSec.toFixed(2)} ops/sec`);
-        console.log(`    Latency: Avg ${avgLatency.toFixed(2)} ms, Min ${min.toFixed(2)} ms, Max ${max.toFixed(2)} ms`);
+        console.log(`    Latency: Avg ${avgLatency.toFixed(2)} ms, p50 ${p50.toFixed(2)} ms, p90 ${p90.toFixed(2)} ms, p99 ${p99.toFixed(2)} ms`);
         console.log(`    Heap Diff: ${memoryUsed.toFixed(2)} MB`);
         
         runResults.push({
             opsPerSec,
             avgLatency,
-            min,
-            max,
+            p50,
+            p90,
+            p99,
             memoryUsed,
             startTime: startTimeStr,
             endTime: endTimeStr
@@ -119,14 +127,15 @@ async function measure(name, conn, executeMethod, iterations = 500, runs = 5, sl
     const avg = {
         opsPerSec: runResults.reduce((acc, r) => acc + r.opsPerSec, 0) / runs,
         avgLatency: runResults.reduce((acc, r) => acc + r.avgLatency, 0) / runs,
-        min: runResults.reduce((acc, r) => acc + r.min, 0) / runs,
-        max: runResults.reduce((acc, r) => acc + r.max, 0) / runs,
+        p50: runResults.reduce((acc, r) => acc + r.p50, 0) / runs,
+        p90: runResults.reduce((acc, r) => acc + r.p90, 0) / runs,
+        p99: runResults.reduce((acc, r) => acc + r.p99, 0) / runs,
         memoryUsed: runResults.reduce((acc, r) => acc + r.memoryUsed, 0) / runs
     };
     
     console.log(`\n  Average for ${name}:`);
     console.log(`    Throughput: ${avg.opsPerSec.toFixed(2)} ops/sec`);
-    console.log(`    Latency: Avg ${avg.avgLatency.toFixed(2)} ms, Min ${avg.min.toFixed(2)} ms, Max ${avg.max.toFixed(2)} ms`);
+    console.log(`    Latency: Avg ${avg.avgLatency.toFixed(2)} ms, p50 ${avg.p50.toFixed(2)} ms, p90 ${avg.p90.toFixed(2)} ms, p99 ${avg.p99.toFixed(2)} ms`);
     console.log(`    Heap Diff: ${avg.memoryUsed.toFixed(2)} MB`);
     
     return { runResults, avg };
@@ -213,17 +222,20 @@ async function runMitataBenchmark(connections) {
         });
     }
 
-    const originalLog = console.log;
+    const originalWrite = process.stdout.write;
     let mitataOutput = '';
-    console.log = (...args) => {
-        mitataOutput += args.join(' ') + '\n';
-        originalLog.apply(console, args);
+    process.stdout.write = function(chunk, encoding, callback) {
+        mitataOutput += chunk.toString();
+        return originalWrite.call(process.stdout, chunk, encoding, callback);
     };
 
     await run();
 
-    console.log = originalLog;
-    return mitataOutput;
+    process.stdout.write = originalWrite;
+    
+    // Strip ANSI escape codes (colors) from Mitata output
+    const stripAnsi = (str) => str.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqrtvx-z]/g, '');
+    return stripAnsi(mitataOutput);
 }
 
 /**
@@ -239,10 +251,8 @@ async function runManualBenchmark(connections, iterations = 500) {
     if (connections.ipc) wrappers.push({ key: 'Ipc', name: 'IPC', conn: connections.ipc.conn, method: 'execute' });
 
     for (let i = 0; i < wrappers.length; i++) {
-        if (i > 0) {
-            console.log(`\nSleeping for 1 minute before ${wrappers[i].name} to let DB cool down...`);
-            await new Promise(resolve => setTimeout(resolve, 60000));
-        }
+        console.log(`\nSleeping for 1 minute before ${wrappers[i].name} to let DB cool down...`);
+        await new Promise(resolve => setTimeout(resolve, 60000));
         const w = wrappers[i];
         results[w.key] = await measure(w.name, w.conn, w.method, iterations);
     }
@@ -258,25 +268,56 @@ function saveResults(mitataOutput, results, iterations) {
     let report = `# Benchmark Results\n\n`;
     report += `## Environment\n`;
     report += `- **Database**: \`${dbPath}\`\n\n`;
+    report += `**Action Benchmarked**: A Single Point Read operation involving executing a SQL query (\`SELECT ... WHERE SingerId = 1\`), reading the first result row, and closing the result stream.\n\n`;
     
     report += `## Mitata Latency Benchmark\n\n`;
-    report += `\`\`\`\n${mitataOutput}\`\`\`\n\n`;
+    
+    const lines = mitataOutput.split('\n');
+    let cpuInfo = '';
+    let runtimeInfo = '';
+    const tableRows = [];
+
+    for (const line of lines) {
+        if (line.startsWith('cpu:')) cpuInfo = line;
+        if (line.startsWith('runtime:')) runtimeInfo = line;
+        
+        if (line.includes('Single Point Read')) {
+            const match = line.match(/^(.+?)\s+([\d',]+ µs\/iter)\s+\(([\d',]+ µs … [\d',]+ µs)\)\s+([\d',]+ µs)\s+([\d',]+ µs)\s+([\d',]+ µs)$/);
+            if (match) {
+                const [, name, avg, minMax, p75, p99, p999] = match;
+                tableRows.push({ name: name.trim(), avg, minMax, p75, p99, p999 });
+            }
+        }
+    }
+
+    if (cpuInfo) report += `**${cpuInfo}**\n`;
+    if (runtimeInfo) report += `**${runtimeInfo}**\n\n`;
+    
+    report += `| Wrapper | Time (Avg) | Min … Max | p75 | p99 | p999 |\n`;
+    report += `| :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+    tableRows.forEach(row => {
+        const simpleName = row.name.replace(' Single Point Read', '');
+        report += `| **${simpleName}** | ${row.avg} | ${row.minMax} | ${row.p75} | ${row.p99} | ${row.p999} |\n`;
+    });
+    report += `\n`;
     
     report += `## Summary of Manual Benchmark (Average of 5 Runs)\n\n`;
-    report += `| Wrapper | Throughput | Avg Latency | Min Latency | Max Latency | Heap Diff (Avg) |\n`;
-    report += `| :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+    report += `This table summarizes a manual benchmark designed to measure throughput and memory efficiency under sustained load.\n\n`;
+    report += `Each run consists of 50,000 iterations of this action. The table displays the average results across 5 independent runs for each wrapper.\n\n`;
+    report += `| Wrapper | Throughput | Avg Latency | p50 | p90 | p99 | Heap Diff (Avg) |\n`;
+    report += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
 
     if (results.Koffi) {
         const avg = results.Koffi.avg;
-        report += `| **Koffi** | ${avg.opsPerSec.toFixed(2)} ops/sec | ${avg.avgLatency.toFixed(2)} ms | ${avg.min.toFixed(2)} ms | ${avg.max.toFixed(2)} ms | ${avg.memoryUsed.toFixed(2)} MB |\n`;
+        report += `| **Koffi** | ${avg.opsPerSec.toFixed(2)} ops/sec | ${avg.avgLatency.toFixed(2)} ms | ${avg.p50.toFixed(2)} ms | ${avg.p90.toFixed(2)} ms | ${avg.p99.toFixed(2)} ms | ${avg.memoryUsed.toFixed(2)} MB |\n`;
     }
     if (results.Napi) {
         const avg = results.Napi.avg;
-        report += `| **N-API** | ${avg.opsPerSec.toFixed(2)} ops/sec | ${avg.avgLatency.toFixed(2)} ms | ${avg.min.toFixed(2)} ms | ${avg.max.toFixed(2)} ms | ${avg.memoryUsed.toFixed(2)} MB |\n`;
+        report += `| **N-API** | ${avg.opsPerSec.toFixed(2)} ops/sec | ${avg.avgLatency.toFixed(2)} ms | ${avg.p50.toFixed(2)} ms | ${avg.p90.toFixed(2)} ms | ${avg.p99.toFixed(2)} ms | ${avg.memoryUsed.toFixed(2)} MB |\n`;
     }
     if (results.Ipc) {
         const avg = results.Ipc.avg;
-        report += `| **IPC** | ${avg.opsPerSec.toFixed(2)} ops/sec | ${avg.avgLatency.toFixed(2)} ms | ${avg.min.toFixed(2)} ms | ${avg.max.toFixed(2)} ms | ${avg.memoryUsed.toFixed(2)} MB |\n`;
+        report += `| **IPC** | ${avg.opsPerSec.toFixed(2)} ops/sec | ${avg.avgLatency.toFixed(2)} ms | ${avg.p50.toFixed(2)} ms | ${avg.p90.toFixed(2)} ms | ${avg.p99.toFixed(2)} ms | ${avg.memoryUsed.toFixed(2)} MB |\n`;
     }
 
     report += `\n## Detailed Runs\n\n`;
@@ -284,13 +325,13 @@ function saveResults(mitataOutput, results, iterations) {
     function appendDetails(name, data) {
         if (!data) return;
         report += `### ${name}\n\n`;
-        report += `| Run | Start Time | End Time | Throughput | Avg Latency | Min Latency | Max Latency | Heap Diff |\n`;
-        report += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+        report += `| Run | Start Time | End Time | Throughput | Avg Latency | p50 | p90 | p99 | Heap Diff |\n`;
+        report += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
         data.runResults.forEach((r, i) => {
-            report += `| Run ${i + 1} | ${r.startTime} | ${r.endTime} | ${r.opsPerSec.toFixed(2)} ops/sec | ${r.avgLatency.toFixed(2)} ms | ${r.min.toFixed(2)} ms | ${r.max.toFixed(2)} ms | ${r.memoryUsed.toFixed(2)} MB |\n`;
+            report += `| Run ${i + 1} | ${r.startTime} | ${r.endTime} | ${r.opsPerSec.toFixed(2)} ops/sec | ${r.avgLatency.toFixed(2)} ms | ${r.p50.toFixed(2)} ms | ${r.p90.toFixed(2)} ms | ${r.p99.toFixed(2)} ms | ${r.memoryUsed.toFixed(2)} MB |\n`;
         });
         const avg = data.avg;
-        report += `| **Average** | - | - | ${avg.opsPerSec.toFixed(2)} ops/sec | ${avg.avgLatency.toFixed(2)} ms | ${avg.min.toFixed(2)} ms | ${avg.max.toFixed(2)} ms | ${avg.memoryUsed.toFixed(2)} MB |\n\n`;
+        report += `| **Average** | - | - | ${avg.opsPerSec.toFixed(2)} ops/sec | ${avg.avgLatency.toFixed(2)} ms | ${avg.p50.toFixed(2)} ms | ${avg.p90.toFixed(2)} ms | ${avg.p99.toFixed(2)} ms | ${avg.memoryUsed.toFixed(2)} MB |\n\n`;
     }
 
     appendDetails('Koffi', results.Koffi);
@@ -306,7 +347,7 @@ async function main() {
     
     const mitataOutput = await runMitataBenchmark(connections);
     
-    const iterations = 500;
+    const iterations = 50000;
     const results = await runManualBenchmark(connections, iterations);
     
     saveResults(mitataOutput, results, iterations);
