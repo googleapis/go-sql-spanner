@@ -177,10 +177,15 @@ func (s *StatementResult) ToPartialResultSets(resumeToken []byte, metadata *span
 			Metadata: metadata,
 		})
 	}
+	lastPart := result[len(result)-1]
+	if s.ResultSet != nil && s.ResultSet.Stats != nil {
+		lastPart.Stats = s.ResultSet.Stats
+	}
 	if s.UpdateCount > 0 {
-		result[len(result)-1].Stats = &spannerpb.ResultSetStats{
-			RowCount: &spannerpb.ResultSetStats_RowCountExact{RowCountExact: s.UpdateCount},
+		if lastPart.Stats == nil {
+			lastPart.Stats = &spannerpb.ResultSetStats{}
 		}
+		lastPart.Stats.RowCount = &spannerpb.ResultSetStats_RowCountExact{RowCountExact: s.UpdateCount}
 	}
 	return result, nil
 }

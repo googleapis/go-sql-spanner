@@ -5533,6 +5533,13 @@ func TestReturnResultSetStatsForQuery(t *testing.T) {
 	defer teardown()
 	query := "select id from singers where id=42598"
 	resultSet := testutil.CreateSingleColumnInt64ResultSet([]int64{42598}, "id")
+	resultSet.Stats = &sppb.ResultSetStats{
+		QueryStats: &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"elapsed_time": {Kind: &structpb.Value_StringValue{StringValue: "1ms"}},
+			},
+		},
+	}
 	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
 		Type:      testutil.StatementResultResultSet,
 		ResultSet: resultSet,
@@ -5582,6 +5589,16 @@ func TestReturnResultSetStatsForQuery(t *testing.T) {
 	// The stats should not contain any update count.
 	if stats.GetRowCount() != nil {
 		t.Fatalf("got update count for query")
+	}
+	if stats.QueryStats == nil {
+		t.Fatal("missing QueryStats")
+	}
+	v, ok := stats.QueryStats.Fields["elapsed_time"]
+	if !ok {
+		t.Fatal("missing elapsed_time in QueryStats")
+	}
+	if g, w := v.GetStringValue(), "1ms"; g != w {
+		t.Fatalf("QueryStats[elapsed_time] mismatch\n Got: %v\nWant: %v", g, w)
 	}
 	if rows.Next() {
 		t.Fatal("more rows than expected")
