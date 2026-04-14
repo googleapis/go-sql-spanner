@@ -64,6 +64,7 @@ type rows struct {
 	colsOnce sync.Once
 	dirtyErr error
 	cols     []string
+	colTypes []*sppb.Type
 
 	state                *connectionstate.ConnectionState
 	decodeOption         DecodeOption
@@ -155,8 +156,10 @@ func (r *rows) getColumns() {
 		}
 		rowType := metadata.RowType
 		r.cols = make([]string, len(rowType.Fields))
+		r.colTypes = make([]*sppb.Type, len(rowType.Fields))
 		for i, c := range rowType.Fields {
 			r.cols[i] = c.Name
+			r.colTypes[i] = c.Type
 		}
 	})
 }
@@ -203,19 +206,23 @@ func (r *rows) Next(dest []driver.Value) error {
 		}
 	}
 
+	if r.colTypes == nil {
+		return fmt.Errorf("spanner: missing column types metadata")
+	}
+
 	for i := 0; i < row.Size(); i++ {
-		var col spanner.GenericColumnValue
-		if err := row.Column(i, &col); err != nil {
-			return err
-		}
 		if r.decodeOption == DecodeOptionProto {
+			var col spanner.GenericColumnValue
+			if err := row.Column(i, &col); err != nil {
+				return err
+			}
 			dest[i] = col
 			continue
 		}
-		switch col.Type.Code {
+		switch r.colTypes[i].Code {
 		case sppb.TypeCode_INT64, sppb.TypeCode_ENUM:
 			var v spanner.NullInt64
-			if err := col.Decode(&v); err != nil {
+			if err := row.Column(i, &v); err != nil {
 				return err
 			}
 			if v.Valid {
@@ -225,7 +232,7 @@ func (r *rows) Next(dest []driver.Value) error {
 			}
 		case sppb.TypeCode_FLOAT32:
 			var v spanner.NullFloat32
-			if err := col.Decode(&v); err != nil {
+			if err := row.Column(i, &v); err != nil {
 				return err
 			}
 			if v.Valid {
@@ -235,7 +242,7 @@ func (r *rows) Next(dest []driver.Value) error {
 			}
 		case sppb.TypeCode_FLOAT64:
 			var v spanner.NullFloat64
-			if err := col.Decode(&v); err != nil {
+			if err := row.Column(i, &v); err != nil {
 				return err
 			}
 			if v.Valid {
@@ -245,15 +252,19 @@ func (r *rows) Next(dest []driver.Value) error {
 			}
 		case sppb.TypeCode_NUMERIC:
 			if propertyDecodeNumericToString.GetValueOrDefault(r.state) {
+				var col spanner.GenericColumnValue
+				if err := row.Column(i, &col); err != nil {
+					return err
+				}
 				if _, ok := col.Value.Kind.(*structpb.Value_NullValue); ok {
 					dest[i] = nil
 				} else {
 					dest[i] = col.Value.GetStringValue()
 				}
 			} else {
-				if col.Type.TypeAnnotation == sppb.TypeAnnotationCode_PG_NUMERIC {
+				if r.colTypes[i].TypeAnnotation == sppb.TypeAnnotationCode_PG_NUMERIC {
 					var v spanner.PGNumeric
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					if v.Valid {
@@ -263,7 +274,7 @@ func (r *rows) Next(dest []driver.Value) error {
 					}
 				} else {
 					var v spanner.NullNumeric
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					if v.Valid {
@@ -275,7 +286,7 @@ func (r *rows) Next(dest []driver.Value) error {
 			}
 		case sppb.TypeCode_STRING:
 			var v spanner.NullString
-			if err := col.Decode(&v); err != nil {
+			if err := row.Column(i, &v); err != nil {
 				return err
 			}
 			if v.Valid {
@@ -284,15 +295,15 @@ func (r *rows) Next(dest []driver.Value) error {
 				dest[i] = nil
 			}
 		case sppb.TypeCode_JSON:
-			if col.Type.TypeAnnotation == sppb.TypeAnnotationCode_PG_JSONB {
+			if r.colTypes[i].TypeAnnotation == sppb.TypeAnnotationCode_PG_JSONB {
 				var v spanner.PGJsonB
-				if err := col.Decode(&v); err != nil {
+				if err := row.Column(i, &v); err != nil {
 					return err
 				}
 				dest[i] = v
 			} else {
 				var v spanner.NullJSON
-				if err := col.Decode(&v); err != nil {
+				if err := row.Column(i, &v); err != nil {
 					return err
 				}
 				// We always assign `v` to dest[i] here because there is no native type
@@ -302,7 +313,7 @@ func (r *rows) Next(dest []driver.Value) error {
 			}
 		case sppb.TypeCode_UUID:
 			var v spanner.NullUUID
-			if err := col.Decode(&v); err != nil {
+			if err := row.Column(i, &v); err != nil {
 				return err
 			}
 			if v.Valid {
@@ -313,13 +324,13 @@ func (r *rows) Next(dest []driver.Value) error {
 		case sppb.TypeCode_BYTES, sppb.TypeCode_PROTO:
 			// The column value is a base64 encoded string.
 			var v []byte
-			if err := col.Decode(&v); err != nil {
+			if err := row.Column(i, &v); err != nil {
 				return err
 			}
 			dest[i] = v
 		case sppb.TypeCode_BOOL:
 			var v spanner.NullBool
-			if err := col.Decode(&v); err != nil {
+			if err := row.Column(i, &v); err != nil {
 				return err
 			}
 			if v.Valid {
@@ -328,15 +339,18 @@ func (r *rows) Next(dest []driver.Value) error {
 				dest[i] = nil
 			}
 		case sppb.TypeCode_DATE:
-			_, isNull := col.Value.Kind.(*structpb.Value_NullValue)
-			if isNull {
+			var col spanner.GenericColumnValue
+			if err := row.Column(i, &col); err != nil {
+				return err
+			}
+			if _, ok := col.Value.Kind.(*structpb.Value_NullValue); ok {
 				dest[i] = nil
 			} else {
 				dest[i] = col.Value.GetStringValue()
 			}
 		case sppb.TypeCode_TIMESTAMP:
 			var v spanner.NullTime
-			if err := col.Decode(&v); err != nil {
+			if err := row.Column(i, &v); err != nil {
 				return err
 			}
 			if v.Valid {
@@ -345,17 +359,17 @@ func (r *rows) Next(dest []driver.Value) error {
 				dest[i] = nil
 			}
 		case sppb.TypeCode_ARRAY:
-			switch col.Type.ArrayElementType.Code {
+			switch r.colTypes[i].ArrayElementType.Code {
 			case sppb.TypeCode_INT64, sppb.TypeCode_ENUM:
 				if r.decodeToNativeArrays {
 					var v []int64
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
 				} else {
 					var v []spanner.NullInt64
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
@@ -363,13 +377,13 @@ func (r *rows) Next(dest []driver.Value) error {
 			case sppb.TypeCode_FLOAT32:
 				if r.decodeToNativeArrays {
 					var v []float32
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
 				} else {
 					var v []spanner.NullFloat32
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
@@ -377,27 +391,27 @@ func (r *rows) Next(dest []driver.Value) error {
 			case sppb.TypeCode_FLOAT64:
 				if r.decodeToNativeArrays {
 					var v []float64
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
 				} else {
 					var v []spanner.NullFloat64
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
 				}
 			case sppb.TypeCode_NUMERIC:
-				if col.Type.ArrayElementType.TypeAnnotation == sppb.TypeAnnotationCode_PG_NUMERIC {
+				if r.colTypes[i].ArrayElementType.TypeAnnotation == sppb.TypeAnnotationCode_PG_NUMERIC {
 					var v []spanner.PGNumeric
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
 				} else {
 					var v []spanner.NullNumeric
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
@@ -405,25 +419,25 @@ func (r *rows) Next(dest []driver.Value) error {
 			case sppb.TypeCode_STRING:
 				if r.decodeToNativeArrays {
 					var v []string
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
 				} else {
 					var v []spanner.NullString
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
 				}
 			case sppb.TypeCode_JSON:
-				if col.Type.ArrayElementType.TypeAnnotation == sppb.TypeAnnotationCode_PG_JSONB {
+				if r.colTypes[i].ArrayElementType.TypeAnnotation == sppb.TypeAnnotationCode_PG_JSONB {
 					var v []spanner.PGJsonB
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						// Workaround for https://github.com/googleapis/google-cloud-go/pull/13602
 						if spanner.ErrCode(err) == codes.InvalidArgument && err.Error() == "spanner: code = \"InvalidArgument\", desc = \"type *[]spanner.PGJsonB cannot be used for decoding ARRAY[JSON]\"" {
 							var tmp []spanner.NullJSON
-							if err := col.Decode(&tmp); err != nil {
+							if err := row.Column(i, &tmp); err != nil {
 								return err
 							}
 							v = make([]spanner.PGJsonB, 0, len(tmp))
@@ -437,7 +451,7 @@ func (r *rows) Next(dest []driver.Value) error {
 					dest[i] = v
 				} else {
 					var v []spanner.NullJSON
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
@@ -445,33 +459,33 @@ func (r *rows) Next(dest []driver.Value) error {
 			case sppb.TypeCode_UUID:
 				if r.decodeToNativeArrays {
 					var v []uuid.UUID
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
 				} else {
 					var v []spanner.NullUUID
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
 				}
 			case sppb.TypeCode_BYTES, sppb.TypeCode_PROTO:
 				var v [][]byte
-				if err := col.Decode(&v); err != nil {
+				if err := row.Column(i, &v); err != nil {
 					return err
 				}
 				dest[i] = v
 			case sppb.TypeCode_BOOL:
 				if r.decodeToNativeArrays {
 					var v []bool
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
 				} else {
 					var v []spanner.NullBool
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
@@ -479,13 +493,13 @@ func (r *rows) Next(dest []driver.Value) error {
 			case sppb.TypeCode_DATE:
 				if r.decodeToNativeArrays {
 					var v []civil.Date
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
 				} else {
 					var v []spanner.NullDate
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
@@ -493,13 +507,13 @@ func (r *rows) Next(dest []driver.Value) error {
 			case sppb.TypeCode_TIMESTAMP:
 				if r.decodeToNativeArrays {
 					var v []time.Time
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
 				} else {
 					var v []spanner.NullTime
-					if err := col.Decode(&v); err != nil {
+					if err := row.Column(i, &v); err != nil {
 						return err
 					}
 					dest[i] = v
@@ -507,12 +521,12 @@ func (r *rows) Next(dest []driver.Value) error {
 			default:
 				return fmt.Errorf("unsupported array element type ARRAY<%v>, "+
 					"use spannerdriver.ExecOptions{DecodeOption: spannerdriver.DecodeOptionProto} "+
-					"to return the underlying protobuf value", col.Type.ArrayElementType.Code)
+					"to return the underlying protobuf value", r.colTypes[i].ArrayElementType.Code)
 			}
 		default:
 			return fmt.Errorf("unsupported type %v, "+
 				"use spannerdriver.ExecOptions{DecodeOption: spannerdriver.DecodeOptionProto} "+
-				"to return the underlying protobuf value", col.Type.Code)
+				"to return the underlying protobuf value", r.colTypes[i].Code)
 		}
 	}
 	return nil
