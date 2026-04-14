@@ -825,7 +825,10 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		c.connectorConfig.Project,
 		c.connectorConfig.Instance,
 		c.connectorConfig.Database)
-	if value, ok := c.initialPropertyValues[propertyConnectTimeout.Key()]; ok {
+	c.clientMu.Lock()
+	value, ok := c.initialPropertyValues[propertyConnectTimeout.Key()]
+	c.clientMu.Unlock()
+	if ok {
 		if timeout, err := value.GetValue(); err == nil {
 			if duration, ok := timeout.(time.Duration); ok {
 				var cancel context.CancelFunc
@@ -926,6 +929,7 @@ func (c *connector) increaseConnCount(ctx context.Context, databaseName string, 
 				closeClient()
 				return err
 			}
+			updateConnectionPropertyValueIfNotExists(propertyDatabaseDialect, c.initialPropertyValues, dialect)
 		}
 
 		c.logger.Log(ctx, LevelNotice, "creating Spanner Admin client")

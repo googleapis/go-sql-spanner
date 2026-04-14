@@ -1924,6 +1924,42 @@ func TestDmlBatchReturnsBatchUpdateCountsOutsideTransaction(t *testing.T) {
 	}
 }
 
+func TestDatabaseDialectProperty_PostgreSQL(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnectionWithParamsAndDialect(t, "", databasepb.DatabaseDialect_POSTGRESQL)
+	defer teardown()
+	ctx := context.Background()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	verifyConnectionPropertyValue(t, conn, "database_dialect", "POSTGRESQL")
+	// Verify that 'dialect' property is NOT updated and remains empty/unspecified.
+	verifyConnectionPropertyValue(t, conn, "dialect", "")
+	verifySetFails(t, conn, "database_dialect", "'GOOGLE_STANDARD_SQL'")
+}
+
+func TestDatabaseDialectProperty_GoogleSQL(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnectionWithParamsAndDialect(t, "", databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+	defer teardown()
+	ctx := context.Background()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	verifyConnectionPropertyValue(t, conn, "database_dialect", "GOOGLE_STANDARD_SQL")
+	verifySetFails(t, conn, "database_dialect", "'POSTGRESQL'")
+}
+
 func verifyConnectionPropertyValue[T comparable](t *testing.T, c *sql.Conn, name string, value T) {
 	ctx := context.Background()
 	row := c.QueryRowContext(ctx, getShowStatement(c)+name)
