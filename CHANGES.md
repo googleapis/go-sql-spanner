@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.25.0](https://github.com/googleapis/go-sql-spanner/compare/v1.24.1...v1.25.0) (2026-04-14)
+
+
+### Features
+
+* Add database_dialect property ([#794](https://github.com/googleapis/go-sql-spanner/issues/794)) ([acb1f42](https://github.com/googleapis/go-sql-spanner/commit/acb1f42d395ffad75e96d3f89befd6214b2f9fcd))
+
+
+### Bug Fixes
+
+* **spannerdriver:** Populate QueryStats in ResultSetStats ([#778](https://github.com/googleapis/go-sql-spanner/issues/778)) ([7e8b1fe](https://github.com/googleapis/go-sql-spanner/commit/7e8b1fe9087609bffc24cbbb7230b05b477a9e91))
+* Update all dependencies ([#765](https://github.com/googleapis/go-sql-spanner/issues/765)) ([2016a5c](https://github.com/googleapis/go-sql-spanner/commit/2016a5ce79f9c8ed1e6dcf699c17576497ee3da5))
+* Update dependency com.google.errorprone:error_prone_annotations to v2.49.0 ([#791](https://github.com/googleapis/go-sql-spanner/issues/791)) ([e2a80fa](https://github.com/googleapis/go-sql-spanner/commit/e2a80fa7515f45c339bfbd69caae2e6edd7c6c29))
+* Update dependency io.grpc:grpc-bom to v1.80.0 ([#767](https://github.com/googleapis/go-sql-spanner/issues/767)) ([8d1d635](https://github.com/googleapis/go-sql-spanner/commit/8d1d6355d103e3e07b481756f5e2226de7cf0180))
+* Update dependency io.netty:netty-transport-native-epoll to v4.2.12.final ([#775](https://github.com/googleapis/go-sql-spanner/issues/775)) ([f81fc98](https://github.com/googleapis/go-sql-spanner/commit/f81fc9800a4c1dca9402c769fd16db362ead9bde))
+* Update module github.com/testcontainers/testcontainers-go to v0.42.0 ([#768](https://github.com/googleapis/go-sql-spanner/issues/768)) ([338cf58](https://github.com/googleapis/go-sql-spanner/commit/338cf587382fdeef2421dcf3ee1b2e1e59562cd0))
+* Update protobuf monorepo ([#774](https://github.com/googleapis/go-sql-spanner/issues/774)) ([faab4ee](https://github.com/googleapis/go-sql-spanner/commit/faab4ee147c3279bcf0053ea5f382a3caec2a93f))
+
 ## [1.24.1](https://github.com/googleapis/go-sql-spanner/compare/v1.24.0...v1.24.1) (2026-03-06)
 
 
