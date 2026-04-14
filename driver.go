@@ -841,7 +841,6 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 	}
 
 	if err := c.increaseConnCount(ctx, databaseName, opts); err != nil {
-
 		return nil, err
 	}
 
@@ -855,7 +854,6 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 			connectionStateType = connectionstate.TypeNonTransactional
 		}
 	}
-
 	connection := &conn{
 		parser:                       c.parser,
 		connector:                    c,
@@ -871,11 +869,9 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		execSingleDMLTransactional:   execInNewRWTransaction,
 		execSingleDMLPartitioned:     execAsPartitionedDML,
 	}
-
 	// Initialize the session.
 	_ = connection.ResetSession(context.Background())
 	return connection, nil
-
 }
 
 func addStateFromConnectorConfig(c *connector, values map[string]connectionstate.ConnectionPropertyValue) {
