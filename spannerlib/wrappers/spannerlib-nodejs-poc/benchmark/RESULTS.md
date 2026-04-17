@@ -3,53 +3,63 @@
 ## Environment
 - **Database**: `projects/span-cloud-testing/instances/gargsurbhi-testing/databases/test-db-koffi-136`
 
+**Action Benchmarked**: A Single Point Read operation involving executing a SQL query (`SELECT ... WHERE SingerId = 1`), reading the first result row, and closing the result stream.
+
 ## Mitata Latency Benchmark
-benchmark                    time (avg)             (min … max)       p75       p99      p999
---------------------------------------------------------------- -----------------------------
-Koffi Single Point Read   4'228 µs/iter   (2'763 µs … 7'062 µs)  4'795 µs  6'234 µs  7'062 µs
-N-API Single Point Read   4'223 µs/iter   (2'745 µs … 6'530 µs)  4'777 µs  5'694 µs  6'530 µs
-IPC Single Point Read     6'744 µs/iter  (5'166 µs … 11'075 µs)  7'296 µs 11'075 µs 11'075 µs
+
+**cpu: Intel(R) Xeon(R) CPU @ 2.80GHz**
+**runtime: node v22.22.2 (x64-linux)**
+
+| Wrapper | Time (Avg) | Min … Max | p75 | p99 | p999 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Koffi** | 4'554 µs/iter | 2'985 µs … 6'313 µs | 5'295 µs | 6'288 µs | 6'313 µs |
+| **N-API** | 4'608 µs/iter | 2'689 µs … 6'519 µs | 5'122 µs | 6'132 µs | 6'519 µs |
+| **IPC** | 7'090 µs/iter | 4'831 µs … 11'449 µs | 8'010 µs | 11'449 µs | 11'449 µs |
 
 ## Summary of Manual Benchmark (Average of 5 Runs)
 
-| Wrapper | Throughput | Avg Latency | Min Latency | Max Latency | Heap Diff (Avg) |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Koffi** | 247.50 ops/sec | 4.04 ms | 2.19 ms | 120.20 ms | 0.48 MB |
-| **N-API** | 251.79 ops/sec | 3.97 ms | 2.08 ms | 114.84 ms | 0.29 MB |
-| **IPC** | 178.48 ops/sec | 5.60 ms | 3.55 ms | 62.48 ms | 1.11 MB |
+This table summarizes a manual benchmark designed to measure throughput and memory efficiency under sustained load.
+
+Each run consists of 50,000 iterations of this action. The table displays the average results across 5 independent runs for each wrapper.
+
+| Wrapper | Throughput | Avg Latency | p50 | p90 | p99 | Heap Diff (Avg) |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Koffi** | 230.82 ops/sec | 4.33 ms | 4.46 ms | 5.35 ms | 7.04 ms | 4.72 MB |
+| **N-API** | 239.63 ops/sec | 4.17 ms | 4.30 ms | 5.23 ms | 6.62 ms | 4.06 MB |
+| **IPC** | 171.31 ops/sec | 5.84 ms | 5.85 ms | 6.93 ms | 10.28 ms | 10.21 MB |
 
 ## Detailed Runs
 
 ### Koffi
 
-| Run | Start Time | End Time | Throughput | Avg Latency | Min Latency | Max Latency | Heap Diff |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| Run 1 | 2026-04-13T16:09:56.696Z | 2026-04-13T16:13:17.847Z | 248.57 ops/sec | 4.02 ms | 2.10 ms | 211.72 ms | 0.63 MB |
-| Run 2 | 2026-04-13T16:13:19.850Z | 2026-04-13T16:16:39.698Z | 250.19 ops/sec | 4.00 ms | 2.21 ms | 50.32 ms | 0.60 MB |
-| Run 3 | 2026-04-13T16:16:41.700Z | 2026-04-13T16:20:04.955Z | 246.00 ops/sec | 4.06 ms | 2.22 ms | 46.13 ms | 0.50 MB |
-| Run 4 | 2026-04-13T16:20:06.957Z | 2026-04-13T16:23:30.452Z | 245.71 ops/sec | 4.07 ms | 2.23 ms | 83.57 ms | 0.59 MB |
-| Run 5 | 2026-04-13T16:23:32.455Z | 2026-04-13T16:26:54.852Z | 247.04 ops/sec | 4.05 ms | 2.18 ms | 209.29 ms | 0.05 MB |
-| **Average** | - | - | 247.50 ops/sec | 4.04 ms | 2.19 ms | 120.20 ms | 0.48 MB |
+| Run | Start Time | End Time | Throughput | Avg Latency | p50 | p90 | p99 | Heap Diff |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Run 1 | 2026-04-17T09:05:36.744Z | 2026-04-17T09:09:15.783Z | 228.27 ops/sec | 4.38 ms | 4.50 ms | 5.39 ms | 7.35 ms | 2.63 MB |
+| Run 2 | 2026-04-17T09:09:17.828Z | 2026-04-17T09:12:54.407Z | 230.86 ops/sec | 4.33 ms | 4.47 ms | 5.35 ms | 6.81 ms | 3.09 MB |
+| Run 3 | 2026-04-17T09:12:56.451Z | 2026-04-17T09:16:31.826Z | 232.15 ops/sec | 4.31 ms | 4.44 ms | 5.31 ms | 6.82 ms | 6.09 MB |
+| Run 4 | 2026-04-17T09:16:33.872Z | 2026-04-17T09:20:08.088Z | 233.41 ops/sec | 4.28 ms | 4.42 ms | 5.29 ms | 6.73 ms | 6.08 MB |
+| Run 5 | 2026-04-17T09:20:10.133Z | 2026-04-17T09:23:48.067Z | 229.43 ops/sec | 4.36 ms | 4.47 ms | 5.38 ms | 7.47 ms | 5.71 MB |
+| **Average** | - | - | 230.82 ops/sec | 4.33 ms | 4.46 ms | 5.35 ms | 7.04 ms | 4.72 MB |
 
 ### N-API
 
-| Run | Start Time | End Time | Throughput | Avg Latency | Min Latency | Max Latency | Heap Diff |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| Run 1 | 2026-04-13T16:27:56.860Z | 2026-04-13T16:31:15.625Z | 251.55 ops/sec | 3.97 ms | 2.07 ms | 212.07 ms | -1.32 MB |
-| Run 2 | 2026-04-13T16:31:17.628Z | 2026-04-13T16:34:37.128Z | 250.63 ops/sec | 3.99 ms | 2.07 ms | 211.28 ms | 0.60 MB |
-| Run 3 | 2026-04-13T16:34:39.131Z | 2026-04-13T16:37:58.728Z | 250.50 ops/sec | 3.99 ms | 2.10 ms | 49.52 ms | -0.15 MB |
-| Run 4 | 2026-04-13T16:38:00.729Z | 2026-04-13T16:41:19.177Z | 251.96 ops/sec | 3.97 ms | 2.10 ms | 48.44 ms | -0.19 MB |
-| Run 5 | 2026-04-13T16:41:21.180Z | 2026-04-13T16:44:37.807Z | 254.29 ops/sec | 3.93 ms | 2.07 ms | 52.89 ms | 2.50 MB |
-| **Average** | - | - | 251.79 ops/sec | 3.97 ms | 2.08 ms | 114.84 ms | 0.29 MB |
+| Run | Start Time | End Time | Throughput | Avg Latency | p50 | p90 | p99 | Heap Diff |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Run 1 | 2026-04-17T09:24:50.107Z | 2026-04-17T09:28:24.288Z | 233.45 ops/sec | 4.28 ms | 4.41 ms | 5.34 ms | 6.81 ms | 1.66 MB |
+| Run 2 | 2026-04-17T09:28:26.330Z | 2026-04-17T09:31:56.971Z | 237.37 ops/sec | 4.21 ms | 4.35 ms | 5.24 ms | 6.47 ms | 2.83 MB |
+| Run 3 | 2026-04-17T09:31:59.016Z | 2026-04-17T09:35:23.629Z | 244.36 ops/sec | 4.09 ms | 4.23 ms | 5.14 ms | 6.40 ms | 5.80 MB |
+| Run 4 | 2026-04-17T09:35:25.673Z | 2026-04-17T09:38:53.506Z | 240.58 ops/sec | 4.16 ms | 4.26 ms | 5.22 ms | 6.84 ms | 5.21 MB |
+| Run 5 | 2026-04-17T09:38:55.551Z | 2026-04-17T09:42:21.827Z | 242.39 ops/sec | 4.12 ms | 4.24 ms | 5.20 ms | 6.58 ms | 4.82 MB |
+| **Average** | - | - | 239.63 ops/sec | 4.17 ms | 4.30 ms | 5.23 ms | 6.62 ms | 4.06 MB |
 
 ### IPC
 
-| Run | Start Time | End Time | Throughput | Avg Latency | Min Latency | Max Latency | Heap Diff |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| Run 1 | 2026-04-13T16:45:39.821Z | 2026-04-13T16:50:15.184Z | 181.58 ops/sec | 5.51 ms | 3.54 ms | 100.94 ms | 7.74 MB |
-| Run 2 | 2026-04-13T16:50:17.187Z | 2026-04-13T16:54:54.569Z | 180.26 ops/sec | 5.55 ms | 3.56 ms | 53.70 ms | -0.07 MB |
-| Run 3 | 2026-04-13T16:54:56.572Z | 2026-04-13T16:59:37.603Z | 177.92 ops/sec | 5.62 ms | 3.57 ms | 52.15 ms | -0.16 MB |
-| Run 4 | 2026-04-13T16:59:39.606Z | 2026-04-13T17:04:22.795Z | 176.56 ops/sec | 5.66 ms | 3.57 ms | 55.32 ms | -5.46 MB |
-| Run 5 | 2026-04-13T17:04:24.798Z | 2026-04-13T17:09:08.731Z | 176.10 ops/sec | 5.68 ms | 3.50 ms | 50.27 ms | 3.48 MB |
-| **Average** | - | - | 178.48 ops/sec | 5.60 ms | 3.55 ms | 62.48 ms | 1.11 MB |
+| Run | Start Time | End Time | Throughput | Avg Latency | p50 | p90 | p99 | Heap Diff |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Run 1 | 2026-04-17T09:43:23.923Z | 2026-04-17T09:48:16.443Z | 170.93 ops/sec | 5.85 ms | 5.85 ms | 6.94 ms | 10.36 ms | 13.09 MB |
+| Run 2 | 2026-04-17T09:48:18.488Z | 2026-04-17T09:53:11.760Z | 170.49 ops/sec | 5.86 ms | 5.87 ms | 6.97 ms | 10.68 ms | 8.24 MB |
+| Run 3 | 2026-04-17T09:53:13.800Z | 2026-04-17T09:58:03.738Z | 172.45 ops/sec | 5.80 ms | 5.82 ms | 6.89 ms | 10.28 ms | 6.35 MB |
+| Run 4 | 2026-04-17T09:58:05.778Z | 2026-04-17T10:02:58.023Z | 171.09 ops/sec | 5.84 ms | 5.87 ms | 6.94 ms | 10.09 ms | 14.67 MB |
+| Run 5 | 2026-04-17T10:03:00.069Z | 2026-04-17T10:07:51.418Z | 171.62 ops/sec | 5.83 ms | 5.84 ms | 6.89 ms | 9.97 ms | 8.72 MB |
+| **Average** | - | - | 171.31 ops/sec | 5.84 ms | 5.85 ms | 6.93 ms | 10.28 ms | 10.21 MB |
 
