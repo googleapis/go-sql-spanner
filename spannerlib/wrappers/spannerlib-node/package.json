@@ -1,0 +1,47 @@
+{
+  "name": "spannerlib-node",
+  "version": "0.1.0",
+  "main": "./build/cjs/src/index.js",
+  "module": "./build/esm/src/index.js",
+  "types": "./build/esm/src/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./build/esm/src/index.d.ts",
+        "default": "./build/esm/src/index.js"
+      },
+      "require": {
+        "types": "./build/cjs/src/index.d.ts",
+        "default": "./build/cjs/src/index.js"
+      }
+    }
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "node-gyp rebuild",
+    "postbuild": "node -e \"if (process.platform === 'darwin') require('child_process').execSync('install_name_tool -change libspanner.so @loader_path/libspanner.so ./build/Release/spanner_napi.node')\"",
+    "compile:esm": "tsc -p .",
+    "compile:cjs": "tsc -p ./tsconfig.cjs.json",
+    "compile": "npm run compile:esm && npm run compile:cjs",
+    "test": "mocha build/esm/test/**/*.js"
+  },
+  "files": [
+    "build/esm",
+    "build/cjs",
+    "build/Release/*.node"
+  ],
+  "dependencies": {
+    "node-addon-api": "^8.0.0"
+  },
+  "devDependencies": {
+    "mocha": "^10.2.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.11.0",
+    "@types/mocha": "^10.0.6",
+    "@google-cloud/spanner": "^7.13.0"
+  },
+  "gypfile": false
+}

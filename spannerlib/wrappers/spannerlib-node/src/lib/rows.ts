@@ -1,0 +1,90 @@
+import { invokeAsync, ENCODING_PROTOBUF } from '../ffi/utils.js';
+import { spannerLib } from './spannerlib.js';
+import { Connection } from './connection.js';
+import { createRequire } from 'module';
+// @ts-ignore
+const _require = typeof require !== 'undefined' ? require : createRequire(import.meta.url);
+const { google } = _require('@google-cloud/spanner/build/protos/protos.js');
+const ListValue = google.protobuf.ListValue;
+
+function parseRowToObject(buffer: Buffer | null, columnInfo: Array<{name: string, typeCode: number}>): object | null {
+    if (!buffer || buffer.length === 0) {
+        return null;
+    }
+
+    const listValue = ListValue.decode(buffer);
+    const rowObject: any = {};
+    const values = listValue.values;
+
+    columnInfo.forEach((column, index) => {
+        const value = values[index];
+        const columnName = column.name;
+        let parsedValue;
+
+        switch (value.kind) {
+            case 'nullValue':
+                parsedValue = null;
+                break;
+            case 'numberValue':
+                parsedValue = value.numberValue;
+                break;
+            case 'stringValue':
+                parsedValue = value.stringValue;
+                break;
+            case 'boolValue':
+                parsedValue = value.boolValue;
+                break;
+            default:
+                parsedValue = undefined;
+        }
+        rowObject[columnName] = parsedValue;
+    });
+
+    return rowObject;
+}
+
+export class Rows {
+    public connection: Connection;
+    public oid: number;
+    public pinnerId: number | null;
+    public closed: boolean;
+    public columnInfo: Array<{name: string, typeCode: number}>;
+
+    constructor(connection: Connection, oid: number, columnInfo: Array<{name: string, typeCode: number}>) {
+        this.connection = connection;
+        this.oid = oid;
+        this.pinnerId = null;
+        this.closed = false;
+        this.columnInfo = columnInfo;
+    }
+
+    async next(): Promise<object | null> {
+        if (this.closed) throw new Error("Rows are already closed");
+
+        const handled = await invokeAsync(
+            "Next",
+            null,
+            null,
+            this.connection.pool!.oid,
+            this.connection.oid,
+            this.oid,
+            1,
+            ENCODING_PROTOBUF
+        );
+
+        return parseRowToObject(handled.protobufBytes, this.columnInfo);
+    }
+
+    async close(): Promise<void> {
+        if (!this.closed) {
+            this.closed = true;
+            try {
+                await invokeAsync("CloseRows", this, spannerLib, this.connection.pool!.oid, this.connection.oid, this.oid);
+            } finally {
+                if (this.pinnerId !== null) {
+                    spannerLib.unregister(this, this.pinnerId);
+                }
+            }
+        }
+    }
+}

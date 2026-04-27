@@ -10,3 +10,5 @@ vendor/bundle
 *.swp
 ext/
 Gemfile.lock
+/googleapis/
+package-lock.json
