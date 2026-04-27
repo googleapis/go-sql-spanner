@@ -1,9 +1,9 @@
 {
   "name": "spannerlib-node",
   "version": "0.1.0",
-  "main": "./build/cjs/src/index.js",
+  "main": "./build/cjs/src/index.cjs",
   "module": "./build/esm/src/index.js",
-  "types": "./build/esm/src/index.d.ts",
+  "types": "./build/cjs/src/index.d.ts",
   "type": "module",
   "exports": {
     ".": {
@@ -13,7 +13,7 @@
       },
       "require": {
         "types": "./build/cjs/src/index.d.ts",
-        "default": "./build/cjs/src/index.js"
+        "default": "./build/cjs/src/index.cjs"
       }
     }
   },
@@ -24,7 +24,7 @@
     "build": "node-gyp rebuild",
     "postbuild": "node -e \"if (process.platform === 'darwin') require('child_process').execSync('install_name_tool -change libspanner.so @loader_path/libspanner.so ./build/Release/spanner_napi.node')\"",
     "compile:esm": "tsc -p .",
-    "compile:cjs": "tsc -p ./tsconfig.cjs.json",
+    "compile:cjs": "tsc -p ./tsconfig.cjs.json && babel build/cjs --out-dir build/cjs --out-file-extension .cjs && find build/cjs -name '*.js' -delete",
     "compile": "npm run compile:esm && npm run compile:cjs",
     "test": "mocha build/esm/test/**/*.js"
   },
@@ -41,7 +41,10 @@
     "typescript": "^5.4.0",
     "@types/node": "^20.11.0",
     "@types/mocha": "^10.0.6",
-    "@google-cloud/spanner": "^7.13.0"
+    "@google-cloud/spanner": "^7.13.0",
+    "@babel/core": "^7.24.0",
+    "@babel/cli": "^7.23.9",
+    "babel-plugin-replace-import-extension": "^1.1.4"
   },
   "gypfile": false
 }
