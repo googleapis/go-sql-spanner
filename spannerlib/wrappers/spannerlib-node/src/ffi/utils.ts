@@ -26,7 +26,7 @@ export interface HandledResult {
     protobufBytes: Buffer | null;
 }
 
-export function invokeAsync(funcName: string, constructor1: any, constructor2: any, ...args: any[]): Promise<HandledResult> {
+function invokeAsync(funcName: string, constructor1: any, constructor2: any, ...args: any[]): Promise<HandledResult> {
     return new Promise((resolve, reject) => {
         const callback = (err: any, result: any) => {
             if (err) {
@@ -56,7 +56,10 @@ export function invokeAsync(funcName: string, constructor1: any, constructor2: a
     });
 }
 
-export const Release = addon.Release;
+export const ffi = {
+    invokeAsync,
+    Release: addon.Release
+};
 export class SpannerLibError extends Error {
     constructor(message: string) {
         super(message);

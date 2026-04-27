@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { invokeAsync } from '../ffi/utils.js';
+import { ffi } from '../ffi/utils.js';
 import { spannerLib } from './spannerlib.js';
 import { Pool } from './pool.js';
 import { Rows } from './rows.js';
@@ -31,7 +31,7 @@ export class Connection {
         const c = new Connection();
         c.pool = pool;
 
-        const handled = await invokeAsync(
+        const handled = await ffi.invokeAsync(
             "CreateConnection",
             c,
             spannerLib,
@@ -58,7 +58,7 @@ export class Connection {
         const ExecuteSqlRequestProto = google.spanner.v1.ExecuteSqlRequest;
         const serializedPb = ExecuteSqlRequestProto.encode(requestObj).finish();
 
-        const rowsResult = await invokeAsync(
+        const rowsResult = await ffi.invokeAsync(
             "Execute",
             null,
             null,
@@ -76,7 +76,7 @@ export class Connection {
             this.closed = true;
             try {
                 if (this.pool && this.oid !== null) {
-                    await invokeAsync("CloseConnection", this, spannerLib, this.pool.oid, this.oid);
+                    await ffi.invokeAsync("CloseConnection", this, spannerLib, this.pool.oid, this.oid);
                 }
             } finally {
                 if (this.pinnerId !== null) {

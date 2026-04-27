@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { invokeAsync } from '../ffi/utils.js';
+import { ffi } from '../ffi/utils.js';
 import { spannerLib } from './spannerlib.js';
 import { Connection } from './connection.js';
 
@@ -29,7 +29,7 @@ export class Pool {
         const userAgentSuffix = isESM ? 'node-esm' : 'node-cjs';
 
         const p = new Pool(userAgentSuffix, connectionString);
-        const handled = await invokeAsync(
+        const handled = await ffi.invokeAsync(
             "CreatePool",
             p,
             spannerLib,
@@ -60,7 +60,7 @@ export class Pool {
             this.closed = true;
             try {
                 if (this.oid !== null) {
-                    await invokeAsync("ClosePool", this, spannerLib, this.oid);
+                    await ffi.invokeAsync("ClosePool", this, spannerLib, this.oid);
                 }
             } finally {
                 if (this.pinnerId !== null) {

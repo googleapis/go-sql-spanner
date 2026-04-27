@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { invokeAsync, ENCODING_PROTOBUF } from '../ffi/utils.js';
+import { ffi, ENCODING_PROTOBUF } from '../ffi/utils.js';
 import { spannerLib } from './spannerlib.js';
 import { Connection } from './connection.js';
 import { createRequire } from 'module';
@@ -38,7 +38,7 @@ export class Rows {
     async next(): Promise<any> {
         if (this.closed) throw new Error("Rows are already closed");
 
-        const handled = await invokeAsync(
+        const handled = await ffi.invokeAsync(
             "Next",
             null,
             null,
@@ -60,7 +60,7 @@ export class Rows {
         if (!this.closed) {
             this.closed = true;
             try {
-                await invokeAsync("CloseRows", this, spannerLib, this.connection.pool!.oid, this.connection.oid, this.oid);
+                await ffi.invokeAsync("CloseRows", this, spannerLib, this.connection.pool!.oid, this.connection.oid, this.oid);
             } finally {
                 if (this.pinnerId !== null) {
                     spannerLib.unregister(this, this.pinnerId);

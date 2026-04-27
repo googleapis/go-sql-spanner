@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Release } from '../ffi/utils.js';
+import { ffi } from '../ffi/utils.js';
 
 export class SpannerLib {
     private activePinners: Set<number>;
@@ -23,7 +23,7 @@ export class SpannerLib {
 
         this.registry = new FinalizationRegistry((pinnerId: number) => {
             if (pinnerId && pinnerId > 0) {
-                Release(pinnerId);
+                ffi.Release(pinnerId);
                 this.activePinners.delete(pinnerId);
             }
         });
@@ -38,7 +38,7 @@ export class SpannerLib {
 
     unregister(refInstance: object, pinnerId: number): void {
         if (pinnerId > 0) {
-            Release(pinnerId);
+            ffi.Release(pinnerId);
             this.registry.unregister(refInstance);
             this.activePinners.delete(pinnerId);
         }
@@ -46,7 +46,7 @@ export class SpannerLib {
 
     releaseAll(): void {
         for (const pinnerId of this.activePinners) {
-            Release(pinnerId);
+            ffi.Release(pinnerId);
         }
         this.activePinners.clear();
     }

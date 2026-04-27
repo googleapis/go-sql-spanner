@@ -24,9 +24,11 @@
     "build": "node-gyp rebuild && npm run compile",
     "postbuild": "node -e \"if (process.platform === 'darwin') require('child_process').execSync('install_name_tool -change libspanner.dylib @loader_path/libspanner.dylib ./build/Release/spanner_napi.node')\"",
     "compile:esm": "tsc -p .",
-    "compile:cjs": "tsc -p ./tsconfig.cjs.json && babel build/cjs --out-dir build/cjs --out-file-extension .cjs && find build/cjs -name '*.js' -delete",
+    "compile:cjs": "tsc -p ./tsconfig.cjs.json && babel build/cjs --out-dir build/cjs --out-file-extension .cjs && node scripts/fix-extensions.cjs",
     "compile": "npm run compile:esm && npm run compile:cjs",
-    "test": "mocha build/esm/test/**/*.js"
+    "test:esm": "mocha build/esm/test/**/*.js",
+    "test:cjs": "mocha build/cjs/test/**/*.cjs",
+    "test": "npm run test:esm && npm run test:cjs"
   },
   "files": [
     "build/esm/src",
@@ -44,7 +46,8 @@
     "@google-cloud/spanner": "^7.13.0",
     "@babel/core": "^7.24.0",
     "@babel/cli": "^7.23.9",
-    "babel-plugin-replace-import-extension": "^1.1.4"
+    "sinon": "^18.0.0",
+    "@types/sinon": "^17.0.3"
   },
   "gypfile": false
 }
