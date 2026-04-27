@@ -22,7 +22,7 @@
   },
   "scripts": {
     "build": "node-gyp rebuild && npm run compile",
-    "postbuild": "node -e \"if (process.platform === 'darwin') require('child_process').execSync('install_name_tool -change libspanner.so @loader_path/libspanner.so ./build/Release/spanner_napi.node')\"",
+    "postbuild": "node -e \"if (process.platform === 'darwin') require('child_process').execSync('install_name_tool -change libspanner.dylib @loader_path/libspanner.dylib ./build/Release/spanner_napi.node')\"",
     "compile:esm": "tsc -p .",
     "compile:cjs": "tsc -p ./tsconfig.cjs.json && babel build/cjs --out-dir build/cjs --out-file-extension .cjs && find build/cjs -name '*.js' -delete",
     "compile": "npm run compile:esm && npm run compile:cjs",

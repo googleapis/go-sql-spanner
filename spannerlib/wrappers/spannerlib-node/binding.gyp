@@ -23,7 +23,7 @@
       'conditions': [
         ['OS=="mac"', {
             'libraries': [
-                '<(module_root_dir)/../../shared/libspanner.so'
+                '<(module_root_dir)/../../shared/libspanner.dylib'
             ],
             'xcode_settings': {
                 'OTHER_LDFLAGS': [
@@ -33,7 +33,7 @@
             'copies': [
                 {
                     'destination': '<(PRODUCT_DIR)',
-                    'files': [ '<(module_root_dir)/../../shared/libspanner.so' ]
+                    'files': [ '<(module_root_dir)/../../shared/libspanner.dylib' ]
                 }
             ]
         }],

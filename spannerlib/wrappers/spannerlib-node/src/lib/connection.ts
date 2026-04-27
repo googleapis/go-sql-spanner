@@ -68,23 +68,7 @@ export class Connection {
         );
         const rowsId = rowsResult.objectId;
 
-        const metadataResult = await invokeAsync(
-            "Metadata",
-            null,
-            null,
-            this.pool.oid,
-            this.oid,
-            rowsId
-        );
-        
-        const ResultSetMetadataProto = google.spanner.v1.ResultSetMetadata;
-        const metadata = ResultSetMetadataProto.decode(metadataResult.protobufBytes);
-        const columnInfo = metadata.rowType.fields.map((field: any) => ({
-            name: field.name,
-            typeCode: field.type.code
-        }));
-        
-        return new Rows(this, rowsId, columnInfo);
+        return new Rows(this, rowsId);
     }
 
     async close(): Promise<void> {

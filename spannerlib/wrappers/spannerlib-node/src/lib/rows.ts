@@ -21,58 +21,21 @@ const _require = typeof require !== 'undefined' ? require : createRequire(import
 const { google } = _require('@google-cloud/spanner/build/protos/protos.js');
 const ListValue = google.protobuf.ListValue;
 
-function parseRowToObject(buffer: Buffer | null, columnInfo: Array<{name: string, typeCode: number}>): object | null {
-    if (!buffer || buffer.length === 0) {
-        return null;
-    }
 
-    const listValue = ListValue.decode(buffer);
-    const rowObject: any = {};
-    const values = listValue.values;
-
-    columnInfo.forEach((column, index) => {
-        const value = values[index];
-        const columnName = column.name;
-        let parsedValue;
-
-        switch (value.kind) {
-            case 'nullValue':
-                parsedValue = null;
-                break;
-            case 'numberValue':
-                parsedValue = value.numberValue;
-                break;
-            case 'stringValue':
-                parsedValue = value.stringValue;
-                break;
-            case 'boolValue':
-                parsedValue = value.boolValue;
-                break;
-            default:
-                parsedValue = undefined;
-        }
-        rowObject[columnName] = parsedValue;
-    });
-
-    return rowObject;
-}
 
 export class Rows {
     public connection: Connection;
     public oid: number;
     public pinnerId: number | null;
     public closed: boolean;
-    public columnInfo: Array<{name: string, typeCode: number}>;
-
-    constructor(connection: Connection, oid: number, columnInfo: Array<{name: string, typeCode: number}>) {
+    constructor(connection: Connection, oid: number) {
         this.connection = connection;
         this.oid = oid;
         this.pinnerId = null;
         this.closed = false;
-        this.columnInfo = columnInfo;
     }
 
-    async next(): Promise<object | null> {
+    async next(): Promise<any> {
         if (this.closed) throw new Error("Rows are already closed");
 
         const handled = await invokeAsync(
@@ -86,7 +49,11 @@ export class Rows {
             ENCODING_PROTOBUF
         );
 
-        return parseRowToObject(handled.protobufBytes, this.columnInfo);
+        if (!handled.protobufBytes || handled.protobufBytes.length === 0) {
+            return null;
+        }
+
+        return ListValue.decode(handled.protobufBytes);
     }
 
     async close(): Promise<void> {
