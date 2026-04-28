@@ -15,41 +15,41 @@
 import { ffi } from '../ffi/utils.js';
 
 export class SpannerLib {
-    private activePinners: Set<number>;
-    private registry: FinalizationRegistry<any>;
+  private activePinners: Set<number>;
+  private registry: FinalizationRegistry<number>;
 
-    constructor() {
-        this.activePinners = new Set();
+  constructor() {
+    this.activePinners = new Set();
 
-        this.registry = new FinalizationRegistry((pinnerId: number) => {
-            if (pinnerId && pinnerId > 0) {
-                ffi.Release(pinnerId);
-                this.activePinners.delete(pinnerId);
-            }
-        });
+    this.registry = new FinalizationRegistry((pinnerId: number) => {
+      if (pinnerId && pinnerId > 0) {
+        ffi.Release(pinnerId);
+        this.activePinners.delete(pinnerId);
+      }
+    });
+  }
+
+  register(refInstance: object, pinnerId: number): void {
+    if (pinnerId > 0) {
+      this.activePinners.add(pinnerId);
+      this.registry.register(refInstance, pinnerId, refInstance);
     }
+  }
 
-    register(refInstance: object, pinnerId: number): void {
-        if (pinnerId > 0) {
-            this.activePinners.add(pinnerId);
-            this.registry.register(refInstance, pinnerId, refInstance);
-        }
+  unregister(refInstance: object, pinnerId: number): void {
+    if (pinnerId > 0) {
+      ffi.Release(pinnerId);
+      this.registry.unregister(refInstance);
+      this.activePinners.delete(pinnerId);
     }
+  }
 
-    unregister(refInstance: object, pinnerId: number): void {
-        if (pinnerId > 0) {
-            ffi.Release(pinnerId);
-            this.registry.unregister(refInstance);
-            this.activePinners.delete(pinnerId);
-        }
+  releaseAll(): void {
+    for (const pinnerId of this.activePinners) {
+      ffi.Release(pinnerId);
     }
-
-    releaseAll(): void {
-        for (const pinnerId of this.activePinners) {
-            ffi.Release(pinnerId);
-        }
-        this.activePinners.clear();
-    }
+    this.activePinners.clear();
+  }
 }
 
 export const spannerLib = new SpannerLib();

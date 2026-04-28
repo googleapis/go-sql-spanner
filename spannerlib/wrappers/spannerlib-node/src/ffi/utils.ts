@@ -12,57 +12,72 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { createRequire } from 'module';
-// @ts-ignore
-const _require = typeof require !== 'undefined' ? require : createRequire(import.meta.url);
-const addon = _require('bindings')('spanner_napi');
+import bindings from 'bindings';
+const addon = bindings('spanner_napi');
 
 export const ENCODING_JSON = 0;
 export const ENCODING_PROTOBUF = 1;
 
 export interface HandledResult {
-    objectId: number;
-    pinnerId: number;
-    protobufBytes: Buffer | null;
+  objectId: number;
+  pinnerId: number;
+  protobufBytes: Buffer | null;
 }
 
-function invokeAsync(funcName: string, constructor1: any, constructor2: any, ...args: any[]): Promise<HandledResult> {
-    return new Promise((resolve, reject) => {
-        const callback = (err: any, result: any) => {
-            if (err) {
-                return reject(err);
-            }
-            if (result.r1 !== 0) {
-                if (result.r4 && result.r3 > 0) {
-                    const errorJson = result.r4.toString('utf8');
-                    try {
-                        const parsed = JSON.parse(errorJson);
-                        return reject(new Error(parsed.message || errorJson));
-                    } catch (e) {
-                        return reject(new Error(errorJson));
-                    }
-                }
-                return reject(new Error(`Native Spanner Error Code: ${result.r1}`));
-            }
+/**
+ * Represents the structure of the result object returned by the native C++ addon.
+ * The fields map to the output parameters of the underlying Go library functions.
+ */
+interface AddonResult {
+  r0: number;
+  r1: number;
+  r2: number;
+  r3: number;
+  r4: Buffer | null;
+}
 
-            resolve({
-                objectId: result.r2,
-                pinnerId: result.r0,
-                protobufBytes: result.r4
-            });
-        };
+function invokeAsync(
+  funcName: string,
+  constructor1: unknown,
+  constructor2: unknown,
+  ...args: unknown[]
+): Promise<HandledResult> {
+  return new Promise((resolve, reject) => {
+    const callback = (err: unknown, result: AddonResult) => {
+      if (err) {
+        return reject(err);
+      }
+      if (result.r1 !== 0) {
+        if (result.r4 && result.r3 > 0) {
+          const errorJson = result.r4.toString('utf8');
+          try {
+            const parsed = JSON.parse(errorJson);
+            return reject(new Error(parsed.message || errorJson));
+          } catch {
+            return reject(new Error(errorJson));
+          }
+        }
+        return reject(new Error(`Native Spanner Error Code: ${result.r1}`));
+      }
 
-        addon[funcName](...args, callback);
-    });
+      resolve({
+        objectId: result.r2,
+        pinnerId: result.r0,
+        protobufBytes: result.r4,
+      });
+    };
+
+    addon[funcName](...args, callback);
+  });
 }
 
 export const ffi = {
-    invokeAsync,
-    Release: addon.Release
+  invokeAsync,
+  Release: addon.Release,
 };
 export class SpannerLibError extends Error {
-    constructor(message: string) {
-        super(message);
-        this.name = 'SpannerLibError';
-    }
+  constructor(message: string) {
+    super(message);
+    this.name = 'SpannerLibError';
+  }
 }

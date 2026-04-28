@@ -23,12 +23,7 @@ import { SpannerLibError } from './ffi/utils.js';
  * This method should be called when shutting down the application or when the wrapper is no longer needed to prevent native memory leaks.
  */
 export function cleanup(): void {
-    spannerLib.releaseAll();
+  spannerLib.releaseAll();
 }
 
-export {
-    Pool,
-    Connection,
-    Rows,
-    SpannerLibError
-};
+export { Pool, Connection, Rows, SpannerLibError };

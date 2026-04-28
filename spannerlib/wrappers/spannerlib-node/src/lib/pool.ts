@@ -18,79 +18,79 @@ import { Connection } from './connection.js';
 
 /**
  * Manages a pool of database connections to Spanner.
- * 
+ *
  * This class wraps the connection pool handle from the underlying Go library,
  * providing methods to create connections and manage the pool lifecycle.
  */
 export class Pool {
-    public oid: number | null;
-    public pinnerId: number | null;
-    public closed: boolean;
-    public userAgent: string;
-    public connStr: string;
+  public oid: number | null;
+  public pinnerId: number | null;
+  public closed: boolean;
+  public userAgent: string;
+  public connStr: string;
 
-    /**
-     * Creates a new connection pool.
-     * 
-     * @param connectionString The connection string for the database.
-     * @returns A Promise that resolves to a new Pool instance.
-     * @throws {SpannerLibError} If creation fails in the Go library.
-     */
-    static async create(connectionString: string): Promise<Pool> {
-        // Detect if running in ESM context
-        const isESM = typeof require === 'undefined';
-        const userAgentSuffix = isESM ? 'node-esm' : 'node-cjs';
+  /**
+   * Creates a new connection pool.
+   *
+   * @param connectionString The connection string for the database.
+   * @returns A Promise that resolves to a new Pool instance.
+   * @throws {SpannerLibError} If creation fails in the Go library.
+   */
+  static async create(connectionString: string): Promise<Pool> {
+    // Detect if running in ESM context
+    const isESM = typeof require === 'undefined';
+    const userAgentSuffix = isESM ? 'node-esm' : 'node-cjs';
 
-        const p = new Pool(userAgentSuffix, connectionString);
-        const handled = await ffi.invokeAsync(
-            "CreatePool",
-            p,
-            spannerLib,
-            userAgentSuffix,
-            connectionString
-        );
+    const p = new Pool(userAgentSuffix, connectionString);
+    const handled = await ffi.invokeAsync(
+      'CreatePool',
+      p,
+      spannerLib,
+      userAgentSuffix,
+      connectionString
+    );
 
-        p.oid = handled.objectId;
-        p.pinnerId = handled.pinnerId;
-        return p;
-    }
+    p.oid = handled.objectId;
+    p.pinnerId = handled.pinnerId;
+    return p;
+  }
 
-    constructor(userAgent: string, connectionString: string) {
-        this.oid = null;
-        this.pinnerId = null;
-        this.closed = false;
-        this.userAgent = userAgent;
-        this.connStr = connectionString;
-    }
+  constructor(userAgent: string, connectionString: string) {
+    this.oid = null;
+    this.pinnerId = null;
+    this.closed = false;
+    this.userAgent = userAgent;
+    this.connStr = connectionString;
+  }
 
-    /**
-     * Creates a new connection from the pool.
-     * 
-     * @returns A Promise that resolves to a new Connection instance.
-     * @throws {Error} If the pool is closed.
-     */
-    async createConnection(): Promise<Connection> {
-        if (this.closed) throw new Error("Pool is already closed");
-        return await Connection.create(this);
-    }
+  /**
+   * Creates a new connection from the pool.
+   *
+   * @returns A Promise that resolves to a new Connection instance.
+   * @throws {Error} If the pool is closed.
+   */
+  async createConnection(): Promise<Connection> {
+    if (this.closed) throw new Error('Pool is already closed');
+    return await Connection.create(this);
+  }
 
-    /**
-     * Closes the pool and releases associated resources.
-     * 
-     * @returns A Promise that resolves when the pool is closed.
-     */
-    async close(): Promise<void> {
-        if (!this.closed) {
-            this.closed = true;
-            try {
-                if (this.oid !== null) {
-                    await ffi.invokeAsync("ClosePool", this, spannerLib, this.oid);
-                }
-            } finally {
-                if (this.pinnerId !== null) {
-                    spannerLib.unregister(this, this.pinnerId);
-                }
-            }
+  /**
+   * Closes the pool and releases associated resources.
+   *
+   * @returns A Promise that resolves when the pool is closed.
+   */
+  async close(): Promise<void> {
+    if (!this.closed) {
+      this.closed = true;
+      try {
+        if (this.oid !== null) {
+          await ffi.invokeAsync('ClosePool', this, spannerLib, this.oid);
         }
+      } finally {
+        if (this.pinnerId !== null) {
+          spannerLib.unregister(this, this.pinnerId);
+        }
+      }
     }
+  }
 }

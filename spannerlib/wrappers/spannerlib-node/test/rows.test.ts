@@ -18,67 +18,84 @@ import { Connection } from '../src/lib/connection.js';
 import { Pool } from '../src/lib/pool.js';
 import { ffi } from '../src/ffi/utils.js';
 import sinon from 'sinon';
-import { createRequire } from 'module';
-
-// @ts-ignore
-const _require = typeof require !== 'undefined' ? require : createRequire(import.meta.url);
-const { google } = _require('@google-cloud/spanner/build/protos/protos.js');
+import pkg from '@google-cloud/spanner/build/protos/protos.js';
+const { google } = pkg;
 const ListValue = google.protobuf.ListValue;
 const Value = google.protobuf.Value;
 
 describe('Rows', () => {
-    let stub: sinon.SinonStub;
+  let stub: sinon.SinonStub;
 
-    beforeEach(() => {
-        stub = sinon.stub(ffi, 'invokeAsync');
+  beforeEach(() => {
+    stub = sinon.stub(ffi, 'invokeAsync');
+  });
+
+  afterEach(() => {
+    stub.restore();
+  });
+
+  interface MockListValue {
+    values: Array<{ stringValue: string }>;
+  }
+
+  it('should fetch next row successfully', async () => {
+    const pool = new Pool(
+      'node-esm',
+      'projects/test/instances/test/databases/test'
+    );
+    pool.oid = 1;
+    const connection = new Connection();
+    connection.pool = pool;
+    connection.oid = 2;
+
+    const rows = new Rows(connection, 3);
+
+    // Create a dummy ListValue
+    const listValue = ListValue.create({
+      values: [Value.create({ stringValue: '1' })],
     });
+    const buffer = ListValue.encode(listValue).finish() as Buffer;
 
-    afterEach(() => {
-        stub.restore();
-    });
+    stub
+      .onFirstCall()
+      .resolves({ objectId: 0, pinnerId: 0, protobufBytes: buffer });
 
-    it('should fetch next row successfully', async () => {
-        const pool = new Pool('node-esm', 'projects/test/instances/test/databases/test');
-        pool.oid = 1;
-        const connection = new Connection();
-        connection.pool = pool;
-        connection.oid = 2;
-        
-        const rows = new Rows(connection, 3);
+    const row = (await rows.next()) as unknown as MockListValue;
 
-        // Create a dummy ListValue
-        const listValue = ListValue.create({
-            values: [
-                Value.create({ stringValue: '1' })
-            ]
-        });
-        const buffer = ListValue.encode(listValue).finish() as Buffer;
+    assert.ok(row, 'Row should be returned');
+    assert.strictEqual(row.values.length, 1, 'Row should have 1 value');
+    assert.strictEqual(row.values[0].stringValue, '1', 'Value should be "1"');
 
-        stub.onFirstCall().resolves({ objectId: 0, pinnerId: 0, protobufBytes: buffer });
+    assert.strictEqual(
+      stub.calledOnce,
+      true,
+      'invokeAsync should be called once'
+    );
+    assert.strictEqual(
+      stub.firstCall.args[0],
+      'Next',
+      'First call should be Next'
+    );
+  });
 
-        const row = await rows.next();
+  it('should return null when no more rows', async () => {
+    const pool = new Pool(
+      'node-esm',
+      'projects/test/instances/test/databases/test'
+    );
+    pool.oid = 1;
+    const connection = new Connection();
+    connection.pool = pool;
+    connection.oid = 2;
 
-        assert.ok(row, 'Row should be returned');
-        assert.strictEqual(row.values.length, 1, 'Row should have 1 value');
-        assert.strictEqual(row.values[0].stringValue, '1', 'Value should be "1"');
-        
-        assert.strictEqual(stub.calledOnce, true, 'invokeAsync should be called once');
-        assert.strictEqual(stub.firstCall.args[0], 'Next', 'First call should be Next');
-    });
+    const rows = new Rows(connection, 3);
 
-    it('should return null when no more rows', async () => {
-        const pool = new Pool('node-esm', 'projects/test/instances/test/databases/test');
-        pool.oid = 1;
-        const connection = new Connection();
-        connection.pool = pool;
-        connection.oid = 2;
-        
-        const rows = new Rows(connection, 3);
+    stub
+      .onFirstCall()
+      .resolves({ objectId: 0, pinnerId: 0, protobufBytes: null });
 
-        stub.onFirstCall().resolves({ objectId: 0, pinnerId: 0, protobufBytes: null });
+    const row = await rows.next();
 
-        const row = await rows.next();
-
-        assert.strictEqual(row, null, 'Row should be null');
-    });
+    assert.strictEqual(row, null, 'Row should be null');
+  });
 });
