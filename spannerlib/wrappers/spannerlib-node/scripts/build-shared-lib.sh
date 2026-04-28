@@ -48,7 +48,7 @@ elif [ "$OS" == "Linux" ]; then
     go build -C "$SHARED_LIB_DIR" -o libspanner.so -buildmode=c-shared shared_lib.go
 elif [ "$OS" == "Windows" ]; then
     echo "Building for Windows..."
-    go build -C "$SHARED_LIB_DIR" -o spannerlib.dll -buildmode=c-shared shared_lib.go
+    go build -C "$SHARED_LIB_DIR" -o libspanner.dll -buildmode=c-shared shared_lib.go
 else
     echo "Unsupported operating system: $OS"
     exit 1

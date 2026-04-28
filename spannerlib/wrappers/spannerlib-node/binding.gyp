@@ -50,6 +50,17 @@
                 'files': [ '<(module_root_dir)/../../shared/libspanner.so' ]
             }
           ]
+        }],
+        ['OS=="win"', {
+          'libraries': [
+            '<(module_root_dir)/../../shared/libspanner.dll'
+          ],
+          'copies': [
+            {
+                'destination': '<(PRODUCT_DIR)',
+                'files': [ '<(module_root_dir)/../../shared/libspanner.dll' ]
+            }
+          ]
         }]
       ]
     }
