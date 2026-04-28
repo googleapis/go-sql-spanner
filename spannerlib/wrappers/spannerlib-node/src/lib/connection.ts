@@ -19,14 +19,30 @@ import { Rows } from './rows.js';
 import { createRequire } from 'module';
 // @ts-ignore
 const _require = typeof require !== 'undefined' ? require : createRequire(import.meta.url);
+// TODO: Avoid tight coupling to internal paths of full client libraries. 
+// Unlike other languages like Java, Python , Node client does not export its protos. 
+// We need to explore how to import protos in Node
 const { google } = _require('@google-cloud/spanner/build/protos/protos.js');
 
+/**
+ * Manages a connection to the Spanner database.
+ * 
+ * This class wraps the connection handle from the underlying Go library,
+ * providing methods to execute SQL statements and manage transactions.
+ */
 export class Connection {
     public pool: Pool | null;
     public oid: number | null;
     public pinnerId: number | null;
     public closed: boolean;
 
+    /**
+     * Creates a new connection within the specified pool.
+     * 
+     * @param pool The pool to create the connection in.
+     * @returns A Promise that resolves to a new Connection instance.
+     * @throws {SpannerLibError} If creation fails in the Go library.
+     */
     static async create(pool: Pool): Promise<Connection> {
         const c = new Connection();
         c.pool = pool;
@@ -50,6 +66,14 @@ export class Connection {
         this.closed = false;
     }
 
+    /**
+     * Executes a SQL statement on this connection.
+     * 
+     * @param sqlString The SQL query string to execute.
+     * @returns A Promise that resolves to a Rows instance containing results.
+     * @throws {Error} If the connection is closed or not bound to a pool.
+     * @throws {SpannerLibError} If execution fails in the Go library.
+     */
     async executeSql(sqlString: string): Promise<Rows> {
         if (this.closed) throw new Error("Connection is already closed");
         if (!this.pool) throw new Error("Connection is not bound to a Pool");
@@ -71,6 +95,11 @@ export class Connection {
         return new Rows(this, rowsId);
     }
 
+    /**
+     * Closes the connection and releases associated resources.
+     * 
+     * @returns A Promise that resolves when the connection is closed.
+     */
     async close(): Promise<void> {
         if (!this.closed) {
             this.closed = true;

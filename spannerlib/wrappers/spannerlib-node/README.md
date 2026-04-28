@@ -44,5 +44,9 @@ async function run() {
 
 The wrapper consists of:
 1.  **`src/cpp/addon.cc`**: C++ Node-API bridge that handles thread boundaries and type conversions between V8 and C.
-2.  **`src/ffi/utils.js`**: Helper functions to invoke native methods asynchronously using Promises.
+2.  **`src/ffi/utils.ts`**: Helper functions to invoke native methods asynchronously using Promises.
 3.  **`src/lib/`**: JavaScript classes (`Pool`, `Connection`, `Rows`) that provide a clean object-oriented interface.
+
+### Component Interaction & Memory Management
+
+When a JavaScript object (like a `Pool` or `Connection`) is created, it holds an ID referencing a pinned Go object in memory. The `spannerLib` singleton maintains a **`FinalizationRegistry`**. This registry allows Node.js to listen for when the JavaScript object is garbage collected. When GC occurs, the registry automatically triggers a cleanup call to the native layer to release the corresponding Go object, preventing native memory leaks even if the developer forgets to call `.close()` explicitly.

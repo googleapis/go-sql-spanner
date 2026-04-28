@@ -18,6 +18,10 @@ import { Connection } from './lib/connection.js';
 import { Rows } from './lib/rows.js';
 import { SpannerLibError } from './ffi/utils.js';
 
+/**
+ * Releases all pinned resources and handles managed by the library.
+ * This method should be called when shutting down the application or when the wrapper is no longer needed to prevent native memory leaks.
+ */
 export function cleanup(): void {
     spannerLib.releaseAll();
 }

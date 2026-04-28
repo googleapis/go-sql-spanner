@@ -36,14 +36,15 @@
     "build/Release/*.node"
   ],
   "dependencies": {
-    "node-addon-api": "^8.0.0"
+    "node-addon-api": "^8.0.0",
+    "bindings": "^1.5.0",
+    "@google-cloud/spanner": "^7.13.0"
   },
   "devDependencies": {
     "mocha": "^10.2.0",
     "typescript": "^5.4.0",
     "@types/node": "^20.11.0",
     "@types/mocha": "^10.0.6",
-    "@google-cloud/spanner": "^7.13.0",
     "@babel/core": "^7.24.0",
     "@babel/cli": "^7.23.9",
     "sinon": "^18.0.0",

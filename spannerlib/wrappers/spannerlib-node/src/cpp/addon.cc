@@ -16,6 +16,13 @@
 #include <iostream>
 #include "libspanner.h"
 
+// Documentation for Go function return fields (r0 - r4):
+// r0: Pinner ID (used for memory management to keep Go objects pinned)
+// r1: Error Code (0 for success, non-zero for error)
+// r2: Object ID (Handle to the created object, e.g., Pool or Connection)
+// r3: Message Length (Length of the protobuf message or error string in r4)
+// r4: Message Data (Pointer to protobuf bytes or JSON error message)
+
 //
 // Worker 1: CreatePool asynchronously
 //

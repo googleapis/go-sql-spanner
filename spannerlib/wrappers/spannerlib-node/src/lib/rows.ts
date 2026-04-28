@@ -18,11 +18,18 @@ import { Connection } from './connection.js';
 import { createRequire } from 'module';
 // @ts-ignore
 const _require = typeof require !== 'undefined' ? require : createRequire(import.meta.url);
+// TODO: Avoid tight coupling to internal paths of full client libraries. 
+// Unlike other languages like Java, Python , Node client does not export its protos. 
+// We need to explore how to import protos in Node
 const { google } = _require('@google-cloud/spanner/build/protos/protos.js');
 const ListValue = google.protobuf.ListValue;
 
-
-
+/**
+ * An iterator over results returned by a SQL query.
+ * 
+ * This class wraps the rows handle from the underlying Go library,
+ * providing methods to fetch rows one by one.
+ */
 export class Rows {
     public connection: Connection;
     public oid: number;
@@ -35,6 +42,13 @@ export class Rows {
         this.closed = false;
     }
 
+    /**
+     * Fetches the next row of data.
+     * 
+     * @returns A Promise that resolves to a ListValue containing the row data, or null if there are no more rows.
+     * @throws {Error} If the rows are already closed.
+     * @throws {SpannerLibError} If fetching fails in the Go library.
+     */
     async next(): Promise<any> {
         if (this.closed) throw new Error("Rows are already closed");
 
@@ -56,6 +70,11 @@ export class Rows {
         return ListValue.decode(handled.protobufBytes);
     }
 
+    /**
+     * Closes the rows iterator and releases associated resources.
+     * 
+     * @returns A Promise that resolves when the rows are closed.
+     */
     async close(): Promise<void> {
         if (!this.closed) {
             this.closed = true;

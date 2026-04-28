@@ -15,7 +15,7 @@
 import { createRequire } from 'module';
 // @ts-ignore
 const _require = typeof require !== 'undefined' ? require : createRequire(import.meta.url);
-const addon = _require('../../../Release/spanner_napi.node');
+const addon = _require('bindings')('spanner_napi');
 
 export const ENCODING_JSON = 0;
 export const ENCODING_PROTOBUF = 1;

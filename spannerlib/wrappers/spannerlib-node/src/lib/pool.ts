@@ -16,6 +16,12 @@ import { ffi } from '../ffi/utils.js';
 import { spannerLib } from './spannerlib.js';
 import { Connection } from './connection.js';
 
+/**
+ * Manages a pool of database connections to Spanner.
+ * 
+ * This class wraps the connection pool handle from the underlying Go library,
+ * providing methods to create connections and manage the pool lifecycle.
+ */
 export class Pool {
     public oid: number | null;
     public pinnerId: number | null;
@@ -23,6 +29,13 @@ export class Pool {
     public userAgent: string;
     public connStr: string;
 
+    /**
+     * Creates a new connection pool.
+     * 
+     * @param connectionString The connection string for the database.
+     * @returns A Promise that resolves to a new Pool instance.
+     * @throws {SpannerLibError} If creation fails in the Go library.
+     */
     static async create(connectionString: string): Promise<Pool> {
         // Detect if running in ESM context
         const isESM = typeof require === 'undefined';
@@ -50,11 +63,22 @@ export class Pool {
         this.connStr = connectionString;
     }
 
+    /**
+     * Creates a new connection from the pool.
+     * 
+     * @returns A Promise that resolves to a new Connection instance.
+     * @throws {Error} If the pool is closed.
+     */
     async createConnection(): Promise<Connection> {
         if (this.closed) throw new Error("Pool is already closed");
         return await Connection.create(this);
     }
 
+    /**
+     * Closes the pool and releases associated resources.
+     * 
+     * @returns A Promise that resolves when the pool is closed.
+     */
     async close(): Promise<void> {
         if (!this.closed) {
             this.closed = true;
