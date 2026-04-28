@@ -1,15 +1,11 @@
 {
+  "extends": "gts/tsconfig-google.json",
   "compilerOptions": {
     "target": "es2023",
     "module": "nodenext",
     "moduleResolution": "nodenext",
-    "lib": ["es2023"],
-    "strict": true,
-    "noImplicitAny": false,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "declaration": true,
     "outDir": "build/esm",
+    "esModuleInterop": true,
     "types": ["node", "mocha"]
   },
   "include": ["src/**/*", "test/**/*"],

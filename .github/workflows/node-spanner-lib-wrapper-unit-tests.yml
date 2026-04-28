@@ -1,0 +1,54 @@
+name: Node Wrapper Unit Tests
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'spannerlib/wrappers/spannerlib-node/**'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'spannerlib/wrappers/spannerlib-node/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    name: Test ${{ matrix.os }} (Node ${{ matrix.node-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: ['20']
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./spannerlib/wrappers/spannerlib-node
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: '1.26.x'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: spannerlib/wrappers/spannerlib-node/package.json
+
+    - name: Install Dependencies
+      run: npm install
+
+    - name: Build Addon and TS
+      run: npm run build
+
+    - name: Run Unit Tests
+      run: npm test
