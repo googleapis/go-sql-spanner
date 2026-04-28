@@ -52,6 +52,7 @@ export class Pool {
 
     p.oid = handled.objectId;
     p.pinnerId = handled.pinnerId;
+    spannerLib.register(p, handled.pinnerId);
     return p;
   }
 

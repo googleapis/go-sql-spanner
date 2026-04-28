@@ -61,6 +61,10 @@ private:
 
 Napi::Value CreatePoolWrapper(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
+    if (info.Length() < 3) {
+        Napi::Error::New(env, "CreatePoolWrapper requires 3 arguments").ThrowAsJavaScriptException();
+        return env.Null();
+    }
     std::string ua = info[0].As<Napi::String>();
     std::string cs = info[1].As<Napi::String>();
     Napi::Function cb = info[2].As<Napi::Function>();
@@ -79,6 +83,10 @@ public:
 
     void Execute() override {
         result_ = ClosePool(poolId_);
+        // Release the pinner ID of the response message to prevent native leak!
+        if (result_.r0 > 0) {
+            ::Release(result_.r0);
+        }
     }
 
     void OnOK() override {
@@ -94,6 +102,10 @@ private:
 
 Napi::Value ClosePoolWrapper(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
+    if (info.Length() < 2) {
+        Napi::Error::New(env, "ClosePoolWrapper requires 2 arguments").ThrowAsJavaScriptException();
+        return env.Null();
+    }
     int64_t pid = info[0].As<Napi::Number>().Int64Value();
     Napi::Function cb = info[1].As<Napi::Function>();
     ClosePoolWorker* worker = new ClosePoolWorker(cb, pid);
@@ -135,6 +147,10 @@ private:
 
 Napi::Value CreateConnectionWrapper(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
+    if (info.Length() < 2) {
+        Napi::Error::New(env, "CreateConnectionWrapper requires 2 arguments").ThrowAsJavaScriptException();
+        return env.Null();
+    }
     int64_t pid = info[0].As<Napi::Number>().Int64Value();
     Napi::Function cb = info[1].As<Napi::Function>();
     CreateConnectionWorker* worker = new CreateConnectionWorker(cb, pid);
@@ -152,6 +168,10 @@ public:
 
     void Execute() override {
         result_ = CloseConnection(poolId_, connId_);
+        // Release the pinner ID of the response message to prevent native leak!
+        if (result_.r0 > 0) {
+            ::Release(result_.r0);
+        }
     }
 
     void OnOK() override {
@@ -167,6 +187,10 @@ private:
 
 Napi::Value CloseConnectionWrapper(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
+    if (info.Length() < 3) {
+        Napi::Error::New(env, "CloseConnectionWrapper requires 3 arguments").ThrowAsJavaScriptException();
+        return env.Null();
+    }
     int64_t pid = info[0].As<Napi::Number>().Int64Value();
     int64_t cid = info[1].As<Napi::Number>().Int64Value();
     Napi::Function cb = info[2].As<Napi::Function>();
@@ -200,6 +224,10 @@ public:
         } else {
             obj.Set("r4", env.Null());
         }
+        // Release the pinner ID of the response buffer immediately after copy!
+        if (result_.r0 > 0) {
+            ::Release(result_.r0);
+        }
         Callback().Call({env.Null(), obj});
     }
 private:
@@ -210,6 +238,14 @@ private:
 
 Napi::Value ExecuteWrapper(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
+    if (info.Length() < 4) {
+        Napi::Error::New(env, "ExecuteWrapper requires 4 arguments").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    if (!info[0].IsNumber() || !info[1].IsNumber() || !info[2].IsBuffer()) {
+        Napi::Error::New(env, "Invalid argument types in ExecuteWrapper").ThrowAsJavaScriptException();
+        return env.Null();
+    }
     int64_t pid = info[0].As<Napi::Number>().Int64Value();
     int64_t cid = info[1].As<Napi::Number>().Int64Value();
     
@@ -246,6 +282,10 @@ public:
         } else {
             obj.Set("r4", env.Null());
         }
+        // Release the pinner ID of the response buffer immediately after copy!
+        if (result_.r0 > 0) {
+            ::Release(result_.r0);
+        }
         Callback().Call({env.Null(), obj});
     }
 private:
@@ -256,6 +296,10 @@ private:
 
 Napi::Value NextWrapper(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
+    if (info.Length() < 6) {
+        Napi::Error::New(env, "NextWrapper requires 6 arguments").ThrowAsJavaScriptException();
+        return env.Null();
+    }
     int64_t pid = info[0].As<Napi::Number>().Int64Value();
     int64_t cid = info[1].As<Napi::Number>().Int64Value();
     int64_t rid = info[2].As<Napi::Number>().Int64Value();
@@ -292,6 +336,10 @@ public:
         } else {
             obj.Set("r4", env.Null());
         }
+        // Release the pinner ID of the response buffer immediately after copy!
+        if (result_.r0 > 0) {
+            ::Release(result_.r0);
+        }
         Callback().Call({env.Null(), obj});
     }
 private:
@@ -299,8 +347,47 @@ private:
     Metadata_return result_;
 };
 
+//
+// Worker 8: CloseRows asynchronously
+//
+class CloseRowsWorker : public Napi::AsyncWorker {
+public:
+    CloseRowsWorker(Napi::Function& callback, int64_t poolId, int64_t connId, int64_t rowsId)
+        : AsyncWorker(callback), poolId_(poolId), connId_(connId), rowsId_(rowsId), result_({0, 0, 0, 0, nullptr}) {}
+
+    void Execute() override {
+        result_ = ::CloseRows(poolId_, connId_, rowsId_);
+    }
+
+    void OnOK() override {
+        Napi::Env env = Env();
+        Napi::Object obj = Napi::Object::New(env);
+        obj.Set("r0", Napi::Number::New(env, result_.r0));
+        obj.Set("r1", Napi::Number::New(env, result_.r1));
+        obj.Set("r2", Napi::Number::New(env, result_.r2));
+        obj.Set("r3", Napi::Number::New(env, result_.r3));
+        if (result_.r4 != nullptr && result_.r3 > 0) {
+            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
+        } else {
+            obj.Set("r4", env.Null());
+        }
+        // Release the pinner ID of the response message to prevent native leak!
+        if (result_.r0 > 0) {
+            ::Release(result_.r0);
+        }
+        Callback().Call({env.Null(), obj});
+    }
+private:
+    int64_t poolId_, connId_, rowsId_;
+    CloseRows_return result_;
+};
+
 Napi::Value MetadataWrapper(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
+    if (info.Length() < 4) {
+        Napi::Error::New(env, "MetadataWrapper requires 4 arguments").ThrowAsJavaScriptException();
+        return env.Null();
+    }
     int64_t pid = info[0].As<Napi::Number>().Int64Value();
     int64_t cid = info[1].As<Napi::Number>().Int64Value();
     int64_t rid = info[2].As<Napi::Number>().Int64Value();
@@ -323,21 +410,17 @@ Napi::Value NativeRelease(const Napi::CallbackInfo& info) {
 // CloseRows dummy/missing implementation for POC length if needed, or we just rely on GC.
 Napi::Value CloseRowsWrapper(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    if (info.Length() < 3) return env.Null();
+    if (info.Length() < 4) {
+        Napi::Error::New(env, "CloseRowsWrapper requires 4 arguments").ThrowAsJavaScriptException();
+        return env.Null();
+    }
     int64_t pid = info[0].As<Napi::Number>().Int64Value();
     int64_t cid = info[1].As<Napi::Number>().Int64Value();
     int64_t rid = info[2].As<Napi::Number>().Int64Value();
+    Napi::Function cb = info[3].As<Napi::Function>();
     
-    // N-API sync close implementation
-    CloseRows(pid, cid, rid);
-    
-    // invokeAsync appends a callback at the end of properties
-    if (info.Length() >= 4 && info[3].IsFunction()) {
-        Napi::Object obj = Napi::Object::New(env);
-        obj.Set("r1", Napi::Number::New(env, 0));
-        Napi::Function cb = info[3].As<Napi::Function>();
-        cb.Call({env.Null(), obj}); // Mock empty GoReturnTuple callback
-    }
+    CloseRowsWorker* worker = new CloseRowsWorker(cb, pid, cid, rid);
+    worker->Queue();
     return env.Undefined();
 }
 

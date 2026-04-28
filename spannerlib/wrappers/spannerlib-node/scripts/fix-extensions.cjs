@@ -24,10 +24,8 @@ function traverseDir(dir) {
             traverseDir(fullPath);
         } else if (fullPath.endsWith('.cjs')) {
             let content = fs.readFileSync(fullPath, 'utf8');
-            // Replace require('./... .js') with require('./... .cjs')
-            content = content.replace(/require\(['"](\.\/[^'"]+)\.js['"]\)/g, "require('$1.cjs')");
-            // Also handle ../
-            content = content.replace(/require\(['"](\.\.\/[^'"]+)\.js['"]\)/g, "require('$1.cjs')");
+            // Replace require paths starting with . / or .. / and ending with .js
+            content = content.replace(/require\(['"]((\.|\.\.)\/[^'"]+)\.js['"]\)/g, "require('$1.cjs')");
             // Fix import.meta.url syntax error in CommonJS
             content = content.replace(/import\.meta\.url/g, '""');
             fs.writeFileSync(fullPath, content);

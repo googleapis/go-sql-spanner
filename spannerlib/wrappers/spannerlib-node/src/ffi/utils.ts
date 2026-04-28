@@ -38,8 +38,6 @@ interface AddonResult {
 
 function invokeAsync(
   funcName: string,
-  constructor1: unknown,
-  constructor2: unknown,
   ...args: unknown[]
 ): Promise<HandledResult> {
   return new Promise((resolve, reject) => {
@@ -48,6 +46,9 @@ function invokeAsync(
         return reject(err);
       }
       if (result.r1 !== 0) {
+        if (result.r0 && result.r0 > 0) {
+          ffi.Release(result.r0);
+        }
         if (result.r4 && result.r3 > 0) {
           const errorJson = result.r4.toString('utf8');
           try {

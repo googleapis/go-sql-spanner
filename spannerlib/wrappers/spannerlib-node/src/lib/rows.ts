@@ -33,11 +33,12 @@ export class Rows {
   public oid: number;
   public pinnerId: number | null;
   public closed: boolean;
-  constructor(connection: Connection, oid: number) {
+  constructor(connection: Connection, oid: number, pinnerId: number) {
     this.connection = connection;
     this.oid = oid;
-    this.pinnerId = null;
+    this.pinnerId = pinnerId;
     this.closed = false;
+    spannerLib.register(this, pinnerId);
   }
 
   /**
@@ -50,11 +51,15 @@ export class Rows {
   async next(): Promise<unknown> {
     if (this.closed) throw new Error('Rows are already closed');
 
+    if (!this.connection.pool) {
+      throw new Error('Connection must be bound to a Pool to fetch rows');
+    }
+
     const handled = await ffi.invokeAsync(
       'Next',
       null,
       null,
-      this.connection.pool!.oid,
+      this.connection.pool.oid,
       this.connection.oid,
       this.oid,
       1,

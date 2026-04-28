@@ -48,7 +48,7 @@ describe('Rows', () => {
     connection.pool = pool;
     connection.oid = 2;
 
-    const rows = new Rows(connection, 3);
+    const rows = new Rows(connection, 3, 4);
 
     // Create a dummy ListValue
     const listValue = ListValue.create({
@@ -88,7 +88,7 @@ describe('Rows', () => {
     connection.pool = pool;
     connection.oid = 2;
 
-    const rows = new Rows(connection, 3);
+    const rows = new Rows(connection, 3, 4);
 
     stub
       .onFirstCall()

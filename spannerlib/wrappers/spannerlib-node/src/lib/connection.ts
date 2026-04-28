@@ -54,6 +54,7 @@ export class Connection {
 
     c.oid = handled.objectId;
     c.pinnerId = handled.pinnerId;
+    spannerLib.register(c, handled.pinnerId);
     return c;
   }
 
@@ -89,8 +90,9 @@ export class Connection {
       serializedPb
     );
     const rowsId = rowsResult.objectId;
+    const rowsPinnerId = rowsResult.pinnerId;
 
-    return new Rows(this, rowsId);
+    return new Rows(this, rowsId, rowsPinnerId);
   }
 
   /**
