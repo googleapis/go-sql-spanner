@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.25.1](https://github.com/googleapis/go-sql-spanner/compare/v1.25.0...v1.25.1) (2026-04-29)
+
+
+### Bug Fixes
+
+* Update all dependencies ([#797](https://github.com/googleapis/go-sql-spanner/issues/797)) ([cc7c94b](https://github.com/googleapis/go-sql-spanner/commit/cc7c94bea784fece326b3aecaa6a1c7fbce93953))
+
+
+### Performance Improvements
+
+* Decode values directly from row ([#795](https://github.com/googleapis/go-sql-spanner/issues/795)) ([ed619ad](https://github.com/googleapis/go-sql-spanner/commit/ed619ad7ac2e2a189e466f801febf64b68651af9))
+
 ## [1.25.0](https://github.com/googleapis/go-sql-spanner/compare/v1.24.1...v1.25.0) (2026-04-14)
 
 
