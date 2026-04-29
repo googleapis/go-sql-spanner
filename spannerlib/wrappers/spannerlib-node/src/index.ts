@@ -1,0 +1,29 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+import { spannerLib } from './lib/spannerlib.js';
+import { Pool } from './lib/pool.js';
+import { Connection } from './lib/connection.js';
+import { Rows } from './lib/rows.js';
+import { SpannerLibError } from './ffi/utils.js';
+
+/**
+ * Releases all pinned resources and handles managed by the library.
+ * This method should be called when shutting down the application or when the wrapper is no longer needed to prevent native memory leaks.
+ */
+export function cleanup(): void {
+  spannerLib.releaseAll();
+}
+
+export { Pool, Connection, Rows, SpannerLibError };

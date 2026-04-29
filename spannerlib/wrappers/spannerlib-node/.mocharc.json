@@ -1,0 +1,5 @@
+{
+  "timeout": 60000,
+  "reporter": "spec",
+  "spec": ["build/esm/test/**/*.js"]
+}
