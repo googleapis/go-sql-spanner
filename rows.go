@@ -20,11 +20,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
+	"reflect"
 	"sync"
 	"time"
 
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/uuid"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
@@ -555,6 +558,207 @@ func (r *rows) nextStats(dest []driver.Value) error {
 	r.hasReturnedResultSetStats = true
 	dest[0] = r.it.ResultSetStats()
 	return nil
+}
+
+func (r *rows) ColumnTypeScanType(index int) reflect.Type {
+	if index < 0 || index >= len(r.colTypes) {
+		return nil
+	}
+	t := r.colTypes[index]
+	if r.decodeOption == DecodeOptionProto {
+		return reflect.TypeOf(spanner.GenericColumnValue{})
+	}
+	return scanType(t, r.decodeToNativeArrays, r.state)
+}
+
+func scanType(t *sppb.Type, decodeToNativeArrays bool, state *connectionstate.ConnectionState) reflect.Type {
+	switch t.Code {
+	case sppb.TypeCode_INT64, sppb.TypeCode_ENUM:
+		return reflect.TypeOf(int64(0))
+	case sppb.TypeCode_FLOAT32:
+		return reflect.TypeOf(float32(0))
+	case sppb.TypeCode_FLOAT64:
+		return reflect.TypeOf(float64(0))
+	case sppb.TypeCode_NUMERIC:
+		if propertyDecodeNumericToString.GetValueOrDefault(state) {
+			return reflect.TypeOf("")
+		}
+		return reflect.TypeOf(big.Rat{})
+	case sppb.TypeCode_STRING, sppb.TypeCode_DATE, sppb.TypeCode_UUID:
+		return reflect.TypeOf("")
+	case sppb.TypeCode_BYTES, sppb.TypeCode_PROTO:
+		return reflect.TypeOf([]byte{})
+	case sppb.TypeCode_BOOL:
+		return reflect.TypeOf(true)
+	case sppb.TypeCode_TIMESTAMP:
+		return reflect.TypeOf(time.Time{})
+	case sppb.TypeCode_JSON:
+		if t.TypeAnnotation == sppb.TypeAnnotationCode_PG_JSONB {
+			return reflect.TypeOf(spanner.PGJsonB{})
+		}
+		return reflect.TypeOf(spanner.NullJSON{})
+	case sppb.TypeCode_ARRAY:
+		if t.ArrayElementType == nil {
+			return reflect.TypeOf([]any{}).Elem()
+		}
+		et := scanType(t.ArrayElementType, decodeToNativeArrays, state)
+		if decodeToNativeArrays {
+			return reflect.SliceOf(et)
+		}
+		switch t.ArrayElementType.Code {
+		case sppb.TypeCode_INT64, sppb.TypeCode_ENUM:
+			return reflect.TypeOf([]spanner.NullInt64{})
+		case sppb.TypeCode_FLOAT32:
+			return reflect.TypeOf([]spanner.NullFloat32{})
+		case sppb.TypeCode_FLOAT64:
+			return reflect.TypeOf([]spanner.NullFloat64{})
+		case sppb.TypeCode_BOOL:
+			return reflect.TypeOf([]spanner.NullBool{})
+		case sppb.TypeCode_STRING:
+			return reflect.TypeOf([]spanner.NullString{})
+		case sppb.TypeCode_DATE:
+			return reflect.TypeOf([]spanner.NullDate{})
+		case sppb.TypeCode_TIMESTAMP:
+			return reflect.TypeOf([]spanner.NullTime{})
+		case sppb.TypeCode_NUMERIC:
+			if t.ArrayElementType.TypeAnnotation == sppb.TypeAnnotationCode_PG_NUMERIC {
+				return reflect.TypeOf([]spanner.PGNumeric{})
+			}
+			return reflect.TypeOf([]spanner.NullNumeric{})
+		case sppb.TypeCode_JSON:
+			if t.ArrayElementType.TypeAnnotation == sppb.TypeAnnotationCode_PG_JSONB {
+				return reflect.TypeOf([]spanner.PGJsonB{})
+			}
+			return reflect.TypeOf([]spanner.NullJSON{})
+		case sppb.TypeCode_UUID:
+			return reflect.TypeOf([]spanner.NullUUID{})
+		case sppb.TypeCode_BYTES, sppb.TypeCode_PROTO:
+			return reflect.TypeOf([][]byte{})
+		default:
+			return reflect.SliceOf(et)
+		}
+	default:
+		return reflect.TypeOf([]any{}).Elem()
+	}
+}
+
+func (r *rows) ColumnTypeDatabaseTypeName(index int) string {
+	if index < 0 || index >= len(r.colTypes) {
+		return ""
+	}
+	t := r.colTypes[index]
+	dialect := propertyDatabaseDialect.GetValueOrDefault(r.state)
+	return databaseTypeName(t, dialect)
+}
+
+func databaseTypeName(t *sppb.Type, dialect databasepb.DatabaseDialect) string {
+	isPG := dialect == databasepb.DatabaseDialect_POSTGRESQL
+	switch t.Code {
+	case sppb.TypeCode_INT64, sppb.TypeCode_ENUM:
+		if isPG {
+			return "bigint"
+		}
+		return "INT64"
+	case sppb.TypeCode_FLOAT32:
+		if isPG {
+			return "real"
+		}
+		return "FLOAT32"
+	case sppb.TypeCode_FLOAT64:
+		if isPG {
+			return "double precision"
+		}
+		return "FLOAT64"
+	case sppb.TypeCode_NUMERIC:
+		if isPG {
+			return "numeric"
+		}
+		return "NUMERIC"
+	case sppb.TypeCode_STRING:
+		if isPG {
+			return "text"
+		}
+		return "STRING"
+	case sppb.TypeCode_DATE:
+		if isPG {
+			return "date"
+		}
+		return "DATE"
+	case sppb.TypeCode_UUID:
+		if isPG {
+			return "uuid"
+		}
+		return "UUID"
+	case sppb.TypeCode_BYTES, sppb.TypeCode_PROTO:
+		if isPG {
+			return "bytea"
+		}
+		return "BYTES"
+	case sppb.TypeCode_BOOL:
+		if isPG {
+			return "boolean"
+		}
+		return "BOOL"
+	case sppb.TypeCode_TIMESTAMP:
+		if isPG {
+			return "timestamp with time zone"
+		}
+		return "TIMESTAMP"
+	case sppb.TypeCode_JSON:
+		if isPG {
+			return "jsonb"
+		}
+		return "JSON"
+	case sppb.TypeCode_ARRAY:
+		if t.ArrayElementType == nil {
+			return "ARRAY"
+		}
+		if isPG {
+			switch t.ArrayElementType.Code {
+			case sppb.TypeCode_STRING:
+				return "_text"
+			case sppb.TypeCode_INT64:
+				return "_int8"
+			case sppb.TypeCode_FLOAT64:
+				return "_float8"
+			case sppb.TypeCode_BOOL:
+				return "_bool"
+			case sppb.TypeCode_BYTES:
+				return "_bytea"
+			case sppb.TypeCode_DATE:
+				return "_date"
+			case sppb.TypeCode_TIMESTAMP:
+				return "_timestamptz"
+			case sppb.TypeCode_NUMERIC:
+				return "_numeric"
+			case sppb.TypeCode_JSON:
+				return "_jsonb"
+			default:
+				return "_" + databaseTypeName(t.ArrayElementType, dialect)
+			}
+		}
+		return "ARRAY<" + databaseTypeName(t.ArrayElementType, dialect) + ">"
+	default:
+		return ""
+	}
+}
+
+func (r *rows) ColumnTypePrecisionScale(index int) (precision, scale int64, ok bool) {
+	if index < 0 || index >= len(r.colTypes) {
+		return 0, 0, false
+	}
+	if r.colTypes[index].Code == sppb.TypeCode_NUMERIC {
+		return 38, 9, true
+	}
+	return 0, 0, false
+}
+
+func (r *rows) ColumnTypeLength(index int) (length int64, ok bool) {
+	return 0, false
+}
+
+func (r *rows) ColumnTypeNullable(index int) (nullable, ok bool) {
+	return false, false
 }
 
 var _ driver.Rows = (*emptyRows)(nil)
