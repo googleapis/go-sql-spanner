@@ -1,0 +1,19 @@
+{
+  "name": "koffi",
+  "version": "1.0.0",
+  "main": "index.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "test": "node test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@google-cloud/spanner": "^8.6.0",
+    "koffi": "^2.15.2"
+  }
+}

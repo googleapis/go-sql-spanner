@@ -1,0 +1,19 @@
+{
+  "name": "napi-spanner",
+  "version": "1.0.0",
+  "main": "index.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "node-gyp rebuild",
+    "postbuild": "node -e \"if (process.platform === 'darwin') require('child_process').execSync('install_name_tool -change libspanner.so @loader_path/libspanner.so ./build/Release/spanner_napi.node')\"",
+    "test": "node test.js",
+    "setup": "node setup_db.js"
+  },
+  "dependencies": {
+    "@google-cloud/spanner": "^7.19.1",
+    "node-addon-api": "^8.0.0"
+  },
+  "gypfile": true
+}
