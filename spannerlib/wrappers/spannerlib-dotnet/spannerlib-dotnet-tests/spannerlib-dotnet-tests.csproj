@@ -14,8 +14,8 @@
     <PackageReference Include="coverlet.collector" Version="6.0.4"/>
     <PackageReference Include="Google.Cloud.Spanner.Data" Version="5.12.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.5.1"/>
-    <PackageReference Include="NUnit" Version="4.5.1"/>
-    <PackageReference Include="NUnit.Analyzers" Version="4.12.0"/>
+    <PackageReference Include="NUnit" Version="4.6.0"/>
+    <PackageReference Include="NUnit.Analyzers" Version="4.13.0"/>
     <PackageReference Include="NUnit3TestAdapter" Version="6.2.0"/>
   </ItemGroup>
 
