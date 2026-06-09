@@ -1,0 +1,38 @@
+name: Node Wrapper Lint
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'spannerlib/wrappers/spannerlib-node/**'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'spannerlib/wrappers/spannerlib-node/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: spannerlib/wrappers/spannerlib-node
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: spannerlib/wrappers/spannerlib-node/package.json
+
+    - name: Install Dependencies
+      run: npm install
+
+    - name: Run Lint
+      run: npm run lint
