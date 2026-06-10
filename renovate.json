@@ -11,5 +11,14 @@
     "gomodTidy"
   ],
   "commitMessageAction": "update",
-  "groupName": "all dependencies"
+  "packageRules": [
+    {
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "minor and patch dependencies",
+      "automerge": true
+    }
+  ]
 }
