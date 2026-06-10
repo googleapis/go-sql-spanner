@@ -3,7 +3,12 @@ on:
     branches: [ main ]
   pull_request:
 name: Unit Tests
+
+permissions:
+  contents: read
+
 jobs:
+
   test:
     strategy:
       matrix:
