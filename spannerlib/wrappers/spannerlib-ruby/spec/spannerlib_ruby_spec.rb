@@ -21,6 +21,7 @@ require "minitest/autorun"
 require "google/cloud/spanner/v1/spanner"
 require "timeout"
 require "tmpdir"
+require "socket"
 
 require_relative "mock_server/statement_result"
 require_relative "../lib/spannerlib/ffi"
@@ -94,7 +95,15 @@ describe "Connection" do
 
       if File.exist?($port_file)
         content = File.read($port_file).strip
-        return content.to_i unless content.empty?
+        unless content.empty?
+          port = content.to_i
+          begin
+            Socket.tcp("127.0.0.1", port, connect_timeout: 0.1) { |s| s.close }
+            return port
+          rescue Errno::ECONNREFUSED, Errno::ETIMEDOUT
+            # Server not yet fully listening
+          end
+        end
       end
 
       raise "Mock server exited unexpectedly!" if Process.waitpid($server_pid, Process::WNOHANG)
@@ -170,7 +179,7 @@ describe "Connection" do
   before do
     self.class.ensure_server_running!
     File.binwrite($mock_msg_file, Marshal.dump({}))
-    File.write($mock_req_file, "")
+    File.binwrite($mock_req_file, "")
     @dsn = "127.0.0.1:#{$server_port}/projects/p/instances/i/databases/d?useplaintext=true"
 
     @pool_id = SpannerLib.create_pool(@dsn)
