@@ -42,6 +42,7 @@ import (
 	"github.com/googleapis/go-sql-spanner/parser"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/api/option"
+	pbstatus "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -2495,6 +2496,92 @@ func TestDdlInTransaction(t *testing.T) {
 	requests := server.TestDatabaseAdmin.Reqs()
 	if g, w := len(requests), 0; g != w {
 		t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+}
+
+func TestAutoDefaultSequenceKind(t *testing.T) {
+	t.Parallel()
+
+	for _, dialect := range []databasepb.DatabaseDialect{
+		databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+		databasepb.DatabaseDialect_POSTGRESQL,
+	} {
+		name := "GoogleSQL"
+		dsnParams := "default_sequence_kind=bit_reversed_positive"
+		if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+			name = "PostgreSQL"
+			dsnParams = "dialect=postgresql;default_sequence_kind=bit_reversed_positive"
+		}
+		t.Run(name, func(t *testing.T) {
+			db, server, teardown := setupTestDBConnectionWithParamsAndDialect(t, dsnParams, dialect)
+			defer teardown()
+
+			opError := &longrunningpb.Operation{
+				Done: true,
+				Result: &longrunningpb.Operation_Error{
+					Error: &pbstatus.Status{
+						Code:    int32(codes.InvalidArgument),
+						Message: "Please specify the sequence kind explicitly or set the database option 'default_sequence_kind'.",
+					},
+				},
+				Name: "op-error",
+			}
+			anyResponse, _ := anypb.New(&emptypb.Empty{})
+			opSuccess := &longrunningpb.Operation{
+				Done:   true,
+				Result: &longrunningpb.Operation_Response{Response: anyResponse},
+				Name:   "op-success",
+			}
+
+			server.TestDatabaseAdmin.SetResps([]proto.Message{opError, opSuccess, opSuccess})
+
+			query := "CREATE SEQUENCE my_seq"
+			if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+				query = "CREATE SEQUENCE my_seq" // same for both dialects
+			}
+			_, err := db.ExecContext(context.Background(), query)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			requests := server.TestDatabaseAdmin.Reqs()
+			if g, w := len(requests), 3; g != w {
+				t.Fatalf("requests count mismatch\nGot: %v\nWant: %v", g, w)
+			}
+
+			// First request: original DDL
+			req0, ok := requests[0].(*databasepb.UpdateDatabaseDdlRequest)
+			if !ok {
+				t.Fatalf("request 0 type mismatch, got %T", requests[0])
+			}
+			if g, w := req0.Statements[0], query; g != w {
+				t.Errorf("request 0 statement mismatch\nGot: %s\nWant: %s", g, w)
+			}
+
+			// Second request: ALTER DATABASE statement setting default_sequence_kind
+			req1, ok := requests[1].(*databasepb.UpdateDatabaseDdlRequest)
+			if !ok {
+				t.Fatalf("request 1 type mismatch, got %T", requests[1])
+			}
+			var wantAlter string
+			if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+				wantAlter = `ALTER DATABASE "d" SET spanner.default_sequence_kind = 'bit_reversed_positive'`
+			} else {
+				wantAlter = "ALTER DATABASE `d` SET OPTIONS (default_sequence_kind = 'bit_reversed_positive')"
+			}
+			if g, w := req1.Statements[0], wantAlter; g != w {
+				t.Errorf("request 1 statement mismatch\nGot: %s\nWant: %s", g, w)
+			}
+
+			// Third request: Retried DDL statement
+			req2, ok := requests[2].(*databasepb.UpdateDatabaseDdlRequest)
+			if !ok {
+				t.Fatalf("request 2 type mismatch, got %T", requests[2])
+			}
+			if g, w := req2.Statements[0], query; g != w {
+				t.Errorf("request 2 statement mismatch\nGot: %s\nWant: %s", g, w)
+			}
+		})
 	}
 }
 

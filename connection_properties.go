@@ -175,6 +175,15 @@ var propertyReadOnlyStaleness = createConnectionProperty(
 	connectionstate.ContextUser,
 	connectionstate.ConvertReadOnlyStaleness,
 )
+var propertyDefaultSequenceKind = createConnectionProperty(
+	"default_sequence_kind",
+	"The default sequence kind to automatically set if a DDL statement fails due to missing sequence kind.",
+	"",
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertString,
+)
 
 var propertyAutoPartitionMode = createConnectionProperty(
 	"auto_partition_mode",
