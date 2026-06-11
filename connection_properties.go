@@ -439,6 +439,15 @@ var propertyMaxCommitDelay = createConnectionProperty(
 	connectionstate.ContextUser,
 	connectionstate.ConvertDuration,
 )
+var propertyDirectedRead = createConnectionProperty(
+	"directed_read",
+	"The directed read options to use for read-only transactions or single-use queries.",
+	(*spannerpb.DirectedReadOptions)(nil),
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertDirectedRead,
+)
 var propertyCommitPriority = createConnectionProperty(
 	"commit_priority",
 	"Sets the priority for commit RPC invocations from this connection (HIGH/MEDIUM/LOW/UNSPECIFIED). "+

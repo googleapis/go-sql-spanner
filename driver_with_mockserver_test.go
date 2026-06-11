@@ -6021,3 +6021,72 @@ func filterBeginReadOnlyRequests(requests []interface{}) []*sppb.BeginTransactio
 	}
 	return res
 }
+
+func TestDirectedReadPropagation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	// 1. Set directed_read on connection
+	_, err = conn.ExecContext(ctx, "SET directed_read = '{\"excludeReplicas\": {\"replicaSelections\": [{\"location\": \"us-east4\"}]}}'")
+	if err != nil {
+		t.Fatalf("failed to set directed_read: %v", err)
+	}
+
+	// 2. Put query result
+	if err := server.TestSpanner.PutStatementResult(
+		testutil.SelectFooFromBar,
+		&testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: testutil.CreateSelect1ResultSet(),
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. Run query inside a Read-Only transaction (directed reads only apply to read-only transactions or single-use reads)
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatalf("failed to start read-only transaction: %v", err)
+	}
+	rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatalf("failed to execute query: %v", err)
+	}
+	if rows.Next() {
+		// read value if needed
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows error: %v", err)
+	}
+	rows.Close()
+	_ = tx.Commit()
+
+	// 4. Verify that the query request sent to Spanner contained the DirectedReadOptions.
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests), 1; g != w {
+		t.Fatalf("execute requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := execRequests[0].(*sppb.ExecuteSqlRequest)
+	wantDR := &sppb.DirectedReadOptions{
+		Replicas: &sppb.DirectedReadOptions_ExcludeReplicas_{
+			ExcludeReplicas: &sppb.DirectedReadOptions_ExcludeReplicas{
+				ReplicaSelections: []*sppb.DirectedReadOptions_ReplicaSelection{
+					{Location: "us-east4"},
+				},
+			},
+		},
+	}
+	if !proto.Equal(req.DirectedReadOptions, wantDR) {
+		t.Fatalf("DirectedReadOptions mismatch\nGot:  %v\nWant: %v", req.DirectedReadOptions, wantDR)
+	}
+}

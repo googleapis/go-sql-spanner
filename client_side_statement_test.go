@@ -31,6 +31,7 @@ import (
 	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -688,5 +689,99 @@ func TestStatementExecutor_UsesExecOptions(t *testing.T) {
 	if rows.HasNextResultSet() {
 		t.Fatal("got unexpected next result set")
 	}
+}
 
+func TestStatementExecutor_DirectedRead(t *testing.T) {
+	t.Parallel()
+
+	p, _ := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	c := &conn{
+		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		parser: p,
+	}
+	ctx := context.Background()
+
+	// Initial value should be nil.
+	if dr := c.DirectedReadOptions(); dr != nil {
+		t.Fatalf("expected initial directed_read to be nil, got: %v", dr)
+	}
+
+	for i, test := range []struct {
+		setValue    string
+		wantSetErr  bool
+		wantOptions *spannerpb.DirectedReadOptions
+	}{
+		{
+			setValue:   "'{\"excludeReplicas\": {\"replicaSelections\": [{\"location\": \"us-east4\"}]}}'",
+			wantSetErr: false,
+			wantOptions: &spannerpb.DirectedReadOptions{
+				Replicas: &spannerpb.DirectedReadOptions_ExcludeReplicas_{
+					ExcludeReplicas: &spannerpb.DirectedReadOptions_ExcludeReplicas{
+						ReplicaSelections: []*spannerpb.DirectedReadOptions_ReplicaSelection{
+							{Location: "us-east4"},
+						},
+					},
+				},
+			},
+		},
+		{
+			setValue:    "NULL",
+			wantSetErr:  false,
+			wantOptions: nil,
+		},
+		{
+			setValue:    "'null'",
+			wantSetErr:  false,
+			wantOptions: nil,
+		},
+		{
+			setValue:   "'invalid json'",
+			wantSetErr: true,
+		},
+	} {
+		res, err := c.ExecContext(ctx, "set directed_read = "+test.setValue, []driver.NamedValue{})
+		if test.wantSetErr {
+			if err == nil {
+				t.Fatalf("%d: missing expected error for value %q", i, test.setValue)
+			}
+		} else {
+			if err != nil {
+				t.Fatalf("%d: could not set new value %q for directed_read: %v", i, test.setValue, err)
+			}
+			if res != driver.ResultNoRows {
+				t.Fatalf("%d: result mismatch\nGot: %v\nWant: %v", i, res, driver.ResultNoRows)
+			}
+
+			// Verify via getter
+			gotOptions := c.DirectedReadOptions()
+			if !proto.Equal(gotOptions, test.wantOptions) {
+				t.Fatalf("%d: value mismatch\nGot:  %v\nWant: %v", i, gotOptions, test.wantOptions)
+			}
+
+			// Verify via SHOW
+			rows, err := c.QueryContext(ctx, "show variable directed_read", []driver.NamedValue{})
+			if err != nil {
+				t.Fatalf("%d: could not show directed_read: %v", i, err)
+			}
+			defer rows.Close()
+
+			values := make([]driver.Value, 1)
+			if err := rows.Next(values); err != nil {
+				t.Fatalf("%d: failed to scan SHOW result: %v", i, err)
+			}
+			showVal := fmt.Sprintf("%v", values[0])
+
+			if test.wantOptions == nil {
+				if showVal != "" {
+					t.Fatalf("%d: expected SHOW to return '', got: %q", i, showVal)
+				}
+			} else {
+				wantStr := test.wantOptions.String()
+				if showVal != wantStr {
+					t.Fatalf("%d: SHOW value mismatch\nGot:  %q\nWant: %q", i, showVal, wantStr)
+				}
+			}
+		}
+	}
 }

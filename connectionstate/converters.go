@@ -18,11 +18,14 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 func CreateReadOnlyConverter[T any](property string) func(value string) (T, error) {
@@ -145,4 +148,15 @@ func matchesToMap(re *regexp.Regexp, s string) map[string]string {
 		}
 	}
 	return matches
+}
+
+func ConvertDirectedRead(value string) (*spannerpb.DirectedReadOptions, error) {
+	if value == "" || strings.EqualFold(value, "null") {
+		return nil, nil
+	}
+	var options spannerpb.DirectedReadOptions
+	if err := protojson.Unmarshal([]byte(value), &options); err != nil {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid directed_read JSON value %q: %v", value, err))
+	}
+	return &options, nil
 }

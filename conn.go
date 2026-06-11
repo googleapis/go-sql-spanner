@@ -121,6 +121,10 @@ type SpannerConn interface {
 	// SetReadOnlyStaleness sets the staleness to use for queries in autocommit
 	// mode and for read-only transaction.
 	SetReadOnlyStaleness(staleness spanner.TimestampBound) error
+	// DirectedReadOptions returns the current directed read options of the connection.
+	DirectedReadOptions() *spannerpb.DirectedReadOptions
+	// SetDirectedReadOptions sets the directed read options of the connection.
+	SetDirectedReadOptions(options *spannerpb.DirectedReadOptions) error
 
 	// IsolationLevel returns the current default isolation level that is
 	// used for read/write transactions on this connection.
@@ -432,6 +436,22 @@ func (c *conn) readOnlyStalenessPointer() *spanner.TimestampBound {
 	staleness, _ := val.GetValue()
 	timestampBound := staleness.(spanner.TimestampBound)
 	return &timestampBound
+}
+
+func (c *conn) DirectedReadOptions() *spannerpb.DirectedReadOptions {
+	return propertyDirectedRead.GetValueOrDefault(c.state)
+}
+
+func (c *conn) SetDirectedReadOptions(options *spannerpb.DirectedReadOptions) error {
+	_, err := c.setDirectedReadOptions(options)
+	return err
+}
+
+func (c *conn) setDirectedReadOptions(options *spannerpb.DirectedReadOptions) (driver.Result, error) {
+	if err := propertyDirectedRead.SetValue(c.state, options, connectionstate.ContextUser); err != nil {
+		return nil, err
+	}
+	return driver.ResultNoRows, nil
 }
 
 func (c *conn) IsolationLevel() sql.IsolationLevel {
@@ -1340,8 +1360,9 @@ func (c *conn) options(resetTags bool) (*ExecOptions, error) {
 		AutocommitDMLMode:    c.AutocommitDMLMode(),
 		DecodeToNativeArrays: c.DecodeToNativeArrays(),
 		QueryOptions: spanner.QueryOptions{
-			RequestTag: c.StatementTag(),
-			Priority:   propertyRpcPriority.GetValueOrDefault(c.state),
+			RequestTag:          c.StatementTag(),
+			Priority:            propertyRpcPriority.GetValueOrDefault(c.state),
+			DirectedReadOptions: c.DirectedReadOptions(),
 		},
 		TransactionOptions: spanner.TransactionOptions{
 			ExcludeTxnFromChangeStreams: c.ExcludeTxnFromChangeStreams(),
