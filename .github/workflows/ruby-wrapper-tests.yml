@@ -1,5 +1,8 @@
 name: Ruby Wrapper Tests
 
+permissions:
+  contents: read
+
 on:
   push:
     branches:

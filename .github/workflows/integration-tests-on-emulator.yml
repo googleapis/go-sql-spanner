@@ -5,6 +5,9 @@ on:
 
 name: Integration tests on emulator
 
+permissions:
+  contents: read
+
 jobs:
   # This is the original job, renamed for clarity
   test-go:

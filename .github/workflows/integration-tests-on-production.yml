@@ -4,6 +4,10 @@ on:
   pull_request:
     branches: [ main ]
 name: Integration tests on production
+
+permissions:
+  contents: read
+
 jobs:
   check-env:
     outputs:

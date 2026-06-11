@@ -1,6 +1,10 @@
 on:
   pull_request:
 name: Run Samples
+
+permissions:
+  contents: read
+
 jobs:
   samples:
     strategy:
