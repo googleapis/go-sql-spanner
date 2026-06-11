@@ -19,6 +19,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"cloud.google.com/go/spanner"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
@@ -106,6 +107,26 @@ func prepareSpannerStmt(state *connectionstate.ConnectionState, parser *parser.S
 		if sa, ok := args[i].Value.(SpannerNamedArg); ok {
 			name = sa.NameInQuery
 			value = sa.Value
+		}
+		if name != "" {
+			found := false
+			if len(namesToIndex) > 0 {
+				for queryName := range namesToIndex {
+					if strings.EqualFold(queryName, name) {
+						name = queryName
+						found = true
+						break
+					}
+				}
+			}
+			if !found {
+				for _, queryName := range names {
+					if strings.EqualFold(queryName, name) {
+						name = queryName
+						break
+					}
+				}
+			}
 		}
 		if name == "" && len(names) > i {
 			name = names[i]

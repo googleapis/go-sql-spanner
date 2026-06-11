@@ -535,6 +535,18 @@ func TestNamedParametersWithGoogleSQL(t *testing.T) {
 			wantParams: map[string]string{"id": "1", "value": "One"},
 		},
 		{
+			name:       "case_insensitive",
+			params:     []any{sql.Named("ID", 1), sql.Named("Value", "One")},
+			input:      "insert into my_table (id, value) values (@id, @value)",
+			wantParams: map[string]string{"id": "1", "value": "One"},
+		},
+		{
+			name:       "case_insensitive_2",
+			params:     []any{sql.Named("id", 1), sql.Named("value", "One")},
+			input:      "insert into my_table (id, value) values (@ID, @VALUE)",
+			wantParams: map[string]string{"ID": "1", "VALUE": "One"},
+		},
+		{
 			name:       "input_out_of_order",
 			params:     []any{sql.Named("value", "One"), sql.Named("id", 1)},
 			input:      "insert into my_table (id, value) values (@id, @value)",
@@ -736,6 +748,20 @@ func TestNamedParametersWithPG(t *testing.T) {
 			params:     []any{sql.Named("id", 1), sql.Named("value", "One")},
 			input:      "insert into my_table (id, initial_value, current_value, generation) values (@id, @value, @value, @id)",
 			wantSQL:    "insert into my_table (id, initial_value, current_value, generation) values ($1, $2, $2, $1)",
+			wantParams: map[string]string{"p1": "1", "p2": "One"},
+		},
+		{
+			name:       "case_insensitive",
+			params:     []any{sql.Named("ID", 1), sql.Named("Value", "One")},
+			input:      "insert into my_table (id, value) values (@id, @value)",
+			wantSQL:    "insert into my_table (id, value) values ($1, $2)",
+			wantParams: map[string]string{"p1": "1", "p2": "One"},
+		},
+		{
+			name:       "case_insensitive_2",
+			params:     []any{sql.Named("id", 1), sql.Named("value", "One")},
+			input:      "insert into my_table (id, value) values (@ID, @VALUE)",
+			wantSQL:    "insert into my_table (id, value) values ($1, $2)",
 			wantParams: map[string]string{"p1": "1", "p2": "One"},
 		},
 		{
