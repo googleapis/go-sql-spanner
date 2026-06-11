@@ -1158,6 +1158,9 @@ func runTransactionWithOptions(ctx context.Context, db *sql.DB, opts *sql.TxOpti
 		if err == nil {
 			err = tx.Commit()
 			if err == nil {
+				if opts != nil && opts.ReadOnly {
+					return nil, nil
+				}
 				resp, err := getCommitResponse(conn)
 				if err != nil {
 					return nil, err
