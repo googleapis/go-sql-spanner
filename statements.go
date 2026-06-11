@@ -59,6 +59,12 @@ func createExecutableStatement(stmt parser.ParsedStatement) (executableStatement
 		return &executableCommitStatement{stmt: stmt}, nil
 	case *parser.ParsedRollbackStatement:
 		return &executableRollbackStatement{stmt: stmt}, nil
+	case *parser.ParsedSavepointStatement:
+		return &executableSavepointStatement{stmt: stmt}, nil
+	case *parser.ParsedRollbackToSavepointStatement:
+		return &executableRollbackToSavepointStatement{stmt: stmt}, nil
+	case *parser.ParsedReleaseSavepointStatement:
+		return &executableReleaseSavepointStatement{stmt: stmt}, nil
 	}
 	return nil, status.Errorf(codes.Internal, "unsupported statement type: %T", stmt)
 }
@@ -365,6 +371,69 @@ func (s *executableRollbackStatement) execContext(ctx context.Context, c *conn, 
 }
 
 func (s *executableRollbackStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts, args); err != nil {
+		return nil, err
+	}
+	return createEmptyRows(opts), nil
+}
+
+type executableSavepointStatement struct {
+	stmt *parser.ParsedSavepointStatement
+}
+
+func (s *executableSavepointStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
+	if !c.inTransaction() {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "SAVEPOINT can only be used in a transaction"))
+	}
+	if err := c.tx.Savepoint(s.stmt.SavepointName); err != nil {
+		return nil, err
+	}
+	return driver.ResultNoRows, nil
+}
+
+func (s *executableSavepointStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts, args); err != nil {
+		return nil, err
+	}
+	return createEmptyRows(opts), nil
+}
+
+type executableRollbackToSavepointStatement struct {
+	stmt *parser.ParsedRollbackToSavepointStatement
+}
+
+func (s *executableRollbackToSavepointStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
+	if !c.inTransaction() {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "ROLLBACK TO SAVEPOINT can only be used in a transaction"))
+	}
+	if err := c.tx.RollbackToSavepoint(ctx, s.stmt.SavepointName); err != nil {
+		return nil, err
+	}
+	return driver.ResultNoRows, nil
+}
+
+func (s *executableRollbackToSavepointStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+	if _, err := s.execContext(ctx, c, opts, args); err != nil {
+		return nil, err
+	}
+	return createEmptyRows(opts), nil
+}
+
+type executableReleaseSavepointStatement struct {
+	stmt *parser.ParsedReleaseSavepointStatement
+}
+
+func (s *executableReleaseSavepointStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
+	if !c.inTransaction() {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "RELEASE SAVEPOINT can only be used in a transaction"))
+	}
+	if err := c.tx.ReleaseSavepoint(s.stmt.SavepointName); err != nil {
+		return nil, err
+	}
+	return driver.ResultNoRows, nil
+}
+
+func (s *executableReleaseSavepointStatement) queryContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
 	if _, err := s.execContext(ctx, c, opts, args); err != nil {
 		return nil, err
 	}
