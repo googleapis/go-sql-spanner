@@ -688,5 +688,142 @@ func TestStatementExecutor_UsesExecOptions(t *testing.T) {
 	if rows.HasNextResultSet() {
 		t.Fatal("got unexpected next result set")
 	}
+}
 
+func TestStatementExecutor_ShowTransaction(t *testing.T) {
+	t.Parallel()
+
+	p, _ := parser.NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+	c := &conn{
+		logger: noopLogger,
+		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		parser: p,
+	}
+	ctx := context.Background()
+
+	// Initial checks.
+	// 1. SHOW TRANSACTION ISOLATION LEVEL should show the default (serializable)
+	rows, err := c.QueryContext(ctx, "show transaction isolation level", []driver.NamedValue{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	values := make([]driver.Value, 1)
+	if err := rows.Next(values); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fmt.Sprintf("%v", values[0]), "serializable"; got != want {
+		t.Errorf("isolation level got %q, want %q", got, want)
+	}
+	rows.Close()
+
+	// 2. SHOW transaction_isolation (alias) should show same
+	rows, err = c.QueryContext(ctx, "show transaction_isolation", []driver.NamedValue{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if err := rows.Next(values); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fmt.Sprintf("%v", values[0]), "serializable"; got != want {
+		t.Errorf("transaction_isolation got %q, want %q", got, want)
+	}
+	rows.Close()
+
+	// 3. SHOW TRANSACTION READ ONLY should show default (false)
+	rows, err = c.QueryContext(ctx, "show transaction read only", []driver.NamedValue{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if err := rows.Next(values); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fmt.Sprintf("%v", values[0]), "false"; got != want {
+		t.Errorf("read only got %q, want %q", got, want)
+	}
+	rows.Close()
+
+	// 4. SHOW TRANSACTION DEFERRABLE should show default (false)
+	rows, err = c.QueryContext(ctx, "show transaction deferrable", []driver.NamedValue{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if err := rows.Next(values); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fmt.Sprintf("%v", values[0]), "false"; got != want {
+		t.Errorf("deferrable got %q, want %q", got, want)
+	}
+	rows.Close()
+
+	// Now modify the properties using SET, and verify they show new values!
+	if _, err := c.ExecContext(ctx, "set isolation_level = 'repeatable_read'", []driver.NamedValue{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ExecContext(ctx, "set transaction_read_only = true", []driver.NamedValue{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ExecContext(ctx, "set transaction_deferrable = true", []driver.NamedValue{}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify new values
+	// 1. SHOW TRANSACTION ISOLATION LEVEL
+	rows, err = c.QueryContext(ctx, "show transaction isolation level", []driver.NamedValue{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if err := rows.Next(values); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fmt.Sprintf("%v", values[0]), "repeatable read"; got != want {
+		t.Errorf("isolation level got %q, want %q", got, want)
+	}
+	rows.Close()
+
+	// 2. SHOW transaction_isolation
+	rows, err = c.QueryContext(ctx, "show transaction_isolation", []driver.NamedValue{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if err := rows.Next(values); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fmt.Sprintf("%v", values[0]), "repeatable read"; got != want {
+		t.Errorf("transaction_isolation got %q, want %q", got, want)
+	}
+	rows.Close()
+
+	// 3. SHOW TRANSACTION READ ONLY
+	rows, err = c.QueryContext(ctx, "show transaction read only", []driver.NamedValue{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if err := rows.Next(values); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fmt.Sprintf("%v", values[0]), "true"; got != want {
+		t.Errorf("read only got %q, want %q", got, want)
+	}
+	rows.Close()
+
+	// 4. SHOW TRANSACTION DEFERRABLE
+	rows, err = c.QueryContext(ctx, "show transaction deferrable", []driver.NamedValue{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if err := rows.Next(values); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fmt.Sprintf("%v", values[0]), "true"; got != want {
+		t.Errorf("deferrable got %q, want %q", got, want)
+	}
+	rows.Close()
 }

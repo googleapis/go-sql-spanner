@@ -333,7 +333,21 @@ func (c *conn) showConnectionVariable(identifier parser.Identifier) (any, bool, 
 	if err != nil {
 		return nil, false, err
 	}
-	return c.state.GetValue(extension, name)
+	if extension == "" && name == "transaction_isolation" {
+		name = "isolation_level"
+	}
+	val, hasValue, err := c.state.GetValue(extension, name)
+	if err != nil {
+		return nil, false, err
+	}
+	if name == "isolation_level" {
+		if lvl, ok := val.(sql.IsolationLevel); ok && lvl == sql.LevelDefault {
+			if c.parser.Dialect == adminpb.DatabaseDialect_POSTGRESQL {
+				val = sql.LevelSerializable
+			}
+		}
+	}
+	return val, hasValue, nil
 }
 
 func (c *conn) setConnectionVariable(identifier parser.Identifier, value string, local bool, transaction bool, statementScoped bool) error {

@@ -26,10 +26,6 @@ import (
 func TestParseShowStatement(t *testing.T) {
 	t.Parallel()
 
-	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
-	if err != nil {
-		t.Fatal(err)
-	}
 	type test struct {
 		input   string
 		want    ParsedShowStatement
@@ -37,8 +33,7 @@ func TestParseShowStatement(t *testing.T) {
 	}
 	tests := []test{
 		{
-			input:   "show my_property",
-			wantErr: parser.Dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+			input: "show my_property",
 			want: ParsedShowStatement{
 				query:      "show my_property",
 				Identifier: Identifier{Parts: []string{"my_property"}},
@@ -97,29 +92,95 @@ func TestParseShowStatement(t *testing.T) {
 			// Garbled comment.
 			input:   "show variable /*should have been a comment* my_property",
 			wantErr: true,
+			want: ParsedShowStatement{
+				query:      "show variable /*should have been a comment* my_property",
+				Identifier: Identifier{Parts: []string{"variable"}},
+			},
+		},
+		{
+			input: "show transaction isolation level",
+			want: ParsedShowStatement{
+				query:      "show transaction isolation level",
+				Identifier: Identifier{Parts: []string{"isolation_level"}},
+			},
+		},
+		{
+			input: "show transaction read only",
+			want: ParsedShowStatement{
+				query:      "show transaction read only",
+				Identifier: Identifier{Parts: []string{"transaction_read_only"}},
+			},
+		},
+		{
+			input: "show transaction read write",
+			want: ParsedShowStatement{
+				query:      "show transaction read write",
+				Identifier: Identifier{Parts: []string{"transaction_read_only"}},
+			},
+		},
+		{
+			input: "show transaction deferrable",
+			want: ParsedShowStatement{
+				query:      "show transaction deferrable",
+				Identifier: Identifier{Parts: []string{"transaction_deferrable"}},
+			},
+		},
+		{
+			input: "show transaction not deferrable",
+			want: ParsedShowStatement{
+				query:      "show transaction not deferrable",
+				Identifier: Identifier{Parts: []string{"transaction_deferrable"}},
+			},
+		},
+		{
+			input:   "show transaction foo",
+			wantErr: true,
 		},
 	}
 	keyword := "SHOW"
-	for _, test := range tests {
-		t.Run(test.input, func(t *testing.T) {
-			stmt, err := parseStatement(parser, keyword, test.input)
-			if test.wantErr {
-				if err == nil {
-					t.Fatalf("parseStatement(%q) should have failed", test.input)
+	for _, dialect := range []databasepb.DatabaseDialect{databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, databasepb.DatabaseDialect_POSTGRESQL} {
+		parser, err := NewStatementParser(dialect, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, test := range tests {
+			t.Run(fmt.Sprintf("%s %s", dialect, test.input), func(t *testing.T) {
+				isGsql := dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL
+				normalizedInput := normalizeSpace(strings.ToLower(test.input))
+				hasVariableKeyword := strings.Contains(normalizedInput, "show variable")
+				hasTxKeyword := strings.Contains(normalizedInput, "show transaction")
+
+				wantErr := test.wantErr
+				if isGsql && !hasVariableKeyword && !hasTxKeyword {
+					wantErr = true
 				}
-			} else {
-				if err != nil {
-					t.Fatal(err)
+				if !isGsql && hasVariableKeyword {
+					if test.input == "show variable /*should have been a comment* my_property" {
+						wantErr = false
+					} else {
+						wantErr = true
+					}
 				}
-				showStmt, ok := stmt.(*ParsedShowStatement)
-				if !ok {
-					t.Fatalf("parseStatement(%q) should have returned a *ParsedShowStatement", test.input)
+
+				stmt, err := parseStatement(parser, keyword, test.input)
+				if wantErr {
+					if err == nil {
+						t.Fatalf("parseStatement(%q) should have failed", test.input)
+					}
+				} else {
+					if err != nil {
+						t.Fatal(err)
+					}
+					showStmt, ok := stmt.(*ParsedShowStatement)
+					if !ok {
+						t.Fatalf("parseStatement(%q) should have returned a *ParsedShowStatement", test.input)
+					}
+					if !reflect.DeepEqual(*showStmt, test.want) {
+						t.Errorf("parseStatement(%q) = %v, want %v", test.input, *showStmt, test.want)
+					}
 				}
-				if !reflect.DeepEqual(*showStmt, test.want) {
-					t.Errorf("parseStatement(%q) = %v, want %v", test.input, *showStmt, test.want)
-				}
-			}
-		})
+			})
+		}
 	}
 }
 
@@ -711,4 +772,8 @@ func TestParseRunPartitionedQuery(t *testing.T) {
 			}
 		})
 	}
+}
+
+func normalizeSpace(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }

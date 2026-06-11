@@ -150,10 +150,13 @@ func (s *ParsedShowStatement) Query() string {
 
 func (s *ParsedShowStatement) parse(parser *StatementParser, query string) error {
 	// Parse a statement of the form
-	// SHOW [VARIABLE] [my_extension.]my_property
+	// SHOW [VARIABLE | TRANSACTION] [my_extension.]my_property
 	sp := &simpleParser{sql: []byte(query), statementParser: parser}
 	if !sp.eatKeyword("SHOW") {
 		return status.Error(codes.InvalidArgument, "statement does not start with SHOW")
+	}
+	if sp.eatKeyword("TRANSACTION") {
+		return s.parseShowTransaction(sp, query)
 	}
 	if parser.Dialect == databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL {
 		// Just eat and ignore the keyword VARIABLE.
@@ -170,6 +173,42 @@ func (s *ParsedShowStatement) parse(parser *StatementParser, query string) error
 	}
 	s.query = query
 	s.Identifier = identifier
+	return nil
+}
+
+func (s *ParsedShowStatement) parseShowTransaction(sp *simpleParser, query string) error {
+	if !sp.hasMoreTokens() {
+		return status.Errorf(codes.InvalidArgument, "syntax error: missing TRANSACTION option, expected one of ISOLATION LEVEL, READ WRITE, or READ ONLY")
+	}
+	s.query = query
+
+	if sp.eatKeyword("ISOLATION") {
+		if !sp.eatKeyword("LEVEL") {
+			return status.Error(codes.InvalidArgument, "invalid TRANSACTION option, expected ISOLATION LEVEL")
+		}
+		s.Identifier = Identifier{Parts: []string{"isolation_level"}}
+	} else if sp.eatKeyword("READ") {
+		if sp.eatKeyword("ONLY") {
+			s.Identifier = Identifier{Parts: []string{"transaction_read_only"}}
+		} else if sp.eatKeyword("WRITE") {
+			s.Identifier = Identifier{Parts: []string{"transaction_read_only"}}
+		} else {
+			return status.Error(codes.InvalidArgument, "invalid TRANSACTION option, expected READ ONLY or READ WRITE")
+		}
+	} else if sp.eatKeyword("DEFERRABLE") {
+		s.Identifier = Identifier{Parts: []string{"transaction_deferrable"}}
+	} else if sp.eatKeyword("NOT") {
+		if !sp.eatKeyword("DEFERRABLE") {
+			return status.Error(codes.InvalidArgument, "invalid TRANSACTION option, expected NOT DEFERRABLE")
+		}
+		s.Identifier = Identifier{Parts: []string{"transaction_deferrable"}}
+	} else {
+		return status.Error(codes.InvalidArgument, "invalid TRANSACTION option, expected one of ISOLATION LEVEL, READ WRITE, or READ ONLY")
+	}
+
+	if sp.hasMoreTokens() {
+		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
+	}
 	return nil
 }
 

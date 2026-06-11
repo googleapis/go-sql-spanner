@@ -16,9 +16,11 @@ package spannerdriver
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -87,6 +89,12 @@ func (s *executableShowStatement) queryContext(ctx context.Context, c *conn, opt
 		it, err = createStringIterator(col, val)
 	case *time.Time:
 		it, err = createTimestampIterator(col, val)
+	case sql.IsolationLevel:
+		isolationStr := val.String()
+		if c.parser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+			isolationStr = strings.ToLower(isolationStr)
+		}
+		it, err = createStringIterator(col, isolationStr)
 	default:
 		stringVal := ""
 		if hasValue {
