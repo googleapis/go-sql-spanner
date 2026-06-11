@@ -1257,7 +1257,10 @@ func (s *inMemSpannerServer) DrainRequestsFromServer() []interface{} {
 loop:
 	for {
 		select {
-		case req := <-s.ReceivedRequests():
+		case req, ok := <-s.ReceivedRequests():
+			if !ok {
+				break loop
+			}
 			reqs = append(reqs, req)
 		default:
 			break loop
