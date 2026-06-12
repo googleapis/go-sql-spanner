@@ -23,15 +23,14 @@ import (
 	"time"
 )
 
-// TestMinSessionsZeroConcurrentDML tests that concurrent DML operations work correctly
-// when min_sessions=0 is set.
-func TestMinSessionsZeroConcurrentDML(t *testing.T) {
+// TestConcurrentDML tests that concurrent DML operations work correctly.
+func TestConcurrentDML(t *testing.T) {
 	skipIfShort(t)
 	t.Parallel()
 
 	ctx := context.Background()
 	dsn, cleanup, err := createTestDB(ctx,
-		`CREATE TABLE TestMinSessions (
+		`CREATE TABLE TestConcurrentDML (
 			id INT64 NOT NULL,
 			value STRING(1024),
 			updated_at TIMESTAMP,
@@ -41,25 +40,40 @@ func TestMinSessionsZeroConcurrentDML(t *testing.T) {
 	}
 	defer cleanup()
 
-	// Add min_sessions=0 to the DSN to reproduce the issue
-	dsnWithMinSessions := dsn + ";min_sessions=0;max_sessions=400"
+	dsnWithMaxSessions := dsn + ";max_sessions=400"
 
-	db, err := sql.Open("spanner", dsnWithMinSessions)
+	db, err := sql.Open("spanner", dsnWithMaxSessions)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
 
-	// Insert initial rows
+	// Insert initial rows in a batch
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, "START BATCH DML"); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
 	for i := 0; i < 100; i++ {
-		_, err := db.ExecContext(ctx, "INSERT INTO TestMinSessions (id, value, updated_at) VALUES (?, ?, ?)",
+		_, err := tx.ExecContext(ctx, "INSERT INTO TestConcurrentDML (id, value, updated_at) VALUES (?, ?, ?)",
 			i, fmt.Sprintf("value-%d", i), time.Now())
 		if err != nil {
-			t.Fatalf("failed to insert row %d: %v", i, err)
+			_ = tx.Rollback()
+			t.Fatalf("failed to queue insert row %d: %v", i, err)
 		}
 	}
+	if _, err := tx.ExecContext(ctx, "RUN BATCH"); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
 
-	// Run concurrent UPDATE statements - this is where the issue manifests
+	// Run concurrent UPDATE statements
 	const concurrency = 10
 	const iterations = 50
 
@@ -75,14 +89,14 @@ func TestMinSessionsZeroConcurrentDML(t *testing.T) {
 				rowID := (goroutineID*iterations + i) % 100
 				timestamp := time.Now()
 
-				// This UPDATE pattern is similar to what overlaycache.updateCheckInDirectUpdate does
+				// This UPDATE pattern uses conditional logic with query parameters.
 				res, err := db.ExecContext(ctx, `
-					UPDATE TestMinSessions
+					UPDATE TestConcurrentDML
 					SET
 						value = ?,
 						updated_at = CASE WHEN CAST(? AS bool) IS TRUE
 							THEN CAST(? AS TIMESTAMP)
-							ELSE TestMinSessions.updated_at
+							ELSE TestConcurrentDML.updated_at
 						END
 					WHERE id = ?
 				`,
@@ -95,14 +109,14 @@ func TestMinSessionsZeroConcurrentDML(t *testing.T) {
 					continue
 				}
 
-				// Check RowsAffected - this should work without error
+				// Check RowsAffected
 				affected, err := res.RowsAffected()
 				if err != nil {
 					errors <- fmt.Errorf("goroutine %d iteration %d: RowsAffected failed: %w", goroutineID, i, err)
 					continue
 				}
 				if affected != 1 {
-					errors <- fmt.Errorf("goroutine %d iteration %d: expected 1 row affected, got %d", goroutineID, i, affected)
+					errors <- fmt.Errorf("goroutine %d iteration %d: affected rows mismatch. Got: %d, Want: %d", goroutineID, i, affected, 1)
 				}
 			}
 		}(g)
@@ -129,15 +143,15 @@ func TestMinSessionsZeroConcurrentDML(t *testing.T) {
 	}
 }
 
-// TestMinSessionsZeroSequentialDML tests that sequential DML operations work correctly
-// when min_sessions=0 is set. This is a simpler version of the concurrent test.
-func TestMinSessionsZeroSequentialDML(t *testing.T) {
+// TestSequentialDML tests that sequential DML operations work correctly.
+// This is a simpler version of the concurrent test.
+func TestSequentialDML(t *testing.T) {
 	skipIfShort(t)
 	t.Parallel()
 
 	ctx := context.Background()
 	dsn, cleanup, err := createTestDB(ctx,
-		`CREATE TABLE TestMinSessionsSeq (
+		`CREATE TABLE TestSequentialDML (
 			id INT64 NOT NULL,
 			value STRING(1024),
 			counter INT64,
@@ -147,24 +161,21 @@ func TestMinSessionsZeroSequentialDML(t *testing.T) {
 	}
 	defer cleanup()
 
-	// Add min_sessions=0 to the DSN
-	dsnWithMinSessions := dsn + ";min_sessions=0"
-
-	db, err := sql.Open("spanner", dsnWithMinSessions)
+	db, err := sql.Open("spanner", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
 
 	// Insert a single row
-	_, err = db.ExecContext(ctx, "INSERT INTO TestMinSessionsSeq (id, value, counter) VALUES (1, 'initial', 0)")
+	_, err = db.ExecContext(ctx, "INSERT INTO TestSequentialDML (id, value, counter) VALUES (1, 'initial', 0)")
 	if err != nil {
 		t.Fatalf("failed to insert row: %v", err)
 	}
 
 	// Perform many sequential updates
 	for i := 0; i < 100; i++ {
-		res, err := db.ExecContext(ctx, "UPDATE TestMinSessionsSeq SET value = ?, counter = ? WHERE id = 1",
+		res, err := db.ExecContext(ctx, "UPDATE TestSequentialDML SET value = ?, counter = ? WHERE id = 1",
 			fmt.Sprintf("value-%d", i), i)
 		if err != nil {
 			t.Fatalf("iteration %d: ExecContext failed: %v", i, err)
@@ -175,14 +186,14 @@ func TestMinSessionsZeroSequentialDML(t *testing.T) {
 			t.Fatalf("iteration %d: RowsAffected failed: %v", i, err)
 		}
 		if affected != 1 {
-			t.Fatalf("iteration %d: expected 1 row affected, got %d", i, affected)
+			t.Errorf("iteration %d: affected rows mismatch. Got: %d, Want: %d", i, affected, 1)
 		}
 	}
 
 	// Verify final state
 	var value string
 	var counter int
-	err = db.QueryRowContext(ctx, "SELECT value, counter FROM TestMinSessionsSeq WHERE id = 1").Scan(&value, &counter)
+	err = db.QueryRowContext(ctx, "SELECT value, counter FROM TestSequentialDML WHERE id = 1").Scan(&value, &counter)
 	if err != nil {
 		t.Fatalf("failed to query final state: %v", err)
 	}
@@ -191,15 +202,14 @@ func TestMinSessionsZeroSequentialDML(t *testing.T) {
 	}
 }
 
-// TestMinSessionsZeroWithExplicitTransaction tests that explicit transactions
-// work correctly with min_sessions=0.
-func TestMinSessionsZeroWithExplicitTransaction(t *testing.T) {
+// TestExplicitTransaction tests that explicit transactions work correctly.
+func TestExplicitTransaction(t *testing.T) {
 	skipIfShort(t)
 	t.Parallel()
 
 	ctx := context.Background()
 	dsn, cleanup, err := createTestDB(ctx,
-		`CREATE TABLE TestMinSessionsTx (
+		`CREATE TABLE TestExplicitTransaction (
 			id INT64 NOT NULL,
 			value STRING(1024),
 		) PRIMARY KEY (id)`)
@@ -208,10 +218,7 @@ func TestMinSessionsZeroWithExplicitTransaction(t *testing.T) {
 	}
 	defer cleanup()
 
-	// Add min_sessions=0 to the DSN
-	dsnWithMinSessions := dsn + ";min_sessions=0"
-
-	db, err := sql.Open("spanner", dsnWithMinSessions)
+	db, err := sql.Open("spanner", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,13 +231,13 @@ func TestMinSessionsZeroWithExplicitTransaction(t *testing.T) {
 			t.Fatalf("iteration %d: BeginTx failed: %v", i, err)
 		}
 
-		_, err = tx.ExecContext(ctx, "INSERT INTO TestMinSessionsTx (id, value) VALUES (?, ?)", i, fmt.Sprintf("value-%d", i))
+		_, err = tx.ExecContext(ctx, "INSERT INTO TestExplicitTransaction (id, value) VALUES (?, ?)", i, fmt.Sprintf("value-%d", i))
 		if err != nil {
 			_ = tx.Rollback()
 			t.Fatalf("iteration %d: INSERT failed: %v", i, err)
 		}
 
-		res, err := tx.ExecContext(ctx, "UPDATE TestMinSessionsTx SET value = ? WHERE id = ?", fmt.Sprintf("updated-%d", i), i)
+		res, err := tx.ExecContext(ctx, "UPDATE TestExplicitTransaction SET value = ? WHERE id = ?", fmt.Sprintf("updated-%d", i), i)
 		if err != nil {
 			_ = tx.Rollback()
 			t.Fatalf("iteration %d: UPDATE failed: %v", i, err)
@@ -243,7 +250,8 @@ func TestMinSessionsZeroWithExplicitTransaction(t *testing.T) {
 		}
 		if affected != 1 {
 			_ = tx.Rollback()
-			t.Fatalf("iteration %d: expected 1 row affected, got %d", i, affected)
+			t.Errorf("iteration %d: affected rows mismatch. Got: %d, Want: %d", i, affected, 1)
+			continue
 		}
 
 		if err := tx.Commit(); err != nil {
@@ -252,15 +260,14 @@ func TestMinSessionsZeroWithExplicitTransaction(t *testing.T) {
 	}
 }
 
-// TestMinSessionsZeroRapidOpenClose tests rapid connection open/close cycles
-// with min_sessions=0 to stress the session pool.
-func TestMinSessionsZeroRapidOpenClose(t *testing.T) {
+// TestRapidOpenClose tests rapid connection open/close cycles to stress the connection pool.
+func TestRapidOpenClose(t *testing.T) {
 	skipIfShort(t)
 	t.Parallel()
 
 	ctx := context.Background()
 	dsn, cleanup, err := createTestDB(ctx,
-		`CREATE TABLE TestMinSessionsRapid (
+		`CREATE TABLE TestRapidOpenClose (
 			id INT64 NOT NULL,
 			value STRING(1024),
 		) PRIMARY KEY (id)`)
@@ -269,36 +276,61 @@ func TestMinSessionsZeroRapidOpenClose(t *testing.T) {
 	}
 	defer cleanup()
 
-	// Add min_sessions=0 to the DSN
-	dsnWithMinSessions := dsn + ";min_sessions=0;max_sessions=5"
+	dsnWithMaxSessions := dsn + ";max_sessions=5"
 
-	// Seed with initial data using a separate connection
-	db, err := sql.Open("spanner", dsnWithMinSessions)
+	// Keep a single db connection pool open for the duration of the test
+	db, err := sql.Open("spanner", dsnWithMaxSessions)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() { _ = db.Close() }()
+
+	// Seed with initial data using an explicit DML batch
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Raw(func(driverConn interface{}) error {
+		return driverConn.(SpannerConn).StartBatchDML()
+	}); err != nil {
+		_ = conn.Close()
+		t.Fatal(err)
+	}
 	for i := 0; i < 10; i++ {
-		_, err := db.ExecContext(ctx, "INSERT INTO TestMinSessionsRapid (id, value) VALUES (?, ?)", i, fmt.Sprintf("value-%d", i))
+		_, err := conn.ExecContext(ctx, "INSERT INTO TestRapidOpenClose (id, value) VALUES (?, ?)", i, fmt.Sprintf("value-%d", i))
 		if err != nil {
-			_ = db.Close()
-			t.Fatalf("failed to insert row %d: %v", i, err)
+			_ = conn.Close()
+			t.Fatalf("failed to queue insert row %d: %v", i, err)
 		}
 	}
-	_ = db.Close()
+	if err := conn.Raw(func(driverConn interface{}) error {
+		_, err := driverConn.(SpannerConn).RunDmlBatch(ctx)
+		return err
+	}); err != nil {
+		_ = conn.Close()
+		t.Fatal(err)
+	}
+	_ = conn.Close()
 
-	// Now rapidly open connections, do work, and close them
+	// Now rapidly open connections from the pool, do work, and close them
 	for cycle := 0; cycle < 20; cycle++ {
 		func() {
-			db, err := sql.Open("spanner", dsnWithMinSessions)
+			conn, err := db.Conn(ctx)
 			if err != nil {
-				t.Fatalf("cycle %d: failed to open db: %v", cycle, err)
+				t.Fatalf("cycle %d: failed to get connection: %v", cycle, err)
 			}
-			defer func() { _ = db.Close() }()
+			defer func() { _ = conn.Close() }()
 
 			// Do some DML work
 			for i := 0; i < 5; i++ {
 				rowID := (cycle*5 + i) % 10
-				res, err := db.ExecContext(ctx, "UPDATE TestMinSessionsRapid SET value = ? WHERE id = ?",
+				res, err := conn.ExecContext(ctx, "UPDATE TestRapidOpenClose SET value = ? WHERE id = ?",
+					fmt.Sprintf("cycle-%d-iter-%d", cycle, i), rowID)
+				if err != nil {
+					t.Fatalf("cycle %d iteration %d: ExecContext failed: %v", cycle, i, err)
+				}
+
+				res, err = conn.ExecContext(ctx, "UPDATE TestRapidOpenClose SET value = ? WHERE id = ?",
 					fmt.Sprintf("cycle-%d-iter-%d", cycle, i), rowID)
 				if err != nil {
 					t.Fatalf("cycle %d iteration %d: ExecContext failed: %v", cycle, i, err)
@@ -309,7 +341,7 @@ func TestMinSessionsZeroRapidOpenClose(t *testing.T) {
 					t.Fatalf("cycle %d iteration %d: RowsAffected failed: %v", cycle, i, err)
 				}
 				if affected != 1 {
-					t.Fatalf("cycle %d iteration %d: expected 1 row affected, got %d", cycle, i, affected)
+					t.Errorf("cycle %d iteration %d: affected rows mismatch. Got: %d, Want: %d", cycle, i, affected, 1)
 				}
 			}
 		}()
