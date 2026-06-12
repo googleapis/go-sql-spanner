@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Suppress no-explicit-any for decoding raw dynamic row structs returned by Spanner
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import * as assert from 'assert';
 import { Pool } from '../../src/lib/pool.js';
 import {
@@ -100,7 +102,7 @@ describe('End-to-End Execution on MockServer', () => {
     assert.strictEqual(connections.length, 3, '3 concurrent connections');
 
     const results = await Promise.all(
-      connections.map(c => c.executeSql('SELECT 1'))
+      connections.map((c) => c.executeSql('SELECT 1'))
     );
 
     for (const rows of results) {
@@ -109,7 +111,7 @@ describe('End-to-End Execution on MockServer', () => {
       await rows.close();
     }
 
-    await Promise.all(connections.map(c => c.close()));
+    await Promise.all(connections.map((c) => c.close()));
   });
 
   it('should properly handle backend gRPC errors and propagate them', async () => {

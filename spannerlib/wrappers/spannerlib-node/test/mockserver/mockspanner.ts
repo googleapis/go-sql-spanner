@@ -12,17 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Suppressions justification:
+// 1. no-explicit-any: Required for handling dynamic gRPC/Protobuf wire payloads.
+// 2. no-namespace: Required for declaring ambient protobuf namespace exports.
+// 3. ban-ts-comment: Required for @ts-ignore before import.meta across dual ESM/CJS targets.
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-namespace, @typescript-eslint/ban-ts-comment */
 import * as path from 'path';
 import { grpc as gaxGrpc } from 'google-gax';
 import * as protoLoader from '@grpc/proto-loader';
 import { createRequire } from 'module';
-import {
-  Metadata,
-  Server,
-  ServerCredentials,
-  ServerUnaryCall,
-  ServerWritableStream,
-} from '@grpc/grpc-js';
+import { Metadata, Server, ServerCredentials } from '@grpc/grpc-js';
 import pkg from '@google-cloud/spanner/build/protos/protos.js';
 import type { google as gNamespace } from '@google-cloud/spanner/build/protos/protos.js';
 
@@ -42,20 +41,15 @@ declare namespace protobuf {
 }
 
 type Timestamp = gNamespace.protobuf.Timestamp;
-type RetryInfo = gNamespace.rpc.RetryInfo;
-type ExecuteBatchDmlResponse = gNamespace.spanner.v1.ExecuteBatchDmlResponse;
 type ResultSet = gNamespace.spanner.v1.ResultSet;
 type Status = gNamespace.rpc.Status;
-type Any = gNamespace.protobuf.Any;
 const QueryMode = spannerProto.ExecuteSqlRequest.QueryMode;
-type NullValue = gNamespace.protobuf.NullValue;
-type ExecuteSqlRequest = gNamespace.spanner.v1.ExecuteSqlRequest;
 type ReadRequest = gNamespace.spanner.v1.ReadRequest;
-type Transaction = gNamespace.spanner.v1.Transaction;
 type ServiceError = gaxGrpc.ServiceError;
 
-// @ts-ignore
-const customRequire = typeof require !== 'undefined' ? require : createRequire(import.meta.url);
+const customRequire =
+  // @ts-ignore
+  typeof require !== 'undefined' ? require : createRequire(import.meta.url);
 
 const PROTO_PATH = customRequire.resolve(
   '@google-cloud/spanner/build/protos/google/spanner/v1/spanner.proto'
@@ -378,11 +372,11 @@ export class MockSpanner {
     this.statementResults.set(sql.trim(), result);
   }
 
-  removeExecutionTime(fn: Function) {
+  removeExecutionTime(fn: (...args: any[]) => any) {
     this.executionTimes.delete(fn.name);
   }
 
-  setExecutionTime(fn: Function, time: SimulatedExecutionTime) {
+  setExecutionTime(fn: (...args: any[]) => any, time: SimulatedExecutionTime) {
     this.executionTimes.set(fn.name, time);
   }
 
@@ -463,7 +457,7 @@ export class MockSpanner {
   }
 
   static sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private async simulateExecutionTime(functionName: string): Promise<void> {
@@ -515,7 +509,7 @@ export class MockSpanner {
           spannerProto.BatchCreateSessionsResponse.create({ session: sessions })
         );
       })
-      .catch(err => {
+      .catch((err) => {
         callback(err);
       });
   }
@@ -532,7 +526,7 @@ export class MockSpanner {
           )
         );
       })
-      .catch(err => {
+      .catch((err) => {
         callback(err);
       });
   }
@@ -548,7 +542,7 @@ export class MockSpanner {
           callback(MockSpanner.createSessionNotFoundError(call.request!.name));
         }
       })
-      .catch(err => {
+      .catch((err) => {
         callback(err);
       });
   }
@@ -560,13 +554,13 @@ export class MockSpanner {
         callback(
           null,
           spannerProto.ListSessionsResponse.create({
-            sessions: Array.from(this.sessions.values()).filter(session => {
+            sessions: Array.from(this.sessions.values()).filter((session) => {
               return session.name.startsWith(call.request!.database);
             }),
           })
         );
       })
-      .catch(err => {
+      .catch((err) => {
         callback(err);
       });
   }
@@ -676,10 +670,8 @@ export class MockSpanner {
               resumeIndex =
                 call.request!.resumeToken.length === 0
                   ? 0
-                  : Number.parseInt(
-                      call.request!.resumeToken.toString(),
-                      10
-                    ) + 1;
+                  : Number.parseInt(call.request!.resumeToken.toString(), 10) +
+                    1;
               for (
                 let index = resumeIndex;
                 index < partialResultSets.length;
@@ -735,7 +727,7 @@ export class MockSpanner {
         }
         call.end();
       })
-      .catch(err => {
+      .catch((err) => {
         call.sendMetadata(new Metadata());
         call.emit('error', err);
         call.end();
@@ -912,7 +904,7 @@ export class MockSpanner {
           })
         );
       })
-      .catch(err => {
+      .catch((err) => {
         callback(err);
       });
   }
@@ -1039,7 +1031,7 @@ export class MockSpanner {
         }
         call.end();
       })
-      .catch(err => {
+      .catch((err) => {
         call.sendMetadata(new Metadata());
         call.emit('error', err);
         call.end();
@@ -1061,7 +1053,7 @@ export class MockSpanner {
           callback(null, res);
         }
       })
-      .catch(err => {
+      .catch((err) => {
         callback(err);
       });
   }
@@ -1117,7 +1109,7 @@ export class MockSpanner {
           );
         }
       })
-      .catch(err => {
+      .catch((err) => {
         callback(err);
       });
   }
@@ -1137,9 +1129,7 @@ export class MockSpanner {
         this.transactionOptions.delete(fullTransactionId);
         callback(null, google.protobuf.Empty.create());
       } else {
-        callback(
-          MockSpanner.createTransactionNotFoundError(fullTransactionId)
-        );
+        callback(MockSpanner.createTransactionNotFoundError(fullTransactionId));
       }
     } else {
       callback(MockSpanner.createSessionNotFoundError(call.request!.session));
@@ -1155,7 +1145,7 @@ export class MockSpanner {
         });
         callback(null, response);
       })
-      .catch(err => callback(err));
+      .catch((err) => callback(err));
   }
 
   partitionRead(call: any, callback: any) {
@@ -1167,7 +1157,7 @@ export class MockSpanner {
         });
         callback(null, response);
       })
-      .catch(err => callback(err));
+      .catch((err) => callback(err));
   }
 
   batchWrite(call: any) {
@@ -1180,7 +1170,7 @@ export class MockSpanner {
         call.write(response);
         call.end();
       })
-      .catch(err => call.destroy(err));
+      .catch((err) => call.destroy(err));
   }
 
   private _updateTransaction(
