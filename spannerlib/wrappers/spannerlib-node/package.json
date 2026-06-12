@@ -44,10 +44,10 @@
   "dependencies": {
     "node-addon-api": "^8.0.0",
     "bindings": "^1.5.0",
-    "@google-cloud/spanner": "^7.13.0"
+    "@google-cloud/spanner": "^8.7.1"
   },
   "devDependencies": {
-    "mocha": "^10.2.0",
+    "mocha": "^11.0.1",
     "typescript": "^5.6.3",
     "@types/node": "^22.7.5",
     "@types/bindings": "^1.5.0",
