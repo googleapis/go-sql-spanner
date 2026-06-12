@@ -1254,10 +1254,11 @@ func (s *inMemSpannerServer) PartitionRead(ctx context.Context, req *spannerpb.P
 
 func (s *inMemSpannerServer) DrainRequestsFromServer() []interface{} {
 	var reqs []interface{}
+	ch := s.ReceivedRequests()
 loop:
 	for {
 		select {
-		case req, ok := <-s.ReceivedRequests():
+		case req, ok := <-ch:
 			if !ok {
 				break loop
 			}

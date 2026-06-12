@@ -4570,8 +4570,7 @@ func TestTag_RunTransactionWithOptions_IsNotSticky(t *testing.T) {
 }
 
 func TestMaxIdleConnectionsNonZero(t *testing.T) {
-	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
-	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1")
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=0")
 
 	db.SetMaxIdleConns(2)
 	for i := 0; i < 2; i++ {
@@ -4588,8 +4587,7 @@ func TestMaxIdleConnectionsNonZero(t *testing.T) {
 }
 
 func TestMaxIdleConnectionsZero(t *testing.T) {
-	t.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS", "false")
-	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=1")
+	db, server, teardown := setupTestDBConnectionWithParams(t, "minSessions=0")
 
 	db.SetMaxIdleConns(0)
 	for i := 0; i < 2; i++ {
@@ -4611,9 +4609,19 @@ func openAndCloseConn(t *testing.T, db *sql.DB) {
 	if err != nil {
 		t.Fatalf("failed to get a connection: %v", err)
 	}
-	err = conn.Close()
-	if err != nil {
-		t.Fatalf("failed to close connection: %v", err)
+	defer func() {
+		err = conn.Close()
+		if err != nil {
+			t.Fatalf("failed to close connection: %v", err)
+		}
+	}()
+
+	var result int64
+	if err := conn.QueryRowContext(ctx, "SELECT 1").Scan(&result); err != nil {
+		t.Fatalf("failed to select: %v", err)
+	}
+	if result != 1 {
+		t.Fatalf("expected 1 got %v", result)
 	}
 }
 
@@ -6011,9 +6019,10 @@ func filterBeginReadOnlyRequests(requests []interface{}) []*sppb.BeginTransactio
 func countCreatedSessions(requests []interface{}) int {
 	count := 0
 	for _, r := range requests {
-		if _, ok := r.(*sppb.CreateSessionRequest); ok {
+		switch req := r.(type) {
+		case *sppb.CreateSessionRequest:
 			count++
-		} else if req, ok := r.(*sppb.BatchCreateSessionsRequest); ok {
+		case *sppb.BatchCreateSessionsRequest:
 			count += int(req.SessionCount)
 		}
 	}
