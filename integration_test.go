@@ -2775,15 +2775,15 @@ func TestIntegration_AutoDefaultSequenceKindBatch(t *testing.T) {
 			if err := conn.QueryRowContext(ctx, checkTable1).Scan(&count1); err != nil {
 				t.Fatalf("failed to query table 1: %v", err)
 			}
-			if count1 != 1 {
-				t.Errorf("table 1 not created, count = %d", count1)
+			if g, w := count1, 1; g != w {
+				t.Errorf("table 1 not created, count mismatch\nGot:  %v\nWant: %v", g, w)
 			}
 
 			if err := conn.QueryRowContext(ctx, checkTable2).Scan(&count2); err != nil {
 				t.Fatalf("failed to query table 2: %v", err)
 			}
-			if count2 != 1 {
-				t.Errorf("table 2 not created, count = %d", count2)
+			if g, w := count2, 1; g != w {
+				t.Errorf("table 2 not created, count mismatch\nGot:  %v\nWant: %v", g, w)
 			}
 		})
 	}

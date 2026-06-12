@@ -2672,12 +2672,12 @@ func TestAutoDefaultSequenceKindBatchFailure(t *testing.T) {
 				t.Fatalf("expected BatchError, got: %v", err)
 			}
 
-			if got, want := len(be.BatchUpdateCounts), 2; got != want {
-				t.Errorf("successful statements count mismatch, got %d, want %d", got, want)
+			if g, w := len(be.BatchUpdateCounts), 2; g != w {
+				t.Errorf("successful statements count mismatch\nGot:  %v\nWant: %v", g, w)
 			}
 			for i, val := range be.BatchUpdateCounts {
-				if val != -1 {
-					t.Errorf("update count at index %d mismatch, got %d, want -1", i, val)
+				if g, w := val, int64(-1); g != w {
+					t.Errorf("update count at index %d mismatch\nGot:  %v\nWant: %v", i, g, w)
 				}
 			}
 		})
