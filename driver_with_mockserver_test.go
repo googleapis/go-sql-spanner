@@ -4765,6 +4765,51 @@ func TestRunTransaction(t *testing.T) {
 	}
 }
 
+func TestRunTransactionReadOnly(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	err := RunTransaction(ctx, db, &sql.TxOptions{ReadOnly: true}, func(ctx context.Context, tx *sql.Tx) error {
+		rows, err := tx.Query(testutil.SelectFooFromBar)
+		if err != nil {
+			return err
+		}
+		defer silentClose(rows)
+		for want := int64(1); rows.Next(); want++ {
+			var got int64
+			if err := rows.Scan(&got); err != nil {
+				return err
+			}
+			if got != want {
+				return fmt.Errorf("value mismatch\nGot: %v\nWant: %v", got, want)
+			}
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(sqlRequests), 1; g != w {
+		t.Fatalf("ExecuteSqlRequests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := sqlRequests[0].(*sppb.ExecuteSqlRequest)
+	if req.Transaction == nil {
+		t.Fatalf("missing transaction for ExecuteSqlRequest")
+	}
+
+	// Verify that NO commit request was sent
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+	if g, w := len(commitRequests), 0; g != w {
+		t.Fatalf("commit requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+}
+
 func TestRunTransactionCommitAborted(t *testing.T) {
 	t.Parallel()
 
