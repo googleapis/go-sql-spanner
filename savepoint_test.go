@@ -20,8 +20,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/googleapis/go-sql-spanner/testutil"
 	spannerpb "cloud.google.com/go/spanner/apiv1/spannerpb"
+	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
