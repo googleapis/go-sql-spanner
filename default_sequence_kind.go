@@ -87,9 +87,9 @@ func (c *conn) executeDDLWithDefaultSequenceKindRetry(ctx context.Context, origi
 				Err:               err,
 				BatchUpdateCounts: []int64{},
 			}
-			successCount := restartIndex
+			successCount := getSuccessCount(op)
 			if opRetry != nil {
-				successCount += getSuccessCount(opRetry)
+				successCount = restartIndex + getSuccessCount(opRetry)
 			}
 			for i := 0; i < successCount; i++ {
 				be.BatchUpdateCounts = append(be.BatchUpdateCounts, int64(-1))
