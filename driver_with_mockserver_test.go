@@ -6140,6 +6140,30 @@ func TestDirectedReadPropagation(t *testing.T) {
 		}
 	}
 
+	// 9a. Run Partitioned DML in autocommit mode
+	if _, err := conn.ExecContext(ctx, "SET autocommit_dml_mode = 'partitioned_non_atomic'"); err != nil {
+		t.Fatalf("failed to set autocommit_dml_mode: %v", err)
+	}
+	if _, err := conn.ExecContext(ctx, updateSQL); err != nil {
+		t.Fatalf("failed to execute Partitioned DML: %v", err)
+	}
+	// Reset autocommit_dml_mode
+	if _, err := conn.ExecContext(ctx, "SET autocommit_dml_mode = 'transactional'"); err != nil {
+		t.Fatalf("failed to reset autocommit_dml_mode: %v", err)
+	}
+
+	// 9b. Verify that Partitioned DML request did not have DirectedReadOptions
+	requestsPDML := server.TestSpanner.DrainRequestsFromServer()
+	execRequestsPDML := testutil.RequestsOfType(requestsPDML, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	// We expect 1 execute request for the Partitioned DML (the SET statements don't send ExecuteSql to Spanner backend)
+	if g, w := len(execRequestsPDML), 1; g != w {
+		t.Fatalf("execute requests count mismatch for Partitioned DML\nGot: %v\nWant: %v", g, w)
+	}
+	reqPDML := execRequestsPDML[0].(*sppb.ExecuteSqlRequest)
+	if reqPDML.DirectedReadOptions != nil {
+		t.Errorf("Partitioned DML request unexpectedly had DirectedReadOptions set: %v", reqPDML.DirectedReadOptions)
+	}
+
 	// 10. Run a single-use query in autocommit mode to verify that the option was not lost/sticky
 	rows3, err := conn.QueryContext(ctx, testutil.SelectFooFromBar)
 	if err != nil {
