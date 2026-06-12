@@ -6139,4 +6139,25 @@ func TestDirectedReadPropagation(t *testing.T) {
 			t.Errorf("request %d (%s) unexpectedly had DirectedReadOptions set: %v", i, r.Sql, r.DirectedReadOptions)
 		}
 	}
+
+	// 10. Run a single-use query in autocommit mode to verify that the option was not lost/sticky
+	rows3, err := conn.QueryContext(ctx, testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatalf("failed to query in autocommit: %v", err)
+	}
+	if rows3.Next() {
+		// read value
+	}
+	rows3.Close()
+
+	// 11. Verify that this query request sent to Spanner contained the DirectedReadOptions.
+	requests3 := server.TestSpanner.DrainRequestsFromServer()
+	execRequests3 := testutil.RequestsOfType(requests3, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests3), 1; g != w {
+		t.Fatalf("execute requests count mismatch for autocommit query\nGot: %v\nWant: %v", g, w)
+	}
+	req3 := execRequests3[0].(*sppb.ExecuteSqlRequest)
+	if !proto.Equal(req3.DirectedReadOptions, wantDR) {
+		t.Fatalf("DirectedReadOptions mismatch after DML/RW transactions\nGot:  %v\nWant: %v", req3.DirectedReadOptions, wantDR)
+	}
 }
