@@ -696,7 +696,7 @@ func TestStatementExecutor_ShowTransaction(t *testing.T) {
 	p, _ := parser.NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
 	c := &conn{
 		logger: noopLogger,
-		state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		state:  createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_POSTGRESQL, connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
 		parser: p,
 	}
 	ctx := context.Background()
@@ -826,4 +826,9 @@ func TestStatementExecutor_ShowTransaction(t *testing.T) {
 		t.Errorf("deferrable got %q, want %q", got, want)
 	}
 	rows.Close()
+
+	// 5. Try to modify read-only alias variable, should return error
+	if _, err := c.ExecContext(ctx, "set transaction_isolation = 'repeatable_read'", []driver.NamedValue{}); err == nil {
+		t.Error("expected error when setting read-only alias transaction_isolation, got nil")
+	}
 }

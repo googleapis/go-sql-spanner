@@ -53,6 +53,26 @@ type ConnectionState struct {
 	transactionProperties     map[string]ConnectionPropertyValue
 	localProperties           map[string]ConnectionPropertyValue
 	statementScopedProperties map[string]ConnectionPropertyValue
+	aliases                   map[string]alias
+}
+
+// alias defines an alias for a connection property.
+type alias struct {
+	name     string
+	target   string
+	readOnly bool
+}
+
+// AddAlias adds a new alias for a connection property.
+func (cs *ConnectionState) AddAlias(name, target string, readOnly bool) {
+	if cs.aliases == nil {
+		cs.aliases = make(map[string]alias)
+	}
+	cs.aliases[strings.ToLower(name)] = alias{
+		name:     name,
+		target:   target,
+		readOnly: readOnly,
+	}
 }
 
 // ExtractValues extracts a map of ConnectionPropertyValue from a map of strings.
@@ -155,6 +175,13 @@ const (
 var errInvalidValueType = status.Error(codes.InvalidArgument, "invalid value type")
 
 func (cs *ConnectionState) setValue(extension, name, value string, context Context, valueType valueType) error {
+	if extension == "" {
+		if a, ok := cs.aliases[strings.ToLower(name)]; ok {
+			if a.readOnly {
+				return status.Errorf(codes.InvalidArgument, "variable %q is read-only", name)
+			}
+		}
+	}
 	prop, err := cs.findProperty(extension, name)
 	if err != nil {
 		return err
@@ -207,6 +234,11 @@ func (cs *ConnectionState) setValue(extension, name, value string, context Conte
 }
 
 func (cs *ConnectionState) findProperty(extension, name string) (ConnectionProperty, error) {
+	if extension == "" {
+		if a, ok := cs.aliases[strings.ToLower(name)]; ok {
+			name = a.target
+		}
+	}
 	key := toKey(extension, name)
 	var prop ConnectionProperty
 	existingValue, ok := cs.properties[key]

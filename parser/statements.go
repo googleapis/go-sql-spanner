@@ -178,7 +178,7 @@ func (s *ParsedShowStatement) parse(parser *StatementParser, query string) error
 
 func (s *ParsedShowStatement) parseShowTransaction(sp *simpleParser, query string) error {
 	if !sp.hasMoreTokens() {
-		return status.Errorf(codes.InvalidArgument, "syntax error: missing TRANSACTION option, expected one of ISOLATION LEVEL, READ WRITE, or READ ONLY")
+		return status.Errorf(codes.InvalidArgument, "syntax error: missing TRANSACTION option, expected one of ISOLATION LEVEL, READ ONLY, or [NOT] DEFERRABLE")
 	}
 	s.query = query
 
@@ -190,10 +190,8 @@ func (s *ParsedShowStatement) parseShowTransaction(sp *simpleParser, query strin
 	} else if sp.eatKeyword("READ") {
 		if sp.eatKeyword("ONLY") {
 			s.Identifier = Identifier{Parts: []string{"transaction_read_only"}}
-		} else if sp.eatKeyword("WRITE") {
-			s.Identifier = Identifier{Parts: []string{"transaction_read_only"}}
 		} else {
-			return status.Error(codes.InvalidArgument, "invalid TRANSACTION option, expected READ ONLY or READ WRITE")
+			return status.Error(codes.InvalidArgument, "invalid TRANSACTION option, expected READ ONLY")
 		}
 	} else if sp.eatKeyword("DEFERRABLE") {
 		s.Identifier = Identifier{Parts: []string{"transaction_deferrable"}}
@@ -203,7 +201,7 @@ func (s *ParsedShowStatement) parseShowTransaction(sp *simpleParser, query strin
 		}
 		s.Identifier = Identifier{Parts: []string{"transaction_deferrable"}}
 	} else {
-		return status.Error(codes.InvalidArgument, "invalid TRANSACTION option, expected one of ISOLATION LEVEL, READ WRITE, or READ ONLY")
+		return status.Error(codes.InvalidArgument, "invalid TRANSACTION option, expected one of ISOLATION LEVEL, READ ONLY, or [NOT] DEFERRABLE")
 	}
 
 	if sp.hasMoreTokens() {

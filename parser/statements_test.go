@@ -112,11 +112,8 @@ func TestParseShowStatement(t *testing.T) {
 			},
 		},
 		{
-			input: "show transaction read write",
-			want: ParsedShowStatement{
-				query:      "show transaction read write",
-				Identifier: Identifier{Parts: []string{"transaction_read_only"}},
-			},
+			input:   "show transaction read write",
+			wantErr: true,
 		},
 		{
 			input: "show transaction deferrable",
