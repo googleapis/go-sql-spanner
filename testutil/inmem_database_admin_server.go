@@ -39,6 +39,7 @@ type InMemDatabaseAdminServer interface {
 	Reqs() []proto.Message
 	SetReqs([]proto.Message)
 	SetErr(error)
+	SetErrs([]error)
 	AddDdlResponse(key string, result *longrunningpb.Operation)
 }
 
@@ -50,6 +51,8 @@ type inMemDatabaseAdminServer struct {
 	reqs []proto.Message
 	// If set, all calls return this error
 	err error
+	// If set, calls will pop and return these errors in sequence
+	errs []error
 	// responses to return if err == nil
 	resps []proto.Message
 
@@ -58,17 +61,24 @@ type inMemDatabaseAdminServer struct {
 	// The key is calculated by concatenating all statements in the UpdateDatabaseDdlRequest into one string separated
 	// by semicolons.
 	ddlResults map[string]*longrunningpb.Operation
+	operations map[string]*longrunningpb.Operation
 }
 
 // NewInMemDatabaseAdminServer creates a new in-mem test server.
 func NewInMemDatabaseAdminServer() InMemDatabaseAdminServer {
-	res := &inMemDatabaseAdminServer{ddlResults: make(map[string]*longrunningpb.Operation)}
+	res := &inMemDatabaseAdminServer{
+		ddlResults: make(map[string]*longrunningpb.Operation),
+		operations: make(map[string]*longrunningpb.Operation),
+	}
 	return res
 }
 
 func (s *inMemDatabaseAdminServer) GetOperation(ctx context.Context, req *longrunningpb.GetOperationRequest) (*longrunningpb.Operation, error) {
 	if s.err != nil {
 		return nil, s.err
+	}
+	if op, ok := s.operations[req.Name]; ok {
+		return op, nil
 	}
 	if len(s.resps) > 0 {
 		return s.resps[0].(*longrunningpb.Operation), nil
@@ -101,7 +111,11 @@ func (s *inMemDatabaseAdminServer) CreateDatabase(ctx context.Context, req *data
 	if s.err != nil {
 		return nil, s.err
 	}
-	return s.resps[0].(*longrunningpb.Operation), nil
+	resp := s.popOperation()
+	if resp != nil {
+		s.operations[resp.Name] = resp
+	}
+	return resp, nil
 }
 
 func (s *inMemDatabaseAdminServer) DropDatabase(ctx context.Context, req *databasepb.DropDatabaseRequest) (*emptypb.Empty, error) {
@@ -122,14 +136,23 @@ func (s *inMemDatabaseAdminServer) UpdateDatabaseDdl(ctx context.Context, req *d
 		return nil, fmt.Errorf("x-goog-api-client = %v, expected gl-go key", xg)
 	}
 	s.reqs = append(s.reqs, req)
+	if err := s.popError(); err != nil {
+		return nil, err
+	}
 	if s.err != nil {
 		return nil, s.err
 	}
 	key := toKey(req)
-	if resp, ok := s.ddlResults[key]; ok {
-		return resp, nil
+	var resp *longrunningpb.Operation
+	if r, ok := s.ddlResults[key]; ok {
+		resp = r
+	} else {
+		resp = s.popOperation()
 	}
-	return s.resps[0].(*longrunningpb.Operation), nil
+	if resp != nil {
+		s.operations[resp.Name] = resp
+	}
+	return resp, nil
 }
 
 func toKey(req *databasepb.UpdateDatabaseDdlRequest) string {
@@ -169,4 +192,35 @@ func (s *inMemDatabaseAdminServer) SetErr(err error) {
 
 func (s *inMemDatabaseAdminServer) AddDdlResponse(key string, result *longrunningpb.Operation) {
 	s.ddlResults[key] = result
+}
+
+func (s *inMemDatabaseAdminServer) popOperation() *longrunningpb.Operation {
+	if len(s.resps) == 0 {
+		return nil
+	}
+	op, ok := s.resps[0].(*longrunningpb.Operation)
+	if !ok {
+		return nil
+	}
+	if len(s.resps) > 1 {
+		s.resps = s.resps[1:]
+	}
+	return op
+}
+
+func (s *inMemDatabaseAdminServer) SetErrs(errs []error) {
+	s.errs = errs
+}
+
+func (s *inMemDatabaseAdminServer) popError() error {
+	if len(s.errs) == 0 {
+		return nil
+	}
+	err := s.errs[0]
+	if len(s.errs) > 1 {
+		s.errs = s.errs[1:]
+	} else {
+		s.errs = nil
+	}
+	return err
 }

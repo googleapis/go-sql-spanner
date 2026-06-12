@@ -60,3 +60,16 @@ Any pull request modifying or extending the driver's features must include:
 - **Mock Server Tests**: Located in files such as `driver_with_mockserver_test.go`, `conn_with_mockserver_test.go`, and `stmt_with_mockserver_test.go`. Use these (or add new test files) to mock Spanner gRPC API responses (e.g. BeginTransaction, Commit, ExecuteSql) and verify that the driver translates options, tags, and states correctly.
 - **Emulator Tests**: Validate integration behavior against the Cloud Spanner Emulator (`integration_test.go` and examples). Make sure the test configurations can run locally with `auto_config_emulator=true`.
 - **Wrapper Tests**: If you modified `spannerlib`, ensure you trigger or run unit/integration tests for the respective wrappers (`python-spanner-lib-wrapper-unit-tests.yml`, `ruby-wrapper-tests.yml`, etc.).
+- **Assertion Formatting**: When writing test assertions, strongly prefer using variable names `g` (got) and `w` (want) for comparison, and format error messages using the following aligned layout:
+  ```go
+  if g, w := actualValue, expectedValue; g != w {
+  	t.Errorf("some message mismatch\nGot:  %v\nWant: %v", g, w)
+  }
+  ```
+  Note the two spaces after `Got:` to align the values visually.
+
+---
+
+## 6. Code Style & Formatting
+
+- **Go Code Formatting**: All Go code must be formatted using the standard `gofmt -w -s .` formatter. Running this formatting command is required before submitting a pull request.
