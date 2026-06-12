@@ -863,7 +863,7 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		logger:                       logger,
 		instance:                     instanceName,
 		database:                     databaseName,
-		state:                        createInitialConnectionState(connectionStateType, c.initialPropertyValues),
+		state:                        createInitialConnectionStateWithDialect(c.parser.Dialect, connectionStateType, c.initialPropertyValues),
 		execSingleQuery:              queryInSingleUse,
 		execSingleQueryTransactional: queryInNewRWTransaction,
 		execSingleDMLTransactional:   execInNewRWTransaction,
