@@ -21,7 +21,7 @@ import (
 	"testing"
 
 	"github.com/googleapis/go-sql-spanner/testutil"
-	spannerpb "google.golang.org/genproto/googleapis/spanner/v1"
+	spannerpb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
