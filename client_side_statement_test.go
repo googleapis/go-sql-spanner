@@ -701,63 +701,27 @@ func TestStatementExecutor_ShowTransaction(t *testing.T) {
 	}
 	ctx := context.Background()
 
+	checkShowValue := func(t *testing.T, query, want, description string) {
+		t.Helper()
+		rows, err := c.QueryContext(ctx, query, []driver.NamedValue{})
+		if err != nil {
+			t.Fatalf("QueryContext for %q failed: %v", query, err)
+		}
+		defer rows.Close()
+		values := make([]driver.Value, 1)
+		if err := rows.Next(values); err != nil {
+			t.Fatalf("rows.Next for %q failed: %v", query, err)
+		}
+		if got := fmt.Sprintf("%v", values[0]); got != want {
+			t.Errorf("%s: got %q, want %q", description, got, want)
+		}
+	}
+
 	// Initial checks.
-	// 1. SHOW TRANSACTION ISOLATION LEVEL should show the default (serializable)
-	rows, err := c.QueryContext(ctx, "show transaction isolation level", []driver.NamedValue{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	values := make([]driver.Value, 1)
-	if err := rows.Next(values); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := fmt.Sprintf("%v", values[0]), "serializable"; got != want {
-		t.Errorf("isolation level got %q, want %q", got, want)
-	}
-	rows.Close()
-
-	// 2. SHOW transaction_isolation (alias) should show same
-	rows, err = c.QueryContext(ctx, "show transaction_isolation", []driver.NamedValue{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	if err := rows.Next(values); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := fmt.Sprintf("%v", values[0]), "serializable"; got != want {
-		t.Errorf("transaction_isolation got %q, want %q", got, want)
-	}
-	rows.Close()
-
-	// 3. SHOW TRANSACTION READ ONLY should show default (false)
-	rows, err = c.QueryContext(ctx, "show transaction read only", []driver.NamedValue{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	if err := rows.Next(values); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := fmt.Sprintf("%v", values[0]), "false"; got != want {
-		t.Errorf("read only got %q, want %q", got, want)
-	}
-	rows.Close()
-
-	// 4. SHOW TRANSACTION DEFERRABLE should show default (false)
-	rows, err = c.QueryContext(ctx, "show transaction deferrable", []driver.NamedValue{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	if err := rows.Next(values); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := fmt.Sprintf("%v", values[0]), "false"; got != want {
-		t.Errorf("deferrable got %q, want %q", got, want)
-	}
-	rows.Close()
+	checkShowValue(t, "show transaction isolation level", "serializable", "default isolation level")
+	checkShowValue(t, "show transaction_isolation", "serializable", "default transaction_isolation")
+	checkShowValue(t, "show transaction read only", "false", "default read only")
+	checkShowValue(t, "show transaction deferrable", "false", "default deferrable")
 
 	// Now modify the properties using SET, and verify they show new values!
 	if _, err := c.ExecContext(ctx, "set isolation_level = 'repeatable_read'", []driver.NamedValue{}); err != nil {
@@ -771,61 +735,10 @@ func TestStatementExecutor_ShowTransaction(t *testing.T) {
 	}
 
 	// Verify new values
-	// 1. SHOW TRANSACTION ISOLATION LEVEL
-	rows, err = c.QueryContext(ctx, "show transaction isolation level", []driver.NamedValue{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	if err := rows.Next(values); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := fmt.Sprintf("%v", values[0]), "repeatable read"; got != want {
-		t.Errorf("isolation level got %q, want %q", got, want)
-	}
-	rows.Close()
-
-	// 2. SHOW transaction_isolation
-	rows, err = c.QueryContext(ctx, "show transaction_isolation", []driver.NamedValue{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	if err := rows.Next(values); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := fmt.Sprintf("%v", values[0]), "repeatable read"; got != want {
-		t.Errorf("transaction_isolation got %q, want %q", got, want)
-	}
-	rows.Close()
-
-	// 3. SHOW TRANSACTION READ ONLY
-	rows, err = c.QueryContext(ctx, "show transaction read only", []driver.NamedValue{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	if err := rows.Next(values); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := fmt.Sprintf("%v", values[0]), "true"; got != want {
-		t.Errorf("read only got %q, want %q", got, want)
-	}
-	rows.Close()
-
-	// 4. SHOW TRANSACTION DEFERRABLE
-	rows, err = c.QueryContext(ctx, "show transaction deferrable", []driver.NamedValue{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	if err := rows.Next(values); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := fmt.Sprintf("%v", values[0]), "true"; got != want {
-		t.Errorf("deferrable got %q, want %q", got, want)
-	}
-	rows.Close()
+	checkShowValue(t, "show transaction isolation level", "repeatable read", "modified isolation level")
+	checkShowValue(t, "show transaction_isolation", "repeatable read", "modified transaction_isolation")
+	checkShowValue(t, "show transaction read only", "true", "modified read only")
+	checkShowValue(t, "show transaction deferrable", "true", "modified deferrable")
 
 	// 5. Try to modify read-only alias variable, should return error
 	if _, err := c.ExecContext(ctx, "set transaction_isolation = 'repeatable_read'", []driver.NamedValue{}); err == nil {
