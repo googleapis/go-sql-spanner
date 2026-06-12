@@ -720,6 +720,8 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 			return op.Wait(ctx)
 		}); err != nil {
 			defaultSequenceKind := propertyDefaultSequenceKind.GetValueOrDefault(c.state)
+			var opRetry *adminapi.UpdateDatabaseDdlOperation
+			var restartIndex int
 			if defaultSequenceKind != "" && isMissingDefaultSequenceKindError(err) {
 				dbID := c.databaseID()
 				var alterStatement string
@@ -738,7 +740,6 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 					})
 				}
 				if errAlter == nil {
-					var restartIndex int
 					metadata, errMetadata := op.Metadata()
 					if errMetadata == nil && metadata != nil {
 						for _, ts := range metadata.CommitTimestamps {
@@ -751,7 +752,8 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 					}
 					if restartIndex < len(ddlStatements) {
 						retryStatements := ddlStatements[restartIndex:]
-						opRetry, errRetry := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
+						var errRetry error
+						opRetry, errRetry = c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
 							Database:   c.database,
 							Statements: retryStatements,
 						})
@@ -779,17 +781,33 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 					Err:               err,
 					BatchUpdateCounts: []int64{},
 				}
-				metadata, err := op.Metadata()
-				if err != nil {
-					c.logger.WarnContext(ctx, fmt.Sprintf("Error getting metadata for UpdateDatabaseDdl: %v", err))
-				} else if metadata != nil {
-					for _, ts := range metadata.CommitTimestamps {
-						if ts != nil {
-							be.BatchUpdateCounts = append(be.BatchUpdateCounts, int64(-1))
-						} else {
-							break
+				var successCount int
+				if opRetry != nil {
+					successCount = restartIndex
+					metadataRetry, errMetadataRetry := opRetry.Metadata()
+					if errMetadataRetry == nil && metadataRetry != nil {
+						for _, ts := range metadataRetry.CommitTimestamps {
+							if ts != nil {
+								successCount++
+							} else {
+								break
+							}
 						}
 					}
+				} else {
+					metadata, errMetadata := op.Metadata()
+					if errMetadata == nil && metadata != nil {
+						for _, ts := range metadata.CommitTimestamps {
+							if ts != nil {
+								successCount++
+							} else {
+								break
+							}
+						}
+					}
+				}
+				for i := 0; i < successCount; i++ {
+					be.BatchUpdateCounts = append(be.BatchUpdateCounts, int64(-1))
 				}
 				return nil, be
 			}
@@ -1936,7 +1954,7 @@ func execAsPartitionedDML(ctx context.Context, c *spanner.Client, statement span
 	return c.PartitionedUpdateWithOptions(ctx, statement, queryOptions)
 }
 
-var reMissingDefaultSequenceKind = regexp.MustCompile(`.*Please specify the sequence kind explicitly or set the database option\s+['\x60]default_sequence_kind['\x60]\.`)
+var reMissingDefaultSequenceKind = regexp.MustCompile(`Please specify the sequence kind explicitly or set the database option\s+['\x60]default_sequence_kind['\x60]\.`)
 
 func isMissingDefaultSequenceKindError(err error) bool {
 	if err == nil {
