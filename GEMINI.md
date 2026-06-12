@@ -37,7 +37,7 @@ Although Go's `database/sql` connection pool serializes connection access (makin
 - **Aborted Transactions & Internal Retry**: Cloud Spanner may abort read-write transactions at any point (during read, DML, or commit) with an `Aborted` error code. The driver will then internally retry the transaction and verify that the results returned during the retry match the original attempt:
   - If the results match, the transaction continues seamlessly as if nothing happened.
   - If the results differ (e.g. concurrent modification changed the query results), the driver returns `ErrAbortedDueToConcurrentModification` to the application.
-- **State Tracking**: The driver tracks the active transaction using `delegatingTransaction`. When Spanner aborts a transaction and the internal retry/verification fails (or if internal retry is disabled), the driver sets the connection state to aborted and caches the abort error. Subsequent queries in that transaction must be rejected.
+- **State Tracking**: The driver tracks the active transaction using `delegatingTransaction`. When Spanner aborts a transaction and the internal retry/verification fails (or if internal retry is disabled), the operation will return an `Aborted` error (or `ErrAbortedDueToConcurrentModification`). The transaction is then considered aborted, and any subsequent operations within that transaction will also fail. The application should roll back the transaction.
 - Ensure any transaction lifecycle logic matches the implementations in `transaction.go` and `conn.go`.
 
 ---
@@ -46,7 +46,7 @@ Although Go's `database/sql` connection pool serializes connection access (makin
 
 The internal `parser` package handles detecting statement types (DQL vs. DML vs. DDL) and extracting query parameters.
 
-- **Do not** write a full SQL compiler/parser. The parser is designed to be lightweight and fast, using prefix checking and basic regular expressions (e.g. in `parser/statement_parser.go`).
+- **Do not** write a full SQL compiler/parser. The parser is designed to be lightweight and fast, using prefix checking and manual string parsing (e.g. in `parser/statement_parser.go`).
 - If you add or modify parser logic:
   - Maintain compatibility for both Spanner GoogleSQL and Spanner PostgreSQL statement dialects.
   - Add comprehensive test coverage in `parser/statement_parser_test.go`.
