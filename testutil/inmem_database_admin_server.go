@@ -39,6 +39,7 @@ type InMemDatabaseAdminServer interface {
 	Reqs() []proto.Message
 	SetReqs([]proto.Message)
 	SetErr(error)
+	SetErrs([]error)
 	AddDdlResponse(key string, result *longrunningpb.Operation)
 }
 
@@ -50,6 +51,8 @@ type inMemDatabaseAdminServer struct {
 	reqs []proto.Message
 	// If set, all calls return this error
 	err error
+	// If set, calls will pop and return these errors in sequence
+	errs []error
 	// responses to return if err == nil
 	resps []proto.Message
 
@@ -133,6 +136,9 @@ func (s *inMemDatabaseAdminServer) UpdateDatabaseDdl(ctx context.Context, req *d
 		return nil, fmt.Errorf("x-goog-api-client = %v, expected gl-go key", xg)
 	}
 	s.reqs = append(s.reqs, req)
+	if err := s.popError(); err != nil {
+		return nil, err
+	}
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -200,4 +206,21 @@ func (s *inMemDatabaseAdminServer) popOperation() *longrunningpb.Operation {
 		s.resps = s.resps[1:]
 	}
 	return op
+}
+
+func (s *inMemDatabaseAdminServer) SetErrs(errs []error) {
+	s.errs = errs
+}
+
+func (s *inMemDatabaseAdminServer) popError() error {
+	if len(s.errs) == 0 {
+		return nil
+	}
+	err := s.errs[0]
+	if len(s.errs) > 1 {
+		s.errs = s.errs[1:]
+	} else {
+		s.errs = nil
+	}
+	return err
 }

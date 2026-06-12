@@ -67,3 +67,9 @@ Any pull request modifying or extending the driver's features must include:
   }
   ```
   Note the two spaces after `Got:` to align the values visually.
+
+---
+
+## 6. Code Style & Formatting
+
+- **Go Code Formatting**: All Go code must be formatted using the standard `gofmt -w -s .` formatter. Running this formatting command is required before submitting a pull request.

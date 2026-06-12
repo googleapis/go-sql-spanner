@@ -19,11 +19,8 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
-	"fmt"
 	"log/slog"
-	"regexp"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -707,116 +704,7 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 			return (&executableDropDatabaseStatement{stmt}).execContext(ctx, c, nil, []driver.NamedValue{})
 		}
 
-		op, err := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
-			Database:   c.database,
-			Statements: ddlStatements,
-		})
-		if err != nil {
-			return nil, err
-		}
-		c.lastDDLOperationID = op.Name()
-
-		if err := c.waitForDDLOperation(ctx, op.Name(), func(ctx context.Context) error {
-			return op.Wait(ctx)
-		}); err != nil {
-			defaultSequenceKind := propertyDefaultSequenceKind.GetValueOrDefault(c.state)
-			var opRetry *adminapi.UpdateDatabaseDdlOperation
-			var restartIndex int
-			if defaultSequenceKind != "" && isMissingDefaultSequenceKindError(err) {
-				dbID := c.databaseID()
-				var alterStatement string
-				if c.parser.Dialect == adminpb.DatabaseDialect_POSTGRESQL {
-					alterStatement = fmt.Sprintf(`ALTER DATABASE "%s" SET spanner.default_sequence_kind = '%s'`, strings.ReplaceAll(dbID, `"`, `""`), defaultSequenceKind)
-				} else {
-					alterStatement = fmt.Sprintf("ALTER DATABASE `%s` SET OPTIONS (default_sequence_kind = '%s')", strings.ReplaceAll(dbID, "`", "``"), defaultSequenceKind)
-				}
-				opAlter, errAlter := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
-					Database:   c.database,
-					Statements: []string{alterStatement},
-				})
-				if errAlter == nil {
-					errAlter = c.waitForDDLOperation(ctx, opAlter.Name(), func(ctx context.Context) error {
-						return opAlter.Wait(ctx)
-					})
-				}
-				if errAlter == nil {
-					metadata, errMetadata := op.Metadata()
-					if errMetadata == nil && metadata != nil {
-						for _, ts := range metadata.CommitTimestamps {
-							if ts != nil {
-								restartIndex++
-							} else {
-								break
-							}
-						}
-					}
-					if restartIndex < len(ddlStatements) {
-						retryStatements := ddlStatements[restartIndex:]
-						var errRetry error
-						opRetry, errRetry = c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
-							Database:   c.database,
-							Statements: retryStatements,
-						})
-						if errRetry == nil {
-							c.lastDDLOperationID = opRetry.Name()
-							if errRetry = c.waitForDDLOperation(ctx, opRetry.Name(), func(ctx context.Context) error {
-								return opRetry.Wait(ctx)
-							}); errRetry == nil {
-								mode := propertyDDLExecutionMode.GetValueOrDefault(c.state)
-								if mode == DDLExecutionModeAsync || mode == DDLExecutionModeAsyncWait {
-									return &result{operationID: opRetry.Name()}, nil
-								}
-								return driver.ResultNoRows, nil
-							}
-						}
-						if errRetry != nil {
-							err = errRetry
-						}
-					}
-				}
-			}
-
-			if len(statements) > 1 {
-				be := &BatchError{
-					Err:               err,
-					BatchUpdateCounts: []int64{},
-				}
-				var successCount int
-				if opRetry != nil {
-					successCount = restartIndex
-					metadataRetry, errMetadataRetry := opRetry.Metadata()
-					if errMetadataRetry == nil && metadataRetry != nil {
-						for _, ts := range metadataRetry.CommitTimestamps {
-							if ts != nil {
-								successCount++
-							} else {
-								break
-							}
-						}
-					}
-				} else {
-					metadata, errMetadata := op.Metadata()
-					if errMetadata == nil && metadata != nil {
-						for _, ts := range metadata.CommitTimestamps {
-							if ts != nil {
-								successCount++
-							} else {
-								break
-							}
-						}
-					}
-				}
-				for i := 0; i < successCount; i++ {
-					be.BatchUpdateCounts = append(be.BatchUpdateCounts, int64(-1))
-				}
-				return nil, be
-			}
-			return nil, err
-		}
-		mode := propertyDDLExecutionMode.GetValueOrDefault(c.state)
-		if mode == DDLExecutionModeAsync || mode == DDLExecutionModeAsyncWait {
-			return &result{operationID: op.Name()}, nil
-		}
+		return c.executeDDLWithDefaultSequenceKindRetry(ctx, statements, ddlStatements)
 	}
 	return driver.ResultNoRows, nil
 }
@@ -1952,18 +1840,4 @@ func execAsPartitionedDML(ctx context.Context, c *spanner.Client, statement span
 	queryOptions := options.QueryOptions
 	queryOptions.ExcludeTxnFromChangeStreams = options.TransactionOptions.ExcludeTxnFromChangeStreams
 	return c.PartitionedUpdateWithOptions(ctx, statement, queryOptions)
-}
-
-var reMissingDefaultSequenceKind = regexp.MustCompile(`Please specify the sequence kind explicitly or set the database option\s+['\x60]default_sequence_kind['\x60]\.`)
-
-func isMissingDefaultSequenceKindError(err error) bool {
-	if err == nil {
-		return false
-	}
-	return reMissingDefaultSequenceKind.MatchString(err.Error())
-}
-
-func (c *conn) databaseID() string {
-	parts := strings.Split(c.database, "/")
-	return parts[len(parts)-1]
 }
