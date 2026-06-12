@@ -718,6 +718,20 @@ func TestStatementExecutor_DirectedRead(t *testing.T) {
 			},
 		},
 		{
+			name:       "json with leading/trailing whitespace",
+			setValue:   "'  {\"excludeReplicas\": {\"replicaSelections\": [{\"location\": \"us-east4\"}]}}  '",
+			wantSetErr: false,
+			wantOptions: &spannerpb.DirectedReadOptions{
+				Replicas: &spannerpb.DirectedReadOptions_ExcludeReplicas_{
+					ExcludeReplicas: &spannerpb.DirectedReadOptions_ExcludeReplicas{
+						ReplicaSelections: []*spannerpb.DirectedReadOptions_ReplicaSelection{
+							{Location: "us-east4"},
+						},
+					},
+				},
+			},
+		},
+		{
 			name:        "NULL",
 			setValue:    "NULL",
 			wantSetErr:  false,

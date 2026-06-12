@@ -151,6 +151,7 @@ func matchesToMap(re *regexp.Regexp, s string) map[string]string {
 }
 
 func ConvertDirectedRead(value string) (*spannerpb.DirectedReadOptions, error) {
+	value = strings.TrimSpace(value)
 	if value == "" || strings.EqualFold(value, "null") {
 		return nil, nil
 	}
