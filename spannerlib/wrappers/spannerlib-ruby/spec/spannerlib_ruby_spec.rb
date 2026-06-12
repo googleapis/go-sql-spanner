@@ -98,9 +98,9 @@ describe "Connection" do
         unless content.empty?
           port = content.to_i
           begin
-            Socket.tcp("127.0.0.1", port, connect_timeout: 0.1) { |s| s.close }
+            Socket.tcp("127.0.0.1", port, connect_timeout: 0.1) { nil }
             return port
-          rescue Errno::ECONNREFUSED, Errno::ETIMEDOUT
+          rescue SystemCallError
             # Server not yet fully listening
           end
         end
