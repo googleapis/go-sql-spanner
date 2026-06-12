@@ -32,30 +32,29 @@ func TestPrepareSpannerStmt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Case 1: Query parameter name matches exactly.
-	{
+	t.Run("QueryParameterNameMatchesExactly", func(t *testing.T) {
 		stmt, err := prepareSpannerStmt(state, p, "SELECT * FROM Singers WHERE SingerId = @id", []driver.NamedValue{
 			{Name: "id", Value: int64(1)},
 		})
 		if err != nil {
-			t.Errorf("Unexpected error for matching parameter name: %v", err)
+			t.Fatalf("Unexpected error for matching parameter name: %v", err)
 		}
 		if got, want := stmt.Params["id"], int64(1); got != want {
 			t.Errorf("Params[\"id\"] = %v, want %v", got, want)
 		}
-	}
+	})
 
-	// Case 2: Query parameter name mismatch.
-	{
+	t.Run("QueryParameterNameMismatch", func(t *testing.T) {
 		_, err := prepareSpannerStmt(state, p, "SELECT * FROM Singers WHERE SingerId = @singer_id", []driver.NamedValue{
 			{Name: "id", Value: int64(1)},
 		})
 		if err == nil {
-			t.Error("Expected error for mismatched parameter name, got nil")
-		} else if !strings.Contains(err.Error(), "missing value for query parameter @singer_id") {
-			t.Errorf("Expected 'missing value for query parameter @singer_id' error, got %v", err)
+			t.Fatal("Expected error for mismatched parameter name, got nil")
 		}
-	}
+		if !strings.Contains(err.Error(), "missing value for query parameter @singer_id") {
+			t.Fatalf("Expected 'missing value for query parameter @singer_id' error, got %v", err)
+		}
+	})
 }
 
 func TestConvertParam(t *testing.T) {
