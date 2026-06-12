@@ -1807,6 +1807,7 @@ func (c *conn) executeAutoPartitionedQuery(ctx context.Context, cancel context.C
 func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (rowIterator, *spanner.CommitResponse, error) {
 	var result *wrappedRowIterator
 	options.QueryOptions.LastStatement = true
+	options.QueryOptions.DirectedReadOptions = nil
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
 		if result != nil {
 			// in case of a retry
@@ -1847,6 +1848,7 @@ var errInvalidDmlForExecContext = spanner.ToSpannerError(status.Error(codes.Fail
 func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
 	var res *result
 	options.QueryOptions.LastStatement = true
+	options.QueryOptions.DirectedReadOptions = nil
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
 		var err error
 		res, err = execTransactionalDML(ctx, tx, statement, statementInfo, options.QueryOptions)
@@ -1896,6 +1898,7 @@ func execTransactionalDML(ctx context.Context, tx spannerTransaction, statement 
 
 func execAsPartitionedDML(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error) {
 	queryOptions := options.QueryOptions
+	queryOptions.DirectedReadOptions = nil
 	queryOptions.ExcludeTxnFromChangeStreams = options.TransactionOptions.ExcludeTxnFromChangeStreams
 	return c.PartitionedUpdateWithOptions(ctx, statement, queryOptions)
 }

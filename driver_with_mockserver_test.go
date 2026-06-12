@@ -6089,4 +6089,54 @@ func TestDirectedReadPropagation(t *testing.T) {
 	if !proto.Equal(req.DirectedReadOptions, wantDR) {
 		t.Fatalf("DirectedReadOptions mismatch\nGot:  %v\nWant: %v", req.DirectedReadOptions, wantDR)
 	}
+
+	// 5. Register update statement results on the mock server
+	updateSQL := "UPDATE Foo SET Bar = 1 WHERE Id = 1"
+	if err := server.TestSpanner.PutStatementResult(
+		updateSQL,
+		&testutil.StatementResult{
+			Type:        testutil.StatementResultUpdateCount,
+			UpdateCount: 1,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	// 6. Run DML in autocommit mode
+	if _, err := conn.ExecContext(ctx, updateSQL); err != nil {
+		t.Fatalf("failed to execute DML in autocommit: %v", err)
+	}
+
+	// 7. Run query in Read-Write transaction
+	tx2, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: false})
+	if err != nil {
+		t.Fatalf("failed to start read-write transaction: %v", err)
+	}
+	rows2, err := tx2.QueryContext(ctx, testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatalf("failed to query in read-write transaction: %v", err)
+	}
+	if rows2.Next() {
+		// read value
+	}
+	rows2.Close()
+
+	// 8. Run DML in Read-Write transaction
+	if _, err := tx2.ExecContext(ctx, updateSQL); err != nil {
+		t.Fatalf("failed to execute DML in read-write transaction: %v", err)
+	}
+	_ = tx2.Commit()
+
+	// 9. Verify that DirectedReadOptions was not sent for any of these read-write or DML statements
+	requests2 := server.TestSpanner.DrainRequestsFromServer()
+	execRequests2 := testutil.RequestsOfType(requests2, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests2), 3; g != w {
+		t.Fatalf("execute requests count mismatch for read-write/DML statements\nGot: %v\nWant: %v", g, w)
+	}
+	for i, req := range execRequests2 {
+		r := req.(*sppb.ExecuteSqlRequest)
+		if r.DirectedReadOptions != nil {
+			t.Errorf("request %d (%s) unexpectedly had DirectedReadOptions set: %v", i, r.Sql, r.DirectedReadOptions)
+		}
+	}
 }
