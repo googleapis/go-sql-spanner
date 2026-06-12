@@ -110,7 +110,18 @@ func prepareSpannerStmt(state *connectionstate.ConnectionState, parser *parser.S
 		}
 		if name != "" {
 			found := false
-			if len(namesToIndex) > 0 {
+			if _, ok := namesToIndex[name]; ok {
+				found = true
+			}
+			if !found {
+				for _, queryName := range names {
+					if queryName == name {
+						found = true
+						break
+					}
+				}
+			}
+			if !found && len(namesToIndex) > 0 {
 				for queryName := range namesToIndex {
 					if strings.EqualFold(queryName, name) {
 						name = queryName

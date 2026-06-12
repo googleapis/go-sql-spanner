@@ -547,6 +547,12 @@ func TestNamedParametersWithGoogleSQL(t *testing.T) {
 			wantParams: map[string]string{"ID": "1", "VALUE": "One"},
 		},
 		{
+			name:       "case_insensitive_exact_match_priority",
+			params:     []any{sql.Named("id", 1), sql.Named("ID", 2)},
+			input:      "insert into my_table (id, value) values (@id, @ID)",
+			wantParams: map[string]string{"id": "1", "ID": "2"},
+		},
+		{
 			name:       "input_out_of_order",
 			params:     []any{sql.Named("value", "One"), sql.Named("id", 1)},
 			input:      "insert into my_table (id, value) values (@id, @value)",
