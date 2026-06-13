@@ -58,6 +58,10 @@ type contextTransaction interface {
 	IsInBatch() bool
 
 	BufferWrite(ms []*spanner.Mutation) error
+
+	Savepoint(name string) error
+	RollbackToSavepoint(ctx context.Context, name string) error
+	ReleaseSavepoint(name string) error
 }
 
 type rowIterator interface {
@@ -166,6 +170,27 @@ func (d *delegatingTransaction) Rollback() error {
 		return nil
 	}
 	return d.contextTransaction.Rollback()
+}
+
+func (d *delegatingTransaction) Savepoint(name string) error {
+	if err := d.ensureActivated(); err != nil {
+		return err
+	}
+	return d.contextTransaction.Savepoint(name)
+}
+
+func (d *delegatingTransaction) RollbackToSavepoint(ctx context.Context, name string) error {
+	if err := d.ensureActivated(); err != nil {
+		return err
+	}
+	return d.contextTransaction.RollbackToSavepoint(ctx, name)
+}
+
+func (d *delegatingTransaction) ReleaseSavepoint(name string) error {
+	if err := d.ensureActivated(); err != nil {
+		return err
+	}
+	return d.contextTransaction.ReleaseSavepoint(name)
 }
 
 func (d *delegatingTransaction) resetForRetry(ctx context.Context) error {
@@ -371,6 +396,18 @@ func (tx *readOnlyTransaction) BufferWrite([]*spanner.Mutation) error {
 	return spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
+func (tx *readOnlyTransaction) Savepoint(name string) error {
+	return nil
+}
+
+func (tx *readOnlyTransaction) RollbackToSavepoint(ctx context.Context, name string) error {
+	return nil
+}
+
+func (tx *readOnlyTransaction) ReleaseSavepoint(name string) error {
+	return nil
+}
+
 // ErrAbortedDueToConcurrentModification is returned by a read/write transaction
 // that was aborted by Cloud Spanner, and where the internal retry attempt
 // failed because it detected that the results during the retry were different
@@ -405,7 +442,9 @@ type readWriteTransaction struct {
 	close func(result txResult, commitResponse *spanner.CommitResponse, commitErr error)
 	// retryAborts indicates whether this transaction will automatically retry
 	// the transaction if it is aborted by Spanner. The default is true.
-	retryAborts func() bool
+	retryAborts       func() bool
+	txOptions         spanner.TransactionOptions
+	txOptionsCallback func() spanner.TransactionOptions
 
 	// statements contains the list of statements that has been executed on this
 	// transaction so far. These statements will be replayed on a new read write
@@ -415,6 +454,15 @@ type readWriteTransaction struct {
 	// mutations contains the buffered mutations of this transaction. These are
 	// added to the next transaction if the transaction executes an internal retry.
 	mutations []*spanner.Mutation
+
+	// savepoints maps a savepoint name to the number of statements and mutations
+	// that were executed before the savepoint was created.
+	savepoints map[string]savepoint
+}
+
+type savepoint struct {
+	statementCount int
+	mutationCount  int
 }
 
 // retriableStatement is the interface that is used to keep track of statements
@@ -808,6 +856,69 @@ func (tx *readWriteTransaction) runDmlBatch(ctx context.Context) (*result, error
 func (tx *readWriteTransaction) BufferWrite(ms []*spanner.Mutation) error {
 	tx.mutations = append(tx.mutations, ms...)
 	return tx.rwTx.BufferWrite(ms)
+}
+
+func (tx *readWriteTransaction) Savepoint(name string) error {
+	tx.logger.Debug("creating savepoint", "name", name)
+	if tx.savepoints == nil {
+		tx.savepoints = make(map[string]savepoint)
+	}
+	tx.savepoints[name] = savepoint{
+		statementCount: len(tx.statements),
+		mutationCount:  len(tx.mutations),
+	}
+	return nil
+}
+
+func (tx *readWriteTransaction) RollbackToSavepoint(ctx context.Context, name string) error {
+	tx.logger.Debug("rolling back to savepoint", "name", name)
+	if tx.savepoints == nil {
+		return spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "savepoint %q does not exist", name))
+	}
+	sp, ok := tx.savepoints[name]
+	if !ok {
+		return spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "savepoint %q does not exist", name))
+	}
+	tx.statements = tx.statements[:sp.statementCount]
+	tx.mutations = tx.mutations[:sp.mutationCount]
+
+	tx.rwTx.Rollback(context.Background())
+
+	return tx.recreateAndReplay(ctx)
+}
+
+func (tx *readWriteTransaction) recreateAndReplay(ctx context.Context) (err error) {
+	tx.logger.Log(ctx, LevelNotice, "starting transaction retry for savepoint rollback")
+	tx.rwTx, err = spanner.NewReadWriteStmtBasedTransactionWithCallbackForOptions(ctx, tx.conn.client, tx.txOptions, tx.txOptionsCallback)
+	if err != nil {
+		tx.logger.Log(ctx, LevelNotice, "failed to recreate transaction")
+		return err
+	}
+	if err := tx.rwTx.BufferWrite(tx.mutations); err != nil {
+		return err
+	}
+	for _, stmt := range tx.statements {
+		tx.logger.Log(ctx, slog.LevelDebug, "retrying statement", "stmt", stmt)
+		err = stmt.retry(ctx, tx.rwTx)
+		if err != nil {
+			tx.logger.Log(ctx, slog.LevelDebug, "retrying statement failed", "stmt", stmt)
+			return err
+		}
+	}
+	tx.logger.Log(ctx, LevelNotice, "finished transaction retry for savepoint rollback")
+	return nil
+}
+
+func (tx *readWriteTransaction) ReleaseSavepoint(name string) error {
+	tx.logger.Debug("releasing savepoint", "name", name)
+	if tx.savepoints == nil {
+		return spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "savepoint %q does not exist", name))
+	}
+	if _, ok := tx.savepoints[name]; !ok {
+		return spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "savepoint %q does not exist", name))
+	}
+	delete(tx.savepoints, name)
+	return nil
 }
 
 // errorsEqualForRetry returns true if the two errors should be considered equal
