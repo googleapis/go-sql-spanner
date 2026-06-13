@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"time"
 
@@ -107,19 +108,29 @@ func startEmulator() error {
 	if err := cli.ContainerStart(ctx, containerId, container.StartOptions{}); err != nil {
 		return err
 	}
-	// Wait max 10 seconds or until the emulator is running.
-	for c := 0; c < 20; c++ {
-		// Always wait at least 500 milliseconds to ensure that the emulator is actually ready, as the
-		// state can be reported as ready, while the emulator (or network interface) is actually not ready.
-		<-time.After(500 * time.Millisecond)
+	// Wait max 10 seconds or until the emulator is running and port 9010 is open.
+	var portReady bool
+	for c := 0; c < 40; c++ {
 		resp, err := cli.ContainerInspect(ctx, containerId)
 		if err != nil {
 			return fmt.Errorf("failed to inspect container state: %v", err)
 		}
 		if resp.State.Running {
-			break
+			// Try to connect to localhost:9010
+			conn, err := net.DialTimeout("tcp", "localhost:9010", 250*time.Millisecond)
+			if err == nil {
+				_ = conn.Close()
+				portReady = true
+				break
+			}
 		}
+		<-time.After(250 * time.Millisecond)
 	}
+	if !portReady {
+		return fmt.Errorf("emulator did not start listening on port 9010 in time")
+	}
+	// Give the emulator gRPC server a moment to fully initialize after the TCP port opens.
+	<-time.After(1500 * time.Millisecond)
 
 	return nil
 }
