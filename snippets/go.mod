@@ -8,7 +8,7 @@ replace github.com/googleapis/go-sql-spanner => ../
 
 require (
 	cloud.google.com/go/spanner v1.91.0
-	github.com/googleapis/go-sql-spanner v1.25.0
+	github.com/googleapis/go-sql-spanner v1.25.1
 	github.com/moby/moby/api v1.54.2
 	github.com/testcontainers/testcontainers-go v0.42.0
 	google.golang.org/grpc v1.81.1
@@ -96,7 +96,7 @@ require (
 	google.golang.org/api v0.284.0 // indirect
 	google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260608224507-4308a22a1bab // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260610212136-7ab31c22f7ad // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
