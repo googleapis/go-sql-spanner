@@ -6021,3 +6021,167 @@ func filterBeginReadOnlyRequests(requests []interface{}) []*sppb.BeginTransactio
 	}
 	return res
 }
+
+func TestDirectedReadPropagation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	// 1. Set directed_read on connection
+	_, err = conn.ExecContext(ctx, "SET directed_read = '{\"excludeReplicas\": {\"replicaSelections\": [{\"location\": \"us-east4\"}]}}'")
+	if err != nil {
+		t.Fatalf("failed to set directed_read: %v", err)
+	}
+
+	// 2. Put query result
+	if err := server.TestSpanner.PutStatementResult(
+		testutil.SelectFooFromBar,
+		&testutil.StatementResult{
+			Type:      testutil.StatementResultResultSet,
+			ResultSet: testutil.CreateSelect1ResultSet(),
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. Run query inside a Read-Only transaction (directed reads only apply to read-only transactions or single-use reads)
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatalf("failed to start read-only transaction: %v", err)
+	}
+	rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatalf("failed to execute query: %v", err)
+	}
+	if rows.Next() {
+		// read value if needed
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows error: %v", err)
+	}
+	rows.Close()
+	_ = tx.Commit()
+
+	// 4. Verify that the query request sent to Spanner contained the DirectedReadOptions.
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests), 1; g != w {
+		t.Fatalf("execute requests count mismatch\nGot: %v\nWant: %v", g, w)
+	}
+	req := execRequests[0].(*sppb.ExecuteSqlRequest)
+	wantDR := &sppb.DirectedReadOptions{
+		Replicas: &sppb.DirectedReadOptions_ExcludeReplicas_{
+			ExcludeReplicas: &sppb.DirectedReadOptions_ExcludeReplicas{
+				ReplicaSelections: []*sppb.DirectedReadOptions_ReplicaSelection{
+					{Location: "us-east4"},
+				},
+			},
+		},
+	}
+	if !proto.Equal(req.DirectedReadOptions, wantDR) {
+		t.Fatalf("DirectedReadOptions mismatch\nGot:  %v\nWant: %v", req.DirectedReadOptions, wantDR)
+	}
+
+	// 5. Register update statement results on the mock server
+	updateSQL := "UPDATE Foo SET Bar = 1 WHERE Id = 1"
+	if err := server.TestSpanner.PutStatementResult(
+		updateSQL,
+		&testutil.StatementResult{
+			Type:        testutil.StatementResultUpdateCount,
+			UpdateCount: 1,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	// 6. Run DML in autocommit mode
+	if _, err := conn.ExecContext(ctx, updateSQL); err != nil {
+		t.Fatalf("failed to execute DML in autocommit: %v", err)
+	}
+
+	// 7. Run query in Read-Write transaction
+	tx2, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: false})
+	if err != nil {
+		t.Fatalf("failed to start read-write transaction: %v", err)
+	}
+	rows2, err := tx2.QueryContext(ctx, testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatalf("failed to query in read-write transaction: %v", err)
+	}
+	if rows2.Next() {
+		// read value
+	}
+	rows2.Close()
+
+	// 8. Run DML in Read-Write transaction
+	if _, err := tx2.ExecContext(ctx, updateSQL); err != nil {
+		t.Fatalf("failed to execute DML in read-write transaction: %v", err)
+	}
+	_ = tx2.Commit()
+
+	// 9. Verify that DirectedReadOptions was not sent for any of these read-write or DML statements
+	requests2 := server.TestSpanner.DrainRequestsFromServer()
+	execRequests2 := testutil.RequestsOfType(requests2, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests2), 3; g != w {
+		t.Fatalf("execute requests count mismatch for read-write/DML statements\nGot: %v\nWant: %v", g, w)
+	}
+	for i, req := range execRequests2 {
+		r := req.(*sppb.ExecuteSqlRequest)
+		if r.DirectedReadOptions != nil {
+			t.Errorf("request %d (%s) unexpectedly had DirectedReadOptions set: %v", i, r.Sql, r.DirectedReadOptions)
+		}
+	}
+
+	// 9a. Run Partitioned DML in autocommit mode
+	if _, err := conn.ExecContext(ctx, "SET autocommit_dml_mode = 'partitioned_non_atomic'"); err != nil {
+		t.Fatalf("failed to set autocommit_dml_mode: %v", err)
+	}
+	if _, err := conn.ExecContext(ctx, updateSQL); err != nil {
+		t.Fatalf("failed to execute Partitioned DML: %v", err)
+	}
+	// Reset autocommit_dml_mode
+	if _, err := conn.ExecContext(ctx, "SET autocommit_dml_mode = 'transactional'"); err != nil {
+		t.Fatalf("failed to reset autocommit_dml_mode: %v", err)
+	}
+
+	// 9b. Verify that Partitioned DML request did not have DirectedReadOptions
+	requestsPDML := server.TestSpanner.DrainRequestsFromServer()
+	execRequestsPDML := testutil.RequestsOfType(requestsPDML, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	// We expect 1 execute request for the Partitioned DML (the SET statements don't send ExecuteSql to Spanner backend)
+	if g, w := len(execRequestsPDML), 1; g != w {
+		t.Fatalf("execute requests count mismatch for Partitioned DML\nGot: %v\nWant: %v", g, w)
+	}
+	reqPDML := execRequestsPDML[0].(*sppb.ExecuteSqlRequest)
+	if reqPDML.DirectedReadOptions != nil {
+		t.Errorf("Partitioned DML request unexpectedly had DirectedReadOptions set: %v", reqPDML.DirectedReadOptions)
+	}
+
+	// 10. Run a single-use query in autocommit mode to verify that the option was not lost/sticky
+	rows3, err := conn.QueryContext(ctx, testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatalf("failed to query in autocommit: %v", err)
+	}
+	if rows3.Next() {
+		// read value
+	}
+	rows3.Close()
+
+	// 11. Verify that this query request sent to Spanner contained the DirectedReadOptions.
+	requests3 := server.TestSpanner.DrainRequestsFromServer()
+	execRequests3 := testutil.RequestsOfType(requests3, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests3), 1; g != w {
+		t.Fatalf("execute requests count mismatch for autocommit query\nGot: %v\nWant: %v", g, w)
+	}
+	req3 := execRequests3[0].(*sppb.ExecuteSqlRequest)
+	if !proto.Equal(req3.DirectedReadOptions, wantDR) {
+		t.Fatalf("DirectedReadOptions mismatch after DML/RW transactions\nGot:  %v\nWant: %v", req3.DirectedReadOptions, wantDR)
+	}
+}
