@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.25.2](https://github.com/googleapis/go-sql-spanner/compare/v1.25.1...v1.25.2) (2026-06-13)
+
+
+### Bug Fixes
+
+* **test:** Resolve flakiness in TestTransactionTimeout by using larger timeouts ([#831](https://github.com/googleapis/go-sql-spanner/issues/831)) ([43f16ae](https://github.com/googleapis/go-sql-spanner/commit/43f16ae200743a8686a17ad332a945dacbb8b206))
+* Update all dependencies ([#802](https://github.com/googleapis/go-sql-spanner/issues/802)) ([ab3085e](https://github.com/googleapis/go-sql-spanner/commit/ab3085eb6d984d05a4b17286c331802656c7a864))
+* Update all dependencies (major) ([#707](https://github.com/googleapis/go-sql-spanner/issues/707)) ([7b13486](https://github.com/googleapis/go-sql-spanner/commit/7b134860e28986e9e954a8185ec7948e4ec1cfed))
+* Update dependency io.netty:netty-transport-native-epoll to v4.2.15.final [security] ([#805](https://github.com/googleapis/go-sql-spanner/issues/805)) ([ce283be](https://github.com/googleapis/go-sql-spanner/commit/ce283be247570169e52bb1ab4b3fc510765582f5))
+* Update error-prone monorepo to v2.50.0 ([#839](https://github.com/googleapis/go-sql-spanner/issues/839)) ([a513fe3](https://github.com/googleapis/go-sql-spanner/commit/a513fe3aa7eaa80f0da0d01916ec4fc275e7a571))
+* Update grpc-java monorepo to v1.81.0 ([#803](https://github.com/googleapis/go-sql-spanner/issues/803)) ([3148e31](https://github.com/googleapis/go-sql-spanner/commit/3148e3146efdb41ea4a6aba463420a4eafac20df))
+* Update grpc-java monorepo to v1.82.0 ([#842](https://github.com/googleapis/go-sql-spanner/issues/842)) ([50466b7](https://github.com/googleapis/go-sql-spanner/commit/50466b7ff3755eae64ea3f33ec9d93bc23a37336))
+* Update jna monorepo to v5.19.0 ([#810](https://github.com/googleapis/go-sql-spanner/issues/810)) ([45150aa](https://github.com/googleapis/go-sql-spanner/commit/45150aaffc14476922994e6d2e568dd2aa6306c6))
+* Update jna monorepo to v5.19.1 ([#841](https://github.com/googleapis/go-sql-spanner/issues/841)) ([da2fd04](https://github.com/googleapis/go-sql-spanner/commit/da2fd046347d0d44ec6a925e5f3dcd15b6fccd8c))
+* Update protobuf monorepo to v4.35.0 ([#808](https://github.com/googleapis/go-sql-spanner/issues/808)) ([b1a6b25](https://github.com/googleapis/go-sql-spanner/commit/b1a6b25023ac4abf12c8adda72fb9467f4db823d))
+
 ## [1.25.1](https://github.com/googleapis/go-sql-spanner/compare/v1.25.0...v1.25.1) (2026-04-29)
 
 
