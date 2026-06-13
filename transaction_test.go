@@ -461,3 +461,71 @@ func BenchmarkReadWriteTransaction(b *testing.B) {
 		})
 	}
 }
+
+func TestReadOnlyTransactionTimestamp(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(conn)
+
+	err = conn.Raw(func(driverConn any) error {
+		spannerConn := driverConn.(SpannerConn)
+		_, err := spannerConn.ReadOnlyTransactionTimestamp()
+		return err
+	})
+	if err == nil {
+		t.Error("expected error retrieving read timestamp when no transaction is active")
+	} else if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+		t.Errorf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	if _, err := conn.ExecContext(ctx, "begin transaction read only"); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := conn.QueryContext(ctx, testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows.Next() {
+		var foo int64
+		_ = rows.Scan(&foo)
+	}
+	_ = rows.Close()
+
+	var readTimestamp time.Time
+	err = conn.Raw(func(driverConn any) error {
+		spannerConn := driverConn.(SpannerConn)
+		var err error
+		readTimestamp, err = spannerConn.ReadOnlyTransactionTimestamp()
+		return err
+	})
+	if err != nil {
+		t.Fatalf("unexpected error retrieving read timestamp: %v", err)
+	}
+	if readTimestamp.IsZero() {
+		t.Error("expected non-zero read timestamp")
+	}
+
+	if _, err := conn.ExecContext(ctx, "rollback"); err != nil {
+		t.Fatal(err)
+	}
+
+	err = conn.Raw(func(driverConn any) error {
+		spannerConn := driverConn.(SpannerConn)
+		_, err := spannerConn.ReadOnlyTransactionTimestamp()
+		return err
+	})
+	if err == nil {
+		t.Error("expected error retrieving read timestamp after transaction is closed")
+	} else if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+		t.Errorf("error code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+}
