@@ -22,6 +22,8 @@ import {
   createSelect1ResultSet,
   createResultSetWithAllDataTypes,
 } from './mockspanner.js';
+import pkg from '@google-cloud/spanner/build/protos/protos.js';
+const { google } = pkg;
 
 describe('End-to-End Execution on MockServer', () => {
   let mock: MockSpanner;
@@ -51,7 +53,7 @@ describe('End-to-End Execution on MockServer', () => {
     const connection = await pool.createConnection();
     assert.ok(connection, 'Connection created');
 
-    const rows = await connection.executeSql('SELECT 1');
+    const rows = await connection.execute('SELECT 1');
     assert.ok(rows, 'Rows returned');
 
     const row: any = await rows.next();
@@ -74,7 +76,7 @@ describe('End-to-End Execution on MockServer', () => {
     );
 
     const connection = await pool.createConnection();
-    const rows = await connection.executeSql('SELECT * FROM AllTypes');
+    const rows = await connection.execute('SELECT * FROM AllTypes');
     const row: any = await rows.next();
     assert.ok(row, 'Row decoded successfully');
 
@@ -102,7 +104,7 @@ describe('End-to-End Execution on MockServer', () => {
     assert.strictEqual(connections.length, 3, '3 concurrent connections');
 
     const results = await Promise.all(
-      connections.map((c) => c.executeSql('SELECT 1'))
+      connections.map((c) => c.execute('SELECT 1'))
     );
 
     for (const rows of results) {
@@ -122,9 +124,182 @@ describe('End-to-End Execution on MockServer', () => {
 
     const connection = await pool.createConnection();
     await assert.rejects(async () => {
-      await connection.executeSql('SELECT * FROM InvalidTable');
+      await connection.execute('SELECT * FROM InvalidTable');
     }, /InvalidTable/);
 
+    await connection.close();
+  });
+
+  it('should manage explicit transaction lifecycle (beginTransaction, commit)', async () => {
+    mock.putStatementResult(
+      'SELECT 1',
+      StatementResult.resultSet(createSelect1ResultSet())
+    );
+
+    const connection = await pool.createConnection();
+    await connection.beginTransaction();
+
+    const rows = await connection.execute('SELECT 1');
+    const row: any = await rows.next();
+    assert.strictEqual(row.values[0].stringValue, '1');
+    await rows.close();
+
+    const commitResp = await connection.commit();
+    assert.ok(commitResp, 'Commit response returned');
+    assert.ok(commitResp.commitTimestamp, 'Commit timestamp present');
+
+    await connection.close();
+  });
+
+  it('should manage explicit transaction rollback (beginTransaction, rollback)', async () => {
+    const connection = await pool.createConnection();
+    await connection.beginTransaction();
+    await connection.rollback();
+    await connection.close();
+  });
+
+  it('should write mutations successfully', async () => {
+    const connection = await pool.createConnection();
+    const Mutation = google.spanner.v1.Mutation;
+    const mutation = Mutation.create({
+      insert: {
+        table: 'Users',
+        columns: ['id', 'name'],
+        values: [{ values: [{ stringValue: '1' }, { stringValue: 'Alice' }] }],
+      },
+    });
+    const res = await connection.writeMutations([mutation]);
+    assert.ok(res, 'CommitResponse returned');
+    assert.ok(res.commitTimestamp, 'Commit timestamp present');
+    await connection.close();
+  });
+
+  it('should execute executeBatch successfully', async () => {
+    mock.putStatementResult(
+      'UPDATE Users SET status = "ACTIVE" WHERE id = 1',
+      StatementResult.updateCount(1)
+    );
+
+    const connection = await pool.createConnection();
+    const res = await connection.executeBatch([
+      'UPDATE Users SET status = "ACTIVE" WHERE id = 1',
+    ]);
+    assert.ok(res, 'ExecuteBatchDmlResponse returned');
+    assert.strictEqual(
+      Number(res.resultSets![0].stats!.rowCountExact),
+      1,
+      'Row count matches'
+    );
+    await connection.close();
+  });
+
+  it('should support execute() and executeBatch() aliases matching Java/Python wrappers', async () => {
+    mock.putStatementResult(
+      'SELECT 1',
+      StatementResult.resultSet(createSelect1ResultSet())
+    );
+    mock.putStatementResult(
+      'UPDATE Users SET status = "ACTIVE" WHERE id = 1',
+      StatementResult.updateCount(1)
+    );
+
+    const connection = await pool.createConnection();
+
+    const ExecuteSqlRequest = google.spanner.v1.ExecuteSqlRequest;
+    const rows = await connection.execute(
+      ExecuteSqlRequest.create({ sql: 'SELECT 1' })
+    );
+    const row: any = await rows.next();
+    assert.strictEqual(row.values[0].stringValue, '1');
+    await rows.close();
+
+    const ExecuteBatchDmlRequest = google.spanner.v1.ExecuteBatchDmlRequest;
+    const res = await connection.executeBatch(
+      ExecuteBatchDmlRequest.create({
+        statements: [
+          { sql: 'UPDATE Users SET status = "ACTIVE" WHERE id = 1' },
+        ],
+      })
+    );
+    assert.strictEqual(Number(res.resultSets![0].stats!.rowCountExact), 1);
+
+    await connection.close();
+  });
+
+  it('should execute read-only transaction successfully', async () => {
+    mock.putStatementResult(
+      'SELECT 1',
+      StatementResult.resultSet(createSelect1ResultSet())
+    );
+
+    const connection = await pool.createConnection();
+    const TransactionOptions = google.spanner.v1.TransactionOptions;
+    await connection.beginTransaction(
+      TransactionOptions.create({
+        readOnly: { strong: true },
+      })
+    );
+
+    const rows = await connection.execute('SELECT 1');
+    const row: any = await rows.next();
+    assert.strictEqual(row.values[0].stringValue, '1');
+    await rows.close();
+
+    await connection.commit();
+
+    await connection.close();
+  });
+
+  it('should buffer mutations when an active transaction exists', async () => {
+    const connection = await pool.createConnection();
+    await connection.beginTransaction();
+
+    const Mutation = google.spanner.v1.Mutation;
+    const mutation = Mutation.create({
+      insert: {
+        table: 'Users',
+        columns: ['id', 'name'],
+        values: [{ values: [{ stringValue: '2' }, { stringValue: 'Bob' }] }],
+      },
+    });
+    const res = await connection.writeMutations([mutation]);
+    assert.strictEqual(res, null, 'Buffered mutation returns null/nil');
+
+    const commitResp = await connection.commit();
+    assert.ok(commitResp, 'Commit response returned upon commit');
+    assert.ok(commitResp.commitTimestamp, 'Commit timestamp present');
+
+    await connection.close();
+  });
+
+  it('should execute query with parameters successfully', async () => {
+    mock.putStatementResult(
+      'SELECT FirstName FROM Singers WHERE SingerId = @id',
+      StatementResult.resultSet(createSelect1ResultSet())
+    );
+
+    const connection = await pool.createConnection();
+    const ExecuteSqlRequest = google.spanner.v1.ExecuteSqlRequest;
+    const rows = await connection.execute(
+      ExecuteSqlRequest.create({
+        sql: 'SELECT FirstName FROM Singers WHERE SingerId = @id',
+        params: { fields: { id: { stringValue: '50' } } },
+        paramTypes: { id: { code: 'INT64' } },
+      })
+    );
+    const row: any = await rows.next();
+    assert.strictEqual(row.values[0].stringValue, '1');
+    await rows.close();
+    await connection.close();
+  });
+
+  it('should throw error when calling beginTransaction twice', async () => {
+    const connection = await pool.createConnection();
+    await connection.beginTransaction();
+    await assert.rejects(async () => {
+      await connection.beginTransaction();
+    });
+    await connection.rollback();
     await connection.close();
   });
 });

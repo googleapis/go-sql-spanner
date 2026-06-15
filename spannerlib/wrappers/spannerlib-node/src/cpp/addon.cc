@@ -445,6 +445,276 @@ Napi::Value CloseRowsWrapper(const Napi::CallbackInfo& info) {
     return env.Undefined();
 }
 
+//
+// Worker 9: BeginTransaction asynchronously
+//
+class BeginTransactionWorker : public Napi::AsyncWorker {
+public:
+    BeginTransactionWorker(Napi::Function& callback, int64_t poolId, int64_t connId, std::string payload)
+        : AsyncWorker(callback), poolId_(poolId), connId_(connId), payload_(payload), result_({0, 0, 0, 0, nullptr}) {}
+
+    void Execute() override {
+        GoSlice goPayload = {(void*)payload_.data(), (ptrdiff_t)payload_.length(), (ptrdiff_t)payload_.length()};
+        result_ = ::BeginTransaction(poolId_, connId_, goPayload);
+    }
+
+    void OnOK() override {
+        Napi::Env env = Env();
+        Napi::Object obj = Napi::Object::New(env);
+        obj.Set("r0", Napi::Number::New(env, 0));
+        obj.Set("r1", Napi::Number::New(env, result_.r1));
+        obj.Set("r2", Napi::Number::New(env, result_.r2));
+        obj.Set("r3", Napi::Number::New(env, result_.r3));
+        if (result_.r4 != nullptr && result_.r3 > 0) {
+            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
+        } else {
+            obj.Set("r4", env.Null());
+        }
+        if (result_.r0 > 0) {
+            ::Release(result_.r0);
+        }
+        Callback().Call({env.Null(), obj});
+    }
+private:
+    int64_t poolId_, connId_;
+    std::string payload_;
+    BeginTransaction_return result_;
+};
+
+Napi::Value BeginTransactionWrapper(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    if (info.Length() < 4) {
+        Napi::Error::New(env, "BeginTransactionWrapper requires 4 arguments").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    if (!info[0].IsNumber() || !info[1].IsNumber() || !info[2].IsBuffer() || !info[3].IsFunction()) {
+        Napi::Error::New(env, "Invalid argument types in BeginTransactionWrapper").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    int64_t pid = info[0].As<Napi::Number>().Int64Value();
+    int64_t cid = info[1].As<Napi::Number>().Int64Value();
+    
+    Napi::Buffer<uint8_t> buffer = info[2].As<Napi::Buffer<uint8_t>>();
+    std::string payload(reinterpret_cast<const char*>(buffer.Data()), buffer.Length());
+    
+    Napi::Function cb = info[3].As<Napi::Function>();
+    BeginTransactionWorker* worker = new BeginTransactionWorker(cb, pid, cid, payload);
+    worker->Queue();
+    return env.Undefined();
+}
+
+//
+// Worker 10: Commit asynchronously
+//
+class CommitWorker : public Napi::AsyncWorker {
+public:
+    CommitWorker(Napi::Function& callback, int64_t poolId, int64_t connId)
+        : AsyncWorker(callback), poolId_(poolId), connId_(connId), result_({0, 0, 0, 0, nullptr}) {}
+
+    void Execute() override {
+        result_ = ::Commit(poolId_, connId_);
+    }
+
+    void OnOK() override {
+        Napi::Env env = Env();
+        Napi::Object obj = Napi::Object::New(env);
+        obj.Set("r0", Napi::Number::New(env, 0));
+        obj.Set("r1", Napi::Number::New(env, result_.r1));
+        obj.Set("r2", Napi::Number::New(env, result_.r2));
+        obj.Set("r3", Napi::Number::New(env, result_.r3));
+        if (result_.r4 != nullptr && result_.r3 > 0) {
+            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
+        } else {
+            obj.Set("r4", env.Null());
+        }
+        if (result_.r0 > 0) {
+            ::Release(result_.r0);
+        }
+        Callback().Call({env.Null(), obj});
+    }
+private:
+    int64_t poolId_, connId_;
+    Commit_return result_;
+};
+
+Napi::Value CommitWrapper(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    if (info.Length() < 3 || !info[0].IsNumber() || !info[1].IsNumber() || !info[2].IsFunction()) {
+        Napi::Error::New(env, "CommitWrapper requires (Number, Number, Function)").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    int64_t pid = info[0].As<Napi::Number>().Int64Value();
+    int64_t cid = info[1].As<Napi::Number>().Int64Value();
+    Napi::Function cb = info[2].As<Napi::Function>();
+    CommitWorker* worker = new CommitWorker(cb, pid, cid);
+    worker->Queue();
+    return env.Undefined();
+}
+
+//
+// Worker 11: Rollback asynchronously
+//
+class RollbackWorker : public Napi::AsyncWorker {
+public:
+    RollbackWorker(Napi::Function& callback, int64_t poolId, int64_t connId)
+        : AsyncWorker(callback), poolId_(poolId), connId_(connId), result_({0, 0, 0, 0, nullptr}) {}
+
+    void Execute() override {
+        result_ = ::Rollback(poolId_, connId_);
+    }
+
+    void OnOK() override {
+        Napi::Env env = Env();
+        Napi::Object obj = Napi::Object::New(env);
+        obj.Set("r0", Napi::Number::New(env, 0));
+        obj.Set("r1", Napi::Number::New(env, result_.r1));
+        obj.Set("r2", Napi::Number::New(env, result_.r2));
+        obj.Set("r3", Napi::Number::New(env, result_.r3));
+        if (result_.r4 != nullptr && result_.r3 > 0) {
+            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
+        } else {
+            obj.Set("r4", env.Null());
+        }
+        if (result_.r0 > 0) {
+            ::Release(result_.r0);
+        }
+        Callback().Call({env.Null(), obj});
+    }
+private:
+    int64_t poolId_, connId_;
+    Rollback_return result_;
+};
+
+Napi::Value RollbackWrapper(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    if (info.Length() < 3 || !info[0].IsNumber() || !info[1].IsNumber() || !info[2].IsFunction()) {
+        Napi::Error::New(env, "RollbackWrapper requires (Number, Number, Function)").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    int64_t pid = info[0].As<Napi::Number>().Int64Value();
+    int64_t cid = info[1].As<Napi::Number>().Int64Value();
+    Napi::Function cb = info[2].As<Napi::Function>();
+    RollbackWorker* worker = new RollbackWorker(cb, pid, cid);
+    worker->Queue();
+    return env.Undefined();
+}
+
+//
+// Worker 12: WriteMutations asynchronously
+//
+class WriteMutationsWorker : public Napi::AsyncWorker {
+public:
+    WriteMutationsWorker(Napi::Function& callback, int64_t poolId, int64_t connId, std::string payload)
+        : AsyncWorker(callback), poolId_(poolId), connId_(connId), payload_(payload), result_({0, 0, 0, 0, nullptr}) {}
+
+    void Execute() override {
+        GoSlice goPayload = {(void*)payload_.data(), (ptrdiff_t)payload_.length(), (ptrdiff_t)payload_.length()};
+        result_ = ::WriteMutations(poolId_, connId_, goPayload);
+    }
+
+    void OnOK() override {
+        Napi::Env env = Env();
+        Napi::Object obj = Napi::Object::New(env);
+        obj.Set("r0", Napi::Number::New(env, 0));
+        obj.Set("r1", Napi::Number::New(env, result_.r1));
+        obj.Set("r2", Napi::Number::New(env, result_.r2));
+        obj.Set("r3", Napi::Number::New(env, result_.r3));
+        if (result_.r4 != nullptr && result_.r3 > 0) {
+            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
+        } else {
+            obj.Set("r4", env.Null());
+        }
+        if (result_.r0 > 0) {
+            ::Release(result_.r0);
+        }
+        Callback().Call({env.Null(), obj});
+    }
+private:
+    int64_t poolId_, connId_;
+    std::string payload_;
+    WriteMutations_return result_;
+};
+
+Napi::Value WriteMutationsWrapper(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    if (info.Length() < 4) {
+        Napi::Error::New(env, "WriteMutationsWrapper requires 4 arguments").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    if (!info[0].IsNumber() || !info[1].IsNumber() || !info[2].IsBuffer() || !info[3].IsFunction()) {
+        Napi::Error::New(env, "Invalid argument types in WriteMutationsWrapper").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    int64_t pid = info[0].As<Napi::Number>().Int64Value();
+    int64_t cid = info[1].As<Napi::Number>().Int64Value();
+    
+    Napi::Buffer<uint8_t> buffer = info[2].As<Napi::Buffer<uint8_t>>();
+    std::string payload(reinterpret_cast<const char*>(buffer.Data()), buffer.Length());
+    
+    Napi::Function cb = info[3].As<Napi::Function>();
+    WriteMutationsWorker* worker = new WriteMutationsWorker(cb, pid, cid, payload);
+    worker->Queue();
+    return env.Undefined();
+}
+
+//
+// Worker 13: ExecuteBatch asynchronously
+//
+class ExecuteBatchWorker : public Napi::AsyncWorker {
+public:
+    ExecuteBatchWorker(Napi::Function& callback, int64_t poolId, int64_t connId, std::string payload)
+        : AsyncWorker(callback), poolId_(poolId), connId_(connId), payload_(payload), result_({0, 0, 0, 0, nullptr}) {}
+
+    void Execute() override {
+        GoSlice goPayload = {(void*)payload_.data(), (ptrdiff_t)payload_.length(), (ptrdiff_t)payload_.length()};
+        result_ = ::ExecuteBatch(poolId_, connId_, goPayload);
+    }
+
+    void OnOK() override {
+        Napi::Env env = Env();
+        Napi::Object obj = Napi::Object::New(env);
+        obj.Set("r0", Napi::Number::New(env, 0));
+        obj.Set("r1", Napi::Number::New(env, result_.r1));
+        obj.Set("r2", Napi::Number::New(env, result_.r2));
+        obj.Set("r3", Napi::Number::New(env, result_.r3));
+        if (result_.r4 != nullptr && result_.r3 > 0) {
+            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
+        } else {
+            obj.Set("r4", env.Null());
+        }
+        if (result_.r0 > 0) {
+            ::Release(result_.r0);
+        }
+        Callback().Call({env.Null(), obj});
+    }
+private:
+    int64_t poolId_, connId_;
+    std::string payload_;
+    ExecuteBatch_return result_;
+};
+
+Napi::Value ExecuteBatchWrapper(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    if (info.Length() < 4) {
+        Napi::Error::New(env, "ExecuteBatchWrapper requires 4 arguments").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    if (!info[0].IsNumber() || !info[1].IsNumber() || !info[2].IsBuffer() || !info[3].IsFunction()) {
+        Napi::Error::New(env, "Invalid argument types in ExecuteBatchWrapper").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    int64_t pid = info[0].As<Napi::Number>().Int64Value();
+    int64_t cid = info[1].As<Napi::Number>().Int64Value();
+    
+    Napi::Buffer<uint8_t> buffer = info[2].As<Napi::Buffer<uint8_t>>();
+    std::string payload(reinterpret_cast<const char*>(buffer.Data()), buffer.Length());
+    
+    Napi::Function cb = info[3].As<Napi::Function>();
+    ExecuteBatchWorker* worker = new ExecuteBatchWorker(cb, pid, cid, payload);
+    worker->Queue();
+    return env.Undefined();
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("CreatePool", Napi::Function::New(env, CreatePoolWrapper));
     exports.Set("ClosePool", Napi::Function::New(env, ClosePoolWrapper));
@@ -457,6 +727,12 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("Release", Napi::Function::New(env, NativeRelease));
     
     exports.Set("Metadata", Napi::Function::New(env, MetadataWrapper));
+
+    exports.Set("BeginTransaction", Napi::Function::New(env, BeginTransactionWrapper));
+    exports.Set("Commit", Napi::Function::New(env, CommitWrapper));
+    exports.Set("Rollback", Napi::Function::New(env, RollbackWrapper));
+    exports.Set("WriteMutations", Napi::Function::New(env, WriteMutationsWrapper));
+    exports.Set("ExecuteBatch", Napi::Function::New(env, ExecuteBatchWrapper));
     return exports;
 }
 
