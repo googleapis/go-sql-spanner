@@ -224,6 +224,7 @@ describe('Rows', () => {
     stub = sinon.stub(ffi, 'invokeAsync');
 
     // Lower bound count test
+    const rowsLower = new Rows(connection, 4);
     const lowerBoundStats = google.spanner.v1.ResultSetStats.create({
       rowCountLowerBound: 42,
     });
@@ -234,7 +235,7 @@ describe('Rows', () => {
     stub
       .onFirstCall()
       .resolves({ objectId: 0, pinnerId: 0, protobufBytes: lowerBoundBuffer });
-    const countLower = await rows.updateCount();
+    const countLower = await rowsLower.updateCount();
     assert.strictEqual(countLower, 42);
   });
 
@@ -297,4 +298,161 @@ describe('Rows', () => {
       await rows.nextResultSet();
     }, /Rows are already closed/);
   });
+
+  it('should cache metadata and return it without repeating FFI calls', async () => {
+    const pool = new Pool(
+      'node-esm',
+      'projects/test/instances/test/databases/test'
+    );
+    pool.oid = 1;
+    const connection = new Connection();
+    connection.pool = pool;
+    connection.oid = 2;
+
+    const rows = new Rows(connection, 3);
+
+    // Mock metadata response
+    const mockMeta = google.spanner.v1.ResultSetMetadata.create({
+      rowType: new google.spanner.v1.StructType({
+        fields: [
+          { name: 'col1', type: { code: google.spanner.v1.TypeCode.STRING } },
+        ],
+      }),
+    });
+    const metaBuffer = google.spanner.v1.ResultSetMetadata.encode(
+      mockMeta
+    ).finish() as Buffer;
+
+    stub
+      .onFirstCall()
+      .resolves({ objectId: 0, pinnerId: 0, protobufBytes: metaBuffer });
+
+    // Call metadata twice
+    const meta1 = await rows.metadata();
+    const meta2 = await rows.metadata();
+
+    assert.ok(meta1);
+    assert.strictEqual(meta1, meta2);
+    assert.strictEqual(
+      stub.callCount,
+      1,
+      'FFI Metadata should be invoked exactly once'
+    );
+  });
+
+  it('should cache resultSetStats and return it without repeating FFI calls', async () => {
+    const pool = new Pool(
+      'node-esm',
+      'projects/test/instances/test/databases/test'
+    );
+    pool.oid = 1;
+    const connection = new Connection();
+    connection.pool = pool;
+    connection.oid = 2;
+
+    const rows = new Rows(connection, 3);
+
+    // Mock stats response
+    const mockStats = google.spanner.v1.ResultSetStats.create({
+      rowCountExact: 100,
+    });
+    const statsBuffer = google.spanner.v1.ResultSetStats.encode(
+      mockStats
+    ).finish() as Buffer;
+
+    stub
+      .onFirstCall()
+      .resolves({ objectId: 0, pinnerId: 0, protobufBytes: statsBuffer });
+
+    // Call stats twice
+    const stats1 = await rows.resultSetStats();
+    const stats2 = await rows.resultSetStats();
+
+    assert.ok(stats1);
+    assert.strictEqual(stats1, stats2);
+    assert.strictEqual(
+      stub.callCount,
+      1,
+      'FFI ResultSetStats should be invoked exactly once'
+    );
+  });
+
+  it('should clear cached metadata and stats when calling nextResultSet()', async () => {
+    const pool = new Pool(
+      'node-esm',
+      'projects/test/instances/test/databases/test'
+    );
+    pool.oid = 1;
+    const connection = new Connection();
+    connection.pool = pool;
+    connection.oid = 2;
+
+    const rows = new Rows(connection, 3);
+
+    // Mock metadata response
+    const mockMeta = google.spanner.v1.ResultSetMetadata.create({
+      rowType: new google.spanner.v1.StructType({
+        fields: [
+          { name: 'col1', type: { code: google.spanner.v1.TypeCode.STRING } },
+        ],
+      }),
+    });
+    const metaBuffer = google.spanner.v1.ResultSetMetadata.encode(
+      mockMeta
+    ).finish() as Buffer;
+
+    // Mock stats response
+    const mockStats = google.spanner.v1.ResultSetStats.create({
+      rowCountExact: 100,
+    });
+    const statsBuffer = google.spanner.v1.ResultSetStats.encode(
+      mockStats
+    ).finish() as Buffer;
+
+    const nextMeta = google.spanner.v1.ResultSetMetadata.create({
+      rowType: new google.spanner.v1.StructType({
+        fields: [
+          { name: 'col2', type: { code: google.spanner.v1.TypeCode.INT64 } },
+        ],
+      }),
+    });
+    const nextMetaBuffer = google.spanner.v1.ResultSetMetadata.encode(
+      nextMeta
+    ).finish() as Buffer;
+
+    const nextStats = google.spanner.v1.ResultSetStats.create({
+      rowCountExact: 50,
+    });
+    const nextStatsBuffer = google.spanner.v1.ResultSetStats.encode(
+      nextStats
+    ).finish() as Buffer;
+
+    stub.onCall(0).resolves({ objectId: 0, pinnerId: 0, protobufBytes: metaBuffer });
+    stub.onCall(1).resolves({ objectId: 0, pinnerId: 0, protobufBytes: statsBuffer });
+    stub.onCall(2).resolves({ objectId: 0, pinnerId: 0, protobufBytes: nextMetaBuffer });
+    stub.onCall(3).resolves({ objectId: 0, pinnerId: 0, protobufBytes: nextStatsBuffer });
+
+    // Populate initial caches
+    const meta1 = await rows.metadata();
+    const stats1 = await rows.resultSetStats();
+    assert.ok(meta1);
+    assert.ok(stats1);
+
+    // Call nextResultSet()
+    const nextResultSetMetadata = await rows.nextResultSet();
+    assert.ok(nextResultSetMetadata);
+
+    // Verify metadata was updated and matches nextMeta
+    assert.strictEqual(nextResultSetMetadata.rowType?.fields?.[0]?.name, 'col2');
+
+    // Verify stats were cleared (calling stats again invokes the stub a 4th time)
+    const stats2 = await rows.resultSetStats();
+    assert.ok(stats2);
+    assert.strictEqual(stats2.rowCountExact?.toString(), '50');
+
+    // Total invoke count should be 4 (Metadata, ResultSetStats, NextResultSet, ResultSetStats)
+    // (Notice we did not invoke Metadata again because nextResultSet returned and cached the new metadata)
+    assert.strictEqual(stub.callCount, 4);
+  });
 });
+

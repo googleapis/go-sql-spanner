@@ -33,6 +33,9 @@ export class Rows {
   public connection: Connection;
   public oid: number;
   public closed: boolean;
+  private _cachedMetadata: googleProto.spanner.v1.ResultSetMetadata | null =
+    null;
+  private _cachedStats: googleProto.spanner.v1.ResultSetStats | null = null;
   constructor(connection: Connection, oid: number) {
     if (
       !connection.pool ||
@@ -89,6 +92,9 @@ export class Rows {
    * @returns {Promise<googleProto.spanner.v1.ResultSetMetadata | null>} A Promise resolving to the ResultSetMetadata object.
    */
   async metadata(): Promise<googleProto.spanner.v1.ResultSetMetadata | null> {
+    if (this._cachedMetadata) {
+      return this._cachedMetadata;
+    }
     this.ensureOpenAndValid();
 
     const handled = await ffi.invokeAsync(
@@ -102,7 +108,10 @@ export class Rows {
       return null;
     }
 
-    return google.spanner.v1.ResultSetMetadata.decode(handled.protobufBytes);
+    this._cachedMetadata = google.spanner.v1.ResultSetMetadata.decode(
+      handled.protobufBytes
+    );
+    return this._cachedMetadata;
   }
 
   /**
@@ -111,6 +120,9 @@ export class Rows {
    * @returns {Promise<googleProto.spanner.v1.ResultSetStats | null>} A Promise resolving to the ResultSetStats object.
    */
   async resultSetStats(): Promise<googleProto.spanner.v1.ResultSetStats | null> {
+    if (this._cachedStats) {
+      return this._cachedStats;
+    }
     this.ensureOpenAndValid();
 
     const handled = await ffi.invokeAsync(
@@ -124,7 +136,10 @@ export class Rows {
       return null;
     }
 
-    return google.spanner.v1.ResultSetStats.decode(handled.protobufBytes);
+    this._cachedStats = google.spanner.v1.ResultSetStats.decode(
+      handled.protobufBytes
+    );
+    return this._cachedStats;
   }
 
   /**
@@ -142,11 +157,17 @@ export class Rows {
       this.oid
     );
 
+    this._cachedMetadata = null;
+    this._cachedStats = null;
+
     if (!handled.protobufBytes || handled.protobufBytes.length === 0) {
       return null;
     }
 
-    return google.spanner.v1.ResultSetMetadata.decode(handled.protobufBytes);
+    this._cachedMetadata = google.spanner.v1.ResultSetMetadata.decode(
+      handled.protobufBytes
+    );
+    return this._cachedMetadata;
   }
 
   /**
