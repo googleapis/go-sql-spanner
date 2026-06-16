@@ -19,6 +19,7 @@ import { Connection } from './connection.js';
 // Unlike other languages like Java, Python , Node client does not export its protos.
 // We need to explore how to import protos in Node
 import pkg from '@google-cloud/spanner/build/protos/protos.js';
+import type { google as googleProto } from '@google-cloud/spanner/build/protos/protos.js';
 const { google } = pkg;
 const ListValue = google.protobuf.ListValue;
 
@@ -59,11 +60,11 @@ export class Rows {
   /**
    * Fetches the next row of data.
    *
-   * @returns A Promise that resolves to a ListValue containing the row data, or null if there are no more rows.
+   * @returns {Promise<googleProto.protobuf.ListValue | null>} A Promise that resolves to a ListValue containing the row data, or null if there are no more rows.
    * @throws {Error} If the rows are already closed.
    * @throws {SpannerLibError} If fetching fails in the Go library.
    */
-  async next(): Promise<unknown> {
+  async next(): Promise<googleProto.protobuf.ListValue | null> {
     if (this.closed) throw new Error('Rows are already closed');
 
     if (
@@ -93,6 +94,110 @@ export class Rows {
     }
 
     return ListValue.decode(handled.protobufBytes);
+  }
+
+  /**
+   * Retrieves the metadata for the result set.
+   *
+   * @returns {Promise<googleProto.spanner.v1.ResultSetMetadata | null>} A Promise resolving to the ResultSetMetadata object.
+   */
+  async metadata(): Promise<googleProto.spanner.v1.ResultSetMetadata | null> {
+    if (this.closed) throw new Error('Rows are already closed');
+    if (!this.connection || this.connection.closed) {
+      throw new Error('Connection is closed or invalid');
+    }
+
+    const handled = await ffi.invokeAsync(
+      'Metadata',
+      this.connection.pool!.oid!,
+      this.connection.oid!,
+      this.oid
+    );
+
+    if (!handled.protobufBytes || handled.protobufBytes.length === 0) {
+      return null;
+    }
+
+    return google.spanner.v1.ResultSetMetadata.decode(handled.protobufBytes);
+  }
+
+  /**
+   * Retrieves the stats for the result set.
+   *
+   * @returns {Promise<googleProto.spanner.v1.ResultSetStats | null>} A Promise resolving to the ResultSetStats object.
+   */
+  async resultSetStats(): Promise<googleProto.spanner.v1.ResultSetStats | null> {
+    if (this.closed) throw new Error('Rows are already closed');
+    if (!this.connection || this.connection.closed) {
+      throw new Error('Connection is closed or invalid');
+    }
+
+    const handled = await ffi.invokeAsync(
+      'ResultSetStats',
+      this.connection.pool!.oid!,
+      this.connection.oid!,
+      this.oid
+    );
+
+    if (!handled.protobufBytes || handled.protobufBytes.length === 0) {
+      return null;
+    }
+
+    return google.spanner.v1.ResultSetStats.decode(handled.protobufBytes);
+  }
+
+  /**
+   * Advances to the next result set (for multi-statement query results or batch DML).
+   *
+   * @returns {Promise<googleProto.spanner.v1.ResultSetMetadata | null>} A Promise resolving to the next ResultSetMetadata if available, otherwise null.
+   */
+  async nextResultSet(): Promise<googleProto.spanner.v1.ResultSetMetadata | null> {
+    if (this.closed) throw new Error('Rows are already closed');
+    if (!this.connection || this.connection.closed) {
+      throw new Error('Connection is closed or invalid');
+    }
+
+    const handled = await ffi.invokeAsync(
+      'NextResultSet',
+      this.connection.pool!.oid!,
+      this.connection.oid!,
+      this.oid
+    );
+
+    if (!handled.protobufBytes || handled.protobufBytes.length === 0) {
+      return null;
+    }
+
+    return google.spanner.v1.ResultSetMetadata.decode(handled.protobufBytes);
+  }
+
+  /**
+   * Returns the exact or lower bound row/update count if present in ResultSetStats.
+   *
+   * @returns {Promise<number>} A Promise resolving to the update count, or -1 if stats/count are not available.
+   */
+  async updateCount(): Promise<number> {
+    const stats = (await this.resultSetStats()) as {
+      rowCountExact?: unknown;
+      rowCountLowerBound?: unknown;
+    };
+    if (!stats) {
+      return -1;
+    }
+    if (stats.rowCountExact !== undefined && stats.rowCountExact !== null) {
+      return typeof stats.rowCountExact === 'object'
+        ? Number(stats.rowCountExact.toString())
+        : Number(stats.rowCountExact);
+    }
+    if (
+      stats.rowCountLowerBound !== undefined &&
+      stats.rowCountLowerBound !== null
+    ) {
+      return typeof stats.rowCountLowerBound === 'object'
+        ? Number(stats.rowCountLowerBound.toString())
+        : Number(stats.rowCountLowerBound);
+    }
+    return -1;
   }
 
   /**

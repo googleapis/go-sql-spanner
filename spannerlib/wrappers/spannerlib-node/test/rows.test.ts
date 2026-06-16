@@ -98,4 +98,203 @@ describe('Rows', () => {
 
     assert.strictEqual(row, null, 'Row should be null');
   });
+
+  it('should retrieve metadata successfully', async () => {
+    const pool = new Pool(
+      'node-esm',
+      'projects/test/instances/test/databases/test'
+    );
+    pool.oid = 1;
+    const connection = new Connection();
+    connection.pool = pool;
+    connection.oid = 2;
+
+    const rows = new Rows(connection, 3);
+
+    const metadataProto = google.spanner.v1.ResultSetMetadata.create({
+      rowType: {
+        fields: [{ name: 'col1', type: { code: 'INT64' } }],
+      },
+    });
+    const buffer = google.spanner.v1.ResultSetMetadata.encode(
+      metadataProto
+    ).finish() as Buffer;
+
+    stub
+      .onFirstCall()
+      .resolves({ objectId: 0, pinnerId: 0, protobufBytes: buffer });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const metadata: any = await rows.metadata();
+    assert.ok(metadata, 'Metadata should be returned');
+    assert.ok(metadata.rowType, 'RowType should exist');
+    assert.strictEqual(metadata.rowType.fields[0].name, 'col1');
+    assert.strictEqual(stub.firstCall.args[0], 'Metadata');
+  });
+
+  it('should retrieve stats successfully', async () => {
+    const pool = new Pool(
+      'node-esm',
+      'projects/test/instances/test/databases/test'
+    );
+    pool.oid = 1;
+    const connection = new Connection();
+    connection.pool = pool;
+    connection.oid = 2;
+
+    const rows = new Rows(connection, 3);
+
+    const statsProto = google.spanner.v1.ResultSetStats.create({
+      rowCountExact: 5,
+    });
+    const buffer = google.spanner.v1.ResultSetStats.encode(
+      statsProto
+    ).finish() as Buffer;
+
+    stub
+      .onFirstCall()
+      .resolves({ objectId: 0, pinnerId: 0, protobufBytes: buffer });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const stats: any = await rows.resultSetStats();
+    assert.ok(stats, 'Stats should be returned');
+    assert.strictEqual(Number(stats.rowCountExact), 5);
+    assert.strictEqual(stub.firstCall.args[0], 'ResultSetStats');
+  });
+
+  it('should advance to next result set successfully', async () => {
+    const pool = new Pool(
+      'node-esm',
+      'projects/test/instances/test/databases/test'
+    );
+    pool.oid = 1;
+    const connection = new Connection();
+    connection.pool = pool;
+    connection.oid = 2;
+
+    const rows = new Rows(connection, 3);
+
+    const metadataProto = google.spanner.v1.ResultSetMetadata.create({
+      rowType: {
+        fields: [{ name: 'col2', type: { code: 'STRING' } }],
+      },
+    });
+    const buffer = google.spanner.v1.ResultSetMetadata.encode(
+      metadataProto
+    ).finish() as Buffer;
+
+    stub
+      .onFirstCall()
+      .resolves({ objectId: 0, pinnerId: 0, protobufBytes: buffer });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const metadata: any = await rows.nextResultSet();
+    assert.ok(metadata, 'Metadata should be returned');
+    assert.strictEqual(metadata.rowType.fields[0].name, 'col2');
+    assert.strictEqual(stub.firstCall.args[0], 'NextResultSet');
+  });
+
+  it('should calculate updateCount correctly for exact and lower bound values', async () => {
+    const pool = new Pool(
+      'node-esm',
+      'projects/test/instances/test/databases/test'
+    );
+    pool.oid = 1;
+    const connection = new Connection();
+    connection.pool = pool;
+    connection.oid = 2;
+
+    const rows = new Rows(connection, 3);
+
+    // Exact count test
+    const exactStats = google.spanner.v1.ResultSetStats.create({
+      rowCountExact: 12,
+    });
+    const exactBuffer = google.spanner.v1.ResultSetStats.encode(
+      exactStats
+    ).finish() as Buffer;
+
+    stub
+      .onFirstCall()
+      .resolves({ objectId: 0, pinnerId: 0, protobufBytes: exactBuffer });
+    const countExact = await rows.updateCount();
+    assert.strictEqual(countExact, 12);
+
+    stub.restore();
+    stub = sinon.stub(ffi, 'invokeAsync');
+
+    // Lower bound count test
+    const lowerBoundStats = google.spanner.v1.ResultSetStats.create({
+      rowCountLowerBound: 42,
+    });
+    const lowerBoundBuffer = google.spanner.v1.ResultSetStats.encode(
+      lowerBoundStats
+    ).finish() as Buffer;
+
+    stub
+      .onFirstCall()
+      .resolves({ objectId: 0, pinnerId: 0, protobufBytes: lowerBoundBuffer });
+    const countLower = await rows.updateCount();
+    assert.strictEqual(countLower, 42);
+  });
+
+  it('should throw error on operations if connection is closed', async () => {
+    const pool = new Pool(
+      'node-esm',
+      'projects/test/instances/test/databases/test'
+    );
+    pool.oid = 1;
+    const connection = new Connection();
+    connection.pool = pool;
+    connection.oid = 2;
+
+    const rows = new Rows(connection, 3);
+    connection.closed = true;
+
+    await assert.rejects(async () => {
+      await rows.next();
+    }, /Connection is closed or invalid/);
+
+    await assert.rejects(async () => {
+      await rows.metadata();
+    }, /Connection is closed or invalid/);
+
+    await assert.rejects(async () => {
+      await rows.resultSetStats();
+    }, /Connection is closed or invalid/);
+
+    await assert.rejects(async () => {
+      await rows.nextResultSet();
+    }, /Connection is closed or invalid/);
+  });
+
+  it('should throw error on operations if rows are closed', async () => {
+    const pool = new Pool(
+      'node-esm',
+      'projects/test/instances/test/databases/test'
+    );
+    pool.oid = 1;
+    const connection = new Connection();
+    connection.pool = pool;
+    connection.oid = 2;
+
+    const rows = new Rows(connection, 3);
+    rows.closed = true;
+
+    await assert.rejects(async () => {
+      await rows.next();
+    }, /Rows are already closed/);
+
+    await assert.rejects(async () => {
+      await rows.metadata();
+    }, /Rows are already closed/);
+
+    await assert.rejects(async () => {
+      await rows.resultSetStats();
+    }, /Rows are already closed/);
+
+    await assert.rejects(async () => {
+      await rows.nextResultSet();
+    }, /Rows are already closed/);
+  });
 });

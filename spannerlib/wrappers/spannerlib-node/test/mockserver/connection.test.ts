@@ -193,7 +193,7 @@ describe('End-to-End Execution on MockServer', () => {
     await connection.close();
   });
 
-  it('should support execute() and executeBatch() aliases matching Java/Python wrappers', async () => {
+  it('should execute query and batch DML using full Protobuf request objects', async () => {
     mock.putStatementResult(
       'SELECT 1',
       StatementResult.resultSet(createSelect1ResultSet())
@@ -284,7 +284,7 @@ describe('End-to-End Execution on MockServer', () => {
       ExecuteSqlRequest.create({
         sql: 'SELECT FirstName FROM Singers WHERE SingerId = @id',
         params: { fields: { id: { stringValue: '50' } } },
-        paramTypes: { id: { code: 'INT64' } },
+        paramTypes: { id: { code: google.spanner.v1.TypeCode.INT64 } },
       })
     );
     const row: any = await rows.next();
@@ -302,4 +302,164 @@ describe('End-to-End Execution on MockServer', () => {
     await connection.rollback();
     await connection.close();
   });
+
+  it('should retrieve metadata from Rows object', async () => {
+    mock.putStatementResult(
+      'SELECT 1',
+      StatementResult.resultSet(createSelect1ResultSet())
+    );
+
+    const connection = await pool.createConnection();
+    const rows = await connection.execute('SELECT 1');
+    assert.ok(rows);
+
+    const metadata = await rows.metadata();
+    assert.ok(metadata);
+    assert.ok(metadata.rowType);
+    assert.strictEqual(metadata.rowType.fields!.length, 1);
+
+    await rows.close();
+    await connection.close();
+  });
+
+  it('should retrieve stats and updateCount from Rows object', async () => {
+    mock.putStatementResult(
+      'UPDATE Singers SET Name = "Bob"',
+      StatementResult.updateCount(100)
+    );
+
+    const connection = await pool.createConnection();
+    const rows = await connection.execute('UPDATE Singers SET Name = "Bob"');
+    assert.ok(rows);
+
+    while ((await rows.next()) !== null) {
+      // Consume all rows
+    }
+
+    const stats = await rows.resultSetStats();
+    assert.ok(stats);
+    assert.strictEqual(Number(stats.rowCountExact), 100);
+
+    const count = await rows.updateCount();
+    assert.strictEqual(count, 100);
+
+    await rows.close();
+    await connection.close();
+  });
+
+  it('should advance to next result set using nextResultSet()', async () => {
+    mock.putStatementResult(
+      'SELECT 1',
+      StatementResult.resultSet(createSelect1ResultSet())
+    );
+    mock.putStatementResult(
+      'SELECT 2',
+      StatementResult.resultSet(createSelect2ResultSet())
+    );
+
+    const connection = await pool.createConnection();
+    const rows = await connection.execute('SELECT 1; SELECT 2');
+    assert.ok(rows);
+
+    // Consume first result set
+    const row1 = await rows.next();
+    assert.ok(row1);
+    assert.strictEqual(row1.values[0].stringValue, '1');
+    assert.strictEqual(await rows.next(), null); // End of first result set
+
+    // Move to next result set
+    const meta2 = await rows.nextResultSet();
+    assert.ok(meta2);
+    assert.ok(meta2.rowType);
+    assert.strictEqual(meta2.rowType.fields![0].name, 'COL2');
+
+    // Consume second result set
+    const row2 = await rows.next();
+    assert.ok(row2);
+    assert.strictEqual(row2.values[0].stringValue, '2');
+    assert.strictEqual(await rows.next(), null); // End of second result set
+
+    // There should be no more result sets
+    assert.strictEqual(await rows.nextResultSet(), null);
+
+    await rows.close();
+    await connection.close();
+  });
+
+  it('should return null when calling nextResultSet() on a single query', async () => {
+    mock.putStatementResult(
+      'SELECT 1',
+      StatementResult.resultSet(createSelect1ResultSet())
+    );
+
+    const connection = await pool.createConnection();
+    const rows = await connection.execute('SELECT 1');
+    assert.ok(rows);
+
+    while ((await rows.next()) !== null) {
+      // Consume all rows
+    }
+
+    assert.strictEqual(await rows.nextResultSet(), null);
+
+    await rows.close();
+    await connection.close();
+  });
+
+  it('should clear and update stats when moving to next result set', async () => {
+    mock.putStatementResult(
+      'UPDATE Singers SET FirstName = "A" WHERE SingerId = 1',
+      StatementResult.updateCount(10)
+    );
+    mock.putStatementResult(
+      'UPDATE Singers SET FirstName = "B" WHERE SingerId = 2',
+      StatementResult.updateCount(20)
+    );
+
+    const connection = await pool.createConnection();
+    const rows = await connection.execute(
+      'UPDATE Singers SET FirstName = "A" WHERE SingerId = 1; UPDATE Singers SET FirstName = "B" WHERE SingerId = 2'
+    );
+    assert.ok(rows);
+
+    while ((await rows.next()) !== null) {
+      // Consume all rows
+    }
+
+    const stats1 = await rows.resultSetStats();
+    assert.ok(stats1);
+    assert.strictEqual(Number(stats1.rowCountExact), 10);
+
+    const meta2 = await rows.nextResultSet();
+    assert.ok(meta2);
+
+    while ((await rows.next()) !== null) {
+      // Consume all rows
+    }
+
+    const stats2 = await rows.resultSetStats();
+    assert.ok(stats2);
+    assert.strictEqual(Number(stats2.rowCountExact), 20);
+
+    await rows.close();
+    await connection.close();
+  });
 });
+
+function createSelect2ResultSet() {
+  const fields = [
+    google.spanner.v1.StructType.Field.create({
+      name: 'COL2',
+      type: { code: google.spanner.v1.TypeCode.INT64 },
+    }),
+  ];
+  const metadata = new google.spanner.v1.ResultSetMetadata({
+    rowType: new google.spanner.v1.StructType({
+      fields,
+    }),
+  });
+  return google.spanner.v1.ResultSet.create({
+    metadata,
+    rows: [{ values: [{ stringValue: '2' }] }],
+  });
+}
