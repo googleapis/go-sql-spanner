@@ -65,25 +65,12 @@ export class Rows {
    * @throws {SpannerLibError} If fetching fails in the Go library.
    */
   async next(): Promise<googleProto.protobuf.ListValue | null> {
-    if (this.closed) throw new Error('Rows are already closed');
-
-    if (
-      !this.connection.pool ||
-      this.connection.pool.oid === null ||
-      this.connection.pool.closed
-    ) {
-      throw new Error(
-        'Connection must be bound to an active and open Pool to fetch rows'
-      );
-    }
-    if (this.connection.closed || this.connection.oid === null) {
-      throw new Error('Connection is closed or invalid');
-    }
+    this.ensureOpenAndValid();
 
     const handled = await ffi.invokeAsync(
       'Next',
-      this.connection.pool.oid,
-      this.connection.oid,
+      this.connection.pool!.oid!,
+      this.connection.oid!,
       this.oid,
       1,
       ENCODING_PROTOBUF
@@ -102,10 +89,7 @@ export class Rows {
    * @returns {Promise<googleProto.spanner.v1.ResultSetMetadata | null>} A Promise resolving to the ResultSetMetadata object.
    */
   async metadata(): Promise<googleProto.spanner.v1.ResultSetMetadata | null> {
-    if (this.closed) throw new Error('Rows are already closed');
-    if (!this.connection || this.connection.closed) {
-      throw new Error('Connection is closed or invalid');
-    }
+    this.ensureOpenAndValid();
 
     const handled = await ffi.invokeAsync(
       'Metadata',
@@ -127,10 +111,7 @@ export class Rows {
    * @returns {Promise<googleProto.spanner.v1.ResultSetStats | null>} A Promise resolving to the ResultSetStats object.
    */
   async resultSetStats(): Promise<googleProto.spanner.v1.ResultSetStats | null> {
-    if (this.closed) throw new Error('Rows are already closed');
-    if (!this.connection || this.connection.closed) {
-      throw new Error('Connection is closed or invalid');
-    }
+    this.ensureOpenAndValid();
 
     const handled = await ffi.invokeAsync(
       'ResultSetStats',
@@ -152,10 +133,7 @@ export class Rows {
    * @returns {Promise<googleProto.spanner.v1.ResultSetMetadata | null>} A Promise resolving to the next ResultSetMetadata if available, otherwise null.
    */
   async nextResultSet(): Promise<googleProto.spanner.v1.ResultSetMetadata | null> {
-    if (this.closed) throw new Error('Rows are already closed');
-    if (!this.connection || this.connection.closed) {
-      throw new Error('Connection is closed or invalid');
-    }
+    this.ensureOpenAndValid();
 
     const handled = await ffi.invokeAsync(
       'NextResultSet',
@@ -228,6 +206,28 @@ export class Rows {
       } finally {
         spannerLib.unregister(this);
       }
+    }
+  }
+
+  private ensureOpenAndValid(): void {
+    if (this.closed) {
+      throw new Error('Rows are already closed');
+    }
+    if (
+      !this.connection ||
+      this.connection.closed ||
+      this.connection.oid === null
+    ) {
+      throw new Error('Connection is closed or invalid');
+    }
+    if (
+      !this.connection.pool ||
+      this.connection.pool.oid === null ||
+      this.connection.pool.closed
+    ) {
+      throw new Error(
+        'Connection must be bound to an active and open Pool to fetch rows'
+      );
     }
   }
 }

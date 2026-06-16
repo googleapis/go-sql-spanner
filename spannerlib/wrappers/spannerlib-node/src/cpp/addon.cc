@@ -22,6 +22,24 @@
 // r3: Message Length (Length of the protobuf message or error string in r4)
 // r4: Message Data (Pointer to protobuf bytes or JSON error message)
 
+template <typename T>
+Napi::Object CreateResultObject(Napi::Env env, const T& result) {
+    Napi::Object obj = Napi::Object::New(env);
+    obj.Set("r0", Napi::Number::New(env, 0));
+    obj.Set("r1", Napi::Number::New(env, result.r1));
+    obj.Set("r2", Napi::Number::New(env, result.r2));
+    obj.Set("r3", Napi::Number::New(env, result.r3));
+    if (result.r4 != nullptr && result.r3 > 0) {
+        obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result.r4, result.r3));
+    } else {
+        obj.Set("r4", env.Null());
+    }
+    if (result.r0 > 0) {
+        ::Release(result.r0);
+    }
+    return obj;
+}
+
 //
 // Worker 1: CreatePool asynchronously
 //
@@ -38,20 +56,7 @@ public:
 
     void OnOK() override {
         Napi::Env env = Env();
-        Napi::Object obj = Napi::Object::New(env);
-        obj.Set("r0", Napi::Number::New(env, 0));
-        obj.Set("r1", Napi::Number::New(env, result_.r1));
-        obj.Set("r2", Napi::Number::New(env, result_.r2));
-        obj.Set("r3", Napi::Number::New(env, result_.r3));
-        
-        if (result_.r4 != nullptr && result_.r3 > 0) {
-            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
-        } else {
-            obj.Set("r4", env.Null());
-        }
-        if (result_.r0 > 0) {
-            ::Release(result_.r0);
-        }
+        Napi::Object obj = CreateResultObject(env, result_);
         Callback().Call({env.Null(), obj});
     }
 
@@ -89,20 +94,7 @@ public:
 
     void OnOK() override {
         Napi::Env env = Env();
-        Napi::Object obj = Napi::Object::New(env);
-        obj.Set("r0", Napi::Number::New(env, 0));
-        obj.Set("r1", Napi::Number::New(env, result_.r1));
-        obj.Set("r2", Napi::Number::New(env, result_.r2));
-        obj.Set("r3", Napi::Number::New(env, result_.r3));
-        
-        if (result_.r4 != nullptr && result_.r3 > 0) {
-            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
-        } else {
-            obj.Set("r4", env.Null());
-        }
-        if (result_.r0 > 0) {
-            ::Release(result_.r0);
-        }
+        Napi::Object obj = CreateResultObject(env, result_);
         Callback().Call({env.Null(), obj});
     }
 private:
@@ -137,20 +129,7 @@ public:
 
     void OnOK() override {
         Napi::Env env = Env();
-        Napi::Object obj = Napi::Object::New(env);
-        obj.Set("r0", Napi::Number::New(env, 0));
-        obj.Set("r1", Napi::Number::New(env, result_.r1));
-        obj.Set("r2", Napi::Number::New(env, result_.r2));
-        obj.Set("r3", Napi::Number::New(env, result_.r3));
-        
-        if (result_.r4 != nullptr && result_.r3 > 0) {
-            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
-        } else {
-            obj.Set("r4", env.Null());
-        }
-        if (result_.r0 > 0) {
-            ::Release(result_.r0);
-        }
+        Napi::Object obj = CreateResultObject(env, result_);
         Callback().Call({env.Null(), obj});
     }
 private:
@@ -185,20 +164,7 @@ public:
 
     void OnOK() override {
         Napi::Env env = Env();
-        Napi::Object obj = Napi::Object::New(env);
-        obj.Set("r0", Napi::Number::New(env, 0));
-        obj.Set("r1", Napi::Number::New(env, result_.r1));
-        obj.Set("r2", Napi::Number::New(env, result_.r2));
-        obj.Set("r3", Napi::Number::New(env, result_.r3));
-        
-        if (result_.r4 != nullptr && result_.r3 > 0) {
-            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
-        } else {
-            obj.Set("r4", env.Null());
-        }
-        if (result_.r0 > 0) {
-            ::Release(result_.r0);
-        }
+        Napi::Object obj = CreateResultObject(env, result_);
         Callback().Call({env.Null(), obj});
     }
 private:
@@ -235,20 +201,7 @@ public:
 
     void OnOK() override {
         Napi::Env env = Env();
-        Napi::Object obj = Napi::Object::New(env);
-        obj.Set("r0", Napi::Number::New(env, 0));
-        obj.Set("r1", Napi::Number::New(env, result_.r1));
-        obj.Set("r2", Napi::Number::New(env, result_.r2));
-        obj.Set("r3", Napi::Number::New(env, result_.r3));
-        if (result_.r4 != nullptr && result_.r3 > 0) {
-            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
-        } else {
-            obj.Set("r4", env.Null());
-        }
-        // Release the pinner ID of the response buffer immediately after copy!
-        if (result_.r0 > 0) {
-            ::Release(result_.r0);
-        }
+        Napi::Object obj = CreateResultObject(env, result_);
         Callback().Call({env.Null(), obj});
     }
 private:
@@ -293,20 +246,7 @@ public:
 
     void OnOK() override {
         Napi::Env env = Env();
-        Napi::Object obj = Napi::Object::New(env);
-        obj.Set("r0", Napi::Number::New(env, 0));
-        obj.Set("r1", Napi::Number::New(env, result_.r1));
-        obj.Set("r2", Napi::Number::New(env, result_.r2));
-        obj.Set("r3", Napi::Number::New(env, result_.r3));
-        if (result_.r4 != nullptr && result_.r3 > 0) {
-            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
-        } else {
-            obj.Set("r4", env.Null());
-        }
-        // Release the pinner ID of the response buffer immediately after copy!
-        if (result_.r0 > 0) {
-            ::Release(result_.r0);
-        }
+        Napi::Object obj = CreateResultObject(env, result_);
         Callback().Call({env.Null(), obj});
     }
 private:
@@ -348,20 +288,7 @@ public:
 
     void OnOK() override {
         Napi::Env env = Env();
-        Napi::Object obj = Napi::Object::New(env);
-        obj.Set("r0", Napi::Number::New(env, 0));
-        obj.Set("r1", Napi::Number::New(env, result_.r1));
-        obj.Set("r2", Napi::Number::New(env, result_.r2));
-        obj.Set("r3", Napi::Number::New(env, result_.r3));
-        if (result_.r4 != nullptr && result_.r3 > 0) {
-            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
-        } else {
-            obj.Set("r4", env.Null());
-        }
-        // Release the pinner ID of the response buffer immediately after copy!
-        if (result_.r0 > 0) {
-            ::Release(result_.r0);
-        }
+        Napi::Object obj = CreateResultObject(env, result_);
         Callback().Call({env.Null(), obj});
     }
 private:
@@ -383,20 +310,7 @@ public:
 
     void OnOK() override {
         Napi::Env env = Env();
-        Napi::Object obj = Napi::Object::New(env);
-        obj.Set("r0", Napi::Number::New(env, 0));
-        obj.Set("r1", Napi::Number::New(env, result_.r1));
-        obj.Set("r2", Napi::Number::New(env, result_.r2));
-        obj.Set("r3", Napi::Number::New(env, result_.r3));
-        if (result_.r4 != nullptr && result_.r3 > 0) {
-            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
-        } else {
-            obj.Set("r4", env.Null());
-        }
-        // Release the pinner ID of the response message to prevent native leak!
-        if (result_.r0 > 0) {
-            ::Release(result_.r0);
-        }
+        Napi::Object obj = CreateResultObject(env, result_);
         Callback().Call({env.Null(), obj});
     }
 private:
@@ -434,19 +348,7 @@ public:
 
     void OnOK() override {
         Napi::Env env = Env();
-        Napi::Object obj = Napi::Object::New(env);
-        obj.Set("r0", Napi::Number::New(env, 0));
-        obj.Set("r1", Napi::Number::New(env, result_.r1));
-        obj.Set("r2", Napi::Number::New(env, result_.r2));
-        obj.Set("r3", Napi::Number::New(env, result_.r3));
-        if (result_.r4 != nullptr && result_.r3 > 0) {
-            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
-        } else {
-            obj.Set("r4", env.Null());
-        }
-        if (result_.r0 > 0) {
-            ::Release(result_.r0);
-        }
+        Napi::Object obj = CreateResultObject(env, result_);
         Callback().Call({env.Null(), obj});
     }
 private:
@@ -484,19 +386,7 @@ public:
 
     void OnOK() override {
         Napi::Env env = Env();
-        Napi::Object obj = Napi::Object::New(env);
-        obj.Set("r0", Napi::Number::New(env, 0));
-        obj.Set("r1", Napi::Number::New(env, result_.r1));
-        obj.Set("r2", Napi::Number::New(env, result_.r2));
-        obj.Set("r3", Napi::Number::New(env, result_.r3));
-        if (result_.r4 != nullptr && result_.r3 > 0) {
-            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
-        } else {
-            obj.Set("r4", env.Null());
-        }
-        if (result_.r0 > 0) {
-            ::Release(result_.r0);
-        }
+        Napi::Object obj = CreateResultObject(env, result_);
         Callback().Call({env.Null(), obj});
     }
 private:
@@ -561,19 +451,7 @@ public:
 
     void OnOK() override {
         Napi::Env env = Env();
-        Napi::Object obj = Napi::Object::New(env);
-        obj.Set("r0", Napi::Number::New(env, 0));
-        obj.Set("r1", Napi::Number::New(env, result_.r1));
-        obj.Set("r2", Napi::Number::New(env, result_.r2));
-        obj.Set("r3", Napi::Number::New(env, result_.r3));
-        if (result_.r4 != nullptr && result_.r3 > 0) {
-            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
-        } else {
-            obj.Set("r4", env.Null());
-        }
-        if (result_.r0 > 0) {
-            ::Release(result_.r0);
-        }
+        Napi::Object obj = CreateResultObject(env, result_);
         Callback().Call({env.Null(), obj});
     }
 private:
@@ -618,19 +496,7 @@ public:
 
     void OnOK() override {
         Napi::Env env = Env();
-        Napi::Object obj = Napi::Object::New(env);
-        obj.Set("r0", Napi::Number::New(env, 0));
-        obj.Set("r1", Napi::Number::New(env, result_.r1));
-        obj.Set("r2", Napi::Number::New(env, result_.r2));
-        obj.Set("r3", Napi::Number::New(env, result_.r3));
-        if (result_.r4 != nullptr && result_.r3 > 0) {
-            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
-        } else {
-            obj.Set("r4", env.Null());
-        }
-        if (result_.r0 > 0) {
-            ::Release(result_.r0);
-        }
+        Napi::Object obj = CreateResultObject(env, result_);
         Callback().Call({env.Null(), obj});
     }
 private:
@@ -666,19 +532,7 @@ public:
 
     void OnOK() override {
         Napi::Env env = Env();
-        Napi::Object obj = Napi::Object::New(env);
-        obj.Set("r0", Napi::Number::New(env, 0));
-        obj.Set("r1", Napi::Number::New(env, result_.r1));
-        obj.Set("r2", Napi::Number::New(env, result_.r2));
-        obj.Set("r3", Napi::Number::New(env, result_.r3));
-        if (result_.r4 != nullptr && result_.r3 > 0) {
-            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
-        } else {
-            obj.Set("r4", env.Null());
-        }
-        if (result_.r0 > 0) {
-            ::Release(result_.r0);
-        }
+        Napi::Object obj = CreateResultObject(env, result_);
         Callback().Call({env.Null(), obj});
     }
 private:
@@ -715,19 +569,7 @@ public:
 
     void OnOK() override {
         Napi::Env env = Env();
-        Napi::Object obj = Napi::Object::New(env);
-        obj.Set("r0", Napi::Number::New(env, 0));
-        obj.Set("r1", Napi::Number::New(env, result_.r1));
-        obj.Set("r2", Napi::Number::New(env, result_.r2));
-        obj.Set("r3", Napi::Number::New(env, result_.r3));
-        if (result_.r4 != nullptr && result_.r3 > 0) {
-            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
-        } else {
-            obj.Set("r4", env.Null());
-        }
-        if (result_.r0 > 0) {
-            ::Release(result_.r0);
-        }
+        Napi::Object obj = CreateResultObject(env, result_);
         Callback().Call({env.Null(), obj});
     }
 private:
@@ -773,19 +615,7 @@ public:
 
     void OnOK() override {
         Napi::Env env = Env();
-        Napi::Object obj = Napi::Object::New(env);
-        obj.Set("r0", Napi::Number::New(env, 0));
-        obj.Set("r1", Napi::Number::New(env, result_.r1));
-        obj.Set("r2", Napi::Number::New(env, result_.r2));
-        obj.Set("r3", Napi::Number::New(env, result_.r3));
-        if (result_.r4 != nullptr && result_.r3 > 0) {
-            obj.Set("r4", Napi::Buffer<uint8_t>::Copy(env, (uint8_t*)result_.r4, result_.r3));
-        } else {
-            obj.Set("r4", env.Null());
-        }
-        if (result_.r0 > 0) {
-            ::Release(result_.r0);
-        }
+        Napi::Object obj = CreateResultObject(env, result_);
         Callback().Call({env.Null(), obj});
     }
 private:

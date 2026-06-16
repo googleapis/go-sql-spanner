@@ -73,15 +73,9 @@ export class Connection {
   async execute(
     request: string | GoogleProto.spanner.v1.IExecuteSqlRequest
   ): Promise<Rows> {
-    if (this.closed) throw new Error('Connection is already closed');
-    if (!this.pool || this.pool.oid === null || this.oid === null) {
-      throw new Error('Connection is not bound to a Pool or invalid');
-    }
+    this.ensureOpenAndValid();
 
-    const requestObj =
-      typeof request === 'string'
-        ? { sql: request, session: 'poc/dummy' }
-        : Object.assign({ session: 'poc/dummy' }, request);
+    const requestObj = typeof request === 'string' ? { sql: request } : request;
     const ExecuteSqlRequestProto = google.spanner.v1.ExecuteSqlRequest;
     const serializedPb = Buffer.from(
       ExecuteSqlRequestProto.encode(requestObj).finish()
@@ -89,7 +83,7 @@ export class Connection {
 
     const rowsResult = await ffi.invokeAsync(
       'Execute',
-      this.pool.oid,
+      this.pool!.oid,
       this.oid,
       serializedPb
     );
@@ -106,10 +100,7 @@ export class Connection {
   async beginTransaction(
     options?: GoogleProto.spanner.v1.ITransactionOptions
   ): Promise<void> {
-    if (this.closed) throw new Error('Connection is already closed');
-    if (!this.pool || this.pool.oid === null || this.oid === null) {
-      throw new Error('Connection is not bound to a Pool or invalid');
-    }
+    this.ensureOpenAndValid();
     const TransactionOptionsProto = google.spanner.v1.TransactionOptions;
     const serializedPb = options
       ? Buffer.from(TransactionOptionsProto.encode(options).finish())
@@ -117,7 +108,7 @@ export class Connection {
 
     await ffi.invokeAsync(
       'BeginTransaction',
-      this.pool.oid,
+      this.pool!.oid,
       this.oid,
       serializedPb
     );
@@ -129,11 +120,8 @@ export class Connection {
    * @returns A Promise that resolves to the CommitResponse (containing commitTimestamp).
    */
   async commit(): Promise<GoogleProto.spanner.v1.ICommitResponse> {
-    if (this.closed) throw new Error('Connection is already closed');
-    if (!this.pool || this.pool.oid === null || this.oid === null) {
-      throw new Error('Connection is not bound to a Pool or invalid');
-    }
-    const res = await ffi.invokeAsync('Commit', this.pool.oid, this.oid);
+    this.ensureOpenAndValid();
+    const res = await ffi.invokeAsync('Commit', this.pool!.oid, this.oid);
     if (res.protobufBytes && res.protobufBytes.length > 0) {
       return google.spanner.v1.CommitResponse.decode(res.protobufBytes);
     }
@@ -144,11 +132,8 @@ export class Connection {
    * Rolls back the active transaction on this connection.
    */
   async rollback(): Promise<void> {
-    if (this.closed) throw new Error('Connection is already closed');
-    if (!this.pool || this.pool.oid === null || this.oid === null) {
-      throw new Error('Connection is not bound to a Pool or invalid');
-    }
-    await ffi.invokeAsync('Rollback', this.pool.oid, this.oid);
+    this.ensureOpenAndValid();
+    await ffi.invokeAsync('Rollback', this.pool!.oid, this.oid);
   }
 
   /**
@@ -162,10 +147,7 @@ export class Connection {
       | GoogleProto.spanner.v1.BatchWriteRequest.IMutationGroup
       | GoogleProto.spanner.v1.IMutation[]
   ): Promise<GoogleProto.spanner.v1.ICommitResponse | null> {
-    if (this.closed) throw new Error('Connection is already closed');
-    if (!this.pool || this.pool.oid === null || this.oid === null) {
-      throw new Error('Connection is not bound to a Pool or invalid');
-    }
+    this.ensureOpenAndValid();
 
     const mutationGroup = Array.isArray(mutations)
       ? { mutations }
@@ -178,7 +160,7 @@ export class Connection {
 
     const res = await ffi.invokeAsync(
       'WriteMutations',
-      this.pool.oid,
+      this.pool!.oid,
       this.oid,
       serializedPb
     );
@@ -189,7 +171,7 @@ export class Connection {
   }
 
   /**
-   * Executes a batch of DML statements on this connection (matching Java/Python wrappers).
+   * Executes a batch of DML statements on this connection.
    *
    * @param request An array of SQL strings/objects or ExecuteBatchDmlRequest object.
    * @returns A Promise that resolves to the ExecuteBatchDmlResponse.
@@ -200,10 +182,7 @@ export class Connection {
       | GoogleProto.spanner.v1.ExecuteBatchDmlRequest.IStatement[]
       | GoogleProto.spanner.v1.IExecuteBatchDmlRequest
   ): Promise<GoogleProto.spanner.v1.IExecuteBatchDmlResponse> {
-    if (this.closed) throw new Error('Connection is already closed');
-    if (!this.pool || this.pool.oid === null || this.oid === null) {
-      throw new Error('Connection is not bound to a Pool or invalid');
-    }
+    this.ensureOpenAndValid();
 
     let requestObj: GoogleProto.spanner.v1.IExecuteBatchDmlRequest;
     if (Array.isArray(request)) {
@@ -225,7 +204,7 @@ export class Connection {
 
     const res = await ffi.invokeAsync(
       'ExecuteBatch',
-      this.pool.oid,
+      this.pool!.oid,
       this.oid,
       serializedPb
     );
@@ -257,6 +236,15 @@ export class Connection {
       } finally {
         spannerLib.unregister(this);
       }
+    }
+  }
+
+  private ensureOpenAndValid(): void {
+    if (this.closed) {
+      throw new Error('Connection is already closed');
+    }
+    if (!this.pool || this.pool.oid === null || this.oid === null) {
+      throw new Error('Connection is not bound to a Pool or invalid');
     }
   }
 }
