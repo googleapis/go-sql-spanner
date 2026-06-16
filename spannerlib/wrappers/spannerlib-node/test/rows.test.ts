@@ -427,10 +427,18 @@ describe('Rows', () => {
       nextStats
     ).finish() as Buffer;
 
-    stub.onCall(0).resolves({ objectId: 0, pinnerId: 0, protobufBytes: metaBuffer });
-    stub.onCall(1).resolves({ objectId: 0, pinnerId: 0, protobufBytes: statsBuffer });
-    stub.onCall(2).resolves({ objectId: 0, pinnerId: 0, protobufBytes: nextMetaBuffer });
-    stub.onCall(3).resolves({ objectId: 0, pinnerId: 0, protobufBytes: nextStatsBuffer });
+    stub
+      .onCall(0)
+      .resolves({ objectId: 0, pinnerId: 0, protobufBytes: metaBuffer });
+    stub
+      .onCall(1)
+      .resolves({ objectId: 0, pinnerId: 0, protobufBytes: statsBuffer });
+    stub
+      .onCall(2)
+      .resolves({ objectId: 0, pinnerId: 0, protobufBytes: nextMetaBuffer });
+    stub
+      .onCall(3)
+      .resolves({ objectId: 0, pinnerId: 0, protobufBytes: nextStatsBuffer });
 
     // Populate initial caches
     const meta1 = await rows.metadata();
@@ -443,7 +451,10 @@ describe('Rows', () => {
     assert.ok(nextResultSetMetadata);
 
     // Verify metadata was updated and matches nextMeta
-    assert.strictEqual(nextResultSetMetadata.rowType?.fields?.[0]?.name, 'col2');
+    assert.strictEqual(
+      nextResultSetMetadata.rowType?.fields?.[0]?.name,
+      'col2'
+    );
 
     // Verify stats were cleared (calling stats again invokes the stub a 4th time)
     const stats2 = await rows.resultSetStats();
@@ -455,4 +466,3 @@ describe('Rows', () => {
     assert.strictEqual(stub.callCount, 4);
   });
 });
-

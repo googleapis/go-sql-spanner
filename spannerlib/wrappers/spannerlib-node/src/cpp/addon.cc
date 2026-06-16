@@ -224,7 +224,7 @@ Napi::Value ExecuteWrapper(const Napi::CallbackInfo& info) {
     int64_t cid = info[1].As<Napi::Number>().Int64Value();
     
     Napi::Buffer<uint8_t> buffer = info[2].As<Napi::Buffer<uint8_t>>();
-    std::string payload(reinterpret_cast<const char*>(buffer.Data()), buffer.Length());
+    std::string payload(buffer.Length() > 0 ? reinterpret_cast<const char*>(buffer.Data()) : "", buffer.Length());
     
     Napi::Function cb = info[3].As<Napi::Function>();
     ExecuteWorker* worker = new ExecuteWorker(cb, pid, cid, payload);
@@ -474,7 +474,7 @@ Napi::Value BeginTransactionWrapper(const Napi::CallbackInfo& info) {
     int64_t cid = info[1].As<Napi::Number>().Int64Value();
     
     Napi::Buffer<uint8_t> buffer = info[2].As<Napi::Buffer<uint8_t>>();
-    std::string payload(reinterpret_cast<const char*>(buffer.Data()), buffer.Length());
+    std::string payload(buffer.Length() > 0 ? reinterpret_cast<const char*>(buffer.Data()) : "", buffer.Length());
     
     Napi::Function cb = info[3].As<Napi::Function>();
     BeginTransactionWorker* worker = new BeginTransactionWorker(cb, pid, cid, payload);
@@ -592,7 +592,7 @@ Napi::Value WriteMutationsWrapper(const Napi::CallbackInfo& info) {
     int64_t cid = info[1].As<Napi::Number>().Int64Value();
     
     Napi::Buffer<uint8_t> buffer = info[2].As<Napi::Buffer<uint8_t>>();
-    std::string payload(reinterpret_cast<const char*>(buffer.Data()), buffer.Length());
+    std::string payload(buffer.Length() > 0 ? reinterpret_cast<const char*>(buffer.Data()) : "", buffer.Length());
     
     Napi::Function cb = info[3].As<Napi::Function>();
     WriteMutationsWorker* worker = new WriteMutationsWorker(cb, pid, cid, payload);
@@ -638,7 +638,7 @@ Napi::Value ExecuteBatchWrapper(const Napi::CallbackInfo& info) {
     int64_t cid = info[1].As<Napi::Number>().Int64Value();
     
     Napi::Buffer<uint8_t> buffer = info[2].As<Napi::Buffer<uint8_t>>();
-    std::string payload(reinterpret_cast<const char*>(buffer.Data()), buffer.Length());
+    std::string payload(buffer.Length() > 0 ? reinterpret_cast<const char*>(buffer.Data()) : "", buffer.Length());
     
     Napi::Function cb = info[3].As<Napi::Function>();
     ExecuteBatchWorker* worker = new ExecuteBatchWorker(cb, pid, cid, payload);

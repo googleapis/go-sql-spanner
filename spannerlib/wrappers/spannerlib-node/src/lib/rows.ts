@@ -92,10 +92,11 @@ export class Rows {
    * @returns {Promise<googleProto.spanner.v1.ResultSetMetadata | null>} A Promise resolving to the ResultSetMetadata object.
    */
   async metadata(): Promise<googleProto.spanner.v1.ResultSetMetadata | null> {
+    this.ensureOpenAndValid();
+
     if (this._cachedMetadata) {
       return this._cachedMetadata;
     }
-    this.ensureOpenAndValid();
 
     const handled = await ffi.invokeAsync(
       'Metadata',
@@ -120,10 +121,11 @@ export class Rows {
    * @returns {Promise<googleProto.spanner.v1.ResultSetStats | null>} A Promise resolving to the ResultSetStats object.
    */
   async resultSetStats(): Promise<googleProto.spanner.v1.ResultSetStats | null> {
+    this.ensureOpenAndValid();
+
     if (this._cachedStats) {
       return this._cachedStats;
     }
-    this.ensureOpenAndValid();
 
     const handled = await ffi.invokeAsync(
       'ResultSetStats',
