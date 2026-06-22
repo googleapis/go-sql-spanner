@@ -11,5 +11,9 @@
     "gomodTidy"
   ],
   "commitMessageAction": "update",
-  "groupName": "all dependencies"
+  "groupName": "all dependencies",
+  "ignoreDeps": [
+    "Alpha.Google.Cloud.SpannerLib.GrpcServer",
+    "Alpha.Google.Cloud.SpannerLib.Native"
+  ]
 }

@@ -154,12 +154,17 @@ func (r *rows) getColumns() {
 			r.dirtyErr = err
 			return
 		}
-		rowType := metadata.RowType
-		r.cols = make([]string, len(rowType.Fields))
-		r.colTypes = make([]*sppb.Type, len(rowType.Fields))
-		for i, c := range rowType.Fields {
-			r.cols[i] = c.Name
-			r.colTypes[i] = c.Type
+		if metadata != nil && metadata.RowType != nil {
+			rowType := metadata.RowType
+			r.cols = make([]string, len(rowType.Fields))
+			r.colTypes = make([]*sppb.Type, len(rowType.Fields))
+			for i, c := range rowType.Fields {
+				r.cols[i] = c.Name
+				r.colTypes[i] = c.Type
+			}
+		} else {
+			r.cols = []string{}
+			r.colTypes = []*sppb.Type{}
 		}
 	})
 }

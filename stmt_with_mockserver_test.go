@@ -1023,3 +1023,20 @@ func TestPrepareStmtGORMSharedOptionsBug(t *testing.T) {
 		t.Error("Expected LastStatement=false for second in-transaction statement, got true")
 	}
 }
+
+func TestQueryMismatchedParameterName(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	// SELECT with @my_id parameter but passing named parameter "id" instead
+	_, err := db.QueryContext(ctx, "select value from test where id=@my_id", sql.Named("id", 123))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "missing value for query parameter @my_id") {
+		t.Fatalf("expected missing value error, got: %v", err)
+	}
+}
