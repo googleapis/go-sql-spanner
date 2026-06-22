@@ -189,7 +189,7 @@ public class TransactionTests : AbstractMockServerTests
         using var connection = pool.CreateConnection();
         // Try to start two transactions on a connection.
         connection.BeginTransaction(new TransactionOptions());
-        var exception = Assert.Throws<SpannerException>(() => connection.BeginTransaction(new TransactionOptions()));
+        var exception = Assert.Throws<SpannerException>((Action)(() => connection.BeginTransaction(new TransactionOptions())));
         Assert.That(exception.Code, Is.EqualTo(Code.FailedPrecondition));
     }
 
@@ -200,7 +200,7 @@ public class TransactionTests : AbstractMockServerTests
         
         using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
-        var exception = Assert.Throws<SpannerException>(() => connection.WriteMutations(new BatchWriteRequest.Types.MutationGroup()));
+        var exception = Assert.Throws<SpannerException>((Action)(() => connection.WriteMutations(new BatchWriteRequest.Types.MutationGroup())));
         Assert.That(exception.Code, Is.EqualTo(Code.FailedPrecondition));
     }
 

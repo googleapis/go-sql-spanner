@@ -11,10 +11,10 @@ require (
 	cloud.google.com/go/spanner v1.91.0
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
-	github.com/googleapis/go-sql-spanner v1.25.0
+	github.com/googleapis/go-sql-spanner v1.25.1
 	google.golang.org/api v0.284.0
-	google.golang.org/genproto/googleapis/api v0.0.0-20260608224507-4308a22a1bab
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260608224507-4308a22a1bab
+	google.golang.org/genproto/googleapis/api v0.0.0-20260610212136-7ab31c22f7ad
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260610212136-7ab31c22f7ad
 	google.golang.org/grpc v1.81.1
 	google.golang.org/protobuf v1.36.11
 )

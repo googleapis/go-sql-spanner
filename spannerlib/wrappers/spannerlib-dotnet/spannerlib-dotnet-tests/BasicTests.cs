@@ -68,7 +68,7 @@ public class BasicTests : AbstractMockServerTests
         
         using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
         using var connection = pool.CreateConnection();
-        SpannerException exception = Assert.Throws<SpannerException>(() => connection.Execute(new ExecuteSqlRequest { Sql = sql }));
+        SpannerException exception = Assert.Throws<SpannerException>((Action)(() => connection.Execute(new ExecuteSqlRequest { Sql = sql })));
         Assert.That(exception.Code, Is.EqualTo(Code.NotFound));
         Assert.That(exception.Message, Is.EqualTo($"{StatusCode.NotFound}: Table not found"));
     }
