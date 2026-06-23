@@ -176,6 +176,12 @@ func (s *ParsedShowStatement) parse(parser *StatementParser, query string) error
 	return nil
 }
 
+// parseShowTransaction parses the options of a SHOW TRANSACTION statement.
+// It supports statements of the form:
+//
+//	SHOW TRANSACTION ISOLATION LEVEL
+//	SHOW TRANSACTION READ ONLY
+//	SHOW TRANSACTION [NOT] DEFERRABLE
 func (s *ParsedShowStatement) parseShowTransaction(sp *simpleParser, query string) error {
 	if !sp.hasMoreTokens() {
 		return status.Errorf(codes.InvalidArgument, "syntax error: missing TRANSACTION option, expected one of ISOLATION LEVEL, READ ONLY, or [NOT] DEFERRABLE")
