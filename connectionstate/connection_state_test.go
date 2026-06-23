@@ -519,3 +519,51 @@ func TestResetWithInitialValues(t *testing.T) {
 		}
 	}
 }
+
+func TestConnectionState_Aliases(t *testing.T) {
+	t.Parallel()
+
+	properties := map[string]ConnectionProperty{
+		"target_prop": &TypedConnectionProperty[string]{
+			key:             "target_prop",
+			name:            "target_prop",
+			defaultValue:    "default-val",
+			hasDefaultValue: true,
+			context:         ContextUser,
+			converter:       ConvertString,
+		},
+	}
+
+	state, _ := NewConnectionState(TypeNonTransactional, properties, map[string]ConnectionPropertyValue{})
+	state.AddAlias("alias_rw", "target_prop", false)
+	state.AddAlias("alias_ro", "target_prop", true)
+
+	// 1. Get through alias
+	val, ok, err := state.GetValue("", "alias_rw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || val != "default-val" {
+		t.Errorf("GetValue got %v, %t, want 'default-val', true", val, ok)
+	}
+
+	// 2. Set through read-write alias
+	if err := state.SetValue("", "alias_rw", "new-val", ContextUser); err != nil {
+		t.Fatal(err)
+	}
+	val, _, _ = state.GetValue("", "target_prop")
+	if val != "new-val" {
+		t.Errorf("expected target_prop to be updated to 'new-val', got %v", val)
+	}
+
+	// 3. Set through read-only alias should fail
+	if err := state.SetValue("", "alias_ro", "other-val", ContextUser); err == nil {
+		t.Error("expected error when setting read-only alias, got nil")
+	}
+
+	// 4. Get through read-only alias should still work and reflect the updated target value
+	val, _, _ = state.GetValue("", "alias_ro")
+	if val != "new-val" {
+		t.Errorf("expected GetValue through read-only alias to return 'new-val', got %v", val)
+	}
+}

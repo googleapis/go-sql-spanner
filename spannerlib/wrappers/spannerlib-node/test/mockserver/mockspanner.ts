@@ -38,6 +38,7 @@ declare namespace protobuf {
   export type Session = gNamespace.spanner.v1.Session;
   export type Transaction = gNamespace.spanner.v1.Transaction;
   export type ITransactionOptions = gNamespace.spanner.v1.ITransactionOptions;
+  export type ResultSetMetadata = gNamespace.spanner.v1.ResultSetMetadata;
 }
 
 type Timestamp = gNamespace.protobuf.Timestamp;
@@ -621,18 +622,20 @@ export class MockSpanner {
           res = StatementResult.resultSet(createDialectResultSet());
         }
         const session = this.sessions.get(call.request!.session);
+        let txn: any = null;
         if (res) {
           if (call.request!.transaction?.begin) {
-            const txn = this._updateTransaction(
+            const resultTxn = this._updateTransaction(
               call.request!.session,
               call.request!.transaction.begin
             );
-            if (txn instanceof Error) {
+            if (resultTxn instanceof Error) {
               call.sendMetadata(new Metadata());
-              call.emit('error', txn);
+              call.emit('error', resultTxn);
               call.end();
               return;
             }
+            txn = resultTxn;
             transactionKey = `${call.request!.session}/transactions/${txn.id.toString()}`;
             if (res.type === StatementResultType.RESULT_SET) {
               (res.resultSet as protobuf.ResultSet).metadata!.transaction = txn;
@@ -689,11 +692,18 @@ export class MockSpanner {
                 call.write(partialResultSets[index]);
               }
               break;
-            case StatementResultType.UPDATE_COUNT:
+            case StatementResultType.UPDATE_COUNT: {
+              const metadata = new spannerProto.ResultSetMetadata({
+                rowType: new spannerProto.StructType({}),
+              });
+              if (txn) {
+                metadata.transaction = txn;
+              }
               call.write(
                 MockSpanner.emptyPartialResultSet(
                   precommitToken,
-                  Buffer.from('1'.padStart(8, '0'))
+                  Buffer.from('1'.padStart(8, '0')),
+                  metadata
                 )
               );
               streamErr = this.shiftStreamError(
@@ -709,6 +719,7 @@ export class MockSpanner {
                 MockSpanner.toPartialResultSet(precommitToken, res.updateCount)
               );
               break;
+            }
             case StatementResultType.ERROR:
               call.sendMetadata(new Metadata());
               call.emit('error', res.error);
@@ -772,11 +783,13 @@ export class MockSpanner {
 
   private static emptyPartialResultSet(
     precommitToken: any,
-    resumeToken: Uint8Array
+    resumeToken: Uint8Array,
+    metadata?: protobuf.ResultSetMetadata
   ): protobuf.PartialResultSet {
     return spannerProto.PartialResultSet.create({
       resumeToken,
       precommitToken: precommitToken,
+      metadata,
     });
   }
 

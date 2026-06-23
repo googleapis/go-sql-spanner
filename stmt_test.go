@@ -17,8 +17,45 @@ package spannerdriver
 import (
 	"database/sql/driver"
 	"reflect"
+	"strings"
 	"testing"
+
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
+	"github.com/googleapis/go-sql-spanner/parser"
 )
+
+func TestPrepareSpannerStmt(t *testing.T) {
+	state := createInitialConnectionState(connectionstate.TypeNonTransactional, nil)
+	p, err := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("QueryParameterNameMatchesExactly", func(t *testing.T) {
+		stmt, err := prepareSpannerStmt(state, p, "SELECT * FROM Singers WHERE SingerId = @id", []driver.NamedValue{
+			{Name: "id", Value: int64(1)},
+		})
+		if err != nil {
+			t.Fatalf("Unexpected error for matching parameter name: %v", err)
+		}
+		if got, want := stmt.Params["id"], int64(1); got != want {
+			t.Errorf("Params[\"id\"] = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("QueryParameterNameMismatch", func(t *testing.T) {
+		_, err := prepareSpannerStmt(state, p, "SELECT * FROM Singers WHERE SingerId = @singer_id", []driver.NamedValue{
+			{Name: "id", Value: int64(1)},
+		})
+		if err == nil {
+			t.Fatal("Expected error for mismatched parameter name, got nil")
+		}
+		if !strings.Contains(err.Error(), "missing value for query parameter @singer_id") {
+			t.Fatalf("Expected 'missing value for query parameter @singer_id' error, got %v", err)
+		}
+	})
+}
 
 func TestConvertParam(t *testing.T) {
 	check := func(in, want driver.Value) {

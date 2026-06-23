@@ -132,7 +132,7 @@ public class RowsTests : AbstractMockServerTests
         if (numReadRowsBeforeCancellation == 0)
         {
             await cts.CancelAsync();
-            var exception = Assert.CatchAsync<Exception>(async () => await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = "select * from random" }, prefetchRows, cts.Token));
+            var exception = Assert.CatchAsync<Exception>((Func<Task>)(async () => await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = "select * from random" }, prefetchRows, cts.Token)));
             Assert.That(exception, Is.Not.Null);
             Assert.That(exception, Is.InstanceOf<OperationCanceledException>().Or.InstanceOf<RpcException>().Or.InstanceOf<TaskCanceledException>());
         }
@@ -148,7 +148,7 @@ public class RowsTests : AbstractMockServerTests
                 if (numReadRowsBeforeCancellation == rowCount)
                 {
                     await cts.CancelAsync();
-                    var exception = Assert.CatchAsync<Exception>(async () => await rows.NextAsync(cts.Token));
+                    var exception = Assert.CatchAsync<Exception>((Func<Task>)(async () => await rows.NextAsync(cts.Token)));
                     Assert.That(exception, Is.Not.Null);
                     Assert.That(exception, Is.InstanceOf<OperationCanceledException>().Or.InstanceOf<RpcException>().Or.InstanceOf<TaskCanceledException>());
                     break;
@@ -307,13 +307,13 @@ public class RowsTests : AbstractMockServerTests
         // Getting all the rows should not be possible.
         // If the underlying Rows object uses a stream, then it could be that it still receives some rows, but it will
         // eventually fail.
-        var exception = Assert.Throws<SpannerException>(() =>
+        var exception = Assert.Throws<SpannerException>((Action)(() =>
         {
             while (rows.Next() is not null)
             {
                 foundRows++;
             }
-        });
+        }));
         // The error is 'Connection not found' or an internal exception from the underlying driver, depending on exactly
         // when the driver detects that the connection and all related objects have been closed.
         Assert.That(exception.Code is Code.NotFound or Code.Unknown, Is.True);
@@ -556,11 +556,11 @@ public class RowsTests : AbstractMockServerTests
         {
             if (async)
             {
-                Assert.ThrowsAsync<SpannerException>(() => connection.ExecuteAsync(new ExecuteSqlRequest { Sql = sql }, prefetchRows));
+                Assert.ThrowsAsync<SpannerException>((Func<Task>)(() => connection.ExecuteAsync(new ExecuteSqlRequest { Sql = sql }, prefetchRows)));
             }
             else
             {
-                Assert.Throws<SpannerException>(() => connection.Execute(new ExecuteSqlRequest { Sql = sql }, prefetchRows));
+                Assert.Throws<SpannerException>((Action)(() => connection.Execute(new ExecuteSqlRequest { Sql = sql }, prefetchRows)));
             }
         }
         else
@@ -588,11 +588,11 @@ public class RowsTests : AbstractMockServerTests
                 {
                     if (async)
                     {
-                        Assert.ThrowsAsync<SpannerException>(() => rows.NextResultSetAsync());
+                        Assert.ThrowsAsync<SpannerException>((Func<Task>)(() => rows.NextResultSetAsync()));
                     }
                     else
                     {
-                        Assert.Throws<SpannerException>(() => rows.NextResultSet());
+                        Assert.Throws<SpannerException>((Action)(() => rows.NextResultSet()));
                     }
                     break;
                 }

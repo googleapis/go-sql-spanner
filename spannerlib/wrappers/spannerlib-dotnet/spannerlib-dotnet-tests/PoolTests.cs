@@ -36,7 +36,7 @@ public class PoolTests : AbstractMockServerTests
     {
         Fixture.SpannerMock.AddOrUpdateExecutionTime(nameof(Fixture.SpannerMock.CreateSession), ExecutionTime.CreateException(StatusCode.PermissionDenied, "Not allowed"));
 
-        SpannerException exception = Assert.Throws<SpannerException>(() => Pool.Create(SpannerLibDictionary[libType], ConnectionString));
+        SpannerException exception = Assert.Throws<SpannerException>((Action)(() => Pool.Create(SpannerLibDictionary[libType], ConnectionString)));
         Assert.That(exception.Code, Is.EqualTo(Code.PermissionDenied));
     }
 
