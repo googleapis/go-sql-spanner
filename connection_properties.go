@@ -759,6 +759,16 @@ func createConfiguredConnectionState(initialValues map[string]connectionstate.Co
 }
 
 func createInitialConnectionState(connectionStateType connectionstate.Type, initialValues map[string]connectionstate.ConnectionPropertyValue) *connectionstate.ConnectionState {
+	return createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, connectionStateType, initialValues)
+}
+
+func createInitialConnectionStateWithDialect(dialect databasepb.DatabaseDialect, connectionStateType connectionstate.Type, initialValues map[string]connectionstate.ConnectionPropertyValue) *connectionstate.ConnectionState {
 	state, _ := connectionstate.NewConnectionState(connectionStateType, connectionProperties, initialValues)
+	if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		state.AddAlias("transaction_isolation", "isolation_level", true /* readOnly */)
+		if val := propertyIsolationLevel.GetValueOrDefault(state); val == sql.LevelDefault {
+			_ = propertyIsolationLevel.SetValue(state, sql.LevelSerializable, connectionstate.ContextStartup)
+		}
+	}
 	return state
 }
