@@ -23,6 +23,7 @@ import (
 
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
+	"github.com/google/uuid"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
 	"github.com/googleapis/go-sql-spanner/examples"
 )
@@ -38,6 +39,7 @@ var createTableStatement = `CREATE TABLE AllTypes (
 			numeric        NUMERIC,
 			date           DATE,
 			timestamp      TIMESTAMP,
+			col_uuid       UUID,
 			boolArray      ARRAY<BOOL>,
 			stringArray    ARRAY<STRING(MAX)>,
 			bytesArray     ARRAY<BYTES(MAX)>,
@@ -47,6 +49,7 @@ var createTableStatement = `CREATE TABLE AllTypes (
 			numericArray   ARRAY<NUMERIC>,
 			dateArray      ARRAY<DATE>,
 			timestampArray ARRAY<TIMESTAMP>,
+			uuidArray      ARRAY<UUID>,
 		) PRIMARY KEY (key)`
 
 // Sample showing how to work with the different data types that are supported by Cloud Spanner:
@@ -68,15 +71,16 @@ func dataTypes(projectId, instanceId, databaseId string) error {
 
 	// Insert a test row with all non-null values using DML and native types.
 	if _, err := db.ExecContext(ctx, `INSERT INTO AllTypes (
-                      key, bool, string, bytes, int64, float32, float64, numeric, date, timestamp,
-                      boolArray, stringArray, bytesArray, int64Array, float32Array, float64Array, numericArray, dateArray, timestampArray)
-                      VALUES (@key, @bool, @string, @bytes, @int64, @float32, @float64, @numeric, @date, @timestamp,
-                              @boolArray, @stringArray, @bytesArray, @int64Array, @float32Array, @float64Array, @numericArray, @dateArray, @timestampArray)`,
-		1, true, "string", []byte("bytes"), 100, float32(3.14), 3.14, *big.NewRat(1, 1), civil.DateOf(time.Now()), time.Now(),
+                      key, bool, string, bytes, int64, float32, float64, numeric, date, timestamp, col_uuid,
+                      boolArray, stringArray, bytesArray, int64Array, float32Array, float64Array, numericArray, dateArray, timestampArray, uuidArray)
+                      VALUES (@key, @bool, @string, @bytes, @int64, @float32, @float64, @numeric, @date, @timestamp, @uuid,
+                              @boolArray, @stringArray, @bytesArray, @int64Array, @float32Array, @float64Array, @numericArray, @dateArray, @timestampArray, @uuidArray)`,
+		1, true, "string", []byte("bytes"), 100, float32(3.14), 3.14, *big.NewRat(1, 1), civil.DateOf(time.Now()), time.Now(), uuid.New(),
 		[]bool{true, false}, []string{"s1", "s2"}, [][]byte{[]byte("b1"), []byte("b2")}, []int64{1, 2},
 		[]float32{1.1, 2.2}, []float64{1.1, 2.2}, []big.Rat{*big.NewRat(1, 2), *big.NewRat(1, 3)},
 		[]civil.Date{{Year: 2021, Month: 10, Day: 12}, {Year: 2021, Month: 10, Day: 13}},
-		[]time.Time{time.Now(), time.Now().Add(24 * time.Hour)}); err != nil {
+		[]time.Time{time.Now(), time.Now().Add(24 * time.Hour)},
+		[]uuid.UUID{uuid.New(), uuid.New()}); err != nil {
 		return fmt.Errorf("failed to insert a record with all non-null values using DML: %v", err)
 	}
 	fmt.Print("Inserted a test record with all non-null values\n")
@@ -121,8 +125,8 @@ func dataTypes(projectId, instanceId, databaseId string) error {
 		"SELECT * FROM AllTypes WHERE key=@key",
 		spannerdriver.ExecOptions{DecodeToNativeArrays: true},
 		1).Scan(
-		&r1.key, &r1.bool, &r1.string, &r1.bytes, &r1.int64, &r1.float32, &r1.float64, &r1.numeric, &r1.date, &r1.timestamp,
-		&r1.boolArray, &r1.stringArray, &r1.bytesArray, &r1.int64Array, &r1.float32Array, &r1.float64Array, &r1.numericArray, &r1.dateArray, &r1.timestampArray,
+		&r1.key, &r1.bool, &r1.string, &r1.bytes, &r1.int64, &r1.float32, &r1.float64, &r1.numeric, &r1.date, &r1.timestamp, &r1.uuid,
+		&r1.boolArray, &r1.stringArray, &r1.bytesArray, &r1.int64Array, &r1.float32Array, &r1.float64Array, &r1.numericArray, &r1.dateArray, &r1.timestampArray, &r1.uuidArray,
 	); err != nil {
 		return fmt.Errorf("failed to get row with non-null values: %v", err)
 	}
@@ -131,8 +135,8 @@ func dataTypes(projectId, instanceId, databaseId string) error {
 	// You can also use the spanner.Null* types to get data. These types can store both non-null and null values.
 	var r2 nullTypes
 	if err := db.QueryRowContext(ctx, "SELECT * FROM AllTypes WHERE key=@key", 1).Scan(
-		&r2.key, &r2.bool, &r2.string, &r2.bytes, &r2.int64, &r2.float32, &r2.float64, &r2.numeric, &r2.date, &r2.timestamp,
-		&r2.boolArray, &r2.stringArray, &r2.bytesArray, &r2.int64Array, &r2.float32Array, &r2.float64Array, &r2.numericArray, &r2.dateArray, &r2.timestampArray,
+		&r2.key, &r2.bool, &r2.string, &r2.bytes, &r2.int64, &r2.float32, &r2.float64, &r2.numeric, &r2.date, &r2.timestamp, &r2.uuid,
+		&r2.boolArray, &r2.stringArray, &r2.bytesArray, &r2.int64Array, &r2.float32Array, &r2.float64Array, &r2.numericArray, &r2.dateArray, &r2.timestampArray, &r2.uuidArray,
 	); err != nil {
 		return fmt.Errorf("failed to get row with null values: %v", err)
 	}
@@ -143,8 +147,8 @@ func dataTypes(projectId, instanceId, databaseId string) error {
 	// use spanner.NullNumeric and spanner.NullDate.
 	var r3 sqlNullTypes
 	if err := db.QueryRowContext(ctx, "SELECT * FROM AllTypes WHERE key=@key", 1).Scan(
-		&r3.key, &r3.bool, &r3.string, &r3.bytes, &r3.int64, &r3.float32, &r3.float64, &r3.numeric, &r3.date, &r3.timestamp,
-		&r3.boolArray, &r3.stringArray, &r3.bytesArray, &r3.int64Array, &r3.float32Array, &r3.float64Array, &r3.numericArray, &r3.dateArray, &r3.timestampArray,
+		&r3.key, &r3.bool, &r3.string, &r3.bytes, &r3.int64, &r3.float32, &r3.float64, &r3.numeric, &r3.date, &r3.timestamp, &r3.uuid,
+		&r3.boolArray, &r3.stringArray, &r3.bytesArray, &r3.int64Array, &r3.float32Array, &r3.float64Array, &r3.numericArray, &r3.dateArray, &r3.timestampArray, &r3.uuidArray,
 	); err != nil {
 		return fmt.Errorf("failed to get row with null values using Go sql null types: %v", err)
 	}
@@ -164,6 +168,7 @@ type nativeTypes struct {
 	numeric   big.Rat
 	date      civil.Date
 	timestamp time.Time
+	uuid      uuid.UUID
 	// Array types use Null* types by default, because an array may always
 	// contain NULL elements in the array itself (even if the ARRAY column is
 	// defined as NOT NULL). The Spanner database/sql driver can also return
@@ -179,6 +184,7 @@ type nativeTypes struct {
 	numericArray   []spanner.NullNumeric
 	dateArray      []civil.Date
 	timestampArray []time.Time
+	uuidArray      []uuid.UUID
 }
 
 type nullTypes struct {
@@ -192,6 +198,7 @@ type nullTypes struct {
 	numeric        spanner.NullNumeric
 	date           spanner.NullDate
 	timestamp      spanner.NullTime
+	uuid           spanner.NullUUID
 	boolArray      []spanner.NullBool
 	stringArray    []spanner.NullString
 	bytesArray     [][]byte
@@ -201,6 +208,7 @@ type nullTypes struct {
 	numericArray   []spanner.NullNumeric
 	dateArray      []spanner.NullDate
 	timestampArray []spanner.NullTime
+	uuidArray      []uuid.UUID
 }
 
 type sqlNullTypes struct {
@@ -214,6 +222,7 @@ type sqlNullTypes struct {
 	numeric   spanner.NullNumeric // There is no sql.NullNumeric type
 	date      spanner.NullDate    // There is no sql.NullDate type
 	timestamp sql.NullTime
+	uuid      spanner.NullUUID // There is no sql.NullUUID type
 	// Array types must always use the spanner.Null* structs.
 	boolArray      []spanner.NullBool
 	stringArray    []spanner.NullString
@@ -224,6 +233,7 @@ type sqlNullTypes struct {
 	numericArray   []spanner.NullNumeric
 	dateArray      []spanner.NullDate
 	timestampArray []spanner.NullTime
+	uuidArray      []uuid.UUID
 }
 
 func main() {
