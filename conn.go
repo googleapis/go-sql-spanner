@@ -34,6 +34,7 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 // SpannerConn is the public interface for the raw Spanner connection for the
@@ -439,11 +440,19 @@ func (c *conn) readOnlyStalenessPointer() *spanner.TimestampBound {
 }
 
 func (c *conn) DirectedReadOptions() *spannerpb.DirectedReadOptions {
-	return propertyDirectedRead.GetValueOrDefault(c.state)
+	options := propertyDirectedRead.GetValueOrDefault(c.state)
+	if options == nil {
+		return nil
+	}
+	return proto.Clone(options).(*spannerpb.DirectedReadOptions)
 }
 
 func (c *conn) SetDirectedReadOptions(options *spannerpb.DirectedReadOptions) error {
-	_, err := c.setDirectedReadOptions(options)
+	var cloned *spannerpb.DirectedReadOptions
+	if options != nil {
+		cloned = proto.Clone(options).(*spannerpb.DirectedReadOptions)
+	}
+	_, err := c.setDirectedReadOptions(cloned)
 	return err
 }
 
