@@ -34,6 +34,7 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 // SpannerConn is the public interface for the raw Spanner connection for the
@@ -121,6 +122,10 @@ type SpannerConn interface {
 	// SetReadOnlyStaleness sets the staleness to use for queries in autocommit
 	// mode and for read-only transaction.
 	SetReadOnlyStaleness(staleness spanner.TimestampBound) error
+	// DirectedReadOptions returns the current directed read options of the connection.
+	DirectedReadOptions() *spannerpb.DirectedReadOptions
+	// SetDirectedReadOptions sets the directed read options of the connection.
+	SetDirectedReadOptions(options *spannerpb.DirectedReadOptions) error
 
 	// IsolationLevel returns the current default isolation level that is
 	// used for read/write transactions on this connection.
@@ -432,6 +437,30 @@ func (c *conn) readOnlyStalenessPointer() *spanner.TimestampBound {
 	staleness, _ := val.GetValue()
 	timestampBound := staleness.(spanner.TimestampBound)
 	return &timestampBound
+}
+
+func (c *conn) DirectedReadOptions() *spannerpb.DirectedReadOptions {
+	options := propertyDirectedRead.GetValueOrDefault(c.state)
+	if options == nil {
+		return nil
+	}
+	return proto.Clone(options).(*spannerpb.DirectedReadOptions)
+}
+
+func (c *conn) SetDirectedReadOptions(options *spannerpb.DirectedReadOptions) error {
+	var cloned *spannerpb.DirectedReadOptions
+	if options != nil {
+		cloned = proto.Clone(options).(*spannerpb.DirectedReadOptions)
+	}
+	_, err := c.setDirectedReadOptions(cloned)
+	return err
+}
+
+func (c *conn) setDirectedReadOptions(options *spannerpb.DirectedReadOptions) (driver.Result, error) {
+	if err := propertyDirectedRead.SetValue(c.state, options, connectionstate.ContextUser); err != nil {
+		return nil, err
+	}
+	return driver.ResultNoRows, nil
 }
 
 func (c *conn) IsolationLevel() sql.IsolationLevel {
@@ -1341,8 +1370,9 @@ func (c *conn) options(resetTags bool) (*ExecOptions, error) {
 		AutocommitDMLMode:    c.AutocommitDMLMode(),
 		DecodeToNativeArrays: c.DecodeToNativeArrays(),
 		QueryOptions: spanner.QueryOptions{
-			RequestTag: c.StatementTag(),
-			Priority:   propertyRpcPriority.GetValueOrDefault(c.state),
+			RequestTag:          c.StatementTag(),
+			Priority:            propertyRpcPriority.GetValueOrDefault(c.state),
+			DirectedReadOptions: c.DirectedReadOptions(),
 		},
 		TransactionOptions: spanner.TransactionOptions{
 			ExcludeTxnFromChangeStreams: c.ExcludeTxnFromChangeStreams(),
@@ -1788,6 +1818,7 @@ func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement s
 	var result *wrappedRowIterator
 	queryOptions := options.QueryOptions
 	queryOptions.LastStatement = true
+	queryOptions.DirectedReadOptions = nil
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
 		if result != nil {
 			// in case of a retry
@@ -1829,6 +1860,7 @@ func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement sp
 	var res *result
 	queryOptions := options.QueryOptions
 	queryOptions.LastStatement = true
+	queryOptions.DirectedReadOptions = nil
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
 		var err error
 		res, err = execTransactionalDML(ctx, tx, statement, statementInfo, queryOptions)
@@ -1878,6 +1910,7 @@ func execTransactionalDML(ctx context.Context, tx spannerTransaction, statement 
 
 func execAsPartitionedDML(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error) {
 	queryOptions := options.QueryOptions
+	queryOptions.DirectedReadOptions = nil
 	queryOptions.ExcludeTxnFromChangeStreams = options.TransactionOptions.ExcludeTxnFromChangeStreams
 	return c.PartitionedUpdateWithOptions(ctx, statement, queryOptions)
 }
