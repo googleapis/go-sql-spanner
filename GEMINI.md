@@ -67,6 +67,7 @@ Any pull request modifying or extending the driver's features must include:
   }
   ```
   Note the two spaces after `Got:` to align the values visually.
+- **Subtests & Early Failure**: Prefer using Go subtests (`t.Run`) to isolate distinct test cases. When an intermediate setup step fails (e.g., helper function error, unexpected nil, client initialization failure), use `t.Fatalf` or `t.Fatal` to fail and abort that specific test/subtest immediately. Avoid using `t.Errorf` or `t.Error` if subsequent assertions rely on values or state from the failed step, as this results in redundant and confusing secondary error outputs.
 
 ---
 

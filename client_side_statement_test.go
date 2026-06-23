@@ -31,6 +31,7 @@ import (
 	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -688,5 +689,179 @@ func TestStatementExecutor_UsesExecOptions(t *testing.T) {
 	if rows.HasNextResultSet() {
 		t.Fatal("got unexpected next result set")
 	}
+}
 
+func TestStatementExecutor_DirectedRead(t *testing.T) {
+	t.Parallel()
+
+	p, _ := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		setValue    string
+		wantSetErr  bool
+		wantOptions *spannerpb.DirectedReadOptions
+	}{
+		{
+			name:       "valid json",
+			setValue:   "'{\"excludeReplicas\": {\"replicaSelections\": [{\"location\": \"us-east4\"}]}}'",
+			wantSetErr: false,
+			wantOptions: &spannerpb.DirectedReadOptions{
+				Replicas: &spannerpb.DirectedReadOptions_ExcludeReplicas_{
+					ExcludeReplicas: &spannerpb.DirectedReadOptions_ExcludeReplicas{
+						ReplicaSelections: []*spannerpb.DirectedReadOptions_ReplicaSelection{
+							{Location: "us-east4"},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:       "json with leading/trailing whitespace",
+			setValue:   "'  {\"excludeReplicas\": {\"replicaSelections\": [{\"location\": \"us-east4\"}]}}  '",
+			wantSetErr: false,
+			wantOptions: &spannerpb.DirectedReadOptions{
+				Replicas: &spannerpb.DirectedReadOptions_ExcludeReplicas_{
+					ExcludeReplicas: &spannerpb.DirectedReadOptions_ExcludeReplicas{
+						ReplicaSelections: []*spannerpb.DirectedReadOptions_ReplicaSelection{
+							{Location: "us-east4"},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:        "NULL",
+			setValue:    "NULL",
+			wantSetErr:  false,
+			wantOptions: nil,
+		},
+		{
+			name:        "null string",
+			setValue:    "'null'",
+			wantSetErr:  false,
+			wantOptions: nil,
+		},
+		{
+			name:       "invalid json",
+			setValue:   "'invalid json'",
+			wantSetErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			c := &conn{
+				logger: noopLogger,
+				state:  createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+				parser: p,
+			}
+
+			// Initial value should be nil.
+			if dr := c.DirectedReadOptions(); dr != nil {
+				t.Fatalf("expected initial directed_read to be nil, got: %v", dr)
+			}
+
+			res, err := c.ExecContext(ctx, "set directed_read = "+test.setValue, []driver.NamedValue{})
+			if test.wantSetErr {
+				if err == nil {
+					t.Fatalf("missing expected error for value %q", test.setValue)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("could not set new value %q for directed_read: %v", test.setValue, err)
+				}
+				if res != driver.ResultNoRows {
+					t.Fatalf("result mismatch\nGot: %v\nWant: %v", res, driver.ResultNoRows)
+				}
+
+				// Verify via getter
+				gotOptions := c.DirectedReadOptions()
+				if !proto.Equal(gotOptions, test.wantOptions) {
+					t.Fatalf("value mismatch\nGot:  %v\nWant: %v", gotOptions, test.wantOptions)
+				}
+
+				// Verify via SHOW
+				rows, err := c.QueryContext(ctx, "show variable directed_read", []driver.NamedValue{})
+				if err != nil {
+					t.Fatalf("could not show directed_read: %v", err)
+				}
+				defer rows.Close()
+
+				values := make([]driver.Value, 1)
+				if err := rows.Next(values); err != nil {
+					t.Fatalf("failed to scan SHOW result: %v", err)
+				}
+				showVal := fmt.Sprintf("%v", values[0])
+
+				if test.wantOptions == nil {
+					if showVal != "" {
+						t.Fatalf("expected SHOW to return '', got: %q", showVal)
+					}
+				} else {
+					wantStr := test.wantOptions.String()
+					if showVal != wantStr {
+						t.Fatalf("SHOW value mismatch\nGot:  %q\nWant: %q", showVal, wantStr)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestStatementExecutor_ShowTransaction(t *testing.T) {
+	t.Parallel()
+
+	p, _ := parser.NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+	c := &conn{
+		logger: noopLogger,
+		state:  createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_POSTGRESQL, connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		parser: p,
+	}
+	ctx := context.Background()
+
+	checkShowValue := func(t *testing.T, query, want, description string) {
+		t.Helper()
+		rows, err := c.QueryContext(ctx, query, []driver.NamedValue{})
+		if err != nil {
+			t.Fatalf("QueryContext for %q failed: %v", query, err)
+		}
+		defer rows.Close()
+		values := make([]driver.Value, 1)
+		if err := rows.Next(values); err != nil {
+			t.Fatalf("rows.Next for %q failed: %v", query, err)
+		}
+		if got := fmt.Sprintf("%v", values[0]); got != want {
+			t.Errorf("%s: got %q, want %q", description, got, want)
+		}
+	}
+
+	// Initial checks.
+	checkShowValue(t, "show transaction isolation level", "serializable", "default isolation level")
+	checkShowValue(t, "show transaction_isolation", "serializable", "default transaction_isolation")
+	checkShowValue(t, "show transaction read only", "false", "default read only")
+	checkShowValue(t, "show transaction deferrable", "false", "default deferrable")
+
+	// Now modify the properties using SET, and verify they show new values!
+	if _, err := c.ExecContext(ctx, "set isolation_level = 'repeatable_read'", []driver.NamedValue{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ExecContext(ctx, "set transaction_read_only = true", []driver.NamedValue{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ExecContext(ctx, "set transaction_deferrable = true", []driver.NamedValue{}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify new values
+	checkShowValue(t, "show transaction isolation level", "repeatable read", "modified isolation level")
+	checkShowValue(t, "show transaction_isolation", "repeatable read", "modified transaction_isolation")
+	checkShowValue(t, "show transaction read only", "true", "modified read only")
+	checkShowValue(t, "show transaction deferrable", "true", "modified deferrable")
+
+	// 5. Try to modify read-only alias variable, should return error
+	if _, err := c.ExecContext(ctx, "set transaction_isolation = 'repeatable_read'", []driver.NamedValue{}); err == nil {
+		t.Error("expected error when setting read-only alias transaction_isolation, got nil")
+	}
 }

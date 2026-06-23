@@ -48,17 +48,17 @@
   },
   "devDependencies": {
     "mocha": "^11.0.1",
-    "typescript": "^5.6.3",
-    "@types/node": "^22.7.5",
+    "typescript": "^6.0.0",
+    "@types/node": "^24.0.0",
     "@types/bindings": "^1.5.0",
     "@types/mocha": "^10.0.6",
-    "@babel/core": "^7.24.0",
-    "@babel/cli": "^7.23.9",
-    "sinon": "^18.0.0",
-    "@types/sinon": "^17.0.3",
+    "@babel/core": "^8.0.0",
+    "@babel/cli": "^8.0.0",
+    "sinon": "^22.0.0",
+    "@types/sinon": "^21.0.0",
     "gts": "^7.0.0",
     "@grpc/grpc-js": "^1.12.0",
-    "@grpc/proto-loader": "^0.7.13"
+    "@grpc/proto-loader": "^0.8.0"
   },
   "gypfile": false
 }

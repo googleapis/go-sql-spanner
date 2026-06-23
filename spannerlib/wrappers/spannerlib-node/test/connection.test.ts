@@ -46,7 +46,7 @@ describe('Connection', () => {
       .onFirstCall()
       .resolves({ objectId: 3, pinnerId: 0, protobufBytes: null });
 
-    const rows = await connection.executeSql('SELECT 1');
+    const rows = await connection.execute('SELECT 1');
 
     assert.ok(rows, 'Rows should be returned');
     assert.strictEqual(rows.oid, 3, 'Rows OID should match');
@@ -73,7 +73,7 @@ describe('Connection', () => {
     connection.closed = true;
 
     await assert.rejects(async () => {
-      await connection.executeSql('SELECT 1');
+      await connection.execute('SELECT 1');
     }, /Connection is already closed/);
   });
 
@@ -81,7 +81,129 @@ describe('Connection', () => {
     const connection = new Connection();
 
     await assert.rejects(async () => {
-      await connection.executeSql('SELECT 1');
+      await connection.execute('SELECT 1');
     }, /Connection is not bound to a Pool/);
+  });
+
+  it('should begin transaction successfully', async () => {
+    const pool = new Pool(
+      'node-esm',
+      'projects/test/instances/test/databases/test'
+    );
+    pool.oid = 1;
+
+    const connection = new Connection();
+    connection.pool = pool;
+    connection.oid = 2;
+
+    stub.resolves({});
+    await connection.beginTransaction();
+
+    assert.strictEqual(stub.calledOnce, true);
+    assert.strictEqual(stub.firstCall.args[0], 'BeginTransaction');
+  });
+
+  it('should throw error on beginTransaction if connection is closed', async () => {
+    const connection = new Connection();
+    connection.closed = true;
+    await assert.rejects(async () => {
+      await connection.beginTransaction();
+    }, /Connection is already closed/);
+  });
+
+  it('should commit successfully', async () => {
+    const pool = new Pool(
+      'node-esm',
+      'projects/test/instances/test/databases/test'
+    );
+    pool.oid = 1;
+
+    const connection = new Connection();
+    connection.pool = pool;
+    connection.oid = 2;
+
+    stub.resolves({ protobufBytes: null });
+    await connection.commit();
+
+    assert.strictEqual(stub.calledOnce, true);
+    assert.strictEqual(stub.firstCall.args[0], 'Commit');
+  });
+
+  it('should throw error on commit if connection is closed', async () => {
+    const connection = new Connection();
+    connection.closed = true;
+    await assert.rejects(async () => {
+      await connection.commit();
+    }, /Connection is already closed/);
+  });
+
+  it('should rollback successfully', async () => {
+    const pool = new Pool(
+      'node-esm',
+      'projects/test/instances/test/databases/test'
+    );
+    pool.oid = 1;
+
+    const connection = new Connection();
+    connection.pool = pool;
+    connection.oid = 2;
+
+    stub.resolves({});
+    await connection.rollback();
+
+    assert.strictEqual(stub.calledOnce, true);
+    assert.strictEqual(stub.firstCall.args[0], 'Rollback');
+  });
+
+  it('should write mutations successfully', async () => {
+    const pool = new Pool(
+      'node-esm',
+      'projects/test/instances/test/databases/test'
+    );
+    pool.oid = 1;
+
+    const connection = new Connection();
+    connection.pool = pool;
+    connection.oid = 2;
+
+    stub.resolves({ protobufBytes: null });
+    await connection.writeMutations([]);
+
+    assert.strictEqual(stub.calledOnce, true);
+    assert.strictEqual(stub.firstCall.args[0], 'WriteMutations');
+  });
+
+  it('should throw error on writeMutations if connection is closed', async () => {
+    const connection = new Connection();
+    connection.closed = true;
+    await assert.rejects(async () => {
+      await connection.writeMutations([]);
+    }, /Connection is already closed/);
+  });
+
+  it('should execute batch DML successfully', async () => {
+    const pool = new Pool(
+      'node-esm',
+      'projects/test/instances/test/databases/test'
+    );
+    pool.oid = 1;
+
+    const connection = new Connection();
+    connection.pool = pool;
+    connection.oid = 2;
+
+    stub.resolves({ protobufBytes: null });
+    await connection.executeBatch(['UPDATE T SET C=1']);
+
+    assert.strictEqual(stub.calledOnce, true);
+    assert.strictEqual(stub.firstCall.args[0], 'ExecuteBatch');
+  });
+
+  it('should throw error on executeBatch if connection is closed', async () => {
+    const connection = new Connection();
+    connection.closed = true;
+    await assert.rejects(async () => {
+      await connection.executeBatch(['UPDATE T SET C=1']);
+    }, /Connection is already closed/);
   });
 });
