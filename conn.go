@@ -659,9 +659,10 @@ func (c *conn) runDMLBatch(ctx context.Context) (SpannerResult, error) {
 
 	statements := c.batch.statements
 	options := c.batch.options
-	options.QueryOptions.LastStatement = true
+	localOptions := *options
+	localOptions.QueryOptions.LastStatement = true
 	c.batch = nil
-	return c.execBatchDML(ctx, statements, options)
+	return c.execBatchDML(ctx, statements, &localOptions)
 }
 
 func (c *conn) abortBatch() (driver.Result, error) {
@@ -1806,14 +1807,15 @@ func (c *conn) executeAutoPartitionedQuery(ctx context.Context, cancel context.C
 
 func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (rowIterator, *spanner.CommitResponse, error) {
 	var result *wrappedRowIterator
-	options.QueryOptions.LastStatement = true
-	options.QueryOptions.DirectedReadOptions = nil
+	queryOptions := options.QueryOptions
+	queryOptions.LastStatement = true
+	queryOptions.DirectedReadOptions = nil
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
 		if result != nil {
 			// in case of a retry
 			result.Stop()
 		}
-		it := tx.QueryWithOptions(ctx, statement, options.QueryOptions)
+		it := tx.QueryWithOptions(ctx, statement, queryOptions)
 		row, err := it.Next()
 		if err == iterator.Done {
 			result = &wrappedRowIterator{
@@ -1847,11 +1849,12 @@ var errInvalidDmlForExecContext = spanner.ToSpannerError(status.Error(codes.Fail
 
 func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
 	var res *result
-	options.QueryOptions.LastStatement = true
-	options.QueryOptions.DirectedReadOptions = nil
+	queryOptions := options.QueryOptions
+	queryOptions.LastStatement = true
+	queryOptions.DirectedReadOptions = nil
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
 		var err error
-		res, err = execTransactionalDML(ctx, tx, statement, statementInfo, options.QueryOptions)
+		res, err = execTransactionalDML(ctx, tx, statement, statementInfo, queryOptions)
 		if err != nil {
 			return err
 		}
