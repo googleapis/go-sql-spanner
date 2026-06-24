@@ -54,8 +54,8 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const ModuleVersion = "1.25.1"            // x-release-please-version
-const userAgent = "go-sql-spanner/1.25.1" // x-release-please-version
+const ModuleVersion = "1.25.2"            // x-release-please-version
+const userAgent = "go-sql-spanner/1.25.2" // x-release-please-version
 
 const gormModule = "github.com/googleapis/go-gorm-spanner"
 const gormUserAgent = "go-gorm-spanner"
@@ -863,7 +863,7 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		logger:                       logger,
 		instance:                     instanceName,
 		database:                     databaseName,
-		state:                        createInitialConnectionState(connectionStateType, c.initialPropertyValues),
+		state:                        createInitialConnectionStateWithDialect(c.parser.Dialect, connectionStateType, c.initialPropertyValues),
 		execSingleQuery:              queryInSingleUse,
 		execSingleQueryTransactional: queryInNewRWTransaction,
 		execSingleDMLTransactional:   execInNewRWTransaction,

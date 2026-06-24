@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"time"
 
@@ -30,6 +31,8 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var cli *client.Client
@@ -70,7 +73,7 @@ func RunSampleOnEmulatorWithDialect(sample func(string, string, string) error, d
 
 func startEmulator() error {
 	ctx := context.Background()
-	if err := os.Setenv("SPANNER_EMULATOR_HOST", "localhost:9010"); err != nil {
+	if err := os.Setenv("SPANNER_EMULATOR_HOST", "127.0.0.1:9010"); err != nil {
 		return err
 	}
 
@@ -107,21 +110,47 @@ func startEmulator() error {
 	if err := cli.ContainerStart(ctx, containerId, container.StartOptions{}); err != nil {
 		return err
 	}
-	// Wait max 10 seconds or until the emulator is running.
-	for c := 0; c < 20; c++ {
-		// Always wait at least 500 milliseconds to ensure that the emulator is actually ready, as the
-		// state can be reported as ready, while the emulator (or network interface) is actually not ready.
-		<-time.After(500 * time.Millisecond)
+	// Wait max 10 seconds or until the emulator is running and port 9010 is open.
+	var portReady bool
+	for c := 0; c < 40; c++ {
 		resp, err := cli.ContainerInspect(ctx, containerId)
 		if err != nil {
 			return fmt.Errorf("failed to inspect container state: %v", err)
 		}
 		if resp.State.Running {
-			break
+			// Try to connect to 127.0.0.1:9010
+			conn, err := net.DialTimeout("tcp", "127.0.0.1:9010", 250*time.Millisecond)
+			if err == nil {
+				_ = conn.Close()
+				portReady = true
+				break
+			}
 		}
+		time.Sleep(250 * time.Millisecond)
 	}
+	if !portReady {
+		return fmt.Errorf("emulator did not start listening on port 9010 in time")
+	}
+	return waitForGRPC(ctx)
+}
 
-	return nil
+func waitForGRPC(ctx context.Context) error {
+	instanceAdmin, err := instance.NewInstanceAdminClient(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create instance admin client: %v", err)
+	}
+	defer instanceAdmin.Close()
+
+	for c := 0; c < 40; c++ {
+		_, err := instanceAdmin.GetInstance(ctx, &instancepb.GetInstanceRequest{
+			Name: "projects/p/instances/i",
+		})
+		if err == nil || status.Code(err) == codes.NotFound {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("emulator gRPC server did not start in time")
 }
 
 func createInstance(projectId, instanceId string) error {
