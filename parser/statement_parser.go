@@ -36,15 +36,17 @@ var updateStatements = map[string]bool{"UPDATE": true}
 var deleteStatements = map[string]bool{"DELETE": true}
 var dmlStatements = union(insertStatements, union(updateStatements, deleteStatements))
 var clientSideKeywords = map[string]bool{
-	"SHOW":     true,
-	"SET":      true,
-	"RESET":    true,
-	"START":    true,
-	"RUN":      true,
-	"ABORT":    true,
-	"BEGIN":    true,
-	"COMMIT":   true,
-	"ROLLBACK": true,
+	"SHOW":      true,
+	"SET":       true,
+	"RESET":     true,
+	"START":     true,
+	"RUN":       true,
+	"ABORT":     true,
+	"BEGIN":     true,
+	"COMMIT":    true,
+	"ROLLBACK":  true,
+	"SAVEPOINT": true,
+	"RELEASE":   true,
 }
 var showStatements = map[string]bool{"SHOW": true}
 var setStatements = map[string]bool{"SET": true}
@@ -55,6 +57,8 @@ var abortStatements = map[string]bool{"ABORT": true}
 var beginStatements = map[string]bool{"BEGIN": true}
 var commitStatements = map[string]bool{"COMMIT": true}
 var rollbackStatements = map[string]bool{"ROLLBACK": true}
+var savepointStatements = map[string]bool{"SAVEPOINT": true}
+var releaseStatements = map[string]bool{"RELEASE": true}
 
 func union(m1 map[string]bool, m2 map[string]bool) map[string]bool {
 	res := make(map[string]bool, len(m1)+len(m2))
@@ -759,6 +763,14 @@ func isCommitStatementKeyword(keyword string) bool {
 
 func isRollbackStatementKeyword(keyword string) bool {
 	return isStatementKeyword(keyword, rollbackStatements)
+}
+
+func isSavepointStatementKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, savepointStatements)
+}
+
+func isReleaseStatementKeyword(keyword string) bool {
+	return isStatementKeyword(keyword, releaseStatements)
 }
 
 func isStatementKeyword(keyword string, keywords map[string]bool) bool {

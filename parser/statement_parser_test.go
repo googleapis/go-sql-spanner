@@ -1745,6 +1745,48 @@ func TestParseClientSideStatement(t *testing.T) {
 			want:  "SET",
 			exec:  true,
 		},
+		{
+			name:  "Savepoint",
+			input: "SAVEPOINT s1",
+			want:  "SAVEPOINT",
+			exec:  true,
+		},
+		{
+			name:  "Savepoint quoted",
+			input: "savepoint `s2`",
+			want:  "SAVEPOINT",
+			exec:  true,
+		},
+		{
+			name:  "Release savepoint",
+			input: "RELEASE SAVEPOINT s1",
+			want:  "RELEASE SAVEPOINT",
+			exec:  true,
+		},
+		{
+			name:  "Release savepoint no keyword",
+			input: "release s1",
+			want:  "RELEASE SAVEPOINT",
+			exec:  true,
+		},
+		{
+			name:  "Rollback to savepoint",
+			input: "ROLLBACK TO SAVEPOINT s1",
+			want:  "ROLLBACK TO SAVEPOINT",
+			exec:  true,
+		},
+		{
+			name:  "Rollback to savepoint no keyword",
+			input: "rollback to s1",
+			want:  "ROLLBACK TO SAVEPOINT",
+			exec:  true,
+		},
+		{
+			name:  "Rollback transaction to savepoint",
+			input: "rollback transaction to s1",
+			want:  "ROLLBACK TO SAVEPOINT",
+			exec:  true,
+		},
 	}
 
 	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)

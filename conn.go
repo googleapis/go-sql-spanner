@@ -1678,7 +1678,7 @@ func (c *conn) activateTransaction() (contextTransaction, error) {
 	// Add the current value of transaction_timeout to the context that is registered
 	// on the transaction.
 	ctx, cancel := c.addTransactionTimeout(c.tx.ctx)
-	tx, err := spanner.NewReadWriteStmtBasedTransactionWithCallbackForOptions(ctx, c.client, opts, func() spanner.TransactionOptions {
+	txOptsCallback := func() spanner.TransactionOptions {
 		defer func() {
 			// Reset the transaction_tag after starting the transaction.
 			_ = propertyTransactionTag.ResetValue(c.state, connectionstate.ContextUser)
@@ -1688,17 +1688,21 @@ func (c *conn) activateTransaction() (contextTransaction, error) {
 			execOptions = &ExecOptions{}
 		}
 		return c.effectiveTransactionOptions(spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED, execOptions)
-	})
+	}
+	tx, err := spanner.NewReadWriteStmtBasedTransactionWithCallbackForOptions(ctx, c.client, opts, txOptsCallback)
 	if err != nil {
 		cancel()
 		return nil, err
 	}
 	logger := c.logger.With("tx", "rw")
 	return &readWriteTransaction{
-		ctx:    ctx,
-		conn:   c,
-		logger: logger,
-		rwTx:   tx,
+		ctx:               ctx,
+		conn:              c,
+		logger:            logger,
+		rwTx:              tx,
+		savepoints:        make(map[string]savepoint),
+		txOptions:         opts,
+		txOptionsCallback: txOptsCallback,
 		close: func(result txResult, commitResponse *spanner.CommitResponse, commitErr error) {
 			c.prevTx = c.tx
 			if commitErr == nil {

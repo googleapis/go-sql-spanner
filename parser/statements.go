@@ -55,7 +55,15 @@ func parseStatement(parser *StatementParser, keyword, query string) (ParsedState
 	} else if isCommitStatementKeyword(keyword) {
 		stmt = &ParsedCommitStatement{}
 	} else if isRollbackStatementKeyword(keyword) {
-		stmt = &ParsedRollbackStatement{}
+		if isRollbackToSavepoint(parser, query) {
+			stmt = &ParsedRollbackToSavepointStatement{}
+		} else {
+			stmt = &ParsedRollbackStatement{}
+		}
+	} else if isSavepointStatementKeyword(keyword) {
+		stmt = &ParsedSavepointStatement{}
+	} else if isReleaseStatementKeyword(keyword) {
+		stmt = &ParsedReleaseSavepointStatement{}
 	} else {
 		return nil, nil
 	}
@@ -744,5 +752,122 @@ func (s *ParsedRollbackStatement) parse(parser *StatementParser, query string) e
 		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
 	}
 	s.query = query
+	return nil
+}
+
+func isRollbackToSavepoint(parser *StatementParser, query string) bool {
+	sp := &simpleParser{sql: []byte(query), statementParser: parser}
+	if !sp.eatKeyword("ROLLBACK") {
+		return false
+	}
+	if parser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		if sp.eatKeyword("TRANSACTION") || sp.eatKeyword("WORK") {
+			// ignore
+		}
+	} else {
+		_ = sp.eatKeyword("TRANSACTION")
+	}
+	return sp.eatKeyword("TO")
+}
+
+type ParsedSavepointStatement struct {
+	query         string
+	SavepointName string
+}
+
+func (s *ParsedSavepointStatement) Name() string {
+	return "SAVEPOINT"
+}
+
+func (s *ParsedSavepointStatement) Query() string {
+	return s.query
+}
+
+func (s *ParsedSavepointStatement) parse(parser *StatementParser, query string) error {
+	sp := &simpleParser{sql: []byte(query), statementParser: parser}
+	if !sp.eatKeyword("SAVEPOINT") {
+		return status.Error(codes.InvalidArgument, "statement does not start with SAVEPOINT")
+	}
+	name, err := sp.eatIdentifier()
+	if err != nil {
+		return err
+	}
+	if sp.hasMoreTokens() {
+		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
+	}
+	s.query = query
+	s.SavepointName = name.String()
+	return nil
+}
+
+type ParsedRollbackToSavepointStatement struct {
+	query         string
+	SavepointName string
+}
+
+func (s *ParsedRollbackToSavepointStatement) Name() string {
+	return "ROLLBACK TO SAVEPOINT"
+}
+
+func (s *ParsedRollbackToSavepointStatement) Query() string {
+	return s.query
+}
+
+func (s *ParsedRollbackToSavepointStatement) parse(parser *StatementParser, query string) error {
+	sp := &simpleParser{sql: []byte(query), statementParser: parser}
+	if !sp.eatKeyword("ROLLBACK") {
+		return status.Error(codes.InvalidArgument, "statement does not start with ROLLBACK")
+	}
+	if parser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		if sp.eatKeyword("TRANSACTION") || sp.eatKeyword("WORK") {
+			// ignore
+		}
+	} else {
+		_ = sp.eatKeyword("TRANSACTION")
+	}
+	if !sp.eatKeyword("TO") {
+		return status.Error(codes.InvalidArgument, "missing TO keyword")
+	}
+	_ = sp.eatKeyword("SAVEPOINT") // optional
+	name, err := sp.eatIdentifier()
+	if err != nil {
+		return err
+	}
+	if sp.hasMoreTokens() {
+		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
+	}
+	s.query = query
+	s.SavepointName = name.String()
+	return nil
+}
+
+type ParsedReleaseSavepointStatement struct {
+	query         string
+	SavepointName string
+}
+
+func (s *ParsedReleaseSavepointStatement) Name() string {
+	return "RELEASE SAVEPOINT"
+}
+
+func (s *ParsedReleaseSavepointStatement) Query() string {
+	return s.query
+}
+
+func (s *ParsedReleaseSavepointStatement) parse(parser *StatementParser, query string) error {
+	sp := &simpleParser{sql: []byte(query), statementParser: parser}
+	if !sp.eatKeyword("RELEASE") {
+		return status.Error(codes.InvalidArgument, "statement does not start with RELEASE")
+	}
+	_ = sp.eatKeyword("SAVEPOINT") // optional
+	name, err := sp.eatIdentifier()
+	if err != nil {
+		return err
+	}
+	if sp.hasMoreTokens() {
+		return status.Errorf(codes.InvalidArgument, "unexpected tokens at position %d in %q", sp.pos, sp.sql)
+	}
+	s.query = query
+	s.SavepointName = name.String()
 	return nil
 }
