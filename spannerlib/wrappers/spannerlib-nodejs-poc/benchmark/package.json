@@ -1,0 +1,12 @@
+{
+  "name": "spannerlib-nodejs-poc-benchmark",
+  "version": "1.0.0",
+  "description": "Benchmark for Spanner Node Wrappers POC",
+  "main": "benchmark.js",
+  "scripts": {
+    "test": "node benchmark.js"
+  },
+  "dependencies": {
+    "mitata": "^0.1.11"
+  }
+}
