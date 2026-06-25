@@ -131,51 +131,49 @@ func (s *spannerLibServer) ExecuteStreaming(request *pb.ExecuteRequest, stream g
 		return err
 	}
 	rows := &pb.Rows{Connection: request.Connection, Id: id}
-	return s.streamRows(queryContext, rows, stream)
+	return s.streamRows(queryContext, rows, request.FetchOptions, stream)
 }
 
-func (s *spannerLibServer) ContinueStreaming(rows *pb.Rows, stream grpc.ServerStreamingServer[pb.RowData]) error {
+func (s *spannerLibServer) ContinueStreaming(request *pb.ContinueStreamingRequest, stream grpc.ServerStreamingServer[pb.RowData]) error {
 	queryContext := stream.Context()
-	return s.streamRows(queryContext, rows, stream)
+	return s.streamRows(queryContext, request.Rows, request.FetchOptions, stream)
 }
 
-func (s *spannerLibServer) streamRows(queryContext context.Context, rows *pb.Rows, stream grpc.ServerStreamingServer[pb.RowData]) error {
-	defer func() { _ = api.CloseRows(context.Background(), rows.Connection.Pool.Id, rows.Connection.Id, rows.Id) }()
+func (s *spannerLibServer) streamRows(queryContext context.Context, rows *pb.Rows, fetchOpts *pb.FetchOptions, stream grpc.ServerStreamingServer[pb.RowData]) error {
+	if rows == nil || rows.Connection == nil || rows.Connection.Pool == nil {
+		return gstatus.Error(codes.InvalidArgument, "rows, connection, and pool must not be nil")
+	}
+	defer func() {
+		if rows != nil && rows.Connection != nil && rows.Connection.Pool != nil {
+			_ = api.CloseRows(context.Background(), rows.Connection.Pool.Id, rows.Connection.Id, rows.Id)
+		}
+	}()
 	metadata, err := api.Metadata(queryContext, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id)
 	if err != nil {
 		return err
 	}
 
+	batchSize := int64(1)
+	if fetchOpts != nil && fetchOpts.NumRows > 0 {
+		batchSize = fetchOpts.NumRows
+		if batchSize > api.MaxRowsPerBatch {
+			batchSize = api.MaxRowsPerBatch
+		}
+	}
+
 	first := true
 	for {
-		if row, err := api.NextBuffered(queryContext, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id); err != nil {
+		batch, err := api.Next(queryContext, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id, int32(batchSize))
+		if err != nil {
 			return err
-		} else {
-			if row == nil {
-				stats, err := api.ResultSetStats(queryContext, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id)
-				if err != nil {
-					return err
-				}
-				nextMetadata, nextResultSetErr := api.NextResultSet(queryContext, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id)
-				res := &pb.RowData{Rows: rows, Stats: stats, HasMoreResults: nextMetadata != nil || nextResultSetErr != nil}
-				if first {
-					res.Metadata = metadata
-					first = false
-				}
-				if err := stream.Send(res); err != nil {
-					return err
-				}
-				if nextResultSetErr != nil {
-					return nextResultSetErr
-				}
-				if res.HasMoreResults {
-					metadata = nextMetadata
-					first = true
-					continue
-				}
-				break
+		}
+		if len(batch) == 0 {
+			stats, err := api.ResultSetStats(queryContext, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id)
+			if err != nil {
+				return err
 			}
-			res := &pb.RowData{Rows: rows, Data: []*structpb.ListValue{row}}
+			nextMetadata, nextResultSetErr := api.NextResultSet(queryContext, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id)
+			res := &pb.RowData{Rows: rows, Stats: stats, HasMoreResults: nextMetadata != nil || nextResultSetErr != nil}
 			if first {
 				res.Metadata = metadata
 				first = false
@@ -183,6 +181,23 @@ func (s *spannerLibServer) streamRows(queryContext context.Context, rows *pb.Row
 			if err := stream.Send(res); err != nil {
 				return err
 			}
+			if nextResultSetErr != nil {
+				return nextResultSetErr
+			}
+			if res.HasMoreResults {
+				metadata = nextMetadata
+				first = true
+				continue
+			}
+			break
+		}
+		res := &pb.RowData{Rows: rows, Data: batch}
+		if first {
+			res.Metadata = metadata
+			first = false
+		}
+		if err := stream.Send(res); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -230,6 +245,9 @@ func (s *spannerLibServer) handleExecuteRequest(ctx context.Context, request *pb
 	maxFetchRows := int64(50)
 	if request.FetchOptions != nil && request.FetchOptions.NumRows > 0 {
 		maxFetchRows = request.FetchOptions.NumRows
+		if maxFetchRows > api.MaxRowsPerBatch {
+			maxFetchRows = api.MaxRowsPerBatch
+		}
 	}
 
 	rows, err := s.Execute(ctx, request)
@@ -252,26 +270,22 @@ func (s *spannerLibServer) handleExecuteRequest(ctx context.Context, request *pb
 		}
 		resultSet.Metadata = metadata
 		response.ExecuteResponse.ResultSets = append(response.ExecuteResponse.ResultSets, resultSet)
-		for {
-			row, err := api.Next(ctx, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id)
-			if err != nil {
-				if len(response.ExecuteResponse.ResultSets) == 1 {
-					return nil, err
-				}
-				// Remove the last result set from the response and return an error code for it instead.
-				response.ExecuteResponse.ResultSets = response.ExecuteResponse.ResultSets[:len(response.ExecuteResponse.ResultSets)-1]
-				response.ExecuteResponse.Status = gstatus.Convert(err).Proto()
-				return &pb.ConnectionStreamResponse{Status: &status.Status{}, Response: response}, nil
+		remainingToFetch := maxFetchRows - numRows
+		batch, err := api.Next(ctx, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id, int32(remainingToFetch))
+		if err != nil {
+			if len(response.ExecuteResponse.ResultSets) == 1 {
+				return nil, err
 			}
-			if row == nil {
-				break
-			}
-			resultSet.Rows = append(resultSet.Rows, row)
-			numRows++
-			if numRows == maxFetchRows {
-				response.ExecuteResponse.HasMoreResults = true
-				return &pb.ConnectionStreamResponse{Status: &status.Status{}, Response: response}, nil
-			}
+			// Remove the last result set from the response and return an error code for it instead.
+			response.ExecuteResponse.ResultSets = response.ExecuteResponse.ResultSets[:len(response.ExecuteResponse.ResultSets)-1]
+			response.ExecuteResponse.Status = gstatus.Convert(err).Proto()
+			return &pb.ConnectionStreamResponse{Status: &status.Status{}, Response: response}, nil
+		}
+		resultSet.Rows = append(resultSet.Rows, batch...)
+		numRows += int64(len(batch))
+		if numRows == maxFetchRows {
+			response.ExecuteResponse.HasMoreResults = true
+			return &pb.ConnectionStreamResponse{Status: &status.Status{}, Response: response}, nil
 		}
 
 		stats, err := api.ResultSetStats(ctx, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id)

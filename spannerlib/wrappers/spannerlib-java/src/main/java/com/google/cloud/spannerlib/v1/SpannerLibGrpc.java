@@ -570,27 +570,27 @@ public final class SpannerLibGrpc {
     return getConnectionStreamMethod;
   }
 
-  private static volatile io.grpc.MethodDescriptor<com.google.cloud.spannerlib.v1.Rows,
+  private static volatile io.grpc.MethodDescriptor<com.google.cloud.spannerlib.v1.ContinueStreamingRequest,
       com.google.cloud.spannerlib.v1.RowData> getContinueStreamingMethod;
 
   @io.grpc.stub.annotations.RpcMethod(
       fullMethodName = SERVICE_NAME + '/' + "ContinueStreaming",
-      requestType = com.google.cloud.spannerlib.v1.Rows.class,
+      requestType = com.google.cloud.spannerlib.v1.ContinueStreamingRequest.class,
       responseType = com.google.cloud.spannerlib.v1.RowData.class,
       methodType = io.grpc.MethodDescriptor.MethodType.SERVER_STREAMING)
-  public static io.grpc.MethodDescriptor<com.google.cloud.spannerlib.v1.Rows,
+  public static io.grpc.MethodDescriptor<com.google.cloud.spannerlib.v1.ContinueStreamingRequest,
       com.google.cloud.spannerlib.v1.RowData> getContinueStreamingMethod() {
-    io.grpc.MethodDescriptor<com.google.cloud.spannerlib.v1.Rows, com.google.cloud.spannerlib.v1.RowData> getContinueStreamingMethod;
+    io.grpc.MethodDescriptor<com.google.cloud.spannerlib.v1.ContinueStreamingRequest, com.google.cloud.spannerlib.v1.RowData> getContinueStreamingMethod;
     if ((getContinueStreamingMethod = SpannerLibGrpc.getContinueStreamingMethod) == null) {
       synchronized (SpannerLibGrpc.class) {
         if ((getContinueStreamingMethod = SpannerLibGrpc.getContinueStreamingMethod) == null) {
           SpannerLibGrpc.getContinueStreamingMethod = getContinueStreamingMethod =
-              io.grpc.MethodDescriptor.<com.google.cloud.spannerlib.v1.Rows, com.google.cloud.spannerlib.v1.RowData>newBuilder()
+              io.grpc.MethodDescriptor.<com.google.cloud.spannerlib.v1.ContinueStreamingRequest, com.google.cloud.spannerlib.v1.RowData>newBuilder()
               .setType(io.grpc.MethodDescriptor.MethodType.SERVER_STREAMING)
               .setFullMethodName(generateFullMethodName(SERVICE_NAME, "ContinueStreaming"))
               .setSampledToLocalTracing(true)
               .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
-                  com.google.cloud.spannerlib.v1.Rows.getDefaultInstance()))
+                  com.google.cloud.spannerlib.v1.ContinueStreamingRequest.getDefaultInstance()))
               .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
                   com.google.cloud.spannerlib.v1.RowData.getDefaultInstance()))
               .setSchemaDescriptor(new SpannerLibMethodDescriptorSupplier("ContinueStreaming"))
@@ -803,7 +803,7 @@ public final class SpannerLibGrpc {
      * of the ExecuteResponse was true.
      * </pre>
      */
-    default void continueStreaming(com.google.cloud.spannerlib.v1.Rows request,
+    default void continueStreaming(com.google.cloud.spannerlib.v1.ContinueStreamingRequest request,
         io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.RowData> responseObserver) {
       io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getContinueStreamingMethod(), responseObserver);
     }
@@ -993,7 +993,7 @@ public final class SpannerLibGrpc {
      * of the ExecuteResponse was true.
      * </pre>
      */
-    public void continueStreaming(com.google.cloud.spannerlib.v1.Rows request,
+    public void continueStreaming(com.google.cloud.spannerlib.v1.ContinueStreamingRequest request,
         io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.RowData> responseObserver) {
       io.grpc.stub.ClientCalls.asyncServerStreamingCall(
           getChannel().newCall(getContinueStreamingMethod(), getCallOptions()), request, responseObserver);
@@ -1161,7 +1161,7 @@ public final class SpannerLibGrpc {
      */
     @io.grpc.ExperimentalApi("https://github.com/grpc/grpc-java/issues/10918")
     public io.grpc.stub.BlockingClientCall<?, com.google.cloud.spannerlib.v1.RowData>
-        continueStreaming(com.google.cloud.spannerlib.v1.Rows request) {
+        continueStreaming(com.google.cloud.spannerlib.v1.ContinueStreamingRequest request) {
       return io.grpc.stub.ClientCalls.blockingV2ServerStreamingCall(
           getChannel(), getContinueStreamingMethod(), getCallOptions(), request);
     }
@@ -1312,7 +1312,7 @@ public final class SpannerLibGrpc {
      * </pre>
      */
     public java.util.Iterator<com.google.cloud.spannerlib.v1.RowData> continueStreaming(
-        com.google.cloud.spannerlib.v1.Rows request) {
+        com.google.cloud.spannerlib.v1.ContinueStreamingRequest request) {
       return io.grpc.stub.ClientCalls.blockingServerStreamingCall(
           getChannel(), getContinueStreamingMethod(), getCallOptions(), request);
     }
@@ -1569,7 +1569,7 @@ public final class SpannerLibGrpc {
               (io.grpc.stub.StreamObserver<com.google.spanner.v1.CommitResponse>) responseObserver);
           break;
         case METHODID_CONTINUE_STREAMING:
-          serviceImpl.continueStreaming((com.google.cloud.spannerlib.v1.Rows) request,
+          serviceImpl.continueStreaming((com.google.cloud.spannerlib.v1.ContinueStreamingRequest) request,
               (io.grpc.stub.StreamObserver<com.google.cloud.spannerlib.v1.RowData>) responseObserver);
           break;
         default:
@@ -1723,7 +1723,7 @@ public final class SpannerLibGrpc {
           getContinueStreamingMethod(),
           io.grpc.stub.ServerCalls.asyncServerStreamingCall(
             new MethodHandlers<
-              com.google.cloud.spannerlib.v1.Rows,
+              com.google.cloud.spannerlib.v1.ContinueStreamingRequest,
               com.google.cloud.spannerlib.v1.RowData>(
                 service, METHODID_CONTINUE_STREAMING)))
         .build();

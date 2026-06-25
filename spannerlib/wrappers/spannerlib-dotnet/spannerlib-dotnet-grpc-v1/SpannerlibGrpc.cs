@@ -87,6 +87,8 @@ namespace Google.Cloud.SpannerLib.V1 {
     static readonly grpc::Marshaller<global::Google.Cloud.SpannerLib.V1.ConnectionStreamRequest> __Marshaller_google_spannerlib_v1_ConnectionStreamRequest = grpc::Marshallers.Create(__Helper_SerializeMessage, context => __Helper_DeserializeMessage(context, global::Google.Cloud.SpannerLib.V1.ConnectionStreamRequest.Parser));
     [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]
     static readonly grpc::Marshaller<global::Google.Cloud.SpannerLib.V1.ConnectionStreamResponse> __Marshaller_google_spannerlib_v1_ConnectionStreamResponse = grpc::Marshallers.Create(__Helper_SerializeMessage, context => __Helper_DeserializeMessage(context, global::Google.Cloud.SpannerLib.V1.ConnectionStreamResponse.Parser));
+    [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]
+    static readonly grpc::Marshaller<global::Google.Cloud.SpannerLib.V1.ContinueStreamingRequest> __Marshaller_google_spannerlib_v1_ContinueStreamingRequest = grpc::Marshallers.Create(__Helper_SerializeMessage, context => __Helper_DeserializeMessage(context, global::Google.Cloud.SpannerLib.V1.ContinueStreamingRequest.Parser));
 
     [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]
     static readonly grpc::Method<global::Google.Cloud.SpannerLib.V1.InfoRequest, global::Google.Cloud.SpannerLib.V1.InfoResponse> __Method_Info = new grpc::Method<global::Google.Cloud.SpannerLib.V1.InfoRequest, global::Google.Cloud.SpannerLib.V1.InfoResponse>(
@@ -233,11 +235,11 @@ namespace Google.Cloud.SpannerLib.V1 {
         __Marshaller_google_spannerlib_v1_ConnectionStreamResponse);
 
     [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]
-    static readonly grpc::Method<global::Google.Cloud.SpannerLib.V1.Rows, global::Google.Cloud.SpannerLib.V1.RowData> __Method_ContinueStreaming = new grpc::Method<global::Google.Cloud.SpannerLib.V1.Rows, global::Google.Cloud.SpannerLib.V1.RowData>(
+    static readonly grpc::Method<global::Google.Cloud.SpannerLib.V1.ContinueStreamingRequest, global::Google.Cloud.SpannerLib.V1.RowData> __Method_ContinueStreaming = new grpc::Method<global::Google.Cloud.SpannerLib.V1.ContinueStreamingRequest, global::Google.Cloud.SpannerLib.V1.RowData>(
         grpc::MethodType.ServerStreaming,
         __ServiceName,
         "ContinueStreaming",
-        __Marshaller_google_spannerlib_v1_Rows,
+        __Marshaller_google_spannerlib_v1_ContinueStreamingRequest,
         __Marshaller_google_spannerlib_v1_RowData);
 
     /// <summary>Service descriptor</summary>
@@ -641,7 +643,7 @@ namespace Google.Cloud.SpannerLib.V1 {
       /// <param name="cancellationToken">An optional token for canceling the call.</param>
       /// <returns>The call object.</returns>
       [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]
-      public virtual grpc::AsyncServerStreamingCall<global::Google.Cloud.SpannerLib.V1.RowData> ContinueStreaming(global::Google.Cloud.SpannerLib.V1.Rows request, grpc::Metadata headers = null, global::System.DateTime? deadline = null, global::System.Threading.CancellationToken cancellationToken = default(global::System.Threading.CancellationToken))
+      public virtual grpc::AsyncServerStreamingCall<global::Google.Cloud.SpannerLib.V1.RowData> ContinueStreaming(global::Google.Cloud.SpannerLib.V1.ContinueStreamingRequest request, grpc::Metadata headers = null, global::System.DateTime? deadline = null, global::System.Threading.CancellationToken cancellationToken = default(global::System.Threading.CancellationToken))
       {
         return ContinueStreaming(request, new grpc::CallOptions(headers, deadline, cancellationToken));
       }
@@ -655,7 +657,7 @@ namespace Google.Cloud.SpannerLib.V1 {
       /// <param name="options">The options for the call.</param>
       /// <returns>The call object.</returns>
       [global::System.CodeDom.Compiler.GeneratedCode("grpc_csharp_plugin", null)]
-      public virtual grpc::AsyncServerStreamingCall<global::Google.Cloud.SpannerLib.V1.RowData> ContinueStreaming(global::Google.Cloud.SpannerLib.V1.Rows request, grpc::CallOptions options)
+      public virtual grpc::AsyncServerStreamingCall<global::Google.Cloud.SpannerLib.V1.RowData> ContinueStreaming(global::Google.Cloud.SpannerLib.V1.ContinueStreamingRequest request, grpc::CallOptions options)
       {
         return CallInvoker.AsyncServerStreamingCall(__Method_ContinueStreaming, null, options, request);
       }

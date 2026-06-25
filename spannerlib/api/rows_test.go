@@ -25,9 +25,11 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestExecute(t *testing.T) {
@@ -234,11 +236,11 @@ func TestExecuteMultiStatement(t *testing.T) {
 			for {
 				rowCount := 0
 				for {
-					row, err := Next(ctx, poolId, connId, rowsId)
+					rowBatch, err := Next(ctx, poolId, connId, rowsId, 1)
 					if err != nil {
 						t.Fatalf("Next returned unexpected error: %v", err)
 					}
-					if row == nil {
+					if len(rowBatch) == 0 {
 						break
 					}
 					rowCount++
@@ -315,12 +317,12 @@ func TestExecuteMultiStatement_MoveToNextResultSetHalfway(t *testing.T) {
 	}
 
 	// Read one row from the first result set.
-	row, err := Next(ctx, poolId, connId, rowsId)
+	rowBatch, err := Next(ctx, poolId, connId, rowsId, 1)
 	if err != nil {
 		t.Fatalf("Next returned unexpected error: %v", err)
 	}
-	if row == nil {
-		t.Fatal("Next returned unexpected nil row")
+	if len(rowBatch) == 0 {
+		t.Fatal("Next returned unexpected empty batch")
 	}
 	// Then move to the next result set.
 	metadata, err := NextResultSet(ctx, poolId, connId, rowsId)
@@ -332,12 +334,12 @@ func TestExecuteMultiStatement_MoveToNextResultSetHalfway(t *testing.T) {
 	}
 	// Try to read two rows from the second result set.
 	for range 2 {
-		row, err := Next(ctx, poolId, connId, rowsId)
+		rowBatch, err := Next(ctx, poolId, connId, rowsId, 1)
 		if err != nil {
 			t.Fatalf("Next returned unexpected error: %v", err)
 		}
-		if row == nil {
-			t.Fatal("Next returned unexpected nil row")
+		if len(rowBatch) == 0 {
+			t.Fatal("Next returned unexpected empty batch")
 		}
 	}
 
@@ -355,6 +357,58 @@ func TestExecuteMultiStatement_MoveToNextResultSetHalfway(t *testing.T) {
 	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
 	if g, w := len(executeRequests), 2; g != w {
 		t.Fatalf("num ExecuteSql requests mismatch\n Got: %d\nWant: %d", g, w)
+	}
+}
+
+func TestExecuteMultiStatement_MoveToNextResultSetWithoutReading(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolId, err := CreatePool(ctx, "test", dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	defer ClosePool(ctx, poolId)
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	defer CloseConnection(ctx, poolId, connId)
+	rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{
+		Sql: fmt.Sprintf("%s;%s", testutil.SelectFooFromBar, testutil.SelectFooFromBar),
+	})
+	if rowsId == 0 {
+		t.Fatal("Execute returned unexpected zero id")
+	}
+	defer CloseRows(ctx, poolId, connId, rowsId)
+
+	// Move to the next result set immediately, without calling Next at all!
+	metadata, err := NextResultSet(ctx, poolId, connId, rowsId)
+	if err != nil {
+		t.Fatalf("NextResultSet returned unexpected error: %v", err)
+	}
+	if metadata == nil {
+		t.Fatal("NextResultSet returned unexpected nil metadata")
+	}
+	// Try to read two rows from the second result set.
+	for range 2 {
+		rowBatch, err := Next(ctx, poolId, connId, rowsId, 1)
+		if err != nil {
+			t.Fatalf("Next returned unexpected error: %v", err)
+		}
+		if g, w := len(rowBatch), 1; g != w {
+			t.Fatalf("Next returned unexpected empty batch\nGot:  %v\nWant: %v", g, w)
+		}
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 2; g != w {
+		t.Fatalf("num ExecuteSql requests mismatch\nGot:  %v\nWant: %v", g, w)
 	}
 }
 
@@ -437,5 +491,315 @@ func TestAnalyze(t *testing.T) {
 
 	if err := ClosePool(ctx, poolId); err != nil {
 		t.Fatalf("ClosePool returned unexpected error: %v", err)
+	}
+}
+
+func TestNextBatchSize(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	// Set up a query with 10 rows
+	values := []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	resultSet := testutil.CreateSingleColumnInt64ResultSet(values, "ID")
+	result := &testutil.StatementResult{Type: testutil.StatementResultResultSet, ResultSet: resultSet}
+	const query = "SELECT id FROM test_table"
+	_ = server.TestSpanner.PutStatementResult(query, result)
+
+	poolId, err := CreatePool(ctx, "test", dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	defer ClosePool(ctx, poolId)
+
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	defer CloseConnection(ctx, poolId, connId)
+
+	// We run multiple subtests with different batch sizes.
+	for _, batchSize := range []int32{1, 2, 5, 10, 15} {
+		t.Run(fmt.Sprintf("batchSize_%d", batchSize), func(t *testing.T) {
+			rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{
+				Sql: query,
+			})
+			if err != nil {
+				t.Fatalf("Execute returned unexpected error: %v", err)
+			}
+			defer CloseRows(ctx, poolId, connId, rowsId)
+
+			var fetchedValues []int64
+			for {
+				rowBatch, err := Next(ctx, poolId, connId, rowsId, batchSize)
+				if err != nil {
+					t.Fatalf("Next returned unexpected error: %v", err)
+				}
+				if len(rowBatch) == 0 {
+					break
+				}
+
+				// Assert that the returned batch size is less than or equal to batchSize
+				if g, w := int32(len(rowBatch)), batchSize; g > w {
+					t.Fatalf("batch size exceeded: got %d, max %d", g, w)
+				}
+
+				for _, row := range rowBatch {
+					if len(row.Values) != 1 {
+						t.Fatalf("row should have exactly 1 column, got %d", len(row.Values))
+					}
+					var id int64
+					strVal := row.Values[0].GetStringValue()
+					if _, err := fmt.Sscanf(strVal, "%d", &id); err != nil {
+						t.Fatalf("failed to parse value %q: %v", strVal, err)
+					}
+					fetchedValues = append(fetchedValues, id)
+				}
+			}
+
+			if g, w := fetchedValues, values; !reflect.DeepEqual(g, w) {
+				t.Fatalf("fetched values mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+
+	// Test error when batchSize <= 0
+	for _, batchSize := range []int32{0, -1, -50} {
+		t.Run(fmt.Sprintf("invalid_batchSize_%d", batchSize), func(t *testing.T) {
+			rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{
+				Sql: query,
+			})
+			if err != nil {
+				t.Fatalf("Execute returned unexpected error: %v", err)
+			}
+			defer CloseRows(ctx, poolId, connId, rowsId)
+
+			_, err = Next(ctx, poolId, connId, rowsId, batchSize)
+			if err == nil {
+				t.Fatalf("Next with batchSize %d expected error, got nil", batchSize)
+			}
+			if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
+				t.Fatalf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+
+	// Test capping when batchSize > MaxRowsPerBatch
+	t.Run("capped_batchSize_large", func(t *testing.T) {
+		rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{
+			Sql: query,
+		})
+		if err != nil {
+			t.Fatalf("Execute returned unexpected error: %v", err)
+		}
+		defer CloseRows(ctx, poolId, connId, rowsId)
+
+		rowBatch, err := Next(ctx, poolId, connId, rowsId, 200000)
+		if err != nil {
+			t.Fatalf("Next with large batch size returned unexpected error: %v", err)
+		}
+		if g, w := len(rowBatch), 10; g != w {
+			t.Fatalf("expected all 10 rows to be returned\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+}
+
+func TestExecuteMultiStatement_DifferentColumnCount(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolId, err := CreatePool(ctx, "test", dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	defer ClosePool(ctx, poolId)
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	defer CloseConnection(ctx, poolId, connId)
+	rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{
+		Sql: fmt.Sprintf("%s;%s", testutil.SelectFooFromBar, testutil.SelectSingerIDAlbumIDAlbumTitleFromAlbums),
+	})
+	if rowsId == 0 {
+		t.Fatal("Execute returned unexpected zero id")
+	}
+	defer CloseRows(ctx, poolId, connId, rowsId)
+
+	// 1. Read first result set (which has 1 column).
+	rowBatch, err := Next(ctx, poolId, connId, rowsId, 10)
+	if err != nil {
+		t.Fatalf("Next returned unexpected error: %v", err)
+	}
+	if g, w := len(rowBatch), 2; g != w {
+		t.Fatalf("first result set row count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	for _, row := range rowBatch {
+		if g, w := len(row.Values), 1; g != w {
+			t.Fatalf("first result set column count mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	}
+
+	// 2. Move to next result set (which has 3 columns).
+	metadata, err := NextResultSet(ctx, poolId, connId, rowsId)
+	if err != nil {
+		t.Fatalf("NextResultSet returned unexpected error: %v", err)
+	}
+	if metadata == nil {
+		t.Fatal("NextResultSet returned unexpected nil metadata")
+	}
+	if g, w := len(metadata.RowType.Fields), 3; g != w {
+		t.Fatalf("second result set metadata columns mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// 3. Read second result set (which has 3 columns).
+	rowBatch2, err := Next(ctx, poolId, connId, rowsId, 10)
+	if err != nil {
+		t.Fatalf("Next returned unexpected error on second result set: %v", err)
+	}
+	if g, w := len(rowBatch2), int(testutil.SelectSingerIDAlbumIDAlbumTitleFromAlbumsRowCount); g != w {
+		t.Fatalf("second result set row count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	for _, row := range rowBatch2 {
+		if g, w := len(row.Values), 3; g != w {
+			t.Fatalf("second result set column count mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	}
+}
+
+func TestNext_DoneOnError(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	query := "SELECT * FROM broken_table"
+	// Setup query returning 2 rows.
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type:      testutil.StatementResultResultSet,
+		ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{1, 2}, "c"),
+	})
+
+	// Inject error on the second PartialResultSet (ResumeToken = 2).
+	server.TestSpanner.AddPartialResultSetError(query, testutil.PartialResultSetExecutionTime{
+		ResumeToken: testutil.EncodeResumeToken(2),
+		Err:         status.Error(codes.Internal, "broken connection"),
+	})
+
+	poolId, err := CreatePool(ctx, "test", dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	defer ClosePool(ctx, poolId)
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	defer CloseConnection(ctx, poolId, connId)
+	rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: query})
+	if rowsId == 0 {
+		t.Fatal("Execute returned unexpected zero id")
+	}
+	defer CloseRows(ctx, poolId, connId, rowsId)
+
+	// 1. Fetch first row (batchSize=1) -> should succeed.
+	rowBatch, err := Next(ctx, poolId, connId, rowsId, 1)
+	if err != nil {
+		t.Fatalf("First Next() returned unexpected error: %v", err)
+	}
+	if g, w := len(rowBatch), 1; g != w {
+		t.Fatalf("first row batch count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// 2. Fetch second row (batchSize=1) -> should return the injected error.
+	_, err = Next(ctx, poolId, connId, rowsId, 1)
+	if err == nil {
+		t.Fatal("Second Next() expected error but got nil")
+	}
+	if g, w := status.Code(err), codes.Internal; g != w {
+		t.Fatalf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// 3. Fetch third row (batchSize=1) -> since rows.done is now true, it should immediately return EOF (empty batch, no error).
+	rowBatch3, err := Next(ctx, poolId, connId, rowsId, 1)
+	if err != nil {
+		t.Fatalf("Third Next() returned unexpected error: %v", err)
+	}
+	if g, w := len(rowBatch3), 0; g != w {
+		t.Fatalf("third row batch count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestNextBuffered_DoneOnError(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	query := "SELECT * FROM broken_table"
+	// Setup query returning 2 rows.
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type:      testutil.StatementResultResultSet,
+		ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{1, 2}, "c"),
+	})
+
+	// Inject error on the second PartialResultSet (ResumeToken = 2).
+	server.TestSpanner.AddPartialResultSetError(query, testutil.PartialResultSetExecutionTime{
+		ResumeToken: testutil.EncodeResumeToken(2),
+		Err:         status.Error(codes.Internal, "broken connection"),
+	})
+
+	poolId, err := CreatePool(ctx, "test", dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	defer ClosePool(ctx, poolId)
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	defer CloseConnection(ctx, poolId, connId)
+	rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: query})
+	if rowsId == 0 {
+		t.Fatal("Execute returned unexpected zero id")
+	}
+	defer CloseRows(ctx, poolId, connId, rowsId)
+
+	// 1. Fetch first row -> should succeed.
+	row, err := NextBuffered(ctx, poolId, connId, rowsId)
+	if err != nil {
+		t.Fatalf("First NextBuffered() returned unexpected error: %v", err)
+	}
+	if row == nil {
+		t.Fatal("First NextBuffered() returned unexpected nil row")
+	}
+
+	// 2. Fetch second row -> should return the injected error.
+	_, err = NextBuffered(ctx, poolId, connId, rowsId)
+	if err == nil {
+		t.Fatal("Second NextBuffered() expected error but got nil")
+	}
+	if g, w := status.Code(err), codes.Internal; g != w {
+		t.Fatalf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// 3. Fetch third row -> since rows.done is now true, it should immediately return EOF (nil, no error).
+	row3, err := NextBuffered(ctx, poolId, connId, rowsId)
+	if err != nil {
+		t.Fatalf("Third NextBuffered() returned unexpected error: %v", err)
+	}
+	if g, w := row3, (*structpb.ListValue)(nil); g != w {
+		t.Fatalf("expected third NextBuffered() to return nil (EOF)\nGot:  %v\nWant: %v", g, w)
 	}
 }

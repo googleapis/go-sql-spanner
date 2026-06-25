@@ -249,6 +249,84 @@ func TestExecuteStreaming(t *testing.T) {
 	}
 }
 
+func TestExecuteStreamingBatchSize(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	server, teardown := setupMockSpannerServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	// Set up a query with 10 rows
+	values := []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	resultSet := testutil.CreateSingleColumnInt64ResultSet(values, "ID")
+	result := &testutil.StatementResult{Type: testutil.StatementResultResultSet, ResultSet: resultSet}
+	const query = "SELECT id FROM test_table"
+	_ = server.TestSpanner.PutStatementResult(query, result)
+
+	client, cleanup := startTestSpannerLibServer(t)
+	defer cleanup()
+
+	pool, err := client.CreatePool(ctx, &pb.CreatePoolRequest{ConnectionString: dsn})
+	if err != nil {
+		t.Fatalf("failed to create pool: %v", err)
+	}
+	defer client.ClosePool(ctx, pool)
+
+	connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
+	if err != nil {
+		t.Fatalf("failed to create connection: %v", err)
+	}
+	defer client.CloseConnection(ctx, connection)
+
+	// Execute streaming with batch size = 4
+	const batchSize = int64(4)
+	stream, err := client.ExecuteStreaming(ctx, &pb.ExecuteRequest{
+		Connection: connection,
+		ExecuteSqlRequest: &sppb.ExecuteSqlRequest{
+			Sql: query,
+		},
+		FetchOptions: &pb.FetchOptions{
+			NumRows: batchSize,
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to execute streaming: %v", err)
+	}
+
+	var fetchedValues []int64
+	for {
+		resp, err := stream.Recv()
+		if err != nil {
+			t.Fatalf("failed to receive response from stream: %v", err)
+		}
+		if len(resp.Data) == 0 {
+			break
+		}
+
+		// Assert that the returned batch size is less than or equal to batchSize
+		if g, w := int64(len(resp.Data)), batchSize; g > w {
+			t.Fatalf("batch size exceeded: got %d, max %d", g, w)
+		}
+
+		for _, row := range resp.Data {
+			if len(row.Values) != 1 {
+				t.Fatalf("row should have exactly 1 column, got %d", len(row.Values))
+			}
+			var id int64
+			strVal := row.Values[0].GetStringValue()
+			if _, err := fmt.Sscanf(strVal, "%d", &id); err != nil {
+				t.Fatalf("failed to parse value %q: %v", strVal, err)
+			}
+			fetchedValues = append(fetchedValues, id)
+		}
+	}
+
+	if g, w := fetchedValues, values; !reflect.DeepEqual(g, w) {
+		t.Fatalf("fetched values mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
 func TestExecuteStreamingMultiQuery(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -1618,7 +1696,9 @@ func TestBidiStreamLargeResult(t *testing.T) {
 		}
 	}
 	if response.GetExecuteResponse().HasMoreResults {
-		stream, err := client.ContinueStreaming(ctx, response.GetExecuteResponse().Rows)
+		stream, err := client.ContinueStreaming(ctx, &pb.ContinueStreamingRequest{
+			Rows: response.GetExecuteResponse().Rows,
+		})
 		if err != nil {
 			t.Fatalf("failed to open stream: %v", err)
 		}
@@ -1724,7 +1804,9 @@ func TestRunPartitionedQuery(t *testing.T) {
 				}
 			}
 			if response.GetExecuteResponse().HasMoreResults {
-				stream, err := client.ContinueStreaming(ctx, response.GetExecuteResponse().Rows)
+				stream, err := client.ContinueStreaming(ctx, &pb.ContinueStreamingRequest{
+					Rows: response.GetExecuteResponse().Rows,
+				})
 				if err != nil {
 					t.Fatalf("failed to open stream: %v", err)
 				}

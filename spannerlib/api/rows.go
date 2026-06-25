@@ -34,6 +34,10 @@ const (
 	EncodeRowOptionProto EncodeRowOption = iota
 )
 
+const (
+	MaxRowsPerBatch = 100000
+)
+
 // Metadata returns the ResultSetMetadata of the given rows.
 // This function can be called for any type of statement (queries, DML, DDL).
 func Metadata(_ context.Context, poolId, connId, rowsId int64) (*spannerpb.ResultSetMetadata, error) {
@@ -77,9 +81,13 @@ func NextEncoded(ctx context.Context, poolId, connId, rowsId int64) ([]byte, err
 	return bytes, nil
 }
 
-// Next returns the next row as a protobuf ListValue.
-func Next(ctx context.Context, poolId, connId, rowsId int64) (*structpb.ListValue, error) {
-	return nextWithBufferOption(ctx, poolId, connId, rowsId /*resetBuffer=*/, true)
+// Next returns the next up to numRows rows as a slice of protobuf ListValue.
+func Next(ctx context.Context, poolId, connId, rowsId int64, numRows int32) ([]*structpb.ListValue, error) {
+	rows, err := findRows(poolId, connId, rowsId)
+	if err != nil {
+		return nil, err
+	}
+	return rows.nextBatch(ctx, numRows)
 }
 
 // NextBuffered returns the next row as a protobuf ListValue.
@@ -222,6 +230,56 @@ func (gv *genericValue) Scan(src any) error {
 	return errors.New("cannot convert value to generic column value")
 }
 
+func (rows *rows) nextBatch(ctx context.Context, numRows int32) ([]*structpb.ListValue, error) {
+	if numRows <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "numRows must be greater than 0")
+	}
+	if numRows > MaxRowsPerBatch {
+		numRows = MaxRowsPerBatch
+	}
+	if !hasFields(rows.metadata) || rows.done {
+		return nil, nil
+	}
+	if rows.stats != nil {
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot read more data after returning stats"))
+	}
+
+	var batch []*structpb.ListValue
+	numFields := len(rows.metadata.RowType.Fields)
+
+	if len(rows.buffer) != numFields {
+		rows.buffer = make([]any, numFields)
+		for i := range rows.buffer {
+			rows.buffer[i] = &genericValue{}
+		}
+	}
+
+	for i := int32(0); i < numRows; i++ {
+		ok := rows.backend.Next()
+		if !ok {
+			rows.done = true
+			if err := rows.backend.Err(); err != nil {
+				return nil, err
+			}
+			if err := rows.readStats(ctx); err != nil {
+				return nil, err
+			}
+			break
+		}
+		if err := rows.backend.Scan(rows.buffer...); err != nil {
+			return nil, err
+		}
+		values := &structpb.ListValue{
+			Values: make([]*structpb.Value, numFields),
+		}
+		for j := range rows.buffer {
+			values.Values[j] = rows.buffer[j].(*genericValue).v
+		}
+		batch = append(batch, values)
+	}
+	return batch, nil
+}
+
 func (rows *rows) Next(ctx context.Context) (*structpb.ListValue, error) {
 	// No columns means no rows, so just return nil to indicate that there are no (more) rows.
 	if !hasFields(rows.metadata) || rows.done {
@@ -231,11 +289,11 @@ func (rows *rows) Next(ctx context.Context) (*structpb.ListValue, error) {
 		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot read more data after returning stats"))
 	}
 	ok := rows.backend.Next()
-	if !ok && rows.backend.Err() != nil {
-		return nil, rows.backend.Err()
-	}
 	if !ok {
 		rows.done = true
+		if err := rows.backend.Err(); err != nil {
+			return nil, err
+		}
 		// No more rows. Read stats and return nil.
 		if err := rows.readStats(ctx); err != nil {
 			return nil, err

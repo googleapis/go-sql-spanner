@@ -18,6 +18,8 @@ using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib.MockServer;
 using Google.Rpc;
 using Grpc.Core;
+using Google.Cloud.SpannerLib.Grpc;
+using Google.Cloud.SpannerLib.Native.Impl;
 using TypeCode = Google.Cloud.Spanner.V1.TypeCode;
 
 namespace Google.Cloud.SpannerLib.Tests;
@@ -618,5 +620,394 @@ public class RowsTests : AbstractMockServerTests
         Assert.That(totalRows, Is.EqualTo(expectedRowCount));
         Assert.That(totalUpdateCount, Is.EqualTo(expectedUpdateCount));
         Assert.That(numResultSets, Is.EqualTo(errorIndex));
+    }
+
+    [Test]
+    public void TestStreamErrorHalfway([Values] LibType libType, [Values(0, 1, 5, 10)] int prefetchRows)
+    {
+        var rowType = RandomResultSetGenerator.GenerateAllTypesRowType();
+        var results = RandomResultSetGenerator.Generate(rowType, 10);
+        const string query = "select * from random";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(query, StatementResult.CreateQuery(results));
+
+        var rpcException = new RpcException(new global::Grpc.Core.Status(StatusCode.Internal, "Stream broke halfway"));
+        var permissions = new System.Collections.Concurrent.BlockingCollection<int>();
+        var executionTime = ExecutionTime.StreamException(rpcException, 3, permissions);
+        executionTime.AlwaysAllowWrite();
+
+        try
+        {
+            Fixture.SpannerMock.AddOrUpdateExecutionTime(nameof(Fixture.SpannerMock.ExecuteStreamingSql), executionTime);
+
+            using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+            using var connection = pool.CreateConnection();
+
+            var rowCount = 0;
+            SpannerException exception;
+            var spannerLib = SpannerLibDictionary[libType];
+            bool expectThrowInExecute = false;
+            if (spannerLib is GrpcLibSpanner grpcLib)
+            {
+                if (grpcLib.Communication == GrpcLibSpanner.CommunicationStyle.ServerStreaming)
+                {
+                    expectThrowInExecute = prefetchRows > 1;
+                }
+                else if (grpcLib.Communication == GrpcLibSpanner.CommunicationStyle.BidiStreaming)
+                {
+                    expectThrowInExecute = prefetchRows != 1;
+                }
+            }
+
+            Rows? rows = null;
+            if (!expectThrowInExecute)
+            {
+                rows = connection.Execute(new ExecuteSqlRequest { Sql = query }, prefetchRows);
+            }
+
+            try
+            {
+                exception = Assert.Throws<SpannerException>((Action)(() =>
+                {
+                    rows ??= connection.Execute(new ExecuteSqlRequest { Sql = query }, prefetchRows);
+                    while (rows.Next() is not null)
+                    {
+                        rowCount++;
+                    }
+                }));
+            }
+            finally
+            {
+                rows?.Dispose();
+            }
+
+            Assert.That(rowCount, Is.EqualTo(expectThrowInExecute ? 0 : 3));
+            Assert.That(exception.Code, Is.EqualTo(Code.Internal));
+            Assert.That(exception.Message, Does.Contain("Stream broke halfway"));
+        }
+        finally
+        {
+            Fixture.SpannerMock.RemoveExecutionTime(nameof(Fixture.SpannerMock.ExecuteStreamingSql));
+        }
+    }
+
+    [Test]
+    public async Task TestStreamErrorHalfwayAsync([Values] LibType libType, [Values(0, 1, 5, 10)] int prefetchRows)
+    {
+        var rowType = RandomResultSetGenerator.GenerateAllTypesRowType();
+        var results = RandomResultSetGenerator.Generate(rowType, 10);
+        const string query = "select * from random";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(query, StatementResult.CreateQuery(results));
+
+        var rpcException = new RpcException(new global::Grpc.Core.Status(StatusCode.Internal, "Stream broke halfway"));
+        var permissions = new System.Collections.Concurrent.BlockingCollection<int>();
+        var executionTime = ExecutionTime.StreamException(rpcException, 3, permissions);
+        executionTime.AlwaysAllowWrite();
+
+        try
+        {
+            Fixture.SpannerMock.AddOrUpdateExecutionTime(nameof(Fixture.SpannerMock.ExecuteStreamingSql), executionTime);
+
+            await using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+            await using var connection = pool.CreateConnection();
+
+            var rowCount = 0;
+            SpannerException exception;
+            var spannerLib = SpannerLibDictionary[libType];
+            bool expectThrowInExecute = false;
+            if (spannerLib is GrpcLibSpanner grpcLib)
+            {
+                if (grpcLib.Communication == GrpcLibSpanner.CommunicationStyle.ServerStreaming)
+                {
+                    expectThrowInExecute = prefetchRows > 1;
+                }
+                else if (grpcLib.Communication == GrpcLibSpanner.CommunicationStyle.BidiStreaming)
+                {
+                    expectThrowInExecute = prefetchRows != 1;
+                }
+            }
+
+            Rows? rows = null;
+            if (!expectThrowInExecute)
+            {
+                rows = await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = query }, prefetchRows);
+            }
+
+            try
+            {
+                exception = Assert.ThrowsAsync<SpannerException>((Func<Task>)(async () =>
+                {
+                    if (rows == null)
+                    {
+                        rows = await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = query }, prefetchRows);
+                    }
+                    while (await rows.NextAsync() is not null)
+                    {
+                        rowCount++;
+                    }
+                }));
+            }
+            finally
+            {
+                if (rows != null)
+                {
+                    await rows.DisposeAsync();
+                }
+            }
+
+            Assert.That(rowCount, Is.EqualTo(expectThrowInExecute ? 0 : 3));
+            Assert.That(exception.Code, Is.EqualTo(Code.Internal));
+            Assert.That(exception.Message, Does.Contain("Stream broke halfway"));
+        }
+        finally
+        {
+            Fixture.SpannerMock.RemoveExecutionTime(nameof(Fixture.SpannerMock.ExecuteStreamingSql));
+        }
+    }
+
+    [Test]
+    public void TestStreamErrorSecondBatch([Values] LibType libType, [Values(5)] int prefetchRows)
+    {
+        var rowType = RandomResultSetGenerator.GenerateAllTypesRowType();
+        var results = RandomResultSetGenerator.Generate(rowType, 10);
+        const string query = "select * from random";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(query, StatementResult.CreateQuery(results));
+
+        var rpcException = new RpcException(new global::Grpc.Core.Status(StatusCode.Internal, "Stream broke halfway"));
+        var permissions = new System.Collections.Concurrent.BlockingCollection<int>();
+        var executionTime = ExecutionTime.StreamException(rpcException, 6, permissions);
+        executionTime.AlwaysAllowWrite();
+
+        try
+        {
+            Fixture.SpannerMock.AddOrUpdateExecutionTime(nameof(Fixture.SpannerMock.ExecuteStreamingSql), executionTime);
+
+            using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+            using var connection = pool.CreateConnection();
+            using var rows = connection.Execute(new ExecuteSqlRequest { Sql = query }, prefetchRows);
+
+            var rowCount = 0;
+            var exception = Assert.Throws<SpannerException>((Action)(() =>
+            {
+                while (rows.Next() is not null)
+                {
+                    rowCount++;
+                }
+            }));
+
+            Assert.That(exception.Code, Is.EqualTo(Code.Internal));
+            Assert.That(exception.Message, Does.Contain("Stream broke halfway"));
+            Assert.That(rowCount, Is.EqualTo(SpannerLibDictionary[libType] is SharedLibSpanner ? 6 : 5));
+        }
+        finally
+        {
+            Fixture.SpannerMock.RemoveExecutionTime(nameof(Fixture.SpannerMock.ExecuteStreamingSql));
+        }
+    }
+
+    [Test]
+    public async Task TestStreamErrorSecondBatchAsync([Values] LibType libType, [Values(5)] int prefetchRows)
+    {
+        var rowType = RandomResultSetGenerator.GenerateAllTypesRowType();
+        var results = RandomResultSetGenerator.Generate(rowType, 10);
+        const string query = "select * from random";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(query, StatementResult.CreateQuery(results));
+
+        var rpcException = new RpcException(new global::Grpc.Core.Status(StatusCode.Internal, "Stream broke halfway"));
+        var permissions = new System.Collections.Concurrent.BlockingCollection<int>();
+        var executionTime = ExecutionTime.StreamException(rpcException, 6, permissions);
+        executionTime.AlwaysAllowWrite();
+
+        try
+        {
+            Fixture.SpannerMock.AddOrUpdateExecutionTime(nameof(Fixture.SpannerMock.ExecuteStreamingSql), executionTime);
+
+            await using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+            await using var connection = pool.CreateConnection();
+            await using var rows = await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = query }, prefetchRows);
+
+            var rowCount = 0;
+            var exception = Assert.ThrowsAsync<SpannerException>((Func<Task>)(async () =>
+            {
+                while (await rows.NextAsync() is not null)
+                {
+                    rowCount++;
+                }
+            }));
+
+            Assert.That(exception.Code, Is.EqualTo(Code.Internal));
+            Assert.That(exception.Message, Does.Contain("Stream broke halfway"));
+            Assert.That(rowCount, Is.EqualTo(SpannerLibDictionary[libType] is SharedLibSpanner ? 6 : 5));
+        }
+        finally
+        {
+            Fixture.SpannerMock.RemoveExecutionTime(nameof(Fixture.SpannerMock.ExecuteStreamingSql));
+        }
+    }
+
+    [Test]
+    public void TestStopHalfwayClearBuffer([Values] LibType libType, [Values(1, 5, 10)] int prefetchRows, [Values] bool async)
+    {
+        const string query1 = "select c from query1";
+        const string query2 = "select c from query2";
+        
+        Fixture.SpannerMock.AddOrUpdateStatementResult(query1, StatementResult.CreateResultSet(
+            [Tuple.Create(TypeCode.String, "c")], 
+            [["Q1_R1"], ["Q1_R2"], ["Q1_R3"], ["Q1_R4"], ["Q1_R5"]]
+        ));
+        Fixture.SpannerMock.AddOrUpdateStatementResult(query2, StatementResult.CreateResultSet(
+            [Tuple.Create(TypeCode.String, "c")], 
+            [["Q2_R1"], ["Q2_R2"], ["Q2_R3"]]
+        ));
+
+        var sql = $"{query1};{query2}";
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        using var connection = pool.CreateConnection();
+        
+        // ReSharper disable once MethodHasAsyncOverload
+        using var rows = async 
+            ? Task.Run(async () => await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = sql }, prefetchRows)).Result
+            : connection.Execute(new ExecuteSqlRequest { Sql = sql }, prefetchRows);
+
+        // Read only 2 rows of query 1 (leaving 3 rows buffered if prefetchRows >= 3).
+        for (var i = 1; i <= 2; i++)
+        {
+            var row = async ? Task.Run(async () => await rows.NextAsync()).Result : rows.Next();
+            Assert.That(row, Is.Not.Null);
+            Assert.That(row.Values[0].StringValue, Is.EqualTo($"Q1_R{i}"));
+        }
+
+        // Move to query 2.
+        var hasNext = async ? Task.Run(async () => await rows.NextResultSetAsync()).Result : rows.NextResultSet();
+        Assert.That(hasNext, Is.True);
+
+        // Read first row of query 2 -> must be "Q2_R1", not a buffered "Q1_R3"!
+        var rowQ2 = async ? Task.Run(async () => await rows.NextAsync()).Result : rows.Next();
+        Assert.That(rowQ2, Is.Not.Null);
+        Assert.That(rowQ2.Values[0].StringValue, Is.EqualTo("Q2_R1"));
+    }
+
+    [Test]
+    public void TestMetadataClearedOnDml([Values] LibType libType)
+    {
+        const string selectQuery = "select c from table1";
+        const string dmlQuery = "update table1 set c=1";
+        
+        Fixture.SpannerMock.AddOrUpdateStatementResult(selectQuery, StatementResult.CreateResultSet(
+            [Tuple.Create(TypeCode.Int64, "c")], [[1L]]));
+        Fixture.SpannerMock.AddOrUpdateStatementResult(dmlQuery, StatementResult.CreateUpdateCount(1L));
+
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        using var connection = pool.CreateConnection();
+        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = $"{selectQuery};{dmlQuery}" });
+
+        Assert.That(rows.Metadata, Is.Not.Null);
+        Assert.That(rows.Metadata.RowType.Fields.Count, Is.EqualTo(1));
+
+        rows.Next(); // Consume select row
+
+        var hasNext = rows.NextResultSet();
+        Assert.That(hasNext, Is.True);
+        
+        // Assert that the metadata is now null or empty, NOT the select query's metadata!
+        Assert.That(rows.Metadata == null || rows.Metadata.RowType == null || rows.Metadata.RowType.Fields.Count == 0, Is.True);
+    }
+
+    [Test]
+    public void TestSkipResultSetWithoutReading([Values] LibType libType, [Values(0, 1, 5, 10)] int prefetchRows, [Values] bool async)
+    {
+        const string query1 = "select c from query1";
+        const string query2 = "select c from query2";
+        
+        Fixture.SpannerMock.AddOrUpdateStatementResult(query1, StatementResult.CreateResultSet(
+            [Tuple.Create(TypeCode.String, "c")], 
+            [["Q1_R1"], ["Q1_R2"]]
+        ));
+        Fixture.SpannerMock.AddOrUpdateStatementResult(query2, StatementResult.CreateResultSet(
+            [Tuple.Create(TypeCode.String, "c")], 
+            [["Q2_R1"], ["Q2_R2"]]
+        ));
+
+        var sql = $"{query1};{query2}";
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        using var connection = pool.CreateConnection();
+        
+        // ReSharper disable once MethodHasAsyncOverload
+        using var rows = async 
+            ? Task.Run(async () => await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = sql }, prefetchRows)).Result
+            : connection.Execute(new ExecuteSqlRequest { Sql = sql }, prefetchRows);
+
+        // Move directly to query 2 without calling rows.Next() even once!
+        var hasNext = async ? Task.Run(async () => await rows.NextResultSetAsync()).Result : rows.NextResultSet();
+        Assert.That(hasNext, Is.True);
+
+        // Read query 2.
+        var row = async ? Task.Run(async () => await rows.NextAsync()).Result : rows.Next();
+        Assert.That(row, Is.Not.Null);
+        Assert.That(row.Values[0].StringValue, Is.EqualTo("Q2_R1"));
+        
+        var row2 = async ? Task.Run(async () => await rows.NextAsync()).Result : rows.Next();
+        Assert.That(row2, Is.Not.Null);
+        Assert.That(row2.Values[0].StringValue, Is.EqualTo("Q2_R2"));
+    }
+
+    [Test]
+    public void TestMixedStatementsQueriesDmlDdl([Values] LibType libType, [Values] bool async)
+    {
+        const string query1 = "select c from query1";
+        const string dmlQuery = "update table1 set c=1";
+        const string ddlQuery = "create table my_table (id int64 primary key)";
+        const string query2 = "select c from query2";
+        
+        Fixture.SpannerMock.AddOrUpdateStatementResult(query1, StatementResult.CreateResultSet(
+            [Tuple.Create(TypeCode.Int64, "c")], [[10L], [20L]]
+        ));
+        Fixture.SpannerMock.AddOrUpdateStatementResult(dmlQuery, StatementResult.CreateUpdateCount(5L));
+        Fixture.SpannerMock.AddOrUpdateStatementResult(query2, StatementResult.CreateResultSet(
+            [Tuple.Create(TypeCode.String, "s")], [["hello"]]
+        ));
+        
+        var sql = $"{query1};{dmlQuery};{ddlQuery};{query2}";
+        
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        using var connection = pool.CreateConnection();
+        
+        // ReSharper disable once MethodHasAsyncOverload
+        using var rows = async 
+            ? Task.Run(async () => await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = sql }, 10)).Result
+            : connection.Execute(new ExecuteSqlRequest { Sql = sql }, 10);
+            
+        // 1. Check Query 1
+        Assert.That(rows.Metadata, Is.Not.Null);
+        Assert.That(rows.Metadata.RowType.Fields.Count, Is.EqualTo(1));
+        var row1 = async ? Task.Run(async () => await rows.NextAsync()).Result : rows.Next();
+        Assert.That(row1.Values[0].StringValue, Is.EqualTo("10"));
+        var row2 = async ? Task.Run(async () => await rows.NextAsync()).Result : rows.Next();
+        Assert.That(row2.Values[0].StringValue, Is.EqualTo("20"));
+        Assert.That(async ? Task.Run(async () => await rows.NextAsync()).Result : rows.Next(), Is.Null);
+        
+        // 2. Move to DML
+        var hasNext = async ? Task.Run(async () => await rows.NextResultSetAsync()).Result : rows.NextResultSet();
+        Assert.That(hasNext, Is.True);
+        Assert.That(rows.Metadata == null || rows.Metadata.RowType == null || rows.Metadata.RowType.Fields.Count == 0, Is.True);
+        Assert.That(rows.UpdateCount, Is.EqualTo(5L));
+        
+        // 3. Move to DDL
+        hasNext = async ? Task.Run(async () => await rows.NextResultSetAsync()).Result : rows.NextResultSet();
+        Assert.That(hasNext, Is.True);
+        Assert.That(rows.Metadata == null || rows.Metadata.RowType == null || rows.Metadata.RowType.Fields.Count == 0, Is.True);
+        Assert.That(rows.UpdateCount, Is.EqualTo(-1L));
+        
+        // 4. Move to Query 2
+        hasNext = async ? Task.Run(async () => await rows.NextResultSetAsync()).Result : rows.NextResultSet();
+        Assert.That(hasNext, Is.True);
+        Assert.That(rows.Metadata, Is.Not.Null);
+        Assert.That(rows.Metadata.RowType.Fields.Count, Is.EqualTo(1));
+        var row3 = async ? Task.Run(async () => await rows.NextAsync()).Result : rows.Next();
+        Assert.That(row3.Values[0].StringValue, Is.EqualTo("hello"));
+        Assert.That(async ? Task.Run(async () => await rows.NextAsync()).Result : rows.Next(), Is.Null);
+        
+        // End of result sets
+        hasNext = async ? Task.Run(async () => await rows.NextResultSetAsync()).Result : rows.NextResultSet();
+        Assert.That(hasNext, Is.False);
     }
 }
