@@ -1087,3 +1087,15 @@ func TestConnectionStateTypeInitialization(t *testing.T) {
 		t.Errorf("ConnectionStateType mismatch. Got: %v, Want: %v", c.connectorConfig.ConnectionStateType, connectionstate.TypeTransactional)
 	}
 }
+
+func TestIsMissingDefaultSequenceKindError(t *testing.T) {
+	err := fmt.Errorf("rpc error: code = InvalidArgument desc = The sequence kind of an identity column id is not specified. Please specify the sequence kind explicitly or set the database option `default_sequence_kind`.")
+	if !isMissingDefaultSequenceKindError(err) {
+		t.Errorf("isMissingDefaultSequenceKindError returned false for: %v", err)
+	}
+
+	errNoQuotes := fmt.Errorf("rpc error: code = InvalidArgument desc = The sequence kind of an identity column id is not specified. Please specify the sequence kind explicitly or set the database option default_sequence_kind.")
+	if !isMissingDefaultSequenceKindError(errNoQuotes) {
+		t.Errorf("isMissingDefaultSequenceKindError returned false for: %v", errNoQuotes)
+	}
+}

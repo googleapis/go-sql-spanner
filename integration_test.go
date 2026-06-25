@@ -2652,3 +2652,139 @@ func nullJsonOrStringArray(v []spanner.NullJSON) interface{} {
 	}
 	return res
 }
+
+func TestIntegration_AutoDefaultSequenceKind(t *testing.T) {
+	skipIfShort(t)
+	t.Parallel()
+
+	for _, dialect := range []databasepb.DatabaseDialect{
+		databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+		databasepb.DatabaseDialect_POSTGRESQL,
+	} {
+		name := "GoogleSQL"
+		if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+			name = "PostgreSQL"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			dsn, cleanup, err := createTestDBWithDialect(ctx, dialect)
+			if err != nil {
+				t.Fatalf("failed to create test db: %v", err)
+			}
+			defer cleanup()
+
+			dbNoParams, err := sql.Open("spanner", dsn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer dbNoParams.Close()
+
+			var createSeqStmt string
+			if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+				createSeqStmt = "CREATE TABLE test_seq (id serial PRIMARY KEY, value varchar)"
+			} else {
+				createSeqStmt = "CREATE TABLE test_seq (id INT64 AUTO_INCREMENT PRIMARY KEY, value STRING(MAX))"
+			}
+
+			_, err = dbNoParams.ExecContext(ctx, createSeqStmt)
+			if err == nil {
+				t.Fatalf("expected error without default_sequence_kind parameter")
+			}
+
+			dsnWithParams := fmt.Sprintf("%s;default_sequence_kind=bit_reversed_positive", dsn)
+			db, err := sql.Open("spanner", dsnWithParams)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+
+			_, err = db.ExecContext(ctx, createSeqStmt)
+			if err != nil {
+				t.Fatalf("failed to execute CREATE statement: %v", err)
+			}
+
+			insertStmt := "INSERT INTO test_seq (value) VALUES ('One')"
+			_, err = db.ExecContext(ctx, insertStmt)
+			if err != nil {
+				t.Fatalf("failed to insert data: %v", err)
+			}
+		})
+	}
+}
+
+func TestIntegration_AutoDefaultSequenceKindBatch(t *testing.T) {
+	skipIfShort(t)
+	t.Parallel()
+
+	for _, dialect := range []databasepb.DatabaseDialect{
+		databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+		databasepb.DatabaseDialect_POSTGRESQL,
+	} {
+		name := "GoogleSQL"
+		if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+			name = "PostgreSQL"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			dsn, cleanup, err := createTestDBWithDialect(ctx, dialect)
+			if err != nil {
+				t.Fatalf("failed to create test db: %v", err)
+			}
+			defer cleanup()
+
+			dsnWithParams := fmt.Sprintf("%s;default_sequence_kind=bit_reversed_positive", dsn)
+			db, err := sql.Open("spanner", dsnWithParams)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+
+			conn, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+
+			var stmt1, stmt2 string
+			if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+				stmt1 = "CREATE TABLE testseq1 (id1 int8 PRIMARY KEY, value varchar)"
+				stmt2 = "CREATE TABLE testseq2 (id2 serial PRIMARY KEY, value varchar)"
+			} else {
+				stmt1 = "CREATE TABLE testseq1 (id1 INT64 PRIMARY KEY, value STRING(MAX))"
+				stmt2 = "CREATE TABLE testseq2 (id2 INT64 AUTO_INCREMENT PRIMARY KEY, value STRING(MAX))"
+			}
+
+			if _, err := conn.ExecContext(ctx, "START BATCH DDL"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := conn.ExecContext(ctx, stmt1); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := conn.ExecContext(ctx, stmt2); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := conn.ExecContext(ctx, "RUN BATCH"); err != nil {
+				t.Fatalf("RUN BATCH failed: %v", err)
+			}
+
+			checkTable1 := "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'testseq1'"
+			checkTable2 := "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'testseq2'"
+
+			var count1, count2 int
+			if err := conn.QueryRowContext(ctx, checkTable1).Scan(&count1); err != nil {
+				t.Fatalf("failed to query table 1: %v", err)
+			}
+			if g, w := count1, 1; g != w {
+				t.Errorf("table 1 not created, count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			if err := conn.QueryRowContext(ctx, checkTable2).Scan(&count2); err != nil {
+				t.Fatalf("failed to query table 2: %v", err)
+			}
+			if g, w := count2, 1; g != w {
+				t.Errorf("table 2 not created, count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}

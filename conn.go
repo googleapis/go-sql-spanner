@@ -19,7 +19,6 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
-	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
@@ -735,43 +734,7 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 			return (&executableDropDatabaseStatement{stmt}).execContext(ctx, c, nil, []driver.NamedValue{})
 		}
 
-		op, err := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
-			Database:   c.database,
-			Statements: ddlStatements,
-		})
-		if err != nil {
-			return nil, err
-		}
-		c.lastDDLOperationID = op.Name()
-
-		if err := c.waitForDDLOperation(ctx, op.Name(), func(ctx context.Context) error {
-			return op.Wait(ctx)
-		}); err != nil {
-			if len(statements) > 1 {
-				be := &BatchError{
-					Err:               err,
-					BatchUpdateCounts: []int64{},
-				}
-				metadata, err := op.Metadata()
-				if err != nil {
-					c.logger.WarnContext(ctx, fmt.Sprintf("Error getting metadata for UpdateDatabaseDdl: %v", err))
-				} else if metadata != nil {
-					for _, ts := range metadata.CommitTimestamps {
-						if ts != nil {
-							be.BatchUpdateCounts = append(be.BatchUpdateCounts, int64(-1))
-						} else {
-							break
-						}
-					}
-				}
-				return nil, be
-			}
-			return nil, err
-		}
-		mode := propertyDDLExecutionMode.GetValueOrDefault(c.state)
-		if mode == DDLExecutionModeAsync || mode == DDLExecutionModeAsyncWait {
-			return &result{operationID: op.Name()}, nil
-		}
+		return c.executeDDLWithDefaultSequenceKindRetry(ctx, statements, ddlStatements)
 	}
 	return driver.ResultNoRows, nil
 }
