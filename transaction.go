@@ -58,6 +58,7 @@ type contextTransaction interface {
 	IsInBatch() bool
 
 	BufferWrite(ms []*spanner.Mutation) error
+	ReadOnlyTransactionTimestamp() (time.Time, error)
 }
 
 type rowIterator interface {
@@ -166,6 +167,13 @@ func (d *delegatingTransaction) Rollback() error {
 		return nil
 	}
 	return d.contextTransaction.Rollback()
+}
+
+func (d *delegatingTransaction) ReadOnlyTransactionTimestamp() (time.Time, error) {
+	if err := d.ensureActivated(); err != nil {
+		return time.Time{}, err
+	}
+	return d.contextTransaction.ReadOnlyTransactionTimestamp()
 }
 
 func (d *delegatingTransaction) resetForRetry(ctx context.Context) error {
@@ -369,6 +377,13 @@ func (tx *readOnlyTransaction) IsInBatch() bool {
 
 func (tx *readOnlyTransaction) BufferWrite([]*spanner.Mutation) error {
 	return spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read-only transactions cannot write"))
+}
+
+func (tx *readOnlyTransaction) ReadOnlyTransactionTimestamp() (time.Time, error) {
+	if tx.roTx != nil {
+		return tx.roTx.Timestamp()
+	}
+	return time.Time{}, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-only transaction is not initialized"))
 }
 
 // ErrAbortedDueToConcurrentModification is returned by a read/write transaction
@@ -811,6 +826,10 @@ func (tx *readWriteTransaction) runDmlBatch(ctx context.Context) (*result, error
 func (tx *readWriteTransaction) BufferWrite(ms []*spanner.Mutation) error {
 	tx.mutations = append(tx.mutations, ms...)
 	return tx.rwTx.BufferWrite(ms)
+}
+
+func (tx *readWriteTransaction) ReadOnlyTransactionTimestamp() (time.Time, error) {
+	return time.Time{}, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "cannot retrieve read timestamp on a read-write transaction"))
 }
 
 // errorsEqualForRetry returns true if the two errors should be considered equal

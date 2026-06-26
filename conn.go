@@ -217,6 +217,10 @@ type SpannerConn interface {
 	// was executed on the connection, or an error if the connection has not executed a read/write transaction
 	// that committed successfully.
 	CommitResponse() (commitResponse *spanner.CommitResponse, err error)
+	// ReadOnlyTransactionTimestamp returns the read timestamp chosen by Cloud Spanner
+	// for the current read-only transaction, or an error if there is no active
+	// read-only transaction.
+	ReadOnlyTransactionTimestamp() (readTimestamp time.Time, err error)
 
 	// UnderlyingClient returns the underlying Spanner client for the database.
 	// The client cannot be used to access the current transaction or batch on
@@ -316,6 +320,13 @@ func (c *conn) CommitResponse() (commitResponse *spanner.CommitResponse, err err
 		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "this connection has not executed a read/write transaction that committed successfully"))
 	}
 	return resp, nil
+}
+
+func (c *conn) ReadOnlyTransactionTimestamp() (time.Time, error) {
+	if !c.inTransaction() {
+		return time.Time{}, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "no active transaction"))
+	}
+	return c.tx.ReadOnlyTransactionTimestamp()
 }
 
 func (c *conn) clearCommitResponse() {

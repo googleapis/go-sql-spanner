@@ -670,8 +670,10 @@ func (s *inMemSpannerServer) generateTransactionName(session string) string {
 func (s *inMemSpannerServer) beginTransaction(session *spannerpb.Session, options *spannerpb.TransactionOptions) *spannerpb.Transaction {
 	id := s.generateTransactionName(session.Name)
 	res := &spannerpb.Transaction{
-		Id:            []byte(id),
-		ReadTimestamp: getCurrentTimestamp(),
+		Id: []byte(id),
+	}
+	if options != nil && options.GetReadOnly() != nil {
+		res.ReadTimestamp = getCurrentTimestamp()
 	}
 	s.mu.Lock()
 	s.transactions[id] = res
@@ -988,6 +990,11 @@ func (s *inMemSpannerServer) executeStreamingSQL(req *spannerpb.ExecuteSqlReques
 	}
 	s.mu.Lock()
 	resWithTx := statementResult.getResultSetWithTransactionSet(req.GetTransaction(), id)
+	if resWithTx.ResultSet != nil && resWithTx.ResultSet.Metadata != nil && resWithTx.ResultSet.Metadata.Transaction != nil {
+		if tx, ok := s.transactions[string(id)]; ok {
+			resWithTx.ResultSet.Metadata.Transaction.ReadTimestamp = tx.ReadTimestamp
+		}
+	}
 	isPartitionedDml := s.partitionedDmlTransactions[string(id)]
 	s.mu.Unlock()
 	switch statementResult.Type {
