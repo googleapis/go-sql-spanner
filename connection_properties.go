@@ -175,6 +175,15 @@ var propertyReadOnlyStaleness = createConnectionProperty(
 	connectionstate.ContextUser,
 	connectionstate.ConvertReadOnlyStaleness,
 )
+var propertyDefaultSequenceKind = createConnectionProperty(
+	"default_sequence_kind",
+	"The default sequence kind to automatically set if a DDL statement fails due to missing sequence kind.",
+	"",
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertString,
+)
 
 var propertyAutoPartitionMode = createConnectionProperty(
 	"auto_partition_mode",
@@ -438,6 +447,15 @@ var propertyMaxCommitDelay = createConnectionProperty(
 	nil,
 	connectionstate.ContextUser,
 	connectionstate.ConvertDuration,
+)
+var propertyDirectedRead = createConnectionProperty(
+	"directed_read",
+	"The directed read options to use for read-only transactions or single-use queries.",
+	(*spannerpb.DirectedReadOptions)(nil),
+	false,
+	nil,
+	connectionstate.ContextUser,
+	connectionstate.ConvertDirectedRead,
 )
 var propertyCommitPriority = createConnectionProperty(
 	"commit_priority",
@@ -750,6 +768,16 @@ func createConfiguredConnectionState(initialValues map[string]connectionstate.Co
 }
 
 func createInitialConnectionState(connectionStateType connectionstate.Type, initialValues map[string]connectionstate.ConnectionPropertyValue) *connectionstate.ConnectionState {
+	return createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, connectionStateType, initialValues)
+}
+
+func createInitialConnectionStateWithDialect(dialect databasepb.DatabaseDialect, connectionStateType connectionstate.Type, initialValues map[string]connectionstate.ConnectionPropertyValue) *connectionstate.ConnectionState {
 	state, _ := connectionstate.NewConnectionState(connectionStateType, connectionProperties, initialValues)
+	if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		state.AddAlias("transaction_isolation", "isolation_level", true /* readOnly */)
+		if val := propertyIsolationLevel.GetValueOrDefault(state); val == sql.LevelDefault {
+			_ = propertyIsolationLevel.SetValue(state, sql.LevelSerializable, connectionstate.ContextStartup)
+		}
+	}
 	return state
 }

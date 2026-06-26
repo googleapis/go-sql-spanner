@@ -653,6 +653,7 @@ func (tx *readWriteTransaction) resetForRetry(ctx context.Context) error {
 // transaction is aborted during the query or while iterating the returned rows.
 func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement, stmtType parser.StatementType, execOptions *ExecOptions) (rowIterator, error) {
 	tx.logger.Debug("Query", "stmt", stmt.SQL)
+	execOptions.QueryOptions.DirectedReadOptions = nil
 	tx.active = true
 	if err := tx.maybeRunAutoDmlBatch(ctx); err != nil {
 		return nil, err
@@ -684,6 +685,7 @@ func (tx *readWriteTransaction) partitionQuery(ctx context.Context, stmt spanner
 
 func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.Statement, statementInfo *parser.StatementInfo, options spanner.QueryOptions) (res *result, err error) {
 	tx.logger.Debug("ExecContext", "stmt", stmt.SQL)
+	options.DirectedReadOptions = nil
 	tx.active = true
 	if tx.batch != nil {
 		tx.logger.Debug("adding statement to batch")
@@ -722,6 +724,7 @@ func (tx *readWriteTransaction) StartBatchDML(options spanner.QueryOptions, auto
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This transaction already has an active batch."))
 	}
 	tx.logger.Debug("starting dml batch in transaction", "automatic", automatic)
+	options.DirectedReadOptions = nil
 	tx.active = true
 	tx.batch = &batch{tp: parser.BatchTypeDml, options: &ExecOptions{QueryOptions: options}, automatic: automatic}
 	return driver.ResultNoRows, nil

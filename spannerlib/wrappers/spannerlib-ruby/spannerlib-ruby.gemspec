@@ -29,7 +29,7 @@ Gem::Specification.new do |spec|
   spec.files = Dir.chdir(File.expand_path(__dir__)) do
     files = []
     # prefer git-tracked files when available (local dev), but also pick up built files present on disk (CI)
-    files += `git ls-files -z`.split("\x0") if system("git rev-parse --is-inside-work-tree > /dev/null 2>&1")
+    files += `git ls-files -z`.split("\x0") if system("git rev-parse --is-inside-work-tree > #{File::NULL} 2>&1")
 
     # include any built native libs (CI places them under lib/spannerlib/)
     files += Dir.glob("lib/spannerlib/**/*").select { |f| File.file?(f) }

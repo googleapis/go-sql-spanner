@@ -186,11 +186,11 @@ public class ConnectionTests : AbstractMockServerTests
         insertMutation.Insert.Values.AddRange([
             new ListValue{Values = { Value.ForString("1"), Value.ForString("One") }}
         ]);
-        var exception = Assert.Throws<SpannerException>(() => connection.WriteMutations(
+        var exception = Assert.Throws<SpannerException>((Action)(() => connection.WriteMutations(
             new BatchWriteRequest.Types.MutationGroup
             {
                 Mutations = { new[] { insertMutation } }
-            }));
+            })));
         Assert.That(exception.Code, Is.EqualTo(Code.FailedPrecondition));
     }
 }
