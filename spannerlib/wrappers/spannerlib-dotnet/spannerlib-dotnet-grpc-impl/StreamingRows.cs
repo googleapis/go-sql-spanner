@@ -13,6 +13,7 @@
 // limitations under the License.
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Api.Gax;
@@ -27,6 +28,7 @@ namespace Google.Cloud.SpannerLib.Grpc;
 
 public class StreamingRows : Rows
 {
+    private const int DefaultBatchSize = 50;
     private readonly GrpcLibSpanner _spanner;
     private readonly ExecuteResponse? _executeResponse;
     private AsyncServerStreamingCall<RowData>? _stream;
@@ -35,6 +37,8 @@ public class StreamingRows : Rows
     private ResultSetStats? _stats;
     private bool _done;
     private bool _pendingNextResultSetCall;
+    private readonly Queue<ListValue> _bufferedRows = new();
+    private readonly int _batchSize;
 
     private bool HasOnlyInMemResults => !_executeResponse?.HasMoreResults ?? false;
     private bool HasMoreInMemRows =>
@@ -58,46 +62,48 @@ public class StreamingRows : Rows
 
     public override ResultSetMetadata? Metadata => IsPositionedAtInMemResultSet ? CurrentInMemResultSet.Metadata : _metadata;
 
-    internal static StreamingRows Create(GrpcLibSpanner spanner, Connection connection, AsyncServerStreamingCall<RowData> stream)
+    internal static StreamingRows Create(GrpcLibSpanner spanner, Connection connection, AsyncServerStreamingCall<RowData> stream, int batchSize)
     {
-        var rows = new StreamingRows(spanner, connection, stream);
+        var rows = new StreamingRows(spanner, connection, stream, batchSize);
         rows._pendingRow = rows.Next();
         return rows;
     }
 
-    internal static StreamingRows Create(GrpcLibSpanner spanner, Connection connection, ExecuteResponse response)
+    internal static StreamingRows Create(GrpcLibSpanner spanner, Connection connection, ExecuteResponse response, int batchSize)
     {
-        var rows = new StreamingRows(spanner, connection, response);
+        var rows = new StreamingRows(spanner, connection, response, batchSize);
         rows._pendingRow = rows.Next();
         return rows;
     }
 
-    internal static async Task<StreamingRows> CreateAsync(GrpcLibSpanner spanner, Connection connection, AsyncServerStreamingCall<RowData> stream, CancellationToken cancellationToken)
+    internal static async Task<StreamingRows> CreateAsync(GrpcLibSpanner spanner, Connection connection, AsyncServerStreamingCall<RowData> stream, int batchSize, CancellationToken cancellationToken)
     {
-        var rows = new StreamingRows(spanner, connection, stream);
+        var rows = new StreamingRows(spanner, connection, stream, batchSize);
         rows._pendingRow = await rows.NextAsync(cancellationToken).ConfigureAwait(false);
         return rows;
     }
 
-    internal static async Task<StreamingRows> CreateAsync(GrpcLibSpanner spanner, Connection connection, ExecuteResponse response, CancellationToken cancellationToken)
+    internal static async Task<StreamingRows> CreateAsync(GrpcLibSpanner spanner, Connection connection, ExecuteResponse response, int batchSize, CancellationToken cancellationToken)
     {
-        var rows = new StreamingRows(spanner, connection, response);
+        var rows = new StreamingRows(spanner, connection, response, batchSize);
         rows._pendingRow = await rows.NextAsync(cancellationToken).ConfigureAwait(false);
         return rows;
     }
 
-    private StreamingRows(GrpcLibSpanner spanner, Connection connection, AsyncServerStreamingCall<RowData> stream) : base(connection, 0, initMetadata: false)
+    private StreamingRows(GrpcLibSpanner spanner, Connection connection, AsyncServerStreamingCall<RowData> stream, int batchSize) : base(connection, 0, initMetadata: false)
     {
         _spanner = spanner;
         _stream = stream;
         _executeResponse = null;
+        _batchSize = batchSize <= 0 ? DefaultBatchSize : batchSize;
     }
 
-    private StreamingRows(GrpcLibSpanner spanner, Connection connection, ExecuteResponse response) : base(connection, response.Rows.Id, initMetadata: false)
+    private StreamingRows(GrpcLibSpanner spanner, Connection connection, ExecuteResponse response, int batchSize) : base(connection, response.Rows.Id, initMetadata: false)
     {
         _spanner = spanner;
         _stream = null;
         _executeResponse = response;
+        _batchSize = batchSize <= 0 ? DefaultBatchSize : batchSize;
     }
 
     protected override void Dispose(bool disposing)
@@ -125,7 +131,15 @@ public class StreamingRows : Rows
         {
             MarkDone();
         }
-        _stream?.Dispose();
+        try
+        {
+            _stream?.Dispose();
+        }
+        catch (Exception)
+        {
+            // Ignore any exceptions during stream disposal (e.g. if the connection or stream is already closed).
+        }
+        _bufferedRows.Clear();
     }
     
     private void MarkDone()
@@ -161,7 +175,11 @@ public class StreamingRows : Rows
         {
             return result;
         }
-        _stream ??= _spanner.ContinueStreaming(SpannerConnection, Id);
+        if (_bufferedRows.TryDequeue(out var bufferedRow))
+        {
+            return bufferedRow;
+        }
+        _stream ??= _spanner.ContinueStreaming(SpannerConnection, Id, _batchSize);
         try
         {
             var hasNext = Task.Run(() => Stream.ResponseStream.MoveNext()).GetAwaiter().GetResult();
@@ -191,7 +209,11 @@ public class StreamingRows : Rows
                 }
                 return null;
             }
-            return rowData.Data[0];
+            foreach (var row in rowData.Data)
+            {
+                _bufferedRows.Enqueue(row);
+            }
+            return _bufferedRows.Dequeue();
         }
         catch (RpcException exception)
         {
@@ -205,7 +227,11 @@ public class StreamingRows : Rows
         {
             return result;
         }
-        _stream ??= _spanner.ContinueStreamingAsync(SpannerConnection, Id, cancellationToken);
+        if (_bufferedRows.TryDequeue(out var bufferedRow))
+        {
+            return bufferedRow;
+        }
+        _stream ??= _spanner.ContinueStreamingAsync(SpannerConnection, Id, _batchSize, cancellationToken);
         try
         {
             var hasNext = await Stream.ResponseStream.MoveNext(cancellationToken).ConfigureAwait(false);
@@ -235,7 +261,11 @@ public class StreamingRows : Rows
                 }
                 return null;
             }
-            return rowData.Data[0];
+            foreach (var row in rowData.Data)
+            {
+                _bufferedRows.Enqueue(row);
+            }
+            return _bufferedRows.Dequeue();
         }
         catch (RpcException exception)
         {
@@ -284,11 +314,15 @@ public class StreamingRows : Rows
         {
             return false;
         }
+        _bufferedRows.Clear();
+        _metadata = null;
+        _stats = null;
+        _pendingRow = null;
         if (TryNextResultSetInMem(out var result))
         {
             return result;
         }
-        _stream ??= _spanner.ContinueStreaming(SpannerConnection, Id);
+        _stream ??= _spanner.ContinueStreaming(SpannerConnection, Id, _batchSize);
         
         // Read data until we reach the next result set.
         ReadUntilEnd();
@@ -308,11 +342,15 @@ public class StreamingRows : Rows
         {
             return false;
         }
+        _bufferedRows.Clear();
+        _metadata = null;
+        _stats = null;
+        _pendingRow = null;
         if (TryNextResultSetInMem(out var result))
         {
             return result;
         }
-        _stream ??= _spanner.ContinueStreaming(SpannerConnection, Id);
+        _stream ??= _spanner.ContinueStreaming(SpannerConnection, Id, _batchSize);
         
         // Read data until we reach the next result set.
         await ReadUntilEndAsync(cancellationToken).ConfigureAwait(false);

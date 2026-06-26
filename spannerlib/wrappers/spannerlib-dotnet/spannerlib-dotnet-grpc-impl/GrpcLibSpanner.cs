@@ -95,6 +95,7 @@ public sealed class GrpcLibSpanner : ISpannerLib
     private bool _disposed;
     
     internal V1.SpannerLib.SpannerLibClient Client => _clients[Random.Shared.Next(_clients.Length)];
+    public CommunicationStyle Communication => _communicationStyle;
 
     public GrpcLibSpanner(
         CommunicationStyle communicationStyle = CommunicationStyle.BidiStreaming,
@@ -239,16 +240,23 @@ public sealed class GrpcLibSpanner : ISpannerLib
                 NumRows = prefetchRows,
             },
         }));
-        return StreamingRows.Create(this, connection, stream);
+        return StreamingRows.Create(this, connection, stream, prefetchRows);
     }
     
-    internal AsyncServerStreamingCall<RowData> ContinueStreaming(Connection connection, long rowsId)
+    internal AsyncServerStreamingCall<RowData> ContinueStreaming(Connection connection, long rowsId, int batchSize)
     {
         var client = _clients[Random.Shared.Next(_clients.Length)];
-        return TranslateException(() => client.ContinueStreaming(new V1.Rows
+        return TranslateException(() => client.ContinueStreaming(new V1.ContinueStreamingRequest
         {
-            Connection = ToProto(connection),
-            Id = rowsId,
+            Rows = new V1.Rows
+            {
+                Connection = ToProto(connection),
+                Id = rowsId,
+            },
+            FetchOptions = new V1.FetchOptions
+            {
+                NumRows = batchSize,
+            }
         }));
     }
 
@@ -276,16 +284,23 @@ public sealed class GrpcLibSpanner : ISpannerLib
                 NumRows = prefetchRows,
             },
         }));
-        return await StreamingRows.CreateAsync(this, connection, stream, cancellationToken).ConfigureAwait(false);
+        return await StreamingRows.CreateAsync(this, connection, stream, prefetchRows, cancellationToken).ConfigureAwait(false);
     }
     
-    internal AsyncServerStreamingCall<RowData> ContinueStreamingAsync(Connection connection, long rowsId, CancellationToken cancellationToken)
+    internal AsyncServerStreamingCall<RowData> ContinueStreamingAsync(Connection connection, long rowsId, int batchSize, CancellationToken cancellationToken)
     {
         var client = _clients[Random.Shared.Next(_clients.Length)];
-        return TranslateException(() => client.ContinueStreaming(new V1.Rows
+        return TranslateException(() => client.ContinueStreaming(new V1.ContinueStreamingRequest
         {
-            Connection = ToProto(connection),
-            Id = rowsId,
+            Rows = new V1.Rows
+            {
+                Connection = ToProto(connection),
+                Id = rowsId,
+            },
+            FetchOptions = new V1.FetchOptions
+            {
+                NumRows = batchSize,
+            }
         },  cancellationToken: cancellationToken));
     }
 

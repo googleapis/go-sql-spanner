@@ -369,6 +369,11 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
         );
     }
 
+    public void RemoveExecutionTime(string method)
+    {
+        _executionTimes.TryRemove(method, out _);
+    }
+
     public void AddDialectResult(DatabaseDialect dialect = DatabaseDialect.GoogleStandardSql)
     {
         AddOrUpdateStatementResult(SDialectQuery, 

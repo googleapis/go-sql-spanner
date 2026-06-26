@@ -72,7 +72,7 @@ type SpannerLibClient interface {
 	// that has previously been executed using a ConnectionStreamRequest on a bi-directional
 	// ConnectionStream. The client is responsible for calling this RPC if the has_more_data flag
 	// of the ExecuteResponse was true.
-	ContinueStreaming(ctx context.Context, in *Rows, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RowData], error)
+	ContinueStreaming(ctx context.Context, in *ContinueStreamingRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RowData], error)
 }
 
 type spannerLibClient struct {
@@ -275,13 +275,13 @@ func (c *spannerLibClient) ConnectionStream(ctx context.Context, opts ...grpc.Ca
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SpannerLib_ConnectionStreamClient = grpc.BidiStreamingClient[ConnectionStreamRequest, ConnectionStreamResponse]
 
-func (c *spannerLibClient) ContinueStreaming(ctx context.Context, in *Rows, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RowData], error) {
+func (c *spannerLibClient) ContinueStreaming(ctx context.Context, in *ContinueStreamingRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RowData], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &SpannerLib_ServiceDesc.Streams[2], SpannerLib_ContinueStreaming_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[Rows, RowData]{ClientStream: stream}
+	x := &grpc.GenericClientStream[ContinueStreamingRequest, RowData]{ClientStream: stream}
 	if err := x.ClientStream.SendMsg(in); err != nil {
 		return nil, err
 	}
@@ -323,7 +323,7 @@ type SpannerLibServer interface {
 	// that has previously been executed using a ConnectionStreamRequest on a bi-directional
 	// ConnectionStream. The client is responsible for calling this RPC if the has_more_data flag
 	// of the ExecuteResponse was true.
-	ContinueStreaming(*Rows, grpc.ServerStreamingServer[RowData]) error
+	ContinueStreaming(*ContinueStreamingRequest, grpc.ServerStreamingServer[RowData]) error
 	mustEmbedUnimplementedSpannerLibServer()
 }
 
@@ -388,7 +388,7 @@ func (UnimplementedSpannerLibServer) WriteMutations(context.Context, *WriteMutat
 func (UnimplementedSpannerLibServer) ConnectionStream(grpc.BidiStreamingServer[ConnectionStreamRequest, ConnectionStreamResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method ConnectionStream not implemented")
 }
-func (UnimplementedSpannerLibServer) ContinueStreaming(*Rows, grpc.ServerStreamingServer[RowData]) error {
+func (UnimplementedSpannerLibServer) ContinueStreaming(*ContinueStreamingRequest, grpc.ServerStreamingServer[RowData]) error {
 	return status.Errorf(codes.Unimplemented, "method ContinueStreaming not implemented")
 }
 func (UnimplementedSpannerLibServer) mustEmbedUnimplementedSpannerLibServer() {}
@@ -719,11 +719,11 @@ func _SpannerLib_ConnectionStream_Handler(srv interface{}, stream grpc.ServerStr
 type SpannerLib_ConnectionStreamServer = grpc.BidiStreamingServer[ConnectionStreamRequest, ConnectionStreamResponse]
 
 func _SpannerLib_ContinueStreaming_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(Rows)
+	m := new(ContinueStreamingRequest)
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
-	return srv.(SpannerLibServer).ContinueStreaming(m, &grpc.GenericServerStream[Rows, RowData]{ServerStream: stream})
+	return srv.(SpannerLibServer).ContinueStreaming(m, &grpc.GenericServerStream[ContinueStreamingRequest, RowData]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.

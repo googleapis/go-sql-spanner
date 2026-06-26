@@ -51,7 +51,7 @@ service SpannerLib {
   // that has previously been executed using a ConnectionStreamRequest on a bi-directional
   // ConnectionStream. The client is responsible for calling this RPC if the has_more_data flag
   // of the ExecuteResponse was true.
-  rpc ContinueStreaming(Rows) returns (stream RowData) {}
+  rpc ContinueStreaming(ContinueStreamingRequest) returns (stream RowData) {}
 }
 
 message InfoRequest {
@@ -145,6 +145,15 @@ message Rows {
 }
 
 message NextRequest {
+  Rows rows = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+  FetchOptions fetch_options = 2 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message ContinueStreamingRequest {
   Rows rows = 1 [
     (google.api.field_behavior) = REQUIRED
   ];

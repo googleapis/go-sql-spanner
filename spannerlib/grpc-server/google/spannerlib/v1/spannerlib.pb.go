@@ -670,6 +670,58 @@ func (x *NextRequest) GetFetchOptions() *FetchOptions {
 	return nil
 }
 
+type ContinueStreamingRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Rows          *Rows                  `protobuf:"bytes,1,opt,name=rows,proto3" json:"rows,omitempty"`
+	FetchOptions  *FetchOptions          `protobuf:"bytes,2,opt,name=fetch_options,json=fetchOptions,proto3" json:"fetch_options,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContinueStreamingRequest) Reset() {
+	*x = ContinueStreamingRequest{}
+	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContinueStreamingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContinueStreamingRequest) ProtoMessage() {}
+
+func (x *ContinueStreamingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContinueStreamingRequest.ProtoReflect.Descriptor instead.
+func (*ContinueStreamingRequest) Descriptor() ([]byte, []int) {
+	return file_google_spannerlib_v1_spannerlib_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ContinueStreamingRequest) GetRows() *Rows {
+	if x != nil {
+		return x.Rows
+	}
+	return nil
+}
+
+func (x *ContinueStreamingRequest) GetFetchOptions() *FetchOptions {
+	if x != nil {
+		return x.FetchOptions
+	}
+	return nil
+}
+
 type RowData struct {
 	state          protoimpl.MessageState       `protogen:"open.v1"`
 	Rows           *Rows                        `protobuf:"bytes,1,opt,name=rows,proto3" json:"rows,omitempty"`
@@ -683,7 +735,7 @@ type RowData struct {
 
 func (x *RowData) Reset() {
 	*x = RowData{}
-	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[13]
+	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -695,7 +747,7 @@ func (x *RowData) String() string {
 func (*RowData) ProtoMessage() {}
 
 func (x *RowData) ProtoReflect() protoreflect.Message {
-	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[13]
+	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -708,7 +760,7 @@ func (x *RowData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RowData.ProtoReflect.Descriptor instead.
 func (*RowData) Descriptor() ([]byte, []int) {
-	return file_google_spannerlib_v1_spannerlib_proto_rawDescGZIP(), []int{13}
+	return file_google_spannerlib_v1_spannerlib_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *RowData) GetRows() *Rows {
@@ -755,7 +807,7 @@ type MetadataRequest struct {
 
 func (x *MetadataRequest) Reset() {
 	*x = MetadataRequest{}
-	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[14]
+	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -767,7 +819,7 @@ func (x *MetadataRequest) String() string {
 func (*MetadataRequest) ProtoMessage() {}
 
 func (x *MetadataRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[14]
+	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -780,7 +832,7 @@ func (x *MetadataRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetadataRequest.ProtoReflect.Descriptor instead.
 func (*MetadataRequest) Descriptor() ([]byte, []int) {
-	return file_google_spannerlib_v1_spannerlib_proto_rawDescGZIP(), []int{14}
+	return file_google_spannerlib_v1_spannerlib_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *MetadataRequest) GetRows() *Rows {
@@ -799,7 +851,7 @@ type ResultSetStatsRequest struct {
 
 func (x *ResultSetStatsRequest) Reset() {
 	*x = ResultSetStatsRequest{}
-	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[15]
+	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -811,7 +863,7 @@ func (x *ResultSetStatsRequest) String() string {
 func (*ResultSetStatsRequest) ProtoMessage() {}
 
 func (x *ResultSetStatsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[15]
+	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -824,7 +876,7 @@ func (x *ResultSetStatsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultSetStatsRequest.ProtoReflect.Descriptor instead.
 func (*ResultSetStatsRequest) Descriptor() ([]byte, []int) {
-	return file_google_spannerlib_v1_spannerlib_proto_rawDescGZIP(), []int{15}
+	return file_google_spannerlib_v1_spannerlib_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ResultSetStatsRequest) GetRows() *Rows {
@@ -853,7 +905,7 @@ type ConnectionStreamRequest struct {
 
 func (x *ConnectionStreamRequest) Reset() {
 	*x = ConnectionStreamRequest{}
-	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[16]
+	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -865,7 +917,7 @@ func (x *ConnectionStreamRequest) String() string {
 func (*ConnectionStreamRequest) ProtoMessage() {}
 
 func (x *ConnectionStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[16]
+	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -878,7 +930,7 @@ func (x *ConnectionStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectionStreamRequest.ProtoReflect.Descriptor instead.
 func (*ConnectionStreamRequest) Descriptor() ([]byte, []int) {
-	return file_google_spannerlib_v1_spannerlib_proto_rawDescGZIP(), []int{16}
+	return file_google_spannerlib_v1_spannerlib_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ConnectionStreamRequest) GetRequest() isConnectionStreamRequest_Request {
@@ -1002,7 +1054,7 @@ type ExecuteResponse struct {
 
 func (x *ExecuteResponse) Reset() {
 	*x = ExecuteResponse{}
-	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[17]
+	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1014,7 +1066,7 @@ func (x *ExecuteResponse) String() string {
 func (*ExecuteResponse) ProtoMessage() {}
 
 func (x *ExecuteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[17]
+	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1027,7 +1079,7 @@ func (x *ExecuteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteResponse.ProtoReflect.Descriptor instead.
 func (*ExecuteResponse) Descriptor() ([]byte, []int) {
-	return file_google_spannerlib_v1_spannerlib_proto_rawDescGZIP(), []int{17}
+	return file_google_spannerlib_v1_spannerlib_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ExecuteResponse) GetRows() *Rows {
@@ -1085,7 +1137,7 @@ type ConnectionStreamResponse struct {
 
 func (x *ConnectionStreamResponse) Reset() {
 	*x = ConnectionStreamResponse{}
-	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[18]
+	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1097,7 +1149,7 @@ func (x *ConnectionStreamResponse) String() string {
 func (*ConnectionStreamResponse) ProtoMessage() {}
 
 func (x *ConnectionStreamResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[18]
+	mi := &file_google_spannerlib_v1_spannerlib_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1110,7 +1162,7 @@ func (x *ConnectionStreamResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectionStreamResponse.ProtoReflect.Descriptor instead.
 func (*ConnectionStreamResponse) Descriptor() ([]byte, []int) {
-	return file_google_spannerlib_v1_spannerlib_proto_rawDescGZIP(), []int{18}
+	return file_google_spannerlib_v1_spannerlib_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ConnectionStreamResponse) GetStatus() *status.Status {
@@ -1271,6 +1323,9 @@ const file_google_spannerlib_v1_spannerlib_proto_rawDesc = "" +
 	"\x02id\x18\x02 \x01(\x03B\x03\xe0A\x02R\x02id\"\x90\x01\n" +
 	"\vNextRequest\x123\n" +
 	"\x04rows\x18\x01 \x01(\v2\x1a.google.spannerlib.v1.RowsB\x03\xe0A\x02R\x04rows\x12L\n" +
+	"\rfetch_options\x18\x02 \x01(\v2\".google.spannerlib.v1.FetchOptionsB\x03\xe0A\x02R\ffetchOptions\"\x9d\x01\n" +
+	"\x18ContinueStreamingRequest\x123\n" +
+	"\x04rows\x18\x01 \x01(\v2\x1a.google.spannerlib.v1.RowsB\x03\xe0A\x02R\x04rows\x12L\n" +
 	"\rfetch_options\x18\x02 \x01(\v2\".google.spannerlib.v1.FetchOptionsB\x03\xe0A\x02R\ffetchOptions\"\x98\x02\n" +
 	"\aRowData\x123\n" +
 	"\x04rows\x18\x01 \x01(\v2\x1a.google.spannerlib.v1.RowsB\x03\xe0A\x02R\x04rows\x12@\n" +
@@ -1305,7 +1360,7 @@ const file_google_spannerlib_v1_spannerlib_proto_rawDesc = "" +
 	"\x11rollback_response\x18\x06 \x01(\v2\x16.google.protobuf.EmptyH\x00R\x10rollbackResponse\x12]\n" +
 	"\x18write_mutations_response\x18\a \x01(\v2!.google.spanner.v1.CommitResponseH\x00R\x16writeMutationsResponseB\n" +
 	"\n" +
-	"\bresponse2\xeb\f\n" +
+	"\bresponse2\xff\f\n" +
 	"\n" +
 	"SpannerLib\x12O\n" +
 	"\x04Info\x12!.google.spannerlib.v1.InfoRequest\x1a\".google.spannerlib.v1.InfoResponse\"\x00\x12S\n" +
@@ -1326,8 +1381,8 @@ const file_google_spannerlib_v1_spannerlib_proto_rawDesc = "" +
 	"\x06Commit\x12 .google.spannerlib.v1.Connection\x1a!.google.spanner.v1.CommitResponse\"\x00\x12F\n" +
 	"\bRollback\x12 .google.spannerlib.v1.Connection\x1a\x16.google.protobuf.Empty\"\x00\x12b\n" +
 	"\x0eWriteMutations\x12+.google.spannerlib.v1.WriteMutationsRequest\x1a!.google.spanner.v1.CommitResponse\"\x00\x12w\n" +
-	"\x10ConnectionStream\x12-.google.spannerlib.v1.ConnectionStreamRequest\x1a..google.spannerlib.v1.ConnectionStreamResponse\"\x00(\x010\x01\x12R\n" +
-	"\x11ContinueStreaming\x12\x1a.google.spannerlib.v1.Rows\x1a\x1d.google.spannerlib.v1.RowData\"\x000\x01B\xcd\x01\n" +
+	"\x10ConnectionStream\x12-.google.spannerlib.v1.ConnectionStreamRequest\x1a..google.spannerlib.v1.ConnectionStreamResponse\"\x00(\x010\x01\x12f\n" +
+	"\x11ContinueStreaming\x12..google.spannerlib.v1.ContinueStreamingRequest\x1a\x1d.google.spannerlib.v1.RowData\"\x000\x01B\xcd\x01\n" +
 	"\x1ecom.google.cloud.spannerlib.v1B\x0fSpannerLibProtoP\x01Z>cloud.google.com/go/spannerlib/apiv1/spannerlibpb;spannerlibpb\xaa\x02\x1aGoogle.Cloud.SpannerLib.V1\xca\x02\x1aGoogle\\Cloud\\SpannerLib\\V1\xea\x02\x1dGoogle::Cloud::SpannerLib::V1b\x06proto3"
 
 var (
@@ -1342,7 +1397,7 @@ func file_google_spannerlib_v1_spannerlib_proto_rawDescGZIP() []byte {
 	return file_google_spannerlib_v1_spannerlib_proto_rawDescData
 }
 
-var file_google_spannerlib_v1_spannerlib_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_google_spannerlib_v1_spannerlib_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_google_spannerlib_v1_spannerlib_proto_goTypes = []any{
 	(*InfoRequest)(nil),                               // 0: google.spannerlib.v1.InfoRequest
 	(*InfoResponse)(nil),                              // 1: google.spannerlib.v1.InfoResponse
@@ -1357,105 +1412,108 @@ var file_google_spannerlib_v1_spannerlib_proto_goTypes = []any{
 	(*Connection)(nil),                                // 10: google.spannerlib.v1.Connection
 	(*Rows)(nil),                                      // 11: google.spannerlib.v1.Rows
 	(*NextRequest)(nil),                               // 12: google.spannerlib.v1.NextRequest
-	(*RowData)(nil),                                   // 13: google.spannerlib.v1.RowData
-	(*MetadataRequest)(nil),                           // 14: google.spannerlib.v1.MetadataRequest
-	(*ResultSetStatsRequest)(nil),                     // 15: google.spannerlib.v1.ResultSetStatsRequest
-	(*ConnectionStreamRequest)(nil),                   // 16: google.spannerlib.v1.ConnectionStreamRequest
-	(*ExecuteResponse)(nil),                           // 17: google.spannerlib.v1.ExecuteResponse
-	(*ConnectionStreamResponse)(nil),                  // 18: google.spannerlib.v1.ConnectionStreamResponse
-	(*spannerpb.ExecuteSqlRequest)(nil),               // 19: google.spanner.v1.ExecuteSqlRequest
-	(*spannerpb.ExecuteBatchDmlRequest)(nil),          // 20: google.spanner.v1.ExecuteBatchDmlRequest
-	(*spannerpb.TransactionOptions)(nil),              // 21: google.spanner.v1.TransactionOptions
-	(*spannerpb.BatchWriteRequest_MutationGroup)(nil), // 22: google.spanner.v1.BatchWriteRequest.MutationGroup
-	(*spannerpb.ResultSetMetadata)(nil),               // 23: google.spanner.v1.ResultSetMetadata
-	(*structpb.ListValue)(nil),                        // 24: google.protobuf.ListValue
-	(*spannerpb.ResultSetStats)(nil),                  // 25: google.spanner.v1.ResultSetStats
-	(*spannerpb.ResultSet)(nil),                       // 26: google.spanner.v1.ResultSet
-	(*status.Status)(nil),                             // 27: google.rpc.Status
-	(*spannerpb.ExecuteBatchDmlResponse)(nil),         // 28: google.spanner.v1.ExecuteBatchDmlResponse
-	(*emptypb.Empty)(nil),                             // 29: google.protobuf.Empty
-	(*spannerpb.CommitResponse)(nil),                  // 30: google.spanner.v1.CommitResponse
+	(*ContinueStreamingRequest)(nil),                  // 13: google.spannerlib.v1.ContinueStreamingRequest
+	(*RowData)(nil),                                   // 14: google.spannerlib.v1.RowData
+	(*MetadataRequest)(nil),                           // 15: google.spannerlib.v1.MetadataRequest
+	(*ResultSetStatsRequest)(nil),                     // 16: google.spannerlib.v1.ResultSetStatsRequest
+	(*ConnectionStreamRequest)(nil),                   // 17: google.spannerlib.v1.ConnectionStreamRequest
+	(*ExecuteResponse)(nil),                           // 18: google.spannerlib.v1.ExecuteResponse
+	(*ConnectionStreamResponse)(nil),                  // 19: google.spannerlib.v1.ConnectionStreamResponse
+	(*spannerpb.ExecuteSqlRequest)(nil),               // 20: google.spanner.v1.ExecuteSqlRequest
+	(*spannerpb.ExecuteBatchDmlRequest)(nil),          // 21: google.spanner.v1.ExecuteBatchDmlRequest
+	(*spannerpb.TransactionOptions)(nil),              // 22: google.spanner.v1.TransactionOptions
+	(*spannerpb.BatchWriteRequest_MutationGroup)(nil), // 23: google.spanner.v1.BatchWriteRequest.MutationGroup
+	(*spannerpb.ResultSetMetadata)(nil),               // 24: google.spanner.v1.ResultSetMetadata
+	(*structpb.ListValue)(nil),                        // 25: google.protobuf.ListValue
+	(*spannerpb.ResultSetStats)(nil),                  // 26: google.spanner.v1.ResultSetStats
+	(*spannerpb.ResultSet)(nil),                       // 27: google.spanner.v1.ResultSet
+	(*status.Status)(nil),                             // 28: google.rpc.Status
+	(*spannerpb.ExecuteBatchDmlResponse)(nil),         // 29: google.spanner.v1.ExecuteBatchDmlResponse
+	(*emptypb.Empty)(nil),                             // 30: google.protobuf.Empty
+	(*spannerpb.CommitResponse)(nil),                  // 31: google.spanner.v1.CommitResponse
 }
 var file_google_spannerlib_v1_spannerlib_proto_depIdxs = []int32{
 	9,  // 0: google.spannerlib.v1.CreateConnectionRequest.pool:type_name -> google.spannerlib.v1.Pool
 	10, // 1: google.spannerlib.v1.ExecuteRequest.connection:type_name -> google.spannerlib.v1.Connection
-	19, // 2: google.spannerlib.v1.ExecuteRequest.execute_sql_request:type_name -> google.spanner.v1.ExecuteSqlRequest
+	20, // 2: google.spannerlib.v1.ExecuteRequest.execute_sql_request:type_name -> google.spanner.v1.ExecuteSqlRequest
 	4,  // 3: google.spannerlib.v1.ExecuteRequest.fetch_options:type_name -> google.spannerlib.v1.FetchOptions
 	10, // 4: google.spannerlib.v1.ExecuteBatchRequest.connection:type_name -> google.spannerlib.v1.Connection
-	20, // 5: google.spannerlib.v1.ExecuteBatchRequest.execute_batch_dml_request:type_name -> google.spanner.v1.ExecuteBatchDmlRequest
+	21, // 5: google.spannerlib.v1.ExecuteBatchRequest.execute_batch_dml_request:type_name -> google.spanner.v1.ExecuteBatchDmlRequest
 	10, // 6: google.spannerlib.v1.BeginTransactionRequest.connection:type_name -> google.spannerlib.v1.Connection
-	21, // 7: google.spannerlib.v1.BeginTransactionRequest.transaction_options:type_name -> google.spanner.v1.TransactionOptions
+	22, // 7: google.spannerlib.v1.BeginTransactionRequest.transaction_options:type_name -> google.spanner.v1.TransactionOptions
 	10, // 8: google.spannerlib.v1.WriteMutationsRequest.connection:type_name -> google.spannerlib.v1.Connection
-	22, // 9: google.spannerlib.v1.WriteMutationsRequest.mutations:type_name -> google.spanner.v1.BatchWriteRequest.MutationGroup
+	23, // 9: google.spannerlib.v1.WriteMutationsRequest.mutations:type_name -> google.spanner.v1.BatchWriteRequest.MutationGroup
 	9,  // 10: google.spannerlib.v1.Connection.pool:type_name -> google.spannerlib.v1.Pool
 	10, // 11: google.spannerlib.v1.Rows.connection:type_name -> google.spannerlib.v1.Connection
 	11, // 12: google.spannerlib.v1.NextRequest.rows:type_name -> google.spannerlib.v1.Rows
 	4,  // 13: google.spannerlib.v1.NextRequest.fetch_options:type_name -> google.spannerlib.v1.FetchOptions
-	11, // 14: google.spannerlib.v1.RowData.rows:type_name -> google.spannerlib.v1.Rows
-	23, // 15: google.spannerlib.v1.RowData.metadata:type_name -> google.spanner.v1.ResultSetMetadata
-	24, // 16: google.spannerlib.v1.RowData.data:type_name -> google.protobuf.ListValue
-	25, // 17: google.spannerlib.v1.RowData.stats:type_name -> google.spanner.v1.ResultSetStats
-	11, // 18: google.spannerlib.v1.MetadataRequest.rows:type_name -> google.spannerlib.v1.Rows
-	11, // 19: google.spannerlib.v1.ResultSetStatsRequest.rows:type_name -> google.spannerlib.v1.Rows
-	5,  // 20: google.spannerlib.v1.ConnectionStreamRequest.execute_request:type_name -> google.spannerlib.v1.ExecuteRequest
-	6,  // 21: google.spannerlib.v1.ConnectionStreamRequest.execute_batch_request:type_name -> google.spannerlib.v1.ExecuteBatchRequest
-	7,  // 22: google.spannerlib.v1.ConnectionStreamRequest.begin_transaction_request:type_name -> google.spannerlib.v1.BeginTransactionRequest
-	10, // 23: google.spannerlib.v1.ConnectionStreamRequest.commit_request:type_name -> google.spannerlib.v1.Connection
-	10, // 24: google.spannerlib.v1.ConnectionStreamRequest.rollback_request:type_name -> google.spannerlib.v1.Connection
-	8,  // 25: google.spannerlib.v1.ConnectionStreamRequest.write_mutations_request:type_name -> google.spannerlib.v1.WriteMutationsRequest
-	11, // 26: google.spannerlib.v1.ExecuteResponse.rows:type_name -> google.spannerlib.v1.Rows
-	26, // 27: google.spannerlib.v1.ExecuteResponse.result_sets:type_name -> google.spanner.v1.ResultSet
-	27, // 28: google.spannerlib.v1.ExecuteResponse.status:type_name -> google.rpc.Status
-	27, // 29: google.spannerlib.v1.ConnectionStreamResponse.status:type_name -> google.rpc.Status
-	17, // 30: google.spannerlib.v1.ConnectionStreamResponse.execute_response:type_name -> google.spannerlib.v1.ExecuteResponse
-	28, // 31: google.spannerlib.v1.ConnectionStreamResponse.execute_batch_response:type_name -> google.spanner.v1.ExecuteBatchDmlResponse
-	29, // 32: google.spannerlib.v1.ConnectionStreamResponse.begin_transaction_response:type_name -> google.protobuf.Empty
-	30, // 33: google.spannerlib.v1.ConnectionStreamResponse.commit_response:type_name -> google.spanner.v1.CommitResponse
-	29, // 34: google.spannerlib.v1.ConnectionStreamResponse.rollback_response:type_name -> google.protobuf.Empty
-	30, // 35: google.spannerlib.v1.ConnectionStreamResponse.write_mutations_response:type_name -> google.spanner.v1.CommitResponse
-	0,  // 36: google.spannerlib.v1.SpannerLib.Info:input_type -> google.spannerlib.v1.InfoRequest
-	2,  // 37: google.spannerlib.v1.SpannerLib.CreatePool:input_type -> google.spannerlib.v1.CreatePoolRequest
-	9,  // 38: google.spannerlib.v1.SpannerLib.ClosePool:input_type -> google.spannerlib.v1.Pool
-	3,  // 39: google.spannerlib.v1.SpannerLib.CreateConnection:input_type -> google.spannerlib.v1.CreateConnectionRequest
-	10, // 40: google.spannerlib.v1.SpannerLib.CloseConnection:input_type -> google.spannerlib.v1.Connection
-	5,  // 41: google.spannerlib.v1.SpannerLib.Execute:input_type -> google.spannerlib.v1.ExecuteRequest
-	5,  // 42: google.spannerlib.v1.SpannerLib.ExecuteStreaming:input_type -> google.spannerlib.v1.ExecuteRequest
-	6,  // 43: google.spannerlib.v1.SpannerLib.ExecuteBatch:input_type -> google.spannerlib.v1.ExecuteBatchRequest
-	11, // 44: google.spannerlib.v1.SpannerLib.Metadata:input_type -> google.spannerlib.v1.Rows
-	12, // 45: google.spannerlib.v1.SpannerLib.Next:input_type -> google.spannerlib.v1.NextRequest
-	11, // 46: google.spannerlib.v1.SpannerLib.ResultSetStats:input_type -> google.spannerlib.v1.Rows
-	11, // 47: google.spannerlib.v1.SpannerLib.NextResultSet:input_type -> google.spannerlib.v1.Rows
-	11, // 48: google.spannerlib.v1.SpannerLib.CloseRows:input_type -> google.spannerlib.v1.Rows
-	7,  // 49: google.spannerlib.v1.SpannerLib.BeginTransaction:input_type -> google.spannerlib.v1.BeginTransactionRequest
-	10, // 50: google.spannerlib.v1.SpannerLib.Commit:input_type -> google.spannerlib.v1.Connection
-	10, // 51: google.spannerlib.v1.SpannerLib.Rollback:input_type -> google.spannerlib.v1.Connection
-	8,  // 52: google.spannerlib.v1.SpannerLib.WriteMutations:input_type -> google.spannerlib.v1.WriteMutationsRequest
-	16, // 53: google.spannerlib.v1.SpannerLib.ConnectionStream:input_type -> google.spannerlib.v1.ConnectionStreamRequest
-	11, // 54: google.spannerlib.v1.SpannerLib.ContinueStreaming:input_type -> google.spannerlib.v1.Rows
-	1,  // 55: google.spannerlib.v1.SpannerLib.Info:output_type -> google.spannerlib.v1.InfoResponse
-	9,  // 56: google.spannerlib.v1.SpannerLib.CreatePool:output_type -> google.spannerlib.v1.Pool
-	29, // 57: google.spannerlib.v1.SpannerLib.ClosePool:output_type -> google.protobuf.Empty
-	10, // 58: google.spannerlib.v1.SpannerLib.CreateConnection:output_type -> google.spannerlib.v1.Connection
-	29, // 59: google.spannerlib.v1.SpannerLib.CloseConnection:output_type -> google.protobuf.Empty
-	11, // 60: google.spannerlib.v1.SpannerLib.Execute:output_type -> google.spannerlib.v1.Rows
-	13, // 61: google.spannerlib.v1.SpannerLib.ExecuteStreaming:output_type -> google.spannerlib.v1.RowData
-	28, // 62: google.spannerlib.v1.SpannerLib.ExecuteBatch:output_type -> google.spanner.v1.ExecuteBatchDmlResponse
-	23, // 63: google.spannerlib.v1.SpannerLib.Metadata:output_type -> google.spanner.v1.ResultSetMetadata
-	24, // 64: google.spannerlib.v1.SpannerLib.Next:output_type -> google.protobuf.ListValue
-	25, // 65: google.spannerlib.v1.SpannerLib.ResultSetStats:output_type -> google.spanner.v1.ResultSetStats
-	23, // 66: google.spannerlib.v1.SpannerLib.NextResultSet:output_type -> google.spanner.v1.ResultSetMetadata
-	29, // 67: google.spannerlib.v1.SpannerLib.CloseRows:output_type -> google.protobuf.Empty
-	29, // 68: google.spannerlib.v1.SpannerLib.BeginTransaction:output_type -> google.protobuf.Empty
-	30, // 69: google.spannerlib.v1.SpannerLib.Commit:output_type -> google.spanner.v1.CommitResponse
-	29, // 70: google.spannerlib.v1.SpannerLib.Rollback:output_type -> google.protobuf.Empty
-	30, // 71: google.spannerlib.v1.SpannerLib.WriteMutations:output_type -> google.spanner.v1.CommitResponse
-	18, // 72: google.spannerlib.v1.SpannerLib.ConnectionStream:output_type -> google.spannerlib.v1.ConnectionStreamResponse
-	13, // 73: google.spannerlib.v1.SpannerLib.ContinueStreaming:output_type -> google.spannerlib.v1.RowData
-	55, // [55:74] is the sub-list for method output_type
-	36, // [36:55] is the sub-list for method input_type
-	36, // [36:36] is the sub-list for extension type_name
-	36, // [36:36] is the sub-list for extension extendee
-	0,  // [0:36] is the sub-list for field type_name
+	11, // 14: google.spannerlib.v1.ContinueStreamingRequest.rows:type_name -> google.spannerlib.v1.Rows
+	4,  // 15: google.spannerlib.v1.ContinueStreamingRequest.fetch_options:type_name -> google.spannerlib.v1.FetchOptions
+	11, // 16: google.spannerlib.v1.RowData.rows:type_name -> google.spannerlib.v1.Rows
+	24, // 17: google.spannerlib.v1.RowData.metadata:type_name -> google.spanner.v1.ResultSetMetadata
+	25, // 18: google.spannerlib.v1.RowData.data:type_name -> google.protobuf.ListValue
+	26, // 19: google.spannerlib.v1.RowData.stats:type_name -> google.spanner.v1.ResultSetStats
+	11, // 20: google.spannerlib.v1.MetadataRequest.rows:type_name -> google.spannerlib.v1.Rows
+	11, // 21: google.spannerlib.v1.ResultSetStatsRequest.rows:type_name -> google.spannerlib.v1.Rows
+	5,  // 22: google.spannerlib.v1.ConnectionStreamRequest.execute_request:type_name -> google.spannerlib.v1.ExecuteRequest
+	6,  // 23: google.spannerlib.v1.ConnectionStreamRequest.execute_batch_request:type_name -> google.spannerlib.v1.ExecuteBatchRequest
+	7,  // 24: google.spannerlib.v1.ConnectionStreamRequest.begin_transaction_request:type_name -> google.spannerlib.v1.BeginTransactionRequest
+	10, // 25: google.spannerlib.v1.ConnectionStreamRequest.commit_request:type_name -> google.spannerlib.v1.Connection
+	10, // 26: google.spannerlib.v1.ConnectionStreamRequest.rollback_request:type_name -> google.spannerlib.v1.Connection
+	8,  // 27: google.spannerlib.v1.ConnectionStreamRequest.write_mutations_request:type_name -> google.spannerlib.v1.WriteMutationsRequest
+	11, // 28: google.spannerlib.v1.ExecuteResponse.rows:type_name -> google.spannerlib.v1.Rows
+	27, // 29: google.spannerlib.v1.ExecuteResponse.result_sets:type_name -> google.spanner.v1.ResultSet
+	28, // 30: google.spannerlib.v1.ExecuteResponse.status:type_name -> google.rpc.Status
+	28, // 31: google.spannerlib.v1.ConnectionStreamResponse.status:type_name -> google.rpc.Status
+	18, // 32: google.spannerlib.v1.ConnectionStreamResponse.execute_response:type_name -> google.spannerlib.v1.ExecuteResponse
+	29, // 33: google.spannerlib.v1.ConnectionStreamResponse.execute_batch_response:type_name -> google.spanner.v1.ExecuteBatchDmlResponse
+	30, // 34: google.spannerlib.v1.ConnectionStreamResponse.begin_transaction_response:type_name -> google.protobuf.Empty
+	31, // 35: google.spannerlib.v1.ConnectionStreamResponse.commit_response:type_name -> google.spanner.v1.CommitResponse
+	30, // 36: google.spannerlib.v1.ConnectionStreamResponse.rollback_response:type_name -> google.protobuf.Empty
+	31, // 37: google.spannerlib.v1.ConnectionStreamResponse.write_mutations_response:type_name -> google.spanner.v1.CommitResponse
+	0,  // 38: google.spannerlib.v1.SpannerLib.Info:input_type -> google.spannerlib.v1.InfoRequest
+	2,  // 39: google.spannerlib.v1.SpannerLib.CreatePool:input_type -> google.spannerlib.v1.CreatePoolRequest
+	9,  // 40: google.spannerlib.v1.SpannerLib.ClosePool:input_type -> google.spannerlib.v1.Pool
+	3,  // 41: google.spannerlib.v1.SpannerLib.CreateConnection:input_type -> google.spannerlib.v1.CreateConnectionRequest
+	10, // 42: google.spannerlib.v1.SpannerLib.CloseConnection:input_type -> google.spannerlib.v1.Connection
+	5,  // 43: google.spannerlib.v1.SpannerLib.Execute:input_type -> google.spannerlib.v1.ExecuteRequest
+	5,  // 44: google.spannerlib.v1.SpannerLib.ExecuteStreaming:input_type -> google.spannerlib.v1.ExecuteRequest
+	6,  // 45: google.spannerlib.v1.SpannerLib.ExecuteBatch:input_type -> google.spannerlib.v1.ExecuteBatchRequest
+	11, // 46: google.spannerlib.v1.SpannerLib.Metadata:input_type -> google.spannerlib.v1.Rows
+	12, // 47: google.spannerlib.v1.SpannerLib.Next:input_type -> google.spannerlib.v1.NextRequest
+	11, // 48: google.spannerlib.v1.SpannerLib.ResultSetStats:input_type -> google.spannerlib.v1.Rows
+	11, // 49: google.spannerlib.v1.SpannerLib.NextResultSet:input_type -> google.spannerlib.v1.Rows
+	11, // 50: google.spannerlib.v1.SpannerLib.CloseRows:input_type -> google.spannerlib.v1.Rows
+	7,  // 51: google.spannerlib.v1.SpannerLib.BeginTransaction:input_type -> google.spannerlib.v1.BeginTransactionRequest
+	10, // 52: google.spannerlib.v1.SpannerLib.Commit:input_type -> google.spannerlib.v1.Connection
+	10, // 53: google.spannerlib.v1.SpannerLib.Rollback:input_type -> google.spannerlib.v1.Connection
+	8,  // 54: google.spannerlib.v1.SpannerLib.WriteMutations:input_type -> google.spannerlib.v1.WriteMutationsRequest
+	17, // 55: google.spannerlib.v1.SpannerLib.ConnectionStream:input_type -> google.spannerlib.v1.ConnectionStreamRequest
+	13, // 56: google.spannerlib.v1.SpannerLib.ContinueStreaming:input_type -> google.spannerlib.v1.ContinueStreamingRequest
+	1,  // 57: google.spannerlib.v1.SpannerLib.Info:output_type -> google.spannerlib.v1.InfoResponse
+	9,  // 58: google.spannerlib.v1.SpannerLib.CreatePool:output_type -> google.spannerlib.v1.Pool
+	30, // 59: google.spannerlib.v1.SpannerLib.ClosePool:output_type -> google.protobuf.Empty
+	10, // 60: google.spannerlib.v1.SpannerLib.CreateConnection:output_type -> google.spannerlib.v1.Connection
+	30, // 61: google.spannerlib.v1.SpannerLib.CloseConnection:output_type -> google.protobuf.Empty
+	11, // 62: google.spannerlib.v1.SpannerLib.Execute:output_type -> google.spannerlib.v1.Rows
+	14, // 63: google.spannerlib.v1.SpannerLib.ExecuteStreaming:output_type -> google.spannerlib.v1.RowData
+	29, // 64: google.spannerlib.v1.SpannerLib.ExecuteBatch:output_type -> google.spanner.v1.ExecuteBatchDmlResponse
+	24, // 65: google.spannerlib.v1.SpannerLib.Metadata:output_type -> google.spanner.v1.ResultSetMetadata
+	25, // 66: google.spannerlib.v1.SpannerLib.Next:output_type -> google.protobuf.ListValue
+	26, // 67: google.spannerlib.v1.SpannerLib.ResultSetStats:output_type -> google.spanner.v1.ResultSetStats
+	24, // 68: google.spannerlib.v1.SpannerLib.NextResultSet:output_type -> google.spanner.v1.ResultSetMetadata
+	30, // 69: google.spannerlib.v1.SpannerLib.CloseRows:output_type -> google.protobuf.Empty
+	30, // 70: google.spannerlib.v1.SpannerLib.BeginTransaction:output_type -> google.protobuf.Empty
+	31, // 71: google.spannerlib.v1.SpannerLib.Commit:output_type -> google.spanner.v1.CommitResponse
+	30, // 72: google.spannerlib.v1.SpannerLib.Rollback:output_type -> google.protobuf.Empty
+	31, // 73: google.spannerlib.v1.SpannerLib.WriteMutations:output_type -> google.spanner.v1.CommitResponse
+	19, // 74: google.spannerlib.v1.SpannerLib.ConnectionStream:output_type -> google.spannerlib.v1.ConnectionStreamResponse
+	14, // 75: google.spannerlib.v1.SpannerLib.ContinueStreaming:output_type -> google.spannerlib.v1.RowData
+	57, // [57:76] is the sub-list for method output_type
+	38, // [38:57] is the sub-list for method input_type
+	38, // [38:38] is the sub-list for extension type_name
+	38, // [38:38] is the sub-list for extension extendee
+	0,  // [0:38] is the sub-list for field type_name
 }
 
 func init() { file_google_spannerlib_v1_spannerlib_proto_init() }
@@ -1463,7 +1521,7 @@ func file_google_spannerlib_v1_spannerlib_proto_init() {
 	if File_google_spannerlib_v1_spannerlib_proto != nil {
 		return
 	}
-	file_google_spannerlib_v1_spannerlib_proto_msgTypes[16].OneofWrappers = []any{
+	file_google_spannerlib_v1_spannerlib_proto_msgTypes[17].OneofWrappers = []any{
 		(*ConnectionStreamRequest_ExecuteRequest)(nil),
 		(*ConnectionStreamRequest_ExecuteBatchRequest)(nil),
 		(*ConnectionStreamRequest_BeginTransactionRequest)(nil),
@@ -1471,7 +1529,7 @@ func file_google_spannerlib_v1_spannerlib_proto_init() {
 		(*ConnectionStreamRequest_RollbackRequest)(nil),
 		(*ConnectionStreamRequest_WriteMutationsRequest)(nil),
 	}
-	file_google_spannerlib_v1_spannerlib_proto_msgTypes[18].OneofWrappers = []any{
+	file_google_spannerlib_v1_spannerlib_proto_msgTypes[19].OneofWrappers = []any{
 		(*ConnectionStreamResponse_ExecuteResponse)(nil),
 		(*ConnectionStreamResponse_ExecuteBatchResponse)(nil),
 		(*ConnectionStreamResponse_BeginTransactionResponse)(nil),
@@ -1485,7 +1543,7 @@ func file_google_spannerlib_v1_spannerlib_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_google_spannerlib_v1_spannerlib_proto_rawDesc), len(file_google_spannerlib_v1_spannerlib_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   19,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

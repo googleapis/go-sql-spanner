@@ -154,13 +154,13 @@ internal class GrpcBidiConnection(GrpcLibSpanner spanner, Pool pool, long id) : 
     public override Rows Execute(ExecuteSqlRequest statement, int prefetchRows = 0)
     {
         var response = ExecuteBidi(CreateExecuteRequest(statement, prefetchRows));
-        return StreamingRows.Create(spanner, this, response.ExecuteResponse);
+        return StreamingRows.Create(spanner, this, response.ExecuteResponse, prefetchRows);
     }
 
     public override async Task<Rows> ExecuteAsync(ExecuteSqlRequest statement, int prefetchRows = 0, CancellationToken cancellationToken = default)
     {
         var response = await ExecuteBidiAsync(CreateExecuteRequest(statement, prefetchRows), cancellationToken).ConfigureAwait(false);
-        return await StreamingRows.CreateAsync(spanner, this, response.ExecuteResponse, cancellationToken).ConfigureAwait(false);
+        return await StreamingRows.CreateAsync(spanner, this, response.ExecuteResponse, prefetchRows, cancellationToken).ConfigureAwait(false);
     }
 
     private ConnectionStreamRequest CreateExecuteRequest(ExecuteSqlRequest statement, int prefetchRows = 0)
