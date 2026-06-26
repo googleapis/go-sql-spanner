@@ -6551,3 +6551,95 @@ func TestDirectedReadPropagation(t *testing.T) {
 		t.Fatalf("DirectedReadOptions mismatch after DML/RW transactions\nGot:  %v\nWant: %v", req3.DirectedReadOptions, wantDR)
 	}
 }
+
+func TestArrayOfStruct(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	query := "SELECT ARRAY(SELECT AS STRUCT * FROM UNNEST(@entries)) AS entries"
+
+	fields := []*sppb.StructType_Field{
+		{Name: "ID", Type: &sppb.Type{Code: sppb.TypeCode_INT64}},
+		{Name: "Name", Type: &sppb.Type{Code: sppb.TypeCode_STRING}},
+	}
+	structType := &sppb.StructType{Fields: fields}
+
+	metadata := &sppb.ResultSetMetadata{
+		RowType: &sppb.StructType{
+			Fields: []*sppb.StructType_Field{
+				{
+					Name: "entries",
+					Type: &sppb.Type{
+						Code: sppb.TypeCode_ARRAY,
+						ArrayElementType: &sppb.Type{
+							Code:       sppb.TypeCode_STRUCT,
+							StructType: structType,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	struct1 := &structpb.ListValue{Values: []*structpb.Value{
+		{Kind: &structpb.Value_StringValue{StringValue: "0"}},
+		{Kind: &structpb.Value_StringValue{StringValue: "Hello"}},
+	}}
+	struct2 := &structpb.ListValue{Values: []*structpb.Value{
+		{Kind: &structpb.Value_StringValue{StringValue: "1"}},
+		{Kind: &structpb.Value_StringValue{StringValue: "World"}},
+	}}
+	arrayVal := &structpb.Value{Kind: &structpb.Value_ListValue{ListValue: &structpb.ListValue{Values: []*structpb.Value{
+		{Kind: &structpb.Value_ListValue{ListValue: struct1}},
+		{Kind: &structpb.Value_ListValue{ListValue: struct2}},
+	}}}}
+
+	resultSet := &sppb.ResultSet{
+		Metadata: metadata,
+		Rows: []*structpb.ListValue{
+			{Values: []*structpb.Value{arrayVal}},
+		},
+	}
+
+	_ = server.TestSpanner.PutStatementResult(query, &testutil.StatementResult{
+		Type:      testutil.StatementResultResultSet,
+		ResultSet: resultSet,
+	})
+
+	type Entry struct {
+		ID   int64
+		Name string
+	}
+	entries := []Entry{
+		{ID: 0, Name: "Hello"},
+		{ID: 1, Name: "World"},
+	}
+
+	ctx := context.Background()
+	rows, err := db.QueryContext(ctx, query, sql.Named("entries", entries), ExecOptions{DecodeOption: DecodeOptionProto})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		t.Fatalf("expected rows.Next() to return true, got false, err: %v", rows.Err())
+	}
+	var col spanner.GenericColumnValue
+	if err := rows.Scan(&col); err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+	var allEntries []*Entry
+	if err := col.Decode(&allEntries); err != nil {
+		t.Fatalf("Decode returned error: %v", err)
+	}
+	expected := []*Entry{
+		{ID: 0, Name: "Hello"},
+		{ID: 1, Name: "World"},
+	}
+	if diff := cmp.Diff(expected, allEntries); diff != "" {
+		t.Errorf("allEntries mismatch (-want +got):\n%s", diff)
+	}
+}
