@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -35,9 +36,25 @@ func TestRunSamples(t *testing.T) {
 			if !mainFile.IsDir() {
 				t.Run(item.Name(), func(t *testing.T) {
 					// Verify that we can run the sample.
-					ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+					timeout := time.Minute
+					if item.Name() == "emulator" {
+						timeout = 3 * time.Minute
+						if !isDockerAvailable() {
+							t.Skip("Docker is not available; skipping self-starting emulator test")
+						}
+					}
+					ctx, cancel := context.WithTimeout(context.Background(), timeout)
 					cmd := exec.CommandContext(ctx, "go", "run", "-race", ".")
 					cmd.Dir = item.Name()
+					if item.Name() == "emulator" {
+						var env []string
+						for _, envVar := range os.Environ() {
+							if !strings.HasPrefix(envVar, "SPANNER_EMULATOR_HOST=") {
+								env = append(env, envVar)
+							}
+						}
+						cmd.Env = env
+					}
 					var stderr bytes.Buffer
 					cmd.Stderr = &stderr
 					if err := cmd.Run(); err != nil {
@@ -49,4 +66,14 @@ func TestRunSamples(t *testing.T) {
 			}
 		}
 	}
+}
+
+func isDockerAvailable() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "info")
+	if err := cmd.Run(); err != nil {
+		return false
+	}
+	return true
 }

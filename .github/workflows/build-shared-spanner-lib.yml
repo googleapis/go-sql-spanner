@@ -31,7 +31,7 @@ jobs:
       uses: actions/setup-go@v6
       with:
         go-version: ${{ matrix.go-version }}
-        cache: true
+        cache-dependency-path: spannerlib/go.sum
 
     - name: Install Dependencies (Linux)
       if: matrix.target == 'linux'

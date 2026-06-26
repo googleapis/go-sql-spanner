@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 
 	spannerdriver "github.com/googleapis/go-sql-spanner"
 	"github.com/moby/moby/api/types/container"
@@ -39,7 +40,11 @@ func emulator(projectId, instanceId, databaseId string) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = emulator.Terminate(context.Background()) }()
+	defer func() {
+		if emulator != nil {
+			_ = emulator.Terminate(context.Background())
+		}
+	}()
 
 	config := spannerdriver.ConnectorConfig{
 		// AutoConfigEmulator instructs the driver to:
@@ -90,6 +95,9 @@ func main() {
 
 // startEmulator starts the Spanner Emulator in a Docker container.
 func startEmulator() (testcontainers.Container, string, error) {
+	if host := os.Getenv("SPANNER_EMULATOR_HOST"); host != "" {
+		return nil, host, nil
+	}
 	ctx := context.Background()
 	req := testcontainers.ContainerRequest{
 		AlwaysPullImage: true,
@@ -105,17 +113,26 @@ func startEmulator() (testcontainers.Container, string, error) {
 		Started:          true,
 	})
 	if err != nil {
-		return emulator, "", fmt.Errorf("failed to start the emulator: %v", err)
+		return nil, "", fmt.Errorf("failed to start the emulator: %v", err)
 	}
+
+	var success bool
+	defer func() {
+		if !success {
+			_ = emulator.Terminate(ctx)
+		}
+	}()
+
 	host, err := emulator.Host(ctx)
 	if err != nil {
-		return emulator, "", fmt.Errorf("failed to get host: %v", err)
+		return nil, "", fmt.Errorf("failed to get host: %v", err)
 	}
 	mappedPort, err := emulator.MappedPort(ctx, "9010/tcp")
 	if err != nil {
-		return emulator, "", fmt.Errorf("failed to get mapped port: %v", err)
+		return nil, "", fmt.Errorf("failed to get mapped port: %v", err)
 	}
 	port := mappedPort.Port()
 
+	success = true
 	return emulator, fmt.Sprintf("%s:%v", host, port), nil
 }
