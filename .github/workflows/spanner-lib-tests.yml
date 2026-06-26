@@ -118,9 +118,11 @@ jobs:
           if [ "$RUNNER_OS" == "Windows" ]; then
             echo "Windows does not yet support cross compiling"
           elif [ "$RUNNER_OS" == "macOS" ]; then
-            brew tap SergioBenitez/osxct
+            brew tap MaterializeInc/crosstools
+            brew trust MaterializeInc/crosstools
             brew install x86_64-unknown-linux-gnu
             brew install mingw-w64
+            x86_64-unknown-linux-gnu-gcc --version
           else
             sudo apt-get update
             sudo apt install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
@@ -132,6 +134,14 @@ jobs:
         run: |
           echo "$RUNNER_OS"
           ./build.sh
+        shell: bash
+      - name: Verify compiled binaries
+        # Sanity check: verify that the compiled Linux shared library is a valid 64-bit ELF binary.
+        # This is crucial on macOS to ensure the cross-compiler succeeded and did not fallback
+        # to producing a macOS Mach-O binary.
+        if: matrix.os != 'windows-latest'
+        run: |
+          file spannerlib/wrappers/spannerlib-dotnet/spannerlib-dotnet-native/libraries/linux-x64/spannerlib.so | grep "ELF 64-bit"
         shell: bash
       - name: Restore dependencies
         run: dotnet restore
