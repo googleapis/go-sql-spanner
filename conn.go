@@ -19,7 +19,6 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
-	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
@@ -34,6 +33,7 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 // SpannerConn is the public interface for the raw Spanner connection for the
@@ -121,6 +121,10 @@ type SpannerConn interface {
 	// SetReadOnlyStaleness sets the staleness to use for queries in autocommit
 	// mode and for read-only transaction.
 	SetReadOnlyStaleness(staleness spanner.TimestampBound) error
+	// DirectedReadOptions returns the current directed read options of the connection.
+	DirectedReadOptions() *spannerpb.DirectedReadOptions
+	// SetDirectedReadOptions sets the directed read options of the connection.
+	SetDirectedReadOptions(options *spannerpb.DirectedReadOptions) error
 
 	// IsolationLevel returns the current default isolation level that is
 	// used for read/write transactions on this connection.
@@ -434,6 +438,30 @@ func (c *conn) readOnlyStalenessPointer() *spanner.TimestampBound {
 	return &timestampBound
 }
 
+func (c *conn) DirectedReadOptions() *spannerpb.DirectedReadOptions {
+	options := propertyDirectedRead.GetValueOrDefault(c.state)
+	if options == nil {
+		return nil
+	}
+	return proto.Clone(options).(*spannerpb.DirectedReadOptions)
+}
+
+func (c *conn) SetDirectedReadOptions(options *spannerpb.DirectedReadOptions) error {
+	var cloned *spannerpb.DirectedReadOptions
+	if options != nil {
+		cloned = proto.Clone(options).(*spannerpb.DirectedReadOptions)
+	}
+	_, err := c.setDirectedReadOptions(cloned)
+	return err
+}
+
+func (c *conn) setDirectedReadOptions(options *spannerpb.DirectedReadOptions) (driver.Result, error) {
+	if err := propertyDirectedRead.SetValue(c.state, options, connectionstate.ContextUser); err != nil {
+		return nil, err
+	}
+	return driver.ResultNoRows, nil
+}
+
 func (c *conn) IsolationLevel() sql.IsolationLevel {
 	return propertyIsolationLevel.GetValueOrDefault(c.state)
 }
@@ -639,9 +667,10 @@ func (c *conn) runDMLBatch(ctx context.Context) (SpannerResult, error) {
 
 	statements := c.batch.statements
 	options := c.batch.options
-	options.QueryOptions.LastStatement = true
+	localOptions := *options
+	localOptions.QueryOptions.LastStatement = true
 	c.batch = nil
-	return c.execBatchDML(ctx, statements, options)
+	return c.execBatchDML(ctx, statements, &localOptions)
 }
 
 func (c *conn) abortBatch() (driver.Result, error) {
@@ -705,43 +734,7 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 			return (&executableDropDatabaseStatement{stmt}).execContext(ctx, c, nil, []driver.NamedValue{})
 		}
 
-		op, err := c.adminClient.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
-			Database:   c.database,
-			Statements: ddlStatements,
-		})
-		if err != nil {
-			return nil, err
-		}
-		c.lastDDLOperationID = op.Name()
-
-		if err := c.waitForDDLOperation(ctx, op.Name(), func(ctx context.Context) error {
-			return op.Wait(ctx)
-		}); err != nil {
-			if len(statements) > 1 {
-				be := &BatchError{
-					Err:               err,
-					BatchUpdateCounts: []int64{},
-				}
-				metadata, err := op.Metadata()
-				if err != nil {
-					c.logger.WarnContext(ctx, fmt.Sprintf("Error getting metadata for UpdateDatabaseDdl: %v", err))
-				} else if metadata != nil {
-					for _, ts := range metadata.CommitTimestamps {
-						if ts != nil {
-							be.BatchUpdateCounts = append(be.BatchUpdateCounts, int64(-1))
-						} else {
-							break
-						}
-					}
-				}
-				return nil, be
-			}
-			return nil, err
-		}
-		mode := propertyDDLExecutionMode.GetValueOrDefault(c.state)
-		if mode == DDLExecutionModeAsync || mode == DDLExecutionModeAsyncWait {
-			return &result{operationID: op.Name()}, nil
-		}
+		return c.executeDDLWithDefaultSequenceKindRetry(ctx, statements, ddlStatements)
 	}
 	return driver.ResultNoRows, nil
 }
@@ -1340,8 +1333,9 @@ func (c *conn) options(resetTags bool) (*ExecOptions, error) {
 		AutocommitDMLMode:    c.AutocommitDMLMode(),
 		DecodeToNativeArrays: c.DecodeToNativeArrays(),
 		QueryOptions: spanner.QueryOptions{
-			RequestTag: c.StatementTag(),
-			Priority:   propertyRpcPriority.GetValueOrDefault(c.state),
+			RequestTag:          c.StatementTag(),
+			Priority:            propertyRpcPriority.GetValueOrDefault(c.state),
+			DirectedReadOptions: c.DirectedReadOptions(),
 		},
 		TransactionOptions: spanner.TransactionOptions{
 			ExcludeTxnFromChangeStreams: c.ExcludeTxnFromChangeStreams(),
@@ -1785,13 +1779,15 @@ func (c *conn) executeAutoPartitionedQuery(ctx context.Context, cancel context.C
 
 func queryInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (rowIterator, *spanner.CommitResponse, error) {
 	var result *wrappedRowIterator
-	options.QueryOptions.LastStatement = true
+	queryOptions := options.QueryOptions
+	queryOptions.LastStatement = true
+	queryOptions.DirectedReadOptions = nil
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
 		if result != nil {
 			// in case of a retry
 			result.Stop()
 		}
-		it := tx.QueryWithOptions(ctx, statement, options.QueryOptions)
+		it := tx.QueryWithOptions(ctx, statement, queryOptions)
 		row, err := it.Next()
 		if err == iterator.Done {
 			result = &wrappedRowIterator{
@@ -1825,10 +1821,12 @@ var errInvalidDmlForExecContext = spanner.ToSpannerError(status.Error(codes.Fail
 
 func execInNewRWTransaction(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (*result, *spanner.CommitResponse, error) {
 	var res *result
-	options.QueryOptions.LastStatement = true
+	queryOptions := options.QueryOptions
+	queryOptions.LastStatement = true
+	queryOptions.DirectedReadOptions = nil
 	fn := func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
 		var err error
-		res, err = execTransactionalDML(ctx, tx, statement, statementInfo, options.QueryOptions)
+		res, err = execTransactionalDML(ctx, tx, statement, statementInfo, queryOptions)
 		if err != nil {
 			return err
 		}
@@ -1875,6 +1873,7 @@ func execTransactionalDML(ctx context.Context, tx spannerTransaction, statement 
 
 func execAsPartitionedDML(ctx context.Context, c *spanner.Client, statement spanner.Statement, options *ExecOptions) (int64, error) {
 	queryOptions := options.QueryOptions
+	queryOptions.DirectedReadOptions = nil
 	queryOptions.ExcludeTxnFromChangeStreams = options.TransactionOptions.ExcludeTxnFromChangeStreams
 	return c.PartitionedUpdateWithOptions(ctx, statement, queryOptions)
 }

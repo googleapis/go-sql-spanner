@@ -243,8 +243,9 @@ func TestStatementTimeout(t *testing.T) {
 	defer teardown()
 	ctx := context.Background()
 
-	// The database/sql driver uses ExecuteStreamingSql for all statements.
+	// The database/sql driver uses ExecuteStreamingSql for queries and ExecuteSql for DMLs.
 	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: 50 * time.Millisecond})
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: 50 * time.Millisecond})
 
 	_, err := db.ExecContext(ctx, testutil.UpdateBarSetFoo)
 	if g, w := spanner.ErrCode(err), codes.DeadlineExceeded; g != w {
@@ -535,6 +536,24 @@ func TestNamedParametersWithGoogleSQL(t *testing.T) {
 			wantParams: map[string]string{"id": "1", "value": "One"},
 		},
 		{
+			name:       "case_insensitive",
+			params:     []any{sql.Named("ID", 1), sql.Named("Value", "One")},
+			input:      "insert into my_table (id, value) values (@id, @value)",
+			wantParams: map[string]string{"id": "1", "value": "One"},
+		},
+		{
+			name:       "case_insensitive_2",
+			params:     []any{sql.Named("id", 1), sql.Named("value", "One")},
+			input:      "insert into my_table (id, value) values (@ID, @VALUE)",
+			wantParams: map[string]string{"ID": "1", "VALUE": "One"},
+		},
+		{
+			name:       "case_insensitive_exact_match_priority",
+			params:     []any{sql.Named("id", 1), sql.Named("ID", 2)},
+			input:      "insert into my_table (id, value) values (@id, @ID)",
+			wantParams: map[string]string{"id": "1", "ID": "2"},
+		},
+		{
 			name:       "input_out_of_order",
 			params:     []any{sql.Named("value", "One"), sql.Named("id", 1)},
 			input:      "insert into my_table (id, value) values (@id, @value)",
@@ -736,6 +755,20 @@ func TestNamedParametersWithPG(t *testing.T) {
 			params:     []any{sql.Named("id", 1), sql.Named("value", "One")},
 			input:      "insert into my_table (id, initial_value, current_value, generation) values (@id, @value, @value, @id)",
 			wantSQL:    "insert into my_table (id, initial_value, current_value, generation) values ($1, $2, $2, $1)",
+			wantParams: map[string]string{"p1": "1", "p2": "One"},
+		},
+		{
+			name:       "case_insensitive",
+			params:     []any{sql.Named("ID", 1), sql.Named("Value", "One")},
+			input:      "insert into my_table (id, value) values (@id, @value)",
+			wantSQL:    "insert into my_table (id, value) values ($1, $2)",
+			wantParams: map[string]string{"p1": "1", "p2": "One"},
+		},
+		{
+			name:       "case_insensitive_2",
+			params:     []any{sql.Named("id", 1), sql.Named("value", "One")},
+			input:      "insert into my_table (id, value) values (@ID, @VALUE)",
+			wantSQL:    "insert into my_table (id, value) values ($1, $2)",
 			wantParams: map[string]string{"p1": "1", "p2": "One"},
 		},
 		{
@@ -941,5 +974,102 @@ func executeParamTest(t *testing.T, test paramTest, server *testutil.MockedSpann
 				t.Fatalf("%s: parameter value mismatch\n Got: %v\nWant: %v", k, g, w)
 			}
 		}
+	}
+}
+
+func TestPrepareStmtGORMSharedOptionsBug(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	// Mock the update query.
+	query := "update test set value = ? where id = ?"
+	if err := server.TestSpanner.PutStatementResult(
+		"update test set value = @p1 where id = @p2",
+		&testutil.StatementResult{
+			Type:        testutil.StatementResultUpdateCount,
+			UpdateCount: 1,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Prepare statement.
+	stmt, err := db.PrepareContext(ctx, query)
+	if err != nil {
+		t.Fatalf("failed to prepare query: %v", err)
+	}
+	defer stmt.Close()
+
+	// 2. Execute statement outside transaction (auto-commit).
+	_, err = stmt.ExecContext(ctx, "val1", int64(1))
+	if err != nil {
+		t.Fatalf("failed auto-commit execution: %v", err)
+	}
+
+	// 3. Start explicit transaction.
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("failed to begin transaction: %v", err)
+	}
+
+	// 4. Execute the cached statement inside transaction using tx.Stmt().
+	txStmt := tx.Stmt(stmt)
+	_, err = txStmt.ExecContext(ctx, "val2", int64(1))
+	if err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("failed in-transaction statement execution: %v", err)
+	}
+
+	// 5. Execute another statement in the same transaction.
+	_, err = tx.ExecContext(ctx, "update test set value = ? where id = ?", "val3", int64(2))
+	if err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("failed second in-transaction execution: %v", err)
+	}
+
+	// 6. Commit transaction.
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("failed to commit: %v", err)
+	}
+
+	// 7. Verify mock server requests.
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 3; g != w {
+		t.Fatalf("number of execute requests mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	req1 := executeRequests[0].(*spannerpb.ExecuteSqlRequest) // auto-commit outside transaction
+	req2 := executeRequests[1].(*spannerpb.ExecuteSqlRequest) // first DML in transaction (prepared statement)
+	req3 := executeRequests[2].(*spannerpb.ExecuteSqlRequest) // second DML in transaction
+
+	if !req1.LastStatement {
+		t.Error("Expected LastStatement=true for auto-commit execution, got false")
+	}
+	if req2.LastStatement {
+		t.Error("Expected LastStatement=false for first in-transaction statement, got true")
+	}
+	if req3.LastStatement {
+		t.Error("Expected LastStatement=false for second in-transaction statement, got true")
+	}
+}
+
+func TestQueryMismatchedParameterName(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	// SELECT with @my_id parameter but passing named parameter "id" instead
+	_, err := db.QueryContext(ctx, "select value from test where id=@my_id", sql.Named("id", 123))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "missing value for query parameter @my_id") {
+		t.Fatalf("expected missing value error, got: %v", err)
 	}
 }
