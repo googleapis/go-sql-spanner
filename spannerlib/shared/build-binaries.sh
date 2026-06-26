@@ -58,7 +58,7 @@ if [ -z "$SKIP_MACOS" ]; then
 fi
 
 # --- Linux Builds ---
-if [ -z "$SKIP_LINUX" ]; then
+if [ -z "$SKIP_LINUX" ] || [ -z "$SKIP_LINUX_CROSS_COMPILE" ]; then
     # Linux x64
     # Logic: If we are on Linux, we prefer native build. 
     # If we are NOT on Linux (e.g. Mac), we try cross-compile unless skipped.
