@@ -383,9 +383,6 @@ func (tx *readOnlyTransaction) ReadOnlyTransactionTimestamp() (time.Time, error)
 	if tx.roTx != nil {
 		return tx.roTx.Timestamp()
 	}
-	if tx.boTx != nil {
-		return tx.boTx.Timestamp()
-	}
 	return time.Time{}, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-only transaction is not initialized"))
 }
 

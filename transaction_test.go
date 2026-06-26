@@ -483,7 +483,7 @@ func TestReadOnlyTransactionTimestamp(t *testing.T) {
 	if err == nil {
 		t.Error("expected error retrieving read timestamp when no transaction is active")
 	} else if g, w := status.Code(err), codes.FailedPrecondition; g != w {
-		t.Errorf("error code mismatch\n Got: %v\nWant: %v", g, w)
+		t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
 	}
 
 	if _, err := conn.ExecContext(ctx, "begin transaction read only"); err != nil {
@@ -526,6 +526,118 @@ func TestReadOnlyTransactionTimestamp(t *testing.T) {
 	if err == nil {
 		t.Error("expected error retrieving read timestamp after transaction is closed")
 	} else if g, w := status.Code(err), codes.FailedPrecondition; g != w {
-		t.Errorf("error code mismatch\n Got: %v\nWant: %v", g, w)
+		t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestReadOnlyTransactionTimestamp_VariousOptions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("BatchReadOnly", func(t *testing.T) {
+		db, server, teardown := setupTestDBConnection(t)
+		defer teardown()
+		ctx := context.Background()
+
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silentClose(conn)
+
+		if _, err := conn.ExecContext(ctx, "SET transaction_batch_read_only = true"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := conn.ExecContext(ctx, "begin transaction read only"); err != nil {
+			t.Fatal(err)
+		}
+
+		// Drain any requests that might have been sent during setup/connection initialization
+		_ = server.TestSpanner.DrainRequestsFromServer()
+
+		// Retrieve the timestamp immediately without executing a query
+		var readTimestamp time.Time
+		err = conn.Raw(func(driverConn any) error {
+			spannerConn := driverConn.(SpannerConn)
+			var err error
+			readTimestamp, err = spannerConn.ReadOnlyTransactionTimestamp()
+			return err
+		})
+		if err != nil {
+			t.Fatalf("unexpected error retrieving read timestamp: %v", err)
+		}
+		if readTimestamp.IsZero() {
+			t.Error("expected non-zero read timestamp")
+		}
+
+		// Verify that exactly one BeginTransaction request was sent (triggered by activation when querying timestamp)
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+		if g, w := len(beginRequests), 1; g != w {
+			t.Errorf("num begin requests mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		if _, err := conn.ExecContext(ctx, "rollback"); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	for _, option := range []string{"InlinedBeginTransaction", "ExplicitBeginTransaction"} {
+		t.Run(option, func(t *testing.T) {
+			db, server, teardown := setupTestDBConnection(t)
+			defer teardown()
+			ctx := context.Background()
+
+			conn, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer silentClose(conn)
+
+			if _, err := conn.ExecContext(ctx, fmt.Sprintf("SET begin_transaction_option = '%s'", option)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := conn.ExecContext(ctx, "begin transaction read only"); err != nil {
+				t.Fatal(err)
+			}
+
+			// Run a query to start the transaction on the Spanner server and select a read timestamp
+			rows, err := conn.QueryContext(ctx, testutil.SelectFooFromBar)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for rows.Next() {
+			}
+			_ = rows.Close()
+
+			// Retrieve the timestamp after running a query
+			var readTimestamp time.Time
+			err = conn.Raw(func(driverConn any) error {
+				spannerConn := driverConn.(SpannerConn)
+				var err error
+				readTimestamp, err = spannerConn.ReadOnlyTransactionTimestamp()
+				return err
+			})
+			if err != nil {
+				t.Fatalf("unexpected error retrieving read timestamp: %v", err)
+			}
+			if readTimestamp.IsZero() {
+				t.Error("expected non-zero read timestamp")
+			}
+
+			// Verify that the correct number of BeginTransaction requests were sent (0 for inline, 1 for explicit)
+			requests := server.TestSpanner.DrainRequestsFromServer()
+			beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+			expectedRequests := 0
+			if option == "ExplicitBeginTransaction" {
+				expectedRequests = 1
+			}
+			if g, w := len(beginRequests), expectedRequests; g != w {
+				t.Errorf("num begin requests mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			if _, err := conn.ExecContext(ctx, "rollback"); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
