@@ -13,6 +13,7 @@
 // limitations under the License.
 
 using System;
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -89,8 +90,15 @@ public class Server : IDisposable
         {
             throw new InvalidOperationException("Failed to start spanner");
         }
+
+        // Start background Task to consume standard output stream to prevent blocking/hanging.
+        DrainStream(process.StandardOutput);
+
         if (addressType == AddressType.UnixDomainSocket)
         {
+            // Start background Task to consume standard error stream.
+            DrainStream(process.StandardError);
+
             var watch = new Stopwatch();
             while (!File.Exists(arguments))
             {
@@ -100,14 +108,16 @@ public class Server : IDisposable
                 }
                 Thread.Sleep(1);
             }
-        }
-        if (addressType == AddressType.UnixDomainSocket)
-        {
+
             // Return the name of the Unix domain socket.
             return Tuple.Create(arguments, process);
         }
         // Read the dynamically assigned port.
         var address = process.StandardError.ReadLine();
+
+        // Start background Task to consume remaining standard error stream.
+        DrainStream(process.StandardError);
+
         if (address?.Contains("Starting gRPC server on") ?? false)
         {
             var lastSpace = address.LastIndexOf(" ",  StringComparison.Ordinal);
@@ -250,5 +260,31 @@ public class Server : IDisposable
         {
             _disposed = true;
         }
-    }    
+    }
+
+    /// <summary>
+    /// Asynchronously drains the redirected output or error stream of the child process.
+    /// Redirecting standard streams without consuming them can cause the child process to block
+    /// and hang indefinitely when the OS pipe buffer size limit (typically 64KB) is reached.
+    /// This method uses non-blocking asynchronous reading (ReadAsync) with a shared buffer to continuously drain
+    /// the stream without keeping a ThreadPool thread blocked/pinned and with zero memory allocation overhead,
+    /// preventing thread pool starvation and GC pressure.
+    /// </summary>
+    private static void DrainStream(StreamReader reader)
+    {
+        Task.Run(async () =>
+        {
+            try
+            {
+                var buffer = new char[4096];
+                while (await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false) > 0)
+                {
+                }
+            }
+            catch
+            {
+                // Discard exceptions during shutdown/dispose
+            }
+        });
+    }
 }
