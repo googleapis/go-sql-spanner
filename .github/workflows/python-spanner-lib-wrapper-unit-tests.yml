@@ -24,6 +24,7 @@ jobs:
       uses: actions/setup-go@v6
       with:
         go-version: '1.26.x'
+        cache-dependency-path: spannerlib/go.sum
 
     - name: Set up Python
       uses: actions/setup-python@v6

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -33,6 +34,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestSamples(t *testing.T) {
@@ -41,14 +43,23 @@ func TestSamples(t *testing.T) {
 	databaseID := "test-database"
 	databaseName := fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectID, instanceID, databaseID)
 
+	if os.Getenv("SPANNER_EMULATOR_HOST") == "" && !isDockerAvailable() {
+		t.Skip("Docker is not available; skipping self-starting emulator tests")
+	}
+
+	hasHostOriginally := os.Getenv("SPANNER_EMULATOR_HOST") != ""
 	emulator, err := startEmulator(projectID, instanceID, databaseID, adminpb.DatabaseDialect_GOOGLE_STANDARD_SQL)
 	if err != nil {
+		t.Fatalf("failed to start emulator: %v", err)
+	}
+	defer func() {
 		if emulator != nil {
 			_ = emulator.Terminate(context.Background())
 		}
-		t.Fatalf("failed to start emulator: %v", err)
-	}
-	defer func() { _ = emulator.Terminate(context.Background()) }()
+		if !hasHostOriginally {
+			_ = os.Unsetenv("SPANNER_EMULATOR_HOST")
+		}
+	}()
 
 	ctx := context.Background()
 	var b bytes.Buffer
@@ -78,14 +89,23 @@ func TestPostgreSQLSamples(t *testing.T) {
 	databaseID := "test-database"
 	databaseName := fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectID, instanceID, databaseID)
 
+	if os.Getenv("SPANNER_EMULATOR_HOST") == "" && !isDockerAvailable() {
+		t.Skip("Docker is not available; skipping self-starting PostgreSQL emulator tests")
+	}
+
+	hasHostOriginally := os.Getenv("SPANNER_EMULATOR_HOST") != ""
 	emulator, err := startEmulator(projectID, instanceID, databaseID, adminpb.DatabaseDialect_POSTGRESQL)
 	if err != nil {
+		t.Fatalf("failed to start emulator: %v", err)
+	}
+	defer func() {
 		if emulator != nil {
 			_ = emulator.Terminate(context.Background())
 		}
-		t.Fatalf("failed to start emulator: %v", err)
-	}
-	defer func() { _ = emulator.Terminate(context.Background()) }()
+		if !hasHostOriginally {
+			_ = os.Unsetenv("SPANNER_EMULATOR_HOST")
+		}
+	}()
 
 	ctx := context.Background()
 	var b bytes.Buffer
@@ -121,45 +141,59 @@ func testSample(t *testing.T, ctx context.Context, b *bytes.Buffer, databaseName
 
 func startEmulator(projectID, instanceID, databaseID string, dialect adminpb.DatabaseDialect) (testcontainers.Container, error) {
 	ctx := context.Background()
-	req := testcontainers.ContainerRequest{
-		AlwaysPullImage: true,
-		Image:           "gcr.io/cloud-spanner-emulator/emulator",
-		ExposedPorts:    []string{"9010/tcp"},
-		WaitingFor:      wait.ForListeningPort("9010/tcp"),
-		HostConfigModifier: func(hostConfig *container.HostConfig) {
-			hostConfig.AutoRemove = true
-		},
-	}
-	emulator, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		return emulator, fmt.Errorf("failed to start emulator: %v", err)
-	}
-	host, err := emulator.Host(ctx)
-	if err != nil {
-		return emulator, fmt.Errorf("failed to get host: %v", err)
-	}
-	mappedPort, err := emulator.MappedPort(ctx, "9010/tcp")
-	if err != nil {
-		return emulator, fmt.Errorf("failed to get mapped port: %v", err)
-	}
-	port := mappedPort.Port()
-	// Set the env var to connect to the emulator.
-	if err := os.Setenv("SPANNER_EMULATOR_HOST", fmt.Sprintf("%s:%v", host, port)); err != nil {
-		return emulator, fmt.Errorf("failed to set env var for emulator: %v", err)
+	var emulator testcontainers.Container
+	var err error
+	var success bool
+
+	defer func() {
+		if !success && emulator != nil {
+			_ = emulator.Terminate(ctx)
+			_ = os.Unsetenv("SPANNER_EMULATOR_HOST")
+		}
+	}()
+
+	if os.Getenv("SPANNER_EMULATOR_HOST") == "" {
+		req := testcontainers.ContainerRequest{
+			AlwaysPullImage: true,
+			Image:           "gcr.io/cloud-spanner-emulator/emulator",
+			ExposedPorts:    []string{"9010/tcp"},
+			WaitingFor:      wait.ForListeningPort("9010/tcp"),
+			HostConfigModifier: func(hostConfig *container.HostConfig) {
+				hostConfig.AutoRemove = true
+			},
+		}
+		emulator, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+			ContainerRequest: req,
+			Started:          true,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to start emulator: %v", err)
+		}
+		host, err := emulator.Host(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get host: %v", err)
+		}
+		mappedPort, err := emulator.MappedPort(ctx, "9010/tcp")
+		if err != nil {
+			return nil, fmt.Errorf("failed to get mapped port: %v", err)
+		}
+		port := mappedPort.Port()
+		// Set the env var to connect to the emulator.
+		if err := os.Setenv("SPANNER_EMULATOR_HOST", fmt.Sprintf("%s:%v", host, port)); err != nil {
+			return nil, fmt.Errorf("failed to set env var for emulator: %v", err)
+		}
 	}
 	if err := retryOnUnavailable(10, func() error {
 		return createInstance(projectID, instanceID)
 	}); err != nil {
-		return emulator, fmt.Errorf("failed to create instance: %v", err)
+		return nil, fmt.Errorf("failed to create instance: %v", err)
 	}
 	if err := retryOnUnavailable(10, func() error {
 		return createDatabase(projectID, instanceID, databaseID, dialect)
 	}); err != nil {
-		return emulator, fmt.Errorf("failed to create database: %v", err)
+		return nil, fmt.Errorf("failed to create database: %v", err)
 	}
+	success = true
 	return emulator, nil
 }
 
@@ -180,12 +214,23 @@ func retryOnUnavailable(maxAttempts int, f func() error) error {
 }
 
 func createInstance(projectID, instanceID string) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	instanceAdmin, err := instance.NewInstanceAdminClient(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = instanceAdmin.Close() }()
+
+	inst, err := instanceAdmin.GetInstance(ctx, &instancepb.GetInstanceRequest{
+		Name: fmt.Sprintf("projects/%s/instances/%s", projectID, instanceID),
+	})
+	if err == nil && inst != nil {
+		return nil
+	}
+	if status.Code(err) != codes.NotFound {
+		return fmt.Errorf("failed to check if instance exists: %w", err)
+	}
 
 	op, err := instanceAdmin.CreateInstance(ctx, &instancepb.CreateInstanceRequest{
 		Parent:     fmt.Sprintf("projects/%s", projectID),
@@ -209,12 +254,16 @@ func createInstance(projectID, instanceID string) error {
 }
 
 func createDatabase(projectID, instanceID, databaseID string, dialect adminpb.DatabaseDialect) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	adminClient, err := database.NewDatabaseAdminClient(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = adminClient.Close() }()
+
+	dbPath := fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectID, instanceID, databaseID)
+	_ = adminClient.DropDatabase(ctx, &adminpb.DropDatabaseRequest{Database: dbPath})
 
 	var createStatement string
 	if dialect == adminpb.DatabaseDialect_POSTGRESQL {
@@ -234,4 +283,14 @@ func createDatabase(projectID, instanceID, databaseID string, dialect adminpb.Da
 		return err
 	}
 	return nil
+}
+
+func isDockerAvailable() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "info")
+	if err := cmd.Run(); err != nil {
+		return false
+	}
+	return true
 }

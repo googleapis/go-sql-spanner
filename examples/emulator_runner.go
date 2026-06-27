@@ -52,20 +52,30 @@ func RunSampleOnEmulator(sample func(string, string, string) error, ddlStatement
 
 func RunSampleOnEmulatorWithDialect(sample func(string, string, string) error, dialect databasepb.DatabaseDialect, ddlStatements ...string) {
 	var err error
-	if err = startEmulator(); err != nil {
-		log.Fatalf("failed to start emulator: %v", err)
+	var startedEmulatorSelf bool
+	if os.Getenv("SPANNER_EMULATOR_HOST") == "" {
+		if err = startEmulator(); err != nil {
+			log.Fatalf("failed to start emulator: %v", err)
+		}
+		startedEmulatorSelf = true
 	}
 	projectId, instanceId, databaseId := "my-project", "my-instance", "my-database"
 	if err = createInstance(projectId, instanceId); err != nil {
-		stopEmulator()
+		if startedEmulatorSelf {
+			stopEmulator()
+		}
 		log.Fatalf("failed to create instance on emulator: %v", err)
 	}
 	if err = createSampleDB(projectId, instanceId, databaseId, dialect, ddlStatements...); err != nil {
-		stopEmulator()
+		if startedEmulatorSelf {
+			stopEmulator()
+		}
 		log.Fatalf("failed to create database on emulator: %v", err)
 	}
 	err = sample(projectId, instanceId, databaseId)
-	stopEmulator()
+	if startedEmulatorSelf {
+		stopEmulator()
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -77,12 +87,35 @@ func startEmulator() error {
 		return err
 	}
 
+	err := startEmulatorInternal(ctx)
+	if err != nil {
+		_ = os.Unsetenv("SPANNER_EMULATOR_HOST")
+	}
+	return err
+}
+
+func startEmulatorInternal(ctx context.Context) error {
 	// Initialize a Docker client.
 	var err error
 	cli, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return err
 	}
+	var success bool
+	defer func() {
+		if !success {
+			if cli != nil {
+				if containerId != "" {
+					timeout := 10
+					_ = cli.ContainerStop(ctx, containerId, container.StopOptions{Timeout: &timeout})
+					containerId = ""
+				}
+				_ = cli.Close()
+				cli = nil
+			}
+		}
+	}()
+
 	// Pull the Spanner Emulator docker image.
 	reader, err := cli.ImagePull(ctx, "gcr.io/cloud-spanner-emulator/emulator", image.PullOptions{})
 	if err != nil {
@@ -107,6 +140,7 @@ func startEmulator() error {
 		return err
 	}
 	containerId = resp.ID
+
 	if err := cli.ContainerStart(ctx, containerId, container.StartOptions{}); err != nil {
 		return err
 	}
@@ -131,7 +165,11 @@ func startEmulator() error {
 	if !portReady {
 		return fmt.Errorf("emulator did not start listening on port 9010 in time")
 	}
-	return waitForGRPC(ctx)
+	if err := waitForGRPC(ctx); err != nil {
+		return err
+	}
+	success = true
+	return nil
 }
 
 func waitForGRPC(ctx context.Context) error {
@@ -154,12 +192,24 @@ func waitForGRPC(ctx context.Context) error {
 }
 
 func createInstance(projectId, instanceId string) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	instanceAdmin, err := instance.NewInstanceAdminClient(ctx)
 	if err != nil {
 		return err
 	}
 	defer instanceAdmin.Close()
+
+	inst, err := instanceAdmin.GetInstance(ctx, &instancepb.GetInstanceRequest{
+		Name: fmt.Sprintf("projects/%s/instances/%s", projectId, instanceId),
+	})
+	if err == nil && inst != nil {
+		return nil
+	}
+	if status.Code(err) != codes.NotFound {
+		return fmt.Errorf("failed to check if instance exists: %w", err)
+	}
+
 	op, err := instanceAdmin.CreateInstance(ctx, &instancepb.CreateInstanceRequest{
 		Parent:     fmt.Sprintf("projects/%s", projectId),
 		InstanceId: instanceId,
@@ -180,12 +230,18 @@ func createInstance(projectId, instanceId string) error {
 }
 
 func createSampleDB(projectId, instanceId, databaseId string, dialect databasepb.DatabaseDialect, statements ...string) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	databaseAdminClient, err := database.NewDatabaseAdminClient(ctx)
 	if err != nil {
 		return err
 	}
 	defer databaseAdminClient.Close()
+
+	// Drop the database if it already exists.
+	dbPath := fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectId, instanceId, databaseId)
+	_ = databaseAdminClient.DropDatabase(ctx, &databasepb.DropDatabaseRequest{Database: dbPath})
+
 	var createStatement string
 	if dialect == databasepb.DatabaseDialect_POSTGRESQL {
 		createStatement = fmt.Sprintf(`CREATE DATABASE "%s"`, databaseId)
@@ -217,4 +273,8 @@ func stopEmulator() {
 	if err := cli.ContainerStop(ctx, containerId, container.StopOptions{Timeout: &timeout}); err != nil {
 		log.Printf("failed to stop emulator: %v\n", err)
 	}
+	_ = cli.Close()
+	cli = nil
+	containerId = ""
+	_ = os.Unsetenv("SPANNER_EMULATOR_HOST")
 }
