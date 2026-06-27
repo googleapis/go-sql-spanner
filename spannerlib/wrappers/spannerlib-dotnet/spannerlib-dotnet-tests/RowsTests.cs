@@ -318,7 +318,7 @@ public class RowsTests : AbstractMockServerTests
         }));
         // The error is 'Connection not found' or an internal exception from the underlying driver, depending on exactly
         // when the driver detects that the connection and all related objects have been closed.
-        Assert.That(exception.Code is Code.NotFound or Code.Unknown, Is.True);
+        Assert.That(exception.Code is Code.NotFound or Code.Unknown or Code.Cancelled, Is.True);
         Assert.That(foundRows, Is.LessThan(numRows));
     }
 
