@@ -14,12 +14,13 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
       - name: Install Go
         uses: actions/setup-go@v6
         with:
           go-version: ${{ matrix.go-version }}
-      - name: Checkout code
-        uses: actions/checkout@v7
+          cache-dependency-path: spannerlib/go.sum
       - name: Run unit tests
         working-directory: spannerlib
         run: go test ./... -race -short
@@ -45,6 +46,7 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version: ${{ matrix.go-version }}
+          cache-dependency-path: spannerlib/go.sum
       - name: Build shared library
         working-directory: spannerlib/shared
         run: go build -o spannerlib.so -buildmode=c-shared shared_lib.go
@@ -111,6 +113,7 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version: ${{ matrix.go-version }}
+          cache-dependency-path: spannerlib/go.sum
       # Install compilers for cross-compiling between operating systems.
       - name: Install compilers
         run: |
