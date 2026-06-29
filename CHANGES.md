@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.26.0](https://github.com/googleapis/go-sql-spanner/compare/v1.25.2...v1.26.0) (2026-06-29)
+
+
+### Features
+
+* Add directed_read connection variable ([#821](https://github.com/googleapis/go-sql-spanner/issues/821)) ([e8b6af3](https://github.com/googleapis/go-sql-spanner/commit/e8b6af390d057a2815be2b695bd1371ced65d531))
+* Automatically set a default_sequence_kind on DDL failure ([#824](https://github.com/googleapis/go-sql-spanner/issues/824)) ([1bc1d6d](https://github.com/googleapis/go-sql-spanner/commit/1bc1d6dff1a2c469227af8db254888ca580ee2a5))
+* Retrieve read timestamp from read-only transaction ([#834](https://github.com/googleapis/go-sql-spanner/issues/834)) ([3ba6ab1](https://github.com/googleapis/go-sql-spanner/commit/3ba6ab107b053ec2938dc00f7f878e433dd2c012))
+* Support case-insensitive query parameter matching ([#823](https://github.com/googleapis/go-sql-spanner/issues/823)) ([d0368f6](https://github.com/googleapis/go-sql-spanner/commit/d0368f6c6330c3e241347a9f70f67186477f23a4))
+* Support SHOW TRANSACTION variables and transaction_isolation alias ([#822](https://github.com/googleapis/go-sql-spanner/issues/822)) ([464bef4](https://github.com/googleapis/go-sql-spanner/commit/464bef4e39e528011e0e53a52759993ce3a72d22))
+
+
+### Bug Fixes
+
+* **conn:** Clone QueryOptions before modifying LastStatement field ([#820](https://github.com/googleapis/go-sql-spanner/issues/820)) ([6eb8e2b](https://github.com/googleapis/go-sql-spanner/commit/6eb8e2b91afd2955060fa756187e6af3c8b6a1f7))
+* **examples:** Wait for emulator port to open before executing samples ([#828](https://github.com/googleapis/go-sql-spanner/issues/828)) ([f6fec0d](https://github.com/googleapis/go-sql-spanner/commit/f6fec0d6a15ad3b597e07aaaa62189230dc19580))
+* **ruby-wrapper:** Resolve flakiness on Windows and path warning ([#829](https://github.com/googleapis/go-sql-spanner/issues/829)) ([87617cf](https://github.com/googleapis/go-sql-spanner/commit/87617cfd6a1cda1b4ffd45ed0bd91a91665e8f11))
+* Support read-only transactions in RunTransaction ([#826](https://github.com/googleapis/go-sql-spanner/issues/826)) ([1c33428](https://github.com/googleapis/go-sql-spanner/commit/1c33428759ef3de07d6915660e4b8fa86155da47))
+* **test:** Resolve flakiness in MaxIdleConnections tests ([#825](https://github.com/googleapis/go-sql-spanner/issues/825)) ([fd7de25](https://github.com/googleapis/go-sql-spanner/commit/fd7de259a4b403be1c79d4bbb1208a6dd97ddb07))
+* **test:** Resolve flakiness in TestStatementTimeout by adding delay to ExecuteSql ([#827](https://github.com/googleapis/go-sql-spanner/issues/827)) ([318e4b4](https://github.com/googleapis/go-sql-spanner/commit/318e4b40818df20932d462c99aeb2dae91cfe834))
+* Update all dependencies ([#851](https://github.com/googleapis/go-sql-spanner/issues/851)) ([f925772](https://github.com/googleapis/go-sql-spanner/commit/f925772e92b172f83be3df745aecf24c65f28d6d))
+* Update dependency io.grpc:grpc-bom to v1.82.1 ([#853](https://github.com/googleapis/go-sql-spanner/issues/853)) ([107a767](https://github.com/googleapis/go-sql-spanner/commit/107a767d64f9652ca99eb8196cc209df20d1480d))
+* Update module cloud.google.com/go/longrunning to v1.1.0 ([#859](https://github.com/googleapis/go-sql-spanner/issues/859)) ([e8e22d6](https://github.com/googleapis/go-sql-spanner/commit/e8e22d65af20716b0ce9bebd270ffd62ebf3f4b1))
+
 ## [1.25.2](https://github.com/googleapis/go-sql-spanner/compare/v1.25.1...v1.25.2) (2026-06-22)
 
 
