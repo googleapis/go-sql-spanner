@@ -311,15 +311,16 @@ func (rows *rows) Next(ctx context.Context) (*structpb.ListValue, error) {
 			return nil, err
 		}
 		if !rows.isMulti {
+			// Read stats first to consume the final stats metadata from the stream.
+			if err := rows.readStats(ctx); err != nil {
+				_ = rows.backend.Close()
+				if rows.cancel != nil {
+					rows.cancel()
+				}
+				return nil, err
+			}
 			if rows.cancel != nil {
 				rows.cancel()
-			}
-			// No more rows. Read stats and return nil if this is not a query.
-			if !hasFields(rows.metadata) {
-				if err := rows.readStats(ctx); err != nil {
-					_ = rows.backend.Close()
-					return nil, err
-				}
 			}
 			_ = rows.backend.Close()
 		} else {
