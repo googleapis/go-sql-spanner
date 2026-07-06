@@ -768,8 +768,12 @@ export class MockSpanner {
       }
       res.push(partial);
     }
-    if (queryMode === QueryMode.PROFILE || queryMode === 'PROFILE') {
-      res[res.length - 1].stats = {
+    if (
+      queryMode === QueryMode.PROFILE ||
+      queryMode === 'PROFILE' ||
+      resultSet.stats
+    ) {
+      res[res.length - 1].stats = resultSet.stats || {
         queryStats: { fields: {} },
         queryPlan: { planNodes: [] },
       };
@@ -1345,6 +1349,31 @@ export function createSelect1ResultSet(): protobuf.ResultSet {
   return spannerProto.ResultSet.create({
     metadata,
     rows: [{ values: [{ stringValue: '1' }] }],
+  });
+}
+
+export function createSelect1ResultSetWithStats(): protobuf.ResultSet {
+  const fields = [
+    spannerProto.StructType.Field.create({
+      name: '',
+      type: spannerProto.Type.create({ code: spannerProto.TypeCode.INT64 }),
+    }),
+  ];
+  const metadata = new spannerProto.ResultSetMetadata({
+    rowType: new spannerProto.StructType({
+      fields,
+    }),
+  });
+  return spannerProto.ResultSet.create({
+    metadata,
+    rows: [{ values: [{ stringValue: '1' }] }],
+    stats: spannerProto.ResultSetStats.create({
+      queryStats: {
+        fields: {
+          elapsed_time: { stringValue: '1ms' },
+        },
+      },
+    }),
   });
 }
 

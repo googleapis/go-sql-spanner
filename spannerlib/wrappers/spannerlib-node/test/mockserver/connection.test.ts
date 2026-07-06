@@ -20,6 +20,7 @@ import {
   MockSpanner,
   StatementResult,
   createSelect1ResultSet,
+  createSelect1ResultSetWithStats,
   createResultSetWithAllDataTypes,
 } from './mockspanner.js';
 import { status } from '@grpc/grpc-js';
@@ -411,6 +412,36 @@ describe('End-to-End Execution on MockServer', () => {
 
       const count = await rows.updateCount();
       assert.strictEqual(count, 100);
+
+      await rows.close();
+      await connection.close();
+    });
+
+    it('should retrieve stats from a SELECT query after consuming all rows', async () => {
+      mock.putStatementResult(
+        'SELECT 1',
+        StatementResult.resultSet(createSelect1ResultSetWithStats())
+      );
+
+      const connection = await pool.createConnection();
+      const rows = await connection.execute({
+        sql: 'SELECT 1',
+        queryMode: google.spanner.v1.ExecuteSqlRequest.QueryMode.PROFILE,
+      });
+      assert.ok(rows);
+
+      while ((await rows.next()) !== null) {
+        // Consume all rows
+      }
+
+      const stats = await rows.resultSetStats();
+      assert.ok(stats);
+      assert.ok(stats.queryStats);
+      assert.ok(stats.queryStats.fields);
+      assert.strictEqual(
+        stats.queryStats.fields['elapsed_time']?.stringValue,
+        '1ms'
+      );
 
       await rows.close();
       await connection.close();
