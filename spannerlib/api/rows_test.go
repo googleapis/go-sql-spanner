@@ -803,3 +803,69 @@ func TestNextBuffered_DoneOnError(t *testing.T) {
 		t.Fatalf("expected third NextBuffered() to return nil (EOF)\nGot:  %v\nWant: %v", g, w)
 	}
 }
+
+func TestRowsNextAutoClose(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolId, err := CreatePool(ctx, "test", dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	defer ClosePool(ctx, poolId)
+
+	p, ok := pools.Load(poolId)
+	if !ok {
+		t.Fatal("pool not found in map")
+	}
+	pool := p.(*Pool)
+	// Force pool max connections to 1. If the connection is leaked on EOF,
+	// the next query will block/timeout.
+	pool.db.SetMaxOpenConns(1)
+
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	defer CloseConnection(ctx, poolId, connId)
+
+	// Execute a SELECT query that returns rows (SelectFooFromBar has 2 rows).
+	rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{
+		Sql: testutil.SelectFooFromBar,
+	})
+	if err != nil {
+		t.Fatalf("First SELECT query failed: %v", err)
+	}
+
+	// Read all rows to EOF (so Next returns empty batch).
+	rowCount := 0
+	for {
+		rowBatch, err := Next(ctx, poolId, connId, rowsId, 1)
+		if err != nil {
+			t.Fatalf("Next failed: %v", err)
+		}
+		if len(rowBatch) == 0 {
+			break
+		}
+		rowCount += len(rowBatch)
+	}
+	if rowCount != 2 {
+		t.Fatalf("Expected 2 rows, got: %d", rowCount)
+	}
+
+	// At this point, rows.Next() hit EOF and should have automatically closed
+	// the underlying database iterator, releasing the connection back to the pool.
+	// Let's verify by executing a second query.
+	// If the connection was leaked, this call will hang or fail (since MaxOpenConns = 1).
+	secondRowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{
+		Sql: testutil.SelectFooFromBar,
+	})
+	if err != nil {
+		t.Fatalf("Second SELECT query failed (likely connection leak on EOF): %v", err)
+	}
+	_ = CloseRows(ctx, poolId, connId, secondRowsId)
+}

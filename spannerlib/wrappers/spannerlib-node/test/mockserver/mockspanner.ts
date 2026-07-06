@@ -86,6 +86,8 @@ export enum StatementResultType {
   UPDATE_COUNT,
 }
 
+type ResultSetUnion = protobuf.ResultSet | protobuf.PartialResultSet[];
+
 export class ReadRequestResult {
   private readonly _type: ReadRequestResultType;
 
@@ -102,12 +104,9 @@ export class ReadRequestResult {
     throw new Error('The ReadRequestResult does not contain an Error');
   }
 
-  private readonly _resultSet:
-    | protobuf.ResultSet
-    | protobuf.PartialResultSet[]
-    | null;
+  private readonly _resultSet: ResultSetUnion | null;
 
-  get resultSet(): protobuf.ResultSet | protobuf.PartialResultSet[] {
+  get resultSet(): ResultSetUnion {
     if (this._resultSet) {
       return this._resultSet;
     }
@@ -151,11 +150,8 @@ export class StatementResult {
     }
     throw new Error('The StatementResult does not contain an Error');
   }
-  private readonly _resultSet:
-    | protobuf.ResultSet
-    | protobuf.PartialResultSet[]
-    | null;
-  get resultSet(): protobuf.ResultSet | protobuf.PartialResultSet[] {
+  private readonly _resultSet: ResultSetUnion | null;
+  get resultSet(): ResultSetUnion {
     if (this._resultSet) {
       return this._resultSet;
     }

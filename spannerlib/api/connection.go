@@ -31,6 +31,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+
 // CloseConnection looks up the connection with the given poolId and connId and closes it.
 func CloseConnection(ctx context.Context, poolId, connId int64) error {
 	pool, err := findPool(poolId)
@@ -47,7 +48,16 @@ func CloseConnection(ctx context.Context, poolId, connId int64) error {
 		return nil
 	}
 	conn := c.(*Connection)
-	return conn.close(ctx)
+	ch := make(chan error, 1)
+	go func() {
+		ch <- conn.close(ctx)
+	}()
+	select {
+	case err := <-ch:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // WriteMutations writes an array of mutations to Spanner. The mutations are buffered in
@@ -120,12 +130,17 @@ func ExecuteBatch(ctx context.Context, poolId, connId int64, statements *spanner
 }
 
 type Connection struct {
+	pool *Pool
+
 	// results contains the open query results for this connection.
 	results    *sync.Map
 	resultsIdx atomic.Int64
 
 	// backend is the database/sql connection of this connection.
 	backend *sql.Conn
+
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // spannerConn is an internal interface that contains the internal functions that are used by this API.
@@ -144,6 +159,9 @@ type queryExecutor interface {
 }
 
 func (conn *Connection) close(ctx context.Context) error {
+	if conn.cancel != nil {
+		conn.cancel()
+	}
 	conn.closeResults(ctx)
 	// Rollback any open transactions on the connection.
 	_ = conn.rollback(ctx)
@@ -312,29 +330,59 @@ func (conn *Connection) closeResults(ctx context.Context) {
 }
 
 func (conn *Connection) Execute(ctx, directExecuteContext context.Context, statement *spannerpb.ExecuteSqlRequest) (int64, error) {
-	return execute(ctx, directExecuteContext, conn, conn.backend, statement)
+	mergedCtx, cancel := mergeContexts(ctx, conn.ctx)
+	return execute(mergedCtx, directExecuteContext, conn, conn.backend, statement, cancel)
 }
 
 func (conn *Connection) ExecuteBatch(ctx context.Context, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
-	return executeBatch(ctx, conn, conn.backend, statements)
+	mergedCtx, cancel := mergeContexts(ctx, conn.ctx)
+	defer cancel()
+	return executeBatch(mergedCtx, conn, conn.backend, statements)
 }
 
-func execute(ctx, directExecuteContext context.Context, conn *Connection, executor queryExecutor, statement *spannerpb.ExecuteSqlRequest) (int64, error) {
+func execute(ctx, directExecuteContext context.Context, conn *Connection, executor queryExecutor, statement *spannerpb.ExecuteSqlRequest, cancel context.CancelFunc) (int64, error) {
 	params := extractParams(directExecuteContext, statement)
 	it, err := executor.QueryContext(ctx, statement.Sql, params...)
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		return 0, err
+	}
+	isMulti := false
+	if conn.pool != nil && conn.pool.parser != nil {
+		if ok, _, _ := conn.pool.parser.Split(statement.Sql); ok {
+			isMulti = true
+		}
 	}
 	res := &rows{
 		backend: it,
+		cancel:  cancel,
+		isMulti: isMulti,
 	}
 	if err := res.readMetadata(ctx); err != nil {
+		_ = it.Close()
+		if cancel != nil {
+			cancel()
+		}
 		return 0, err
 	}
 	id := conn.resultsIdx.Add(1)
 	if !hasFields(res.metadata) {
 		// No rows returned. Read the stats now.
 		_ = res.readStats(ctx)
+		isMulti := false
+		if conn.pool != nil && conn.pool.parser != nil {
+			if ok, _, _ := conn.pool.parser.Split(statement.Sql); ok {
+				isMulti = true
+			}
+		}
+		if !isMulti {
+			_ = it.Close()
+			if cancel != nil {
+				cancel()
+			}
+		}
 	}
 	conn.results.Store(id, res)
 	return id, nil
@@ -529,4 +577,16 @@ func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDm
 	}
 
 	return batchType, nil
+}
+
+func mergeContexts(ctx1, ctx2 context.Context) (context.Context, context.CancelFunc) {
+	mergedCtx, cancel := context.WithCancel(ctx1)
+	go func() {
+		select {
+		case <-ctx2.Done():
+			cancel()
+		case <-mergedCtx.Done():
+		}
+	}()
+	return mergedCtx, cancel
 }

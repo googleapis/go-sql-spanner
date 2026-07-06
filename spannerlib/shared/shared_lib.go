@@ -20,6 +20,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"spannerlib/lib"
@@ -83,7 +84,8 @@ func CreatePool(userAgentSuffix, connectionString string) (int64, int32, int64, 
 //
 //export ClosePool
 func ClosePool(id int64) (int64, int32, int64, int32, unsafe.Pointer) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 	msg := lib.ClosePool(ctx, id)
 	return pin(msg)
 }
@@ -106,7 +108,8 @@ func CreateConnection(poolId int64) (int64, int32, int64, int32, unsafe.Pointer)
 //
 //export CloseConnection
 func CloseConnection(poolId, connId int64) (int64, int32, int64, int32, unsafe.Pointer) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 	msg := lib.CloseConnection(ctx, poolId, connId)
 	return pin(msg)
 }
@@ -202,7 +205,8 @@ func Next(poolId, connId, rowsId int64, numRows int32, encodeRowOption int32) (i
 //
 //export CloseRows
 func CloseRows(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 	msg := lib.CloseRows(ctx, poolId, connId, rowsId)
 	return pin(msg)
 }

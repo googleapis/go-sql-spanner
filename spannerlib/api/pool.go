@@ -22,7 +22,9 @@ import (
 	"sync/atomic"
 
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -38,6 +40,7 @@ type Pool struct {
 	db             *sql.DB
 	connections    *sync.Map
 	connectionsIdx atomic.Int64
+	parser         *parser.StatementParser
 }
 
 // CreatePool creates a new Pool and stores it in the global map of pool.
@@ -63,12 +66,29 @@ func CreatePool(ctx context.Context, userAgentSuffix, connectionString string) (
 	if err != nil {
 		return 0, err
 	}
+	
+	// Query dialect to configure dialect-aware StatementParser.
+	var dialectName string
+	_ = conn.QueryRowContext(ctx, "show database_dialect").Scan(&dialectName)
 	_ = conn.Close()
+
+	var dialect databasepb.DatabaseDialect
+	if dialectName == "POSTGRESQL" {
+		dialect = databasepb.DatabaseDialect_POSTGRESQL
+	} else {
+		dialect = databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL
+	}
+
+	sqlParser, err := parser.NewStatementParser(dialect, 100)
+	if err != nil {
+		return 0, err
+	}
 
 	id := poolsIdx.Add(1)
 	pool := &Pool{
 		db:          db,
 		connections: &sync.Map{},
+		parser:      sqlParser,
 	}
 	pools.Store(id, pool)
 	return id, nil
@@ -88,8 +108,17 @@ func ClosePool(ctx context.Context, id int64) error {
 		_ = conn.close(ctx)
 		return true
 	})
-	if err := pool.db.Close(); err != nil {
-		return err
+	ch := make(chan error, 1)
+	go func() {
+		ch <- pool.db.Close()
+	}()
+	select {
+	case err := <-ch:
+		if err != nil {
+			return err
+		}
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 	return nil
 }
@@ -107,9 +136,13 @@ func CreateConnection(ctx context.Context, poolId int64) (int64, error) {
 		return 0, err
 	}
 	id := poolsIdx.Add(1)
+	connCtx, connCancel := context.WithCancel(context.Background())
 	conn := &Connection{
+		pool:    pool,
 		backend: sqlConn,
 		results: &sync.Map{},
+		ctx:     connCtx,
+		cancel:  connCancel,
 	}
 	pool.connections.Store(id, conn)
 
