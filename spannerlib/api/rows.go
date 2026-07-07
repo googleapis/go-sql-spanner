@@ -285,9 +285,7 @@ func (rows *rows) nextBatch(ctx context.Context, numRows int32) ([]*structpb.Lis
 			if err := rows.backend.Err(); err != nil {
 				return nil, err
 			}
-			if err := rows.readStats(ctx); err != nil {
-				return nil, err
-			}
+			_ = rows.readStats(ctx)
 			break
 		}
 		if err := rows.backend.Scan(rows.buffer...); err != nil {
