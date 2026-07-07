@@ -613,8 +613,8 @@ func TestConnectionCloseCancelsContext(t *testing.T) {
 			t.Fatal("Blocked query completed successfully, expected cancel error")
 		}
 		// The error should contain context canceled.
-		if spanner.ErrCode(err) != codes.Canceled {
-			t.Fatalf("Expected Canceled error, got: %v", err)
+		if g, w := spanner.ErrCode(err), codes.Canceled; g != w {
+			t.Fatalf("error code mismatch\nGot:  %v\nWant: %v", g, w)
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatal("Blocked query didn't cancel!")

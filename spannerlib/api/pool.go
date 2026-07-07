@@ -66,7 +66,7 @@ func CreatePool(ctx context.Context, userAgentSuffix, connectionString string) (
 	if err != nil {
 		return 0, err
 	}
-	
+
 	// Query dialect to configure dialect-aware StatementParser.
 	var dialectName string
 	_ = conn.QueryRowContext(ctx, "show database_dialect").Scan(&dialectName)
@@ -103,13 +103,13 @@ func ClosePool(ctx context.Context, id int64) error {
 		return nil
 	}
 	pool := p.(*Pool)
-	pool.connections.Range(func(key, value interface{}) bool {
-		conn := value.(*Connection)
-		_ = conn.close(ctx)
-		return true
-	})
 	ch := make(chan error, 1)
 	go func() {
+		pool.connections.Range(func(key, value interface{}) bool {
+			conn := value.(*Connection)
+			_ = conn.close(ctx)
+			return true
+		})
 		ch <- pool.db.Close()
 	}()
 	select {

@@ -663,6 +663,29 @@ describe('End-to-End Execution on MockServer', () => {
 
       await rows.close();
     });
+
+    it('should close connection with open rows cleanly without internal errors', async () => {
+      mock.putStatementResult(
+        'SELECT * FROM Singers',
+        StatementResult.resultSet(createResultSetWithManyRows())
+      );
+
+      const connection = await pool.createConnection();
+      const rows = await connection.execute('SELECT * FROM Singers');
+      assert.ok(rows);
+
+      // Fetch first row
+      const row1 = await rows.next();
+      assert.ok(row1);
+
+      // Close the connection while rows are still open
+      await connection.close();
+
+      // Attempting to read more rows should cleanly fail with Connection is closed or invalid
+      await assert.rejects(async () => {
+        await rows.next();
+      }, /Connection is closed or invalid/i);
+    });
   });
 });
 

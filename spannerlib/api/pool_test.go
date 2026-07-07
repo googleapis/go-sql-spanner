@@ -174,8 +174,8 @@ func TestClosePoolTimeout(t *testing.T) {
 		if closeErr == nil {
 			t.Fatal("Expected ClosePool to fail with timeout error, but got nil")
 		}
-		if closeErr != context.DeadlineExceeded {
-			t.Fatalf("Expected DeadlineExceeded error, got: %v", closeErr)
+		if g, w := closeErr, context.DeadlineExceeded; g != w {
+			t.Fatalf("ClosePool error mismatch\nGot:  %v\nWant: %v", g, w)
 		}
 	case <-time.After(1500 * time.Millisecond):
 		t.Fatal("ClosePool hung/timed out!")

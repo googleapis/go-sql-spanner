@@ -43,22 +43,10 @@ export class SpannerLib {
     });
 
     if (typeof process !== 'undefined') {
-      // 1. Hook beforeExit for natural exit cleanup
+      // Hook beforeExit for natural exit cleanup
       process.on('beforeExit', () => {
         this.cleanupAll().catch(() => {});
       });
-
-      // 2. Intercept process.exit to clean up sessions on forced exits
-      const originalExit = process.exit;
-      process.exit = ((code?: number) => {
-        this.cleanupAll()
-          .then(() => {
-            originalExit(code);
-          })
-          .catch(() => {
-            originalExit(code);
-          });
-      }) as unknown as typeof process.exit;
     }
   }
 

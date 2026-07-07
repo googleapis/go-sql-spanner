@@ -211,10 +211,18 @@ func (rows *rows) NextResultSet(ctx context.Context) (*spannerpb.ResultSetMetada
 		rows.done = false
 		rows.stats = nil
 		if err := rows.readMetadata(ctx); err != nil {
+			if rows.cancel != nil {
+				rows.cancel()
+			}
+			_ = rows.backend.Close()
 			return nil, err
 		}
 		if !hasFields(rows.metadata) {
 			if err := rows.readStats(ctx); err != nil {
+				if rows.cancel != nil {
+					rows.cancel()
+				}
+				_ = rows.backend.Close()
 				return nil, err
 			}
 		}
@@ -308,26 +316,22 @@ func (rows *rows) Next(ctx context.Context) (*structpb.ListValue, error) {
 	if !ok {
 		rows.done = true
 		if err := rows.backend.Err(); err != nil {
+			if rows.cancel != nil {
+				rows.cancel()
+			}
+			_ = rows.backend.Close()
 			return nil, err
 		}
 		if !rows.isMulti {
-			// Read stats first to consume the final stats metadata from the stream.
-			if err := rows.readStats(ctx); err != nil {
-				_ = rows.backend.Close()
-				if rows.cancel != nil {
-					rows.cancel()
-				}
-				return nil, err
-			}
+			// Read stats first to cache any final stats metadata from the stream if available.
+			_ = rows.readStats(ctx)
 			if rows.cancel != nil {
 				rows.cancel()
 			}
 			_ = rows.backend.Close()
 		} else {
 			// No more rows. Read stats and return nil.
-			if err := rows.readStats(ctx); err != nil {
-				return nil, err
-			}
+			_ = rows.readStats(ctx)
 		}
 		// nil indicates no more rows.
 		return nil, nil

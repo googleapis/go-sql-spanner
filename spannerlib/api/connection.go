@@ -31,7 +31,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-
 // CloseConnection looks up the connection with the given poolId and connId and closes it.
 func CloseConnection(ctx context.Context, poolId, connId int64) error {
 	pool, err := findPool(poolId)
@@ -371,12 +370,6 @@ func execute(ctx, directExecuteContext context.Context, conn *Connection, execut
 	if !hasFields(res.metadata) {
 		// No rows returned. Read the stats now.
 		_ = res.readStats(ctx)
-		isMulti := false
-		if conn.pool != nil && conn.pool.parser != nil {
-			if ok, _, _ := conn.pool.parser.Split(statement.Sql); ok {
-				isMulti = true
-			}
-		}
 		if !isMulti {
 			_ = it.Close()
 			if cancel != nil {
@@ -580,6 +573,9 @@ func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDm
 }
 
 func mergeContexts(ctx1, ctx2 context.Context) (context.Context, context.CancelFunc) {
+	if ctx2 == nil || ctx2.Done() == nil {
+		return context.WithCancel(ctx1)
+	}
 	mergedCtx, cancel := context.WithCancel(ctx1)
 	go func() {
 		select {
