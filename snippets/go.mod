@@ -2,7 +2,7 @@ module github.com/googleapis/go-sql-spanner/examples
 
 go 1.25.8
 
-toolchain go1.26.4
+toolchain go1.26.5
 
 replace github.com/googleapis/go-sql-spanner => ../
 
@@ -51,7 +51,7 @@ require (
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.17 // indirect
-	github.com/googleapis/gax-go/v2 v2.22.0 // indirect
+	github.com/googleapis/gax-go/v2 v2.23.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
@@ -93,10 +93,10 @@ require (
 	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	google.golang.org/api v0.287.0 // indirect
+	google.golang.org/api v0.287.1 // indirect
 	google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20260615183401-62b3387ff324 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260630182238-925bb5da69e7 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260630182238-925bb5da69e7 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
