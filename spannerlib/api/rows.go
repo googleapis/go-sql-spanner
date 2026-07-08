@@ -201,9 +201,16 @@ func (rows *rows) NextResultSet(ctx context.Context) (*spannerpb.ResultSetMetada
 		// the stats for the current result set, so we can skip those.
 		if !rows.backend.NextResultSet() {
 			if err := rows.backend.Err(); err != nil {
+				if rows.cancel != nil {
+					rows.cancel()
+				}
+				_ = rows.backend.Close()
 				return nil, err
 			}
-			// This is unexpected, as we should at least have a stats result set.
+			if rows.cancel != nil {
+				rows.cancel()
+			}
+			_ = rows.backend.Close()
 			return nil, status.Error(codes.Internal, "missing ResultSetStats for the current ResultSet")
 		}
 	}
@@ -283,12 +290,28 @@ func (rows *rows) nextBatch(ctx context.Context, numRows int32) ([]*structpb.Lis
 		if !ok {
 			rows.done = true
 			if err := rows.backend.Err(); err != nil {
+				if rows.cancel != nil {
+					rows.cancel()
+				}
+				_ = rows.backend.Close()
 				return nil, err
 			}
-			_ = rows.readStats(ctx)
+			if !rows.isMulti {
+				_ = rows.readStats(ctx)
+				if rows.cancel != nil {
+					rows.cancel()
+				}
+				_ = rows.backend.Close()
+			} else {
+				_ = rows.readStats(ctx)
+			}
 			break
 		}
 		if err := rows.backend.Scan(rows.buffer...); err != nil {
+			if rows.cancel != nil {
+				rows.cancel()
+			}
+			_ = rows.backend.Close()
 			return nil, err
 		}
 		values := &structpb.ListValue{
@@ -313,26 +336,17 @@ func (rows *rows) Next(ctx context.Context) (*structpb.ListValue, error) {
 	ok := rows.backend.Next()
 	if !ok {
 		rows.done = true
-		if err := rows.backend.Err(); err != nil {
+		err := rows.backend.Err()
+		if err == nil {
+			_ = rows.readStats(ctx)
+		}
+		if err != nil || !rows.isMulti {
 			if rows.cancel != nil {
 				rows.cancel()
 			}
 			_ = rows.backend.Close()
-			return nil, err
 		}
-		if !rows.isMulti {
-			// Read stats first to cache any final stats metadata from the stream if available.
-			_ = rows.readStats(ctx)
-			if rows.cancel != nil {
-				rows.cancel()
-			}
-			_ = rows.backend.Close()
-		} else {
-			// No more rows. Read stats and return nil.
-			_ = rows.readStats(ctx)
-		}
-		// nil indicates no more rows.
-		return nil, nil
+		return nil, err
 	}
 
 	if rows.buffer == nil {
@@ -350,6 +364,10 @@ func (rows *rows) Next(ctx context.Context) (*structpb.ListValue, error) {
 		rows.marshalBuffer = make([]byte, 0)
 	}
 	if err := rows.backend.Scan(rows.buffer...); err != nil {
+		if rows.cancel != nil {
+			rows.cancel()
+		}
+		_ = rows.backend.Close()
 		return nil, err
 	}
 	for i := range rows.buffer {

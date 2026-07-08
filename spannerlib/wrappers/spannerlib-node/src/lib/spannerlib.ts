@@ -34,7 +34,7 @@ export type ResourceCleanupInfo =
 export class SpannerLib {
   private registry: FinalizationRegistry<ResourceCleanupInfo>;
   private activeResources = new Set<ResourceCleanupInfo>();
-  private resourceMap = new Map<object, ResourceCleanupInfo>();
+  private resourceMap = new WeakMap<object, ResourceCleanupInfo>();
 
   constructor() {
     this.registry = new FinalizationRegistry((info: ResourceCleanupInfo) => {
@@ -44,7 +44,7 @@ export class SpannerLib {
 
     if (typeof process !== 'undefined') {
       // Hook beforeExit for natural exit cleanup
-      process.on('beforeExit', () => {
+      process.once('beforeExit', () => {
         this.cleanupAll().catch(() => {});
       });
     }
@@ -76,7 +76,7 @@ export class SpannerLib {
   public async cleanupAll(): Promise<void> {
     const resources = Array.from(this.activeResources);
     this.activeResources.clear();
-    this.resourceMap.clear();
+    this.resourceMap = new WeakMap<object, ResourceCleanupInfo>();
 
     const rows = resources.filter((r) => r.type === 'rows');
     const connections = resources.filter((r) => r.type === 'connection');

@@ -573,10 +573,17 @@ func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDm
 }
 
 func mergeContexts(ctx1, ctx2 context.Context) (context.Context, context.CancelFunc) {
-	if ctx2 == nil || ctx2.Done() == nil {
-		return context.WithCancel(ctx1)
+	if ctx1 == nil {
+		ctx1 = context.Background()
 	}
 	mergedCtx, cancel := context.WithCancel(ctx1)
+	if ctx2 == nil || ctx2.Done() == nil {
+		return mergedCtx, cancel
+	}
+	if ctx2.Err() != nil {
+		cancel()
+		return mergedCtx, cancel
+	}
 	go func() {
 		select {
 		case <-ctx2.Done():
