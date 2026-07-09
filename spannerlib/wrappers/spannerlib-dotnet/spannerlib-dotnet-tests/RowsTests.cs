@@ -1010,4 +1010,23 @@ public class RowsTests : AbstractMockServerTests
         hasNext = async ? Task.Run(async () => await rows.NextResultSetAsync()).Result : rows.NextResultSet();
         Assert.That(hasNext, Is.False);
     }
+
+    [Test]
+    public async Task TestStatsAndUpdateCountAsync([Values] LibType libType)
+    {
+        var updateCount = 5L;
+        var dml = "update my_table set value=1 where id in (1,2,3)";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(dml, StatementResult.CreateUpdateCount(updateCount));
+
+        await using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        await using var connection = pool.CreateConnection();
+        await using var rows = await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = dml });
+
+        var stats = await rows.GetStatsAsync();
+        Assert.That(stats, Is.Not.Null);
+        Assert.That(stats.RowCountExact, Is.EqualTo(updateCount));
+
+        var count = await rows.GetUpdateCountAsync();
+        Assert.That(count, Is.EqualTo(updateCount));
+    }
 }
