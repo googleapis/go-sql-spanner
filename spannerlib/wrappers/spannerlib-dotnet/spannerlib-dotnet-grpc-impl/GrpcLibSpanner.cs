@@ -115,9 +115,7 @@ public sealed class GrpcLibSpanner : ISpannerLib
             _clients[i] = new V1.SpannerLib.SpannerLibClient(_channels[i]);
         }
     }
-    
-    ~GrpcLibSpanner() => Dispose(false);
-    
+
     public void Dispose()
     {
         Dispose(true);
@@ -132,11 +130,17 @@ public sealed class GrpcLibSpanner : ISpannerLib
         }
         try
         {
-            foreach (var channel in _channels)
+            if (disposing)
             {
-                channel.Dispose();
+                if (_channels != null)
+                {
+                    foreach (var channel in _channels)
+                    {
+                        channel?.Dispose();
+                    }
+                }
+                _server?.Dispose();
             }
-            _server.Dispose();
         }
         finally
         {
