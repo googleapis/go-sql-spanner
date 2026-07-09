@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
@@ -13,6 +13,12 @@
   <ItemGroup>
     <PackageReference Include="ConfigureAwaitChecker.Analyzer" PrivateAssets="All" Version="5.0.0.1" />
     <PackageReference Include="Google.Cloud.Spanner.V1" Version="5.12.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>spannerlib-dotnet-tests</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 
 </Project>
