@@ -99,6 +99,17 @@ func Rollback(ctx context.Context, poolId, connId int64) error {
 	return conn.rollback(ctx)
 }
 
+// Cancel cancels the currently running statement on the given connection.
+// This function is a no-op if there is no statement running.
+func Cancel(poolId, connId int64) error {
+	conn, err := findConnection(poolId, connId)
+	if err != nil {
+		return err
+	}
+	conn.Cancel()
+	return nil
+}
+
 func Execute(ctx context.Context, poolId, connId int64, executeSqlRequest *spannerpb.ExecuteSqlRequest) (int64, error) {
 	return ExecuteWithDirectExecuteContext(ctx, nil, poolId, connId, executeSqlRequest)
 }
@@ -126,6 +137,9 @@ type Connection struct {
 
 	// backend is the database/sql connection of this connection.
 	backend *sql.Conn
+
+	mu           sync.Mutex
+	cancelActive context.CancelFunc
 }
 
 // spannerConn is an internal interface that contains the internal functions that are used by this API.
@@ -312,14 +326,66 @@ func (conn *Connection) closeResults(ctx context.Context) {
 }
 
 func (conn *Connection) Execute(ctx, directExecuteContext context.Context, statement *spannerpb.ExecuteSqlRequest) (int64, error) {
-	return execute(ctx, directExecuteContext, conn, conn.backend, statement)
+	ctx, cancel := context.WithCancel(ctx)
+	if err := conn.setActiveCancel(cancel); err != nil {
+		cancel()
+		return 0, err
+	}
+	defer conn.clearActiveCancel()
+
+	var returnedSuccess bool
+	defer func() {
+		if !returnedSuccess {
+			cancel()
+		}
+	}()
+
+	id, err := execute(ctx, directExecuteContext, conn, conn.backend, statement, cancel)
+	if err != nil {
+		return 0, err
+	}
+	returnedSuccess = true
+	return id, nil
 }
 
 func (conn *Connection) ExecuteBatch(ctx context.Context, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	if err := conn.setActiveCancel(cancel); err != nil {
+		cancel()
+		return nil, err
+	}
+	defer func() {
+		conn.clearActiveCancel()
+		cancel()
+	}()
 	return executeBatch(ctx, conn, conn.backend, statements)
 }
 
-func execute(ctx, directExecuteContext context.Context, conn *Connection, executor queryExecutor, statement *spannerpb.ExecuteSqlRequest) (int64, error) {
+func (conn *Connection) setActiveCancel(cancel context.CancelFunc) error {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	if conn.cancelActive != nil {
+		return status.Error(codes.FailedPrecondition, "connection is already executing a statement")
+	}
+	conn.cancelActive = cancel
+	return nil
+}
+
+func (conn *Connection) clearActiveCancel() {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	conn.cancelActive = nil
+}
+
+func (conn *Connection) Cancel() {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	if conn.cancelActive != nil {
+		conn.cancelActive()
+	}
+}
+
+func execute(ctx, directExecuteContext context.Context, conn *Connection, executor queryExecutor, statement *spannerpb.ExecuteSqlRequest, cancel context.CancelFunc) (int64, error) {
 	params := extractParams(directExecuteContext, statement)
 	it, err := executor.QueryContext(ctx, statement.Sql, params...)
 	if err != nil {
@@ -336,6 +402,7 @@ func execute(ctx, directExecuteContext context.Context, conn *Connection, execut
 		// No rows returned. Read the stats now.
 		_ = res.readStats(ctx)
 	}
+	res.cancel = cancel
 	conn.results.Store(id, res)
 	return id, nil
 }

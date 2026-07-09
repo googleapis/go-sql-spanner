@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/spanner"
@@ -496,5 +497,50 @@ func TestCreateDatabase(t *testing.T) {
 
 	if err := ClosePool(ctx, poolId); err != nil {
 		t.Fatalf("ClosePool returned unexpected error: %v", err)
+	}
+}
+
+func TestCancelStatement(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{MinimumExecutionTime: 200 * time.Millisecond})
+
+	poolId, err := CreatePool(ctx, "test", dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	defer ClosePool(ctx, poolId)
+
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	defer CloseConnection(ctx, poolId, connId)
+
+	errChan := make(chan error, 1)
+	go func() {
+		req := &spannerpb.ExecuteSqlRequest{
+			Sql: "SELECT * FROM Singers",
+		}
+		_, err := Execute(ctx, poolId, connId, req)
+		errChan <- err
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	if err := Cancel(poolId, connId); err != nil {
+		t.Fatalf("Cancel returned unexpected error: %v", err)
+	}
+
+	err = <-errChan
+	if err == nil {
+		t.Fatal("expected statement to be cancelled, but got no error")
+	}
+	if g, w := spanner.ErrCode(err), codes.Canceled; g != w {
+		t.Errorf("error code mismatch\n Got: %v\nWant: %v (error: %v)", g, w, err)
 	}
 }

@@ -162,9 +162,14 @@ type rows struct {
 	buffer        []any
 	values        *structpb.ListValue
 	marshalBuffer []byte
+
+	cancel context.CancelFunc
 }
 
 func (rows *rows) Close(ctx context.Context) error {
+	if rows.cancel != nil {
+		rows.cancel()
+	}
 	err := rows.backend.Close()
 	if err != nil {
 		return err
