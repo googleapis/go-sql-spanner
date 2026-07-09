@@ -1045,7 +1045,7 @@ public class RowsTests : AbstractMockServerTests
         var row = await rows.NextAsync();
         Assert.That(row, Is.Null);
 
-        if (libType == LibType.Shared)
+        if (rows.GetType() == typeof(Rows))
         {
             var statsLoadedField = typeof(Rows).GetField("_statsLoaded", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             Assert.That(statsLoadedField, Is.Not.Null);
@@ -1071,7 +1071,7 @@ public class RowsTests : AbstractMockServerTests
         Assert.That(await rows.NextAsync(), Is.Not.Null);
         Assert.That(await rows.NextAsync(), Is.Not.Null);
         
-        if (libType == LibType.Shared)
+        if (rows.GetType() == typeof(Rows))
         {
             var statsLoadedField = typeof(Rows).GetField("_statsLoaded", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             Assert.That(statsLoadedField, Is.Not.Null);
@@ -1081,7 +1081,7 @@ public class RowsTests : AbstractMockServerTests
         // Now call NextAsync() which reaches the end and returns null.
         Assert.That(await rows.NextAsync(), Is.Null);
 
-        if (libType == LibType.Shared)
+        if (rows.GetType() == typeof(Rows))
         {
             var statsLoadedField = typeof(Rows).GetField("_statsLoaded", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             Assert.That(statsLoadedField, Is.Not.Null);
