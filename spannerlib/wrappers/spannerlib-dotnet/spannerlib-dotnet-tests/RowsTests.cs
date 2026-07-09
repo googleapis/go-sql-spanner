@@ -1029,4 +1029,65 @@ public class RowsTests : AbstractMockServerTests
         var count = await rows.GetUpdateCountAsync();
         Assert.That(count, Is.EqualTo(updateCount));
     }
+
+    [Test]
+    public async Task TestNextAsyncPreFetchesStats([Values] LibType libType)
+    {
+        var updateCount = 5L;
+        var dml = "update my_table set value=1 where id in (1,2,3)";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(dml, StatementResult.CreateUpdateCount(updateCount));
+
+        await using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        await using var connection = pool.CreateConnection();
+        await using var rows = await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = dml });
+
+        // Call NextAsync() which should return null immediately since DML has no rows.
+        var row = await rows.NextAsync();
+        Assert.That(row, Is.Null);
+
+        if (libType == LibType.Shared)
+        {
+            var statsLoadedField = typeof(Rows).GetField("_statsLoaded", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.That(statsLoadedField, Is.Not.Null);
+            Assert.That((bool)statsLoadedField.GetValue(rows)!, Is.True);
+        }
+        
+        Assert.That(rows.UpdateCount, Is.EqualTo(updateCount));
+    }
+
+    [Test]
+    public async Task TestNextAsyncPreFetchesStatsForQuery([Values] LibType libType)
+    {
+        var rowType = RandomResultSetGenerator.GenerateAllTypesRowType();
+        var results = RandomResultSetGenerator.Generate(rowType, 2);
+        var query = "select * from random";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(query, StatementResult.CreateQuery(results));
+
+        await using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        await using var connection = pool.CreateConnection();
+        await using var rows = await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = query });
+
+        // Consume all rows.
+        Assert.That(await rows.NextAsync(), Is.Not.Null);
+        Assert.That(await rows.NextAsync(), Is.Not.Null);
+        
+        if (libType == LibType.Shared)
+        {
+            var statsLoadedField = typeof(Rows).GetField("_statsLoaded", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.That(statsLoadedField, Is.Not.Null);
+            Assert.That((bool)statsLoadedField.GetValue(rows)!, Is.False);
+        }
+
+        // Now call NextAsync() which reaches the end and returns null.
+        Assert.That(await rows.NextAsync(), Is.Null);
+
+        if (libType == LibType.Shared)
+        {
+            var statsLoadedField = typeof(Rows).GetField("_statsLoaded", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.That(statsLoadedField, Is.Not.Null);
+            Assert.That((bool)statsLoadedField.GetValue(rows)!, Is.True);
+        }
+        
+        Assert.That(rows.UpdateCount, Is.EqualTo(-1L));
+    }
 }

@@ -136,7 +136,12 @@ public class Rows : AbstractLibObject
     /// <returns>The next data row or null if there are no more data</returns>
     public virtual async Task<ListValue?> NextAsync(CancellationToken cancellationToken = default)
     {
-        return await Spanner.NextAsync(this, 1, ISpannerLib.RowEncoding.Proto, cancellationToken).ConfigureAwait(false);
+        var res = await Spanner.NextAsync(this, 1, ISpannerLib.RowEncoding.Proto, cancellationToken).ConfigureAwait(false);
+        if (res == null && !_statsLoaded && !_stats.IsValueCreated)
+        {
+            await GetStatsAsync(cancellationToken).ConfigureAwait(false);
+        }
+        return res;
     }
 
     /// <summary>
