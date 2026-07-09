@@ -158,6 +158,8 @@ type rows struct {
 	metadata *spannerpb.ResultSetMetadata
 	stats    *spannerpb.ResultSetStats
 	done     bool
+	cancel   context.CancelFunc
+	isMulti  bool
 
 	buffer        []any
 	values        *structpb.ListValue
@@ -165,6 +167,9 @@ type rows struct {
 }
 
 func (rows *rows) Close(ctx context.Context) error {
+	if rows.cancel != nil {
+		rows.cancel()
+	}
 	err := rows.backend.Close()
 	if err != nil {
 		return err
@@ -186,6 +191,9 @@ func (rows *rows) ResultSetStats(ctx context.Context) (*spannerpb.ResultSetStats
 }
 
 func (rows *rows) NextResultSet(ctx context.Context) (*spannerpb.ResultSetMetadata, error) {
+	if !rows.isMulti {
+		return nil, nil
+	}
 	rows.buffer = nil
 	if !rows.done && rows.stats == nil {
 		// The current result set has not been read to the end.
@@ -193,9 +201,16 @@ func (rows *rows) NextResultSet(ctx context.Context) (*spannerpb.ResultSetMetada
 		// the stats for the current result set, so we can skip those.
 		if !rows.backend.NextResultSet() {
 			if err := rows.backend.Err(); err != nil {
+				if rows.cancel != nil {
+					rows.cancel()
+				}
+				_ = rows.backend.Close()
 				return nil, err
 			}
-			// This is unexpected, as we should at least have a stats result set.
+			if rows.cancel != nil {
+				rows.cancel()
+			}
+			_ = rows.backend.Close()
 			return nil, status.Error(codes.Internal, "missing ResultSetStats for the current ResultSet")
 		}
 	}
@@ -203,18 +218,34 @@ func (rows *rows) NextResultSet(ctx context.Context) (*spannerpb.ResultSetMetada
 		rows.done = false
 		rows.stats = nil
 		if err := rows.readMetadata(ctx); err != nil {
+			if rows.cancel != nil {
+				rows.cancel()
+			}
+			_ = rows.backend.Close()
 			return nil, err
 		}
 		if !hasFields(rows.metadata) {
 			if err := rows.readStats(ctx); err != nil {
+				if rows.cancel != nil {
+					rows.cancel()
+				}
+				_ = rows.backend.Close()
 				return nil, err
 			}
 		}
 		return rows.metadata, nil
 	}
 	if err := rows.backend.Err(); err != nil {
+		if rows.cancel != nil {
+			rows.cancel()
+		}
+		_ = rows.backend.Close()
 		return nil, err
 	}
+	if rows.cancel != nil {
+		rows.cancel()
+	}
+	_ = rows.backend.Close()
 	return nil, nil
 }
 
@@ -259,14 +290,28 @@ func (rows *rows) nextBatch(ctx context.Context, numRows int32) ([]*structpb.Lis
 		if !ok {
 			rows.done = true
 			if err := rows.backend.Err(); err != nil {
+				if rows.cancel != nil {
+					rows.cancel()
+				}
+				_ = rows.backend.Close()
 				return nil, err
 			}
-			if err := rows.readStats(ctx); err != nil {
-				return nil, err
+			if !rows.isMulti {
+				_ = rows.readStats(ctx)
+				if rows.cancel != nil {
+					rows.cancel()
+				}
+				_ = rows.backend.Close()
+			} else {
+				_ = rows.readStats(ctx)
 			}
 			break
 		}
 		if err := rows.backend.Scan(rows.buffer...); err != nil {
+			if rows.cancel != nil {
+				rows.cancel()
+			}
+			_ = rows.backend.Close()
 			return nil, err
 		}
 		values := &structpb.ListValue{
@@ -291,15 +336,17 @@ func (rows *rows) Next(ctx context.Context) (*structpb.ListValue, error) {
 	ok := rows.backend.Next()
 	if !ok {
 		rows.done = true
-		if err := rows.backend.Err(); err != nil {
-			return nil, err
+		err := rows.backend.Err()
+		if err == nil {
+			_ = rows.readStats(ctx)
 		}
-		// No more rows. Read stats and return nil.
-		if err := rows.readStats(ctx); err != nil {
-			return nil, err
+		if err != nil || !rows.isMulti {
+			if rows.cancel != nil {
+				rows.cancel()
+			}
+			_ = rows.backend.Close()
 		}
-		// nil indicates no more rows.
-		return nil, nil
+		return nil, err
 	}
 
 	if rows.buffer == nil {
@@ -317,6 +364,10 @@ func (rows *rows) Next(ctx context.Context) (*structpb.ListValue, error) {
 		rows.marshalBuffer = make([]byte, 0)
 	}
 	if err := rows.backend.Scan(rows.buffer...); err != nil {
+		if rows.cancel != nil {
+			rows.cancel()
+		}
+		_ = rows.backend.Close()
 		return nil, err
 	}
 	for i := range rows.buffer {

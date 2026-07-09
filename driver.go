@@ -142,6 +142,11 @@ type SpannerResult interface {
 	OperationID() (string, error)
 }
 
+// QueryMetadata is populated by the driver with statement execution metadata.
+type QueryMetadata struct {
+	IsMulti bool
+}
+
 // ExecOptions can be passed in as an argument to the Query, QueryContext,
 // Exec, and ExecContext functions to specify additional execution options
 // for a statement.
@@ -235,6 +240,9 @@ type ExecOptions struct {
 	// should be used while executing the statement. These values will only be used for
 	// this statement, and will not be persisted on the connection.
 	PropertyValues []PropertyValue
+
+	// QueryMetadata is populated by the driver with statement execution metadata.
+	QueryMetadata *QueryMetadata
 }
 
 func (dest *ExecOptions) merge(src *ExecOptions) {
@@ -267,6 +275,9 @@ func (dest *ExecOptions) merge(src *ExecOptions) {
 	}
 	if src.PropertyValues != nil {
 		dest.PropertyValues = append(dest.PropertyValues, src.PropertyValues...)
+	}
+	if src.QueryMetadata != nil {
+		dest.QueryMetadata = src.QueryMetadata
 	}
 	(&dest.PartitionedQueryOptions).merge(&src.PartitionedQueryOptions)
 	mergeQueryOptions(&dest.QueryOptions, &src.QueryOptions)

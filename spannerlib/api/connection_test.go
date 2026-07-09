@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/spanner"
@@ -496,5 +497,126 @@ func TestCreateDatabase(t *testing.T) {
 
 	if err := ClosePool(ctx, poolId); err != nil {
 		t.Fatalf("ClosePool returned unexpected error: %v", err)
+	}
+}
+
+func TestDMLDoesNotLeakConnection(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolId, err := CreatePool(ctx, "test", dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	defer ClosePool(ctx, poolId)
+
+	p, ok := pools.Load(poolId)
+	if !ok {
+		t.Fatal("pool not found in map")
+	}
+	pool := p.(*Pool)
+	// Force pool max connections to 1. If any DML query leaks a connection,
+	// the next query execution will hang/fail.
+	pool.db.SetMaxOpenConns(1)
+
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	defer CloseConnection(ctx, poolId, connId)
+
+	// 1. Execute a DML statement (UpdateBarSetFoo has no fields, returns 0 rows).
+	rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{
+		Sql: testutil.UpdateBarSetFoo,
+	})
+	if err != nil {
+		t.Fatalf("First DML execute failed: %v", err)
+	}
+	_ = CloseRows(ctx, poolId, connId, rowsId)
+
+	// 2. Execute a regular SELECT query on the same connection.
+	// If the connection was leaked, this call will block indefinitely or fail.
+	selectRowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{
+		Sql: testutil.SelectFooFromBar,
+	})
+	if err != nil {
+		t.Fatalf("Second SELECT query failed (likely connection leak): %v", err)
+	}
+	_ = CloseRows(ctx, poolId, connId, selectRowsId)
+}
+
+func TestConnectionCloseCancelsContext(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolId, err := CreatePool(ctx, "test", dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	defer ClosePool(ctx, poolId)
+
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+
+	// Put a 5-second simulated minimum delay on ExecuteStreamingSql calls
+	// so the query execution blocks.
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
+		MinimumExecutionTime: 5 * time.Second,
+	})
+
+	errChan := make(chan error, 1)
+	go func() {
+		// Run a query that will block.
+		_, err := Execute(context.Background(), poolId, connId, &spannerpb.ExecuteSqlRequest{
+			Sql: testutil.SelectFooFromBar,
+		})
+		errChan <- err
+	}()
+
+	// Wait 100ms for the query to start and block.
+	time.Sleep(100 * time.Millisecond)
+
+	// Close the connection with a 1-second timeout.
+	closeCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	closeErrChan := make(chan error, 1)
+	go func() {
+		closeErrChan <- CloseConnection(closeCtx, poolId, connId)
+	}()
+
+	// CloseConnection should return quickly (within the 1-second timeout context)
+	// and NOT hang waiting for the 5-second query.
+	select {
+	case closeErr := <-closeErrChan:
+		if closeErr != nil {
+			t.Fatalf("CloseConnection failed: %v", closeErr)
+		}
+	case <-time.After(1500 * time.Millisecond):
+		t.Fatal("CloseConnection hung/timed out!")
+	}
+
+	// Verify that the blocked query was aborted/canceled.
+	select {
+	case err := <-errChan:
+		if err == nil {
+			t.Fatal("Blocked query completed successfully, expected cancel error")
+		}
+		// The error should contain context canceled.
+		if g, w := spanner.ErrCode(err), codes.Canceled; g != w {
+			t.Fatalf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("Blocked query didn't cancel!")
 	}
 }

@@ -83,13 +83,22 @@ func ClosePool(ctx context.Context, id int64) error {
 		return nil
 	}
 	pool := p.(*Pool)
-	pool.connections.Range(func(key, value interface{}) bool {
-		conn := value.(*Connection)
-		_ = conn.close(ctx)
-		return true
-	})
-	if err := pool.db.Close(); err != nil {
-		return err
+	ch := make(chan error, 1)
+	go func() {
+		pool.connections.Range(func(key, value interface{}) bool {
+			conn := value.(*Connection)
+			_ = conn.close(context.Background())
+			return true
+		})
+		ch <- pool.db.Close()
+	}()
+	select {
+	case err := <-ch:
+		if err != nil {
+			return err
+		}
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 	return nil
 }
@@ -107,9 +116,13 @@ func CreateConnection(ctx context.Context, poolId int64) (int64, error) {
 		return 0, err
 	}
 	id := poolsIdx.Add(1)
+	connCtx, connCancel := context.WithCancel(context.Background())
 	conn := &Connection{
+		pool:    pool,
 		backend: sqlConn,
 		results: &sync.Map{},
+		ctx:     connCtx,
+		cancel:  connCancel,
 	}
 	pool.connections.Store(id, conn)
 

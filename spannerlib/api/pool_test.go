@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
@@ -138,4 +139,45 @@ func setupMockServerWithDialect(t *testing.T, dialect databasepb.DatabaseDialect
 	server, _, serverTeardown := testutil.NewMockedSpannerInMemTestServer(t)
 	server.SetupSelectDialectResult(dialect)
 	return server, serverTeardown
+}
+
+func TestClosePoolTimeout(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolId, err := CreatePool(ctx, "test", dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+
+	// Create an active connection to ensure the pool has checked out connections.
+	_, err = CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+
+	// Use an already-expired context (1 nanosecond timeout) to force immediate timeout.
+	closeCtx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+	defer cancel()
+
+	closeErrChan := make(chan error, 1)
+	go func() {
+		closeErrChan <- ClosePool(closeCtx, poolId)
+	}()
+
+	select {
+	case closeErr := <-closeErrChan:
+		if closeErr == nil {
+			t.Fatal("Expected ClosePool to fail with timeout error, but got nil")
+		}
+		if g, w := closeErr, context.DeadlineExceeded; g != w {
+			t.Fatalf("ClosePool error mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	case <-time.After(1500 * time.Millisecond):
+		t.Fatal("ClosePool hung/timed out!")
+	}
 }

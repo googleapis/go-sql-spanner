@@ -47,7 +47,16 @@ func CloseConnection(ctx context.Context, poolId, connId int64) error {
 		return nil
 	}
 	conn := c.(*Connection)
-	return conn.close(ctx)
+	ch := make(chan error, 1)
+	go func() {
+		ch <- conn.close(context.Background())
+	}()
+	select {
+	case err := <-ch:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // WriteMutations writes an array of mutations to Spanner. The mutations are buffered in
@@ -120,12 +129,19 @@ func ExecuteBatch(ctx context.Context, poolId, connId int64, statements *spanner
 }
 
 type Connection struct {
+	pool *Pool
+
 	// results contains the open query results for this connection.
 	results    *sync.Map
 	resultsIdx atomic.Int64
 
 	// backend is the database/sql connection of this connection.
 	backend *sql.Conn
+
+	// ctx is the lifecycle context of this Connection, used to cancel any long-running
+	// background operations or queries when the connection is closed.
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // spannerConn is an internal interface that contains the internal functions that are used by this API.
@@ -144,6 +160,9 @@ type queryExecutor interface {
 }
 
 func (conn *Connection) close(ctx context.Context) error {
+	if conn.cancel != nil {
+		conn.cancel()
+	}
 	conn.closeResults(ctx)
 	// Rollback any open transactions on the connection.
 	_ = conn.rollback(ctx)
@@ -312,29 +331,49 @@ func (conn *Connection) closeResults(ctx context.Context) {
 }
 
 func (conn *Connection) Execute(ctx, directExecuteContext context.Context, statement *spannerpb.ExecuteSqlRequest) (int64, error) {
-	return execute(ctx, directExecuteContext, conn, conn.backend, statement)
+	mergedCtx, cancel := mergeContexts(ctx, conn.ctx)
+	return execute(mergedCtx, directExecuteContext, conn, conn.backend, statement, cancel)
 }
 
 func (conn *Connection) ExecuteBatch(ctx context.Context, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
-	return executeBatch(ctx, conn, conn.backend, statements)
+	mergedCtx, cancel := mergeContexts(ctx, conn.ctx)
+	defer cancel()
+	return executeBatch(mergedCtx, conn, conn.backend, statements)
 }
 
-func execute(ctx, directExecuteContext context.Context, conn *Connection, executor queryExecutor, statement *spannerpb.ExecuteSqlRequest) (int64, error) {
-	params := extractParams(directExecuteContext, statement)
+func execute(ctx, directExecuteContext context.Context, conn *Connection, executor queryExecutor, statement *spannerpb.ExecuteSqlRequest, cancel context.CancelFunc) (int64, error) {
+	meta := &spannerdriver.QueryMetadata{}
+	params := extractParams(directExecuteContext, statement, meta)
 	it, err := executor.QueryContext(ctx, statement.Sql, params...)
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		return 0, err
 	}
+	isMulti := meta.IsMulti
 	res := &rows{
 		backend: it,
+		cancel:  cancel,
+		isMulti: isMulti,
 	}
 	if err := res.readMetadata(ctx); err != nil {
+		_ = it.Close()
+		if cancel != nil {
+			cancel()
+		}
 		return 0, err
 	}
 	id := conn.resultsIdx.Add(1)
 	if !hasFields(res.metadata) {
 		// No rows returned. Read the stats now.
 		_ = res.readStats(ctx)
+		if !isMulti {
+			_ = it.Close()
+			if cancel != nil {
+				cancel()
+			}
+		}
 	}
 	conn.results.Store(id, res)
 	return id, nil
@@ -402,7 +441,7 @@ func executeBatchDml(ctx context.Context, conn *Connection, executor queryExecut
 			Params:     statement.Params,
 			ParamTypes: statement.ParamTypes,
 		}
-		params := extractParams(nil, request)
+		params := extractParams(nil, request, nil)
 		_, err := executor.ExecContext(ctx, statement.Sql, params...)
 		if err != nil {
 			return nil, err
@@ -428,7 +467,7 @@ func executeBatchDml(ctx context.Context, conn *Connection, executor queryExecut
 	return &response, nil
 }
 
-func extractParams(directExecuteContext context.Context, statement *spannerpb.ExecuteSqlRequest) []any {
+func extractParams(directExecuteContext context.Context, statement *spannerpb.ExecuteSqlRequest, meta *spannerdriver.QueryMetadata) []any {
 	paramsLen := 1
 	if statement.Params != nil {
 		paramsLen = 1 + len(statement.Params.Fields)
@@ -447,6 +486,7 @@ func extractParams(directExecuteContext context.Context, statement *spannerpb.Ex
 		ReturnResultSetStats:    true,
 		DirectExecuteQuery:      true,
 		DirectExecuteContext:    directExecuteContext,
+		QueryMetadata:           meta,
 		QueryOptions: spanner.QueryOptions{
 			Mode:       &statement.QueryMode,
 			RequestTag: requestTag,
@@ -529,4 +569,25 @@ func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDm
 	}
 
 	return batchType, nil
+}
+
+func mergeContexts(ctx1, ctx2 context.Context) (context.Context, context.CancelFunc) {
+	if ctx1 == nil {
+		ctx1 = context.Background()
+	}
+	mergedCtx, cancel := context.WithCancel(ctx1)
+	if ctx2 == nil || ctx2.Done() == nil {
+		return mergedCtx, cancel
+	}
+	if ctx2.Err() != nil {
+		cancel()
+		return mergedCtx, cancel
+	}
+	stop := context.AfterFunc(ctx2, func() {
+		cancel()
+	})
+	return mergedCtx, func() {
+		stop()
+		cancel()
+	}
 }

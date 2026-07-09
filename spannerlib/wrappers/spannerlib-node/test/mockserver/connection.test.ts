@@ -20,6 +20,7 @@ import {
   MockSpanner,
   StatementResult,
   createSelect1ResultSet,
+  createSelect1ResultSetWithStats,
   createResultSetWithAllDataTypes,
 } from './mockspanner.js';
 import { status } from '@grpc/grpc-js';
@@ -416,6 +417,36 @@ describe('End-to-End Execution on MockServer', () => {
       await connection.close();
     });
 
+    it('should retrieve stats from a SELECT query after consuming all rows', async () => {
+      mock.putStatementResult(
+        'SELECT 1',
+        StatementResult.resultSet(createSelect1ResultSetWithStats())
+      );
+
+      const connection = await pool.createConnection();
+      const rows = await connection.execute({
+        sql: 'SELECT 1',
+        queryMode: google.spanner.v1.ExecuteSqlRequest.QueryMode.PROFILE,
+      });
+      assert.ok(rows);
+
+      while ((await rows.next()) !== null) {
+        // Consume all rows
+      }
+
+      const stats = await rows.resultSetStats();
+      assert.ok(stats);
+      assert.ok(stats.queryStats);
+      assert.ok(stats.queryStats.fields);
+      assert.strictEqual(
+        stats.queryStats.fields['elapsed_time']?.stringValue,
+        '1ms'
+      );
+
+      await rows.close();
+      await connection.close();
+    });
+
     it('should advance to next result set using nextResultSet()', async () => {
       mock.putStatementResult(
         'SELECT 1',
@@ -631,6 +662,29 @@ describe('End-to-End Execution on MockServer', () => {
       }, /Connection is closed or invalid/i);
 
       await rows.close();
+    });
+
+    it('should close connection with open rows cleanly without internal errors', async () => {
+      mock.putStatementResult(
+        'SELECT * FROM Singers',
+        StatementResult.resultSet(createResultSetWithManyRows())
+      );
+
+      const connection = await pool.createConnection();
+      const rows = await connection.execute('SELECT * FROM Singers');
+      assert.ok(rows);
+
+      // Fetch first row
+      const row1 = await rows.next();
+      assert.ok(row1);
+
+      // Close the connection while rows are still open
+      await connection.close();
+
+      // Attempting to read more rows should cleanly fail with Connection is closed or invalid
+      await assert.rejects(async () => {
+        await rows.next();
+      }, /Connection is closed or invalid/i);
     });
   });
 });
