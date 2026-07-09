@@ -153,8 +153,8 @@ func TestPrepareSpannerStmt(t *testing.T) {
 				if !ok {
 					t.Fatalf("Expected StringValue kind, got %T", res.Value.Kind)
 				}
-				if got, want := sv.StringValue, input; got != want {
-					t.Errorf("string value mismatch\nGot:  %v\nWant: %v", got, want)
+				if g, w := sv.StringValue, input; g != w {
+					t.Errorf("string value mismatch\nGot:  %v\nWant: %v", g, w)
 				}
 			})
 		}
@@ -179,8 +179,8 @@ func TestPrepareSpannerStmt(t *testing.T) {
 		if !ok {
 			t.Fatalf("Expected StringValue kind, got %T", res.Value.Kind)
 		}
-		if got, want := sv.StringValue, "t"; got != want {
-			t.Errorf("string value mismatch\nGot:  %v\nWant: %v", got, want)
+		if g, w := sv.StringValue, "t"; g != w {
+			t.Errorf("string value mismatch\nGot:  %v\nWant: %v", g, w)
 		}
 	})
 }
