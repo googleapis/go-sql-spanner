@@ -28,7 +28,6 @@ import (
 	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -502,23 +501,9 @@ func extractParams(directExecuteContext context.Context, statement *spannerpb.Ex
 			statement.ParamTypes = make(map[string]*spannerpb.Type)
 		}
 		for param, value := range statement.Params.Fields {
-			paramType := statement.ParamTypes[param]
-			if paramType != nil && paramType.Code == spannerpb.TypeCode_BOOL && value != nil {
-				if s, ok := value.Kind.(*structpb.Value_StringValue); ok && s != nil {
-					lower := strings.ToLower(strings.TrimSpace(s.StringValue))
-					switch lower {
-					case "t", "true", "1", "y", "yes", "on":
-						value = structpb.NewBoolValue(true)
-						statement.Params.Fields[param] = value
-					case "f", "false", "0", "n", "no", "off":
-						value = structpb.NewBoolValue(false)
-						statement.Params.Fields[param] = value
-					}
-				}
-			}
 			genericValue := spanner.GenericColumnValue{
 				Value: value,
-				Type:  paramType,
+				Type:  statement.ParamTypes[param],
 			}
 			if strings.HasPrefix(param, "_") {
 				// Prefix the parameter name with a 'p' to work around the fact that database/sql does not allow

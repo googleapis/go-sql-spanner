@@ -22,6 +22,7 @@ import (
 
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/grpc/codes"
@@ -874,10 +875,10 @@ func TestExecuteWithBooleanStringParams(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	server, teardown := setupMockServer(t)
+	server, teardown := setupMockServerWithDialect(t, databasepb.DatabaseDialect_POSTGRESQL)
 	defer teardown()
 
-	sqlText := "SELECT * FROM users WHERE active = @p1"
+	sqlText := "SELECT * FROM users WHERE active = $1"
 	_ = server.TestSpanner.PutStatementResult(sqlText, &testutil.StatementResult{
 		Type:      testutil.StatementResultResultSet,
 		ResultSet: testutil.CreateSingleColumnResultSet([]bool{true}, func(b bool) *structpb.Value { return structpb.NewBoolValue(b) }, "active", spannerpb.TypeCode_BOOL),

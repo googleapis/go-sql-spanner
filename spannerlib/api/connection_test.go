@@ -16,7 +16,6 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"reflect"
 	"testing"
@@ -619,74 +618,5 @@ func TestConnectionCloseCancelsContext(t *testing.T) {
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatal("Blocked query didn't cancel!")
-	}
-}
-
-func TestExtractParamsBooleanStrings(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name  string
-		input string
-		want  bool
-	}{
-		{"p1_t", "t", true},
-		{"p1_true", "true", true},
-		{"p1_1", "1", true},
-		{"p1_y", "y", true},
-		{"p1_yes", "yes", true},
-		{"p1_on", "on", true},
-		{"p2_f", "f", false},
-		{"p2_false", "false", false},
-		{"p2_0", "0", false},
-		{"p2_n", "n", false},
-		{"p2_no", "no", false},
-		{"p2_off", "off", false},
-	}
-
-	for _, tc := range tests {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			req := &spannerpb.ExecuteSqlRequest{
-				Sql: "SELECT * FROM users WHERE active = @p1",
-				Params: &structpb.Struct{
-					Fields: map[string]*structpb.Value{
-						"p1": structpb.NewStringValue(tc.input),
-					},
-				},
-				ParamTypes: map[string]*spannerpb.Type{
-					"p1": {Code: spannerpb.TypeCode_BOOL},
-				},
-			}
-
-			params := extractParams(context.Background(), req, nil)
-			var named sql.NamedArg
-			found := false
-			for _, p := range params {
-				if n, ok := p.(sql.NamedArg); ok && n.Name == "p1" {
-					named = n
-					found = true
-					break
-				}
-			}
-			if !found {
-				t.Fatalf("parameter p1 not found in extracted params")
-			}
-			gcv, ok := named.Value.(spanner.GenericColumnValue)
-			if !ok {
-				t.Fatalf("expected spanner.GenericColumnValue, got %T", named.Value)
-			}
-			bv, ok := gcv.Value.Kind.(*structpb.Value_BoolValue)
-			if !ok {
-				t.Fatalf("expected BoolValue kind, got %T", gcv.Value.Kind)
-			}
-			if g, w := bv.BoolValue, tc.want; g != w {
-				t.Errorf("bool value mismatch\nGot:  %v\nWant: %v", g, w)
-			}
-			if g, w := req.Params.Fields["p1"].GetBoolValue(), tc.want; g != w {
-				t.Errorf("req.Params.Fields[p1] mismatch\nGot:  %v\nWant: %v", g, w)
-			}
-		})
 	}
 }
