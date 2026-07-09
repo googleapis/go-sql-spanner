@@ -22,9 +22,7 @@ import (
 	"sync/atomic"
 
 	"cloud.google.com/go/spanner"
-	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
-	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -40,7 +38,6 @@ type Pool struct {
 	db             *sql.DB
 	connections    *sync.Map
 	connectionsIdx atomic.Int64
-	parser         *parser.StatementParser
 }
 
 // CreatePool creates a new Pool and stores it in the global map of pool.
@@ -66,29 +63,12 @@ func CreatePool(ctx context.Context, userAgentSuffix, connectionString string) (
 	if err != nil {
 		return 0, err
 	}
-
-	// Query dialect to configure dialect-aware StatementParser.
-	var dialectName string
-	_ = conn.QueryRowContext(ctx, "show database_dialect").Scan(&dialectName)
 	_ = conn.Close()
-
-	var dialect databasepb.DatabaseDialect
-	if dialectName == "POSTGRESQL" {
-		dialect = databasepb.DatabaseDialect_POSTGRESQL
-	} else {
-		dialect = databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL
-	}
-
-	sqlParser, err := parser.NewStatementParser(dialect, 100)
-	if err != nil {
-		return 0, err
-	}
 
 	id := poolsIdx.Add(1)
 	pool := &Pool{
 		db:          db,
 		connections: &sync.Map{},
-		parser:      sqlParser,
 	}
 	pools.Store(id, pool)
 	return id, nil
@@ -107,7 +87,7 @@ func ClosePool(ctx context.Context, id int64) error {
 	go func() {
 		pool.connections.Range(func(key, value interface{}) bool {
 			conn := value.(*Connection)
-			_ = conn.close(ctx)
+			_ = conn.close(context.Background())
 			return true
 		})
 		ch <- pool.db.Close()

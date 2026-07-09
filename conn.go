@@ -1054,7 +1054,11 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 	// Remove the ExecOptions once all statements in the SQL string have been executed.
 	defer func() { c.tempExecOptions = nil }()
 
-	if ok, statements, _ := c.parser.Split(query); ok {
+	ok, statements, _ := c.parser.Split(query)
+	if c.tempExecOptions != nil && c.tempExecOptions.QueryMetadata != nil {
+		c.tempExecOptions.QueryMetadata.IsMulti = ok
+	}
+	if ok {
 		return queryMultiple(ctx, c, statements, args)
 	}
 	return c.querySingle(ctx, query /* isPartOfMultiStatementString = */, false, args)
