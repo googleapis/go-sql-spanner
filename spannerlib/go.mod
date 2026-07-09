@@ -7,7 +7,7 @@ toolchain go1.26.5
 replace github.com/googleapis/go-sql-spanner => ..
 
 require (
-	cloud.google.com/go/longrunning v1.1.0
+	cloud.google.com/go/longrunning v1.2.0
 	cloud.google.com/go/spanner v1.92.0
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0

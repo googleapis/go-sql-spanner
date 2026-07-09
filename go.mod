@@ -6,7 +6,7 @@ toolchain go1.26.5
 
 require (
 	cloud.google.com/go v0.123.0
-	cloud.google.com/go/longrunning v1.1.0
+	cloud.google.com/go/longrunning v1.2.0
 	cloud.google.com/go/spanner v1.92.0
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
