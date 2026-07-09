@@ -22,6 +22,8 @@ import (
 	"strings"
 
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
+	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
@@ -145,7 +147,11 @@ func prepareSpannerStmt(state *connectionstate.ConnectionState, parser *parser.S
 			name = "p" + strconv.Itoa(index)
 		}
 		if name != "" {
-			ss.Params[name] = convertParam(value, typedStrings)
+			converted := convertParam(value, typedStrings)
+			if parser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+				converted = convertPGParam(converted)
+			}
+			ss.Params[name] = converted
 		}
 	}
 	// Verify that all parameters have a value.
@@ -345,6 +351,25 @@ func convertParam(v driver.Value, typedStrings bool) driver.Value {
 		}
 		return res
 	}
+}
+
+func convertPGParam(v driver.Value) driver.Value {
+	if gcv, ok := v.(spanner.GenericColumnValue); ok {
+		if gcv.Type != nil && gcv.Type.Code == spannerpb.TypeCode_BOOL && gcv.Value != nil {
+			if s, ok := gcv.Value.Kind.(*structpb.Value_StringValue); ok && s != nil {
+				lower := strings.ToLower(strings.TrimSpace(s.StringValue))
+				switch lower {
+				case "t", "tr", "tru", "true", "y", "ye", "yes", "on", "1":
+					gcv.Value = structpb.NewBoolValue(true)
+					return gcv
+				case "f", "fa", "fal", "fals", "false", "n", "no", "of", "off", "0":
+					gcv.Value = structpb.NewBoolValue(false)
+					return gcv
+				}
+			}
+		}
+	}
+	return v
 }
 
 var _ SpannerResult = &result{}

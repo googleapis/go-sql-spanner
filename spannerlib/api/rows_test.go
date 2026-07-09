@@ -22,6 +22,7 @@ import (
 
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/grpc/codes"
@@ -868,4 +869,63 @@ func TestRowsNextAutoClose(t *testing.T) {
 		t.Fatalf("Second SELECT query failed (likely connection leak on EOF): %v", err)
 	}
 	_ = CloseRows(ctx, poolId, connId, secondRowsId)
+}
+
+func TestExecuteWithBooleanStringParams(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServerWithDialect(t, databasepb.DatabaseDialect_POSTGRESQL)
+	defer teardown()
+
+	sqlText := "SELECT * FROM users WHERE active = $1"
+	_ = server.TestSpanner.PutStatementResult(sqlText, &testutil.StatementResult{
+		Type:      testutil.StatementResultResultSet,
+		ResultSet: testutil.CreateSingleColumnResultSet([]bool{true}, func(b bool) *structpb.Value { return structpb.NewBoolValue(b) }, "active", spannerpb.TypeCode_BOOL),
+	})
+
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+	poolId, err := CreatePool(ctx, "test", dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	defer ClosePool(ctx, poolId)
+
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	defer CloseConnection(ctx, poolId, connId)
+
+	rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{
+		Sql: sqlText,
+		Params: &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"p1": structpb.NewStringValue("t"),
+			},
+		},
+		ParamTypes: map[string]*spannerpb.Type{
+			"p1": {Code: spannerpb.TypeCode_BOOL},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
+	}
+	if rowsId == 0 {
+		t.Fatal("Execute returned unexpected zero id")
+	}
+	defer CloseRows(ctx, poolId, connId, rowsId)
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("num ExecuteSql requests mismatch\nGot:  %d\nWant: %d", g, w)
+	}
+	receivedReq := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+	if receivedReq.Params == nil || receivedReq.Params.Fields["p1"] == nil {
+		t.Fatal("receivedReq missing p1 parameter")
+	}
+	if g, w := receivedReq.Params.Fields["p1"].GetBoolValue(), true; g != w {
+		t.Errorf("receivedReq p1 boolean value mismatch\nGot:  %v\nWant: %v", g, w)
+	}
 }
