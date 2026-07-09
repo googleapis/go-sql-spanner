@@ -221,6 +221,16 @@ public interface ISpannerLib : IDisposable
     public ResultSetStats? Stats(Rows rows);
 
     /// <summary>
+    /// Returns the ResultSetStats of a Rows object asynchronously. This object contains the update count of a DML statement
+    /// that was executed. This method can only be called once all data rows in the Rows object have been returned.
+    /// </summary>
+    /// <param name="rows">The Rows object to get the stats for</param>
+    /// <param name="cancellationToken">The cancellation token</param>
+    /// <returns>The ResultSetStats for the given Rows object</returns>
+    public Task<ResultSetStats?> StatsAsync(Rows rows, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Stats(rows));
+
+    /// <summary>
     /// Returns the next numRows data rows from the given Rows object. The data is encoded using the specified
     /// RowEncoding. The default is an encoded protobuf ListValue containing as many values as there are columns in the
     /// query result, multiplied by the number of rows that were returned.

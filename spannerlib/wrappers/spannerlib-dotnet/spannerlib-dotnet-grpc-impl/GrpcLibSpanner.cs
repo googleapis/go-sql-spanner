@@ -370,6 +370,18 @@ public sealed class GrpcLibSpanner : ISpannerLib
         return TranslateException(() => Client.ResultSetStats(ToProto(rows)));
     }
 
+    public async Task<ResultSetStats?> StatsAsync(Rows rows, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await Client.ResultSetStatsAsync(ToProto(rows), cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (RpcException exception)
+        {
+            throw SpannerException.ToSpannerException(exception);
+        }
+    }
+
     public ListValue? Next(Rows rows, int numRows, ISpannerLib.RowEncoding encoding)
     {
         var row = TranslateException(() =>Client.Next(new NextRequest

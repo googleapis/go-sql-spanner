@@ -60,6 +60,11 @@ public class StreamingRows : Rows
 
     protected override ResultSetStats? Stats => IsPositionedAtInMemResultSetWithAllData ? CurrentInMemResultSet.Stats : _stats;
 
+    public override Task<ResultSetStats?> GetStatsAsync(CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(Stats);
+    }
+
     public override ResultSetMetadata? Metadata => IsPositionedAtInMemResultSet ? CurrentInMemResultSet.Metadata : _metadata;
 
     internal static StreamingRows Create(GrpcLibSpanner spanner, Connection connection, AsyncServerStreamingCall<RowData> stream, int batchSize)

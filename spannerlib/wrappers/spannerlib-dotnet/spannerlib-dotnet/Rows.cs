@@ -33,34 +33,74 @@ public class Rows : AbstractLibObject
     public virtual ResultSetMetadata? Metadata => _metadata ??= Spanner.Metadata(this);
 
     private Lazy<ResultSetStats?> _stats;
+    private ResultSetStats? _loadedStats;
+    private bool _statsLoaded;
 
     /// <summary>
     /// The ResultSetStats of the SQL statement. This is only available once all data rows have been read.
     /// </summary>
-    protected virtual ResultSetStats? Stats => _stats.Value;
+    protected virtual ResultSetStats? Stats
+    {
+        get
+        {
+            if (!_statsLoaded)
+            {
+                _loadedStats = _stats.Value;
+                _statsLoaded = true;
+            }
+            return _loadedStats;
+        }
+    }
+
+    /// <summary>
+    /// Returns the ResultSetStats of this Rows object asynchronously.
+    /// </summary>
+    public virtual async Task<ResultSetStats?> GetStatsAsync(CancellationToken cancellationToken = default)
+    {
+        if (_statsLoaded)
+        {
+            return _loadedStats;
+        }
+        if (_stats.IsValueCreated)
+        {
+            _loadedStats = _stats.Value;
+            _statsLoaded = true;
+            return _loadedStats;
+        }
+        _loadedStats = await Spanner.StatsAsync(this, cancellationToken).ConfigureAwait(false);
+        _statsLoaded = true;
+        return _loadedStats;
+    }
+
+    private static long GetRowCount(ResultSetStats? stats)
+    {
+        if (stats == null)
+        {
+            return -1L;
+        }
+        if (stats.HasRowCountExact)
+        {
+            return stats.RowCountExact;
+        }
+        if (stats.HasRowCountLowerBound)
+        {
+            return stats.RowCountLowerBound;
+        }
+        return -1L;
+    }
 
     /// <summary>
     /// The update count of the SQL statement. This is only available once all data rows have been read.
     /// </summary>
-    public long UpdateCount
+    public long UpdateCount => GetRowCount(Stats);
+
+    /// <summary>
+    /// Gets the update count of the SQL statement asynchronously. This is only available once all data rows have been read.
+    /// </summary>
+    public async Task<long> GetUpdateCountAsync(CancellationToken cancellationToken = default)
     {
-        get
-        {
-            var stats = Stats;
-            if (stats == null)
-            {
-                return -1L;
-            }
-            if (stats.HasRowCountExact)
-            {
-                return stats.RowCountExact;
-            }
-            if (stats.HasRowCountLowerBound)
-            {
-                return stats.RowCountLowerBound;
-            }
-            return -1L;
-        }
+        var stats = await GetStatsAsync(cancellationToken).ConfigureAwait(false);
+        return GetRowCount(stats);
     }
     
     private bool _hasReadAllResults;
@@ -82,7 +122,7 @@ public class Rows : AbstractLibObject
     public virtual ListValue? Next()
     {
         var res = Spanner.Next(this, 1, ISpannerLib.RowEncoding.Proto);
-        if (res == null && !_stats.IsValueCreated)
+        if (res == null && !_statsLoaded && !_stats.IsValueCreated)
         {
             // initialize stats.
             _ = _stats.Value;
@@ -147,7 +187,7 @@ public class Rows : AbstractLibObject
         var hasUpdateCount = false;
         do
         {
-            var updateCount = UpdateCount;
+            var updateCount = await GetUpdateCountAsync(cancellationToken).ConfigureAwait(false);
             if (updateCount > -1)
             {
                 if (!hasUpdateCount)
@@ -196,6 +236,8 @@ public class Rows : AbstractLibObject
         }
         _metadata = metadata;
         _stats = new(() => Spanner.Stats(this));
+        _loadedStats = null;
+        _statsLoaded = false;
         return true;
     }
 
