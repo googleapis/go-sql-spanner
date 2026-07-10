@@ -12,7 +12,7 @@ require (
 	github.com/googleapis/go-sql-spanner v1.16.2
 	github.com/moby/moby/api v1.54.1
 	github.com/testcontainers/testcontainers-go v0.42.0
-	google.golang.org/api v0.287.1
+	google.golang.org/api v0.288.0
 	google.golang.org/grpc v1.82.0
 )
 
