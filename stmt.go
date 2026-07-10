@@ -355,21 +355,159 @@ func convertParam(v driver.Value, typedStrings bool) driver.Value {
 
 func convertPGParam(v driver.Value) driver.Value {
 	if gcv, ok := v.(spanner.GenericColumnValue); ok {
-		if gcv.Type != nil && gcv.Type.Code == spannerpb.TypeCode_BOOL && gcv.Value != nil {
-			if s, ok := gcv.Value.Kind.(*structpb.Value_StringValue); ok && s != nil {
-				lower := strings.ToLower(strings.TrimSpace(s.StringValue))
-				switch lower {
-				case "t", "tr", "tru", "true", "y", "ye", "yes", "on", "1":
-					gcv.Value = structpb.NewBoolValue(true)
-					return gcv
-				case "f", "fa", "fal", "fals", "false", "n", "no", "of", "off", "0":
-					gcv.Value = structpb.NewBoolValue(false)
-					return gcv
+		if gcv.Type != nil && gcv.Value != nil {
+			if gcv.Type.Code == spannerpb.TypeCode_BOOL {
+				if s, ok := gcv.Value.Kind.(*structpb.Value_StringValue); ok && s != nil {
+					if b, err := parsePGBoolLiteral(s.StringValue); err == nil {
+						gcv.Value = structpb.NewBoolValue(b)
+						return gcv
+					}
+				}
+			} else if gcv.Type.Code == spannerpb.TypeCode_ARRAY {
+				if s, ok := gcv.Value.Kind.(*structpb.Value_StringValue); ok && s != nil {
+					if parsedList, err := parsePGArrayLiteral(s.StringValue, gcv.Type.ArrayElementType); err == nil && parsedList != nil {
+						gcv.Value = parsedList
+						return gcv
+					}
 				}
 			}
 		}
 	}
 	return v
+}
+
+func parsePGBoolLiteral(s string) (bool, error) {
+	lower := strings.ToLower(strings.TrimSpace(s))
+	switch lower {
+	case "t", "tr", "tru", "true", "y", "ye", "yes", "on", "1":
+		return true, nil
+	case "f", "fa", "fal", "fals", "false", "n", "no", "of", "off", "0":
+		return false, nil
+	}
+	return false, fmt.Errorf("invalid boolean value: %q", s)
+}
+
+func isPGWhitespace(ch byte) bool {
+	return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r'
+}
+
+func parsePGArrayLiteral(str string, elemType *spannerpb.Type) (*structpb.Value, error) {
+	trimmed := strings.TrimSpace(str)
+	if !strings.HasPrefix(trimmed, "{") || !strings.HasSuffix(trimmed, "}") {
+		return nil, fmt.Errorf("invalid PG array literal format")
+	}
+	inner := strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+	if inner == "" {
+		return structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{}}), nil
+	}
+
+	var values []*structpb.Value
+	var current strings.Builder
+	inQuotes := false
+	escapeNext := false
+	wasQuoted := false
+
+	for i := 0; i < len(inner); i++ {
+		ch := inner[i]
+		if !inQuotes && isPGWhitespace(ch) && current.Len() == 0 {
+			continue
+		}
+		if escapeNext {
+			current.WriteByte(ch)
+			escapeNext = false
+			continue
+		}
+		if ch == '\\' {
+			escapeNext = true
+			continue
+		}
+		if ch == '"' {
+			inQuotes = !inQuotes
+			wasQuoted = true
+			continue
+		}
+		if !inQuotes && (ch == '{' || ch == '}') {
+			return nil, fmt.Errorf("nested or unquoted brace in array literal not supported: %c", ch)
+		}
+		if ch == ',' && !inQuotes {
+			if current.Len() == 0 && !wasQuoted {
+				return nil, fmt.Errorf("consecutive or leading comma in array literal")
+			}
+			val, err := convertPGArrayToken(current.String(), wasQuoted, elemType)
+			if err != nil {
+				return nil, err
+			}
+			values = append(values, val)
+			current.Reset()
+			wasQuoted = false
+			continue
+		}
+		if !inQuotes && wasQuoted {
+			if !isPGWhitespace(ch) {
+				return nil, fmt.Errorf("unexpected character %q after closing quote", ch)
+			}
+			continue
+		}
+		current.WriteByte(ch)
+	}
+	if inQuotes {
+		return nil, fmt.Errorf("unclosed double quote in array literal")
+	}
+	if escapeNext {
+		return nil, fmt.Errorf("trailing backslash in array literal")
+	}
+	if current.Len() == 0 && !wasQuoted && len(values) > 0 {
+		return nil, fmt.Errorf("trailing comma in array literal")
+	}
+	val, err := convertPGArrayToken(current.String(), wasQuoted, elemType)
+	if err != nil {
+		return nil, err
+	}
+	values = append(values, val)
+	return structpb.NewListValue(&structpb.ListValue{Values: values}), nil
+}
+
+func convertPGArrayToken(token string, wasQuoted bool, elemType *spannerpb.Type) (*structpb.Value, error) {
+	if !wasQuoted && strings.EqualFold(strings.TrimSpace(token), "NULL") {
+		return structpb.NewNullValue(), nil
+	}
+	t := token
+	if !wasQuoted {
+		t = strings.TrimSpace(token)
+	}
+
+	elemCode := spannerpb.TypeCode_TYPE_CODE_UNSPECIFIED
+	if elemType != nil {
+		elemCode = elemType.Code
+	}
+
+	switch elemCode {
+	case spannerpb.TypeCode_BOOL:
+		b, err := parsePGBoolLiteral(t)
+		if err != nil {
+			return nil, err
+		}
+		return structpb.NewBoolValue(b), nil
+	case spannerpb.TypeCode_FLOAT64, spannerpb.TypeCode_FLOAT32:
+		trimmedT := strings.TrimSpace(t)
+		lower := strings.ToLower(trimmedT)
+		if lower == "inf" || lower == "infinity" || lower == "+inf" || lower == "+infinity" {
+			return structpb.NewStringValue("Infinity"), nil
+		}
+		if lower == "-inf" || lower == "-infinity" {
+			return structpb.NewStringValue("-Infinity"), nil
+		}
+		if lower == "nan" {
+			return structpb.NewStringValue("NaN"), nil
+		}
+		f, err := strconv.ParseFloat(trimmedT, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid float value: %q", t)
+		}
+		return structpb.NewNumberValue(f), nil
+	default:
+		return structpb.NewStringValue(t), nil
+	}
 }
 
 var _ SpannerResult = &result{}
