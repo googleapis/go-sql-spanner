@@ -533,26 +533,7 @@ func ExtractConnectorConfig(dsn string) (ConnectorConfig, error) {
 		Params:   params,
 		name:     dsn,
 	}
-	if strings.EqualFold(params[propertyIsExperimentalHost.Key()], "true") {
-		if c.Host == "" {
-			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "host must be specified for experimental host endpoint"))
-		}
-		c.Configurator = func(config *spanner.ClientConfig, opts *[]option.ClientOption) {
-			config.IsExperimentalHost = true
-		}
-		if matches["INSTANCEGROUP"] == "" {
-			c.Instance = experimentalHostInstance
-		}
-		c.Project = experimentalHostProject
-	} else {
-		if c.Project == "" {
-			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "project must be specified in connection string"))
-		}
-		if c.Instance == "" {
-			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "instance must be specified in connection string"))
-		}
-	}
-	return c, nil
+	return validateAndConfigureConnector(c, matches)
 }
 
 func extractPostgresConnectorConfig(dsn string) (ConnectorConfig, error) {
@@ -584,20 +565,19 @@ func extractPostgresConnectorConfig(dsn string) (ConnectorConfig, error) {
 		}
 	}
 
-	host := u.Host
-	if host == "localhost" || host == "127.0.0.1" || host == "localhost:5432" || host == "127.0.0.1:5432" || host == "[::1]" || host == "[::1]:5432" {
-		host = ""
-	}
-
 	c := ConnectorConfig{
-		Host:     host,
+		Host:     u.Host,
 		Project:  matches["PROJECTGROUP"],
 		Instance: matches["INSTANCEGROUP"],
 		Database: matches["DATABASEGROUP"],
 		Params:   params,
 		name:     u.Redacted(),
 	}
-	if strings.EqualFold(params[propertyIsExperimentalHost.Key()], "true") {
+	return validateAndConfigureConnector(c, matches)
+}
+
+func validateAndConfigureConnector(c ConnectorConfig, matches map[string]string) (ConnectorConfig, error) {
+	if strings.EqualFold(c.Params[propertyIsExperimentalHost.Key()], "true") {
 		if c.Host == "" {
 			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "host must be specified for experimental host endpoint"))
 		}

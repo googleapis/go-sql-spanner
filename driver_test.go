@@ -298,6 +298,7 @@ func TestExtractDnsParts(t *testing.T) {
 		{
 			input: "postgresql://localhost:5432/projects/p/instances/i/databases/d",
 			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:5432",
 				Project:  "p",
 				Instance: "i",
 				Database: "d",
@@ -330,6 +331,7 @@ func TestExtractDnsParts(t *testing.T) {
 		{
 			input: "postgresql://localhost:5432/projects/p/instances/i/databases/d?sslmode=disable",
 			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:5432",
 				Project:  "p",
 				Instance: "i",
 				Database: "d",
@@ -348,6 +350,7 @@ func TestExtractDnsParts(t *testing.T) {
 		{
 			input: "postgres://localhost:5432/projects/p/instances/i/databases/d",
 			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:5432",
 				Project:  "p",
 				Instance: "i",
 				Database: "d",
@@ -362,6 +365,7 @@ func TestExtractDnsParts(t *testing.T) {
 		{
 			input: "postgresql://user:password@localhost:5432/projects/p/instances/i/databases/d",
 			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:5432",
 				Project:  "p",
 				Instance: "i",
 				Database: "d",
@@ -390,6 +394,7 @@ func TestExtractDnsParts(t *testing.T) {
 		{
 			input: "postgresql://localhost:5432/projects/p/instances/i/databases/d?sslmode=disable&foo=bar",
 			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:5432",
 				Project:  "p",
 				Instance: "i",
 				Database: "d",
@@ -409,6 +414,7 @@ func TestExtractDnsParts(t *testing.T) {
 		{
 			input: "postgresql://localhost:5432/projects/p/instances/i/databases/d?sslmode=disable&useplaintext=false",
 			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:5432",
 				Project:  "p",
 				Instance: "i",
 				Database: "d",
@@ -441,20 +447,7 @@ func TestExtractDnsParts(t *testing.T) {
 		{
 			input: "postgresql://[::1]/projects/p/instances/i/databases/d",
 			wantConnectorConfig: ConnectorConfig{
-				Project:  "p",
-				Instance: "i",
-				Database: "d",
-				Params:   map[string]string{},
-			},
-			wantSpannerConfig: spanner.ClientConfig{
-				//lint:ignore SA1019 Needs a change that is backwards compatible
-				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
-				UserAgent:         userAgent,
-			},
-		},
-		{
-			input: "postgresql://[::1]:5432/projects/p/instances/i/databases/d",
-			wantConnectorConfig: ConnectorConfig{
+				Host:     "[::1]",
 				Project:  "p",
 				Instance: "i",
 				Database: "d",
