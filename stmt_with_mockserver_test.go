@@ -903,6 +903,13 @@ func TestPositionalParametersWithPG(t *testing.T) {
 	}
 }
 
+func matchExpectedErr(got, want string) bool {
+	if got == want {
+		return true
+	}
+	return strings.HasSuffix(got, want) && strings.HasPrefix(got, "[SQLSTATE ")
+}
+
 func executeParamTest(t *testing.T, test paramTest, server *testutil.MockedSpannerInMemTestServer, db *sql.DB) {
 	ctx := context.Background()
 	query := test.wantSQL
@@ -919,8 +926,8 @@ func executeParamTest(t *testing.T, test paramTest, server *testutil.MockedSpann
 		if test.wantErr == "" {
 			t.Fatal(err)
 		} else {
-			if g, w := err.Error(), test.wantErr; g != w {
-				t.Fatalf("error mismatch\n Got: %v\nWant: %v", g, w)
+			if g, w := err.Error(), test.wantErr; !matchExpectedErr(g, w) {
+				t.Fatalf("error mismatch\nGot:  %v\nWant: %v", g, w)
 			}
 		}
 	} else if test.wantPrepareErr != "" {
@@ -951,8 +958,8 @@ func executeParamTest(t *testing.T, test paramTest, server *testutil.MockedSpann
 			if wantErr == "" {
 				t.Fatal(err)
 			} else {
-				if g, w := err.Error(), wantErr; g != w {
-					t.Fatalf("error mismatch\n Got: %v\nWant: %v", g, w)
+				if g, w := err.Error(), wantErr; !matchExpectedErr(g, w) {
+					t.Fatalf("error mismatch\nGot:  %v\nWant: %v", g, w)
 				}
 				return
 			}

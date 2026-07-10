@@ -69,7 +69,8 @@ func (s *stmt) Exec(_ []driver.Value) (driver.Result, error) {
 }
 
 func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
-	return s.conn.execParsed(ctx, s.query, s.parsedStatement, s.statementInfo, s.execOptions, args)
+	res, err := s.conn.execParsed(ctx, s.query, s.parsedStatement, s.statementInfo, s.execOptions, args)
+	return res, checkAndEnrichError(s.conn.IsPostgreSQL(), err)
 }
 
 func (s *stmt) Query(_ []driver.Value) (driver.Rows, error) {
@@ -77,7 +78,8 @@ func (s *stmt) Query(_ []driver.Value) (driver.Rows, error) {
 }
 
 func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
-	return s.conn.queryParsed(ctx, s.query, s.parsedStatement, s.statementInfo, s.execOptions, args)
+	rows, err := s.conn.queryParsed(ctx, s.query, s.parsedStatement, s.statementInfo, s.execOptions, args)
+	return rows, checkAndEnrichError(s.conn.IsPostgreSQL(), err)
 }
 
 func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {

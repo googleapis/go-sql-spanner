@@ -153,12 +153,17 @@ func (d *delegatingTransaction) ensureActivated() error {
 	return nil
 }
 
+func (d *delegatingTransaction) isPG() bool {
+	return d.conn != nil && d.conn.IsPostgreSQL()
+}
+
 func (d *delegatingTransaction) Commit() error {
 	if d.contextTransaction == nil {
 		d.close(txResultCommit)
 		return nil
 	}
-	return d.contextTransaction.Commit()
+	err := d.contextTransaction.Commit()
+	return checkAndEnrichError(d.isPG(), err)
 }
 
 func (d *delegatingTransaction) Rollback() error {
@@ -166,7 +171,8 @@ func (d *delegatingTransaction) Rollback() error {
 		d.close(txResultRollback)
 		return nil
 	}
-	return d.contextTransaction.Rollback()
+	err := d.contextTransaction.Rollback()
+	return checkAndEnrichError(d.isPG(), err)
 }
 
 func (d *delegatingTransaction) ReadOnlyTransactionTimestamp() (time.Time, error) {

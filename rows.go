@@ -44,8 +44,9 @@ const (
 
 var _ driver.RowsNextResultSet = &rows{}
 
-func createRows(state *connectionstate.ConnectionState, it rowIterator, cancel context.CancelFunc, opts *ExecOptions) *rows {
+func createRows(isPG bool, state *connectionstate.ConnectionState, it rowIterator, cancel context.CancelFunc, opts *ExecOptions) *rows {
 	return &rows{
+		isPG:                    isPG,
 		state:                   state,
 		it:                      it,
 		cancel:                  cancel,
@@ -57,6 +58,7 @@ func createRows(state *connectionstate.ConnectionState, it rowIterator, cancel c
 }
 
 type rows struct {
+	isPG   bool
 	it     rowIterator
 	close  func() error
 	cancel context.CancelFunc
@@ -195,7 +197,7 @@ func (r *rows) Next(dest []driver.Value) error {
 		if err == iterator.Done {
 			return io.EOF
 		}
-		return err
+		return checkAndEnrichError(r.isPG, err)
 	}
 	if r.dirtyRow != nil {
 		row = r.dirtyRow
@@ -207,7 +209,7 @@ func (r *rows) Next(dest []driver.Value) error {
 			return io.EOF
 		}
 		if err != nil {
-			return err
+			return checkAndEnrichError(r.isPG, err)
 		}
 	}
 
