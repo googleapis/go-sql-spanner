@@ -193,4 +193,43 @@ public class ConnectionTests : AbstractMockServerTests
             })));
         Assert.That(exception.Code, Is.EqualTo(Code.FailedPrecondition));
     }
+
+    private class TestLibObject : Google.Cloud.SpannerLib.AbstractLibObject
+    {
+        public bool CloseLibObjectCalled { get; private set; }
+
+        public TestLibObject(long id) : base(null!, id)
+        {
+        }
+
+        public void CallDispose(bool disposing)
+        {
+            Dispose(disposing);
+        }
+
+        protected override void CloseLibObject()
+        {
+            CloseLibObjectCalled = true;
+        }
+    }
+
+    [Test]
+    public void Finalizer_DoesNotCallCloseLibObject()
+    {
+        var testObj = new TestLibObject(id: 42);
+
+        testObj.CallDispose(disposing: false);
+
+        Assert.That(testObj.CloseLibObjectCalled, Is.False);
+    }
+
+    [Test]
+    public void Dispose_CallsCloseLibObject()
+    {
+        var testObj = new TestLibObject(id: 42);
+
+        testObj.CallDispose(disposing: true);
+
+        Assert.That(testObj.CloseLibObjectCalled, Is.True);
+    }
 }

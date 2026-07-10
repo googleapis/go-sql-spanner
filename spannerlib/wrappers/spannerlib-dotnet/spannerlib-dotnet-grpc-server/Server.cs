@@ -253,8 +253,18 @@ public class Server : IDisposable
         }
         try
         {
-            Stop();
-            _process?.Dispose();
+            if (disposing)
+            {
+                try
+                {
+                    Stop();
+                }
+                catch (Exception)
+                {
+                    // Ignore exceptions during shutdown/dispose
+                }
+                _process?.Dispose();
+            }
         }
         finally
         {
