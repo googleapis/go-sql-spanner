@@ -355,21 +355,130 @@ func convertParam(v driver.Value, typedStrings bool) driver.Value {
 
 func convertPGParam(v driver.Value) driver.Value {
 	if gcv, ok := v.(spanner.GenericColumnValue); ok {
-		if gcv.Type != nil && gcv.Type.Code == spannerpb.TypeCode_BOOL && gcv.Value != nil {
-			if s, ok := gcv.Value.Kind.(*structpb.Value_StringValue); ok && s != nil {
-				lower := strings.ToLower(strings.TrimSpace(s.StringValue))
-				switch lower {
-				case "t", "tr", "tru", "true", "y", "ye", "yes", "on", "1":
-					gcv.Value = structpb.NewBoolValue(true)
-					return gcv
-				case "f", "fa", "fal", "fals", "false", "n", "no", "of", "off", "0":
-					gcv.Value = structpb.NewBoolValue(false)
-					return gcv
+		if gcv.Type != nil && gcv.Value != nil {
+			if gcv.Type.Code == spannerpb.TypeCode_BOOL {
+				if s, ok := gcv.Value.Kind.(*structpb.Value_StringValue); ok && s != nil {
+					lower := strings.ToLower(strings.TrimSpace(s.StringValue))
+					switch lower {
+					case "t", "tr", "tru", "true", "y", "ye", "yes", "on", "1":
+						gcv.Value = structpb.NewBoolValue(true)
+						return gcv
+					case "f", "fa", "fal", "fals", "false", "n", "no", "of", "off", "0":
+						gcv.Value = structpb.NewBoolValue(false)
+						return gcv
+					}
+				}
+			} else if gcv.Type.Code == spannerpb.TypeCode_ARRAY {
+				if s, ok := gcv.Value.Kind.(*structpb.Value_StringValue); ok && s != nil {
+					if parsedList, err := parsePGArrayLiteral(s.StringValue, gcv.Type.ArrayElementType); err == nil && parsedList != nil {
+						gcv.Value = parsedList
+						return gcv
+					}
 				}
 			}
 		}
 	}
 	return v
+}
+
+func parsePGArrayLiteral(str string, elemType *spannerpb.Type) (*structpb.Value, error) {
+	trimmed := strings.TrimSpace(str)
+	if !strings.HasPrefix(trimmed, "{") || !strings.HasSuffix(trimmed, "}") {
+		return nil, fmt.Errorf("invalid PG array literal format")
+	}
+	inner := strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+	if inner == "" {
+		return structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{}}), nil
+	}
+
+	var values []*structpb.Value
+	var current strings.Builder
+	inQuotes := false
+	escapeNext := false
+	wasQuoted := false
+
+	for i := 0; i < len(inner); i++ {
+		ch := inner[i]
+		if !inQuotes && (ch == ' ' || ch == '\t') && current.Len() == 0 {
+			continue
+		}
+		if escapeNext {
+			current.WriteByte(ch)
+			escapeNext = false
+			continue
+		}
+		if ch == '\\' {
+			escapeNext = true
+			continue
+		}
+		if ch == '"' {
+			inQuotes = !inQuotes
+			wasQuoted = true
+			continue
+		}
+		if ch == ',' && !inQuotes {
+			val, err := convertPGArrayToken(current.String(), wasQuoted, elemType)
+			if err != nil {
+				return nil, err
+			}
+			values = append(values, val)
+			current.Reset()
+			wasQuoted = false
+			continue
+		}
+		if !inQuotes && wasQuoted {
+			if ch != ' ' && ch != '\t' {
+				return nil, fmt.Errorf("unexpected character %q after closing quote", ch)
+			}
+			continue
+		}
+		current.WriteByte(ch)
+	}
+	if inQuotes {
+		return nil, fmt.Errorf("unclosed double quote in array literal")
+	}
+	if escapeNext {
+		return nil, fmt.Errorf("trailing backslash in array literal")
+	}
+	val, err := convertPGArrayToken(current.String(), wasQuoted, elemType)
+	if err != nil {
+		return nil, err
+	}
+	values = append(values, val)
+	return structpb.NewListValue(&structpb.ListValue{Values: values}), nil
+}
+
+func convertPGArrayToken(token string, wasQuoted bool, elemType *spannerpb.Type) (*structpb.Value, error) {
+	if !wasQuoted && strings.EqualFold(strings.TrimSpace(token), "NULL") {
+		return structpb.NewNullValue(), nil
+	}
+	t := token
+	if !wasQuoted {
+		t = strings.TrimSpace(token)
+	}
+
+	elemCode := spannerpb.TypeCode_TYPE_CODE_UNSPECIFIED
+	if elemType != nil {
+		elemCode = elemType.Code
+	}
+
+	switch elemCode {
+	case spannerpb.TypeCode_BOOL:
+		switch strings.ToLower(t) {
+		case "t", "tr", "tru", "true", "y", "ye", "yes", "on", "1":
+			return structpb.NewBoolValue(true), nil
+		case "f", "fa", "fal", "fals", "false", "n", "no", "of", "off", "0":
+			return structpb.NewBoolValue(false), nil
+		}
+		return nil, fmt.Errorf("invalid boolean value: %q", t)
+	case spannerpb.TypeCode_FLOAT64:
+		if f, err := strconv.ParseFloat(t, 64); err == nil {
+			return structpb.NewNumberValue(f), nil
+		}
+		return structpb.NewStringValue(t), nil
+	default:
+		return structpb.NewStringValue(t), nil
+	}
 }
 
 var _ SpannerResult = &result{}

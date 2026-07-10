@@ -183,6 +183,161 @@ func TestPrepareSpannerStmt(t *testing.T) {
 			t.Errorf("string value mismatch\nGot:  %v\nWant: %v", g, w)
 		}
 	})
+
+	t.Run("PostgreSQLArrayLiteralConversion", func(t *testing.T) {
+		pgParser, err := parser.NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gcv := spanner.GenericColumnValue{
+			Type:  &spannerpb.Type{Code: spannerpb.TypeCode_ARRAY, ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_INT64}},
+			Value: structpb.NewStringValue("{1, 2, 3}"),
+		}
+		stmt, err := prepareSpannerStmt(state, pgParser, "SELECT * FROM users WHERE ids = $1", []driver.NamedValue{
+			{Name: "p1", Value: gcv},
+		})
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		res, ok := stmt.Params["p1"].(spanner.GenericColumnValue)
+		if !ok {
+			t.Fatalf("Expected spanner.GenericColumnValue, got %T", stmt.Params["p1"])
+		}
+		lv, ok := res.Value.Kind.(*structpb.Value_ListValue)
+		if !ok {
+			t.Fatalf("Expected ListValue kind, got %T", res.Value.Kind)
+		}
+		if g, w := len(lv.ListValue.Values), 3; g != w {
+			t.Fatalf("array length mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if g, w := lv.ListValue.Values[0].GetStringValue(), "1"; g != w {
+			t.Errorf("elem 0 mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("PostgreSQLArrayLiteralConversionWithSpacesAndQuotes", func(t *testing.T) {
+		pgParser, err := parser.NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gcv := spanner.GenericColumnValue{
+			Type:  &spannerpb.Type{Code: spannerpb.TypeCode_ARRAY, ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_STRING}},
+			Value: structpb.NewStringValue("{\"foo\" ,  \"bar\"}"),
+		}
+		stmt, err := prepareSpannerStmt(state, pgParser, "SELECT * FROM users WHERE names = $1", []driver.NamedValue{
+			{Name: "p1", Value: gcv},
+		})
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		res, ok := stmt.Params["p1"].(spanner.GenericColumnValue)
+		if !ok {
+			t.Fatalf("Expected spanner.GenericColumnValue, got %T", stmt.Params["p1"])
+		}
+		lv, ok := res.Value.Kind.(*structpb.Value_ListValue)
+		if !ok {
+			t.Fatalf("Expected ListValue kind, got %T", res.Value.Kind)
+		}
+		if g, w := len(lv.ListValue.Values), 2; g != w {
+			t.Fatalf("array length mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if g, w := lv.ListValue.Values[0].GetStringValue(), "foo"; g != w {
+			t.Errorf("elem 0 mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if g, w := lv.ListValue.Values[1].GetStringValue(), "bar"; g != w {
+			t.Errorf("elem 1 mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("PostgreSQLArrayLiteralConversionWithInvalidBoolNoConversion", func(t *testing.T) {
+		pgParser, err := parser.NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gcv := spanner.GenericColumnValue{
+			Type:  &spannerpb.Type{Code: spannerpb.TypeCode_ARRAY, ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_BOOL}},
+			Value: structpb.NewStringValue("{true, maybe, false}"),
+		}
+		stmt, err := prepareSpannerStmt(state, pgParser, "SELECT * FROM users WHERE active_flags = $1", []driver.NamedValue{
+			{Name: "p1", Value: gcv},
+		})
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		res, ok := stmt.Params["p1"].(spanner.GenericColumnValue)
+		if !ok {
+			t.Fatalf("Expected spanner.GenericColumnValue, got %T", stmt.Params["p1"])
+		}
+		sv, ok := res.Value.Kind.(*structpb.Value_StringValue)
+		if !ok {
+			t.Fatalf("Expected StringValue kind, got %T", res.Value.Kind)
+		}
+		if g, w := sv.StringValue, "{true, maybe, false}"; g != w {
+			t.Errorf("string value mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("PostgreSQLArrayLiteralMalformedSyntaxNoConversion", func(t *testing.T) {
+		pgParser, err := parser.NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		malformedInputs := []string{
+			`{"foo"bar}`, // Unexpected character after closing quote
+			`{"foo}`,     // Unclosed quote
+			`{"foo\"}`,   // Trailing backslash causing unclosed quote
+			`{foo\}`,     // Trailing backslash
+		}
+		for _, input := range malformedInputs {
+			t.Run(input, func(t *testing.T) {
+				gcv := spanner.GenericColumnValue{
+					Type:  &spannerpb.Type{Code: spannerpb.TypeCode_ARRAY, ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_STRING}},
+					Value: structpb.NewStringValue(input),
+				}
+				stmt, err := prepareSpannerStmt(state, pgParser, "SELECT * FROM users WHERE names = $1", []driver.NamedValue{
+					{Name: "p1", Value: gcv},
+				})
+				if err != nil {
+					t.Fatalf("Unexpected error: %v", err)
+				}
+				res, ok := stmt.Params["p1"].(spanner.GenericColumnValue)
+				if !ok {
+					t.Fatalf("Expected spanner.GenericColumnValue, got %T", stmt.Params["p1"])
+				}
+				sv, ok := res.Value.Kind.(*structpb.Value_StringValue)
+				if !ok {
+					t.Fatalf("Expected StringValue fallback for malformed array syntax %q, got %T", input, res.Value.Kind)
+				}
+				if g, w := sv.StringValue, input; g != w {
+					t.Errorf("string value mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+			})
+		}
+	})
+
+	t.Run("GoogleSQLArrayLiteralNoConversion", func(t *testing.T) {
+		gcv := spanner.GenericColumnValue{
+			Type:  &spannerpb.Type{Code: spannerpb.TypeCode_ARRAY, ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_INT64}},
+			Value: structpb.NewStringValue("{1, 2, 3}"),
+		}
+		stmt, err := prepareSpannerStmt(state, p, "SELECT * FROM users WHERE ids = @p1", []driver.NamedValue{
+			{Name: "p1", Value: gcv},
+		})
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		res, ok := stmt.Params["p1"].(spanner.GenericColumnValue)
+		if !ok {
+			t.Fatalf("Expected spanner.GenericColumnValue, got %T", stmt.Params["p1"])
+		}
+		sv, ok := res.Value.Kind.(*structpb.Value_StringValue)
+		if !ok {
+			t.Fatalf("Expected StringValue kind, got %T", res.Value.Kind)
+		}
+		if g, w := sv.StringValue, "{1, 2, 3}"; g != w {
+			t.Errorf("string value mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
 }
 
 func TestConvertParam(t *testing.T) {
