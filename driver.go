@@ -25,6 +25,7 @@ import (
 	"io"
 	"log/slog"
 	"math/big"
+	"net/url"
 	"os"
 	"regexp"
 	"runtime"
@@ -504,6 +505,10 @@ func (cc *ConnectorConfig) String() string {
 // ExtractConnectorConfig extracts a ConnectorConfig for Spanner from the given
 // data source name.
 func ExtractConnectorConfig(dsn string) (ConnectorConfig, error) {
+	lowerDSN := strings.ToLower(dsn)
+	if strings.HasPrefix(lowerDSN, "postgresql://") || strings.HasPrefix(lowerDSN, "postgres://") {
+		return extractPostgresConnectorConfig(dsn)
+	}
 	match := dsnRegExp.FindStringSubmatch(dsn)
 	if match == nil {
 		return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection string: %s", dsn))
@@ -527,6 +532,70 @@ func ExtractConnectorConfig(dsn string) (ConnectorConfig, error) {
 		Database: matches["DATABASEGROUP"],
 		Params:   params,
 		name:     dsn,
+	}
+	if strings.EqualFold(params[propertyIsExperimentalHost.Key()], "true") {
+		if c.Host == "" {
+			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "host must be specified for experimental host endpoint"))
+		}
+		c.Configurator = func(config *spanner.ClientConfig, opts *[]option.ClientOption) {
+			config.IsExperimentalHost = true
+		}
+		if matches["INSTANCEGROUP"] == "" {
+			c.Instance = experimentalHostInstance
+		}
+		c.Project = experimentalHostProject
+	} else {
+		if c.Project == "" {
+			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "project must be specified in connection string"))
+		}
+		if c.Instance == "" {
+			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "instance must be specified in connection string"))
+		}
+	}
+	return c, nil
+}
+
+func extractPostgresConnectorConfig(dsn string) (ConnectorConfig, error) {
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection string: %v", err))
+	}
+	dbPath := strings.TrimPrefix(u.Path, "/")
+	match := dsnRegExp.FindStringSubmatch(dbPath)
+	if match == nil {
+		return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection string: %s", u.Redacted()))
+	}
+	matches := make(map[string]string)
+	for i, name := range dsnRegExp.SubexpNames() {
+		if i != 0 && name != "" {
+			matches[name] = match[i]
+		}
+	}
+
+	params := make(map[string]string)
+	for k, vals := range u.Query() {
+		if len(vals) > 0 {
+			params[strings.ToLower(k)] = vals[0]
+		}
+	}
+	if strings.EqualFold(params["sslmode"], "disable") {
+		if _, ok := params["useplaintext"]; !ok {
+			params["useplaintext"] = "true"
+		}
+	}
+
+	host := u.Host
+	if host == "localhost" || host == "127.0.0.1" || host == "localhost:5432" || host == "127.0.0.1:5432" || host == "[::1]" || host == "[::1]:5432" {
+		host = ""
+	}
+
+	c := ConnectorConfig{
+		Host:     host,
+		Project:  matches["PROJECTGROUP"],
+		Instance: matches["INSTANCEGROUP"],
+		Database: matches["DATABASEGROUP"],
+		Params:   params,
+		name:     u.Redacted(),
 	}
 	if strings.EqualFold(params[propertyIsExperimentalHost.Key()], "true") {
 		if c.Host == "" {

@@ -295,6 +295,181 @@ func TestExtractDnsParts(t *testing.T) {
 				UserAgent:         userAgent,
 			},
 		},
+		{
+			input: "postgresql://localhost:5432/projects/p/instances/i/databases/d",
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params:   map[string]string{},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
+			},
+		},
+		{
+			input: "postgresql://localhost:9010/projects/p/instances/i/databases/d?usePlainText=true",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
+					"useplaintext": "true",
+				},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
+				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
+				UserAgent:            userAgent,
+				DisableNativeMetrics: true,
+			},
+		},
+		{
+			input: "postgresql://localhost:5432/projects/p/instances/i/databases/d?sslmode=disable",
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
+					"sslmode":      "disable",
+					"useplaintext": "true",
+				},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
+				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
+				UserAgent:            userAgent,
+				DisableNativeMetrics: true,
+			},
+		},
+		{
+			input: "postgres://localhost:5432/projects/p/instances/i/databases/d",
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params:   map[string]string{},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
+			},
+		},
+		{
+			input: "postgresql://user:password@localhost:5432/projects/p/instances/i/databases/d",
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params:   map[string]string{},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
+			},
+		},
+		{
+			input: "postgresql:///projects/p/instances/i/databases/d",
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params:   map[string]string{},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
+			},
+		},
+		{
+			input: "postgresql://localhost:5432/projects/p/instances/i/databases/d?sslmode=disable&foo=bar",
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
+					"sslmode":      "disable",
+					"useplaintext": "true",
+					"foo":          "bar",
+				},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
+				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
+				UserAgent:            userAgent,
+				DisableNativeMetrics: true,
+			},
+		},
+		{
+			input: "postgresql://localhost:5432/projects/p/instances/i/databases/d?sslmode=disable&useplaintext=false",
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params: map[string]string{
+					"sslmode":      "disable",
+					"useplaintext": "false",
+				},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
+			},
+		},
+		{
+			input: "postgresql://user:password@remote-host:5432/projects/p/instances/i/databases/d",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "remote-host:5432",
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params:   map[string]string{},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
+			},
+		},
+		{
+			input: "postgresql://[::1]/projects/p/instances/i/databases/d",
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params:   map[string]string{},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
+			},
+		},
+		{
+			input: "postgresql://[::1]:5432/projects/p/instances/i/databases/d",
+			wantConnectorConfig: ConnectorConfig{
+				Project:  "p",
+				Instance: "i",
+				Database: "d",
+				Params:   map[string]string{},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
+				SessionPoolConfig: spanner.DefaultSessionPoolConfig,
+				UserAgent:         userAgent,
+			},
+		},
+		{
+			input:   "postgresql://invalid-url/mydb",
+			wantErr: true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
