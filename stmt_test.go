@@ -249,6 +249,40 @@ func TestPrepareSpannerStmt(t *testing.T) {
 		}
 	})
 
+	t.Run("MultiLineArrayLiteral", func(t *testing.T) {
+		pgParser, err := parser.NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gcv := spanner.GenericColumnValue{
+			Type:  &spannerpb.Type{Code: spannerpb.TypeCode_ARRAY, ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_STRING}},
+			Value: structpb.NewStringValue("{\n  \"foo\"\r\n,\n  \"bar\"\n}"),
+		}
+		stmt, err := prepareSpannerStmt(state, pgParser, "SELECT * FROM users WHERE names = $1", []driver.NamedValue{
+			{Name: "p1", Value: gcv},
+		})
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		res, ok := stmt.Params["p1"].(spanner.GenericColumnValue)
+		if !ok {
+			t.Fatalf("Expected spanner.GenericColumnValue, got %T", stmt.Params["p1"])
+		}
+		lv, ok := res.Value.Kind.(*structpb.Value_ListValue)
+		if !ok {
+			t.Fatalf("Expected ListValue kind, got %T", res.Value.Kind)
+		}
+		if g, w := len(lv.ListValue.Values), 2; g != w {
+			t.Fatalf("array length mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if g, w := lv.ListValue.Values[0].GetStringValue(), "foo"; g != w {
+			t.Errorf("elem 0 mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if g, w := lv.ListValue.Values[1].GetStringValue(), "bar"; g != w {
+			t.Errorf("elem 1 mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
 	t.Run("PostgreSQLArrayLiteralConversionWithInvalidBoolNoConversion", func(t *testing.T) {
 		pgParser, err := parser.NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
 		if err != nil {
@@ -283,10 +317,17 @@ func TestPrepareSpannerStmt(t *testing.T) {
 			t.Fatal(err)
 		}
 		malformedInputs := []string{
-			`{"foo"bar}`, // Unexpected character after closing quote
-			`{"foo}`,     // Unclosed quote
-			`{"foo\"}`,   // Trailing backslash causing unclosed quote
-			`{foo\}`,     // Trailing backslash
+			`{"foo"bar}`,   // Unexpected character after closing quote
+			`{"foo}`,       // Unclosed quote
+			`{"foo\"}`,     // Trailing backslash causing unclosed quote
+			`{foo\}`,       // Trailing backslash
+			`[1, 2, 3]`,    // JSON array brackets instead of PG braces
+			`not an array`, // Missing opening and closing braces
+			`{1, 2, 3`,     // Missing closing brace
+			`1, 2, 3}`,     // Missing opening brace
+			`{1, 2,}`,      // Trailing comma
+			`{1,,3}`,       // Consecutive comma
+			`{,1}`,         // Leading comma
 		}
 		for _, input := range malformedInputs {
 			t.Run(input, func(t *testing.T) {
@@ -312,6 +353,133 @@ func TestPrepareSpannerStmt(t *testing.T) {
 					t.Errorf("string value mismatch\nGot:  %v\nWant: %v", g, w)
 				}
 			})
+		}
+	})
+
+	t.Run("QuotedVsUnquotedNULL", func(t *testing.T) {
+		pgParser, err := parser.NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Unquoted NULL
+		gcv1 := spanner.GenericColumnValue{
+			Type:  &spannerpb.Type{Code: spannerpb.TypeCode_ARRAY, ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_STRING}},
+			Value: structpb.NewStringValue(`{"foo", NULL, "bar"}`),
+		}
+		stmt1, _ := prepareSpannerStmt(state, pgParser, "SELECT * FROM t WHERE c = $1", []driver.NamedValue{{Name: "p1", Value: gcv1}})
+		res1 := stmt1.Params["p1"].(spanner.GenericColumnValue)
+		lv1 := res1.Value.Kind.(*structpb.Value_ListValue).ListValue
+		if _, ok := lv1.Values[1].Kind.(*structpb.Value_NullValue); !ok {
+			t.Fatalf("expected NullValue for unquoted NULL, got %T", lv1.Values[1].Kind)
+		}
+
+		// Quoted "NULL"
+		gcv2 := spanner.GenericColumnValue{
+			Type:  &spannerpb.Type{Code: spannerpb.TypeCode_ARRAY, ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_STRING}},
+			Value: structpb.NewStringValue(`{"foo", "NULL", "bar"}`),
+		}
+		stmt2, _ := prepareSpannerStmt(state, pgParser, "SELECT * FROM t WHERE c = $1", []driver.NamedValue{{Name: "p1", Value: gcv2}})
+		res2 := stmt2.Params["p1"].(spanner.GenericColumnValue)
+		lv2 := res2.Value.Kind.(*structpb.Value_ListValue).ListValue
+		if g, w := lv2.Values[1].GetStringValue(), "NULL"; g != w {
+			t.Errorf("expected string 'NULL' for quoted \"NULL\"\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("EscapedCharacters", func(t *testing.T) {
+		pgParser, err := parser.NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gcv := spanner.GenericColumnValue{
+			Type:  &spannerpb.Type{Code: spannerpb.TypeCode_ARRAY, ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_STRING}},
+			Value: structpb.NewStringValue(`{foo\,bar,baz}`),
+		}
+		stmt, _ := prepareSpannerStmt(state, pgParser, "SELECT * FROM t WHERE c = $1", []driver.NamedValue{{Name: "p1", Value: gcv}})
+		res := stmt.Params["p1"].(spanner.GenericColumnValue)
+		lv := res.Value.Kind.(*structpb.Value_ListValue).ListValue
+		if g, w := lv.Values[0].GetStringValue(), "foo,bar"; g != w {
+			t.Errorf("mismatch for escaped comma\nGot:  %v\nWant: %v", g, w)
+		}
+
+		gcvSpace := spanner.GenericColumnValue{
+			Type:  &spannerpb.Type{Code: spannerpb.TypeCode_ARRAY, ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_STRING}},
+			Value: structpb.NewStringValue(`{foo\ bar,baz}`),
+		}
+		stmtSpace, _ := prepareSpannerStmt(state, pgParser, "SELECT * FROM t WHERE c = $1", []driver.NamedValue{{Name: "p1", Value: gcvSpace}})
+		resSpace := stmtSpace.Params["p1"].(spanner.GenericColumnValue)
+		lvSpace := resSpace.Value.Kind.(*structpb.Value_ListValue).ListValue
+		if g, w := lvSpace.Values[0].GetStringValue(), "foo bar"; g != w {
+			t.Errorf("mismatch for escaped space\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("FloatParsingFailureFallback", func(t *testing.T) {
+		pgParser, err := parser.NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gcv := spanner.GenericColumnValue{
+			Type:  &spannerpb.Type{Code: spannerpb.TypeCode_ARRAY, ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_FLOAT64}},
+			Value: structpb.NewStringValue(`{1.2, abc, 3.4}`),
+		}
+		stmt, _ := prepareSpannerStmt(state, pgParser, "SELECT * FROM t WHERE c = $1", []driver.NamedValue{{Name: "p1", Value: gcv}})
+		res := stmt.Params["p1"].(spanner.GenericColumnValue)
+		sv, ok := res.Value.Kind.(*structpb.Value_StringValue)
+		if !ok {
+			t.Fatalf("expected StringValue fallback on invalid float element, got %T", res.Value.Kind)
+		}
+		if g, w := sv.StringValue, "{1.2, abc, 3.4}"; g != w {
+			t.Errorf("fallback string mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("FloatSpecialValues", func(t *testing.T) {
+		pgParser, err := parser.NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gcv := spanner.GenericColumnValue{
+			Type:  &spannerpb.Type{Code: spannerpb.TypeCode_ARRAY, ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_FLOAT64}},
+			Value: structpb.NewStringValue(`{1.5, " 1.23 ", Infinity, -Infinity, NaN}`),
+		}
+		stmt, _ := prepareSpannerStmt(state, pgParser, "SELECT * FROM t WHERE c = $1", []driver.NamedValue{{Name: "p1", Value: gcv}})
+		res := stmt.Params["p1"].(spanner.GenericColumnValue)
+		lv := res.Value.Kind.(*structpb.Value_ListValue).ListValue
+		if g, w := lv.Values[0].GetNumberValue(), 1.5; g != w {
+			t.Errorf("elem 0 float mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if g, w := lv.Values[1].GetNumberValue(), 1.23; g != w {
+			t.Errorf("elem 1 float mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if g, w := lv.Values[2].GetStringValue(), "Infinity"; g != w {
+			t.Errorf("elem 2 Infinity mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if g, w := lv.Values[3].GetStringValue(), "-Infinity"; g != w {
+			t.Errorf("elem 3 -Infinity mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if g, w := lv.Values[4].GetStringValue(), "NaN"; g != w {
+			t.Errorf("elem 4 NaN mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("NestedArrayPrevention", func(t *testing.T) {
+		pgParser, err := parser.NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gcv := spanner.GenericColumnValue{
+			Type:  &spannerpb.Type{Code: spannerpb.TypeCode_ARRAY, ArrayElementType: &spannerpb.Type{Code: spannerpb.TypeCode_INT64}},
+			Value: structpb.NewStringValue(`{{1, 2}, {3, 4}}`),
+		}
+		stmt, _ := prepareSpannerStmt(state, pgParser, "SELECT * FROM t WHERE c = $1", []driver.NamedValue{{Name: "p1", Value: gcv}})
+		res := stmt.Params["p1"].(spanner.GenericColumnValue)
+		sv, ok := res.Value.Kind.(*structpb.Value_StringValue)
+		if !ok {
+			t.Fatalf("expected StringValue fallback on nested array literal, got %T", res.Value.Kind)
+		}
+		if g, w := sv.StringValue, "{{1, 2}, {3, 4}}"; g != w {
+			t.Errorf("fallback string mismatch\nGot:  %v\nWant: %v", g, w)
 		}
 	})
 
