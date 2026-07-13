@@ -15,6 +15,8 @@
 package spannerdriver
 
 import (
+	"database/sql/driver"
+	"errors"
 	"io"
 	"regexp"
 	"strings"
@@ -33,10 +35,30 @@ func checkAndEnrichError(isPG bool, err error) error {
 	if err == nil || !isPG {
 		return err
 	}
-	if err == io.EOF || err == iterator.Done {
+	if err == io.EOF || err == iterator.Done || err == driver.ErrBadConn || err == driver.ErrSkip {
 		return err
 	}
 	return WithPGSQLState(err)
+}
+
+type grpcStatus interface {
+	GRPCStatus() *status.Status
+}
+
+func extractGRPCStatus(err error) (*status.Status, bool) {
+	if s, ok := status.FromError(err); ok && s.Code() != codes.Unknown {
+		return s, true
+	}
+	var gs grpcStatus
+	if errors.As(err, &gs) {
+		if s := gs.GRPCStatus(); s != nil && s.Code() != codes.Unknown {
+			return s, true
+		}
+	}
+	if s, ok := status.FromError(err); ok {
+		return s, true
+	}
+	return nil, false
 }
 
 // ToPGSQLState inspects a Cloud Spanner error and returns the corresponding
@@ -76,7 +98,7 @@ func ToPGSQLState(err error) string {
 	}
 
 	// 1. Standard gRPC status codes
-	s, ok := status.FromError(err)
+	s, ok := extractGRPCStatus(err)
 	if ok {
 		switch s.Code() {
 		case codes.AlreadyExists:
@@ -105,7 +127,7 @@ func ToPGSQLState(err error) string {
 	// This fallback is used when specific gRPC status codes (e.g. InvalidArgument) or ErrorInfo metadata
 	// are not detailed enough to distinguish syntax errors, undefined relations/columns, or constraints.
 	lower := strings.ToLower(errStr)
-	if strings.Contains(lower, "alreadyexists") || strings.Contains(lower, "duplicate key") || strings.Contains(lower, "unique index") {
+	if strings.Contains(lower, "alreadyexists") || strings.Contains(lower, "already exists") || strings.Contains(lower, "duplicate key") || strings.Contains(lower, "unique index") {
 		return "23505"
 	}
 	if strings.Contains(lower, "must not be null") || strings.Contains(lower, "null value in column") || strings.Contains(lower, "cannot be null") {
@@ -137,6 +159,9 @@ func ToPGSQLState(err error) string {
 	}
 	if strings.Contains(lower, "permission denied") || strings.Contains(lower, "insufficient privilege") {
 		return "42501"
+	}
+	if ok && s.Code() == codes.FailedPrecondition {
+		return "25000"
 	}
 
 	return "XX000"
@@ -175,7 +200,7 @@ func (e *pgError) Unwrap() error {
 }
 
 func (e *pgError) GRPCStatus() *status.Status {
-	s, ok := status.FromError(e.err)
+	s, ok := extractGRPCStatus(e.err)
 	if ok {
 		p := s.Proto()
 		if !sqlstateRegex.MatchString(p.Message) {

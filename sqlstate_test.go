@@ -15,10 +15,14 @@
 package spannerdriver
 
 import (
+	"database/sql/driver"
 	"errors"
+	"fmt"
+	"io"
 	"testing"
 	"time"
 
+	"google.golang.org/api/iterator"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -142,6 +146,21 @@ func TestToPGSQLState(t *testing.T) {
 			want: "53000",
 		},
 		{
+			name: "FailedPrecondition",
+			err:  status.Error(codes.FailedPrecondition, "this connection does not have a transaction"),
+			want: "25000",
+		},
+		{
+			name: "AlreadyExistsWithSpaceStringMatch",
+			err:  errors.New("table 'users' already exists in schema"),
+			want: "23505",
+		},
+		{
+			name: "WrappedStatusErrorExtracted",
+			err:  fmt.Errorf("outer wrapper: %w", status.Error(codes.AlreadyExists, "duplicate key")),
+			want: "23505",
+		},
+		{
 			name: "FallbackXX000",
 			err:  status.Error(codes.Internal, "some unclassified internal spanner error"),
 			want: "XX000",
@@ -183,6 +202,11 @@ func TestWithPGSQLState(t *testing.T) {
 			err:  errors.New("duplicate key value violates unique constraint"),
 			want: "[SQLSTATE 23505] duplicate key value violates unique constraint",
 		},
+		{
+			name: "WrappedInStandardErrorNotDoubleWrapped",
+			err:  fmt.Errorf("outer wrapper: %w", WithPGSQLState(status.Error(codes.NotFound, "Table not found: users"))),
+			want: "outer wrapper: [SQLSTATE 42P01] rpc error: code = NotFound desc = Table not found: users",
+		},
 	}
 
 	for _, tc := range tests {
@@ -196,6 +220,24 @@ func TestWithPGSQLState(t *testing.T) {
 				t.Errorf("WithPGSQLState mismatch\nGot:  %v\nWant: %v", g, w)
 			}
 		})
+	}
+}
+
+func TestWithPGSQLState_ExtractsGRPCStatusThroughChain(t *testing.T) {
+	inner := status.Error(codes.AlreadyExists, "duplicate key")
+	wrapped := fmt.Errorf("outer helper: %w", inner)
+	enriched := WithPGSQLState(wrapped)
+	if g, w := status.Code(enriched), codes.AlreadyExists; g != w {
+		t.Errorf("expected status.Code to extract AlreadyExists through chain, got: %v", g)
+	}
+}
+
+func TestCheckAndEnrichError_PassThroughSentinels(t *testing.T) {
+	sentinels := []error{io.EOF, iterator.Done, driver.ErrBadConn, driver.ErrSkip}
+	for _, sentinel := range sentinels {
+		if got := checkAndEnrichError(true, sentinel); got != sentinel {
+			t.Errorf("expected checkAndEnrichError(true, %v) to pass through untouched, got: %v", sentinel, got)
+		}
 	}
 }
 

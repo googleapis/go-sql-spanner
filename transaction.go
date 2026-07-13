@@ -162,8 +162,7 @@ func (d *delegatingTransaction) Commit() error {
 		d.close(txResultCommit)
 		return nil
 	}
-	err := d.contextTransaction.Commit()
-	return checkAndEnrichError(d.isPG(), err)
+	return checkAndEnrichError(d.isPG(), d.contextTransaction.Commit())
 }
 
 func (d *delegatingTransaction) Rollback() error {
@@ -171,8 +170,7 @@ func (d *delegatingTransaction) Rollback() error {
 		d.close(txResultRollback)
 		return nil
 	}
-	err := d.contextTransaction.Rollback()
-	return checkAndEnrichError(d.isPG(), err)
+	return checkAndEnrichError(d.isPG(), d.contextTransaction.Rollback())
 }
 
 func (d *delegatingTransaction) ReadOnlyTransactionTimestamp() (time.Time, error) {

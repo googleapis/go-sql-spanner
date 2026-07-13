@@ -822,8 +822,7 @@ func sum(affected []int64) int64 {
 // applied to Spanner when the transaction commits.
 func (c *conn) WriteMutations(ctx context.Context, ms []*spanner.Mutation) (*spanner.CommitResponse, error) {
 	if c.inTransaction() {
-		err := c.BufferWrite(ms)
-		return nil, checkAndEnrichError(c.IsPostgreSQL(), err)
+		return nil, checkAndEnrichError(c.IsPostgreSQL(), c.BufferWrite(ms))
 	}
 	ts, err := c.Apply(ctx, ms)
 	if err != nil {
@@ -834,11 +833,10 @@ func (c *conn) WriteMutations(ctx context.Context, ms []*spanner.Mutation) (*spa
 
 func (c *conn) Apply(ctx context.Context, ms []*spanner.Mutation, opts ...spanner.ApplyOption) (commitTimestamp time.Time, err error) {
 	if c.inTransaction() {
-		err := spanner.ToSpannerError(
+		return time.Time{}, checkAndEnrichError(c.IsPostgreSQL(), spanner.ToSpannerError(
 			status.Error(
 				codes.FailedPrecondition,
-				"Apply may not be called while the connection is in a transaction. Use BufferWrite to write mutations in a transaction."))
-		return time.Time{}, checkAndEnrichError(c.IsPostgreSQL(), err)
+				"Apply may not be called while the connection is in a transaction. Use BufferWrite to write mutations in a transaction.")))
 	}
 	ts, err := c.client.Apply(ctx, ms, opts...)
 	return ts, checkAndEnrichError(c.IsPostgreSQL(), err)
@@ -846,14 +844,12 @@ func (c *conn) Apply(ctx context.Context, ms []*spanner.Mutation, opts ...spanne
 
 func (c *conn) BufferWrite(ms []*spanner.Mutation) error {
 	if !c.inTransaction() {
-		err := spanner.ToSpannerError(
+		return checkAndEnrichError(c.IsPostgreSQL(), spanner.ToSpannerError(
 			status.Error(
 				codes.FailedPrecondition,
-				"BufferWrite may not be called while the connection is not in a transaction. Use Apply to write mutations outside a transaction."))
-		return checkAndEnrichError(c.IsPostgreSQL(), err)
+				"BufferWrite may not be called while the connection is not in a transaction. Use Apply to write mutations outside a transaction.")))
 	}
-	err := c.tx.BufferWrite(ms)
-	return checkAndEnrichError(c.IsPostgreSQL(), err)
+	return checkAndEnrichError(c.IsPostgreSQL(), c.tx.BufferWrite(ms))
 }
 
 // Ping implements the driver.Pinger interface.
@@ -1750,13 +1746,11 @@ func (c *conn) inImplicitTransaction() bool {
 // Commit commits the current transaction on this connection.
 func (c *conn) Commit(ctx context.Context) (*spanner.CommitResponse, error) {
 	if !c.inTransaction() {
-		err := status.Errorf(codes.FailedPrecondition, "this connection does not have a transaction")
-		return nil, checkAndEnrichError(c.IsPostgreSQL(), err)
+		return nil, checkAndEnrichError(c.IsPostgreSQL(), status.Errorf(codes.FailedPrecondition, "this connection does not have a transaction"))
 	}
 	// TODO: Pass in context to the tx.Commit() function.
-	err := c.tx.Commit()
-	if err != nil {
-		return nil, checkAndEnrichError(c.IsPostgreSQL(), err)
+	if err := checkAndEnrichError(c.IsPostgreSQL(), c.tx.Commit()); err != nil {
+		return nil, err
 	}
 
 	// This will return either the commit response or nil, depending on whether the transaction was a
@@ -1770,12 +1764,10 @@ func (c *conn) Commit(ctx context.Context) (*spanner.CommitResponse, error) {
 // Rollback rollbacks the current transaction on this connection.
 func (c *conn) Rollback(ctx context.Context) error {
 	if !c.inTransaction() {
-		err := status.Errorf(codes.FailedPrecondition, "this connection does not have a transaction")
-		return checkAndEnrichError(c.IsPostgreSQL(), err)
+		return checkAndEnrichError(c.IsPostgreSQL(), status.Errorf(codes.FailedPrecondition, "this connection does not have a transaction"))
 	}
 	// TODO: Pass in context to the tx.Rollback() function.
-	err := c.tx.Rollback()
-	return checkAndEnrichError(c.IsPostgreSQL(), err)
+	return checkAndEnrichError(c.IsPostgreSQL(), c.tx.Rollback())
 }
 
 func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {
