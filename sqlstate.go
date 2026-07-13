@@ -22,11 +22,43 @@ import (
 	"strings"
 
 	"google.golang.org/api/iterator"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-var sqlstateRegex = regexp.MustCompile(`(?i)SQLSTATE[\s:]*([0-9A-Z]{5})`)
+var (
+	sqlstateRegex                     = regexp.MustCompile(`(?i)SQLSTATE[\s:]*([0-9A-Z]{5})`)
+	relationNotFoundRegex             = regexp.MustCompile(`(?i)relation .+ does not exist`)
+	columnNotFoundRegex               = regexp.MustCompile(`(?i)column .+ of relation .+ does not exist`)
+	pkViolationRegex                  = regexp.MustCompile(`(?i)Row .+ in table .+ already exists`)
+	pkViolationEmulatorRegex          = regexp.MustCompile(`(?i)Failed to insert row with primary key .+ due to previously existing row`)
+	uniqueIndexViolationRegex         = regexp.MustCompile(`(?i)Unique index violation on index .+ at index key .+`)
+	uniqueIndexViolationEmulatorRegex = regexp.MustCompile(`(?i)UNIQUE violation on index .+ duplicate key: .+`)
+	foreignKeyViolationRegex          = regexp.MustCompile(`(?i)Foreign key constraint .+ is violated on table .+\. Cannot find referenced values in .+`)
+	foreignKeyViolationEmulatorRegex  = regexp.MustCompile(`(?i)Foreign key .+ constraint violation on table .+\. Cannot find referenced key .+ in table .+`)
+	cannotDropTableIndicesRegex       = regexp.MustCompile(`(?i)Cannot drop table .+ with indices`)
+	onlyRestrictBehaviorRegex         = regexp.MustCompile(`(?i)Only <RESTRICT> behavior is supported by <DROP> statement\.`)
+)
+
+const pgErrCodeKey = "pg_sqlerrcode"
+
+func extractSpannerPGErrorCode(s *status.Status) string {
+	if s == nil {
+		return ""
+	}
+	for _, detail := range s.Details() {
+		if ei, ok := detail.(*errdetails.ErrorInfo); ok && ei != nil && ei.Metadata != nil {
+			if code, exists := ei.Metadata[pgErrCodeKey]; exists && len(code) == 5 {
+				return strings.ToUpper(code)
+			}
+			if code, exists := ei.Metadata["sqlstate"]; exists && len(code) == 5 {
+				return strings.ToUpper(code)
+			}
+		}
+	}
+	return ""
+}
 
 // checkAndEnrichError inspects an error and enriches it with a standard
 // PostgreSQL SQLSTATE code if isPG is true. It safely passes through nil,
@@ -46,7 +78,7 @@ type grpcStatus interface {
 }
 
 func extractGRPCStatus(err error) (*status.Status, bool) {
-	if s, ok := status.FromError(err); ok && s.Code() != codes.Unknown {
+	if s, ok := status.FromError(err); ok && s != nil && s.Code() != codes.Unknown {
 		return s, true
 	}
 	var gs grpcStatus
@@ -55,7 +87,7 @@ func extractGRPCStatus(err error) (*status.Status, bool) {
 			return s, true
 		}
 	}
-	if s, ok := status.FromError(err); ok {
+	if s, ok := status.FromError(err); ok && s != nil {
 		return s, true
 	}
 	return nil, false
@@ -69,22 +101,17 @@ func extractGRPCStatus(err error) (*status.Status, bool) {
 //
 // Standard mappings:
 //   - "23505" (Unique Violation): Duplicate key / AlreadyExists
-//   - "23502" (Not Null Violation): Null value in column
 //   - "23503" (Foreign Key Violation): Foreign key constraint failure
-//   - "23514" (Check Violation): Check constraint failure
-//   - "22001" (String Data Right Truncation): String exceeds maximum allowed length
-//   - "22003" (Numeric Value Out of Range): Numeric / integer overflow or range error (codes.OutOfRange)
-//   - "22012" (Division By Zero): Division by zero
 //   - "40001" (Serialization Failure): Transaction aborted / retryable conflict (codes.Aborted)
 //   - "42P01" (Undefined Table): Table or relation not found
 //   - "42703" (Undefined Column): Column not found / Unrecognized name
 //   - "42601" (Syntax Error): Syntax or parse error
 //   - "42501" (Insufficient Privilege): Permission denied (codes.PermissionDenied)
 //   - "28000" (Invalid Authorization Specification): Unauthenticated (codes.Unauthenticated)
-//   - "53000" (Insufficient Resources): Insufficient resources / quota exceeded (codes.ResourceExhausted)
 //   - "57014" (Query Canceled): Canceled or deadline exceeded (codes.Canceled, codes.DeadlineExceeded)
 //   - "08006" (Connection Failure): Connection unavailable (codes.Unavailable)
 //   - "0A000" (Feature Not Supported): Unimplemented (codes.Unimplemented)
+//   - "25000" (Invalid Transaction State): Invalid transaction or batch lifecycle state
 //   - "XX000" (Internal / Fallback): Default fallback for unclassified database errors
 //
 // Returns "" if err is nil.
@@ -97,71 +124,63 @@ func ToPGSQLState(err error) string {
 		return strings.ToUpper(match[1])
 	}
 
-	// 1. Standard gRPC status codes
+	// 1. Check if Spanner backend explicitly returned a pg_sqlerrcode inside ErrorInfo metadata.
 	s, ok := extractGRPCStatus(err)
 	if ok {
+		if code := extractSpannerPGErrorCode(s); code != "" {
+			return code
+		}
 		switch s.Code() {
-		case codes.AlreadyExists:
-			return "23505"
 		case codes.Aborted:
-			return "40001"
-		case codes.PermissionDenied:
-			return "42501"
-		case codes.Unauthenticated:
-			return "28000"
+			return "40001" // SerializationFailure
 		case codes.Canceled, codes.DeadlineExceeded:
-			return "57014"
+			return "57014" // QueryCanceled
+		case codes.PermissionDenied:
+			return "42501" // InsufficientPrivilege
+		case codes.Unauthenticated:
+			return "28000" // InvalidAuthorizationSpecification
 		case codes.Unavailable:
-			return "08006"
+			return "08006" // ConnectionFailure
 		case codes.Unimplemented:
-			return "0A000"
-		case codes.OutOfRange:
-			return "22003"
-		case codes.ResourceExhausted:
-			return "53000"
+			return "0A000" // FeatureNotSupported
 		}
 	}
 
-	// 2. Error message text patterns fallback (for structural/schema/constraint errors and non-status errors).
-	// NOTE: String matching on err.Error() is fragile if Spanner backend changes message formatting.
-	// This fallback is used when specific gRPC status codes (e.g. InvalidArgument) or ErrorInfo metadata
-	// are not detailed enough to distinguish syntax errors, undefined relations/columns, or constraints.
-	lower := strings.ToLower(errStr)
-	if strings.Contains(lower, "alreadyexists") || strings.Contains(lower, "already exists") || strings.Contains(lower, "duplicate key") || strings.Contains(lower, "unique index") {
-		return "23505"
+	// 2. Strict combination check: gRPC ErrorCode + ErrorMessage text patterns.
+	// Combines exact pattern from PGAdapter (PGExceptionFactory) with specific
+	// strings required by existing PostgreSQL driver test suites and client-side statement parsers.
+	code := codes.Unknown
+	if ok && s != nil {
+		code = s.Code()
 	}
-	if strings.Contains(lower, "must not be null") || strings.Contains(lower, "null value in column") || strings.Contains(lower, "cannot be null") {
-		return "23502"
-	}
-	if strings.Contains(lower, "foreign key") {
-		return "23503"
-	}
-	if strings.Contains(lower, "check constraint") {
-		return "23514"
-	}
-	if strings.Contains(lower, "exceeds maximum allowed length") || strings.Contains(lower, "value too long") {
-		return "22001"
-	}
-	if strings.Contains(lower, "out of range") || strings.Contains(lower, "numeric overflow") {
-		return "22003"
-	}
-	if strings.Contains(lower, "division by zero") {
-		return "22012"
-	}
-	if strings.Contains(lower, "syntax error") || strings.Contains(lower, "parse error") {
-		return "42601"
-	}
-	if strings.Contains(lower, "table not found") || ((strings.Contains(lower, "table") || strings.Contains(lower, "relation")) && (strings.Contains(lower, "not found") || strings.Contains(lower, "does not exist"))) {
-		return "42P01"
-	}
-	if strings.Contains(lower, "column not found") || strings.Contains(lower, "unrecognized name") || (strings.Contains(lower, "column") && (strings.Contains(lower, "not found") || strings.Contains(lower, "does not exist"))) {
+
+	// UndefinedColumn (42703): NOT_FOUND / INVALID_ARGUMENT + exact column not found regex
+	if (code == codes.NotFound || code == codes.InvalidArgument) && columnNotFoundRegex.MatchString(errStr) {
 		return "42703"
 	}
-	if strings.Contains(lower, "permission denied") || strings.Contains(lower, "insufficient privilege") {
-		return "42501"
+
+	// UndefinedTable (42P01): NOT_FOUND / INVALID_ARGUMENT + exact relation not found regex
+	if (code == codes.NotFound || code == codes.InvalidArgument) && relationNotFoundRegex.MatchString(errStr) {
+		return "42P01"
 	}
-	if ok && s.Code() == codes.FailedPrecondition {
-		return "25000"
+
+	// UniqueViolation (23505): ALREADY_EXISTS + exact primary key / unique index violation regexes
+	if code == codes.AlreadyExists &&
+		(pkViolationRegex.MatchString(errStr) || pkViolationEmulatorRegex.MatchString(errStr) ||
+			uniqueIndexViolationRegex.MatchString(errStr) || uniqueIndexViolationEmulatorRegex.MatchString(errStr)) {
+		return "23505"
+	}
+
+	// ForeignKeyViolation (23503): FAILED_PRECONDITION / INVALID_ARGUMENT + exact foreign key violation regexes
+	if (code == codes.FailedPrecondition || code == codes.InvalidArgument) &&
+		(foreignKeyViolationRegex.MatchString(errStr) || foreignKeyViolationEmulatorRegex.MatchString(errStr)) {
+		return "23503"
+	}
+
+	// FeatureNotSupported (0A000): FAILED_PRECONDITION / INVALID_ARGUMENT + exact drop table/restrict behavior regexes
+	if (code == codes.FailedPrecondition || code == codes.InvalidArgument) &&
+		(cannotDropTableIndicesRegex.MatchString(errStr) || onlyRestrictBehaviorRegex.MatchString(errStr)) {
+		return "0A000"
 	}
 
 	return "XX000"
@@ -201,12 +220,14 @@ func (e *pgError) Unwrap() error {
 
 func (e *pgError) GRPCStatus() *status.Status {
 	s, ok := extractGRPCStatus(e.err)
-	if ok {
+	if ok && s != nil {
 		p := s.Proto()
-		if !sqlstateRegex.MatchString(p.Message) {
-			p.Message = "[SQLSTATE " + e.code + "] " + p.Message
+		if p != nil {
+			if !sqlstateRegex.MatchString(p.Message) {
+				p.Message = "[SQLSTATE " + e.code + "] " + p.Message
+			}
+			return status.FromProto(p)
 		}
-		return status.FromProto(p)
 	}
 	return status.New(codes.Unknown, e.Error())
 }

@@ -297,7 +297,7 @@ type conn struct {
 	lastDDLOperationID string
 }
 
-func (c *conn) IsPostgreSQL() bool {
+func (c *conn) isPostgreSQL() bool {
 	return c.parser != nil && c.parser.Dialect == adminpb.DatabaseDialect_POSTGRESQL
 }
 
@@ -569,38 +569,38 @@ func (c *conn) SetAutoBatchDmlUpdateCountVerification(verify bool) error {
 
 func (c *conn) StartBatchDDL() error {
 	_, err := c.startBatchDDL()
-	return checkAndEnrichError(c.IsPostgreSQL(), err)
+	return checkAndEnrichError(c.isPostgreSQL(), err)
 }
 
 func (c *conn) StartBatchDML() error {
 	_, err := c.startBatchDML( /* automatic = */ false)
-	return checkAndEnrichError(c.IsPostgreSQL(), err)
+	return checkAndEnrichError(c.isPostgreSQL(), err)
 }
 
 func (c *conn) RunBatch(ctx context.Context) error {
 	_, err := c.runBatch(ctx)
-	return checkAndEnrichError(c.IsPostgreSQL(), err)
+	return checkAndEnrichError(c.isPostgreSQL(), err)
 }
 
 func (c *conn) RunDmlBatch(ctx context.Context) (SpannerResult, error) {
 	res, err := c.runBatch(ctx)
 	if err != nil {
 		if spannerRes, ok := res.(SpannerResult); ok {
-			return spannerRes, checkAndEnrichError(c.IsPostgreSQL(), err)
+			return spannerRes, checkAndEnrichError(c.isPostgreSQL(), err)
 		}
-		return nil, checkAndEnrichError(c.IsPostgreSQL(), err)
+		return nil, checkAndEnrichError(c.isPostgreSQL(), err)
 	}
 	spannerRes, ok := res.(SpannerResult)
 	if !ok {
 		err := spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "not a DML batch"))
-		return nil, checkAndEnrichError(c.IsPostgreSQL(), err)
+		return nil, checkAndEnrichError(c.isPostgreSQL(), err)
 	}
 	return spannerRes, nil
 }
 
 func (c *conn) AbortBatch() error {
 	_, err := c.abortBatch()
-	return checkAndEnrichError(c.IsPostgreSQL(), err)
+	return checkAndEnrichError(c.isPostgreSQL(), err)
 }
 
 func (c *conn) InDDLBatch() bool {
@@ -822,34 +822,34 @@ func sum(affected []int64) int64 {
 // applied to Spanner when the transaction commits.
 func (c *conn) WriteMutations(ctx context.Context, ms []*spanner.Mutation) (*spanner.CommitResponse, error) {
 	if c.inTransaction() {
-		return nil, checkAndEnrichError(c.IsPostgreSQL(), c.BufferWrite(ms))
+		return nil, checkAndEnrichError(c.isPostgreSQL(), c.BufferWrite(ms))
 	}
 	ts, err := c.Apply(ctx, ms)
 	if err != nil {
-		return nil, checkAndEnrichError(c.IsPostgreSQL(), err)
+		return nil, checkAndEnrichError(c.isPostgreSQL(), err)
 	}
 	return &spanner.CommitResponse{CommitTs: ts}, nil
 }
 
 func (c *conn) Apply(ctx context.Context, ms []*spanner.Mutation, opts ...spanner.ApplyOption) (commitTimestamp time.Time, err error) {
 	if c.inTransaction() {
-		return time.Time{}, checkAndEnrichError(c.IsPostgreSQL(), spanner.ToSpannerError(
+		return time.Time{}, checkAndEnrichError(c.isPostgreSQL(), spanner.ToSpannerError(
 			status.Error(
 				codes.FailedPrecondition,
 				"Apply may not be called while the connection is in a transaction. Use BufferWrite to write mutations in a transaction.")))
 	}
 	ts, err := c.client.Apply(ctx, ms, opts...)
-	return ts, checkAndEnrichError(c.IsPostgreSQL(), err)
+	return ts, checkAndEnrichError(c.isPostgreSQL(), err)
 }
 
 func (c *conn) BufferWrite(ms []*spanner.Mutation) error {
 	if !c.inTransaction() {
-		return checkAndEnrichError(c.IsPostgreSQL(), spanner.ToSpannerError(
+		return checkAndEnrichError(c.isPostgreSQL(), spanner.ToSpannerError(
 			status.Error(
 				codes.FailedPrecondition,
 				"BufferWrite may not be called while the connection is not in a transaction. Use Apply to write mutations outside a transaction.")))
 	}
-	return checkAndEnrichError(c.IsPostgreSQL(), c.tx.BufferWrite(ms))
+	return checkAndEnrichError(c.isPostgreSQL(), c.tx.BufferWrite(ms))
 }
 
 // Ping implements the driver.Pinger interface.
@@ -962,12 +962,12 @@ func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, err
 	}
 	_, args, _, err := c.parser.ParseParameters(query)
 	if err != nil {
-		return nil, checkAndEnrichError(c.IsPostgreSQL(), err)
+		return nil, checkAndEnrichError(c.isPostgreSQL(), err)
 	}
 	info := c.parser.DetectStatementType(query)
 	parsedStatement, err := c.parser.ParseClientSideStatement(query)
 	if err != nil {
-		return nil, checkAndEnrichError(c.IsPostgreSQL(), err)
+		return nil, checkAndEnrichError(c.isPostgreSQL(), err)
 	}
 	return &stmt{conn: c, query: query, numArgs: len(args), execOptions: execOptions, statementInfo: info, parsedStatement: parsedStatement}, nil
 }
@@ -1071,7 +1071,7 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 	} else {
 		rows, err = c.querySingle(ctx, query /* isPartOfMultiStatementString = */, false, args)
 	}
-	return rows, checkAndEnrichError(c.IsPostgreSQL(), err)
+	return rows, checkAndEnrichError(c.isPostgreSQL(), err)
 }
 
 func (c *conn) querySingle(ctx context.Context, query string, isPartOfMultiStatementString bool, args []driver.NamedValue) (driver.Rows, error) {
@@ -1175,7 +1175,7 @@ func (c *conn) queryContext(ctx context.Context, query string, statementInfo *pa
 			return nil, err
 		}
 	}
-	res := createRows(c.IsPostgreSQL(), c.state, iter, cancel, execOptions)
+	res := createRows(c.isPostgreSQL(), c.state, iter, cancel, execOptions)
 	if execOptions.DirectExecuteQuery {
 		if err := c.directExecuteQuery(ctx, cancelCause, res, execOptions); err != nil {
 			return nil, err
@@ -1238,7 +1238,7 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 	// TODO: Implement support for multi-statement SQL strings.
 	defer func() { c.tempExecOptions = nil }()
 	res, err := c.execSingle(ctx, query, args)
-	return res, checkAndEnrichError(c.IsPostgreSQL(), err)
+	return res, checkAndEnrichError(c.isPostgreSQL(), err)
 }
 
 func (c *conn) execSingle(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
@@ -1518,7 +1518,7 @@ func (c *conn) BeginReadWriteTransaction(ctx context.Context, options *ReadWrite
 	tx, err := c.beginTx(ctx, driver.TxOptions{}, close, options.implicit)
 	c.setReadWriteTransactionOptions(options)
 	if err != nil {
-		return nil, checkAndEnrichError(c.IsPostgreSQL(), err)
+		return nil, checkAndEnrichError(c.isPostgreSQL(), err)
 	}
 	return tx, nil
 }
@@ -1532,7 +1532,7 @@ func (c *conn) BeginTx(ctx context.Context, driverOpts driver.TxOptions) (driver
 		c.tempTransactionCloseFunc = nil
 	}()
 	tx, err := c.beginTx(ctx, driverOpts, c.tempTransactionCloseFunc, false)
-	return tx, checkAndEnrichError(c.IsPostgreSQL(), err)
+	return tx, checkAndEnrichError(c.isPostgreSQL(), err)
 }
 
 func (c *conn) beginTx(ctx context.Context, driverOpts driver.TxOptions, closeFunc func(), implicitBegin bool) (driver.Tx, error) {
@@ -1746,10 +1746,10 @@ func (c *conn) inImplicitTransaction() bool {
 // Commit commits the current transaction on this connection.
 func (c *conn) Commit(ctx context.Context) (*spanner.CommitResponse, error) {
 	if !c.inTransaction() {
-		return nil, checkAndEnrichError(c.IsPostgreSQL(), status.Errorf(codes.FailedPrecondition, "this connection does not have a transaction"))
+		return nil, checkAndEnrichError(c.isPostgreSQL(), status.Errorf(codes.FailedPrecondition, "this connection does not have a transaction"))
 	}
 	// TODO: Pass in context to the tx.Commit() function.
-	if err := checkAndEnrichError(c.IsPostgreSQL(), c.tx.Commit()); err != nil {
+	if err := checkAndEnrichError(c.isPostgreSQL(), c.tx.Commit()); err != nil {
 		return nil, err
 	}
 
@@ -1764,10 +1764,10 @@ func (c *conn) Commit(ctx context.Context) (*spanner.CommitResponse, error) {
 // Rollback rollbacks the current transaction on this connection.
 func (c *conn) Rollback(ctx context.Context) error {
 	if !c.inTransaction() {
-		return checkAndEnrichError(c.IsPostgreSQL(), status.Errorf(codes.FailedPrecondition, "this connection does not have a transaction"))
+		return checkAndEnrichError(c.isPostgreSQL(), status.Errorf(codes.FailedPrecondition, "this connection does not have a transaction"))
 	}
 	// TODO: Pass in context to the tx.Rollback() function.
-	return checkAndEnrichError(c.IsPostgreSQL(), c.tx.Rollback())
+	return checkAndEnrichError(c.isPostgreSQL(), c.tx.Rollback())
 }
 
 func queryInSingleUse(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, tb spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator {

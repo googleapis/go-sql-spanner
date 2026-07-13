@@ -154,7 +154,7 @@ func (d *delegatingTransaction) ensureActivated() error {
 }
 
 func (d *delegatingTransaction) isPG() bool {
-	return d.conn != nil && d.conn.IsPostgreSQL()
+	return d.conn != nil && d.conn.isPostgreSQL()
 }
 
 func (d *delegatingTransaction) Commit() error {

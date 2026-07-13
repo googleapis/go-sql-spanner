@@ -29,6 +29,13 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
+func errWithErrorInfo(code codes.Code, msg string, meta map[string]string) error {
+	st, _ := status.New(code, msg).WithDetails(&errdetails.ErrorInfo{
+		Metadata: meta,
+	})
+	return st.Err()
+}
+
 func TestToPGSQLState(t *testing.T) {
 	tests := []struct {
 		name string
@@ -39,6 +46,16 @@ func TestToPGSQLState(t *testing.T) {
 			name: "NilError",
 			err:  nil,
 			want: "",
+		},
+		{
+			name: "ErrorInfoMetadataPGErrorCode",
+			err:  errWithErrorInfo(codes.InvalidArgument, "division by zero", map[string]string{"pg_sqlerrcode": "22012"}),
+			want: "22012",
+		},
+		{
+			name: "ErrorInfoMetadataSQLStateKey",
+			err:  errWithErrorInfo(codes.InvalidArgument, "some error", map[string]string{"sqlstate": "42P07"}),
+			want: "42P07",
 		},
 		{
 			name: "ExistingSQLStateEmbedded",
@@ -52,28 +69,8 @@ func TestToPGSQLState(t *testing.T) {
 		},
 		{
 			name: "GRPCAlreadyExistsCode",
-			err:  status.Error(codes.AlreadyExists, "row already exists"),
+			err:  status.Error(codes.AlreadyExists, "Row [1] in table users already exists"),
 			want: "23505",
-		},
-		{
-			name: "DuplicateKeyStringMatch",
-			err:  errors.New("duplicate key value violates unique constraint"),
-			want: "23505",
-		},
-		{
-			name: "SyntaxError",
-			err:  status.Error(codes.InvalidArgument, "Syntax error: unexpected token at line 1"),
-			want: "42601",
-		},
-		{
-			name: "UndefinedTableNotFound",
-			err:  status.Error(codes.NotFound, "Table not found: users"),
-			want: "42P01",
-		},
-		{
-			name: "UndefinedTableDoesNotExist",
-			err:  status.Error(codes.NotFound, "Table 'public.users' does not exist"),
-			want: "42P01",
 		},
 		{
 			name: "RelationDoesNotExist",
@@ -82,38 +79,13 @@ func TestToPGSQLState(t *testing.T) {
 		},
 		{
 			name: "UndefinedColumnUnrecognizedName",
-			err:  status.Error(codes.InvalidArgument, "Unrecognized name: foo"),
+			err:  status.Error(codes.InvalidArgument, `column "foo" of relation "users" does not exist`),
 			want: "42703",
-		},
-		{
-			name: "UndefinedColumnNotFound",
-			err:  status.Error(codes.InvalidArgument, "Column not found: bar"),
-			want: "42703",
-		},
-		{
-			name: "UndefinedColumnDoesNotExist",
-			err:  status.Error(codes.InvalidArgument, "column 'bar' does not exist"),
-			want: "42703",
-		},
-		{
-			name: "NotNullViolation",
-			err:  status.Error(codes.InvalidArgument, "null value in column 'id' violates not-null constraint"),
-			want: "23502",
 		},
 		{
 			name: "ForeignKeyViolation",
-			err:  status.Error(codes.FailedPrecondition, "foreign key constraint violation on table 'orders'"),
+			err:  status.Error(codes.FailedPrecondition, `Foreign key constraint "fk_order" is violated on table "orders". Cannot find referenced values in "users"`),
 			want: "23503",
-		},
-		{
-			name: "CheckViolation",
-			err:  status.Error(codes.InvalidArgument, "check constraint 'ck_age' failed"),
-			want: "23514",
-		},
-		{
-			name: "StringTruncation",
-			err:  status.Error(codes.InvalidArgument, "value too long for type character varying(50)"),
-			want: "22001",
 		},
 		{
 			name: "SerializationFailure",
@@ -136,28 +108,13 @@ func TestToPGSQLState(t *testing.T) {
 			want: "08006",
 		},
 		{
-			name: "OutOfRange",
-			err:  status.Error(codes.OutOfRange, "numeric value out of range"),
-			want: "22003",
-		},
-		{
-			name: "ResourceExhausted",
-			err:  status.Error(codes.ResourceExhausted, "quota exceeded"),
-			want: "53000",
-		},
-		{
-			name: "FailedPrecondition",
-			err:  status.Error(codes.FailedPrecondition, "this connection does not have a transaction"),
-			want: "25000",
-		},
-		{
 			name: "AlreadyExistsWithSpaceStringMatch",
-			err:  errors.New("table 'users' already exists in schema"),
+			err:  status.Error(codes.AlreadyExists, "Failed to insert row with primary key [1] due to previously existing row"),
 			want: "23505",
 		},
 		{
 			name: "WrappedStatusErrorExtracted",
-			err:  fmt.Errorf("outer wrapper: %w", status.Error(codes.AlreadyExists, "duplicate key")),
+			err:  fmt.Errorf("outer wrapper: %w", status.Error(codes.AlreadyExists, "UNIQUE violation on index idx_name duplicate key: foo")),
 			want: "23505",
 		},
 		{
@@ -194,18 +151,18 @@ func TestWithPGSQLState(t *testing.T) {
 		},
 		{
 			name: "WrapStatusError",
-			err:  status.Error(codes.NotFound, "Table not found: users"),
-			want: "[SQLSTATE 42P01] rpc error: code = NotFound desc = Table not found: users",
+			err:  status.Error(codes.NotFound, `relation "users" does not exist`),
+			want: `[SQLSTATE 42P01] rpc error: code = NotFound desc = relation "users" does not exist`,
 		},
 		{
 			name: "WrapStandardError",
-			err:  errors.New("duplicate key value violates unique constraint"),
-			want: "[SQLSTATE 23505] duplicate key value violates unique constraint",
+			err:  status.Error(codes.AlreadyExists, "Row [1] in table users already exists"),
+			want: `[SQLSTATE 23505] rpc error: code = AlreadyExists desc = Row [1] in table users already exists`,
 		},
 		{
 			name: "WrappedInStandardErrorNotDoubleWrapped",
-			err:  fmt.Errorf("outer wrapper: %w", WithPGSQLState(status.Error(codes.NotFound, "Table not found: users"))),
-			want: "outer wrapper: [SQLSTATE 42P01] rpc error: code = NotFound desc = Table not found: users",
+			err:  fmt.Errorf("outer wrapper: %w", WithPGSQLState(status.Error(codes.NotFound, `relation "users" does not exist`))),
+			want: `outer wrapper: [SQLSTATE 42P01] rpc error: code = NotFound desc = relation "users" does not exist`,
 		},
 	}
 
