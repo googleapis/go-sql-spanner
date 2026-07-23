@@ -2025,3 +2025,69 @@ func getDialect(c *sql.Conn) (dialect databasepb.DatabaseDialect) {
 	})
 	return
 }
+
+func TestPostgreSQLCompatibilityGUCs(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnectionWithParamsAndDialect(t, "", databasepb.DatabaseDialect_POSTGRESQL)
+	defer teardown()
+	ctx := context.Background()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(conn)
+
+	// 1. Verify default values of the PG GUCs can be read
+	t.Run("DefaultValues", func(t *testing.T) {
+		verifyConnectionPropertyValue(t, conn, "application_name", "")
+		verifyConnectionPropertyValue(t, conn, "client_min_messages", "notice")
+		verifyConnectionPropertyValue(t, conn, "client_encoding", "UTF8")
+		verifyConnectionPropertyValue(t, conn, "timezone", "UTC")
+		verifyConnectionPropertyValue(t, conn, "default_transaction_isolation", "serializable")
+		verifyConnectionPropertyValue(t, conn, "server_version_num", "140001")
+		verifyConnectionPropertyValue(t, conn, "server_version", "14.1")
+	})
+
+	// 2. Verify read-write variables can be set
+	t.Run("SetReadWrite", func(t *testing.T) {
+		setConnectionPropertyValue(t, conn, "application_name", "'my-awesome-app'")
+		verifyConnectionPropertyValue(t, conn, "application_name", "my-awesome-app")
+
+		setConnectionPropertyValue(t, conn, "timezone", "'Asia/Kolkata'")
+		verifyConnectionPropertyValue(t, conn, "timezone", "Asia/Kolkata")
+
+		setConnectionPropertyValue(t, conn, "client_min_messages", "'warning'")
+		verifyConnectionPropertyValue(t, conn, "client_min_messages", "warning")
+
+		setConnectionPropertyValue(t, conn, "default_transaction_isolation", "'serializable'")
+		verifyConnectionPropertyValue(t, conn, "default_transaction_isolation", "serializable")
+	})
+
+	// 3. Verify read-only or invalid variables fail to set
+	t.Run("SetReadOnlyOrInvalidFails", func(t *testing.T) {
+		verifySetFails(t, conn, "default_transaction_isolation", "'read committed'")
+		verifySetFails(t, conn, "server_version_num", "'150000'")
+	})
+}
+
+func TestPostgreSQLCompatibilityGUCs_GoogleSQL(t *testing.T) {
+	t.Parallel()
+
+	db, _, teardown := setupTestDBConnectionWithParamsAndDialect(t, "", databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+	defer teardown()
+	ctx := context.Background()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(conn)
+
+	// Verify that setting/showing PG GUCs fails on GoogleSQL connection
+	verifySetFails(t, conn, "application_name", "'my-awesome-app'")
+	verifySetFails(t, conn, "timezone", "'Asia/Kolkata'")
+	verifyShowFails[string](t, conn, "application_name")
+	verifyShowFails[string](t, conn, "timezone")
+}
