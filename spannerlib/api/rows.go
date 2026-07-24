@@ -296,14 +296,12 @@ func (rows *rows) nextBatch(ctx context.Context, numRows int32) ([]*structpb.Lis
 				_ = rows.backend.Close()
 				return nil, err
 			}
+			_ = rows.readStats(ctx)
 			if !rows.isMulti {
-				_ = rows.readStats(ctx)
 				if rows.cancel != nil {
 					rows.cancel()
 				}
 				_ = rows.backend.Close()
-			} else {
-				_ = rows.readStats(ctx)
 			}
 			break
 		}
@@ -398,7 +396,7 @@ func (rows *rows) readMetadata(ctx context.Context) error {
 func (rows *rows) readStats(ctx context.Context) error {
 	rows.stats = &spannerpb.ResultSetStats{}
 	if !rows.backend.NextResultSet() {
-		return status.Error(codes.Internal, "stats results not found")
+		return nil
 	}
 	if rows.backend.Next() {
 		if err := rows.backend.Scan(&rows.stats); err != nil {

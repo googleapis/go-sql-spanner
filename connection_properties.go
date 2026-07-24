@@ -748,6 +748,45 @@ var propertyDatabaseDialect = createReadOnlyConnectionProperty(
 	connectionstate.ContextUser,
 )
 
+// PostgreSQL compatibility connection properties (no-op or defaults for client library setup queries)
+var postgresConnectionProperties map[string]connectionstate.ConnectionProperty
+
+func init() {
+	postgresProperties := map[string]connectionstate.ConnectionProperty{}
+
+	addPostgresProp := func(name, description, defaultValue string, hasDefaultValue bool, converter func(string) (string, error)) {
+		prop := connectionstate.CreateConnectionProperty(name, description, defaultValue, hasDefaultValue, nil, connectionstate.ContextUser, converter)
+		postgresProperties[prop.Key()] = prop
+	}
+
+	addReadOnlyPostgresProp := func(name, description, defaultValue string) {
+		converter := connectionstate.CreateReadOnlyConverter[string](name)
+		addPostgresProp(name, description, defaultValue, true, converter)
+	}
+
+	addPostgresProp("application_name", "Sets the application name to be reported in statistics and logs. This property is currently a no-op.", "", false, connectionstate.ConvertString)
+	addPostgresProp("client_min_messages", "Controls which message levels are sent to the client. This property is currently a no-op.", "notice", false, connectionstate.ConvertString)
+	addPostgresProp("client_encoding", "Sets the client-side character set encoding. Spanner only supports UTF-8 encoding.", "UTF8", false, connectionstate.ConvertString)
+	addPostgresProp("timezone", "Sets the default time zone for the connection. This property is currently a no-op.", "UTC", false, connectionstate.ConvertString)
+
+	addPostgresProp("default_transaction_isolation", "The default transaction isolation level. Spanner PostgreSQL dialect only supports serializable isolation.", "serializable", true, func(val string) (string, error) {
+		if strings.EqualFold(val, "serializable") {
+			return "serializable", nil
+		}
+		return "", status.Errorf(codes.InvalidArgument, "Spanner PostgreSQL only supports serializable isolation")
+	})
+	addReadOnlyPostgresProp("server_version_num", "The PostgreSQL server version number represented as an integer (e.g. 140001).", "140001")
+	addReadOnlyPostgresProp("server_version", "The PostgreSQL server version string (e.g. 14.1).", "14.1")
+
+	postgresConnectionProperties = make(map[string]connectionstate.ConnectionProperty, len(connectionProperties)+len(postgresProperties))
+	for k, v := range connectionProperties {
+		postgresConnectionProperties[k] = v
+	}
+	for k, v := range postgresProperties {
+		postgresConnectionProperties[k] = v
+	}
+}
+
 func createReadOnlyConnectionProperty[T comparable](name, description string, defaultValue T, hasDefaultValue bool, validValues []T, context connectionstate.Context) *connectionstate.TypedConnectionProperty[T] {
 	converter := connectionstate.CreateReadOnlyConverter[T](name)
 	return createConnectionProperty(name, description, defaultValue, hasDefaultValue, validValues, context, converter)
@@ -772,7 +811,14 @@ func createInitialConnectionState(connectionStateType connectionstate.Type, init
 }
 
 func createInitialConnectionStateWithDialect(dialect databasepb.DatabaseDialect, connectionStateType connectionstate.Type, initialValues map[string]connectionstate.ConnectionPropertyValue) *connectionstate.ConnectionState {
-	state, _ := connectionstate.NewConnectionState(connectionStateType, connectionProperties, initialValues)
+	var props map[string]connectionstate.ConnectionProperty
+	if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		props = postgresConnectionProperties
+	} else {
+		props = connectionProperties
+	}
+
+	state, _ := connectionstate.NewConnectionState(connectionStateType, props, initialValues)
 	if dialect == databasepb.DatabaseDialect_POSTGRESQL {
 		state.AddAlias("transaction_isolation", "isolation_level", true /* readOnly */)
 		if val := propertyIsolationLevel.GetValueOrDefault(state); val == sql.LevelDefault {
