@@ -95,6 +95,12 @@ func (s *executableShowStatement) queryContext(ctx context.Context, c *conn, opt
 			isolationStr = strings.ToLower(isolationStr)
 		}
 		it, err = createStringIterator(col, isolationStr)
+	case time.Duration:
+		stringVal := ""
+		if hasValue {
+			stringVal = val.String()
+		}
+		it, err = createStringIterator(col, stringVal)
 	default:
 		stringVal := ""
 		if hasValue {
