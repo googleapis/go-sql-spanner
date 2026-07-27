@@ -929,3 +929,115 @@ func TestExecuteWithBooleanStringParams(t *testing.T) {
 		t.Errorf("receivedReq p1 boolean value mismatch\nGot:  %v\nWant: %v", g, w)
 	}
 }
+
+func TestSingleStatementQuery_NormalExecution(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+
+	sqlText := "SELECT 1"
+	_ = server.TestSpanner.PutStatementResult(sqlText, &testutil.StatementResult{
+		Type:      testutil.StatementResultResultSet,
+		ResultSet: testutil.CreateSelect1ResultSet(),
+	})
+
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+	poolId, err := CreatePool(ctx, "test", dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	defer func() { _ = ClosePool(ctx, poolId) }()
+
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	defer func() { _ = CloseConnection(ctx, poolId, connId) }()
+
+	rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{
+		Sql: sqlText,
+	})
+	if err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
+	}
+	defer func() { _ = CloseRows(ctx, poolId, connId, rowsId) }()
+
+	// Iterate through the results until EOF
+	count := 0
+	for {
+		batch, err := Next(ctx, poolId, connId, rowsId, 1)
+		if err != nil {
+			t.Fatalf("Failed to fetch next row batch: %v", err)
+		}
+		if len(batch) == 0 {
+			break
+		}
+		count += len(batch)
+	}
+
+	if g, w := count, 1; g != w {
+		t.Fatalf("row count mismatch\nGot:  %d\nWant: %d", g, w)
+	}
+
+	// Verify that reaching EOF did not trigger a stats error when obtaining stats
+	stats, err := ResultSetStats(ctx, poolId, connId, rowsId)
+	if err != nil {
+		t.Fatalf("Expected no error after iterating rows, but got: %v", err)
+	}
+	if stats == nil {
+		t.Fatal("Expected non-nil stats after iterating rows")
+	}
+}
+
+func TestReadStats_NoStatsResultSet(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+
+	sqlText := "SELECT 1"
+	_ = server.TestSpanner.PutStatementResult(sqlText, &testutil.StatementResult{
+		Type:      testutil.StatementResultResultSet,
+		ResultSet: testutil.CreateSelect1ResultSet(),
+	})
+
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+	poolId, err := CreatePool(ctx, "test", dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	defer func() { _ = ClosePool(ctx, poolId) }()
+
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	defer func() { _ = CloseConnection(ctx, poolId, connId) }()
+
+	rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{
+		Sql: sqlText,
+	})
+	if err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
+	}
+	defer func() { _ = CloseRows(ctx, poolId, connId, rowsId) }()
+
+	p, _ := pools.Load(poolId)
+	pool := p.(*Pool)
+	c, _ := pool.connections.Load(connId)
+	conn := c.(*Connection)
+	r, _ := conn.results.Load(rowsId)
+	res := r.(*rows)
+
+	// Advance backend past the last result set so backend.NextResultSet() returns false.
+	for res.backend.NextResultSet() {
+	}
+
+	err = res.readStats(ctx)
+	if err != nil {
+		t.Fatalf("readStats returned unexpected error when NextResultSet is false: %v", err)
+	}
+}
