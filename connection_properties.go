@@ -769,14 +769,19 @@ func init() {
 	addPostgresProp("client_encoding", "Sets the client-side character set encoding. Spanner only supports UTF-8 encoding.", "UTF8", false, connectionstate.ConvertString)
 	addPostgresProp("timezone", "Sets the default time zone for the connection. This property is currently a no-op.", "UTC", false, connectionstate.ConvertString)
 
-	addPostgresProp("default_transaction_isolation", "The default transaction isolation level. Spanner PostgreSQL dialect supports serializable and repeatable_read isolation.", "serializable", true, func(val string) (string, error) {
-		if strings.EqualFold(val, "serializable") {
+	addPostgresProp("default_transaction_isolation", "The default transaction isolation level. Spanner PostgreSQL dialect supports serializable and repeatable read isolation. Default is serializable.", "serializable", true, func(val string) (string, error) {
+		level, err := parseIsolationLevel(val)
+		if err != nil {
+			return "", status.Errorf(codes.InvalidArgument, "Spanner PostgreSQL only supports serializable or repeatable read isolation: %v", err)
+		}
+		switch level {
+		case sql.LevelSerializable:
 			return "serializable", nil
+		case sql.LevelRepeatableRead:
+			return "repeatable read", nil
+		default:
+			return "", status.Errorf(codes.InvalidArgument, "Spanner PostgreSQL only supports serializable or repeatable read isolation")
 		}
-		if strings.EqualFold(val, "repeatable_read") {
-			return "repeatable_read", nil
-		}
-		return "", status.Errorf(codes.InvalidArgument, "Spanner PostgreSQL only supports serializable or repeatable_read isolation")
 	})
 	addReadOnlyPostgresProp("server_version_num", "The PostgreSQL server version number represented as an integer (e.g. 140001).", "140001")
 	addReadOnlyPostgresProp("server_version", "The PostgreSQL server version string (e.g. 14.1).", "14.1")

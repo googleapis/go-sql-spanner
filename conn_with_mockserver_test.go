@@ -2065,7 +2065,10 @@ func TestPostgreSQLCompatibilityGUCs(t *testing.T) {
 		verifyConnectionPropertyValue(t, conn, "default_transaction_isolation", "serializable")
 
 		setConnectionPropertyValue(t, conn, "default_transaction_isolation", "'repeatable_read'")
-		verifyConnectionPropertyValue(t, conn, "default_transaction_isolation", "repeatable_read")
+		verifyConnectionPropertyValue(t, conn, "default_transaction_isolation", "repeatable read")
+
+		setConnectionPropertyValue(t, conn, "default_transaction_isolation", "'repeatable read'")
+		verifyConnectionPropertyValue(t, conn, "default_transaction_isolation", "repeatable read")
 	})
 
 	// 3. Verify read-only or invalid variables fail to set
