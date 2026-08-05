@@ -30,8 +30,8 @@ func withConnTxState(msg *Message, poolId, connId int64) *Message {
 		return nil
 	}
 	st, err := api.TransactionState(poolId, connId)
-	if err == nil && len(st) > 0 {
-		msg.TransactionState = int32(st[0])
+	if err == nil && st != 0 {
+		msg.TransactionState = int32(st)
 	} else {
 		msg.TransactionState = 'I'
 	}

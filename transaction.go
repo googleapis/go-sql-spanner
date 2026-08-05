@@ -166,7 +166,10 @@ func (d *delegatingTransaction) rollbackBackendTransaction() {
 				tx.rwTx = nil
 			}
 		case *readOnlyTransaction:
-			if tx.roTx != nil {
+			if tx.boTx != nil {
+				tx.boTx.Close()
+				tx.boTx = nil
+			} else if tx.roTx != nil {
 				tx.roTx.Close()
 				tx.roTx = nil
 			}
@@ -178,28 +181,29 @@ func (d *delegatingTransaction) Commit() error {
 	if d.conn != nil && d.conn.state.TransactionState() == connectionstate.TransactionStateFailed &&
 		d.conn.state.InErrorTxBehavior() == connectionstate.InErrorTxBehaviorEnforceInErrorState {
 		_ = d.conn.state.Commit()
-		d.close(txResultCommit)
+		if rwTx, ok := d.contextTransaction.(*readWriteTransaction); ok && rwTx != nil {
+			rwTx.close(txResultCommit, nil, nil)
+		} else {
+			d.close(txResultCommit)
+		}
 		return nil
 	}
 	if d.contextTransaction == nil {
 		d.close(txResultCommit)
 		return nil
 	}
-	err := checkAndEnrichError(d.isPG(), d.contextTransaction.Commit())
-	if err != nil && d.conn != nil && d.conn.state.InTransaction() {
-		d.conn.state.SetTransactionFailed()
-		if d.conn.state.InErrorTxBehavior() == connectionstate.InErrorTxBehaviorEnforceInErrorState {
-			d.rollbackBackendTransaction()
-		}
-	}
-	return err
+	return checkAndEnrichError(d.isPG(), d.contextTransaction.Commit())
 }
 
 func (d *delegatingTransaction) Rollback() error {
 	if d.conn != nil && d.conn.state.TransactionState() == connectionstate.TransactionStateFailed &&
 		d.conn.state.InErrorTxBehavior() == connectionstate.InErrorTxBehaviorEnforceInErrorState {
 		_ = d.conn.state.Rollback()
-		d.close(txResultRollback)
+		if rwTx, ok := d.contextTransaction.(*readWriteTransaction); ok && rwTx != nil {
+			rwTx.close(txResultRollback, nil, nil)
+		} else {
+			d.close(txResultRollback)
+		}
 		return nil
 	}
 	if d.contextTransaction == nil {
@@ -318,7 +322,9 @@ func (tx *readOnlyTransaction) Rollback() error {
 	tx.logger.Debug("rolling back transaction")
 	// Read-only transactions don't really roll back, but closing the transaction
 	// will return the session to the pool.
-	if tx.roTx != nil {
+	if tx.boTx != nil {
+		tx.boTx.Close()
+	} else if tx.roTx != nil {
 		tx.roTx.Close()
 	}
 	tx.close(txResultRollback)

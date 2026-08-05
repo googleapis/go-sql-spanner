@@ -2350,4 +2350,73 @@ func TestPGTransactionState_ServerAndClientErrors(t *testing.T) {
 
 		_ = tx.Rollback()
 	})
+
+	t.Run("MultiStatementDmlError", func(t *testing.T) {
+		db, server, teardown := setupTestDBConnectionWithParamsAndDialect(t, "", databasepb.DatabaseDialect_POSTGRESQL)
+		defer teardown()
+		ctx := context.Background()
+
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silentClose(conn)
+
+		tx, err := conn.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g, w := getPGTransactionState(t, conn), connectionstate.TransactionStateTransaction; g != w {
+			t.Fatalf("state after begin mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		_ = server.TestSpanner.PutStatementResult(testutil.UpdateBarSetFoo, &testutil.StatementResult{
+			Err: status.Error(codes.InvalidArgument, "server side error"),
+		})
+
+		// Executing consecutive DML statements in a multi-statement string triggers queryDmlBatch.
+		rows, err := tx.QueryContext(ctx, testutil.UpdateBarSetFoo+"; "+testutil.UpdateBarSetFoo)
+		if err == nil {
+			_ = rows.Close()
+			t.Fatal("expected server error, got nil")
+		}
+		if g, w := getPGTransactionState(t, conn), connectionstate.TransactionStateFailed; g != w {
+			t.Fatalf("state after error mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		_ = tx.Rollback()
+	})
+
+	t.Run("MultiStatementDdlInTransactionError", func(t *testing.T) {
+		db, _, teardown := setupTestDBConnectionWithParamsAndDialect(t, "", databasepb.DatabaseDialect_POSTGRESQL)
+		defer teardown()
+		ctx := context.Background()
+
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silentClose(conn)
+
+		tx, err := conn.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g, w := getPGTransactionState(t, conn), connectionstate.TransactionStateTransaction; g != w {
+			t.Fatalf("state after begin mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		// Executing DDL statements in a multi-statement string triggers queryDdlBatch.
+		// Since Spanner does not support DDL inside explicit transactions, this should fail and set txState to 'E'.
+		rows, err := tx.QueryContext(ctx, "CREATE TABLE Foo (ID bigint PRIMARY KEY); CREATE TABLE Bar (ID bigint PRIMARY KEY)")
+		if err == nil {
+			_ = rows.Close()
+			t.Fatal("expected error for DDL in transaction, got nil")
+		}
+		if g, w := getPGTransactionState(t, conn), connectionstate.TransactionStateFailed; g != w {
+			t.Fatalf("state after DDL error mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		_ = tx.Rollback()
+	})
 }
