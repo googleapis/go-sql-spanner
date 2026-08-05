@@ -106,6 +106,7 @@ var propertyIsolationLevel = createConnectionProperty(
 		return parseIsolationLevel(value)
 	},
 )
+
 var propertyReadLockMode = createConnectionProperty(
 	"read_lock_mode",
 	"This option controls the locking behavior for read operations and queries within a read/write transaction. "+
@@ -828,10 +829,13 @@ func createInitialConnectionStateWithDialect(dialect databasepb.DatabaseDialect,
 
 	state, _ := connectionstate.NewConnectionState(connectionStateType, props, initialValues)
 	if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		state.SetInErrorTxBehavior(connectionstate.InErrorTxBehaviorEnforceInErrorState)
 		state.AddAlias("transaction_isolation", "isolation_level", true /* readOnly */)
 		if val := propertyIsolationLevel.GetValueOrDefault(state); val == sql.LevelDefault {
 			_ = propertyIsolationLevel.SetValue(state, sql.LevelSerializable, connectionstate.ContextStartup)
 		}
+	} else {
+		state.SetInErrorTxBehavior(connectionstate.InErrorTxBehaviorAllowCommands)
 	}
 	return state
 }

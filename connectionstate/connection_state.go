@@ -45,10 +45,36 @@ const (
 	TypeNonTransactional
 )
 
+// TransactionState represents the transaction readiness state of a connection,
+// matching PostgreSQL ReadyForQuery status codes ('I', 'T', 'E').
+type TransactionState rune
+
+const (
+	// TransactionStateIdle ('I'): Connection is idle, no transaction is active.
+	TransactionStateIdle TransactionState = 'I'
+	// TransactionStateTransaction ('T'): An implicit or explicit transaction is active.
+	TransactionStateTransaction TransactionState = 'T'
+	// TransactionStateFailed ('E'): The current transaction is aborted/failed.
+	TransactionStateFailed TransactionState = 'E'
+)
+
+// InErrorTxBehavior defines how a ConnectionState behaves when a transaction enters an error state.
+type InErrorTxBehavior int
+
+const (
+	InErrorTxBehaviorDefault InErrorTxBehavior = iota
+	// InErrorTxBehaviorEnforceInErrorState rejects commands other than COMMIT/ROLLBACK in state 'E'.
+	InErrorTxBehaviorEnforceInErrorState
+	// InErrorTxBehaviorAllowCommands permits commands even after an execution error.
+	InErrorTxBehaviorAllowCommands
+)
+
 // ConnectionState contains connection the state of a connection in a map.
 type ConnectionState struct {
 	connectionStateType       Type
 	inTransaction             bool
+	inErrorTxBehavior         InErrorTxBehavior
+	txState                   TransactionState
 	properties                map[string]ConnectionPropertyValue
 	transactionProperties     map[string]ConnectionPropertyValue
 	localProperties           map[string]ConnectionPropertyValue
@@ -116,6 +142,8 @@ func NewConnectionState(connectionStateType Type, properties map[string]Connecti
 	}
 	state := &ConnectionState{
 		connectionStateType:       connectionStateType,
+		inErrorTxBehavior:         InErrorTxBehaviorAllowCommands,
+		txState:                   TransactionStateIdle,
 		properties:                make(map[string]ConnectionPropertyValue),
 		transactionProperties:     nil,
 		localProperties:           nil,
@@ -259,12 +287,51 @@ func (cs *ConnectionState) findProperty(extension, name string) (ConnectionPrope
 	return prop, nil
 }
 
+// InTransaction returns true if the connection is currently in a transaction block.
+func (cs *ConnectionState) InTransaction() bool {
+	return cs.inTransaction
+}
+
+// TransactionState returns the current PostgreSQL readiness transaction state ('I', 'T', 'E').
+func (cs *ConnectionState) TransactionState() TransactionState {
+	return cs.txState
+}
+
+// InErrorTxBehavior returns the connection's behavior when a transaction fails.
+func (cs *ConnectionState) InErrorTxBehavior() InErrorTxBehavior {
+	return cs.inErrorTxBehavior
+}
+
+// SetInErrorTxBehavior sets the connection's behavior when a transaction fails.
+func (cs *ConnectionState) SetInErrorTxBehavior(behavior InErrorTxBehavior) {
+	cs.inErrorTxBehavior = behavior
+}
+
+// SetTransactionFailed transitions the transaction state to Failed ('E') if currently in a transaction.
+func (cs *ConnectionState) SetTransactionFailed() {
+	if cs.inTransaction {
+		cs.txState = TransactionStateFailed
+	}
+}
+
+// CheckInErrorTxState verifies whether the connection is in a Failed ('E') transaction state.
+// If InErrorTxBehaviorEnforceInErrorState is enabled and the state is 'E', commands other than
+// COMMIT or ROLLBACK are rejected with codes.FailedPrecondition.
+func (cs *ConnectionState) CheckInErrorTxState(isCommitOrRollback bool) error {
+	if cs.inErrorTxBehavior == InErrorTxBehaviorEnforceInErrorState &&
+		cs.txState == TransactionStateFailed && !isCommitOrRollback {
+		return status.Error(codes.FailedPrecondition, "current transaction is failed, commands ignored until end of transaction block")
+	}
+	return nil
+}
+
 // Begin starts a new transaction for this ConnectionState.
 func (cs *ConnectionState) Begin() error {
 	if cs.inTransaction {
 		return status.Error(codes.FailedPrecondition, "connection state is already in transaction")
 	}
 	cs.inTransaction = true
+	cs.txState = TransactionStateTransaction
 	return nil
 }
 
@@ -278,6 +345,7 @@ func (cs *ConnectionState) Commit() error {
 		return status.Error(codes.FailedPrecondition, "connection state is not in a transaction")
 	}
 	cs.inTransaction = false
+	cs.txState = TransactionStateIdle
 	if cs.transactionProperties != nil {
 		for key, value := range cs.transactionProperties {
 			if value.isRemoved() {
@@ -308,6 +376,7 @@ func (cs *ConnectionState) Rollback() error {
 		return status.Error(codes.FailedPrecondition, "connection state is not in a transaction")
 	}
 	cs.inTransaction = false
+	cs.txState = TransactionStateIdle
 	cs.transactionProperties = nil
 	cs.localProperties = nil
 	cs.statementScopedProperties = nil
@@ -324,6 +393,8 @@ func (cs *ConnectionState) ClearStatementScopedValues() {
 // than the given Context will be reset. E.g. if the given Context is ContextUser, then properties
 // with ContextStartup will not be reset.
 func (cs *ConnectionState) Reset(context Context) error {
+	cs.inTransaction = false
+	cs.txState = TransactionStateIdle
 	cs.transactionProperties = nil
 	cs.localProperties = nil
 	cs.statementScopedProperties = nil

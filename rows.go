@@ -44,7 +44,7 @@ const (
 
 var _ driver.RowsNextResultSet = &rows{}
 
-func createRows(isPG bool, state *connectionstate.ConnectionState, it rowIterator, cancel context.CancelFunc, opts *ExecOptions) *rows {
+func createRows(isPG bool, state *connectionstate.ConnectionState, it rowIterator, cancel context.CancelFunc, opts *ExecOptions, handleError func(error) error) *rows {
 	return &rows{
 		isPG:                    isPG,
 		state:                   state,
@@ -54,6 +54,7 @@ func createRows(isPG bool, state *connectionstate.ConnectionState, it rowIterato
 		decodeToNativeArrays:    opts.DecodeToNativeArrays,
 		returnResultSetMetadata: opts.ReturnResultSetMetadata,
 		returnResultSetStats:    opts.ReturnResultSetStats,
+		handleError:             handleError,
 	}
 }
 
@@ -71,6 +72,7 @@ type rows struct {
 	state                *connectionstate.ConnectionState
 	decodeOption         DecodeOption
 	decodeToNativeArrays bool
+	handleError          func(error) error
 
 	dirtyRow *spanner.Row
 
@@ -80,6 +82,16 @@ type rows struct {
 
 	hasReturnedResultSetMetadata bool
 	hasReturnedResultSetStats    bool
+}
+
+func (r *rows) handleRowError(err error) error {
+	if err == nil || err == io.EOF || err == iterator.Done {
+		return err
+	}
+	if r.handleError != nil {
+		return r.handleError(err)
+	}
+	return checkAndEnrichError(r.isPG, err)
 }
 
 // HasNextResultSet implements [driver.RowsNextResultSet.HasNextResultSet].
@@ -146,14 +158,14 @@ func (r *rows) getColumns() {
 		if err == nil {
 			r.dirtyRow = row
 		} else {
-			r.dirtyErr = err
+			r.dirtyErr = r.handleRowError(err)
 			if err != iterator.Done {
 				return
 			}
 		}
 		metadata, err := r.it.Metadata()
 		if err != nil {
-			r.dirtyErr = err
+			r.dirtyErr = r.handleRowError(err)
 			return
 		}
 		if metadata != nil && metadata.RowType != nil {
@@ -197,7 +209,7 @@ func (r *rows) Next(dest []driver.Value) error {
 		if err == iterator.Done {
 			return io.EOF
 		}
-		return checkAndEnrichError(r.isPG, err)
+		return r.handleRowError(err)
 	}
 	if r.dirtyRow != nil {
 		row = r.dirtyRow
@@ -209,7 +221,7 @@ func (r *rows) Next(dest []driver.Value) error {
 			return io.EOF
 		}
 		if err != nil {
-			return checkAndEnrichError(r.isPG, err)
+			return r.handleRowError(err)
 		}
 	}
 

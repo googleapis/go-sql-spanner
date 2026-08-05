@@ -25,9 +25,9 @@ import (
 func Metadata(ctx context.Context, poolId, connId, rowsId int64) *Message {
 	metadata, err := api.Metadata(ctx, poolId, connId, rowsId)
 	if err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
-	return encodeMetadata(metadata)
+	return withConnTxState(encodeMetadata(metadata), poolId, connId)
 }
 
 func encodeMetadata(metadata *spannerpb.ResultSetMetadata) *Message {
@@ -35,44 +35,44 @@ func encodeMetadata(metadata *spannerpb.ResultSetMetadata) *Message {
 	if err != nil {
 		return errMessage(err)
 	}
-	return &Message{Res: metadataBytes}
+	return &Message{Res: metadataBytes, TransactionState: 'I'}
 }
 
 func ResultSetStats(ctx context.Context, poolId, connId, rowsId int64) *Message {
 	stats, err := api.ResultSetStats(ctx, poolId, connId, rowsId)
 	if err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
 	statsBytes, err := proto.Marshal(stats)
 	if err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
-	return &Message{Res: statsBytes}
+	return withConnTxState(&Message{Res: statsBytes, TransactionState: 'I'}, poolId, connId)
 }
 
 func NextResultSet(ctx context.Context, poolId, connId, rowsId int64) *Message {
 	metadata, err := api.NextResultSet(ctx, poolId, connId, rowsId)
 	if err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
 	if metadata == nil {
-		return &Message{}
+		return withConnTxState(okMessage(), poolId, connId)
 	}
-	return encodeMetadata(metadata)
+	return withConnTxState(encodeMetadata(metadata), poolId, connId)
 }
 
 func Next(ctx context.Context, poolId, connId, rowsId int64) *Message {
 	valuesBytes, err := api.NextEncoded(ctx, poolId, connId, rowsId)
 	if err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
-	return &Message{Res: valuesBytes}
+	return withConnTxState(&Message{Res: valuesBytes, TransactionState: 'I'}, poolId, connId)
 }
 
 func CloseRows(ctx context.Context, poolId, connId, rowsId int64) *Message {
 	err := api.CloseRows(ctx, poolId, connId, rowsId)
 	if err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
-	return &Message{}
+	return withConnTxState(okMessage(), poolId, connId)
 }

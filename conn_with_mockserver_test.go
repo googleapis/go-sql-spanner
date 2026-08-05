@@ -2097,3 +2097,224 @@ func TestPostgreSQLCompatibilityGUCs_GoogleSQL(t *testing.T) {
 	verifyShowFails[string](t, conn, "application_name")
 	verifyShowFails[string](t, conn, "timezone")
 }
+
+func getPGTransactionState(t *testing.T, conn *sql.Conn) connectionstate.TransactionState {
+	var txState connectionstate.TransactionState
+	err := conn.Raw(func(driverConn any) error {
+		if sc, ok := driverConn.(interface {
+			TransactionState() connectionstate.TransactionState
+		}); ok {
+			txState = sc.TransactionState()
+			return nil
+		}
+		return fmt.Errorf("driverConn does not implement TransactionState()")
+	})
+	if err != nil {
+		t.Fatalf("failed to get TransactionState: %v", err)
+	}
+	return txState
+}
+
+func setPGInErrorTxBehavior(t *testing.T, conn *sql.Conn, b connectionstate.InErrorTxBehavior) {
+	err := conn.Raw(func(driverConn any) error {
+		if sc, ok := driverConn.(interface {
+			SetInErrorTxBehavior(connectionstate.InErrorTxBehavior) error
+		}); ok {
+			return sc.SetInErrorTxBehavior(b)
+		}
+		return fmt.Errorf("driverConn does not implement SetInErrorTxBehavior")
+	})
+	if err != nil {
+		t.Fatalf("failed to SetInErrorTxBehavior: %v", err)
+	}
+}
+
+func executeQueryAndConsume(ctx context.Context, tx *sql.Tx, query string) error {
+	rows, err := tx.QueryContext(ctx, query)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+	}
+	return rows.Err()
+}
+
+func TestPGTransactionState_ServerAndClientErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ServerSideStatementError", func(t *testing.T) {
+		db, server, teardown := setupTestDBConnectionWithParamsAndDialect(t, "", databasepb.DatabaseDialect_POSTGRESQL)
+		defer teardown()
+		ctx := context.Background()
+
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silentClose(conn)
+
+		if g, w := getPGTransactionState(t, conn), connectionstate.TransactionStateIdle; g != w {
+			t.Fatalf("initial state mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		tx, err := conn.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g, w := getPGTransactionState(t, conn), connectionstate.TransactionStateTransaction; g != w {
+			t.Fatalf("state after begin mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		_ = server.TestSpanner.PutStatementResult(testutil.UpdateBarSetFoo, &testutil.StatementResult{Err: status.Error(codes.InvalidArgument, "server side error")})
+		_, err = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
+		if err == nil {
+			t.Fatal("expected server error, got nil")
+		}
+		if g, w := getPGTransactionState(t, conn), connectionstate.TransactionStateFailed; g != w {
+			t.Fatalf("state after error mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		_, err = tx.QueryContext(ctx, testutil.SelectFooFromBar)
+		if err == nil {
+			t.Fatal("expected error in failed transaction, got nil")
+		}
+		if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+			t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		if err := tx.Rollback(); err != nil {
+			t.Fatal(err)
+		}
+		if g, w := getPGTransactionState(t, conn), connectionstate.TransactionStateIdle; g != w {
+			t.Fatalf("state after rollback mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("ClientSideStatementError", func(t *testing.T) {
+		db, _, teardown := setupTestDBConnectionWithParamsAndDialect(t, "", databasepb.DatabaseDialect_POSTGRESQL)
+		defer teardown()
+		ctx := context.Background()
+
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silentClose(conn)
+
+		tx, err := conn.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g, w := getPGTransactionState(t, conn), connectionstate.TransactionStateTransaction; g != w {
+			t.Fatalf("state after begin mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		_, err = tx.ExecContext(ctx, "SET database_dialect = 'foo'")
+		if err == nil {
+			t.Fatal("expected error for invalid SET in transaction, got nil")
+		}
+		if g, w := getPGTransactionState(t, conn), connectionstate.TransactionStateFailed; g != w {
+			t.Fatalf("state after client error mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		_, err = tx.QueryContext(ctx, testutil.SelectFooFromBar)
+		if err == nil {
+			t.Fatal("expected error in failed transaction, got nil")
+		}
+		if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+			t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		// Commit on a failed transaction should locally reset state and return nil
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+		if g, w := getPGTransactionState(t, conn), connectionstate.TransactionStateIdle; g != w {
+			t.Fatalf("state after commit mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("ReadOnlyTransactionError", func(t *testing.T) {
+		db, server, teardown := setupTestDBConnectionWithParamsAndDialect(t, "", databasepb.DatabaseDialect_POSTGRESQL)
+		defer teardown()
+		ctx := context.Background()
+
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silentClose(conn)
+
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g, w := getPGTransactionState(t, conn), connectionstate.TransactionStateTransaction; g != w {
+			t.Fatalf("state after begin mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		_ = server.TestSpanner.PutStatementResult("SELECT * FROM non_existent_table", &testutil.StatementResult{Err: status.Error(codes.InvalidArgument, "read-only query error")})
+		err = executeQueryAndConsume(ctx, tx, "SELECT * FROM non_existent_table")
+		if err == nil {
+			t.Fatal("expected error in read-only query, got nil")
+		}
+		if g, w := getPGTransactionState(t, conn), connectionstate.TransactionStateFailed; g != w {
+			t.Fatalf("state after read-only error mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		_, err = tx.QueryContext(ctx, testutil.SelectFooFromBar)
+		if err == nil {
+			t.Fatal("expected error in failed read-only transaction, got nil")
+		}
+		if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+			t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		if err := tx.Rollback(); err != nil {
+			t.Fatal(err)
+		}
+		if g, w := getPGTransactionState(t, conn), connectionstate.TransactionStateIdle; g != w {
+			t.Fatalf("state after rollback mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("InErrorTxBehaviorAllowCommands", func(t *testing.T) {
+		db, server, teardown := setupTestDBConnectionWithParamsAndDialect(t, "", databasepb.DatabaseDialect_POSTGRESQL)
+		defer teardown()
+		ctx := context.Background()
+
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silentClose(conn)
+
+		setPGInErrorTxBehavior(t, conn, connectionstate.InErrorTxBehaviorAllowCommands)
+
+		tx, err := conn.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_ = server.TestSpanner.PutStatementResult(testutil.UpdateBarSetFoo, &testutil.StatementResult{Err: status.Error(codes.InvalidArgument, "error")})
+		_, err = tx.ExecContext(ctx, testutil.UpdateBarSetFoo)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if g, w := getPGTransactionState(t, conn), connectionstate.TransactionStateFailed; g != w {
+			t.Fatalf("state after error mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		// Subsequent query should be allowed when in_error_tx_behavior=allow_commands
+		rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar)
+		if err != nil {
+			t.Fatalf("expected allowed command to succeed, got: %v", err)
+		}
+		_ = rows.Close()
+
+		if err := tx.Rollback(); err != nil {
+			t.Fatal(err)
+		}
+	})
+}

@@ -38,7 +38,7 @@ func TestCreatePool(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	mem, code, poolId, length, data := CreatePool("test", dsn)
+	mem, code, poolId, length, data, _ := CreatePool("test", dsn)
 	if g, w := mem, int64(0); g != w {
 		t.Fatalf("CreatePool mem mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -55,7 +55,7 @@ func TestCreatePool(t *testing.T) {
 		t.Fatalf("CreatePool data mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
-	_, code, _, _, _ = ClosePool(poolId)
+	_, code, _, _, _, _ = ClosePool(poolId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -68,11 +68,11 @@ func TestCreateConnection(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	_, code, poolId, _, _ := CreatePool("test", dsn)
+	_, code, poolId, _, _, _ := CreatePool("test", dsn)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	mem, code, connId, length, data := CreateConnection(poolId)
+	mem, code, connId, length, data, _ := CreateConnection(poolId)
 	if g, w := mem, int64(0); g != w {
 		t.Fatalf("CreateConnection mem mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -89,11 +89,11 @@ func TestCreateConnection(t *testing.T) {
 		t.Fatalf("CreateConnection data mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
-	_, code, _, _, _ = CloseConnection(poolId, connId)
+	_, code, _, _, _, _ = CloseConnection(poolId, connId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CloseConnection result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	_, code, _, _, _ = ClosePool(poolId)
+	_, code, _, _, _, _ = ClosePool(poolId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -106,11 +106,11 @@ func TestExecute(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	_, code, poolId, _, _ := CreatePool("test", dsn)
+	_, code, poolId, _, _, _ := CreatePool("test", dsn)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	_, code, connId, _, _ := CreateConnection(poolId)
+	_, code, connId, _, _, _ := CreateConnection(poolId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreateConnection result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -125,7 +125,7 @@ func TestExecute(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Execute returns a reference to a Rows object, not the actual data.
-	mem, code, rowsId, length, data := Execute(poolId, connId, requestBytes)
+	mem, code, rowsId, length, data, _ := Execute(poolId, connId, requestBytes)
 	if g, w := mem, int64(0); g != w {
 		t.Fatalf("Execute mem mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -143,7 +143,7 @@ func TestExecute(t *testing.T) {
 	}
 
 	// Get the metadata of the selected rows.
-	mem, code, _, length, data = Metadata(poolId, connId, rowsId)
+	mem, code, _, length, data, _ = Metadata(poolId, connId, rowsId)
 	// Metadata returns actual data, and should therefore return a memory ID that needs to be released.
 	if mem == int64(0) {
 		t.Fatalf("Metadata mem mismatch: %v", mem)
@@ -174,7 +174,7 @@ func TestExecute(t *testing.T) {
 	// Iterate over the rows.
 	numRows := 0
 	for {
-		mem, code, _, length, data = Next(poolId, connId, rowsId /*numRows = */, 1, int32(api.EncodeRowOptionProto))
+		mem, code, _, length, data, _ = Next(poolId, connId, rowsId /*numRows = */, 1, int32(api.EncodeRowOptionProto))
 		// Next returns an empty message if it is the end of the query results.
 		if length == 0 {
 			break
@@ -206,7 +206,7 @@ func TestExecute(t *testing.T) {
 	}
 
 	// Get the ResultSetStats. For queries, this is nil.
-	mem, code, _, length, data = ResultSetStats(poolId, connId, rowsId)
+	mem, code, _, length, data, _ = ResultSetStats(poolId, connId, rowsId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("ResultSetStats result code mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -217,15 +217,15 @@ func TestExecute(t *testing.T) {
 		t.Fatalf("Release() result mismatch\n Got: %v\nWant: %v", res, 0)
 	}
 
-	_, code, _, _, _ = CloseRows(poolId, connId, rowsId)
+	_, code, _, _, _, _ = CloseRows(poolId, connId, rowsId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CloseRows result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	_, code, _, _, _ = CloseConnection(poolId, connId)
+	_, code, _, _, _, _ = CloseConnection(poolId, connId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CloseConnection result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	_, code, _, _, _ = ClosePool(poolId)
+	_, code, _, _, _, _ = ClosePool(poolId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -242,11 +242,11 @@ func TestExecuteMultiStatement(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	_, code, poolId, _, _ := CreatePool("test", dsn)
+	_, code, poolId, _, _, _ := CreatePool("test", dsn)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	_, code, connId, _, _ := CreateConnection(poolId)
+	_, code, connId, _, _, _ := CreateConnection(poolId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreateConnection result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -262,7 +262,7 @@ func TestExecuteMultiStatement(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Execute returns a reference to a Rows object, not the actual data.
-	mem, code, rowsId, length, data := Execute(poolId, connId, requestBytes)
+	mem, code, rowsId, length, data, _ := Execute(poolId, connId, requestBytes)
 	if g, w := mem, int64(0); g != w {
 		t.Fatalf("Execute mem mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -280,7 +280,7 @@ func TestExecuteMultiStatement(t *testing.T) {
 	}
 
 	// Get the metadata of the first result set in the rows.
-	mem, code, _, length, data = Metadata(poolId, connId, rowsId)
+	mem, code, _, length, data, _ = Metadata(poolId, connId, rowsId)
 
 	// Iterate over the result sets in the rows object.
 	// The NextResultSet function returns the metadata of the next result set (if any).
@@ -316,7 +316,7 @@ func TestExecuteMultiStatement(t *testing.T) {
 		// Iterate over the rows.
 		numRows := 0
 		for {
-			mem, code, _, length, data = Next(poolId, connId, rowsId /*numRows = */, 1, int32(api.EncodeRowOptionProto))
+			mem, code, _, length, data, _ = Next(poolId, connId, rowsId /*numRows = */, 1, int32(api.EncodeRowOptionProto))
 			// Next returns an empty message if it is the end of the query results.
 			if length == 0 {
 				break
@@ -348,7 +348,7 @@ func TestExecuteMultiStatement(t *testing.T) {
 		}
 
 		// Get the ResultSetStats. For queries, this is nil.
-		mem, code, _, length, data = ResultSetStats(poolId, connId, rowsId)
+		mem, code, _, length, data, _ = ResultSetStats(poolId, connId, rowsId)
 		if g, w := code, int32(0); g != w {
 			t.Fatalf("ResultSetStats result code mismatch\n Got: %v\nWant: %v", g, w)
 		}
@@ -359,7 +359,7 @@ func TestExecuteMultiStatement(t *testing.T) {
 			t.Fatalf("Release() result mismatch\n Got: %v\nWant: %v", res, 0)
 		}
 
-		mem, code, _, length, data = NextResultSet(poolId, connId, rowsId)
+		mem, code, _, length, data, _ = NextResultSet(poolId, connId, rowsId)
 		if length == 0 {
 			break
 		}
@@ -369,15 +369,15 @@ func TestExecuteMultiStatement(t *testing.T) {
 		t.Fatalf("result set count mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
-	_, code, _, _, _ = CloseRows(poolId, connId, rowsId)
+	_, code, _, _, _, _ = CloseRows(poolId, connId, rowsId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CloseRows result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	_, code, _, _, _ = CloseConnection(poolId, connId)
+	_, code, _, _, _, _ = CloseConnection(poolId, connId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CloseConnection result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	_, code, _, _, _ = ClosePool(poolId)
+	_, code, _, _, _, _ = ClosePool(poolId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -390,11 +390,11 @@ func TestExecuteBatch(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	_, code, poolId, _, _ := CreatePool("test", dsn)
+	_, code, poolId, _, _, _ := CreatePool("test", dsn)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	_, code, connId, _, _ := CreateConnection(poolId)
+	_, code, connId, _, _, _ := CreateConnection(poolId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreateConnection result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -410,7 +410,7 @@ func TestExecuteBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	// ExecuteBatch returns a ExecuteBatchDml response.
-	mem, code, batchId, length, data := ExecuteBatch(poolId, connId, requestBytes)
+	mem, code, batchId, length, data, _ := ExecuteBatch(poolId, connId, requestBytes)
 	verifyDataMessage(t, "ExecuteBatch", mem, code, batchId, length, data)
 	response := &spannerpb.ExecuteBatchDmlResponse{}
 	responseBytes := reflect.SliceAt(reflect.TypeOf(byte(0)), data, int(length)).Bytes()
@@ -430,11 +430,11 @@ func TestExecuteBatch(t *testing.T) {
 		t.Fatalf("Release() result mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
-	_, code, _, _, _ = CloseConnection(poolId, connId)
+	_, code, _, _, _, _ = CloseConnection(poolId, connId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CloseConnection result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	_, code, _, _, _ = ClosePool(poolId)
+	_, code, _, _, _, _ = ClosePool(poolId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -447,11 +447,11 @@ func TestBeginAndCommitTransaction(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	_, code, poolId, _, _ := CreatePool("test", dsn)
+	_, code, poolId, _, _, _ := CreatePool("test", dsn)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	_, code, connId, _, _ := CreateConnection(poolId)
+	_, code, connId, _, _, _ := CreateConnection(poolId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreateConnection result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -461,7 +461,7 @@ func TestBeginAndCommitTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mem, code, id, length, res := BeginTransaction(poolId, connId, txOptsBytes)
+	mem, code, id, length, res, _ := BeginTransaction(poolId, connId, txOptsBytes)
 	// BeginTransaction should return an empty message.
 	// That is, there should be no error code, no ObjectID, and no data.
 	verifyEmptyMessage(t, "BeginTransaction", mem, code, id, length, res)
@@ -472,27 +472,68 @@ func TestBeginAndCommitTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, code, rowsId, _, _ := Execute(poolId, connId, requestBytes)
+	_, code, rowsId, _, _, _ := Execute(poolId, connId, requestBytes)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("Execute result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	_, code, _, _, _ = CloseRows(poolId, connId, rowsId)
+	_, code, _, _, _, _ = CloseRows(poolId, connId, rowsId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CloseRows result mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
 	// Commit returns the CommitResponse (if any).
-	mem, code, id, length, res = Commit(poolId, connId)
+	mem, code, id, length, res, _ = Commit(poolId, connId)
 	verifyDataMessage(t, "Commit", mem, code, id, length, res)
 
-	_, code, _, _, _ = CloseConnection(poolId, connId)
+	_, code, _, _, _, _ = CloseConnection(poolId, connId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CloseConnection result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	_, code, _, _, _ = ClosePool(poolId)
+	_, code, _, _, _, _ = ClosePool(poolId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
+}
+
+func TestBeginAndCommitTransaction_PGTransactionState(t *testing.T) {
+	t.Parallel()
+
+	server, teardown := setupMockServerWithDialect(t, databasepb.DatabaseDialect_POSTGRESQL)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;dialect=postgresql", server.Address)
+
+	_, code, poolId, _, _, _ := CreatePool("test", dsn)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	_, code, connId, _, _, txState := CreateConnection(poolId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CreateConnection result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := txState, int32('I'); g != w {
+		t.Fatalf("initial txState mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	txOpts := &spannerpb.TransactionOptions{}
+	txOptsBytes, _ := proto.Marshal(txOpts)
+	_, code, _, _, _, txState = BeginTransaction(poolId, connId, txOptsBytes)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("BeginTransaction result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := txState, int32('T'); g != w {
+		t.Fatalf("after BeginTransaction txState mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	_, code, _, _, _, txState = Commit(poolId, connId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("Commit result mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := txState, int32('I'); g != w {
+		t.Fatalf("after Commit txState mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	_, code, _, _, _, _ = CloseConnection(poolId, connId)
+	_, code, _, _, _, _ = ClosePool(poolId)
 }
 
 func TestBeginAndRollbackTransaction(t *testing.T) {
@@ -502,11 +543,11 @@ func TestBeginAndRollbackTransaction(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	_, code, poolId, _, _ := CreatePool("test", dsn)
+	_, code, poolId, _, _, _ := CreatePool("test", dsn)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	_, code, connId, _, _ := CreateConnection(poolId)
+	_, code, connId, _, _, _ := CreateConnection(poolId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreateConnection result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -516,7 +557,7 @@ func TestBeginAndRollbackTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mem, code, id, length, res := BeginTransaction(poolId, connId, txOptsBytes)
+	mem, code, id, length, res, _ := BeginTransaction(poolId, connId, txOptsBytes)
 	// BeginTransaction should return an empty message.
 	// That is, there should be no error code, no ObjectID, and no data.
 	verifyEmptyMessage(t, "BeginTransaction", mem, code, id, length, res)
@@ -527,24 +568,24 @@ func TestBeginAndRollbackTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, code, rowsId, _, _ := Execute(poolId, connId, requestBytes)
+	_, code, rowsId, _, _, _ := Execute(poolId, connId, requestBytes)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("Execute result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	_, code, _, _, _ = CloseRows(poolId, connId, rowsId)
+	_, code, _, _, _, _ = CloseRows(poolId, connId, rowsId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CloseRows result mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
 	// Rollback returns nothing.
-	mem, code, id, length, res = Rollback(poolId, connId)
+	mem, code, id, length, res, _ = Rollback(poolId, connId)
 	verifyEmptyMessage(t, "Rollback", mem, code, id, length, res)
 
-	_, code, _, _, _ = CloseConnection(poolId, connId)
+	_, code, _, _, _, _ = CloseConnection(poolId, connId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CloseConnection result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	_, code, _, _, _ = ClosePool(poolId)
+	_, code, _, _, _, _ = ClosePool(poolId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -557,11 +598,11 @@ func TestWriteMutations(t *testing.T) {
 	defer teardown()
 	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
 
-	_, code, poolId, _, _ := CreatePool("test", dsn)
+	_, code, poolId, _, _, _ := CreatePool("test", dsn)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreatePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	_, code, connId, _, _ := CreateConnection(poolId)
+	_, code, connId, _, _, _ := CreateConnection(poolId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CreateConnection result mismatch\n Got: %v\nWant: %v", g, w)
 	}
@@ -582,7 +623,7 @@ func TestWriteMutations(t *testing.T) {
 		t.Fatal(err)
 	}
 	// WriteMutations returns a CommitResponse or nil, depending on whether the connection has an active transaction.
-	mem, code, id, length, data := WriteMutations(poolId, connId, mutationBytes)
+	mem, code, id, length, data, _ := WriteMutations(poolId, connId, mutationBytes)
 	verifyDataMessage(t, "WriteMutations", mem, code, id, length, data)
 
 	response := &spannerpb.CommitResponse{}
@@ -601,19 +642,19 @@ func TestWriteMutations(t *testing.T) {
 	// Start a transaction on the connection and write the mutations to that transaction.
 	txOpts := &spannerpb.TransactionOptions{}
 	txOptsBytes, err := proto.Marshal(txOpts)
-	_, code, _, _, _ = BeginTransaction(poolId, connId, txOptsBytes)
+	_, code, _, _, _, _ = BeginTransaction(poolId, connId, txOptsBytes)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("BeginTransaction result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	mem, code, id, length, data = WriteMutations(poolId, connId, mutationBytes)
+	mem, code, id, length, data, _ = WriteMutations(poolId, connId, mutationBytes)
 	// The response should now be an empty message, as the mutations were buffered in the current transaction.
 	verifyEmptyMessage(t, "WriteMutations in tx", mem, code, id, length, data)
 
-	_, code, _, _, _ = CloseConnection(poolId, connId)
+	_, code, _, _, _, _ = CloseConnection(poolId, connId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("CloseConnection result mismatch\n Got: %v\nWant: %v", g, w)
 	}
-	_, code, _, _, _ = ClosePool(poolId)
+	_, code, _, _, _, _ = ClosePool(poolId)
 	if g, w := code, int32(0); g != w {
 		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}

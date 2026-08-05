@@ -18,6 +18,7 @@ import (
 	"database/sql"
 	"testing"
 
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
@@ -140,4 +141,41 @@ func TestApplyStatementScopedValuesWithExtension(t *testing.T) {
 	if ok {
 		t.Fatal("got unexpected value for my_extension.my_property")
 	}
+}
+
+func TestInErrorTxBehavior_Dialects(t *testing.T) {
+	t.Parallel()
+
+	t.Run("GoogleSQL_Default", func(t *testing.T) {
+		c := &conn{
+			logger: noopLogger,
+			state:  createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, connectionstate.TypeNonTransactional, nil),
+		}
+		if g, w := c.InErrorTxBehavior(), connectionstate.InErrorTxBehaviorAllowCommands; g != w {
+			t.Errorf("GoogleSQL default in_error_tx_behavior mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("PostgreSQL_Default", func(t *testing.T) {
+		c := &conn{
+			logger: noopLogger,
+			state:  createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_POSTGRESQL, connectionstate.TypeTransactional, nil),
+		}
+		if g, w := c.InErrorTxBehavior(), connectionstate.InErrorTxBehaviorEnforceInErrorState; g != w {
+			t.Errorf("PostgreSQL default in_error_tx_behavior mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("SetInErrorTxBehavior", func(t *testing.T) {
+		c := &conn{
+			logger: noopLogger,
+			state:  createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_POSTGRESQL, connectionstate.TypeTransactional, nil),
+		}
+		if err := c.SetInErrorTxBehavior(connectionstate.InErrorTxBehaviorAllowCommands); err != nil {
+			t.Fatalf("SetInErrorTxBehavior failed: %v", err)
+		}
+		if g, w := c.InErrorTxBehavior(), connectionstate.InErrorTxBehaviorAllowCommands; g != w {
+			t.Errorf("updated in_error_tx_behavior mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
 }

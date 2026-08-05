@@ -591,3 +591,24 @@ func mergeContexts(ctx1, ctx2 context.Context) (context.Context, context.CancelF
 		cancel()
 	}
 }
+
+// TransactionState returns the current transaction state ('I', 'T', 'E') of the connection.
+func TransactionState(poolId, connId int64) (string, error) {
+	conn, err := findConnection(poolId, connId)
+	if err != nil {
+		return "I", err
+	}
+	var txState string
+	err = conn.backend.Raw(func(driverConn any) error {
+		if sc, ok := driverConn.(spannerdriver.SpannerConn); ok {
+			txState = string(sc.TransactionState())
+		} else {
+			txState = "I"
+		}
+		return nil
+	})
+	if err != nil || txState == "" {
+		return "I", err
+	}
+	return txState, nil
+}

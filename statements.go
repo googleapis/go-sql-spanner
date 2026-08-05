@@ -119,7 +119,7 @@ func (s *executableShowStatement) queryContext(ctx context.Context, c *conn, opt
 	if err != nil {
 		return nil, err
 	}
-	return createRows(c.isPostgreSQL(), c.state, it /*cancel=*/, nil, opts), nil
+	return createRows(c.isPostgreSQL(), c.state, it /*cancel=*/, nil, opts, c.handleTxError), nil
 }
 
 // SET [SESSION | LOCAL] [my_extension.]my_property {=|to} <value>
@@ -279,7 +279,7 @@ func (s *executableRunBatchStatement) queryContext(ctx context.Context, c *conn,
 			if err != nil {
 				return nil, err
 			}
-			return createRows(c.isPostgreSQL(), c.state, it, nil, opts), nil
+			return createRows(c.isPostgreSQL(), c.state, it, nil, opts, c.handleTxError), nil
 		}
 	}
 	return createEmptyRows(opts), nil

@@ -157,15 +157,51 @@ func (d *delegatingTransaction) isPG() bool {
 	return d.conn != nil && d.conn.isPostgreSQL()
 }
 
+func (d *delegatingTransaction) rollbackBackendTransaction() {
+	if d.contextTransaction != nil {
+		switch tx := d.contextTransaction.(type) {
+		case *readWriteTransaction:
+			if tx.rwTx != nil {
+				tx.rwTx.Rollback(context.Background())
+				tx.rwTx = nil
+			}
+		case *readOnlyTransaction:
+			if tx.roTx != nil {
+				tx.roTx.Close()
+				tx.roTx = nil
+			}
+		}
+	}
+}
+
 func (d *delegatingTransaction) Commit() error {
+	if d.conn != nil && d.conn.state.TransactionState() == connectionstate.TransactionStateFailed &&
+		d.conn.state.InErrorTxBehavior() == connectionstate.InErrorTxBehaviorEnforceInErrorState {
+		_ = d.conn.state.Commit()
+		d.close(txResultCommit)
+		return nil
+	}
 	if d.contextTransaction == nil {
 		d.close(txResultCommit)
 		return nil
 	}
-	return checkAndEnrichError(d.isPG(), d.contextTransaction.Commit())
+	err := checkAndEnrichError(d.isPG(), d.contextTransaction.Commit())
+	if err != nil && d.conn != nil && d.conn.state.InTransaction() {
+		d.conn.state.SetTransactionFailed()
+		if d.conn.state.InErrorTxBehavior() == connectionstate.InErrorTxBehaviorEnforceInErrorState {
+			d.rollbackBackendTransaction()
+		}
+	}
+	return err
 }
 
 func (d *delegatingTransaction) Rollback() error {
+	if d.conn != nil && d.conn.state.TransactionState() == connectionstate.TransactionStateFailed &&
+		d.conn.state.InErrorTxBehavior() == connectionstate.InErrorTxBehaviorEnforceInErrorState {
+		_ = d.conn.state.Rollback()
+		d.close(txResultRollback)
+		return nil
+	}
 	if d.contextTransaction == nil {
 		d.close(txResultRollback)
 		return nil

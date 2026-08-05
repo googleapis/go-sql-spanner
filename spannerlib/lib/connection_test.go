@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"testing"
 
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/grpc/codes"
@@ -317,4 +318,34 @@ func TestWriteMutations(t *testing.T) {
 	if g, w := closeMsg.Code, int32(0); g != w {
 		t.Fatalf("ClosePool result mismatch\n Got: %v\nWant: %v", g, w)
 	}
+}
+
+func TestBeginAndCommit_PGTransactionState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServerWithDialect(t, databasepb.DatabaseDialect_POSTGRESQL)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;dialect=postgresql", server.Address)
+
+	poolMsg := CreatePool(ctx, "test", dsn)
+	connMsg := CreateConnection(ctx, poolMsg.ObjectId)
+	if g, w := connMsg.TransactionState, int32('I'); g != w {
+		t.Fatalf("initial TransactionState mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	txOpts := &spannerpb.TransactionOptions{}
+	txOptsBytes, _ := proto.Marshal(txOpts)
+	txMsg := BeginTransaction(ctx, poolMsg.ObjectId, connMsg.ObjectId, txOptsBytes)
+	if g, w := txMsg.TransactionState, int32('T'); g != w {
+		t.Fatalf("after BeginTransaction TransactionState mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	commitMsg := Commit(ctx, poolMsg.ObjectId, connMsg.ObjectId)
+	if g, w := commitMsg.TransactionState, int32('I'); g != w {
+		t.Fatalf("after Commit TransactionState mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	_ = CloseConnection(ctx, poolMsg.ObjectId, connMsg.ObjectId)
+	_ = ClosePool(ctx, poolMsg.ObjectId)
 }

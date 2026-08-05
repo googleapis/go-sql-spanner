@@ -19,6 +19,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func noop(v string) (string, error) {
@@ -566,4 +567,62 @@ func TestConnectionState_Aliases(t *testing.T) {
 	if val != "new-val" {
 		t.Errorf("expected GetValue through read-only alias to return 'new-val', got %v", val)
 	}
+}
+
+func TestPGTransactionState(t *testing.T) {
+	t.Run("DefaultIdleState", func(t *testing.T) {
+		state, err := NewConnectionState(TypeTransactional, nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error creating state: %v", err)
+		}
+		if g, w := state.TransactionState(), TransactionStateIdle; g != w {
+			t.Errorf("default transaction state mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("BeginAndCommitTransitions", func(t *testing.T) {
+		state, _ := NewConnectionState(TypeTransactional, nil, nil)
+		if err := state.Begin(); err != nil {
+			t.Fatalf("Begin failed: %v", err)
+		}
+		if g, w := state.TransactionState(), TransactionStateTransaction; g != w {
+			t.Errorf("state after Begin mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if err := state.Commit(); err != nil {
+			t.Fatalf("Commit failed: %v", err)
+		}
+		if g, w := state.TransactionState(), TransactionStateIdle; g != w {
+			t.Errorf("state after Commit mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("SetTransactionFailedAndRollback", func(t *testing.T) {
+		state, _ := NewConnectionState(TypeTransactional, nil, nil)
+		_ = state.Begin()
+		state.SetTransactionFailed()
+		if g, w := state.TransactionState(), TransactionStateFailed; g != w {
+			t.Errorf("state after SetTransactionFailed mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		_ = state.Rollback()
+		if g, w := state.TransactionState(), TransactionStateIdle; g != w {
+			t.Errorf("state after Rollback mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("CheckInErrorTxState_EnforceInErrorState", func(t *testing.T) {
+		state, _ := NewConnectionState(TypeTransactional, nil, nil)
+		state.SetInErrorTxBehavior(InErrorTxBehaviorEnforceInErrorState)
+		_ = state.Begin()
+		state.SetTransactionFailed()
+
+		if err := state.CheckInErrorTxState(false); err == nil {
+			t.Errorf("expected error when CheckInErrorTxState(false) in state E")
+		} else if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+			t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		if err := state.CheckInErrorTxState(true); err != nil {
+			t.Errorf("expected nil error for COMMIT/ROLLBACK in state E, got %v", err)
+		}
+	})
 }
