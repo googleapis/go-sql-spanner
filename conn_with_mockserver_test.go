@@ -2317,4 +2317,37 @@ func TestPGTransactionState_ServerAndClientErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+
+	t.Run("ParseErrorInTransaction", func(t *testing.T) {
+		db, _, teardown := setupTestDBConnectionWithParamsAndDialect(t, "", databasepb.DatabaseDialect_POSTGRESQL)
+		defer teardown()
+		ctx := context.Background()
+
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silentClose(conn)
+
+		tx, err := conn.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if g, w := getPGTransactionState(t, conn), connectionstate.TransactionStateTransaction; g != w {
+			t.Fatalf("state after begin mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		// A syntax/parse error in a SET statement (missing value / invalid syntax) prior to execParsed
+		_, err = tx.ExecContext(ctx, "SET foo bar")
+		if err == nil {
+			t.Fatal("expected parse error, got nil")
+		}
+
+		if g, w := getPGTransactionState(t, conn), connectionstate.TransactionStateFailed; g != w {
+			t.Fatalf("state after parse error mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		_ = tx.Rollback()
+	})
 }

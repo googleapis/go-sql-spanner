@@ -209,7 +209,7 @@ func (r *rows) Next(dest []driver.Value) error {
 		if err == iterator.Done {
 			return io.EOF
 		}
-		return r.handleRowError(err)
+		return err
 	}
 	if r.dirtyRow != nil {
 		row = r.dirtyRow

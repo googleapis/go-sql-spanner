@@ -95,11 +95,13 @@ module SpannerLib
 
   # Message is the common return type for all native functions.
   class Message < FFI::Struct
-    layout :pinner,   :long_long,
-           :code,     :int,
-           :remote_id, :long_long,
-           :length,   :int,
-           :pointer,  :pointer
+    layout :pinner,           :long_long,
+           :code,             :int,
+           :remote_id,        :long_long,
+           :length,           :int,
+           :pointer,          :pointer,
+           # ASCII integer representing readiness state ('I'=73, 'T'=84, 'E'=69)
+           :transaction_state, :int
   end
 
   # --- Native Function Signatures ---

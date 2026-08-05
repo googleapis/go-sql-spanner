@@ -982,16 +982,16 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, error) {
 	execOptions, err := c.options( /* reset = */ true)
 	if err != nil {
-		return nil, err
+		return nil, c.handleTxError(err)
 	}
 	_, args, _, err := c.parser.ParseParameters(query)
 	if err != nil {
-		return nil, checkAndEnrichError(c.isPostgreSQL(), err)
+		return nil, checkAndEnrichError(c.isPostgreSQL(), c.handleTxError(err))
 	}
 	info := c.parser.DetectStatementType(query)
 	parsedStatement, err := c.parser.ParseClientSideStatement(query)
 	if err != nil {
-		return nil, checkAndEnrichError(c.isPostgreSQL(), err)
+		return nil, checkAndEnrichError(c.isPostgreSQL(), c.handleTxError(err))
 	}
 	return &stmt{conn: c, query: query, numArgs: len(args), execOptions: execOptions, statementInfo: info, parsedStatement: parsedStatement}, nil
 }
@@ -1102,11 +1102,11 @@ func (c *conn) querySingle(ctx context.Context, query string, isPartOfMultiState
 	// Execute client side statement if it is one.
 	clientStmt, err := c.parser.ParseClientSideStatement(query)
 	if err != nil {
-		return nil, err
+		return nil, c.handleTxError(err)
 	}
 	execOptions, err := c.options( /* reset = */ clientStmt == nil)
 	if err != nil {
-		return nil, err
+		return nil, c.handleTxError(err)
 	}
 	if isPartOfMultiStatementString {
 		// Statements in a multi-statement SQL string must always be executed directly to ensure that the effects of the
@@ -1307,11 +1307,11 @@ func (c *conn) execSingle(ctx context.Context, query string, args []driver.Named
 	// Execute client side statement if it is one.
 	stmt, err := c.parser.ParseClientSideStatement(query)
 	if err != nil {
-		return nil, err
+		return nil, c.handleTxError(err)
 	}
 	execOptions, err := c.options( /*reset = */ stmt == nil)
 	if err != nil {
-		return nil, err
+		return nil, c.handleTxError(err)
 	}
 	statementInfo := c.parser.DetectStatementType(query)
 	return c.execParsed(ctx, query, stmt, statementInfo, execOptions, args)
