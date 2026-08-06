@@ -8,8 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
+	"github.com/googleapis/go-sql-spanner/parser"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -639,5 +642,104 @@ func TestReadOnlyTransactionTimestamp_VariousOptions(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestNilBackendTransactionSafety(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	selectStmt := spanner.Statement{SQL: testutil.SelectFooFromBar}
+	updateStmt := spanner.Statement{SQL: testutil.UpdateBarSetFoo}
+
+	t.Run("readWriteTransaction_nil_rwTx", func(t *testing.T) {
+		rwTx := &readWriteTransaction{
+			rwTx:   nil,
+			logger: noopLogger,
+		}
+		_, err := rwTx.Query(ctx, selectStmt, parser.StatementTypeQuery, &ExecOptions{})
+		if err == nil || spanner.ErrCode(err) != codes.FailedPrecondition {
+			t.Errorf("Query nil rwTx error code mismatch\nGot:  %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
+		}
+
+		_, err = rwTx.ExecContext(ctx, updateStmt, &parser.StatementInfo{}, spanner.QueryOptions{})
+		if err == nil || spanner.ErrCode(err) != codes.FailedPrecondition {
+			t.Errorf("ExecContext nil rwTx error code mismatch\nGot:  %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
+		}
+
+		_, err = rwTx.runDmlBatch(ctx)
+		if err == nil || spanner.ErrCode(err) != codes.FailedPrecondition {
+			t.Errorf("runDmlBatch nil rwTx error code mismatch\nGot:  %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
+		}
+
+		err = rwTx.BufferWrite(nil)
+		if err == nil || spanner.ErrCode(err) != codes.FailedPrecondition {
+			t.Errorf("BufferWrite nil rwTx error code mismatch\nGot:  %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
+		}
+	})
+
+	t.Run("readOnlyTransaction_nil_roTx", func(t *testing.T) {
+		roTx := &readOnlyTransaction{
+			roTx:   nil,
+			boTx:   nil,
+			logger: noopLogger,
+		}
+		_, err := roTx.Query(ctx, selectStmt, parser.StatementTypeQuery, &ExecOptions{})
+		if err == nil || spanner.ErrCode(err) != codes.FailedPrecondition {
+			t.Errorf("Query nil roTx error code mismatch\nGot:  %v\nWant: %v", spanner.ErrCode(err), codes.FailedPrecondition)
+		}
+	})
+}
+
+func TestFailedTransactionCommit_SessionStateRollback(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnectionWithParamsAndDialect(t, "", databasepb.DatabaseDialect_POSTGRESQL)
+	defer teardown()
+	ctx := context.Background()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(conn)
+
+	// Set in_error_tx_behavior to enforce_in_error_state
+	setPGInErrorTxBehavior(t, conn, connectionstate.InErrorTxBehaviorEnforceInErrorState)
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Change a session property inside the transaction
+	if _, err := tx.ExecContext(ctx, "SET READ_ONLY_STALENESS = 'EXACT_STALENESS 10s'"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Cause an error so the transaction enters state 'E'
+	_ = server.TestSpanner.PutStatementResult(testutil.UpdateBarSetFoo, &testutil.StatementResult{Err: status.Error(codes.InvalidArgument, "server error")})
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	// Commit on the failed transaction
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Session property setting should have been rolled back to default (Strong) instead of committed (ExactStaleness)
+	var staleness spanner.TimestampBound
+	err = conn.Raw(func(driverConn any) error {
+		if sc, ok := driverConn.(SpannerConn); ok {
+			staleness = sc.ReadOnlyStaleness()
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g, w := staleness.String(), "(strong)"; g != w {
+		t.Errorf("read only staleness was committed during failed transaction rollback\nGot:  %v\nWant: %v", g, w)
 	}
 }

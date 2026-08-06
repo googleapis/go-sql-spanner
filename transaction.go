@@ -180,11 +180,11 @@ func (d *delegatingTransaction) rollbackBackendTransaction() {
 func (d *delegatingTransaction) Commit() error {
 	if d.conn != nil && d.conn.state.TransactionState() == connectionstate.TransactionStateFailed &&
 		d.conn.state.InErrorTxBehavior() == connectionstate.InErrorTxBehaviorEnforceInErrorState {
-		_ = d.conn.state.Commit()
+		_ = d.conn.state.Rollback()
 		if rwTx, ok := d.contextTransaction.(*readWriteTransaction); ok && rwTx != nil {
-			rwTx.close(txResultCommit, nil, nil)
+			rwTx.close(txResultRollback, nil, nil)
 		} else {
-			d.close(txResultCommit)
+			d.close(txResultRollback)
 		}
 		return nil
 	}
@@ -338,6 +338,9 @@ func (tx *readOnlyTransaction) resetForRetry(ctx context.Context) error {
 
 func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement, stmtType parser.StatementType, execOptions *ExecOptions) (rowIterator, error) {
 	tx.logger.DebugContext(ctx, "Query", "stmt", stmt.SQL)
+	if tx.roTx == nil && tx.boTx == nil {
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-only transaction is closed or aborted"))
+	}
 	if execOptions.PartitionedQueryOptions.AutoPartitionQuery || propertyAutoPartitionMode.GetValueOrDefault(tx.state) {
 		if tx.boTx == nil {
 			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "AutoPartitionQuery is only supported for batch read-only transactions"))
@@ -696,6 +699,9 @@ func (tx *readWriteTransaction) resetForRetry(ctx context.Context) error {
 // transaction is aborted during the query or while iterating the returned rows.
 func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement, stmtType parser.StatementType, execOptions *ExecOptions) (rowIterator, error) {
 	tx.logger.Debug("Query", "stmt", stmt.SQL)
+	if tx.rwTx == nil {
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
+	}
 	execOptions.QueryOptions.DirectedReadOptions = nil
 	tx.active = true
 	if err := tx.maybeRunAutoDmlBatch(ctx); err != nil {
@@ -728,6 +734,9 @@ func (tx *readWriteTransaction) partitionQuery(ctx context.Context, stmt spanner
 
 func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.Statement, statementInfo *parser.StatementInfo, options spanner.QueryOptions) (res *result, err error) {
 	tx.logger.Debug("ExecContext", "stmt", stmt.SQL)
+	if tx.rwTx == nil {
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
+	}
 	options.DirectedReadOptions = nil
 	tx.active = true
 	if tx.batch != nil {
@@ -841,6 +850,9 @@ func verifyAutoDmlBatch(batch *batch, batchUpdateCounts []int64) error {
 
 func (tx *readWriteTransaction) runDmlBatch(ctx context.Context) (*result, error) {
 	tx.logger.Debug("running dml batch")
+	if tx.rwTx == nil {
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
+	}
 	statements := tx.batch.statements
 	options := tx.batch.options
 	tx.batch = nil
@@ -870,6 +882,9 @@ func (tx *readWriteTransaction) runDmlBatch(ctx context.Context) (*result, error
 }
 
 func (tx *readWriteTransaction) BufferWrite(ms []*spanner.Mutation) error {
+	if tx.rwTx == nil {
+		return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
+	}
 	tx.mutations = append(tx.mutations, ms...)
 	return tx.rwTx.BufferWrite(ms)
 }
