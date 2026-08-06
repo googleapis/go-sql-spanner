@@ -30,6 +30,8 @@ type Message struct {
 	// ObjectId is the ID of the object (e.g. Pool, Connection, Rows) that was created by the function.
 	// This field only has a non-zero value if the function actually created an object.
 	ObjectId int64
+	// TransactionState is the ASCII code of the PostgreSQL transaction state ('I'=73, 'T'=84, 'E'=69).
+	TransactionState int32
 	// Res is any data that was returned by the function. The contents of this byte array is defined by each function.
 	// It contains an encoded protobuf Status instance if Code is non-zero.
 	Res []byte
@@ -57,7 +59,12 @@ func (m *Message) ResPointer() unsafe.Pointer {
 
 // idMessage creates a new Message that only contains an object ID.
 func idMessage(id int64) *Message {
-	return &Message{ObjectId: id}
+	return &Message{ObjectId: id, TransactionState: 'I'}
+}
+
+// okMessage creates a new empty Message representing success.
+func okMessage() *Message {
+	return &Message{TransactionState: 'I'}
 }
 
 // errMessage creates a new Message with a non-zero status code and an error. The error is encoded as a protobuf
@@ -67,5 +74,5 @@ func errMessage(err error) *Message {
 	p := s.Proto()
 	// Ignore any marshalling errors and just return an empty status in that case.
 	b, _ := proto.Marshal(p)
-	return &Message{Code: int32(s.Code()), Res: b}
+	return &Message{Code: int32(s.Code()), Res: b, TransactionState: 'I'}
 }

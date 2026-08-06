@@ -41,5 +41,9 @@ public unsafe struct Message
     /// A pointer to the returned data. Null for functions that do not return data.
     /// </summary>
     public void* Pointer;
+    /// <summary>
+    /// The transaction state ('I'=73, 'T'=84, 'E'=69).
+    /// </summary>
+    public int TransactionState;
 #pragma warning restore CS0649 // Field is never assigned to, and will always have its default value
 }

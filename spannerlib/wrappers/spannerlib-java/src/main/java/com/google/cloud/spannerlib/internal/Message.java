@@ -41,8 +41,11 @@ public class Message extends Structure implements Structure.ByValue {
   /** A pointer to the actual data, or null if no data was returned. */
   public Pointer pointer;
 
+  /** The transaction state of the connection ('I', 'T', 'E'). */
+  public int transactionState;
+
   @Override
   protected List<String> getFieldOrder() {
-    return Arrays.asList("pinner", "code", "objectId", "length", "pointer");
+    return Arrays.asList("pinner", "code", "objectId", "length", "pointer", "transactionState");
   }
 }

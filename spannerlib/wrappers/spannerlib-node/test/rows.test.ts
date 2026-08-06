@@ -465,4 +465,44 @@ describe('Rows', () => {
     // (Notice we did not invoke Metadata again because nextResultSet returned and cached the new metadata)
     assert.strictEqual(stub.callCount, 4);
   });
+
+  it('should update connection.transactionState on rows operations', async () => {
+    const pool = new Pool(
+      'node-esm',
+      'projects/test/instances/test/databases/test'
+    );
+    pool.oid = 1;
+    const connection = new Connection();
+    connection.pool = pool;
+    connection.oid = 2;
+    connection.transactionState = 'I';
+
+    const rows = new Rows(connection, 3);
+
+    stub.onFirstCall().resolves({
+      objectId: 0,
+      pinnerId: 0,
+      protobufBytes: null,
+      transactionState: 'T',
+    });
+    await rows.next();
+    assert.strictEqual(
+      connection.transactionState,
+      'T',
+      'should update to T on rows.next()'
+    );
+
+    stub.onSecondCall().resolves({
+      objectId: 0,
+      pinnerId: 0,
+      protobufBytes: null,
+      transactionState: 'E',
+    });
+    await rows.nextResultSet();
+    assert.strictEqual(
+      connection.transactionState,
+      'E',
+      'should update to E on rows.nextResultSet()'
+    );
+  });
 });

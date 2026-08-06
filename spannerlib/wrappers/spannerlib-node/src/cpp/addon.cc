@@ -15,12 +15,13 @@
 #include <napi.h>
 #include "libspanner.h"
 
-// Documentation for Go function return fields (r0 - r4):
+// Documentation for Go function return fields (r0 - r5):
 // r0: Pinner ID (used for memory management to keep Go objects pinned)
 // r1: Error Code (0 for success, non-zero for error)
 // r2: Object ID (Handle to the created object, e.g., Pool or Connection)
 // r3: Message Length (Length of the protobuf message or error string in r4)
 // r4: Message Data (Pointer to protobuf bytes or JSON error message)
+// r5: Transaction Readiness State (ASCII character code: 73 for 'I', 84 for 'T', 69 for 'E')
 
 template <typename T>
 Napi::Object CreateResultObject(Napi::Env env, const T& result) {
@@ -34,6 +35,7 @@ Napi::Object CreateResultObject(Napi::Env env, const T& result) {
     } else {
         obj.Set("r4", env.Null());
     }
+    obj.Set("r5", Napi::Number::New(env, result.r5));
     if (result.r0 > 0) {
         ::Release(result.r0);
     }

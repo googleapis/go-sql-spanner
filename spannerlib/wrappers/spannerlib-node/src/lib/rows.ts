@@ -78,6 +78,7 @@ export class Rows {
       1,
       ENCODING_PROTOBUF
     );
+    this.connection.transactionState = handled.transactionState;
 
     if (!handled.protobufBytes || handled.protobufBytes.length === 0) {
       return null;
@@ -104,6 +105,7 @@ export class Rows {
       this.connection.oid!,
       this.oid
     );
+    this.connection.transactionState = handled.transactionState;
 
     if (!handled.protobufBytes || handled.protobufBytes.length === 0) {
       return null;
@@ -133,6 +135,7 @@ export class Rows {
       this.connection.oid!,
       this.oid
     );
+    this.connection.transactionState = handled.transactionState;
 
     if (!handled.protobufBytes || handled.protobufBytes.length === 0) {
       return null;
@@ -158,6 +161,7 @@ export class Rows {
       this.connection.oid!,
       this.oid
     );
+    this.connection.transactionState = handled.transactionState;
 
     this._cachedMetadata = null;
     this._cachedStats = null;
@@ -219,12 +223,13 @@ export class Rows {
           this.connection.pool.oid !== null &&
           this.connection.oid !== null
         ) {
-          await ffi.invokeAsync(
+          const handled = await ffi.invokeAsync(
             'CloseRows',
             this.connection.pool!.oid,
             this.connection.oid,
             this.oid
           );
+          this.connection.transactionState = handled.transactionState;
         }
       } finally {
         spannerLib.unregister(this);

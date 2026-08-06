@@ -154,7 +154,7 @@ func queryDdlBatch(ctx context.Context, conn *conn, index int, result *multiStat
 		}
 	}
 	if err := conn.StartBatchDDL(); err != nil {
-		return 0, registerError(index, result, err)
+		return 0, registerError(index, result, conn.handleTxError(err))
 	}
 	for i := startIndex; i < endIndex; i++ {
 		if _, err := querySingle(ctx, conn, i, result, statements[i], args); err != nil {
@@ -164,6 +164,7 @@ func queryDdlBatch(ctx context.Context, conn *conn, index int, result *multiStat
 	}
 	_, err := conn.runBatch(ctx)
 	if err != nil {
+		err = conn.handleTxError(err)
 		var be *BatchError
 		if errors.As(err, &be) {
 			return len(be.BatchUpdateCounts), registerBatchError(index, result, be)
@@ -184,7 +185,7 @@ func queryDmlBatch(ctx context.Context, conn *conn, index int, result *multiStat
 		}
 	}
 	if err := conn.StartBatchDML(); err != nil {
-		return 0, registerError(index, result, err)
+		return 0, registerError(index, result, conn.handleTxError(err))
 	}
 	execOpts := conn.tempExecOptions
 	if execOpts == nil {
@@ -201,6 +202,7 @@ func queryDmlBatch(ctx context.Context, conn *conn, index int, result *multiStat
 	}
 	res, err := conn.RunDmlBatch(ctx)
 	if err != nil {
+		err = conn.handleTxError(err)
 		var be *BatchError
 		if errors.As(err, &be) {
 			return len(be.BatchUpdateCounts), registerBatchError(index, result, be)
@@ -209,7 +211,7 @@ func queryDmlBatch(ctx context.Context, conn *conn, index int, result *multiStat
 	}
 	modified, err := res.BatchRowsAffected()
 	if err != nil {
-		return 0, registerError(index, result, err)
+		return 0, registerError(index, result, conn.handleTxError(err))
 	}
 	for i, m := range modified {
 		if noRows, ok := result.results[startIndex+i].(*emptyRows); ok {

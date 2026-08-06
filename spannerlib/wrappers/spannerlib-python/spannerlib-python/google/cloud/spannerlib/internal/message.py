@@ -53,6 +53,8 @@ class Message(ctypes.Structure):
         msg_len (ctypes.c_int32): Length of the error message (r3).
         msg (ctypes.c_void_p): Pointer to the error message string,
             if any (r4).
+        transaction_state (ctypes.c_int32): ASCII character code for the
+            transaction state ('I'=73, 'T'=84, 'E'=69) (r5).
     """
 
     _fields_ = [
@@ -67,6 +69,10 @@ class Message(ctypes.Structure):
             "msg",
             ctypes.c_void_p,
         ),  # r4: Pointer to result or error message bytes
+        (
+            "transaction_state",
+            ctypes.c_int32,
+        ),  # r5: Transaction readiness state ('I', 'T', 'E')
     ]
 
     def __init__(self, *args, **kwargs):

@@ -22,7 +22,9 @@ import (
 	"sync/atomic"
 
 	"cloud.google.com/go/spanner"
+	databasepb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -115,6 +117,14 @@ func CreateConnection(ctx context.Context, poolId int64) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	_ = sqlConn.Raw(func(driverConn any) error {
+		if sc, ok := driverConn.(spannerdriver.SpannerConn); ok {
+			if sc.DatabaseDialect() == databasepb.DatabaseDialect_POSTGRESQL {
+				_ = sc.SetInErrorTxBehavior(connectionstate.InErrorTxBehaviorEnforceInErrorState)
+			}
+		}
+		return nil
+	})
 	id := poolsIdx.Add(1)
 	connCtx, connCancel := context.WithCancel(context.Background())
 	conn := &Connection{

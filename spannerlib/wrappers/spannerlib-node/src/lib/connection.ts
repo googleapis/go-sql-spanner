@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { ffi } from '../ffi/utils.js';
+import { ffi, TransactionState } from '../ffi/utils.js';
 import { spannerLib } from './spannerlib.js';
 import { Pool } from './pool.js';
 import { Rows } from './rows.js';
@@ -32,6 +32,10 @@ export class Connection {
   public pool: Pool | null;
   public oid: number | null;
   public closed: boolean;
+  /**
+   * The readiness transaction state of this connection ('I' for Idle, 'T' for Transaction, 'E' for Failed).
+   */
+  public transactionState: TransactionState;
 
   /**
    * Creates a new connection within the specified pool.
@@ -50,6 +54,7 @@ export class Connection {
     const handled = await ffi.invokeAsync('CreateConnection', pool.oid);
 
     c.oid = handled.objectId;
+    c.transactionState = handled.transactionState;
     spannerLib.register(c, {
       type: 'connection',
       poolId: pool.oid,
@@ -62,6 +67,7 @@ export class Connection {
     this.pool = null;
     this.oid = null;
     this.closed = false;
+    this.transactionState = 'I';
   }
 
   /**
@@ -87,6 +93,7 @@ export class Connection {
       this.oid,
       serializedPb
     );
+    this.transactionState = rowsResult.transactionState;
     const rowsId = rowsResult.objectId;
 
     return new Rows(this, rowsId);
@@ -106,12 +113,13 @@ export class Connection {
       ? Buffer.from(TransactionOptionsProto.encode(options).finish())
       : Buffer.alloc(0);
 
-    await ffi.invokeAsync(
+    const res = await ffi.invokeAsync(
       'BeginTransaction',
       this.pool!.oid,
       this.oid,
       serializedPb
     );
+    this.transactionState = res.transactionState;
   }
 
   /**
@@ -122,6 +130,7 @@ export class Connection {
   async commit(): Promise<GoogleProto.spanner.v1.ICommitResponse> {
     this.ensureOpenAndValid();
     const res = await ffi.invokeAsync('Commit', this.pool!.oid, this.oid);
+    this.transactionState = res.transactionState;
     if (res.protobufBytes && res.protobufBytes.length > 0) {
       return google.spanner.v1.CommitResponse.decode(res.protobufBytes);
     }
@@ -133,7 +142,8 @@ export class Connection {
    */
   async rollback(): Promise<void> {
     this.ensureOpenAndValid();
-    await ffi.invokeAsync('Rollback', this.pool!.oid, this.oid);
+    const res = await ffi.invokeAsync('Rollback', this.pool!.oid, this.oid);
+    this.transactionState = res.transactionState;
   }
 
   /**
@@ -164,6 +174,7 @@ export class Connection {
       this.oid,
       serializedPb
     );
+    this.transactionState = res.transactionState;
     if (res.protobufBytes && res.protobufBytes.length > 0) {
       return google.spanner.v1.CommitResponse.decode(res.protobufBytes);
     }
@@ -208,6 +219,7 @@ export class Connection {
       this.oid,
       serializedPb
     );
+    this.transactionState = res.transactionState;
     if (res.protobufBytes && res.protobufBytes.length > 0) {
       return google.spanner.v1.ExecuteBatchDmlResponse.decode(
         res.protobufBytes
@@ -224,6 +236,7 @@ export class Connection {
   async close(): Promise<void> {
     if (!this.closed) {
       this.closed = true;
+      this.transactionState = 'I';
       try {
         if (
           this.pool &&

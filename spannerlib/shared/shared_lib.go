@@ -58,22 +58,22 @@ func Release(pinnerId int64) int32 {
 // This prevents the Go runtime from moving or garbage collecting this memory.
 // The returned pinner ID must be used to call Release when the caller is done
 // with the message.
-func pin(msg *lib.Message) (int64, int32, int64, int32, unsafe.Pointer) {
+func pin(msg *lib.Message) (int64, int32, int64, int32, unsafe.Pointer, int32) {
 	if msg.Length() == 0 {
-		return 0, msg.Code, msg.ObjectId, 0, nil
+		return 0, msg.Code, msg.ObjectId, 0, nil, msg.TransactionState
 	}
 	pinner := &runtime.Pinner{}
 	pinner.Pin(&(msg.Res[0]))
 	idx := pinnerIdx.Add(1)
 	pinners.Store(idx, pinner)
-	return idx, msg.Code, msg.ObjectId, msg.Length(), msg.ResPointer()
+	return idx, msg.Code, msg.ObjectId, msg.Length(), msg.ResPointer(), msg.TransactionState
 }
 
 // CreatePool creates a pool of database connections. A Pool is equivalent to a *sql.DB.
 // All connections that are created from a pool share the same underlying Spanner client.
 //
 //export CreatePool
-func CreatePool(userAgentSuffix, connectionString string) (int64, int32, int64, int32, unsafe.Pointer) {
+func CreatePool(userAgentSuffix, connectionString string) (int64, int32, int64, int32, unsafe.Pointer, int32) {
 	// TODO: Allow a user of the shared library to specify a custom context, for example with a custom timeout.
 	ctx := context.Background()
 	msg := lib.CreatePool(ctx, userAgentSuffix, connectionString)
@@ -83,7 +83,7 @@ func CreatePool(userAgentSuffix, connectionString string) (int64, int32, int64, 
 // ClosePool closes a previously opened Pool. All connections in the pool are also closed.
 //
 //export ClosePool
-func ClosePool(id int64) (int64, int32, int64, int32, unsafe.Pointer) {
+func ClosePool(id int64) (int64, int32, int64, int32, unsafe.Pointer, int32) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	msg := lib.ClosePool(ctx, id)
@@ -97,7 +97,7 @@ func ClosePool(id int64) (int64, int32, int64, int32, unsafe.Pointer) {
 // create a server-side session. Instead, all session state is stored in the client.
 //
 //export CreateConnection
-func CreateConnection(poolId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+func CreateConnection(poolId int64) (int64, int32, int64, int32, unsafe.Pointer, int32) {
 	ctx := context.Background()
 	msg := lib.CreateConnection(ctx, poolId)
 	return pin(msg)
@@ -107,7 +107,7 @@ func CreateConnection(poolId int64) (int64, int32, int64, int32, unsafe.Pointer)
 // associated with the connection.
 //
 //export CloseConnection
-func CloseConnection(poolId, connId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+func CloseConnection(poolId, connId int64) (int64, int32, int64, int32, unsafe.Pointer, int32) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	msg := lib.CloseConnection(ctx, poolId, connId)
@@ -124,7 +124,7 @@ func CloseConnection(poolId, connId int64) (int64, int32, int64, int32, unsafe.P
 // The mutationsBytes must be an encoded BatchWriteRequest_MutationGroup protobuf object.
 //
 //export WriteMutations
-func WriteMutations(poolId, connectionId int64, mutationsBytes []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+func WriteMutations(poolId, connectionId int64, mutationsBytes []byte) (int64, int32, int64, int32, unsafe.Pointer, int32) {
 	ctx := context.Background()
 	msg := lib.WriteMutations(ctx, poolId, connectionId, mutationsBytes)
 	return pin(msg)
@@ -138,7 +138,7 @@ func WriteMutations(poolId, connectionId int64, mutationsBytes []byte) (int64, i
 // TODO: This function should also be able to return a ResultSet containing the first N rows, the metadata, and the stats.
 //
 //export Execute
-func Execute(poolId, connectionId int64, statement []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+func Execute(poolId, connectionId int64, statement []byte) (int64, int32, int64, int32, unsafe.Pointer, int32) {
 	ctx := context.Background()
 	msg := lib.Execute(ctx, poolId, connectionId, statement)
 	return pin(msg)
@@ -150,7 +150,7 @@ func Execute(poolId, connectionId int64, statement []byte) (int64, int32, int64,
 // if the connection does not have a transaction.
 //
 //export ExecuteBatch
-func ExecuteBatch(poolId, connectionId int64, statements []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+func ExecuteBatch(poolId, connectionId int64, statements []byte) (int64, int32, int64, int32, unsafe.Pointer, int32) {
 	ctx := context.Background()
 	msg := lib.ExecuteBatch(ctx, poolId, connectionId, statements)
 	return pin(msg)
@@ -159,7 +159,7 @@ func ExecuteBatch(poolId, connectionId int64, statements []byte) (int64, int32, 
 // Metadata returns the metadata of a Rows object.
 //
 //export Metadata
-func Metadata(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+func Metadata(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer, int32) {
 	ctx := context.Background()
 	msg := lib.Metadata(ctx, poolId, connId, rowsId)
 	return pin(msg)
@@ -170,7 +170,7 @@ func Metadata(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.
 // Statistics are only available once all rows have been consumed.
 //
 //export ResultSetStats
-func ResultSetStats(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+func ResultSetStats(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer, int32) {
 	ctx := context.Background()
 	msg := lib.ResultSetStats(ctx, poolId, connId, rowsId)
 	return pin(msg)
@@ -180,7 +180,7 @@ func ResultSetStats(poolId, connId, rowsId int64) (int64, int32, int64, int32, u
 // if the Rows object does not contain more result sets.
 //
 //export NextResultSet
-func NextResultSet(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+func NextResultSet(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer, int32) {
 	ctx := context.Background()
 	msg := lib.NextResultSet(ctx, poolId, connId, rowsId)
 	return pin(msg)
@@ -191,7 +191,7 @@ func NextResultSet(poolId, connId, rowsId int64) (int64, int32, int64, int32, un
 // no more rows in the Rows object.
 //
 //export Next
-func Next(poolId, connId, rowsId int64, numRows int32, encodeRowOption int32) (int64, int32, int64, int32, unsafe.Pointer) {
+func Next(poolId, connId, rowsId int64, numRows int32, encodeRowOption int32) (int64, int32, int64, int32, unsafe.Pointer, int32) {
 	ctx := context.Background()
 	// TODO: Implement support for:
 	//  1. Fetching more than one row at a time.
@@ -204,7 +204,7 @@ func Next(poolId, connId, rowsId int64, numRows int32, encodeRowOption int32) (i
 // when the application is done with the Rows object.
 //
 //export CloseRows
-func CloseRows(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+func CloseRows(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe.Pointer, int32) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	msg := lib.CloseRows(ctx, poolId, connId, rowsId)
@@ -215,7 +215,7 @@ func CloseRows(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe
 // The txOpts byte slice contains a serialized protobuf TransactionOptions object.
 //
 //export BeginTransaction
-func BeginTransaction(poolId, connectionId int64, txOpts []byte) (int64, int32, int64, int32, unsafe.Pointer) {
+func BeginTransaction(poolId, connectionId int64, txOpts []byte) (int64, int32, int64, int32, unsafe.Pointer, int32) {
 	ctx := context.Background()
 	msg := lib.BeginTransaction(ctx, poolId, connectionId, txOpts)
 	return pin(msg)
@@ -226,7 +226,7 @@ func BeginTransaction(poolId, connectionId int64, txOpts []byte) (int64, int32, 
 // that all resources that are held by a transaction are cleaned up.
 //
 //export Commit
-func Commit(poolId, connectionId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+func Commit(poolId, connectionId int64) (int64, int32, int64, int32, unsafe.Pointer, int32) {
 	ctx := context.Background()
 	msg := lib.Commit(ctx, poolId, connectionId)
 	return pin(msg)
@@ -242,7 +242,7 @@ func Commit(poolId, connectionId int64) (int64, int32, int64, int32, unsafe.Poin
 // on Spanner, and both functions just close the transaction.
 //
 //export Rollback
-func Rollback(poolId, connectionId int64) (int64, int32, int64, int32, unsafe.Pointer) {
+func Rollback(poolId, connectionId int64) (int64, int32, int64, int32, unsafe.Pointer, int32) {
 	ctx := context.Background()
 	msg := lib.Rollback(ctx, poolId, connectionId)
 	return pin(msg)

@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"io"
 	"log/slog"
 	"slices"
 	"sync"
@@ -132,6 +133,16 @@ type SpannerConn interface {
 	// SetIsolationLevel sets the default isolation level to use for read/write
 	// transactions on this connection.
 	SetIsolationLevel(level sql.IsolationLevel) error
+
+	// DatabaseDialect returns the database dialect of the connection.
+	DatabaseDialect() adminpb.DatabaseDialect
+
+	// TransactionState returns the current PostgreSQL readiness transaction state ('I', 'T', 'E').
+	TransactionState() connectionstate.TransactionState
+	// InErrorTxBehavior returns the current behavior when a transaction fails.
+	InErrorTxBehavior() connectionstate.InErrorTxBehavior
+	// SetInErrorTxBehavior sets the behavior when a transaction fails.
+	SetInErrorTxBehavior(behavior connectionstate.InErrorTxBehavior) error
 
 	// ReadLockMode returns the current read lock mode that is used for read/write
 	// transactions on this connection.
@@ -483,6 +494,26 @@ func (c *conn) IsolationLevel() sql.IsolationLevel {
 
 func (c *conn) SetIsolationLevel(level sql.IsolationLevel) error {
 	return propertyIsolationLevel.SetValue(c.state, level, connectionstate.ContextUser)
+}
+
+func (c *conn) DatabaseDialect() adminpb.DatabaseDialect {
+	if c.parser == nil {
+		return adminpb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED
+	}
+	return c.parser.Dialect
+}
+
+func (c *conn) TransactionState() connectionstate.TransactionState {
+	return c.state.TransactionState()
+}
+
+func (c *conn) InErrorTxBehavior() connectionstate.InErrorTxBehavior {
+	return c.state.InErrorTxBehavior()
+}
+
+func (c *conn) SetInErrorTxBehavior(behavior connectionstate.InErrorTxBehavior) error {
+	c.state.SetInErrorTxBehavior(behavior)
+	return nil
 }
 
 func (c *conn) ReadLockMode() spannerpb.TransactionOptions_ReadWrite_ReadLockMode {
@@ -843,13 +874,16 @@ func (c *conn) Apply(ctx context.Context, ms []*spanner.Mutation, opts ...spanne
 }
 
 func (c *conn) BufferWrite(ms []*spanner.Mutation) error {
+	if err := c.checkInErrorTxState(nil); err != nil {
+		return err
+	}
 	if !c.inTransaction() {
 		return checkAndEnrichError(c.isPostgreSQL(), spanner.ToSpannerError(
 			status.Error(
 				codes.FailedPrecondition,
 				"BufferWrite may not be called while the connection is not in a transaction. Use Apply to write mutations outside a transaction.")))
 	}
-	return checkAndEnrichError(c.isPostgreSQL(), c.tx.BufferWrite(ms))
+	return c.handleTxError(c.tx.BufferWrite(ms))
 }
 
 // Ping implements the driver.Pinger interface.
@@ -958,16 +992,16 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 func (c *conn) PrepareContext(_ context.Context, query string) (driver.Stmt, error) {
 	execOptions, err := c.options( /* reset = */ true)
 	if err != nil {
-		return nil, err
+		return nil, c.handleTxError(err)
 	}
 	_, args, _, err := c.parser.ParseParameters(query)
 	if err != nil {
-		return nil, checkAndEnrichError(c.isPostgreSQL(), err)
+		return nil, checkAndEnrichError(c.isPostgreSQL(), c.handleTxError(err))
 	}
 	info := c.parser.DetectStatementType(query)
 	parsedStatement, err := c.parser.ParseClientSideStatement(query)
 	if err != nil {
-		return nil, checkAndEnrichError(c.isPostgreSQL(), err)
+		return nil, checkAndEnrichError(c.isPostgreSQL(), c.handleTxError(err))
 	}
 	return &stmt{conn: c, query: query, numArgs: len(args), execOptions: execOptions, statementInfo: info, parsedStatement: parsedStatement}, nil
 }
@@ -1078,11 +1112,11 @@ func (c *conn) querySingle(ctx context.Context, query string, isPartOfMultiState
 	// Execute client side statement if it is one.
 	clientStmt, err := c.parser.ParseClientSideStatement(query)
 	if err != nil {
-		return nil, err
+		return nil, c.handleTxError(err)
 	}
 	execOptions, err := c.options( /* reset = */ clientStmt == nil)
 	if err != nil {
-		return nil, err
+		return nil, c.handleTxError(err)
 	}
 	if isPartOfMultiStatementString {
 		// Statements in a multi-statement SQL string must always be executed directly to ensure that the effects of the
@@ -1093,15 +1127,53 @@ func (c *conn) querySingle(ctx context.Context, query string, isPartOfMultiState
 	return c.queryParsed(ctx, query, clientStmt, statementInfo, execOptions, args)
 }
 
+func (c *conn) checkInErrorTxState(clientStmt parser.ParsedStatement) error {
+	isCommitOrRollback := false
+	if clientStmt != nil {
+		switch clientStmt.(type) {
+		case *parser.ParsedCommitStatement, *parser.ParsedRollbackStatement:
+			isCommitOrRollback = true
+		}
+	}
+	if err := c.state.CheckInErrorTxState(isCommitOrRollback); err != nil {
+		return checkAndEnrichError(c.isPostgreSQL(), err)
+	}
+	return nil
+}
+
+func (c *conn) handleTxError(err error) error {
+	if err == nil || err == io.EOF || err == iterator.Done || err == driver.ErrBadConn || err == driver.ErrSkip {
+		return err
+	}
+	if c.inTransaction() {
+		c.state.SetTransactionFailed()
+		if c.state.InErrorTxBehavior() == connectionstate.InErrorTxBehaviorEnforceInErrorState && c.tx != nil {
+			c.tx.rollbackBackendTransaction()
+		}
+	}
+	return checkAndEnrichError(c.isPostgreSQL(), err)
+}
+
 func (c *conn) queryParsed(ctx context.Context, query string, clientStmt parser.ParsedStatement, statementInfo *parser.StatementInfo, execOptions *ExecOptions, args []driver.NamedValue) (driver.Rows, error) {
+	if err := c.checkInErrorTxState(clientStmt); err != nil {
+		return nil, err
+	}
 	if clientStmt != nil {
 		execStmt, err := createExecutableStatement(clientStmt)
 		if err != nil {
-			return nil, err
+			return nil, c.handleTxError(err)
 		}
-		return execStmt.queryContext(ctx, c, execOptions, args)
+		rows, err := execStmt.queryContext(ctx, c, execOptions, args)
+		if err != nil {
+			return nil, c.handleTxError(err)
+		}
+		return rows, nil
 	}
-	return c.queryContext(ctx, query, statementInfo, execOptions, args)
+	rows, err := c.queryContext(ctx, query, statementInfo, execOptions, args)
+	if err != nil {
+		return nil, c.handleTxError(err)
+	}
+	return rows, nil
 }
 
 func (c *conn) queryContext(ctx context.Context, query string, statementInfo *parser.StatementInfo, execOptions *ExecOptions, args []driver.NamedValue) (returnedRows driver.Rows, returnedErr error) {
@@ -1175,7 +1247,7 @@ func (c *conn) queryContext(ctx context.Context, query string, statementInfo *pa
 			return nil, err
 		}
 	}
-	res := createRows(c.isPostgreSQL(), c.state, iter, cancel, execOptions)
+	res := createRows(c.isPostgreSQL(), c.state, iter, cancel, execOptions, c.handleTxError)
 	if execOptions.DirectExecuteQuery {
 		if err := c.directExecuteQuery(ctx, cancelCause, res, execOptions); err != nil {
 			return nil, err
@@ -1245,25 +1317,36 @@ func (c *conn) execSingle(ctx context.Context, query string, args []driver.Named
 	// Execute client side statement if it is one.
 	stmt, err := c.parser.ParseClientSideStatement(query)
 	if err != nil {
-		return nil, err
+		return nil, c.handleTxError(err)
 	}
 	execOptions, err := c.options( /*reset = */ stmt == nil)
 	if err != nil {
-		return nil, err
+		return nil, c.handleTxError(err)
 	}
 	statementInfo := c.parser.DetectStatementType(query)
 	return c.execParsed(ctx, query, stmt, statementInfo, execOptions, args)
 }
 
 func (c *conn) execParsed(ctx context.Context, query string, stmt parser.ParsedStatement, statementInfo *parser.StatementInfo, execOptions *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
+	if err := c.checkInErrorTxState(stmt); err != nil {
+		return nil, err
+	}
 	if stmt != nil {
 		execStmt, err := createExecutableStatement(stmt)
 		if err != nil {
-			return nil, err
+			return nil, c.handleTxError(err)
 		}
-		return execStmt.execContext(ctx, c, execOptions, args)
+		res, err := execStmt.execContext(ctx, c, execOptions, args)
+		if err != nil {
+			return nil, c.handleTxError(err)
+		}
+		return res, nil
 	}
-	return c.execContext(ctx, query, statementInfo, execOptions, args)
+	res, err := c.execContext(ctx, query, statementInfo, execOptions, args)
+	if err != nil {
+		return nil, c.handleTxError(err)
+	}
+	return res, nil
 }
 
 func (c *conn) execContext(ctx context.Context, query string, statementInfo *parser.StatementInfo, execOptions *ExecOptions, args []driver.NamedValue) (returnedResult driver.Result, returnedErr error) {

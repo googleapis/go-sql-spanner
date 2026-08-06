@@ -32,11 +32,15 @@ export const ENCODING_PROTOBUF = 1;
  * @property {number} objectId - The active numeric resource ID returned by Go for the newly created or manipulated entity (e.g., the Pool ID, Connection ID, or Rows iterator ID).
  * @property {number} pinnerId - The internal memory lock pointer ID. Used by the Go SDK to keep the returned buffer pinned in memory until it's safely copied.
  * @property {Buffer | null} protobufBytes - The raw response payload bytes (e.g., query result sets or serialized protobuf structures).
+ * @property {'I' | 'T' | 'E'} transactionState - The readiness transaction state ('I', 'T', 'E').
  */
+export type TransactionState = 'I' | 'T' | 'E';
+
 export interface HandledResult {
   objectId: number;
   pinnerId: number;
   protobufBytes: Buffer | null;
+  transactionState: TransactionState;
 }
 
 /**
@@ -49,6 +53,7 @@ export interface HandledResult {
  * @property {number} r2 - Object Handle ID. The generated resource ID representing the Go database object (Pool ID, Connection ID, or Rows ID).
  * @property {number} r3 - Buffer Size / Length. The byte length of the returned data payload or native error string in `r4`.
  * @property {Buffer | null} r4 - Payload Pointer. The raw memory buffer containing the serialized protobuf data, JSON response, or native error payload.
+ * @property {number} [r5] - Transaction readiness state ASCII character code (73='I', 84='T', 69='E').
  */
 interface AddonResult {
   r0: number;
@@ -56,6 +61,7 @@ interface AddonResult {
   r2: number;
   r3: number;
   r4: Buffer | null;
+  r5?: number;
 }
 
 /**
@@ -90,10 +96,16 @@ function invokeAsync(
         );
       }
 
+      const asciiCode = result.r5 || 73; // ASCII 73 is 'I'
+      const transactionState = String.fromCharCode(
+        asciiCode
+      ) as TransactionState;
+
       resolve({
         objectId: result.r2,
         pinnerId: result.r0,
         protobufBytes: result.r4,
+        transactionState,
       });
     };
 

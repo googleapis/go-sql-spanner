@@ -106,6 +106,7 @@ var propertyIsolationLevel = createConnectionProperty(
 		return parseIsolationLevel(value)
 	},
 )
+
 var propertyReadLockMode = createConnectionProperty(
 	"read_lock_mode",
 	"This option controls the locking behavior for read operations and queries within a read/write transaction. "+
@@ -833,5 +834,6 @@ func createInitialConnectionStateWithDialect(dialect databasepb.DatabaseDialect,
 			_ = propertyIsolationLevel.SetValue(state, sql.LevelSerializable, connectionstate.ContextStartup)
 		}
 	}
+	state.SetInErrorTxBehavior(connectionstate.InErrorTxBehaviorAllowCommands)
 	return state
 }

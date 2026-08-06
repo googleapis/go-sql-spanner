@@ -24,14 +24,28 @@ import (
 	"spannerlib/api"
 )
 
+// withConnTxState attaches the PostgreSQL transaction state ('I', 'T', 'E') to the Message.
+func withConnTxState(msg *Message, poolId, connId int64) *Message {
+	if msg == nil {
+		return nil
+	}
+	st, err := api.TransactionState(poolId, connId)
+	if err == nil && st != 0 {
+		msg.TransactionState = int32(st)
+	} else {
+		msg.TransactionState = 'I'
+	}
+	return msg
+}
+
 // CloseConnection closes the Connection with the given ID and returns a Message that indicates whether the operation
 // was successful.
 func CloseConnection(ctx context.Context, poolId, connId int64) *Message {
 	err := api.CloseConnection(ctx, poolId, connId)
 	if err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
-	return &Message{}
+	return withConnTxState(okMessage(), poolId, connId)
 }
 
 // WriteMutations writes an array of mutations to Spanner. The mutations are buffered in
@@ -45,17 +59,17 @@ func CloseConnection(ctx context.Context, poolId, connId int64) *Message {
 func WriteMutations(ctx context.Context, poolId, connId int64, mutationBytes []byte) *Message {
 	mutations := spannerpb.BatchWriteRequest_MutationGroup{}
 	if err := proto.Unmarshal(mutationBytes, &mutations); err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
 	response, err := api.WriteMutations(ctx, poolId, connId, &mutations)
 	if err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
 	res, err := proto.Marshal(response)
 	if err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
-	return &Message{Res: res}
+	return withConnTxState(&Message{Res: res, TransactionState: 'I'}, poolId, connId)
 }
 
 // BeginTransaction starts a new transaction on the given connection. A connection can have at most one active
@@ -63,69 +77,69 @@ func WriteMutations(ctx context.Context, poolId, connId int64, mutationBytes []b
 func BeginTransaction(ctx context.Context, poolId, connId int64, txOptsBytes []byte) *Message {
 	txOpts := spannerpb.TransactionOptions{}
 	if err := proto.Unmarshal(txOptsBytes, &txOpts); err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
 	err := api.BeginTransaction(ctx, poolId, connId, &txOpts)
 	if err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
-	return &Message{}
+	return withConnTxState(okMessage(), poolId, connId)
 }
 
 // Commit commits the current transaction on the given connection.
 func Commit(ctx context.Context, poolId, connId int64) *Message {
 	response, err := api.Commit(ctx, poolId, connId)
 	if err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
 	if response == nil {
-		return &Message{}
+		return withConnTxState(okMessage(), poolId, connId)
 	}
 	res, err := proto.Marshal(response)
 	if err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
-	return &Message{Res: res}
+	return withConnTxState(&Message{Res: res, TransactionState: 'I'}, poolId, connId)
 }
 
 // Rollback rollbacks the current transaction on the given connection.
 func Rollback(ctx context.Context, poolId, connId int64) *Message {
 	err := api.Rollback(ctx, poolId, connId)
 	if err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
-	return &Message{}
+	return withConnTxState(okMessage(), poolId, connId)
 }
 
 func Execute(ctx context.Context, poolId, connId int64, executeSqlRequestBytes []byte) (msg *Message) {
 	defer func() {
 		if r := recover(); r != nil {
-			msg = errMessage(fmt.Errorf("panic for message with size %d: %v", len(executeSqlRequestBytes), r))
+			msg = withConnTxState(errMessage(fmt.Errorf("panic for message with size %d: %v", len(executeSqlRequestBytes), r)), poolId, connId)
 		}
 	}()
 	statement := spannerpb.ExecuteSqlRequest{}
 	if err := proto.Unmarshal(executeSqlRequestBytes, &statement); err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
 	id, err := api.Execute(ctx, poolId, connId, &statement)
 	if err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
-	return idMessage(id)
+	return withConnTxState(idMessage(id), poolId, connId)
 }
 
 func ExecuteBatch(ctx context.Context, poolId, connId int64, statementsBytes []byte) *Message {
 	statements := spannerpb.ExecuteBatchDmlRequest{}
 	if err := proto.Unmarshal(statementsBytes, &statements); err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
 	response, err := api.ExecuteBatch(ctx, poolId, connId, &statements)
 	if err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
 	res, err := proto.Marshal(response)
 	if err != nil {
-		return errMessage(err)
+		return withConnTxState(errMessage(err), poolId, connId)
 	}
-	return &Message{Res: res}
+	return withConnTxState(&Message{Res: res, TransactionState: 'I'}, poolId, connId)
 }

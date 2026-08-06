@@ -154,6 +154,11 @@ func ToPGSQLState(err error) string {
 		code = s.Code()
 	}
 
+	// InFailedSqlTransaction (25P02): FAILED_PRECONDITION + current transaction is failed message
+	if code == codes.FailedPrecondition && strings.Contains(errStr, "current transaction is failed, commands ignored until end of transaction block") {
+		return "25P02"
+	}
+
 	// UndefinedColumn (42703): NOT_FOUND / INVALID_ARGUMENT + exact column not found regex
 	if (code == codes.NotFound || code == codes.InvalidArgument) && columnNotFoundRegex.MatchString(errStr) {
 		return "42703"

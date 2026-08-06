@@ -206,4 +206,52 @@ describe('Connection', () => {
       await connection.executeBatch(['UPDATE T SET C=1']);
     }, /Connection is already closed/);
   });
+
+  it('should update transactionState from invokeAsync result', async () => {
+    const pool = new Pool(
+      'node-esm',
+      'projects/test/instances/test/databases/test'
+    );
+    pool.oid = 1;
+
+    const connection = new Connection();
+    connection.pool = pool;
+    connection.oid = 2;
+
+    assert.strictEqual(connection.transactionState, 'I', 'default should be I');
+
+    stub.onFirstCall().resolves({
+      objectId: 0,
+      pinnerId: 0,
+      protobufBytes: null,
+      transactionState: 'T',
+    });
+    await connection.beginTransaction();
+    assert.strictEqual(
+      connection.transactionState,
+      'T',
+      'should transition to T on beginTransaction'
+    );
+
+    stub.onSecondCall().resolves({
+      objectId: 0,
+      pinnerId: 0,
+      protobufBytes: null,
+      transactionState: 'I',
+    });
+    await connection.commit();
+    assert.strictEqual(
+      connection.transactionState,
+      'I',
+      'should transition to I on commit'
+    );
+
+    connection.transactionState = 'E';
+    await connection.close();
+    assert.strictEqual(
+      connection.transactionState,
+      'I',
+      'should reset to I on close'
+    );
+  });
 });

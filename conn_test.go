@@ -18,6 +18,7 @@ import (
 	"database/sql"
 	"testing"
 
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
@@ -139,5 +140,63 @@ func TestApplyStatementScopedValuesWithExtension(t *testing.T) {
 	}
 	if ok {
 		t.Fatal("got unexpected value for my_extension.my_property")
+	}
+}
+
+func TestInErrorTxBehavior_Dialects(t *testing.T) {
+	t.Parallel()
+
+	t.Run("GoogleSQL_Default", func(t *testing.T) {
+		c := &conn{
+			logger: noopLogger,
+			state:  createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, connectionstate.TypeNonTransactional, nil),
+		}
+		if g, w := c.InErrorTxBehavior(), connectionstate.InErrorTxBehaviorAllowCommands; g != w {
+			t.Errorf("GoogleSQL default in_error_tx_behavior mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("PostgreSQL_Default", func(t *testing.T) {
+		c := &conn{
+			logger: noopLogger,
+			state:  createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_POSTGRESQL, connectionstate.TypeTransactional, nil),
+		}
+		if g, w := c.InErrorTxBehavior(), connectionstate.InErrorTxBehaviorAllowCommands; g != w {
+			t.Errorf("PostgreSQL default in_error_tx_behavior mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("SetInErrorTxBehavior", func(t *testing.T) {
+		c := &conn{
+			logger: noopLogger,
+			state:  createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_POSTGRESQL, connectionstate.TypeTransactional, nil),
+		}
+		if err := c.SetInErrorTxBehavior(connectionstate.InErrorTxBehaviorAllowCommands); err != nil {
+			t.Fatalf("SetInErrorTxBehavior failed: %v", err)
+		}
+		if g, w := c.InErrorTxBehavior(), connectionstate.InErrorTxBehaviorAllowCommands; g != w {
+			t.Errorf("updated in_error_tx_behavior mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+}
+
+func TestDatabaseDialectMethod(t *testing.T) {
+	t.Parallel()
+
+	pGoogleSQL, _ := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 0)
+	cGoogleSQL := &conn{parser: pGoogleSQL}
+	if g, w := cGoogleSQL.DatabaseDialect(), databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL; g != w {
+		t.Errorf("GoogleSQL DatabaseDialect mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	pPostgreSQL, _ := parser.NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 0)
+	cPostgreSQL := &conn{parser: pPostgreSQL}
+	if g, w := cPostgreSQL.DatabaseDialect(), databasepb.DatabaseDialect_POSTGRESQL; g != w {
+		t.Errorf("PostgreSQL DatabaseDialect mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	cNil := &conn{}
+	if g, w := cNil.DatabaseDialect(), databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED; g != w {
+		t.Errorf("nil parser DatabaseDialect mismatch\nGot:  %v\nWant: %v", g, w)
 	}
 }

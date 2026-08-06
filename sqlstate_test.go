@@ -229,3 +229,16 @@ func TestWithPGSQLState_PreservesStatusDetails(t *testing.T) {
 		t.Errorf("expected RetryDelay seconds 1, got %v", retryInfo.GetRetryDelay().GetSeconds())
 	}
 }
+
+func TestPGSQLState_InFailedSqlTransaction(t *testing.T) {
+	err := status.Error(codes.FailedPrecondition, "current transaction is failed, commands ignored until end of transaction block")
+	code := ToPGSQLState(err)
+	if g, w := code, "25P02"; g != w {
+		t.Errorf("SQLSTATE code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	wrapped := WithPGSQLState(err)
+	if g, w := wrapped.Error(), "[SQLSTATE 25P02] rpc error: code = FailedPrecondition desc = current transaction is failed, commands ignored until end of transaction block"; g != w {
+		t.Errorf("error message mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
