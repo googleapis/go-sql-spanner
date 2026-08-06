@@ -23,6 +23,7 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -346,6 +347,89 @@ func TestBeginAndCommit_PGTransactionState(t *testing.T) {
 		t.Fatalf("after Commit TransactionState mismatch\n Got: %v\nWant: %v", g, w)
 	}
 
+	_ = CloseConnection(ctx, poolMsg.ObjectId, connMsg.ObjectId)
+	_ = ClosePool(ctx, poolMsg.ObjectId)
+}
+
+func TestPGTransactionState_EnforceInErrorState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServerWithDialect(t, databasepb.DatabaseDialect_POSTGRESQL)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true;dialect=postgresql", server.Address)
+
+	poolMsg := CreatePool(ctx, "test", dsn)
+	connMsg := CreateConnection(ctx, poolMsg.ObjectId)
+	if g, w := connMsg.TransactionState, int32('I'); g != w {
+		t.Fatalf("initial TransactionState mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	txOpts := &spannerpb.TransactionOptions{}
+	txOptsBytes, _ := proto.Marshal(txOpts)
+	txMsg := BeginTransaction(ctx, poolMsg.ObjectId, connMsg.ObjectId, txOptsBytes)
+	if g, w := txMsg.TransactionState, int32('T'); g != w {
+		t.Fatalf("after BeginTransaction TransactionState mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	_ = server.TestSpanner.PutStatementResult(testutil.UpdateBarSetFoo, &testutil.StatementResult{Err: status.Error(codes.InvalidArgument, "server side error")})
+	req := &spannerpb.ExecuteSqlRequest{Sql: testutil.UpdateBarSetFoo}
+	reqBytes, _ := proto.Marshal(req)
+	execMsg := Execute(ctx, poolMsg.ObjectId, connMsg.ObjectId, reqBytes)
+	if g, w := execMsg.TransactionState, int32('E'); g != w {
+		t.Fatalf("after statement error TransactionState mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Subsequent query should be blocked because spannerlib enabled EnforceInErrorState by default for PG
+	selectReq := &spannerpb.ExecuteSqlRequest{Sql: testutil.SelectFooFromBar}
+	selectReqBytes, _ := proto.Marshal(selectReq)
+	subsequentMsg := Execute(ctx, poolMsg.ObjectId, connMsg.ObjectId, selectReqBytes)
+	if g, w := codes.Code(subsequentMsg.Code), codes.FailedPrecondition; g != w {
+		t.Fatalf("subsequent command result code mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	_ = Rollback(ctx, poolMsg.ObjectId, connMsg.ObjectId)
+	_ = CloseConnection(ctx, poolMsg.ObjectId, connMsg.ObjectId)
+	_ = ClosePool(ctx, poolMsg.ObjectId)
+}
+
+func TestGoogleSQLTransactionState_AllowCommands(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServerWithDialect(t, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolMsg := CreatePool(ctx, "test", dsn)
+	connMsg := CreateConnection(ctx, poolMsg.ObjectId)
+
+	txOpts := &spannerpb.TransactionOptions{}
+	txOptsBytes, _ := proto.Marshal(txOpts)
+	_ = BeginTransaction(ctx, poolMsg.ObjectId, connMsg.ObjectId, txOptsBytes)
+
+	_ = server.TestSpanner.PutStatementResult(testutil.UpdateBarSetFoo, &testutil.StatementResult{Err: status.Error(codes.InvalidArgument, "server side error")})
+	_ = server.TestSpanner.PutStatementResult(testutil.SelectFooFromBar, &testutil.StatementResult{
+		Type:      testutil.StatementResultResultSet,
+		ResultSet: testutil.CreateSelect1ResultSet(),
+	})
+	req := &spannerpb.ExecuteSqlRequest{Sql: testutil.UpdateBarSetFoo}
+	reqBytes, _ := proto.Marshal(req)
+	_ = Execute(ctx, poolMsg.ObjectId, connMsg.ObjectId, reqBytes)
+
+	// Subsequent DML command should NOT be blocked on GoogleSQL because it stays on AllowCommands
+	_ = server.TestSpanner.PutStatementResult(testutil.UpdateSingersSetLastName, &testutil.StatementResult{
+		Type:        testutil.StatementResultUpdateCount,
+		UpdateCount: 1,
+	})
+	secondReq := &spannerpb.ExecuteSqlRequest{Sql: testutil.UpdateSingersSetLastName}
+	secondReqBytes, _ := proto.Marshal(secondReq)
+	subsequentMsg := Execute(ctx, poolMsg.ObjectId, connMsg.ObjectId, secondReqBytes)
+	if g, w := codes.Code(subsequentMsg.Code), codes.OK; g != w {
+		t.Fatalf("subsequent command result code mismatch for GoogleSQL\n Got: %v\nWant: %v", g, w)
+	}
+
+	_ = Rollback(ctx, poolMsg.ObjectId, connMsg.ObjectId)
 	_ = CloseConnection(ctx, poolMsg.ObjectId, connMsg.ObjectId)
 	_ = ClosePool(ctx, poolMsg.ObjectId)
 }

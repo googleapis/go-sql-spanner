@@ -134,6 +134,9 @@ type SpannerConn interface {
 	// transactions on this connection.
 	SetIsolationLevel(level sql.IsolationLevel) error
 
+	// DatabaseDialect returns the database dialect of the connection.
+	DatabaseDialect() adminpb.DatabaseDialect
+
 	// TransactionState returns the current PostgreSQL readiness transaction state ('I', 'T', 'E').
 	TransactionState() connectionstate.TransactionState
 	// InErrorTxBehavior returns the current behavior when a transaction fails.
@@ -491,6 +494,13 @@ func (c *conn) IsolationLevel() sql.IsolationLevel {
 
 func (c *conn) SetIsolationLevel(level sql.IsolationLevel) error {
 	return propertyIsolationLevel.SetValue(c.state, level, connectionstate.ContextUser)
+}
+
+func (c *conn) DatabaseDialect() adminpb.DatabaseDialect {
+	if c.parser == nil {
+		return adminpb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED
+	}
+	return c.parser.Dialect
 }
 
 func (c *conn) TransactionState() connectionstate.TransactionState {

@@ -161,7 +161,7 @@ func TestInErrorTxBehavior_Dialects(t *testing.T) {
 			logger: noopLogger,
 			state:  createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_POSTGRESQL, connectionstate.TypeTransactional, nil),
 		}
-		if g, w := c.InErrorTxBehavior(), connectionstate.InErrorTxBehaviorEnforceInErrorState; g != w {
+		if g, w := c.InErrorTxBehavior(), connectionstate.InErrorTxBehaviorAllowCommands; g != w {
 			t.Errorf("PostgreSQL default in_error_tx_behavior mismatch\nGot:  %v\nWant: %v", g, w)
 		}
 	})
@@ -178,4 +178,25 @@ func TestInErrorTxBehavior_Dialects(t *testing.T) {
 			t.Errorf("updated in_error_tx_behavior mismatch\nGot:  %v\nWant: %v", g, w)
 		}
 	})
+}
+
+func TestDatabaseDialectMethod(t *testing.T) {
+	t.Parallel()
+
+	pGoogleSQL, _ := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 0)
+	cGoogleSQL := &conn{parser: pGoogleSQL}
+	if g, w := cGoogleSQL.DatabaseDialect(), databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL; g != w {
+		t.Errorf("GoogleSQL DatabaseDialect mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	pPostgreSQL, _ := parser.NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 0)
+	cPostgreSQL := &conn{parser: pPostgreSQL}
+	if g, w := cPostgreSQL.DatabaseDialect(), databasepb.DatabaseDialect_POSTGRESQL; g != w {
+		t.Errorf("PostgreSQL DatabaseDialect mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	cNil := &conn{}
+	if g, w := cNil.DatabaseDialect(), databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED; g != w {
+		t.Errorf("nil parser DatabaseDialect mismatch\nGot:  %v\nWant: %v", g, w)
+	}
 }

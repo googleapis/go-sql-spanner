@@ -2153,6 +2153,7 @@ func TestPGTransactionState_ServerAndClientErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer silentClose(conn)
+		setPGInErrorTxBehavior(t, conn, connectionstate.InErrorTxBehaviorEnforceInErrorState)
 
 		if g, w := getPGTransactionState(t, conn), connectionstate.TransactionStateIdle; g != w {
 			t.Fatalf("initial state mismatch\nGot:  %v\nWant: %v", g, w)
@@ -2201,6 +2202,7 @@ func TestPGTransactionState_ServerAndClientErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer silentClose(conn)
+		setPGInErrorTxBehavior(t, conn, connectionstate.InErrorTxBehaviorEnforceInErrorState)
 
 		tx, err := conn.BeginTx(ctx, nil)
 		if err != nil {
@@ -2245,6 +2247,7 @@ func TestPGTransactionState_ServerAndClientErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer silentClose(conn)
+		setPGInErrorTxBehavior(t, conn, connectionstate.InErrorTxBehaviorEnforceInErrorState)
 
 		tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 		if err != nil {
@@ -2328,6 +2331,7 @@ func TestPGTransactionState_ServerAndClientErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer silentClose(conn)
+		setPGInErrorTxBehavior(t, conn, connectionstate.InErrorTxBehaviorEnforceInErrorState)
 
 		tx, err := conn.BeginTx(ctx, nil)
 		if err != nil {
@@ -2361,6 +2365,7 @@ func TestPGTransactionState_ServerAndClientErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer silentClose(conn)
+		setPGInErrorTxBehavior(t, conn, connectionstate.InErrorTxBehaviorEnforceInErrorState)
 
 		tx, err := conn.BeginTx(ctx, nil)
 		if err != nil {
@@ -2397,6 +2402,7 @@ func TestPGTransactionState_ServerAndClientErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer silentClose(conn)
+		setPGInErrorTxBehavior(t, conn, connectionstate.InErrorTxBehaviorEnforceInErrorState)
 
 		tx, err := conn.BeginTx(ctx, nil)
 		if err != nil {
