@@ -48,7 +48,32 @@ elif [ "$OS" == "Linux" ]; then
     go build -C "$SHARED_LIB_DIR" -o libspanner.so -buildmode=c-shared shared_lib.go
 elif [ "$OS" == "Windows" ]; then
     echo "Building for Windows..."
-    go build -C "$SHARED_LIB_DIR" -o libspanner.dll -buildmode=c-shared shared_lib.go
+    (
+        cd "$SHARED_LIB_DIR" || exit 1
+        # 1. Build DLL with Go
+        go build -o libspanner.dll -buildmode=c-shared shared_lib.go
+        
+        # 2. Extract symbol definitions (dumpbin with gendef fallback)
+        if (command -v dumpbin.exe >/dev/null 2>&1 || command -v dumpbin >/dev/null 2>&1); then
+            echo "Extracting exports using dumpbin..."
+            echo "EXPORTS" > libspanner.def
+            dumpbin /EXPORTS libspanner.dll | awk '/ordinal hint/,/Summary/' | awk '{print $4}' | grep -v '^$' | grep -v 'Summary' >> libspanner.def || true
+        elif command -v gendef >/dev/null 2>&1; then
+            echo "Extracting exports using gendef..."
+            gendef libspanner.dll
+        fi
+        
+        # 3. Create MSVC-compatible .lib using MSVC's lib.exe (with dlltool fallback)
+        if (command -v lib.exe >/dev/null 2>&1 || command -v lib >/dev/null 2>&1) && [ -s "libspanner.def" ]; then
+            echo "Generating MSVC-compatible libspanner.lib with lib.exe..."
+            lib.exe /def:libspanner.def /out:libspanner.lib /machine:X64 2>/dev/null || lib /def:libspanner.def /out:libspanner.lib /machine:X64
+            rm -f libspanner.exp libspanner.def
+        elif command -v dlltool >/dev/null 2>&1 && [ -s "libspanner.def" ]; then
+            echo "Generating libspanner.lib using dlltool fallback..."
+            dlltool -D libspanner.dll -d libspanner.def -l libspanner.lib -m i386:x86-64
+            rm -f libspanner.def
+        fi
+    )
 else
     echo "Unsupported operating system: $OS"
     exit 1
