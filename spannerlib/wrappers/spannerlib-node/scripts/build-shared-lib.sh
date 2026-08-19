@@ -15,14 +15,17 @@ set -e
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Builds the shared library and places it in the shared directory.
-# This script handles OS detection to use the correct file extension.
+# Builds the Go library for the Node wrapper.
+# - On Linux and macOS: Builds a static archive (c-archive) so that it is embedded
+#   directly into spanner_napi.node without requiring dynamic library shipping or rpath.
+# - On Windows: Builds a shared DLL (c-shared) and companion import library (.lib)
+#   as required by MSVC link.exe.
 
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
 }
 
-log "Starting Spannerlib Shared Library Build for Node Wrapper..."
+log "Starting Spannerlib Library Build for Node Wrapper..."
 
 # Resolve absolute paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,14 +44,39 @@ esac
 log "Auto-detected OS: $OS"
 
 if [ "$OS" == "macOS" ]; then
-    echo "Building for macOS..."
-    go build -C "$SHARED_LIB_DIR" -o libspanner.dylib -buildmode=c-shared shared_lib.go
+    echo "Building static archive for macOS (c-archive)..."
+    go build -C "$SHARED_LIB_DIR" -o libspanner.a -buildmode=c-archive shared_lib.go
 elif [ "$OS" == "Linux" ]; then
-    echo "Building for Linux..."
-    go build -C "$SHARED_LIB_DIR" -o libspanner.so -buildmode=c-shared shared_lib.go
+    echo "Building static archive for Linux (c-archive)..."
+    go build -C "$SHARED_LIB_DIR" -o libspanner.a -buildmode=c-archive shared_lib.go
 elif [ "$OS" == "Windows" ]; then
-    echo "Building for Windows..."
-    go build -C "$SHARED_LIB_DIR" -o libspanner.dll -buildmode=c-shared shared_lib.go
+    echo "Building shared library for Windows (c-shared)..."
+    (
+        cd "$SHARED_LIB_DIR" || exit 1
+        # 1. Build DLL with Go
+        go build -o libspanner.dll -buildmode=c-shared shared_lib.go
+        
+        # 2. Extract symbol definitions (dumpbin with gendef fallback)
+        if (command -v dumpbin.exe >/dev/null 2>&1 || command -v dumpbin >/dev/null 2>&1); then
+            echo "Extracting exports using dumpbin..."
+            echo "EXPORTS" > libspanner.def
+            dumpbin /EXPORTS libspanner.dll | awk '/ordinal hint/,/Summary/' | awk '{print $4}' | grep -v '^$' | grep -v 'Summary' >> libspanner.def || true
+        elif command -v gendef >/dev/null 2>&1; then
+            echo "Extracting exports using gendef..."
+            gendef libspanner.dll
+        fi
+        
+        # 3. Create MSVC-compatible .lib using MSVC's lib.exe (with dlltool fallback)
+        if (command -v lib.exe >/dev/null 2>&1 || command -v lib >/dev/null 2>&1) && [ -s "libspanner.def" ]; then
+            echo "Generating MSVC-compatible libspanner.lib with lib.exe..."
+            lib.exe /def:libspanner.def /out:libspanner.lib /machine:X64 2>/dev/null || lib /def:libspanner.def /out:libspanner.lib /machine:X64
+            rm -f libspanner.exp libspanner.def
+        elif command -v dlltool >/dev/null 2>&1 && [ -s "libspanner.def" ]; then
+            echo "Generating libspanner.lib using dlltool fallback..."
+            dlltool -D libspanner.dll -d libspanner.def -l libspanner.lib -m i386:x86-64
+            rm -f libspanner.def
+        fi
+    )
 else
     echo "Unsupported operating system: $OS"
     exit 1

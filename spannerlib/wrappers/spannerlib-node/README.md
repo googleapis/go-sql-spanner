@@ -1,6 +1,6 @@
 # Node-API Wrapper for Spanner Shared Library
 
-This package provides a high-performance Node-API (N-API) bridge to the Go-based Spanner shared library. It offers superior stability and performance compared to traditional FFI approaches.
+> **NOTICE:** This is an internal library intended for use by Google Cloud Spanner driver packages (such as the high-level Node.js Spanner driver). It is not intended for direct use by end customers and can introduce breaking changes without prior notice.
 
 ## Prerequisites
 

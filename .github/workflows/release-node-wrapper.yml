@@ -1,0 +1,204 @@
+name: Build and Release Node Wrapper
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Target platform package to release'
+        required: true
+        type: choice
+        options:
+          - 'all'
+          - 'darwin-arm64'
+          - 'linux-x64'
+          - 'linux-arm64'
+          - 'win32-x64'
+        default: 'all'
+      npm_tag:
+        description: 'NPM distribution tag (e.g. alpha(default), beta, latest, next)'
+        required: false
+        type: string
+        default: 'alpha'
+      npm_token:
+        description: 'NPM Token for Wombat (leave empty for dry run)'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Release ${{ matrix.pkg_name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: darwin-arm64
+            os_name: darwin
+            cpu_name: arm64
+            goarch: arm64
+            pkg_name: "@google-cloud/spannerlib-node-darwin-arm64"
+          - os: ubuntu-22.04
+            target: linux-x64
+            os_name: linux
+            cpu_name: x64
+            goarch: amd64
+            pkg_name: "@google-cloud/spannerlib-node-linux-x64"
+          - os: ubuntu-22.04
+            target: linux-arm64
+            os_name: linux
+            cpu_name: arm64
+            goarch: arm64
+            pkg_name: "@google-cloud/spannerlib-node-linux-arm64"
+            cc: aarch64-linux-gnu-gcc
+            cxx: aarch64-linux-gnu-g++
+            ar: aarch64-linux-gnu-ar
+          - os: windows-2022
+            target: win32-x64
+            os_name: win32
+            cpu_name: x64
+            goarch: amd64
+            pkg_name: "@google-cloud/spannerlib-node-win32-x64"
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./spannerlib/wrappers/spannerlib-node
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check Platform Target
+        id: check
+        env:
+          PLATFORM_INPUT: ${{ inputs.platform || 'all' }}
+          MATRIX_TARGET: ${{ matrix.target }}
+        run: |
+          if [ "$PLATFORM_INPUT" = "all" ] || [ "$PLATFORM_INPUT" = "$MATRIX_TARGET" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping matrix target $MATRIX_TARGET (requested: $PLATFORM_INPUT)"
+          fi
+
+      - name: Install ARM64 Cross-Compiler (Linux ARM64)
+        if: steps.check.outputs.run == 'true' && matrix.target == 'linux-arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: Set up Go
+        if: steps.check.outputs.run == 'true'
+        uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5.3.0
+        with:
+          go-version: '1.26.x'
+          cache-dependency-path: spannerlib/go.sum
+
+      - name: Set up Node.js
+        if: steps.check.outputs.run == 'true'
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: spannerlib/wrappers/spannerlib-node/package.json
+
+      - name: Mask NPM Token
+        if: steps.check.outputs.run == 'true' && inputs.npm_token != ''
+        env:
+          NPM_TOKEN: ${{ inputs.npm_token }}
+        run: |
+          echo "::add-mask::${NPM_TOKEN}"
+
+      - name: Configure NPM registry auth
+        if: steps.check.outputs.run == 'true' && inputs.npm_token != ''
+        env:
+          NPM_TOKEN: ${{ inputs.npm_token }}
+        run: |
+          echo "//wombat-dressing-room.appspot.com/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+
+      - name: Install dependencies
+        if: steps.check.outputs.run == 'true'
+        run: npm install
+
+      - name: Build Go library and C++ Addon
+        if: steps.check.outputs.run == 'true'
+        env:
+          npm_config_enable_thin_lto: "false"
+          npm_config_enable_lto: "false"
+          npm_config_use_lld: "false"
+          GYP_DEFINES: "enable_thin_lto=false enable_lto=false use_lld=false lto_jobs="
+          npm_config_arch: ${{ matrix.cpu_name }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+        run: |
+          unset CFLAGS CXXFLAGS LDFLAGS 2>/dev/null || true
+          [ -n "${{ matrix.cc }}" ] && export CC="${{ matrix.cc }}"
+          [ -n "${{ matrix.cxx }}" ] && export CXX="${{ matrix.cxx }}"
+          [ -n "${{ matrix.ar }}" ] && export AR="${{ matrix.ar }}"
+          npm run build
+
+      - name: Prepare Platform Package Manifest
+        if: steps.check.outputs.run == 'true'
+        env:
+          PKG_NAME: ${{ matrix.pkg_name }}
+          OS_NAME: ${{ matrix.os_name }}
+          CPU_NAME: ${{ matrix.cpu_name }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("./package.json", "utf8"));
+            pkg.name = process.env.PKG_NAME;
+            pkg.os = [process.env.OS_NAME];
+            pkg.cpu = [process.env.CPU_NAME];
+            fs.writeFileSync("./package.json", JSON.stringify(pkg, null, 2) + "\n");
+            console.log("Updated package.json for " + pkg.name + " (" + pkg.os + "/" + pkg.cpu + ")");
+          '
+
+      - name: Package and Publish
+        if: steps.check.outputs.run == 'true'
+        env:
+          NPM_TOKEN: ${{ inputs.npm_token }}
+          NPM_TAG: ${{ inputs.npm_tag || 'alpha' }}
+        run: |
+          set -eo pipefail
+          export NPM_CONFIG_PREFIX="${HOME}/.npm-global"
+
+          # Optional releasetool publisher script reporter if available
+          if python3 -c "import releasetool" 2>/dev/null; then
+            python3 -m releasetool publish-reporter-script > /tmp/publisher-script 2>/dev/null || true
+            if [ -f /tmp/publisher-script ]; then
+              source /tmp/publisher-script || true
+            fi
+          fi
+
+          npm pack .
+          TARBALL=$(ls -1 -t *.tgz | head -1)
+          echo "Generated tarball: $TARBALL"
+
+          # Publish only when a non-empty npm_token is provided
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "Publishing $TARBALL with tag '$NPM_TAG' to Wombat registry..."
+            npm publish --access=public --tag "$NPM_TAG" --registry=https://wombat-dressing-room.appspot.com "$TARBALL"
+          else
+            echo "Dry run mode active: No NPM token provided. Skipped publishing $TARBALL."
+          fi
+
+          find node_modules -name package-lock.json -o -name "*.tgz" | xargs rm -f 2>/dev/null || true
+
+      - name: Upload Release Tarball Artifact
+        if: steps.check.outputs.run == 'true'
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: spannerlib-node-${{ matrix.target }}-tarball
+          path: spannerlib/wrappers/spannerlib-node/*.tgz
+
+      - name: Cleanup credentials
+        if: always()
+        run: |
+          rm -f ~/.npmrc
+          rm -f /tmp/publisher-script 2>/dev/null || true
