@@ -1,6 +1,14 @@
 {
   "name": "spannerlib-node",
   "version": "0.1.0",
+  "description": "Internal Node-API wrapper for Cloud Spanner spannerlib. This is an internal package intended for Google Cloud Spanner Node drivers and may introduce breaking changes without prior notice.",
+  "license": "Apache-2.0",
+  "author": "Google LLC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/googleapis/go-sql-spanner.git",
+    "directory": "spannerlib/wrappers/spannerlib-node"
+  },
   "main": "./build/cjs/src/index.cjs",
   "module": "./build/esm/src/index.js",
   "types": "./build/cjs/src/index.d.ts",
@@ -18,7 +26,7 @@
     }
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22"
   },
   "scripts": {
     "build:go": "bash scripts/build-shared-lib.sh",
@@ -39,7 +47,10 @@
   "files": [
     "build/esm/src",
     "build/cjs/src",
-    "build/Release/*.node"
+    "build/Release/*.node",
+    "build/Release/libspanner.so",
+    "build/Release/libspanner.dylib",
+    "build/Release/libspanner.dll"
   ],
   "dependencies": {
     "node-addon-api": "^8.0.0",

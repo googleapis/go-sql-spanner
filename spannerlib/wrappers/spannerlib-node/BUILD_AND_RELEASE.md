@@ -52,3 +52,41 @@ To run the entire pipeline end-to-end and generate a fully runnable local build,
 npm run build
 ```
 This builds the underlying Go shared library, links the C++ bridge layer via `node-gyp`, patches dynamic linker paths, and outputs the final dual ESM/CJS JavaScript distributions.
+
+## Platform-Specific Release Pipelines (GitHub Actions)
+
+Releasing the prebuilt native platform packages is managed via a unified manual GitHub Actions workflow:
+*   **Workflow:** [release-node-wrapper.yml](../../../.github/workflows/release-node-wrapper.yml)
+
+### Target Platform Packages
+
+| Package Name | Target Platform | Runner |
+| :--- | :--- | :--- |
+| **`@google-cloud/spannerlib-node-darwin-arm64`** | macOS (Apple Silicon `arm64`) | `macos-latest` |
+| **`@google-cloud/spannerlib-node-linux-x64`** | Linux (`x64`) | `ubuntu-latest` |
+| **`@google-cloud/spannerlib-node-linux-arm64`** | Linux (`arm64`) | `ubuntu-24.04-arm` |
+| **`@google-cloud/spannerlib-node-win32-x64`** | Windows (`x64`) | `windows-latest` |
+
+### Triggering a Release
+The workflow uses `workflow_dispatch` and publishes to the Google Wombat registry (`https://wombat-dressing-room.appspot.com`):
+
+1. Go to the **Actions** tab in GitHub.
+2. Select **Build and Release Node Wrapper**.
+3. Click **Run workflow**.
+4. Provide the inputs:
+   * **`platform`** *(Required)*: Select `all` (default) to build and release all 4 platforms concurrently, or select a specific target (`darwin-arm64`, `linux-x64`, `linux-arm64`, `win32-x64`).
+   * **`npm_tag`** *(Optional, default: `alpha`)*: NPM distribution tag (e.g. `alpha`, `beta`, `latest`).
+   * **`npm_token`** *(Optional)*: The authentication token for `//wombat-dressing-room.appspot.com/:_authToken`. If left empty, the workflow automatically runs in **dry-run mode** (builds, packages, and uploads `.tgz` artifacts without publishing).
+
+### Release Execution Steps
+For each target platform in the matrix, the workflow:
+1. Sets up Go (`1.26.x`) and Node.js (`22`) environments.
+2. Masks the supplied `npm_token` and configures `~/.npmrc` for Wombat registry auth.
+3. Installs dependencies (`npm install`).
+4. Compiles the Go shared library, links the C++ N-API addon, and compiles TypeScript dual outputs (`npm run build`).
+5. Sets the target package name (e.g. `@google-cloud/spannerlib-node-linux-x64`) and `os`/`cpu` metadata in `package.json`.
+6. Packages the distribution tarball (`npm pack .`) containing both the JavaScript bundles and the compiled native binaries (`spanner_napi.node` and `libspanner.*`).
+7. Publishes the generated tarball to Wombat with the specified dist-tag (`npm publish --access=public --tag $NPM_TAG --registry=https://wombat-dressing-room.appspot.com`).
+8. Archives and uploads the release `.tgz` as a workflow artifact for auditing and SBOM generation.
+
+
