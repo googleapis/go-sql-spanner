@@ -31,7 +31,6 @@
   "scripts": {
     "build:go": "bash scripts/build-shared-lib.sh",
     "build": "npm run build:go && node-gyp rebuild && npm run compile",
-    "postbuild": "node -e \"if (process.platform === 'darwin') require('child_process').execSync('install_name_tool -change libspanner.dylib @loader_path/libspanner.dylib ./build/Release/spanner_napi.node')\"",
     "compile:esm": "tsc -p .",
     "compile:cjs": "tsc -p ./tsconfig.cjs.json && babel build/cjs --out-dir build/cjs --out-file-extension .cjs && node scripts/fix-extensions.cjs",
     "compile": "npm run compile:esm && npm run compile:cjs",
@@ -48,16 +47,14 @@
     "build/esm/src",
     "build/cjs/src",
     "build/Release/*.node",
-    "build/Release/libspanner.so",
-    "build/Release/libspanner.dylib",
     "build/Release/libspanner.dll"
   ],
   "dependencies": {
-    "node-addon-api": "^8.0.0",
     "bindings": "^1.5.0",
     "@google-cloud/spanner": "^8.7.1"
   },
   "devDependencies": {
+    "node-addon-api": "^8.0.0",
     "mocha": "^11.0.1",
     "typescript": "^6.0.0",
     "@types/node": "^24.0.0",
