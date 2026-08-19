@@ -17,7 +17,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
       - name: Install Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go-version }}
           cache-dependency-path: spannerlib/go.sum
@@ -43,7 +43,7 @@ jobs:
         run: mvn com.spotify.fmt:fmt-maven-plugin:check
         working-directory: spannerlib/wrappers/spannerlib-java
       - name: Install Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go-version }}
           cache-dependency-path: spannerlib/go.sum
@@ -94,7 +94,7 @@ jobs:
         with:
           submodules: 'true'
       - name: Install dotnet
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '8.0.x'
       - name: Create temporary global.json
@@ -110,7 +110,7 @@ jobs:
         run: dotnet --version
         shell: bash
       - name: Install Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go-version }}
           cache-dependency-path: spannerlib/go.sum
