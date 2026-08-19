@@ -40,21 +40,28 @@ jobs:
             target: darwin-arm64
             os_name: darwin
             cpu_name: arm64
+            goarch: arm64
             pkg_name: "@google-cloud/spannerlib-node-darwin-arm64"
           - os: ubuntu-22.04
             target: linux-x64
             os_name: linux
             cpu_name: x64
+            goarch: amd64
             pkg_name: "@google-cloud/spannerlib-node-linux-x64"
           - os: ubuntu-22.04
             target: linux-arm64
             os_name: linux
             cpu_name: arm64
+            goarch: arm64
             pkg_name: "@google-cloud/spannerlib-node-linux-arm64"
+            cc: aarch64-linux-gnu-gcc
+            cxx: aarch64-linux-gnu-g++
+            ar: aarch64-linux-gnu-ar
           - os: windows-2022
             target: win32-x64
             os_name: win32
             cpu_name: x64
+            goarch: amd64
             pkg_name: "@google-cloud/spannerlib-node-win32-x64"
 
     defaults:
@@ -69,7 +76,7 @@ jobs:
       - name: Check Platform Target
         id: check
         env:
-          PLATFORM_INPUT: ${{ inputs.platform }}
+          PLATFORM_INPUT: ${{ inputs.platform || 'all' }}
           MATRIX_TARGET: ${{ matrix.target }}
         run: |
           if [ "$PLATFORM_INPUT" = "all" ] || [ "$PLATFORM_INPUT" = "$MATRIX_TARGET" ]; then
@@ -125,19 +132,15 @@ jobs:
           npm_config_enable_lto: "false"
           npm_config_use_lld: "false"
           GYP_DEFINES: "enable_thin_lto=false enable_lto=false use_lld=false lto_jobs="
+          npm_config_arch: ${{ matrix.cpu_name }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
         run: |
           unset CFLAGS CXXFLAGS LDFLAGS 2>/dev/null || true
-          if [ "${{ matrix.target }}" = "linux-arm64" ]; then
-            export CC=aarch64-linux-gnu-gcc
-            export CXX=aarch64-linux-gnu-g++
-            export AR=aarch64-linux-gnu-ar
-            export CGO_ENABLED=1
-            export GOOS=linux
-            export GOARCH=arm64
-            npm run build -- --arch=arm64 --target_arch=arm64
-          else
-            npm run build
-          fi
+          [ -n "${{ matrix.cc }}" ] && export CC="${{ matrix.cc }}"
+          [ -n "${{ matrix.cxx }}" ] && export CXX="${{ matrix.cxx }}"
+          [ -n "${{ matrix.ar }}" ] && export AR="${{ matrix.ar }}"
+          npm run build
 
       - name: Prepare Platform Package Manifest
         if: steps.check.outputs.run == 'true'

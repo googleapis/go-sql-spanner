@@ -66,6 +66,9 @@
           ]
         }],
         ['OS=="linux"', {
+          'cflags_cc': [
+            '-std=c++20'
+          ],
           'libraries': [
             '<(module_root_dir)/../../shared/libspanner.a'
           ]
