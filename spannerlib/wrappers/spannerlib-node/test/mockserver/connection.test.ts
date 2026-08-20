@@ -24,7 +24,7 @@ import {
   createResultSetWithAllDataTypes,
 } from './mockspanner.js';
 import { status } from '@grpc/grpc-js';
-import pkg from '@google-cloud/spanner/build/protos/protos.js';
+import pkg from '@google-cloud/spanner-api/build/protos/protos.js';
 const { google } = pkg;
 
 describe('End-to-End Execution on MockServer', () => {

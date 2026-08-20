@@ -22,8 +22,8 @@ import { grpc as gaxGrpc } from 'google-gax';
 import * as protoLoader from '@grpc/proto-loader';
 import { createRequire } from 'module';
 import { Metadata, Server, ServerCredentials } from '@grpc/grpc-js';
-import pkg from '@google-cloud/spanner/build/protos/protos.js';
-import type { google as gNamespace } from '@google-cloud/spanner/build/protos/protos.js';
+import pkg from '@google-cloud/spanner-api/build/protos/protos.js';
+import type { google as gNamespace } from '@google-cloud/spanner-api/build/protos/protos.js';
 
 const { google } = pkg as any;
 const spannerProto = google.spanner.v1;
@@ -53,7 +53,7 @@ const customRequire =
   typeof require !== 'undefined' ? require : createRequire(import.meta.url);
 
 const PROTO_PATH = customRequire.resolve(
-  '@google-cloud/spanner/build/protos/google/spanner/v1/spanner.proto'
+  '@google-cloud/spanner-api/build/protos/google/spanner/v1/spanner.proto'
 );
 const IMPORT_PATH = path.resolve(path.dirname(PROTO_PATH), '../../..');
 const GAX_PROTO_DIR = path.join(

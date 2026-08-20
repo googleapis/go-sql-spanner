@@ -16,11 +16,9 @@ import { ffi, TransactionState } from '../ffi/utils.js';
 import { spannerLib } from './spannerlib.js';
 import { Pool } from './pool.js';
 import { Rows } from './rows.js';
-// TODO: Avoid tight coupling to internal paths of full client libraries.
-// Unlike other languages like Java, Python , Node client does not export its protos.
-import pkg from '@google-cloud/spanner/build/protos/protos.js';
+import pkg from '@google-cloud/spanner-api/build/protos/protos.js';
 const { google } = pkg;
-import type { google as GoogleProto } from '@google-cloud/spanner/build/protos/protos.js';
+import type { google as GoogleProto } from '@google-cloud/spanner-api/build/protos/protos.js';
 
 /**
  * Manages a connection to the Spanner database.

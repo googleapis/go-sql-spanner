@@ -15,11 +15,8 @@
 import { ffi, ENCODING_PROTOBUF } from '../ffi/utils.js';
 import { spannerLib } from './spannerlib.js';
 import { Connection } from './connection.js';
-// TODO: Avoid tight coupling to internal paths of full client libraries.
-// Unlike other languages like Java, Python , Node client does not export its protos.
-// We need to explore how to import protos in Node
-import pkg from '@google-cloud/spanner/build/protos/protos.js';
-import type { google as googleProto } from '@google-cloud/spanner/build/protos/protos.js';
+import pkg from '@google-cloud/spanner-api/build/protos/protos.js';
+import type { google as googleProto } from '@google-cloud/spanner-api/build/protos/protos.js';
 const { google } = pkg;
 const ListValue = google.protobuf.ListValue;
 

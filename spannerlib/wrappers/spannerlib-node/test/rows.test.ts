@@ -18,7 +18,7 @@ import { Connection } from '../src/lib/connection.js';
 import { Pool } from '../src/lib/pool.js';
 import { ffi } from '../src/ffi/utils.js';
 import sinon from 'sinon';
-import pkg from '@google-cloud/spanner/build/protos/protos.js';
+import pkg from '@google-cloud/spanner-api/build/protos/protos.js';
 const { google } = pkg;
 const ListValue = google.protobuf.ListValue;
 const Value = google.protobuf.Value;
