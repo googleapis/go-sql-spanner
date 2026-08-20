@@ -20,12 +20,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"reflect"
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -284,5 +287,97 @@ func TestScanNumericAsFloat32(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestRowsColumnType(t *testing.T) {
+	fmt.Println("Starting TestRowsColumnType")
+	fields := []*sppb.StructType_Field{
+		{Name: "COL1", Type: &sppb.Type{Code: sppb.TypeCode_INT64}},
+		{Name: "COL2", Type: &sppb.Type{Code: sppb.TypeCode_STRING}},
+		{Name: "COL3", Type: &sppb.Type{Code: sppb.TypeCode_NUMERIC}},
+		{Name: "COL4", Type: &sppb.Type{Code: sppb.TypeCode_ARRAY, ArrayElementType: &sppb.Type{Code: sppb.TypeCode_STRING}}},
+	}
+	it := &testIterator{
+		metadata: &sppb.ResultSetMetadata{
+			RowType: &sppb.StructType{Fields: fields},
+		},
+	}
+	r := rows{
+		it:       it,
+		colTypes: []*sppb.Type{fields[0].Type, fields[1].Type, fields[2].Type, fields[3].Type},
+		state:    createInitialConnectionState(connectionstate.TypeNonTransactional, nil),
+	}
+
+	// Test ColumnTypeScanType
+	if g, w := r.ColumnTypeScanType(0), reflect.TypeOf(int64(0)); g != w {
+		t.Errorf("ColumnTypeScanType(0) mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := r.ColumnTypeScanType(1), reflect.TypeOf(""); g != w {
+		t.Errorf("ColumnTypeScanType(1) mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := r.ColumnTypeScanType(2), reflect.TypeOf(big.Rat{}); g != w {
+		t.Errorf("ColumnTypeScanType(2) mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := r.ColumnTypeScanType(3), reflect.TypeOf([]spanner.NullString{}); g != w {
+		t.Errorf("ColumnTypeScanType(3) mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Test ColumnTypeDatabaseTypeName (GoogleSQL)
+	if g, w := r.ColumnTypeDatabaseTypeName(0), "INT64"; g != w {
+		t.Errorf("ColumnTypeDatabaseTypeName(0) mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := r.ColumnTypeDatabaseTypeName(1), "STRING"; g != w {
+		t.Errorf("ColumnTypeDatabaseTypeName(1) mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := r.ColumnTypeDatabaseTypeName(2), "NUMERIC"; g != w {
+		t.Errorf("ColumnTypeDatabaseTypeName(2) mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := r.ColumnTypeDatabaseTypeName(3), "ARRAY<STRING>"; g != w {
+		t.Errorf("ColumnTypeDatabaseTypeName(3) mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Test ColumnTypeDatabaseTypeName (PostgreSQL)
+	pgState := createInitialConnectionState(connectionstate.TypeNonTransactional, map[string]connectionstate.ConnectionPropertyValue{
+		propertyDatabaseDialect.Key(): propertyDatabaseDialect.CreateTypedInitialValue(databasepb.DatabaseDialect_POSTGRESQL),
+	})
+	rpg := rows{
+		it:       it,
+		colTypes: r.colTypes,
+		state:    pgState,
+	}
+	if g, w := rpg.ColumnTypeDatabaseTypeName(0), "bigint"; g != w {
+		t.Errorf("ColumnTypeDatabaseTypeName(0) PG mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := rpg.ColumnTypeDatabaseTypeName(1), "text"; g != w {
+		t.Errorf("ColumnTypeDatabaseTypeName(1) PG mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := rpg.ColumnTypeDatabaseTypeName(2), "numeric"; g != w {
+		t.Errorf("ColumnTypeDatabaseTypeName(2) PG mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if g, w := rpg.ColumnTypeDatabaseTypeName(3), "_text"; g != w {
+		t.Errorf("ColumnTypeDatabaseTypeName(3) PG mismatch\n Got: %v\nWant: %v", g, w)
+	}
+
+	// Test ColumnTypePrecisionScale
+	p, s, ok := r.ColumnTypePrecisionScale(2)
+	if !ok || p != 38 || s != 9 {
+		t.Errorf("ColumnTypePrecisionScale(2) mismatch\n Got: %v, %v, %v\nWant: 38, 9, true", p, s, ok)
+	}
+	p, s, ok = r.ColumnTypePrecisionScale(0)
+	if ok || p != 0 || s != 0 {
+		t.Errorf("ColumnTypePrecisionScale(0) mismatch\n Got: %v, %v, %v\nWant: 0, 0, false", p, s, ok)
+	}
+
+	// Test ColumnTypeLength
+	l, ok := r.ColumnTypeLength(1)
+	if ok || l != 0 {
+		t.Errorf("ColumnTypeLength(1) mismatch\n Got: %v, %v\nWant: 0, false", l, ok)
+	}
+
+	// Test ColumnTypeNullable
+	n, ok := r.ColumnTypeNullable(1)
+	if ok || n != false {
+		t.Errorf("ColumnTypeNullable(1) mismatch\n Got: %v, %v\nWant: false, false", n, ok)
 	}
 }
