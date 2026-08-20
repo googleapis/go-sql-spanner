@@ -1,6 +1,6 @@
 {
   "name": "spannerlib-node",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Internal Node-API wrapper for Cloud Spanner spannerlib. This is an internal package intended for Google Cloud Spanner Node drivers and may introduce breaking changes without prior notice.",
   "license": "Apache-2.0",
   "author": "Google LLC",
@@ -51,7 +51,7 @@
   ],
   "dependencies": {
     "bindings": "^1.5.0",
-    "@google-cloud/spanner": "^8.7.1"
+    "@google-cloud/spanner-api": "^0.3.0"
   },
   "devDependencies": {
     "node-addon-api": "^8.0.0",
