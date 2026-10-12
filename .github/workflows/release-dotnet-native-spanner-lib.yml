@@ -2,7 +2,6 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-  pull-requests: write
 name: Build and Release Google.Cloud.SpannerLib.Native
 jobs:
   build-linux-x64:
