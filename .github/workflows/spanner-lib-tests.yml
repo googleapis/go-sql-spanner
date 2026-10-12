@@ -96,7 +96,7 @@ jobs:
       - name: Install dotnet
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
       - name: Create temporary global.json
         # Force the use of .NET 8.0.x by writing that version to a global.json file.
         # Otherwise, .NET will default to the latest version on the host.
