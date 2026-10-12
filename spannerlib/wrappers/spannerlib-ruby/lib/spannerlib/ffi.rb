@@ -30,7 +30,7 @@ module SpannerLib
 
   USER_AGENT_SUFFIX = "ruby"
 
-  # rubocop:disable Metrics/MethodLength
+  # rubocop:disable-next Metrics/MethodLength
   def self.platform_dir_from_host
     host_os = RbConfig::CONFIG["host_os"]
     host_cpu = RbConfig::CONFIG["host_cpu"]
@@ -46,9 +46,8 @@ module SpannerLib
       raise "Unknown OS: #{host_os}"
     end
   end
-  # rubocop:enable Metrics/MethodLength
 
-  # rubocop:disable Metrics/MethodLength, Metrics/AbcSize, Metrics/CyclomaticComplexity
+  # rubocop:disable-next Metrics/MethodLength, Metrics/AbcSize, Metrics/CyclomaticComplexity
   def self.library_path
     env_path = ENV.fetch("SPANNERLIB_PATH", nil)
     if env_path && !env_path.empty?
@@ -78,7 +77,6 @@ module SpannerLib
 
     raise LoadError, "Could not locate native library. Checked: #{File.join(lib_dir, platform.to_s)}"
   end
-  # rubocop:enable Metrics/MethodLength, Metrics/AbcSize, Metrics/CyclomaticComplexity
   ffi_lib library_path
 
   class GoString < FFI::Struct
@@ -124,7 +122,7 @@ module SpannerLib
 
   # --- Ruby-friendly Wrappers ---
 
-  # rubocop:disable Metrics/MethodLength, Metrics/AbcSize
+  # rubocop:disable-next Metrics/MethodLength, Metrics/AbcSize
   def self.create_pool(dsn)
     user_agent_suffix_str = USER_AGENT_SUFFIX.to_s.dup
     user_agent_suffix_ptr = FFI::MemoryPointer.from_string(user_agent_suffix_str)
@@ -143,7 +141,6 @@ module SpannerLib
     message = CreatePool(go_user_agent_suffix, go_dsn)
     handle_object_id_response(message, "CreatePool")
   end
-  # rubocop:enable Metrics/MethodLength, Metrics/AbcSize
 
   def self.close_pool(pool_id)
     message = ClosePool(pool_id)
@@ -207,7 +204,7 @@ module SpannerLib
     end
   end
 
-  # rubocop:disable Metrics/MethodLength
+  # rubocop:disable-next Metrics/MethodLength
   def self.read_error_message(message)
     len = message[:length]
     ptr = message[:pointer]
@@ -224,7 +221,6 @@ module SpannerLib
       "No error message provided"
     end
   end
-  # rubocop:enable Metrics/MethodLength
 
   def self.write_mutations(pool_id, conn_id, proto_bytes, options = {})
     proto_klass = options[:proto_klass]

@@ -58,7 +58,7 @@ namespace :compile do
   # rubocop:enable Metrics/BlockLength
 
   # Dynamically create a build task for each platform
-  # rubocop:disable Metrics/BlockLength
+  # rubocop:disable-next Metrics/BlockLength
   PLATFORMS.each do |arch, config|
     desc "Compile native library for #{arch}"
     task arch do
@@ -117,7 +117,6 @@ namespace :compile do
       puts "Successfully built #{output_file}"
     end
   end
-  # rubocop:enable Metrics/BlockLength
 
   desc "Compile native libraries for all platforms"
   task all: PLATFORMS.keys
