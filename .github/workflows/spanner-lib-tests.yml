@@ -14,7 +14,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -37,7 +37,7 @@ jobs:
           distribution: temurin
           java-version: 21
       - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check Java formatting
         run: mvn com.spotify.fmt:fmt-maven-plugin:check
         working-directory: spannerlib/wrappers/spannerlib-java
@@ -89,14 +89,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: 'true'
       - name: Install dotnet
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          # zizmor: ignore[obfuscation]
-          dotnet-version: ${{ '8.0.x' }}
+          dotnet-version: ${{ '8.0.x' }} # zizmor: ignore[obfuscation]
       - name: Create temporary global.json
         # Force the use of .NET 8.0.x by writing that version to a global.json file.
         # Otherwise, .NET will default to the latest version on the host.
