@@ -134,7 +134,7 @@ public class RowsTests : AbstractMockServerTests
         if (numReadRowsBeforeCancellation == 0)
         {
             await cts.CancelAsync();
-            var exception = Assert.CatchAsync<Exception>((Func<Task>)(async () => await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = "select * from random" }, prefetchRows, cts.Token)));
+            var exception = await Assert.CatchAsync<Exception>((Func<Task>)(async () => await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = "select * from random" }, prefetchRows, cts.Token)));
             Assert.That(exception, Is.Not.Null);
             Assert.That(exception, Is.InstanceOf<OperationCanceledException>().Or.InstanceOf<RpcException>().Or.InstanceOf<TaskCanceledException>());
         }
@@ -150,7 +150,7 @@ public class RowsTests : AbstractMockServerTests
                 if (numReadRowsBeforeCancellation == rowCount)
                 {
                     await cts.CancelAsync();
-                    var exception = Assert.CatchAsync<Exception>((Func<Task>)(async () => await rows.NextAsync(cts.Token)));
+                    var exception = await Assert.CatchAsync<Exception>((Func<Task>)(async () => await rows.NextAsync(cts.Token)));
                     Assert.That(exception, Is.Not.Null);
                     Assert.That(exception, Is.InstanceOf<OperationCanceledException>().Or.InstanceOf<RpcException>().Or.InstanceOf<TaskCanceledException>());
                     break;
@@ -557,7 +557,7 @@ public class RowsTests : AbstractMockServerTests
         {
             if (async)
             {
-                Assert.ThrowsAsync<SpannerException>((Func<Task>)(() => connection.ExecuteAsync(new ExecuteSqlRequest { Sql = sql }, prefetchRows)));
+                await Assert.ThrowsAsync<SpannerException>((Func<Task>)(() => connection.ExecuteAsync(new ExecuteSqlRequest { Sql = sql }, prefetchRows)));
             }
             else
             {
@@ -589,7 +589,7 @@ public class RowsTests : AbstractMockServerTests
                 {
                     if (async)
                     {
-                        Assert.ThrowsAsync<SpannerException>((Func<Task>)(() => rows.NextResultSetAsync()));
+                        await Assert.ThrowsAsync<SpannerException>((Func<Task>)(() => rows.NextResultSetAsync()));
                     }
                     else
                     {
@@ -710,7 +710,7 @@ public class RowsTests : AbstractMockServerTests
             await using var connection = pool.CreateConnection();
 
             var rowCount = 0;
-            SpannerException exception;
+            SpannerException? exception = null;
             var spannerLib = SpannerLibDictionary[libType];
             bool expectThrowInExecute = false;
             if (spannerLib is GrpcLibSpanner grpcLib)
@@ -733,7 +733,7 @@ public class RowsTests : AbstractMockServerTests
 
             try
             {
-                exception = Assert.ThrowsAsync<SpannerException>((Func<Task>)(async () =>
+                exception = await Assert.ThrowsAsync<SpannerException>((Func<Task>)(async () =>
                 {
                     if (rows == null)
                     {
@@ -754,7 +754,8 @@ public class RowsTests : AbstractMockServerTests
             }
 
             Assert.That(rowCount, Is.EqualTo(expectThrowInExecute ? 0 : 3));
-            Assert.That(exception.Code, Is.EqualTo(Code.Internal));
+            Assert.That(exception, Is.Not.Null);
+            Assert.That(exception!.Code, Is.EqualTo(Code.Internal));
             Assert.That(exception.Message, Does.Contain("Stream broke halfway"));
         }
         finally
@@ -825,7 +826,7 @@ public class RowsTests : AbstractMockServerTests
             await using var rows = await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = query }, prefetchRows);
 
             var rowCount = 0;
-            var exception = Assert.ThrowsAsync<SpannerException>((Func<Task>)(async () =>
+            var exception = await Assert.ThrowsAsync<SpannerException>((Func<Task>)(async () =>
             {
                 while (await rows.NextAsync() is not null)
                 {
@@ -833,7 +834,8 @@ public class RowsTests : AbstractMockServerTests
                 }
             }));
 
-            Assert.That(exception.Code, Is.EqualTo(Code.Internal));
+            Assert.That(exception, Is.Not.Null);
+            Assert.That(exception!.Code, Is.EqualTo(Code.Internal));
             Assert.That(exception.Message, Does.Contain("Stream broke halfway"));
             Assert.That(rowCount, Is.EqualTo(SpannerLibDictionary[libType] is SharedLibSpanner ? 6 : 5));
         }
