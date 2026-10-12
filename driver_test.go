@@ -252,8 +252,8 @@ func TestExtractDnsParts(t *testing.T) {
 			wantSpannerConfig: spanner.ClientConfig{
 				//lint:ignore SA1019 Removing would need a breaking change
 				SessionPoolConfig: spanner.SessionPoolConfig{
-					MinOpened:                         200,
-					MaxOpened:                         1000,
+					MinOpened:                         200,                                                                //lint:ignore SA1019 Needed to verify correctness in test
+					MaxOpened:                         1000,                                                               //lint:ignore SA1019 Needed to verify correctness in test
 					WriteSessions:                     spanner.DefaultSessionPoolConfig.WriteSessions,                     //lint:ignore SA1019 Needed to verify correctness in test
 					HealthCheckInterval:               spanner.DefaultSessionPoolConfig.HealthCheckInterval,               //lint:ignore SA1019 Needed to verify correctness in test
 					HealthCheckWorkers:                spanner.DefaultSessionPoolConfig.HealthCheckWorkers,                //lint:ignore SA1019 Needed to verify correctness in test
