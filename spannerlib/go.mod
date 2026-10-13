@@ -8,11 +8,11 @@ replace github.com/googleapis/go-sql-spanner => ..
 
 require (
 	cloud.google.com/go/longrunning v1.2.0
-	cloud.google.com/go/spanner v1.92.0
+	cloud.google.com/go/spanner v1.93.0
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/go-sql-spanner v1.26.0
-	google.golang.org/api v0.288.0
+	google.golang.org/api v0.289.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260715232425-e75dac1f907d
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260715232425-e75dac1f907d
 	google.golang.org/grpc v1.83.2
@@ -38,7 +38,7 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
-	github.com/googleapis/enterprise-certificate-proxy v0.3.17 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.3.18 // indirect
 	github.com/googleapis/gax-go/v2 v2.23.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
