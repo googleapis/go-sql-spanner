@@ -16,5 +16,13 @@
     "Alpha.Google.Cloud.SpannerLib.GrpcServer",
     "Alpha.Google.Cloud.SpannerLib.Native",
     "java-jdk"
+  ],
+  "packageRules": [
+    {
+      "matchPackageNames": [
+        "typescript"
+      ],
+      "allowedVersions": "<7.0.0"
+    }
   ]
 }
