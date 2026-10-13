@@ -582,7 +582,7 @@ func validateAndConfigureConnector(c ConnectorConfig, matches map[string]string)
 			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "host must be specified for experimental host endpoint"))
 		}
 		c.Configurator = func(config *spanner.ClientConfig, opts *[]option.ClientOption) {
-			config.IsExperimentalHost = true
+			config.Type = spanner.OMNI
 		}
 		if matches["INSTANCEGROUP"] == "" {
 			c.Instance = experimentalHostInstance
@@ -777,7 +777,7 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	if connectorConfig.Configurator != nil {
 		connectorConfig.Configurator(&config, &opts)
 	}
-	if config.IsExperimentalHost {
+	if config.Type == spanner.OMNI {
 		var caCertFile string
 		var clientCertFile string
 		var clientCertKey string
