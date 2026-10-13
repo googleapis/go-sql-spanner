@@ -3,6 +3,9 @@ name: Build and Publish Native Ruby Gem
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build-shared-library-binaries:
     strategy:
@@ -32,16 +35,16 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: 1.26.x
           cache-dependency-path: spannerlib/go.sum
 
       - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
         with:
           ruby-version: '4.0.6'
           bundler-cache: true
@@ -73,7 +76,7 @@ jobs:
           bundle exec rake ${{ matrix.platform_tasks }}
 
       - name: Upload Binaries as Artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
@@ -91,17 +94,17 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
         with:
           ruby-version: '4.0.6'
           bundler-cache: true
           working-directory: 'spannerlib/wrappers/spannerlib-ruby'
 
       - name: Download all binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           # No name means it downloads ALL artifacts from this workflow
           # The binaries will be placed in their original paths

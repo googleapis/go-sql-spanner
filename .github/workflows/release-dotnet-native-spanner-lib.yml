@@ -2,16 +2,15 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-  pull-requests: write
 name: Build and Release Google.Cloud.SpannerLib.Native
 jobs:
   build-linux-x64:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: 1.26
           cache-dependency-path: spannerlib/go.sum
@@ -22,12 +21,12 @@ jobs:
         working-directory: spannerlib
         run: go build grpc_server.go
       - name: Upload linux-x64 shared lib
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: spannerlib-linux-x64
           path: spannerlib/spannerlib.so
       - name: Upload linux-x64 gRPC server
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: spannerlib-server-linux-x64
           path: spannerlib/grpc_server
@@ -35,9 +34,9 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: 1.26
           cache-dependency-path: spannerlib/go.sum
@@ -48,12 +47,12 @@ jobs:
         working-directory: spannerlib
         run: go build grpc_server.go
       - name: Upload osx-arm64 shared lib
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: spannerlib-osx-arm64
           path: spannerlib/spannerlib.dylib
       - name: Upload osx-arm64 gRPC server
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: spannerlib-server-osx-arm64
           path: spannerlib/grpc_server
@@ -62,35 +61,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Download and copy linux-x64 shared lib
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: spannerlib-linux-x64
           path: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Native/libraries/linux-x64/
       - name: Download and copy linux-x64 gRPC server
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: spannerlib-server-linux-x64
           path: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/linux-x64/
       - name: Add execute permission to linux-x64 gRPC server
         run: chmod +x spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/linux-x64/grpc_server
       - name: Download and copy osx-arm64
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: spannerlib-osx-arm64
           path: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Native/libraries/osx-arm64/
       - name: Download and copy osx-arm64 gRPC server
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: spannerlib-server-osx-arm64
           path: spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/osx-arm64/
       - name: Add execute permission to osx-arm64 gRPC server
         run: chmod +x spannerlib/dotnet-spannerlib/Google.Cloud.SpannerLib.Grpc/binaries/osx-arm64/grpc_server
       - name: Install dotnet
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: '10.0.x'
       - name: dotnet version
         run: dotnet --version
       - name: Build native library package
