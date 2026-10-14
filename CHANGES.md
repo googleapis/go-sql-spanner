@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.27.1](https://github.com/googleapis/go-sql-spanner/compare/v1.27.0...v1.27.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* Update dependency io.grpc:grpc-bom to v1.84.3 ([#916](https://github.com/googleapis/go-sql-spanner/issues/916)) ([cd72bcb](https://github.com/googleapis/go-sql-spanner/commit/cd72bcb0df615e1052920605f85f738f80129d73))
+
 ## [1.27.0](https://github.com/googleapis/go-sql-spanner/compare/v1.26.0...v1.27.0) (2026-10-13)
 
 
