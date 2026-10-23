@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.27.1](https://github.com/googleapis/go-sql-spanner/compare/v1.27.0...v1.27.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* Update dependency com.google.errorprone:error_prone_annotations to v2.51.0 ([#921](https://github.com/googleapis/go-sql-spanner/issues/921)) ([2d12eda](https://github.com/googleapis/go-sql-spanner/commit/2d12eda19806d251726ff50470b7ab20d6aac1c3))
+* Update dependency io.grpc:grpc-bom to v1.84.3 ([#916](https://github.com/googleapis/go-sql-spanner/issues/916)) ([cd72bcb](https://github.com/googleapis/go-sql-spanner/commit/cd72bcb0df615e1052920605f85f738f80129d73))
+
 ## [1.27.0](https://github.com/googleapis/go-sql-spanner/compare/v1.26.0...v1.27.0) (2026-10-13)
 
 
