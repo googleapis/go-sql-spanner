@@ -1745,6 +1745,48 @@ func TestParseClientSideStatement(t *testing.T) {
 			want:  "SET",
 			exec:  true,
 		},
+		{
+			name:  "Savepoint",
+			input: "SAVEPOINT s1",
+			want:  "SAVEPOINT",
+			exec:  true,
+		},
+		{
+			name:  "Savepoint quoted",
+			input: "savepoint `s2`",
+			want:  "SAVEPOINT",
+			exec:  true,
+		},
+		{
+			name:  "Release savepoint",
+			input: "RELEASE SAVEPOINT s1",
+			want:  "RELEASE SAVEPOINT",
+			exec:  true,
+		},
+		{
+			name:  "Release savepoint no keyword",
+			input: "release s1",
+			want:  "RELEASE SAVEPOINT",
+			exec:  true,
+		},
+		{
+			name:  "Rollback to savepoint",
+			input: "ROLLBACK TO SAVEPOINT s1",
+			want:  "ROLLBACK TO SAVEPOINT",
+			exec:  true,
+		},
+		{
+			name:  "Rollback to savepoint no keyword",
+			input: "rollback to s1",
+			want:  "ROLLBACK TO SAVEPOINT",
+			exec:  true,
+		},
+		{
+			name:  "Rollback transaction to savepoint",
+			input: "rollback transaction to s1",
+			want:  "ROLLBACK TO SAVEPOINT",
+			exec:  true,
+		},
 	}
 
 	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
@@ -1766,8 +1808,395 @@ func TestParseClientSideStatement(t *testing.T) {
 				got = statement.Name()
 			}
 			if got != tc.want {
-				t.Errorf("parseClientSideStatement test failed: %s\n Got: %s\nWant: %s.", tc.name, got, tc.want)
+				t.Errorf("parseClientSideStatement test failed: %s\nGot:  %s\nWant: %s.", tc.name, got, tc.want)
 			}
+		})
+	}
+}
+
+func TestParseSavepointStatements(t *testing.T) {
+	t.Parallel()
+
+	for _, dialect := range []databasepb.DatabaseDialect{
+		databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+		databasepb.DatabaseDialect_POSTGRESQL,
+	} {
+		dialectName := "GoogleSQL"
+		if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+			dialectName = "PostgreSQL"
+		}
+
+		t.Run(dialectName, func(t *testing.T) {
+			statementParser, err := NewStatementParser(dialect, 1000)
+			if err != nil {
+				t.Fatalf("failed to create statement parser: %v", err)
+			}
+
+			validTests := []struct {
+				name          string
+				input         string
+				wantName      string
+				wantSavepoint string
+			}{
+				{
+					name:          "Savepoint simple",
+					input:         "SAVEPOINT sp1",
+					wantName:      "SAVEPOINT",
+					wantSavepoint: "sp1",
+				},
+				{
+					name:          "Savepoint lowercase",
+					input:         "savepoint sp1",
+					wantName:      "SAVEPOINT",
+					wantSavepoint: "sp1",
+				},
+				{
+					name:          "Savepoint with comments",
+					input:         "/* comment */ SAVEPOINT sp1",
+					wantName:      "SAVEPOINT",
+					wantSavepoint: "sp1",
+				},
+				{
+					name:          "Rollback to savepoint",
+					input:         "ROLLBACK TO SAVEPOINT sp1",
+					wantName:      "ROLLBACK TO SAVEPOINT",
+					wantSavepoint: "sp1",
+				},
+				{
+					name:          "Rollback to savepoint without SAVEPOINT keyword",
+					input:         "ROLLBACK TO sp1",
+					wantName:      "ROLLBACK TO SAVEPOINT",
+					wantSavepoint: "sp1",
+				},
+				{
+					name:          "Rollback transaction to savepoint",
+					input:         "ROLLBACK TRANSACTION TO SAVEPOINT sp1",
+					wantName:      "ROLLBACK TO SAVEPOINT",
+					wantSavepoint: "sp1",
+				},
+				{
+					name:          "Rollback transaction to savepoint without SAVEPOINT keyword",
+					input:         "ROLLBACK TRANSACTION TO sp1",
+					wantName:      "ROLLBACK TO SAVEPOINT",
+					wantSavepoint: "sp1",
+				},
+				{
+					name:          "Release savepoint",
+					input:         "RELEASE SAVEPOINT sp1",
+					wantName:      "RELEASE SAVEPOINT",
+					wantSavepoint: "sp1",
+				},
+				{
+					name:          "Release without SAVEPOINT keyword",
+					input:         "RELEASE sp1",
+					wantName:      "RELEASE SAVEPOINT",
+					wantSavepoint: "sp1",
+				},
+			}
+
+			for _, tc := range validTests {
+				t.Run(tc.name, func(t *testing.T) {
+					stmt, err := statementParser.ParseClientSideStatement(tc.input)
+					if err != nil {
+						t.Fatalf("unexpected error parsing %q: %v", tc.input, err)
+					}
+					if stmt == nil {
+						t.Fatalf("expected non-nil statement for %q", tc.input)
+					}
+					if g, w := stmt.Name(), tc.wantName; g != w {
+						t.Errorf("statement name mismatch\nGot:  %v\nWant: %v", g, w)
+					}
+					var gotSavepointName string
+					switch s := stmt.(type) {
+					case *ParsedSavepointStatement:
+						gotSavepointName = s.SavepointName
+					case *ParsedRollbackToSavepointStatement:
+						gotSavepointName = s.SavepointName
+					case *ParsedReleaseSavepointStatement:
+						gotSavepointName = s.SavepointName
+					default:
+						t.Fatalf("unexpected statement type: %T", stmt)
+					}
+					if g, w := gotSavepointName, tc.wantSavepoint; g != w {
+						t.Errorf("savepoint name mismatch\nGot:  %v\nWant: %v", g, w)
+					}
+					if g, w := stmt.Query(), tc.input; g != w {
+						t.Errorf("statement query mismatch\nGot:  %v\nWant: %v", g, w)
+					}
+				})
+			}
+
+			if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+				pgTests := []struct {
+					name          string
+					input         string
+					wantName      string
+					wantSavepoint string
+				}{
+					{
+						name:          "Rollback work to savepoint",
+						input:         "ROLLBACK WORK TO SAVEPOINT sp1",
+						wantName:      "ROLLBACK TO SAVEPOINT",
+						wantSavepoint: "sp1",
+					},
+					{
+						name:          "Rollback work to savepoint without keyword",
+						input:         "ROLLBACK WORK TO sp1",
+						wantName:      "ROLLBACK TO SAVEPOINT",
+						wantSavepoint: "sp1",
+					},
+					{
+						name:          "Quoted identifier double quotes",
+						input:         `SAVEPOINT "my_savepoint"`,
+						wantName:      "SAVEPOINT",
+						wantSavepoint: "my_savepoint",
+					},
+					{
+						name:          "Unquoted identifier folded to lowercase",
+						input:         "SAVEPOINT My_Point",
+						wantName:      "SAVEPOINT",
+						wantSavepoint: "my_point",
+					},
+					{
+						name:          "Quoted identifier case preserved",
+						input:         `SAVEPOINT "My_Point"`,
+						wantName:      "SAVEPOINT",
+						wantSavepoint: "My_Point",
+					},
+				}
+				for _, tc := range pgTests {
+					t.Run(tc.name, func(t *testing.T) {
+						stmt, err := statementParser.ParseClientSideStatement(tc.input)
+						if err != nil {
+							t.Fatalf("unexpected error parsing %q: %v", tc.input, err)
+						}
+						if stmt == nil {
+							t.Fatalf("expected non-nil statement for %q", tc.input)
+						}
+						if g, w := stmt.Name(), tc.wantName; g != w {
+							t.Errorf("statement name mismatch\nGot:  %v\nWant: %v", g, w)
+						}
+						if g, w := stmt.Query(), tc.input; g != w {
+							t.Errorf("statement query mismatch\nGot:  %v\nWant: %v", g, w)
+						}
+						var gotSavepointName string
+						switch s := stmt.(type) {
+						case *ParsedSavepointStatement:
+							gotSavepointName = s.SavepointName
+						case *ParsedRollbackToSavepointStatement:
+							gotSavepointName = s.SavepointName
+						case *ParsedReleaseSavepointStatement:
+							gotSavepointName = s.SavepointName
+						default:
+							t.Fatalf("unexpected statement type: %T", stmt)
+						}
+						if g, w := gotSavepointName, tc.wantSavepoint; g != w {
+							t.Errorf("savepoint name mismatch\nGot:  %v\nWant: %v", g, w)
+						}
+					})
+				}
+			} else {
+				gsqlTests := []struct {
+					name          string
+					input         string
+					wantName      string
+					wantSavepoint string
+				}{
+					{
+						name:          "Quoted identifier backticks",
+						input:         "SAVEPOINT `my_savepoint`",
+						wantName:      "SAVEPOINT",
+						wantSavepoint: "my_savepoint",
+					},
+					{
+						name:          "Rollback transaction to savepoint",
+						input:         "ROLLBACK TRANSACTION TO SAVEPOINT sp1",
+						wantName:      "ROLLBACK TO SAVEPOINT",
+						wantSavepoint: "sp1",
+					},
+				}
+				for _, tc := range gsqlTests {
+					t.Run(tc.name, func(t *testing.T) {
+						stmt, err := statementParser.ParseClientSideStatement(tc.input)
+						if err != nil {
+							t.Fatalf("unexpected error parsing %q: %v", tc.input, err)
+						}
+						if stmt == nil {
+							t.Fatalf("expected non-nil statement for %q", tc.input)
+						}
+						if g, w := stmt.Name(), tc.wantName; g != w {
+							t.Errorf("statement name mismatch\nGot:  %v\nWant: %v", g, w)
+						}
+						if g, w := stmt.Query(), tc.input; g != w {
+							t.Errorf("statement query mismatch\nGot:  %v\nWant: %v", g, w)
+						}
+						var gotSavepointName string
+						switch s := stmt.(type) {
+						case *ParsedSavepointStatement:
+							gotSavepointName = s.SavepointName
+						case *ParsedRollbackToSavepointStatement:
+							gotSavepointName = s.SavepointName
+						case *ParsedReleaseSavepointStatement:
+							gotSavepointName = s.SavepointName
+						default:
+							t.Fatalf("unexpected statement type: %T", stmt)
+						}
+						if g, w := gotSavepointName, tc.wantSavepoint; g != w {
+							t.Errorf("savepoint name mismatch\nGot:  %v\nWant: %v", g, w)
+						}
+					})
+				}
+			}
+
+			invalidTests := []struct {
+				name  string
+				input string
+			}{
+				{name: "SAVEPOINT missing identifier", input: "SAVEPOINT"},
+				{name: "SAVEPOINT multi-part identifier", input: "SAVEPOINT a.b"},
+				{name: "SAVEPOINT extra tokens", input: "SAVEPOINT s1 extra"},
+				{name: "SAVEPOINT numeric identifier", input: "SAVEPOINT 123"},
+				{name: "SAVEPOINT invalid first char hyphen", input: "SAVEPOINT -sp1"},
+				{name: "SAVEPOINT repeated keyword", input: "SAVEPOINT SAVEPOINT sp1"},
+				{name: "ROLLBACK TO missing identifier", input: "ROLLBACK TO"},
+				{name: "ROLLBACK TO SAVEPOINT missing identifier", input: "ROLLBACK TO SAVEPOINT"},
+				{name: "ROLLBACK TO multi-part identifier", input: "ROLLBACK TO a.b"},
+				{name: "ROLLBACK TO extra tokens", input: "ROLLBACK TO s1 extra"},
+				{name: "ROLLBACK SAVEPOINT missing TO", input: "ROLLBACK SAVEPOINT sp1"},
+				{name: "RELEASE missing identifier", input: "RELEASE"},
+				{name: "RELEASE SAVEPOINT missing identifier", input: "RELEASE SAVEPOINT"},
+				{name: "RELEASE multi-part identifier", input: "RELEASE a.b"},
+				{name: "RELEASE extra tokens", input: "RELEASE s1 extra"},
+				{name: "RELEASE invalid token WORK", input: "RELEASE WORK sp1"},
+				{name: "RELEASE invalid token TRANSACTION", input: "RELEASE TRANSACTION sp1"},
+			}
+			if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+				invalidTests = append(invalidTests,
+					struct {
+						name  string
+						input string
+					}{name: "SAVEPOINT empty double quotes", input: `SAVEPOINT ""`},
+					struct {
+						name  string
+						input string
+					}{name: "SAVEPOINT unclosed double quotes", input: `SAVEPOINT "unclosed`},
+					struct {
+						name  string
+						input string
+					}{name: "SAVEPOINT backtick quote token", input: "SAVEPOINT `sp1`"},
+					struct {
+						name  string
+						input string
+					}{name: "ROLLBACK TO empty double quotes", input: `ROLLBACK TO ""`},
+					struct {
+						name  string
+						input string
+					}{name: "ROLLBACK TO unclosed double quotes", input: `ROLLBACK TO "unclosed`},
+					struct {
+						name  string
+						input string
+					}{name: "ROLLBACK TO backtick quote token", input: "ROLLBACK TO `sp1`"},
+					struct {
+						name  string
+						input string
+					}{name: "RELEASE empty double quotes", input: `RELEASE ""`},
+					struct {
+						name  string
+						input string
+					}{name: "RELEASE unclosed double quotes", input: `RELEASE "unclosed`},
+					struct {
+						name  string
+						input string
+					}{name: "RELEASE backtick quote token", input: "RELEASE `sp1`"},
+					struct {
+						name  string
+						input string
+					}{name: "ROLLBACK multiple tx keywords", input: "ROLLBACK TRANSACTION WORK TO sp1"},
+				)
+			} else {
+				invalidTests = append(invalidTests,
+					struct {
+						name  string
+						input string
+					}{name: "SAVEPOINT empty backticks", input: "SAVEPOINT ``"},
+					struct {
+						name  string
+						input string
+					}{name: "SAVEPOINT unclosed backticks", input: "SAVEPOINT `unclosed"},
+					struct {
+						name  string
+						input string
+					}{name: "SAVEPOINT double quote token", input: `SAVEPOINT "sp1"`},
+					struct {
+						name  string
+						input string
+					}{name: "ROLLBACK TO empty backticks", input: "ROLLBACK TO ``"},
+					struct {
+						name  string
+						input string
+					}{name: "ROLLBACK TO unclosed backticks", input: "ROLLBACK TO `unclosed"},
+					struct {
+						name  string
+						input string
+					}{name: "ROLLBACK TO double quote token", input: `ROLLBACK TO "sp1"`},
+					struct {
+						name  string
+						input string
+					}{name: "RELEASE empty backticks", input: "RELEASE ``"},
+					struct {
+						name  string
+						input string
+					}{name: "RELEASE unclosed backticks", input: "RELEASE `unclosed"},
+					struct {
+						name  string
+						input string
+					}{name: "RELEASE double quote token", input: `RELEASE "sp1"`},
+					struct {
+						name  string
+						input string
+					}{name: "ROLLBACK WORK keyword in GoogleSQL", input: "ROLLBACK WORK TO SAVEPOINT sp1"},
+					struct {
+						name  string
+						input string
+					}{name: "ROLLBACK multiple tx keywords in GoogleSQL", input: "ROLLBACK TRANSACTION WORK TO sp1"},
+				)
+			}
+			for _, tc := range invalidTests {
+				t.Run("Invalid_"+tc.name, func(t *testing.T) {
+					_, err := statementParser.ParseClientSideStatement(tc.input)
+					if err == nil {
+						t.Errorf("expected error parsing %q, but got nil", tc.input)
+					} else if g, w := status.Code(err), codes.InvalidArgument; g != w {
+						t.Errorf("error code mismatch for %q\nGot:  %v\nWant: %v", tc.input, g, w)
+					}
+				})
+			}
+
+			t.Run("DirectParse_RollbackToSavepoint_MissingTO", func(t *testing.T) {
+				stmt := &ParsedRollbackToSavepointStatement{}
+				err := stmt.parse(statementParser, "ROLLBACK sp1")
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if g, w := status.Code(err), codes.InvalidArgument; g != w {
+					t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+			})
+
+			t.Run("DirectParse_MismatchedKeyword", func(t *testing.T) {
+				if err := (&ParsedSavepointStatement{}).parse(statementParser, "SELECT 1"); err == nil {
+					t.Errorf("expected error from ParsedSavepointStatement.parse for non-SAVEPOINT statement")
+				}
+				if err := (&ParsedRollbackToSavepointStatement{}).parse(statementParser, "SELECT 1"); err == nil {
+					t.Errorf("expected error from ParsedRollbackToSavepointStatement.parse for non-ROLLBACK statement")
+				}
+				if err := (&ParsedReleaseSavepointStatement{}).parse(statementParser, "SELECT 1"); err == nil {
+					t.Errorf("expected error from ParsedReleaseSavepointStatement.parse for non-RELEASE statement")
+				}
+				if isRollbackToSavepoint(statementParser, "SELECT 1") {
+					t.Errorf("expected isRollbackToSavepoint to return false for non-ROLLBACK statement")
+				}
+			})
 		})
 	}
 }
@@ -2525,6 +2954,18 @@ func generateDetectStatementTypeTests() []detectStatementTypeTest {
 			input: "run batch",
 			want:  StatementTypeClientSide,
 		},
+		{
+			input: "savepoint s1",
+			want:  StatementTypeClientSide,
+		},
+		{
+			input: "rollback to s1",
+			want:  StatementTypeClientSide,
+		},
+		{
+			input: "release s1",
+			want:  StatementTypeClientSide,
+		},
 	}
 }
 
@@ -2763,6 +3204,11 @@ func TestEatIdentifier(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			// Zero-length identifier in backticks is invalid
+			input:   "``",
+			wantErr: true,
+		},
+		{
 			input: "`p1 /* looks like a comment */ `.`p2`",
 			want:  Identifier{Parts: []string{"p1 /* looks like a comment */ ", "p2"}},
 		},
@@ -2784,11 +3230,67 @@ func TestEatIdentifier(t *testing.T) {
 			t.Fatalf("%s\nmissing expected error", test.input)
 		}
 		if g, w := len(id.Parts), len(test.want.Parts); g != w {
-			t.Fatalf("%s\nidentifier parts length mismatch\n Got: %v\nWant: %v", test.input, g, w)
+			t.Fatalf("%s\nidentifier parts length mismatch\nGot:  %v\nWant: %v", test.input, g, w)
 		}
 		for i := range id.Parts {
 			if g, w := id.Parts[i], test.want.Parts[i]; g != w {
-				t.Fatalf("%s\n%d: identifier part mismatch\n Got: %v\nWant: %v", test.input, i, g, w)
+				t.Fatalf("%s\n%d: identifier part mismatch\nGot:  %v\nWant: %v", test.input, i, g, w)
+			}
+		}
+	}
+
+	pgParser, err := NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pgTests := []struct {
+		input   string
+		want    Identifier
+		wantErr bool
+	}{
+		{
+			input: "my_property",
+			want:  Identifier{Parts: []string{"my_property"}},
+		},
+		{
+			// Unquoted identifier folded to lowercase in PostgreSQL
+			input: "My_Property",
+			want:  Identifier{Parts: []string{"my_property"}},
+		},
+		{
+			// Quoted identifier preserves case in PostgreSQL
+			input: `"My_Property"`,
+			want:  Identifier{Parts: []string{"My_Property"}},
+		},
+		{
+			// Multi-part mixed quoted/unquoted
+			input: `My_Schema."My_Table"`,
+			want:  Identifier{Parts: []string{"my_schema", "My_Table"}},
+		},
+		{
+			// Zero-length double quoted identifier is invalid
+			input:   `""`,
+			wantErr: true,
+		},
+	}
+	for _, test := range pgTests {
+		sp := &simpleParser{sql: []byte(test.input), statementParser: pgParser}
+		id, err := sp.eatIdentifier()
+		if err != nil {
+			if test.wantErr {
+				continue
+			}
+			t.Fatalf("%s\ngot unexpected error: %v", test.input, err)
+		}
+		if test.wantErr {
+			t.Fatalf("%s\nmissing expected error", test.input)
+		}
+		if g, w := len(id.Parts), len(test.want.Parts); g != w {
+			t.Fatalf("%s\nidentifier parts length mismatch\nGot:  %v\nWant: %v", test.input, g, w)
+		}
+		for i := range id.Parts {
+			if g, w := id.Parts[i], test.want.Parts[i]; g != w {
+				t.Fatalf("%s\n%d: identifier part mismatch\nGot:  %v\nWant: %v", test.input, i, g, w)
 			}
 		}
 	}

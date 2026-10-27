@@ -219,7 +219,11 @@ func (p *simpleParser) eatIdentifier() (Identifier, error) {
 					return Identifier{}, err
 				}
 				p.pos = pos
-				result.Parts = append(result.Parts, string(p.sql[startPos+quoteLen:pos-quoteLen]))
+				part := string(p.sql[startPos+quoteLen : pos-quoteLen])
+				if len(part) == 0 {
+					return Identifier{}, status.Errorf(codes.InvalidArgument, "zero-length identifier at position %d", startPos)
+				}
+				result.Parts = append(result.Parts, part)
 				if p.eatToken('.') {
 					p.skipWhitespacesAndComments()
 					startPos = p.pos
@@ -235,7 +239,11 @@ func (p *simpleParser) eatIdentifier() (Identifier, error) {
 			}
 		} else {
 			if !p.isValidIdentifierChar() {
-				result.Parts = append(result.Parts, string(p.sql[startPos:p.pos]))
+				part := string(p.sql[startPos:p.pos])
+				if p.statementParser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+					part = strings.ToLower(part)
+				}
+				result.Parts = append(result.Parts, part)
 				if p.eatToken('.') {
 					p.skipWhitespacesAndComments()
 					startPos = p.pos
@@ -253,7 +261,11 @@ func (p *simpleParser) eatIdentifier() (Identifier, error) {
 		return Identifier{}, status.Errorf(codes.InvalidArgument, "no identifier found at position %d", startPos)
 	}
 	if appendLastPart && p.pos == len(p.sql) {
-		result.Parts = append(result.Parts, string(p.sql[startPos:p.pos]))
+		part := string(p.sql[startPos:p.pos])
+		if p.statementParser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+			part = strings.ToLower(part)
+		}
+		result.Parts = append(result.Parts, part)
 	}
 	return result, nil
 }
