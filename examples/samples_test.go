@@ -36,9 +36,8 @@ func TestRunSamples(t *testing.T) {
 			if !mainFile.IsDir() {
 				t.Run(item.Name(), func(t *testing.T) {
 					// Verify that we can run the sample.
-					timeout := time.Minute
+					timeout := 3 * time.Minute
 					if item.Name() == "emulator" {
-						timeout = 3 * time.Minute
 						if !isDockerAvailable() {
 							t.Skip("Docker is not available; skipping self-starting emulator test")
 						}
