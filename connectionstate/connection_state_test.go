@@ -609,6 +609,38 @@ func TestPGTransactionState(t *testing.T) {
 		}
 	})
 
+	t.Run("SetTransactionActive", func(t *testing.T) {
+		state, _ := NewConnectionState(TypeTransactional, nil, nil)
+		if err := state.Begin(); err != nil {
+			t.Fatalf("Begin failed: %v", err)
+		}
+		if g, w := state.TransactionState(), TransactionStateTransaction; g != w {
+			t.Errorf("state after Begin mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		state.SetTransactionFailed()
+		if g, w := state.TransactionState(), TransactionStateFailed; g != w {
+			t.Errorf("state after SetTransactionFailed mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		state.SetTransactionActive()
+		if g, w := state.TransactionState(), TransactionStateTransaction; g != w {
+			t.Errorf("state after SetTransactionActive mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if err := state.Commit(); err != nil {
+			t.Fatalf("Commit failed: %v", err)
+		}
+		if g, w := state.TransactionState(), TransactionStateIdle; g != w {
+			t.Errorf("state after Commit mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("SetTransactionActiveOutsideTransaction", func(t *testing.T) {
+		state, _ := NewConnectionState(TypeTransactional, nil, nil)
+		state.SetTransactionActive()
+		if g, w := state.TransactionState(), TransactionStateIdle; g != w {
+			t.Errorf("state after SetTransactionActive outside transaction mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
 	t.Run("CheckInErrorTxState_EnforceInErrorState", func(t *testing.T) {
 		state, _ := NewConnectionState(TypeTransactional, nil, nil)
 		state.SetInErrorTxBehavior(InErrorTxBehaviorEnforceInErrorState)
@@ -623,6 +655,66 @@ func TestPGTransactionState(t *testing.T) {
 
 		if err := state.CheckInErrorTxState(true); err != nil {
 			t.Errorf("expected nil error for COMMIT/ROLLBACK in state E, got %v", err)
+		}
+	})
+
+	t.Run("CheckInErrorTxState_SetTransactionActive", func(t *testing.T) {
+		state, _ := NewConnectionState(TypeTransactional, nil, nil)
+		state.SetInErrorTxBehavior(InErrorTxBehaviorEnforceInErrorState)
+		if err := state.Begin(); err != nil {
+			t.Fatalf("Begin failed: %v", err)
+		}
+		state.SetTransactionFailed()
+
+		if err := state.CheckInErrorTxState(false); err == nil {
+			t.Errorf("expected error when CheckInErrorTxState(false) in state E")
+		} else if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+			t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		state.SetTransactionActive()
+
+		if err := state.CheckInErrorTxState(false); err != nil {
+			t.Errorf("expected nil error when CheckInErrorTxState(false) in state T, got %v", err)
+		}
+	})
+
+	t.Run("SetTransactionActive_Idempotent", func(t *testing.T) {
+		state, _ := NewConnectionState(TypeTransactional, nil, nil)
+		if err := state.Begin(); err != nil {
+			t.Fatalf("Begin failed: %v", err)
+		}
+		state.SetTransactionActive()
+		if g, w := state.TransactionState(), TransactionStateTransaction; g != w {
+			t.Errorf("state after idempotent SetTransactionActive mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("SetTransactionActive_PostRollback", func(t *testing.T) {
+		state, _ := NewConnectionState(TypeTransactional, nil, nil)
+		if err := state.Begin(); err != nil {
+			t.Fatalf("Begin failed: %v", err)
+		}
+		if err := state.Rollback(); err != nil {
+			t.Fatalf("Rollback failed: %v", err)
+		}
+		state.SetTransactionActive()
+		if g, w := state.TransactionState(), TransactionStateIdle; g != w {
+			t.Errorf("state after SetTransactionActive post-rollback mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("SetTransactionActive_PostCommit", func(t *testing.T) {
+		state, _ := NewConnectionState(TypeTransactional, nil, nil)
+		if err := state.Begin(); err != nil {
+			t.Fatalf("Begin failed: %v", err)
+		}
+		if err := state.Commit(); err != nil {
+			t.Fatalf("Commit failed: %v", err)
+		}
+		state.SetTransactionActive()
+		if g, w := state.TransactionState(), TransactionStateIdle; g != w {
+			t.Errorf("state after SetTransactionActive post-commit mismatch\nGot:  %v\nWant: %v", g, w)
 		}
 	})
 }
