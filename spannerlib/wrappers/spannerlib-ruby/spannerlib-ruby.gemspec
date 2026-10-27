@@ -48,5 +48,6 @@ Gem::Specification.new do |spec|
   spec.add_dependency "ffi"
   spec.add_dependency "google-cloud-spanner-v1", "~> 1.7"
   spec.add_dependency "google-protobuf", "~> 3.19"
-  spec.add_dependency "grpc", "~> 1.60"
+  # TODO(https://github.com/grpc/grpc/issues/43374): Remove once grpc publishes an x64-mingw-ucrt gem for >= 1.85.0.
+  spec.add_dependency "grpc", ">= 1.60", "< 1.85.0"
 end
