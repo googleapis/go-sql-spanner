@@ -727,6 +727,18 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		_ = os.Setenv("GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS", "true")
 	}
 
+	assignPropertyValueIfExists(state, propertyType, &config.Type)
+	var isExpHost bool
+	assignPropertyValueIfExists(state, propertyIsExperimentalHost, &isExpHost)
+	if isExpHost {
+		config.Type = spanner.OMNI
+	}
+	if propertyUsePlainText.GetValueOrDefault(state) && config.Type != spanner.OMNI {
+		opts = append(opts,
+			option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+			option.WithoutAuthentication())
+		config.DisableNativeMetrics = true
+	}
 	assignPropertyValueIfExists(state, propertyAutoBatchDml, &connectorConfig.AutoBatchDml)
 	assignPropertyValueIfExists(state, propertyAutoBatchDmlUpdateCount, &connectorConfig.AutoBatchDmlUpdateCount)
 	assignNegatedPropertyValueIfExists(state, propertyAutoBatchDmlUpdateCountVerification, &connectorConfig.DisableAutoBatchDmlUpdateCountVerification)
@@ -780,12 +792,6 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		logger = connectorConfig.logger
 	}
 	logger = logger.With("config", &connectorConfig)
-	assignPropertyValueIfExists(state, propertyType, &config.Type)
-	var isExpHost bool
-	assignPropertyValueIfExists(state, propertyIsExperimentalHost, &isExpHost)
-	if isExpHost {
-		config.Type = spanner.OMNI
-	}
 	if config.Type == spanner.OMNI {
 		assignPropertyValueIfExists(state, propertyCaCertFile, &config.CaCertificateFile)
 		assignPropertyValueIfExists(state, propertyClientCertFile, &config.ClientCertificateFile)
@@ -794,11 +800,6 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		if _, ok := initialPropertyValues[propertyDisableNativeMetrics.Key()]; !ok {
 			config.DisableNativeMetrics = true
 		}
-	} else if propertyUsePlainText.GetValueOrDefault(state) {
-		opts = append(opts,
-			option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
-			option.WithoutAuthentication())
-		config.DisableNativeMetrics = true
 	}
 	if connectorConfig.Configurator != nil {
 		connectorConfig.Configurator(&config, &opts)
