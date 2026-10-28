@@ -1017,10 +1017,10 @@ func TestParseBeginTransactionOption(t *testing.T) {
 		t.Run(test.input, func(t *testing.T) {
 			val, err := parseBeginTransactionOption(test.input)
 			if (err != nil) != test.wantErr {
-				t.Errorf("%d: parseBeginTransactionOption(%q) error = %v, wantErr %v", i, err, test.wantErr, err)
+				t.Errorf("%d: parseBeginTransactionOption(%q) error = %v, wantErr %v", i, test.input, err, test.wantErr)
 			}
 			if g, w := val, test.want; g != w {
-				t.Errorf("%d: parseBeginTransactionOption(%q) = %v, want %v", i, g, w, g)
+				t.Errorf("%d: parseBeginTransactionOption(%q) mismatch\nGot:  %v\nWant: %v", i, test.input, g, w)
 			}
 		})
 	}
