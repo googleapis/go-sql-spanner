@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.28.0](https://github.com/googleapis/go-sql-spanner/compare/v1.27.0...v1.28.0) (2026-10-28)
+
+
+### Features
+
+* Add driver support for Spanner Omni connection options ([#927](https://github.com/googleapis/go-sql-spanner/issues/927)) ([09e8564](https://github.com/googleapis/go-sql-spanner/commit/09e8564ce885825187cef9e9c57b6eed7ceaa34d))
+* Add support for parsing savepoint statements ([#922](https://github.com/googleapis/go-sql-spanner/issues/922)) ([7ae7869](https://github.com/googleapis/go-sql-spanner/commit/7ae786988ee040ea8c0945191b335b10a647b52d))
+
+
+### Bug Fixes
+
+* Update all dependencies ([#919](https://github.com/googleapis/go-sql-spanner/issues/919)) ([f020b2a](https://github.com/googleapis/go-sql-spanner/commit/f020b2a422c77e91b4c23302e77830d816a97911))
+* Update dependency com.google.errorprone:error_prone_annotations to v2.51.0 ([#921](https://github.com/googleapis/go-sql-spanner/issues/921)) ([2d12eda](https://github.com/googleapis/go-sql-spanner/commit/2d12eda19806d251726ff50470b7ab20d6aac1c3))
+* Update dependency io.grpc:grpc-bom to v1.84.3 ([#916](https://github.com/googleapis/go-sql-spanner/issues/916)) ([cd72bcb](https://github.com/googleapis/go-sql-spanner/commit/cd72bcb0df615e1052920605f85f738f80129d73))
+* Update dependency io.grpc:grpc-bom to v1.85.1 ([#920](https://github.com/googleapis/go-sql-spanner/issues/920)) ([290d0cd](https://github.com/googleapis/go-sql-spanner/commit/290d0cd7d75d02a15beb48008f02700d9bda066c))
+
 ## [1.27.0](https://github.com/googleapis/go-sql-spanner/compare/v1.26.0...v1.27.0) (2026-10-13)
 
 
