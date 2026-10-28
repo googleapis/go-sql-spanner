@@ -314,6 +314,13 @@ func (cs *ConnectionState) SetTransactionFailed() {
 	}
 }
 
+// SetTransactionActive transitions the transaction state to Transaction ('T') if currently in a transaction.
+func (cs *ConnectionState) SetTransactionActive() {
+	if cs.inTransaction {
+		cs.txState = TransactionStateTransaction
+	}
+}
+
 // CheckInErrorTxState verifies whether the connection is in a Failed ('E') transaction state.
 // If InErrorTxBehaviorEnforceInErrorState is enabled and the state is 'E', commands other than
 // COMMIT or ROLLBACK are rejected with codes.FailedPrecondition.

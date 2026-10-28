@@ -43,23 +43,23 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 var projectId, instanceId string
 var skipped bool
-var experimentalHost string
-var caCertFile string
-var clientCertFile string
-var clientCertKey string
+var omniEndpoint string
+var omniUsePlainText bool
+var omniCaCert string
+var omniClientCert string
+var omniClientKey string
 
 func init() {
-	flag.StringVar(&experimentalHost, "it.experimental-host", "", "Experimental host integration test flag")
-	flag.StringVar(&caCertFile, "it.ca-cert-file", "", "CA certificate file for experimental host integration test")
-	flag.StringVar(&clientCertFile, "it.client-cert-file", "", "Client certificate file for experimental host integration test")
-	flag.StringVar(&clientCertKey, "it.client-cert-key", "", "Client certificate key file for experimental host integration test")
+	flag.StringVar(&omniEndpoint, "it.omni-endpoint", "", "Spanner Omni endpoint for integration test")
+	flag.BoolVar(&omniUsePlainText, "it.omni-use-plaintext", false, "Use plain text for Spanner Omni integration test")
+	flag.StringVar(&omniCaCert, "it.omni-ca-cert", "", "CA certificate file for Spanner Omni integration test")
+	flag.StringVar(&omniClientCert, "it.omni-client-cert", "", "Client certificate file for Spanner Omni integration test")
+	flag.StringVar(&omniClientKey, "it.omni-client-key", "", "Client certificate key file for Spanner Omni integration test")
 
 	var ok bool
 
@@ -70,6 +70,13 @@ func init() {
 	if projectId, ok = os.LookupEnv("SPANNER_TEST_PROJECT"); !ok {
 		projectId = "test-project"
 	}
+}
+
+func isOmniPlainText() bool {
+	if omniUsePlainText {
+		return true
+	}
+	return omniCaCert == "" && omniClientCert == "" && omniClientKey == ""
 }
 
 func runsOnEmulator() bool {
@@ -166,23 +173,17 @@ func initTestInstance(config string) (cleanup func(), err error) {
 }
 
 func createDBAdminClient(ctx context.Context) (*database.DatabaseAdminClient, error) {
-	if experimentalHost == "" {
+	if omniEndpoint == "" {
 		return database.NewDatabaseAdminClient(ctx)
 	}
-	opts := []option.ClientOption{
-		option.WithEndpoint(experimentalHost),
-		option.WithoutAuthentication(),
+	config := spanner.ClientConfig{
+		Type:                  spanner.OMNI,
+		UsePlainText:          isOmniPlainText(),
+		CaCertificateFile:     omniCaCert,
+		ClientCertificateFile: omniClientCert,
+		ClientKeyFile:         omniClientKey,
 	}
-	if caCertFile != "" {
-		credOpts, err := createExperimentalHostCredentials(caCertFile, clientCertFile, clientCertKey)
-		if err != nil {
-			return nil, err
-		}
-		opts = append(opts, credOpts)
-	} else {
-		opts = append(opts, option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())))
-	}
-	return database.NewDatabaseAdminClient(ctx, opts...)
+	return database.NewDatabaseAdminClientWithConfig(ctx, config, option.WithEndpoint(omniEndpoint))
 }
 
 func createTestDB(ctx context.Context, statements ...string) (dsn string, cleanup func(), err error) {
@@ -234,17 +235,18 @@ func createTestDBWithDialect(ctx context.Context, dialect databasepb.DatabaseDia
 		}
 	}
 	dsn = "projects/" + projectId + "/instances/" + instanceId + "/databases/" + databaseId
-	if experimentalHost != "" {
-		dsn = experimentalHost + "/databases/" + databaseId
-		if caCertFile == "" {
-			dsn += "?use_plain_text=true"
+	if omniEndpoint != "" {
+		dsn = omniEndpoint + "/databases/" + databaseId + "?type=omni"
+		if isOmniPlainText() {
+			dsn += ";use_plain_text=true"
 		} else {
-			dsn += "?ca_cert_file=" + caCertFile
-			if clientCertFile != "" && clientCertKey != "" {
-				dsn += ";client_cert_file=" + clientCertFile + ";client_cert_key=" + clientCertKey
+			if omniCaCert != "" {
+				dsn += ";ca_cert_file=" + omniCaCert
+			}
+			if omniClientCert != "" && omniClientKey != "" {
+				dsn += ";client_cert_file=" + omniClientCert + ";client_cert_key=" + omniClientKey
 			}
 		}
-		dsn += ";is_experimental_host=true"
 	}
 	cleanup = func() {
 		databaseAdminClient, err := createDBAdminClient(ctx)
@@ -263,10 +265,10 @@ func initIntegrationTests() (cleanup func(), err error) {
 	flag.Parse() // Needed for testing.Short().
 	noop := func() {}
 
-	if experimentalHost != "" {
-		projectId = experimentalHostProject
-		instanceId = experimentalHostInstance
-		// instance management is not available on experimental host
+	if omniEndpoint != "" {
+		projectId = omniDefaultProject
+		instanceId = omniDefaultInstance
+		// instance management is not available on Spanner Omni
 		return noop, nil
 	}
 
