@@ -16,8 +16,6 @@ package spannerdriver
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"database/sql"
 	"database/sql/driver"
 	"errors"
@@ -49,7 +47,6 @@ import (
 	"google.golang.org/api/option/internaloption"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -72,8 +69,8 @@ var defaultStatementCacheSize int
 // application.
 const LevelNotice = slog.LevelInfo - 1
 
-const experimentalHostProject = "default"
-const experimentalHostInstance = "default"
+const omniDefaultProject = "default"
+const omniDefaultInstance = "default"
 
 // Logger that discards everything and skips (almost) all logs.
 var noopLogger = slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError + 1}))
@@ -576,18 +573,31 @@ func extractPostgresConnectorConfig(dsn string) (ConnectorConfig, error) {
 	return validateAndConfigureConnector(c, matches)
 }
 
-func validateAndConfigureConnector(c ConnectorConfig, matches map[string]string) (ConnectorConfig, error) {
-	if strings.EqualFold(c.Params[propertyIsExperimentalHost.Key()], "true") {
-		if c.Host == "" {
-			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "host must be specified for experimental host endpoint"))
+func isOmniConfig(params map[string]string) bool {
+	if rawType, ok := params[propertyType.Key()]; ok {
+		if t, err := parseInstanceType(rawType); err == nil && t == spanner.OMNI {
+			return true
 		}
-		c.Configurator = func(config *spanner.ClientConfig, opts *[]option.ClientOption) {
-			config.Type = spanner.OMNI
+	}
+	for _, key := range []string{propertyIsExperimentalHost.Key(), "isexperimentalhost"} {
+		if rawVal, ok := params[key]; ok {
+			if val, err := connectionstate.ConvertBool(strings.TrimSpace(rawVal)); err == nil && val {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func validateAndConfigureConnector(c ConnectorConfig, matches map[string]string) (ConnectorConfig, error) {
+	if isOmniConfig(c.Params) {
+		if c.Host == "" {
+			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "host must be specified for Spanner Omni endpoint"))
 		}
 		if matches["INSTANCEGROUP"] == "" {
-			c.Instance = experimentalHostInstance
+			c.Instance = omniDefaultInstance
 		}
-		c.Project = experimentalHostProject
+		c.Project = omniDefaultProject
 	} else {
 		if c.Project == "" {
 			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "project must be specified in connection string"))
@@ -715,12 +725,6 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		_ = os.Setenv("GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS", "true")
 	}
 
-	if propertyUsePlainText.GetValueOrDefault(state) {
-		opts = append(opts,
-			option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
-			option.WithoutAuthentication())
-		config.DisableNativeMetrics = true
-	}
 	assignPropertyValueIfExists(state, propertyAutoBatchDml, &connectorConfig.AutoBatchDml)
 	assignPropertyValueIfExists(state, propertyAutoBatchDmlUpdateCount, &connectorConfig.AutoBatchDmlUpdateCount)
 	assignNegatedPropertyValueIfExists(state, propertyAutoBatchDmlUpdateCountVerification, &connectorConfig.DisableAutoBatchDmlUpdateCountVerification)
@@ -774,23 +778,44 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		logger = connectorConfig.logger
 	}
 	logger = logger.With("config", &connectorConfig)
+	assignPropertyValueIfExists(state, propertyType, &config.Type)
+	var isExpHost bool
+	assignPropertyValueIfExists(state, propertyIsExperimentalHost, &isExpHost)
+	if isExpHost {
+		config.Type = spanner.OMNI
+	}
+	assignPropertyValueIfExists(state, propertyCaCertFile, &config.CaCertificateFile)
+	assignPropertyValueIfExists(state, propertyClientCertFile, &config.ClientCertificateFile)
+	assignPropertyValueIfExists(state, propertyClientCertKey, &config.ClientKeyFile)
+	wasOmni := config.Type == spanner.OMNI
+	if wasOmni {
+		assignPropertyValueIfExists(state, propertyUsePlainText, &config.UsePlainText)
+		if _, ok := initialPropertyValues[propertyDisableNativeMetrics.Key()]; !ok {
+			config.DisableNativeMetrics = true
+		}
+	}
 	if connectorConfig.Configurator != nil {
 		connectorConfig.Configurator(&config, &opts)
 	}
 	if config.Type == spanner.OMNI {
-		var caCertFile string
-		var clientCertFile string
-		var clientCertKey string
-		assignPropertyValueIfExists(state, propertyCaCertFile, &caCertFile)
-		assignPropertyValueIfExists(state, propertyClientCertFile, &clientCertFile)
-		assignPropertyValueIfExists(state, propertyClientCertKey, &clientCertKey)
-		if caCertFile != "" {
-			credOpts, err := createExperimentalHostCredentials(caCertFile, clientCertFile, clientCertKey)
-			if err != nil {
-				return nil, err
+		if !wasOmni {
+			assignPropertyValueIfExists(state, propertyUsePlainText, &config.UsePlainText)
+			if _, ok := initialPropertyValues[propertyDisableNativeMetrics.Key()]; !ok {
+				config.DisableNativeMetrics = true
 			}
-			opts = append(opts, credOpts)
-			opts = append(opts, option.WithoutAuthentication())
+		}
+		if connectorConfig.Project == "" {
+			connectorConfig.Project = omniDefaultProject
+		}
+		if connectorConfig.Instance == "" {
+			connectorConfig.Instance = omniDefaultInstance
+		}
+	} else {
+		if propertyUsePlainText.GetValueOrDefault(state) {
+			opts = append(opts,
+				option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+				option.WithoutAuthentication())
+			config.DisableNativeMetrics = true
 		}
 	}
 	if connectorConfig.AutoConfigEmulator {
@@ -993,7 +1018,11 @@ func (c *connector) increaseConnCount(ctx context.Context, databaseName string, 
 		}
 
 		c.logger.Log(ctx, LevelNotice, "creating Spanner Admin client")
-		c.adminClient, c.adminClientErr = adminapi.NewDatabaseAdminClient(ctx, opts...)
+		if c.spannerClientConfig.Type == spanner.OMNI {
+			c.adminClient, c.adminClientErr = adminapi.NewDatabaseAdminClientWithConfig(ctx, c.spannerClientConfig, opts...)
+		} else {
+			c.adminClient, c.adminClientErr = adminapi.NewDatabaseAdminClient(ctx, opts...)
+		}
 		if c.adminClientErr != nil {
 			closeClient()
 			c.adminClient = nil
@@ -1703,6 +1732,17 @@ func parseRpcPriority(val string) (spannerpb.RequestOptions_Priority, error) {
 	return spannerpb.RequestOptions_PRIORITY_UNSPECIFIED, status.Errorf(codes.InvalidArgument, "invalid or unsupported priority: %v", val)
 }
 
+func parseInstanceType(val string) (spanner.InstanceType, error) {
+	val = strings.ToUpper(strings.TrimSpace(val))
+	switch val {
+	case "CLOUD":
+		return spanner.CLOUD, nil
+	case "OMNI":
+		return spanner.OMNI, nil
+	}
+	return spanner.CLOUD, status.Errorf(codes.InvalidArgument, "invalid or unsupported instance type: %v", val)
+}
+
 func parseDatabaseDialect(val string) (databasepb.DatabaseDialect, error) {
 	val = strings.ToUpper(val)
 	if dialect, ok := databasepb.DatabaseDialect_value[val]; ok {
@@ -1810,39 +1850,4 @@ func WithBatchReadOnly(level sql.IsolationLevel) sql.IsolationLevel {
 
 func withBatchReadOnly(level driver.IsolationLevel) driver.IsolationLevel {
 	return driver.IsolationLevel(levelBatchReadOnly)<<8 + level
-}
-
-// createExperimentalHostCredentials is only supported for connecting to experimental
-// hosts. It reads the provided CA certificate file and optionally the
-// client certificate and key files to set up TLS or mutual TLS credentials, and
-// creates gRPC dial options to connect to an experimental host endpoint.
-func createExperimentalHostCredentials(caCertFile, clientCertificateFile, clientCertificateKey string) (option.ClientOption, error) {
-	ca, err := os.ReadFile(caCertFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read CA certificate file: %w", err)
-	}
-	capool := x509.NewCertPool()
-	if !capool.AppendCertsFromPEM(ca) {
-		return nil, fmt.Errorf("failed to append the CA certificate to CA pool")
-	}
-
-	if clientCertificateFile != "" && clientCertificateKey != "" {
-		// Setting up mutual TLS with both the CA certificate and client certificate.
-		cert, err := tls.LoadX509KeyPair(clientCertificateFile, clientCertificateKey)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load client certificate/key: %w", err)
-		}
-		creds := credentials.NewTLS(&tls.Config{
-			RootCAs:      capool,
-			Certificates: []tls.Certificate{cert},
-		})
-		return option.WithGRPCDialOption(grpc.WithTransportCredentials(creds)), nil
-	}
-	if clientCertificateFile != "" || clientCertificateKey != "" {
-		return nil, fmt.Errorf("both client certificate and key must be provided for mTLS, but only one was provided")
-	}
-
-	// Setting up TLS with only the CA certificate.
-	creds := credentials.NewTLS(&tls.Config{RootCAs: capool})
-	return option.WithGRPCDialOption(grpc.WithTransportCredentials(creds)), nil
 }

@@ -593,6 +593,325 @@ func TestExperimentalHostDsn(t *testing.T) {
 	}
 }
 
+func TestParseInstanceType(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    spanner.InstanceType
+		wantErr bool
+	}{
+		{
+			input: "CLOUD",
+			want:  spanner.CLOUD,
+		},
+		{
+			input: "cloud",
+			want:  spanner.CLOUD,
+		},
+		{
+			input: "OMNI",
+			want:  spanner.OMNI,
+		},
+		{
+			input: "omni",
+			want:  spanner.OMNI,
+		},
+		{
+			input:   "invalid",
+			wantErr: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			got, err := parseInstanceType(test.input)
+			if err != nil {
+				if test.wantErr {
+					return
+				}
+				t.Fatalf("parseInstanceType(%q) returned unexpected error: %v", test.input, err)
+			}
+			if test.wantErr {
+				t.Fatalf("parseInstanceType(%q) expected error, got nil", test.input)
+			}
+			if g, w := got, test.want; g != w {
+				t.Errorf("parseInstanceType mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
+func TestOmniDsn(t *testing.T) {
+	tests := []struct {
+		name                string
+		dsn                 string
+		wantConnectorConfig ConnectorConfig
+		wantErr             bool
+	}{
+		{
+			name: "omni-type",
+			dsn:  "localhost:9010/databases/test-db?type=OMNI",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "default",
+				Instance: "default",
+				Database: "test-db",
+				Params: map[string]string{
+					"type": "OMNI",
+				},
+			},
+		},
+		{
+			name: "omni-custom-instance",
+			dsn:  "localhost:9010/instances/test-instance/databases/test-db?type=omni",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "default",
+				Instance: "test-instance",
+				Database: "test-db",
+				Params: map[string]string{
+					"type": "omni",
+				},
+			},
+		},
+		{
+			name: "omni-plain-text",
+			dsn:  "localhost:9010/databases/test-db?type=OMNI;use_plain_text=true",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "default",
+				Instance: "default",
+				Database: "test-db",
+				Params: map[string]string{
+					"type":           "OMNI",
+					"use_plain_text": "true",
+				},
+			},
+		},
+		{
+			name: "omni-with-tls-certs",
+			dsn:  "localhost:9010/databases/test-db?type=OMNI;ca_cert_file=/path/to/ca.crt;client_cert_file=/path/to/client.crt;client_cert_key=/path/to/client.key",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "default",
+				Instance: "default",
+				Database: "test-db",
+				Params: map[string]string{
+					"type":             "OMNI",
+					"ca_cert_file":     "/path/to/ca.crt",
+					"client_cert_file": "/path/to/client.crt",
+					"client_cert_key":  "/path/to/client.key",
+				},
+			},
+		},
+		{
+			name: "legacy-experimental-host-camel-case",
+			dsn:  "localhost:9010/databases/test-db?isExperimentalHost=true",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "default",
+				Instance: "default",
+				Database: "test-db",
+				Params: map[string]string{
+					"isexperimentalhost": "true",
+				},
+			},
+		},
+		{
+			name:    "absent-host",
+			dsn:     "databases/test-db?type=OMNI",
+			wantErr: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			config, err := ExtractConnectorConfig(tc.dsn)
+			if err != nil {
+				if tc.wantErr {
+					return
+				}
+				t.Fatalf("%q: extract failed for %q: %v", tc.name, tc.dsn, err)
+			}
+			if tc.wantErr {
+				t.Fatalf("%q: did not encounter expected error", tc.name)
+			}
+			if diff := cmp.Diff(config.Params, tc.wantConnectorConfig.Params); diff != "" {
+				t.Errorf("%q: connector config mismatch for %q\n%v", tc.name, tc.dsn, diff)
+			}
+			if g, w := config.Host, tc.wantConnectorConfig.Host; g != w {
+				t.Errorf("%q: host mismatch\nGot:  %v\nWant: %v", tc.name, g, w)
+			}
+			if g, w := config.Project, tc.wantConnectorConfig.Project; g != w {
+				t.Errorf("%q: project mismatch\nGot:  %v\nWant: %v", tc.name, g, w)
+			}
+			if g, w := config.Instance, tc.wantConnectorConfig.Instance; g != w {
+				t.Errorf("%q: instance mismatch\nGot:  %v\nWant: %v", tc.name, g, w)
+			}
+			if g, w := config.Database, tc.wantConnectorConfig.Database; g != w {
+				t.Errorf("%q: database mismatch\nGot:  %v\nWant: %v", tc.name, g, w)
+			}
+		})
+	}
+}
+
+func TestOmniConnectorConfig(t *testing.T) {
+	tests := []struct {
+		name                string
+		input               string
+		wantConnectorConfig ConnectorConfig
+		wantSpannerConfig   spanner.ClientConfig
+		wantErr             bool
+	}{
+		{
+			name:  "omni-plain-text",
+			input: "localhost:9010/databases/test-db?type=OMNI;use_plain_text=true",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "default",
+				Instance: "default",
+				Database: "test-db",
+				Params: map[string]string{
+					"type":           "OMNI",
+					"use_plain_text": "true",
+				},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
+				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
+				UserAgent:            userAgent,
+				Type:                 spanner.OMNI,
+				UsePlainText:         true,
+				DisableNativeMetrics: true,
+			},
+		},
+		{
+			name:  "omni-tls",
+			input: "localhost:9010/databases/test-db?type=OMNI;ca_cert_file=/path/to/ca.crt",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "default",
+				Instance: "default",
+				Database: "test-db",
+				Params: map[string]string{
+					"type":         "OMNI",
+					"ca_cert_file": "/path/to/ca.crt",
+				},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
+				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
+				UserAgent:            userAgent,
+				Type:                 spanner.OMNI,
+				CaCertificateFile:    "/path/to/ca.crt",
+				DisableNativeMetrics: true,
+			},
+		},
+		{
+			name:  "omni-mtls",
+			input: "localhost:9010/databases/test-db?type=OMNI;ca_cert_file=/path/to/ca.crt;client_cert_file=/path/to/client.crt;client_cert_key=/path/to/client.key",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "default",
+				Instance: "default",
+				Database: "test-db",
+				Params: map[string]string{
+					"type":             "OMNI",
+					"ca_cert_file":     "/path/to/ca.crt",
+					"client_cert_file": "/path/to/client.crt",
+					"client_cert_key":  "/path/to/client.key",
+				},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
+				SessionPoolConfig:     spanner.DefaultSessionPoolConfig,
+				UserAgent:             userAgent,
+				Type:                  spanner.OMNI,
+				CaCertificateFile:     "/path/to/ca.crt",
+				ClientCertificateFile: "/path/to/client.crt",
+				ClientKeyFile:         "/path/to/client.key",
+				DisableNativeMetrics:  true,
+			},
+		},
+		{
+			name:  "omni-legacy-experimental-host-properties",
+			input: "localhost:9010/databases/test-db?is_experimental_host=true;ca_cert_file=/path/to/ca.crt;client_cert_file=/path/to/client.crt;client_cert_key=/path/to/client.key",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:9010",
+				Project:  "default",
+				Instance: "default",
+				Database: "test-db",
+				Params: map[string]string{
+					"is_experimental_host": "true",
+					"ca_cert_file":         "/path/to/ca.crt",
+					"client_cert_file":     "/path/to/client.crt",
+					"client_cert_key":      "/path/to/client.key",
+				},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
+				SessionPoolConfig:     spanner.DefaultSessionPoolConfig,
+				UserAgent:             userAgent,
+				Type:                  spanner.OMNI,
+				CaCertificateFile:     "/path/to/ca.crt",
+				ClientCertificateFile: "/path/to/client.crt",
+				ClientKeyFile:         "/path/to/client.key",
+				DisableNativeMetrics:  true,
+			},
+		},
+		{
+			name:  "omni-postgres-dsn",
+			input: "postgresql://localhost:5432/databases/test-db?type=omni&sslmode=disable",
+			wantConnectorConfig: ConnectorConfig{
+				Host:     "localhost:5432",
+				Project:  "default",
+				Instance: "default",
+				Database: "test-db",
+				Params: map[string]string{
+					"type":         "omni",
+					"sslmode":      "disable",
+					"useplaintext": "true",
+				},
+			},
+			wantSpannerConfig: spanner.ClientConfig{
+				//lint:ignore SA1019 Needs a change that is backwards compatible
+				SessionPoolConfig:    spanner.DefaultSessionPoolConfig,
+				UserAgent:            userAgent,
+				Type:                 spanner.OMNI,
+				UsePlainText:         true,
+				DisableNativeMetrics: true,
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			config, err := ExtractConnectorConfig(tc.input)
+			if err != nil {
+				if tc.wantErr {
+					return
+				}
+				t.Fatalf("extract failed for %q: %v", tc.input, err)
+			}
+			if tc.wantErr {
+				t.Fatalf("did not encounter expected error for %q", tc.input)
+			}
+			if diff := cmp.Diff(config.Params, tc.wantConnectorConfig.Params); diff != "" {
+				t.Errorf("connector config params mismatch for %q\n%v", tc.input, diff)
+			}
+			conn, err := newOrCachedConnector(&Driver{connectors: make(map[string]*connector)}, tc.input)
+			if err != nil {
+				t.Fatalf("failed to get connector for %q: %v", tc.input, err)
+			}
+			//lint:ignore SA1019 Needs a change that is backwards compatible
+			if diff := cmp.Diff(conn.spannerClientConfig, tc.wantSpannerConfig, cmpopts.IgnoreUnexported(spanner.ClientConfig{}, spanner.SessionPoolConfig{}, spanner.InactiveTransactionRemovalOptions{}, spannerpb.ExecuteSqlRequest_QueryOptions{}, spanner.TransactionOptions{})); diff != "" {
+				t.Errorf("connector Spanner client config mismatch for %q\n%v", tc.input, diff)
+			}
+			actualConfig := conn.connectorConfig
+			actualConfig.name = ""
+			if diff := cmp.Diff(actualConfig, tc.wantConnectorConfig, cmp.AllowUnexported(ConnectorConfig{})); diff != "" {
+				t.Errorf("actual connector config mismatch for %q\n%v", tc.input, diff)
+			}
+		})
+	}
+}
+
 func TestParseBeginTransactionOption(t *testing.T) {
 	tests := []struct {
 		input   string

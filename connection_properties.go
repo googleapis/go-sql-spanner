@@ -678,10 +678,19 @@ var propertyConnectTimeout = createConnectionProperty(
 	connectionstate.ConvertDuration,
 )
 
+var propertyType = createConnectionProperty(
+	"type",
+	"The type of Spanner instance to connect to (CLOUD or OMNI). The default is CLOUD.",
+	spanner.CLOUD,
+	false,
+	[]spanner.InstanceType{spanner.CLOUD, spanner.OMNI},
+	connectionstate.ContextStartup,
+	parseInstanceType,
+)
 var propertyIsExperimentalHost = createConnectionProperty(
 	"is_experimental_host",
-	"Indicates whether the connection is to an experimental host endpoint (true/false). "+
-		"Set this value to true when connecting to an experimental host endpoint",
+	"(Deprecated) Indicates whether the connection is to a Spanner Omni endpoint (true/false). "+
+		"Use type=OMNI instead.",
 	false,
 	false,
 	nil,
@@ -690,8 +699,7 @@ var propertyIsExperimentalHost = createConnectionProperty(
 )
 var propertyCaCertFile = createConnectionProperty(
 	"ca_cert_file",
-	"The path to the CA certificate file to use for TLS connections to the server. "+
-		"This is only needed when connecting to an experimental host endpoint",
+	"The path to the CA certificate file to use for TLS connections to Spanner Omni.",
 	"",
 	false,
 	nil,
@@ -700,8 +708,7 @@ var propertyCaCertFile = createConnectionProperty(
 )
 var propertyClientCertFile = createConnectionProperty(
 	"client_cert_file",
-	"The path to the client certificate file to use for mTLS connections to the server. "+
-		"This is only needed when connecting to an experimental host endpoint",
+	"The path to the client certificate file to use for mTLS connections to Spanner Omni.",
 	"",
 	false,
 	nil,
@@ -710,8 +717,7 @@ var propertyClientCertFile = createConnectionProperty(
 )
 var propertyClientCertKey = createConnectionProperty(
 	"client_cert_key",
-	"The path to the client certificate key file to use for mTLS connections to the server. "+
-		"This is only needed when connecting to an experimental host endpoint",
+	"The path to the client certificate key file to use for mTLS connections to Spanner Omni.",
 	"",
 	false,
 	nil,
