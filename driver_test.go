@@ -720,6 +720,16 @@ func TestOmniDsn(t *testing.T) {
 			dsn:     "databases/test-db?type=OMNI",
 			wantErr: true,
 		},
+		{
+			name:    "invalid-type",
+			dsn:     "localhost:9010/databases/test-db?type=INVALID",
+			wantErr: true,
+		},
+		{
+			name:    "invalid-is-experimental-host",
+			dsn:     "localhost:9010/databases/test-db?is_experimental_host=invalid",
+			wantErr: true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -931,37 +941,17 @@ func TestOmniConnectorConfig(t *testing.T) {
 }
 
 func TestOmniConfigurator(t *testing.T) {
-	t.Run("configurator sets Type=OMNI and custom UsePlainText/DisableNativeMetrics", func(t *testing.T) {
+	t.Run("configurator mutating Type fails fast", func(t *testing.T) {
 		cfg := ConnectorConfig{
 			Host:     "localhost:9010",
 			Database: "test-db",
-			Params: map[string]string{
-				"use_plain_text": "false",
-			},
 			Configurator: func(config *spanner.ClientConfig, opts *[]option.ClientOption) {
 				config.Type = spanner.OMNI
-				config.UsePlainText = true
-				config.DisableNativeMetrics = false
 			},
 		}
-		c, err := createConnector(&Driver{}, cfg)
-		if err != nil {
-			t.Fatalf("createConnector failed: %v", err)
-		}
-		if g, w := c.spannerClientConfig.Type, spanner.OMNI; g != w {
-			t.Errorf("Type mismatch: got %v, want %v", g, w)
-		}
-		if g, w := c.spannerClientConfig.UsePlainText, true; g != w {
-			t.Errorf("UsePlainText mismatch: got %v, want %v", g, w)
-		}
-		if g, w := c.spannerClientConfig.DisableNativeMetrics, false; g != w {
-			t.Errorf("DisableNativeMetrics mismatch: got %v, want %v", g, w)
-		}
-		if g, w := c.connectorConfig.Project, omniDefaultProject; g != w {
-			t.Errorf("Project mismatch: got %q, want %q", g, w)
-		}
-		if g, w := c.connectorConfig.Instance, omniDefaultInstance; g != w {
-			t.Errorf("Instance mismatch: got %q, want %q", g, w)
+		_, err := createConnector(&Driver{}, cfg)
+		if g, w := spanner.ErrCode(err), codes.InvalidArgument; g != w {
+			t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
 		}
 	})
 
@@ -979,14 +969,23 @@ func TestOmniConfigurator(t *testing.T) {
 		if err != nil {
 			t.Fatalf("createConnector failed: %v", err)
 		}
+		if g, w := c.spannerClientConfig.Type, spanner.OMNI; g != w {
+			t.Errorf("Type mismatch\nGot:  %v\nWant: %v", g, w)
+		}
 		if g, w := c.spannerClientConfig.UsePlainText, false; g != w {
-			t.Errorf("UsePlainText mismatch: got %v, want %v", g, w)
+			t.Errorf("UsePlainText mismatch\nGot:  %v\nWant: %v", g, w)
 		}
 		if g, w := c.spannerClientConfig.CaCertificateFile, "/custom/ca.crt"; g != w {
-			t.Errorf("CaCertificateFile mismatch: got %q, want %q", g, w)
+			t.Errorf("CaCertificateFile mismatch\nGot:  %v\nWant: %v", g, w)
 		}
 		if g, w := c.spannerClientConfig.DisableNativeMetrics, false; g != w {
-			t.Errorf("DisableNativeMetrics mismatch: got %v, want %v", g, w)
+			t.Errorf("DisableNativeMetrics mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if g, w := c.connectorConfig.Project, omniDefaultProject; g != w {
+			t.Errorf("Project mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if g, w := c.connectorConfig.Instance, omniDefaultInstance; g != w {
+			t.Errorf("Instance mismatch\nGot:  %v\nWant: %v", g, w)
 		}
 	})
 }

@@ -575,24 +575,34 @@ func extractPostgresConnectorConfig(dsn string) (ConnectorConfig, error) {
 	return validateAndConfigureConnector(c, matches)
 }
 
-func isOmniConfig(params map[string]string) bool {
+func isOmniConfig(params map[string]string) (bool, error) {
 	if rawType, ok := params[propertyType.Key()]; ok {
-		if t, err := parseInstanceType(rawType); err == nil && t == spanner.OMNI {
-			return true
+		t, err := parseInstanceType(rawType)
+		if err != nil {
+			return false, err
 		}
+		return t == spanner.OMNI, nil
 	}
-	for _, key := range []string{propertyIsExperimentalHost.Key(), "isexperimentalhost"} {
-		if rawVal, ok := params[key]; ok {
-			if val, err := connectionstate.ConvertBool(strings.TrimSpace(rawVal)); err == nil && val {
-				return true
-			}
+	rawVal, ok := params[propertyIsExperimentalHost.Key()]
+	if !ok {
+		rawVal, ok = params["isexperimentalhost"]
+	}
+	if ok {
+		val, err := connectionstate.ConvertBool(strings.TrimSpace(rawVal))
+		if err != nil {
+			return false, err
 		}
+		return val, nil
 	}
-	return false
+	return false, nil
 }
 
 func validateAndConfigureConnector(c ConnectorConfig, matches map[string]string) (ConnectorConfig, error) {
-	if isOmniConfig(c.Params) {
+	isOmni, err := isOmniConfig(c.Params)
+	if err != nil {
+		return ConnectorConfig{}, spanner.ToSpannerError(err)
+	}
+	if isOmni {
 		if c.Host == "" {
 			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "host must be specified for Spanner Omni endpoint"))
 		}
@@ -727,11 +737,14 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		_ = os.Setenv("GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS", "true")
 	}
 
-	assignPropertyValueIfExists(state, propertyType, &config.Type)
-	var isExpHost bool
-	assignPropertyValueIfExists(state, propertyIsExperimentalHost, &isExpHost)
-	if isExpHost {
-		config.Type = spanner.OMNI
+	if _, ok := initialPropertyValues[propertyType.Key()]; ok {
+		assignPropertyValueIfExists(state, propertyType, &config.Type)
+	} else {
+		var isExpHost bool
+		assignPropertyValueIfExists(state, propertyIsExperimentalHost, &isExpHost)
+		if isExpHost {
+			config.Type = spanner.OMNI
+		}
 	}
 	if propertyUsePlainText.GetValueOrDefault(state) && config.Type != spanner.OMNI {
 		opts = append(opts,
@@ -800,17 +813,21 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		if _, ok := initialPropertyValues[propertyDisableNativeMetrics.Key()]; !ok {
 			config.DisableNativeMetrics = true
 		}
-	}
-	if connectorConfig.Configurator != nil {
-		connectorConfig.Configurator(&config, &opts)
-	}
-	if config.Type == spanner.OMNI {
 		if connectorConfig.Project == "" {
 			connectorConfig.Project = omniDefaultProject
 		}
 		if connectorConfig.Instance == "" {
 			connectorConfig.Instance = omniDefaultInstance
 		}
+	}
+	expectedType := config.Type
+	if connectorConfig.Configurator != nil {
+		connectorConfig.Configurator(&config, &opts)
+	}
+	if config.Type != expectedType {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument,
+			"cannot change spanner instance type in Configurator: was %v, changed to %v; set 'type' in connection string or Params instead",
+			expectedType, config.Type))
 	}
 	if connectorConfig.AutoConfigEmulator {
 		if connectorConfig.Host == "" {
