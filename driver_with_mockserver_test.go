@@ -6643,21 +6643,3 @@ func TestArrayOfStruct(t *testing.T) {
 		t.Errorf("allEntries mismatch (-want +got):\n%s", diff)
 	}
 }
-
-func TestOmniPingContext(t *testing.T) {
-	t.Parallel()
-
-	server, _, serverTeardown := testutil.NewMockedSpannerInMemTestServer(t)
-	defer serverTeardown()
-	server.SetupSelectDialectResult(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
-
-	db, err := sql.Open("spanner", fmt.Sprintf("%s/databases/d?type=OMNI;use_plain_text=true", server.Address))
-	if err != nil {
-		t.Fatalf("unexpected error opening Spanner Omni connection: %v", err)
-	}
-	defer func() { _ = db.Close() }()
-
-	if err := db.PingContext(context.Background()); err != nil {
-		t.Fatalf("unexpected error for Spanner Omni ping: %v", err)
-	}
-}

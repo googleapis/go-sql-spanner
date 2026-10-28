@@ -48,10 +48,6 @@ import (
 
 var projectId, instanceId string
 var skipped bool
-var experimentalHost string
-var caCertFile string
-var clientCertFile string
-var clientCertKey string
 var omniEndpoint string
 var omniUsePlainText bool
 var omniCaCert string
@@ -59,11 +55,6 @@ var omniClientCert string
 var omniClientKey string
 
 func init() {
-	flag.StringVar(&experimentalHost, "it.experimental-host", "", "(Deprecated) Experimental host integration test flag. Use -it.omni-endpoint instead.")
-	flag.StringVar(&caCertFile, "it.ca-cert-file", "", "(Deprecated) CA certificate file for experimental host integration test. Use -it.omni-ca-cert instead.")
-	flag.StringVar(&clientCertFile, "it.client-cert-file", "", "(Deprecated) Client certificate file for experimental host integration test. Use -it.omni-client-cert instead.")
-	flag.StringVar(&clientCertKey, "it.client-cert-key", "", "(Deprecated) Client certificate key file for experimental host integration test. Use -it.omni-client-key instead.")
-
 	flag.StringVar(&omniEndpoint, "it.omni-endpoint", "", "Spanner Omni endpoint for integration test")
 	flag.BoolVar(&omniUsePlainText, "it.omni-use-plaintext", false, "Use plain text for Spanner Omni integration test")
 	flag.StringVar(&omniCaCert, "it.omni-ca-cert", "", "CA certificate file for Spanner Omni integration test")
@@ -81,39 +72,11 @@ func init() {
 	}
 }
 
-func getOmniEndpoint() string {
-	if omniEndpoint != "" {
-		return omniEndpoint
-	}
-	return experimentalHost
-}
-
-func getOmniCaCert() string {
-	if omniCaCert != "" {
-		return omniCaCert
-	}
-	return caCertFile
-}
-
-func getOmniClientCert() string {
-	if omniClientCert != "" {
-		return omniClientCert
-	}
-	return clientCertFile
-}
-
-func getOmniClientKey() string {
-	if omniClientKey != "" {
-		return omniClientKey
-	}
-	return clientCertKey
-}
-
 func isOmniPlainText() bool {
 	if omniUsePlainText {
 		return true
 	}
-	return getOmniCaCert() == "" && getOmniClientCert() == "" && getOmniClientKey() == ""
+	return omniCaCert == "" && omniClientCert == "" && omniClientKey == ""
 }
 
 func runsOnEmulator() bool {
@@ -210,22 +173,17 @@ func initTestInstance(config string) (cleanup func(), err error) {
 }
 
 func createDBAdminClient(ctx context.Context) (*database.DatabaseAdminClient, error) {
-	endpoint := getOmniEndpoint()
-	if endpoint == "" {
+	if omniEndpoint == "" {
 		return database.NewDatabaseAdminClient(ctx)
 	}
-	ca := getOmniCaCert()
-	clientCert := getOmniClientCert()
-	clientKey := getOmniClientKey()
-
 	config := spanner.ClientConfig{
 		Type:                  spanner.OMNI,
 		UsePlainText:          isOmniPlainText(),
-		CaCertificateFile:     ca,
-		ClientCertificateFile: clientCert,
-		ClientKeyFile:         clientKey,
+		CaCertificateFile:     omniCaCert,
+		ClientCertificateFile: omniClientCert,
+		ClientKeyFile:         omniClientKey,
 	}
-	return database.NewDatabaseAdminClientWithConfig(ctx, config, option.WithEndpoint(endpoint))
+	return database.NewDatabaseAdminClientWithConfig(ctx, config, option.WithEndpoint(omniEndpoint))
 }
 
 func createTestDB(ctx context.Context, statements ...string) (dsn string, cleanup func(), err error) {
@@ -277,19 +235,16 @@ func createTestDBWithDialect(ctx context.Context, dialect databasepb.DatabaseDia
 		}
 	}
 	dsn = "projects/" + projectId + "/instances/" + instanceId + "/databases/" + databaseId
-	if endpoint := getOmniEndpoint(); endpoint != "" {
-		dsn = endpoint + "/databases/" + databaseId + "?type=omni"
-		ca := getOmniCaCert()
-		clientCert := getOmniClientCert()
-		clientKey := getOmniClientKey()
+	if omniEndpoint != "" {
+		dsn = omniEndpoint + "/databases/" + databaseId + "?type=omni"
 		if isOmniPlainText() {
 			dsn += ";use_plain_text=true"
 		} else {
-			if ca != "" {
-				dsn += ";ca_cert_file=" + ca
+			if omniCaCert != "" {
+				dsn += ";ca_cert_file=" + omniCaCert
 			}
-			if clientCert != "" && clientKey != "" {
-				dsn += ";client_cert_file=" + clientCert + ";client_cert_key=" + clientKey
+			if omniClientCert != "" && omniClientKey != "" {
+				dsn += ";client_cert_file=" + omniClientCert + ";client_cert_key=" + omniClientKey
 			}
 		}
 	}
@@ -310,7 +265,7 @@ func initIntegrationTests() (cleanup func(), err error) {
 	flag.Parse() // Needed for testing.Short().
 	noop := func() {}
 
-	if endpoint := getOmniEndpoint(); endpoint != "" {
+	if omniEndpoint != "" {
 		projectId = omniDefaultProject
 		instanceId = omniDefaultInstance
 		// instance management is not available on Spanner Omni

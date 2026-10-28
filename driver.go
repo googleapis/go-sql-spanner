@@ -98,6 +98,8 @@ var noopLogger = slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{L
 //     - optimizerVersion: Sets the default query optimizer version to use for this connection.
 //     - optimizerStatisticsPackage: Sets the default query optimizer statistic package to use for this connection.
 //     - rpcPriority: Sets the priority for all RPC invocations from this connection (HIGH/MEDIUM/LOW). The default is HIGH.
+//     - type: The type of Spanner instance to connect to (CLOUD/OMNI). Currently, type=CLOUD is a no-op, and for
+//     connecting to Spanner Omni it is mandatory to set type=OMNI. The default is CLOUD.
 //
 // Example: `localhost:9010/projects/test-project/instances/test-instance/databases/test-database;usePlainText=true;disableRouteToLeader=true;enableEndToEndTracing=true`
 var dsnRegExp = regexp.MustCompile(`^((?P<HOSTGROUP>[\w.-]+(?:\.[\w\.-]+)*[\w\-\._~:#\[\]@!\$&'\(\)\*\+,=.]+)/)?(projects/(?P<PROJECTGROUP>(([a-z]|[-.:]|[0-9])+|(DEFAULT_PROJECT_ID))))?((?:/)?instances/(?P<INSTANCEGROUP>([a-z]|[-]|[0-9])+))?((?:/)?databases/(?P<DATABASEGROUP>([a-z]|[-]|[_]|[0-9])+))?(([\?|;])(?P<PARAMSGROUP>.*))?$`)
@@ -784,38 +786,29 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	if isExpHost {
 		config.Type = spanner.OMNI
 	}
-	assignPropertyValueIfExists(state, propertyCaCertFile, &config.CaCertificateFile)
-	assignPropertyValueIfExists(state, propertyClientCertFile, &config.ClientCertificateFile)
-	assignPropertyValueIfExists(state, propertyClientCertKey, &config.ClientKeyFile)
-	wasOmni := config.Type == spanner.OMNI
-	if wasOmni {
+	if config.Type == spanner.OMNI {
+		assignPropertyValueIfExists(state, propertyCaCertFile, &config.CaCertificateFile)
+		assignPropertyValueIfExists(state, propertyClientCertFile, &config.ClientCertificateFile)
+		assignPropertyValueIfExists(state, propertyClientCertKey, &config.ClientKeyFile)
 		assignPropertyValueIfExists(state, propertyUsePlainText, &config.UsePlainText)
 		if _, ok := initialPropertyValues[propertyDisableNativeMetrics.Key()]; !ok {
 			config.DisableNativeMetrics = true
 		}
+	} else if propertyUsePlainText.GetValueOrDefault(state) {
+		opts = append(opts,
+			option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+			option.WithoutAuthentication())
+		config.DisableNativeMetrics = true
 	}
 	if connectorConfig.Configurator != nil {
 		connectorConfig.Configurator(&config, &opts)
 	}
 	if config.Type == spanner.OMNI {
-		if !wasOmni {
-			assignPropertyValueIfExists(state, propertyUsePlainText, &config.UsePlainText)
-			if _, ok := initialPropertyValues[propertyDisableNativeMetrics.Key()]; !ok {
-				config.DisableNativeMetrics = true
-			}
-		}
 		if connectorConfig.Project == "" {
 			connectorConfig.Project = omniDefaultProject
 		}
 		if connectorConfig.Instance == "" {
 			connectorConfig.Instance = omniDefaultInstance
-		}
-	} else {
-		if propertyUsePlainText.GetValueOrDefault(state) {
-			opts = append(opts,
-				option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
-				option.WithoutAuthentication())
-			config.DisableNativeMetrics = true
 		}
 	}
 	if connectorConfig.AutoConfigEmulator {
@@ -1732,6 +1725,8 @@ func parseRpcPriority(val string) (spannerpb.RequestOptions_Priority, error) {
 	return spannerpb.RequestOptions_PRIORITY_UNSPECIFIED, status.Errorf(codes.InvalidArgument, "invalid or unsupported priority: %v", val)
 }
 
+// parseInstanceType parses a Spanner instance type (CLOUD or OMNI).
+// Currently, CLOUD is a no-op, and OMNI is used when connecting to Spanner Omni.
 func parseInstanceType(val string) (spanner.InstanceType, error) {
 	val = strings.ToUpper(strings.TrimSpace(val))
 	switch val {

@@ -678,9 +678,14 @@ var propertyConnectTimeout = createConnectionProperty(
 	connectionstate.ConvertDuration,
 )
 
+// propertyType specifies the type of Spanner instance to connect to (CLOUD or OMNI).
+// Currently, type=CLOUD is a no-op, and for connecting to Spanner Omni it is mandatory to set type=OMNI.
+// If unspecified, it defaults to CLOUD.
 var propertyType = createConnectionProperty(
 	"type",
-	"The type of Spanner instance to connect to (CLOUD or OMNI). The default is CLOUD.",
+	"The type of Spanner instance to connect to (CLOUD or OMNI). "+
+		"Currently, type=CLOUD is a no-op, and for connecting to Spanner Omni it is mandatory to set type=OMNI. "+
+		"The default is CLOUD.",
 	spanner.CLOUD,
 	false,
 	[]spanner.InstanceType{spanner.CLOUD, spanner.OMNI},
