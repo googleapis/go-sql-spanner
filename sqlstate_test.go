@@ -118,6 +118,26 @@ func TestToPGSQLState(t *testing.T) {
 			want: "23505",
 		},
 		{
+			name: "NoActiveSqlTransaction",
+			err:  spannerErrorfWithSQLState(codes.FailedPrecondition, "25P01", "SAVEPOINT can only be used in a transaction"),
+			want: "25P01",
+		},
+		{
+			name: "InvalidSavepointSpecification",
+			err:  spannerErrorfWithSQLState(codes.FailedPrecondition, "3B001", "savepoint %q does not exist", "s1"),
+			want: "3B001",
+		},
+		{
+			name: "RelationSavepointsDoesNotExist_Not3B001",
+			err:  status.Error(codes.InvalidArgument, `relation "savepoints" does not exist`),
+			want: "42P01",
+		},
+		{
+			name: "ColumnSavepointDoesNotExist_Not3B001",
+			err:  status.Error(codes.InvalidArgument, `column "savepoint_id" of relation "audit" does not exist`),
+			want: "42703",
+		},
+		{
 			name: "FallbackXX000",
 			err:  status.Error(codes.Internal, "some unclassified internal spanner error"),
 			want: "XX000",
@@ -163,6 +183,16 @@ func TestWithPGSQLState(t *testing.T) {
 			name: "WrappedInStandardErrorNotDoubleWrapped",
 			err:  fmt.Errorf("outer wrapper: %w", WithPGSQLState(status.Error(codes.NotFound, `relation "users" does not exist`))),
 			want: `outer wrapper: [SQLSTATE 42P01] rpc error: code = NotFound desc = relation "users" does not exist`,
+		},
+		{
+			name: "WrapNoActiveSqlTransaction",
+			err:  spannerErrorfWithSQLState(codes.FailedPrecondition, "25P01", "SAVEPOINT can only be used in a transaction"),
+			want: `[SQLSTATE 25P01] spanner: code = "FailedPrecondition", desc = "SAVEPOINT can only be used in a transaction"`,
+		},
+		{
+			name: "WrapInvalidSavepointSpecification",
+			err:  spannerErrorfWithSQLState(codes.FailedPrecondition, "3B001", "savepoint %q does not exist", "s1"),
+			want: `[SQLSTATE 3B001] spanner: code = "FailedPrecondition", desc = "savepoint \"s1\" does not exist"`,
 		},
 	}
 
@@ -241,4 +271,45 @@ func TestPGSQLState_InFailedSqlTransaction(t *testing.T) {
 	if g, w := wrapped.Error(), "[SQLSTATE 25P02] rpc error: code = FailedPrecondition desc = current transaction is failed, commands ignored until end of transaction block"; g != w {
 		t.Errorf("error message mismatch\nGot:  %v\nWant: %v", g, w)
 	}
+}
+
+func TestSpannerErrorfWithSQLState(t *testing.T) {
+	err := spannerErrorfWithSQLState(codes.FailedPrecondition, "3B001", "savepoint %q does not exist", "s1")
+	if err == nil {
+		t.Fatal("expected non-nil error")
+	}
+	s, ok := extractGRPCStatus(err)
+	if !ok || s == nil {
+		t.Fatalf("expected extractGRPCStatus to succeed on spanner error with details")
+	}
+	if len(s.Details()) != 1 {
+		t.Fatalf("expected 1 detail, got %d", len(s.Details()))
+	}
+
+	t.Run("ToPGSQLState", func(t *testing.T) {
+		if g, w := ToPGSQLState(err), "3B001"; g != w {
+			t.Errorf("ToPGSQLState mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("WithPGSQLState", func(t *testing.T) {
+		wrapped := WithPGSQLState(err)
+		if g, w := wrapped.Error(), `[SQLSTATE 3B001] spanner: code = "FailedPrecondition", desc = "savepoint \"s1\" does not exist"`; g != w {
+			t.Errorf("WithPGSQLState message mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("CheckAndEnrichError_PostgreSQL", func(t *testing.T) {
+		enrichedPG := checkAndEnrichError(true, err)
+		if g, w := enrichedPG.Error(), `[SQLSTATE 3B001] spanner: code = "FailedPrecondition", desc = "savepoint \"s1\" does not exist"`; g != w {
+			t.Errorf("checkAndEnrichError(true) mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("CheckAndEnrichError_GoogleSQL", func(t *testing.T) {
+		enrichedGSQL := checkAndEnrichError(false, err)
+		if g, w := enrichedGSQL.Error(), `spanner: code = "FailedPrecondition", desc = "savepoint \"s1\" does not exist"`; g != w {
+			t.Errorf("checkAndEnrichError(false) mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
 }

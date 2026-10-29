@@ -17,10 +17,13 @@ package spannerdriver
 import (
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"io"
 	"regexp"
 	"strings"
 
+	"cloud.google.com/go/spanner"
+	"github.com/googleapis/gax-go/v2/apierror"
 	"google.golang.org/api/iterator"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
@@ -60,6 +63,21 @@ func extractSpannerPGErrorCode(s *status.Status) string {
 	return ""
 }
 
+// spannerErrorfWithSQLState creates a Spanner error with the specified gRPC code,
+// PostgreSQL SQLSTATE code embedded in errdetails.ErrorInfo metadata, and formatted message.
+func spannerErrorfWithSQLState(code codes.Code, sqlState string, format string, a ...any) error {
+	msg := fmt.Sprintf(format, a...)
+	st, err := status.New(code, msg).WithDetails(&errdetails.ErrorInfo{
+		Metadata: map[string]string{
+			pgErrCodeKey: sqlState,
+		},
+	})
+	if err != nil {
+		return spanner.ToSpannerError(status.Errorf(code, "%s", msg))
+	}
+	return spanner.ToSpannerError(st.Err())
+}
+
 // checkAndEnrichError inspects an error and enriches it with a standard
 // PostgreSQL SQLSTATE code if isPG is true. It safely passes through nil,
 // io.EOF, and iterator.Done signals untouched.
@@ -78,6 +96,12 @@ type grpcStatus interface {
 }
 
 func extractGRPCStatus(err error) (*status.Status, bool) {
+	var apiErr *apierror.APIError
+	if errors.As(err, &apiErr) && apiErr != nil {
+		if s := apiErr.GRPCStatus(); s != nil && s.Code() != codes.Unknown {
+			return s, true
+		}
+	}
 	if s, ok := status.FromError(err); ok && s != nil && s.Code() != codes.Unknown {
 		return s, true
 	}
@@ -111,7 +135,9 @@ func extractGRPCStatus(err error) (*status.Status, bool) {
 //   - "57014" (Query Canceled): Canceled or deadline exceeded (codes.Canceled, codes.DeadlineExceeded)
 //   - "08006" (Connection Failure): Connection unavailable (codes.Unavailable)
 //   - "0A000" (Feature Not Supported): Unimplemented (codes.Unimplemented)
-//   - "25000" (Invalid Transaction State): Invalid transaction or batch lifecycle state
+//   - "25P01" (No Active SQL Transaction): Command executed outside a transaction block (e.g. savepoint)
+//   - "25P02" (In Failed SQL Transaction): Command executed in an aborted transaction block
+//   - "3B001" (Invalid Savepoint Specification): Specified savepoint does not exist
 //   - "XX000" (Internal / Fallback): Default fallback for unclassified database errors
 //
 // Returns "" if err is nil.
