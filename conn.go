@@ -1131,7 +1131,7 @@ func (c *conn) checkInErrorTxState(clientStmt parser.ParsedStatement) error {
 	isCommitOrRollback := false
 	if clientStmt != nil {
 		switch clientStmt.(type) {
-		case *parser.ParsedCommitStatement, *parser.ParsedRollbackStatement:
+		case *parser.ParsedCommitStatement, *parser.ParsedRollbackStatement, *parser.ParsedRollbackToSavepointStatement:
 			isCommitOrRollback = true
 		}
 	}

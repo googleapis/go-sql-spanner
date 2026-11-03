@@ -296,13 +296,13 @@ func shouldStartImplicitTransaction(conn *conn, index int, statements []string, 
 		if err != nil {
 			return true
 		}
-		if _, ok := cs.(*parser.ParsedBeginStatement); ok {
-			return false
-		}
-		if _, ok := cs.(*parser.ParsedCommitStatement); ok {
-			return false
-		}
-		if _, ok := cs.(*parser.ParsedRollbackStatement); ok {
+		switch cs.(type) {
+		case *parser.ParsedBeginStatement,
+			*parser.ParsedCommitStatement,
+			*parser.ParsedRollbackStatement,
+			*parser.ParsedSavepointStatement,
+			*parser.ParsedRollbackToSavepointStatement,
+			*parser.ParsedReleaseSavepointStatement:
 			return false
 		}
 	}

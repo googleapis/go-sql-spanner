@@ -207,6 +207,34 @@ func TestShouldBeginImplicitTransaction(t *testing.T) {
 			wantReadOnly: true,
 			wantTxn:      true,
 		},
+		{
+			name:         "Savepoint before query",
+			index:        0,
+			statements:   []string{"savepoint sp1", "select * from test1"},
+			wantReadOnly: false,
+			wantTxn:      false,
+		},
+		{
+			name:         "Rollback to savepoint before query",
+			index:        0,
+			statements:   []string{"rollback to savepoint sp1", "select * from test1"},
+			wantReadOnly: false,
+			wantTxn:      false,
+		},
+		{
+			name:         "Release savepoint before query",
+			index:        0,
+			statements:   []string{"release savepoint sp1", "select * from test1"},
+			wantReadOnly: false,
+			wantTxn:      false,
+		},
+		{
+			name:         "Savepoints sequence",
+			index:        0,
+			statements:   []string{"savepoint sp1", "rollback to savepoint sp1", "release savepoint sp1"},
+			wantReadOnly: false,
+			wantTxn:      false,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			statementInfo := determineStatementTypes(c, test.statements)
