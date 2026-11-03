@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -700,7 +702,7 @@ func TestNilBackendTransactionSafety(t *testing.T) {
 		if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
 			t.Errorf("savepointCheckpoint nil rwTx error code mismatch\nGot:  %v\nWant: %v", g, w)
 		}
-		err = rwTx.canUseSavepoints("create", false)
+		err = rwTx.canUseSavepoints(savepointActionCreate)
 		if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
 			t.Errorf("canUseSavepoints nil rwTx error code mismatch\nGot:  %v\nWant: %v", g, w)
 		}
@@ -747,7 +749,7 @@ func TestNilBackendTransactionSafety(t *testing.T) {
 		if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
 			t.Errorf("savepointCheckpoint nil roTx error code mismatch\nGot:  %v\nWant: %v", g, w)
 		}
-		err = roTx.canUseSavepoints("create", false)
+		err = roTx.canUseSavepoints(savepointActionCreate)
 		if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
 			t.Errorf("canUseSavepoints nil roTx error code mismatch\nGot:  %v\nWant: %v", g, w)
 		}
@@ -3247,4 +3249,832 @@ func TestSavepoint_ReadOnlyTransaction_RetriesDisabled(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit failed: %v", err)
 	}
+}
+
+func TestSavepoint_FailedRollbackPreservesSavepoints(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	updateStatement1 := "UPDATE Foo SET Val=1 WHERE Id=1"
+	updateStatement2 := "UPDATE Foo SET Val=2 WHERE Id=2"
+	updateStatement3 := "UPDATE Foo SET Val=3 WHERE Id=3"
+	server.TestSpanner.PutStatementResult(updateStatement1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+	server.TestSpanner.PutStatementResult(updateStatement2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+	server.TestSpanner.PutStatementResult(updateStatement3, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+	t.Run("failed_rollback_during_batch_preserves_savepoints", func(t *testing.T) {
+		dbConn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silentClose(dbConn)
+
+		tx, err := dbConn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		if _, err := tx.ExecContext(ctx, updateStatement1); err != nil {
+			t.Fatalf("updateStatement1 failed: %v", err)
+		}
+
+		err = dbConn.Raw(func(driverConn any) error {
+			c := driverConn.(*conn)
+
+			if err := c.tx.Savepoint("s1"); err != nil {
+				return fmt.Errorf("savepoint s1 failed: %w", err)
+			}
+			if err := c.tx.Savepoint("s2"); err != nil {
+				return fmt.Errorf("savepoint s2 failed: %w", err)
+			}
+			if err := c.tx.Savepoint("s3"); err != nil {
+				return fmt.Errorf("savepoint s3 failed: %w", err)
+			}
+
+			if g, w := len(c.tx.savepoints), 3; g != w {
+				return fmt.Errorf("savepoint count before batch mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			// Start a manual DML batch, which causes savepoint operations to fail validation.
+			if _, err := c.tx.StartBatchDML(spanner.QueryOptions{}, false); err != nil {
+				return fmt.Errorf("failed to start batch: %w", err)
+			}
+
+			// Attempting to rollback to s1 during an active batch fails.
+			err := c.tx.RollbackToSavepoint(ctx, "s1")
+			if err == nil {
+				return fmt.Errorf("expected error rolling back to s1 during active batch, got nil")
+			}
+			if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+				return fmt.Errorf("status code mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			// Abort the batch so the transaction returns to normal execution.
+			if _, err := c.tx.AbortBatch(); err != nil {
+				return fmt.Errorf("failed to abort batch: %w", err)
+			}
+
+			// Savepoints s1, s2, and s3 must still exist because the rollback to s1 failed in pre-flight.
+			if g, w := len(c.tx.savepoints), 3; g != w {
+				return fmt.Errorf("savepoint count after failed rollback mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			// Release s3 first, which must succeed.
+			if err := c.tx.ReleaseSavepoint("s3"); err != nil {
+				return fmt.Errorf("expected s3 to still exist and release to succeed, got: %w", err)
+			}
+			if g, w := len(c.tx.savepoints), 2; g != w {
+				return fmt.Errorf("savepoint count after releasing s3 mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			// Now roll back to s2, which succeeds.
+			if err := c.tx.RollbackToSavepoint(ctx, "s2"); err != nil {
+				return fmt.Errorf("expected s2 to still exist and rollback to succeed, got: %w", err)
+			}
+			if g, w := len(c.tx.savepoints), 2; g != w {
+				return fmt.Errorf("savepoint count after rollback to s2 mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			// Now roll back to s1, which succeeds.
+			if err := c.tx.RollbackToSavepoint(ctx, "s1"); err != nil {
+				return fmt.Errorf("rollback to s1 failed: %w", err)
+			}
+			if g, w := len(c.tx.savepoints), 1; g != w {
+				return fmt.Errorf("savepoint count after rollback to s1 mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			// Once rollback to s1 succeeds, s2 must be invalidated.
+			err = c.tx.RollbackToSavepoint(ctx, "s2")
+			if err == nil {
+				return fmt.Errorf("expected error rolling back to s2 after successful rollback to s1, got nil")
+			}
+			if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+				return fmt.Errorf("status code mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("commit failed: %v", err)
+		}
+	})
+
+	t.Run("failed_rollback_with_canceled_context_preserves_target_and_earlier_savepoints", func(t *testing.T) {
+		dbConn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silentClose(dbConn)
+
+		tx, err := dbConn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		if _, err := tx.ExecContext(ctx, updateStatement1); err != nil {
+			t.Fatalf("updateStatement1 failed: %v", err)
+		}
+
+		err = dbConn.Raw(func(driverConn any) error {
+			c := driverConn.(*conn)
+
+			if err := c.tx.Savepoint("s1"); err != nil {
+				return fmt.Errorf("savepoint s1 failed: %w", err)
+			}
+			if err := c.tx.Savepoint("s2"); err != nil {
+				return fmt.Errorf("savepoint s2 failed: %w", err)
+			}
+			if err := c.tx.Savepoint("s3"); err != nil {
+				return fmt.Errorf("savepoint s3 failed: %w", err)
+			}
+
+			canceledCtx, cancel := context.WithCancel(ctx)
+			cancel()
+
+			// Rolling back to s2 with a canceled context fails during replay.
+			err := c.tx.RollbackToSavepoint(canceledCtx, "s2")
+			if err == nil {
+				return fmt.Errorf("expected error with canceled context, got nil")
+			}
+
+			// Younger savepoint s3 must have been destroyed.
+			if _, err := c.tx.findSavepoint("s3"); err == nil {
+				return fmt.Errorf("expected s3 to be invalidated after rollback to s2, but it was found")
+			}
+
+			// Savepoints s1 and s2 must still exist.
+			if g, w := len(c.tx.savepoints), 2; g != w {
+				return fmt.Errorf("savepoint count after canceled rollback mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if _, err := c.tx.findSavepoint("s2"); err != nil {
+				return fmt.Errorf("expected s2 to still exist in savepoints list after failed rollback, got: %w", err)
+			}
+			if _, err := c.tx.findSavepoint("s1"); err != nil {
+				return fmt.Errorf("expected s1 to still exist in savepoints list after failed rollback, got: %w", err)
+			}
+
+			// Retrying rollback to s2 with valid context succeeds.
+			if err := c.tx.RollbackToSavepoint(ctx, "s2"); err != nil {
+				return fmt.Errorf("retrying rollback to s2 with valid context failed: %w", err)
+			}
+
+			// Rollback to s1 also succeeds.
+			if err := c.tx.RollbackToSavepoint(ctx, "s1"); err != nil {
+				return fmt.Errorf("rollback to s1 failed: %w", err)
+			}
+
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("commit failed: %v", err)
+		}
+	})
+
+	t.Run("read_only_failed_rollback_preserves_savepoints", func(t *testing.T) {
+		dbConn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silentClose(dbConn)
+
+		tx, err := dbConn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		err = dbConn.Raw(func(driverConn any) error {
+			c := driverConn.(*conn)
+
+			if err := c.tx.Savepoint("ro_s1"); err != nil {
+				return fmt.Errorf("savepoint ro_s1 failed: %w", err)
+			}
+			if err := c.tx.Savepoint("ro_s2"); err != nil {
+				return fmt.Errorf("savepoint ro_s2 failed: %w", err)
+			}
+
+			// Rollback to nonexistent savepoint fails during pre-flight.
+			err := c.tx.RollbackToSavepoint(ctx, "nonexistent")
+			if err == nil {
+				return fmt.Errorf("expected error rolling back to nonexistent savepoint, got nil")
+			}
+			if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+				return fmt.Errorf("status code mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			// ro_s2 must still exist.
+			if g, w := len(c.tx.savepoints), 2; g != w {
+				return fmt.Errorf("savepoint count after failed read-only rollback mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if err := c.tx.RollbackToSavepoint(ctx, "ro_s2"); err != nil {
+				return fmt.Errorf("expected ro_s2 to still exist after failed rollback, got: %w", err)
+			}
+
+			// Successful rollback to ro_s1 invalidates ro_s2.
+			if err := c.tx.RollbackToSavepoint(ctx, "ro_s1"); err != nil {
+				return fmt.Errorf("rollback to ro_s1 failed: %w", err)
+			}
+			if g, w := len(c.tx.savepoints), 1; g != w {
+				return fmt.Errorf("savepoint count after successful rollback to ro_s1 mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			err = c.tx.RollbackToSavepoint(ctx, "ro_s2")
+			if err == nil {
+				return fmt.Errorf("expected error rolling back to ro_s2 after successful rollback to ro_s1, got nil")
+			}
+			if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+				return fmt.Errorf("status code mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("commit failed: %v", err)
+		}
+	})
+}
+
+func TestSavepoint_ReplayFailed_RecoveryToEarlierSavepoint(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	updateStatement1 := "UPDATE Foo SET Val=1 WHERE Id=1"
+	updateStatement2 := "UPDATE Foo SET Val=2 WHERE Id=2"
+	updateStatement3 := "UPDATE Foo SET Val=3 WHERE Id=3"
+
+	t.Run("recovery_to_earlier_savepoint", func(t *testing.T) {
+		server.TestSpanner.PutStatementResult(updateStatement1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(updateStatement2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(updateStatement3, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+		dbConn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silentClose(dbConn)
+
+		tx, err := dbConn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		if _, err := tx.ExecContext(ctx, updateStatement1); err != nil {
+			t.Fatalf("updateStatement1 failed: %v", err)
+		}
+
+		var rawConn *conn
+		err = dbConn.Raw(func(driverConn any) error {
+			rawConn = driverConn.(*conn)
+			return rawConn.tx.Savepoint("s1")
+		})
+		if err != nil {
+			t.Fatalf("savepoint s1 failed: %v", err)
+		}
+
+		if _, err := tx.ExecContext(ctx, updateStatement2); err != nil {
+			t.Fatalf("updateStatement2 failed: %v", err)
+		}
+
+		err = dbConn.Raw(func(driverConn any) error {
+			return rawConn.tx.Savepoint("s2")
+		})
+		if err != nil {
+			t.Fatalf("savepoint s2 failed: %v", err)
+		}
+
+		if _, err := tx.ExecContext(ctx, updateStatement3); err != nil {
+			t.Fatalf("updateStatement3 failed: %v", err)
+		}
+
+		err = dbConn.Raw(func(driverConn any) error {
+			return rawConn.tx.Savepoint("s3")
+		})
+		if err != nil {
+			t.Fatalf("savepoint s3 failed: %v", err)
+		}
+
+		// Mutate statement 2's result on Spanner mock server to simulate concurrent modification during replay.
+		server.TestSpanner.PutStatementResult(updateStatement2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 99})
+
+		// Rollback to s2 should fail with ErrAbortedDueToConcurrentModification.
+		err = dbConn.Raw(func(driverConn any) error {
+			return rawConn.tx.RollbackToSavepoint(ctx, "s2")
+		})
+		if err == nil {
+			t.Fatal("expected error rolling back to s2, got nil")
+		}
+		if g, w := err, ErrAbortedDueToConcurrentModification; !errors.Is(g, w) {
+			t.Fatalf("error mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		// Savepoint s3 was destroyed by the rollback to s2.
+		err = dbConn.Raw(func(driverConn any) error {
+			_, findErr := rawConn.tx.findSavepoint("s3")
+			return findErr
+		})
+		if err == nil {
+			t.Fatal("expected s3 to be destroyed after rollback to s2, but it still exists")
+		}
+		if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+			t.Errorf("status code for findSavepoint(s3) mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		// Savepoints s1 and s2 still exist.
+		err = dbConn.Raw(func(driverConn any) error {
+			if g, w := len(rawConn.tx.savepoints), 2; g != w {
+				return fmt.Errorf("savepoint count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if _, err := rawConn.tx.findSavepoint("s2"); err != nil {
+				return fmt.Errorf("expected s2 to still exist: %w", err)
+			}
+			if _, err := rawConn.tx.findSavepoint("s1"); err != nil {
+				return fmt.Errorf("expected s1 to still exist: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assertSyntheticReplayErr := func(err error, op string) {
+			t.Helper()
+			if err == nil {
+				t.Fatalf("expected error from %s, got nil", op)
+			}
+			if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+				t.Errorf("%s status code mismatch\nGot:  %v\nWant: %v", op, g, w)
+			}
+			if g, w := strings.Contains(err.Error(), "transaction is in an error state after a failed rollback to savepoint"), true; g != w {
+				t.Errorf("%s error message does not contain expected description\nGot:  %v\nWant: substring %q", op, err.Error(), "transaction is in an error state after a failed rollback to savepoint")
+			}
+			if g, w := strings.Contains(err.Error(), "Transaction was aborted due to a concurrent modification"), true; g != w {
+				t.Errorf("%s error message does not contain underlying cause\nGot:  %v\nWant: substring %q", op, err.Error(), "Transaction was aborted due to a concurrent modification")
+			}
+			if errors.Is(err, ErrAbortedDueToConcurrentModification) {
+				t.Errorf("%s should return synthetic FailedPrecondition error, not match ErrAbortedDueToConcurrentModification", op)
+			}
+		}
+
+		// Subsequent regular operations while in replay error state must return the synthetic error.
+		_, execErr := tx.ExecContext(ctx, updateStatement1)
+		assertSyntheticReplayErr(execErr, "ExecContext")
+
+		_, queryErr := tx.QueryContext(ctx, "SELECT 1")
+		assertSyntheticReplayErr(queryErr, "QueryContext")
+
+		err = dbConn.Raw(func(driverConn any) error {
+			assertSyntheticReplayErr(rawConn.tx.Savepoint("s4"), "Savepoint")
+			assertSyntheticReplayErr(rawConn.tx.ReleaseSavepoint("s2"), "ReleaseSavepoint")
+			_, batchErr := rawConn.tx.StartBatchDML(spanner.QueryOptions{}, false)
+			assertSyntheticReplayErr(batchErr, "StartBatchDML")
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Retrying rollback to s2 continues to fail because statement 2 is still modified.
+		err = dbConn.Raw(func(driverConn any) error {
+			return rawConn.tx.RollbackToSavepoint(ctx, "s2")
+		})
+		if !errors.Is(err, ErrAbortedDueToConcurrentModification) {
+			t.Fatalf("expected ErrAbortedDueToConcurrentModification on retrying s2, got: %v", err)
+		}
+
+		// Rolling back to earlier savepoint s1 succeeds because s1 does not include statement 2!
+		err = dbConn.Raw(func(driverConn any) error {
+			return rawConn.tx.RollbackToSavepoint(ctx, "s1")
+		})
+		if err != nil {
+			t.Fatalf("rollback to earlier savepoint s1 failed: %v", err)
+		}
+
+		// Verify transaction state after successful recovery:
+		// Savepoint s2 was invalidated.
+		err = dbConn.Raw(func(driverConn any) error {
+			if g, w := len(rawConn.tx.savepoints), 1; g != w {
+				return fmt.Errorf("savepoint count after recovery to s1 mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if _, err := rawConn.tx.findSavepoint("s2"); err == nil {
+				return fmt.Errorf("expected s2 to be invalidated after rollback to s1, but it was found")
+			}
+			if _, err := rawConn.tx.findSavepoint("s1"); err != nil {
+				return fmt.Errorf("expected s1 to exist after recovery: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Subsequent operations on the recovered transaction now succeed.
+		if _, err := tx.ExecContext(ctx, updateStatement1); err != nil {
+			t.Fatalf("ExecContext on recovered transaction failed: %v", err)
+		}
+		err = dbConn.Raw(func(driverConn any) error {
+			return rawConn.tx.Savepoint("s1_new")
+		})
+		if err != nil {
+			t.Fatalf("Savepoint on recovered transaction failed: %v", err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("Commit on recovered transaction failed: %v", err)
+		}
+	})
+
+	t.Run("retry_current_savepoint_succeeds_after_conflict_resolved", func(t *testing.T) {
+		server.TestSpanner.PutStatementResult(updateStatement1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(updateStatement2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(updateStatement3, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+		dbConn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silentClose(dbConn)
+
+		tx, err := dbConn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		if _, err := tx.ExecContext(ctx, updateStatement1); err != nil {
+			t.Fatalf("updateStatement1 failed: %v", err)
+		}
+
+		var rawConn *conn
+		err = dbConn.Raw(func(driverConn any) error {
+			rawConn = driverConn.(*conn)
+			return rawConn.tx.Savepoint("s1")
+		})
+		if err != nil {
+			t.Fatalf("savepoint s1 failed: %v", err)
+		}
+
+		if _, err := tx.ExecContext(ctx, updateStatement2); err != nil {
+			t.Fatalf("updateStatement2 failed: %v", err)
+		}
+
+		err = dbConn.Raw(func(driverConn any) error {
+			return rawConn.tx.Savepoint("s2")
+		})
+		if err != nil {
+			t.Fatalf("savepoint s2 failed: %v", err)
+		}
+
+		// Inject concurrent modification for statement 2.
+		server.TestSpanner.PutStatementResult(updateStatement2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 99})
+
+		err = dbConn.Raw(func(driverConn any) error {
+			return rawConn.tx.RollbackToSavepoint(ctx, "s2")
+		})
+		if !errors.Is(err, ErrAbortedDueToConcurrentModification) {
+			t.Fatalf("expected ErrAbortedDueToConcurrentModification, got: %v", err)
+		}
+
+		// Restore expected statement 2 result on mock server (resolving the conflict).
+		server.TestSpanner.PutStatementResult(updateStatement2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+		// Retry rollback to s2 now succeeds.
+		err = dbConn.Raw(func(driverConn any) error {
+			return rawConn.tx.RollbackToSavepoint(ctx, "s2")
+		})
+		if err != nil {
+			t.Fatalf("retrying rollback to s2 after conflict resolved failed: %v", err)
+		}
+
+		// Transaction is recovered at s2; subsequent Exec and Commit succeed.
+		if _, err := tx.ExecContext(ctx, updateStatement1); err != nil {
+			t.Fatalf("ExecContext failed after recovery: %v", err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("Commit failed after recovery: %v", err)
+		}
+	})
+
+	t.Run("rollback_transaction_after_failed_savepoint_rollback", func(t *testing.T) {
+		server.TestSpanner.PutStatementResult(updateStatement1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(updateStatement2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+		dbConn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silentClose(dbConn)
+
+		tx, err := dbConn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := tx.ExecContext(ctx, updateStatement1); err != nil {
+			t.Fatalf("updateStatement1 failed: %v", err)
+		}
+
+		var rawConn *conn
+		err = dbConn.Raw(func(driverConn any) error {
+			rawConn = driverConn.(*conn)
+			return rawConn.tx.Savepoint("s1")
+		})
+		if err != nil {
+			t.Fatalf("savepoint s1 failed: %v", err)
+		}
+
+		if _, err := tx.ExecContext(ctx, updateStatement2); err != nil {
+			t.Fatalf("updateStatement2 failed: %v", err)
+		}
+
+		err = dbConn.Raw(func(driverConn any) error {
+			return rawConn.tx.Savepoint("s2")
+		})
+		if err != nil {
+			t.Fatalf("savepoint s2 failed: %v", err)
+		}
+
+		// Inject concurrent modification.
+		server.TestSpanner.PutStatementResult(updateStatement2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 99})
+
+		err = dbConn.Raw(func(driverConn any) error {
+			return rawConn.tx.RollbackToSavepoint(ctx, "s2")
+		})
+		if !errors.Is(err, ErrAbortedDueToConcurrentModification) {
+			t.Fatalf("expected ErrAbortedDueToConcurrentModification, got: %v", err)
+		}
+
+		// Rolling back the entire transaction should succeed and close the transaction.
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Rollback failed: %v", err)
+		}
+	})
+
+	t.Run("commit_fails_when_in_replay_error_state", func(t *testing.T) {
+		server.TestSpanner.PutStatementResult(updateStatement1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(updateStatement2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+		dbConn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silentClose(dbConn)
+
+		tx, err := dbConn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		if _, err := tx.ExecContext(ctx, updateStatement1); err != nil {
+			t.Fatalf("updateStatement1 failed: %v", err)
+		}
+
+		var rawConn *conn
+		err = dbConn.Raw(func(driverConn any) error {
+			rawConn = driverConn.(*conn)
+			return rawConn.tx.Savepoint("s1")
+		})
+		if err != nil {
+			t.Fatalf("savepoint s1 failed: %v", err)
+		}
+
+		if _, err := tx.ExecContext(ctx, updateStatement2); err != nil {
+			t.Fatalf("updateStatement2 failed: %v", err)
+		}
+
+		err = dbConn.Raw(func(driverConn any) error {
+			return rawConn.tx.Savepoint("s2")
+		})
+		if err != nil {
+			t.Fatalf("savepoint s2 failed: %v", err)
+		}
+
+		// Inject concurrent modification.
+		server.TestSpanner.PutStatementResult(updateStatement2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 99})
+
+		err = dbConn.Raw(func(driverConn any) error {
+			return rawConn.tx.RollbackToSavepoint(ctx, "s2")
+		})
+		if !errors.Is(err, ErrAbortedDueToConcurrentModification) {
+			t.Fatalf("expected ErrAbortedDueToConcurrentModification, got: %v", err)
+		}
+
+		// Calling Commit in replay error state must return the synthetic error.
+		err = tx.Commit()
+		if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+			t.Errorf("Commit status code mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if g, w := strings.Contains(err.Error(), "transaction is in an error state after a failed rollback to savepoint"), true; g != w {
+			t.Errorf("Commit error message does not contain expected description\nGot:  %v\nWant: substring %q", err.Error(), "transaction is in an error state after a failed rollback to savepoint")
+		}
+		if g, w := strings.Contains(err.Error(), "Transaction was aborted due to a concurrent modification"), true; g != w {
+			t.Errorf("Commit error message does not contain underlying cause\nGot:  %v\nWant: substring %q", err.Error(), "Transaction was aborted due to a concurrent modification")
+		}
+		if errors.Is(err, ErrAbortedDueToConcurrentModification) {
+			t.Errorf("Commit should return synthetic FailedPrecondition error, not match ErrAbortedDueToConcurrentModification")
+		}
+	})
+
+	t.Run("commit_in_replay_error_cleans_up_connection", func(t *testing.T) {
+		server.TestSpanner.PutStatementResult(updateStatement1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(updateStatement2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+		dbConn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silentClose(dbConn)
+
+		tx, err := dbConn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := tx.ExecContext(ctx, updateStatement1); err != nil {
+			t.Fatalf("updateStatement1 failed: %v", err)
+		}
+
+		var rawConn *conn
+		err = dbConn.Raw(func(driverConn any) error {
+			rawConn = driverConn.(*conn)
+			return rawConn.tx.Savepoint("s1")
+		})
+		if err != nil {
+			t.Fatalf("savepoint s1 failed: %v", err)
+		}
+
+		if _, err := tx.ExecContext(ctx, updateStatement2); err != nil {
+			t.Fatalf("updateStatement2 failed: %v", err)
+		}
+
+		// Inject concurrent conflict on replay.
+		server.TestSpanner.PutStatementResult(updateStatement1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 99})
+
+		err = dbConn.Raw(func(driverConn any) error {
+			return rawConn.tx.RollbackToSavepoint(ctx, "s1")
+		})
+		if !errors.Is(err, ErrAbortedDueToConcurrentModification) {
+			t.Fatalf("expected ErrAbortedDueToConcurrentModification, got: %v", err)
+		}
+
+		// Commit must fail with FailedPrecondition.
+		if err := tx.Commit(); status.Code(err) != codes.FailedPrecondition {
+			t.Fatalf("expected FailedPrecondition on Commit, got: %v", err)
+		}
+
+		// The raw connection must be cleared of the transaction and restored to idle state.
+		err = dbConn.Raw(func(driverConn any) error {
+			c := driverConn.(*conn)
+			if c.tx != nil {
+				return fmt.Errorf("expected c.tx to be nil after failed commit, got: %v", c.tx)
+			}
+			if g, w := c.state.TransactionState(), connectionstate.TransactionStateIdle; g != w {
+				return fmt.Errorf("transaction state mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Restore expected statement result.
+		server.TestSpanner.PutStatementResult(updateStatement1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+		// A subsequent transaction on the same connection must succeed.
+		tx2, err := dbConn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatalf("starting new transaction on connection failed: %v", err)
+		}
+		if _, err := tx2.ExecContext(ctx, updateStatement1); err != nil {
+			t.Fatalf("exec on new transaction failed: %v", err)
+		}
+		if err := tx2.Commit(); err != nil {
+			t.Fatalf("commit on new transaction failed: %v", err)
+		}
+	})
+
+	t.Run("buffer_write_fails_in_replay_error_state", func(t *testing.T) {
+		server.TestSpanner.PutStatementResult(updateStatement1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(updateStatement2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+		dbConn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silentClose(dbConn)
+
+		tx, err := dbConn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		if _, err := tx.ExecContext(ctx, updateStatement1); err != nil {
+			t.Fatalf("updateStatement1 failed: %v", err)
+		}
+
+		var rawConn *conn
+		err = dbConn.Raw(func(driverConn any) error {
+			rawConn = driverConn.(*conn)
+			return rawConn.tx.Savepoint("s1")
+		})
+		if err != nil {
+			t.Fatalf("savepoint s1 failed: %v", err)
+		}
+
+		if _, err := tx.ExecContext(ctx, updateStatement2); err != nil {
+			t.Fatalf("updateStatement2 failed: %v", err)
+		}
+
+		// Inject concurrent modification.
+		server.TestSpanner.PutStatementResult(updateStatement1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 99})
+
+		err = dbConn.Raw(func(driverConn any) error {
+			return rawConn.tx.RollbackToSavepoint(ctx, "s1")
+		})
+		if !errors.Is(err, ErrAbortedDueToConcurrentModification) {
+			t.Fatalf("expected ErrAbortedDueToConcurrentModification, got: %v", err)
+		}
+
+		// BufferWrite must be rejected with 25P02.
+		err = dbConn.Raw(func(driverConn any) error {
+			m := spanner.Insert("test_table", []string{"id"}, []any{1})
+			return rawConn.tx.BufferWrite([]*spanner.Mutation{m})
+		})
+		if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+			t.Errorf("BufferWrite status code mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("invalid_savepoint_name_in_replay_error_state", func(t *testing.T) {
+		server.TestSpanner.PutStatementResult(updateStatement1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(updateStatement2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+		dbConn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silentClose(dbConn)
+
+		tx, err := dbConn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		if _, err := tx.ExecContext(ctx, updateStatement1); err != nil {
+			t.Fatalf("updateStatement1 failed: %v", err)
+		}
+
+		var rawConn *conn
+		err = dbConn.Raw(func(driverConn any) error {
+			rawConn = driverConn.(*conn)
+			return rawConn.tx.Savepoint("s1")
+		})
+		if err != nil {
+			t.Fatalf("savepoint s1 failed: %v", err)
+		}
+
+		// Inject concurrent modification.
+		server.TestSpanner.PutStatementResult(updateStatement1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 99})
+
+		err = dbConn.Raw(func(driverConn any) error {
+			return rawConn.tx.RollbackToSavepoint(ctx, "s1")
+		})
+		if !errors.Is(err, ErrAbortedDueToConcurrentModification) {
+			t.Fatalf("expected ErrAbortedDueToConcurrentModification, got: %v", err)
+		}
+
+		// Rolling back to a nonexistent savepoint returns 3B001.
+		err = dbConn.Raw(func(driverConn any) error {
+			return rawConn.tx.RollbackToSavepoint(ctx, "nonexistent")
+		})
+		if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+			t.Errorf("status code mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if g, w := ToPGSQLState(err), "3B001"; g != w {
+			t.Errorf("SQLSTATE mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
 }

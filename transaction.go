@@ -62,8 +62,29 @@ type contextTransaction interface {
 	ReadOnlyTransactionTimestamp() (time.Time, error)
 }
 
+type savepointAction int
+
+const (
+	savepointActionCreate savepointAction = iota
+	savepointActionRollback
+	savepointActionRelease
+)
+
+func (a savepointAction) String() string {
+	switch a {
+	case savepointActionCreate:
+		return "create"
+	case savepointActionRollback:
+		return "rollback to"
+	case savepointActionRelease:
+		return "release"
+	default:
+		return "use"
+	}
+}
+
 type savepointTransaction interface {
-	canUseSavepoints(action string, allowNilBackend bool) error
+	canUseSavepoints(action savepointAction) error
 	savepointCheckpoint() (int, int, error)
 	rollbackToSavepointCheckpoint(ctx context.Context, statementCount, mutationCount int) error
 }
@@ -353,6 +374,9 @@ func (d *delegatingTransaction) Savepoint(name string) error {
 	if err != nil {
 		return checkAndEnrichError(d.isPG(), err)
 	}
+	if err := st.canUseSavepoints(savepointActionCreate); err != nil {
+		return checkAndEnrichError(d.isPG(), err)
+	}
 	if !d.isPG() {
 		// GoogleSQL does not support duplicate savepoint names.
 		// PostgreSQL does allow it and treats them like a stack.
@@ -380,18 +404,23 @@ func (d *delegatingTransaction) RollbackToSavepoint(ctx context.Context, name st
 	if err != nil {
 		return checkAndEnrichError(d.isPG(), err)
 	}
+	if err := st.canUseSavepoints(savepointActionRollback); err != nil {
+		return checkAndEnrichError(d.isPG(), err)
+	}
 	targetIndex, err := d.findSavepoint(name)
 	if err != nil {
 		return checkAndEnrichError(d.isPG(), err)
 	}
 	targetSavepoint := d.savepoints[targetIndex]
 	// In SQL semantics, rolling back to a savepoint invalidates all savepoints established after it.
-	// Invalidate them immediately so a failed replay does not leave later savepoints with stale counts.
 	for i := targetIndex + 1; i < len(d.savepoints); i++ {
 		d.savepoints[i] = savepoint{}
 	}
 	d.savepoints = d.savepoints[:targetIndex+1]
 	if err := st.rollbackToSavepointCheckpoint(ctx, targetSavepoint.statementCount, targetSavepoint.mutationCount); err != nil {
+		if d.conn != nil && d.conn.state != nil {
+			d.conn.state.SetTransactionFailed()
+		}
 		return checkAndEnrichError(d.isPG(), err)
 	}
 	if d.conn != nil && d.conn.state != nil {
@@ -408,7 +437,7 @@ func (d *delegatingTransaction) ReleaseSavepoint(name string) error {
 	if err != nil {
 		return checkAndEnrichError(d.isPG(), err)
 	}
-	if err := st.canUseSavepoints("release", false); err != nil {
+	if err := st.canUseSavepoints(savepointActionRelease); err != nil {
 		return checkAndEnrichError(d.isPG(), err)
 	}
 	targetIndex, err := d.findSavepoint(name)
@@ -581,7 +610,7 @@ func (tx *readOnlyTransaction) ReadOnlyTransactionTimestamp() (time.Time, error)
 	return time.Time{}, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-only transaction is not initialized"))
 }
 
-func (tx *readOnlyTransaction) canUseSavepoints(_ string, _ bool) error {
+func (tx *readOnlyTransaction) canUseSavepoints(_ savepointAction) error {
 	if tx.closed || (tx.roTx == nil && tx.boTx == nil) {
 		return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-only transaction is closed or aborted"))
 	}
@@ -589,11 +618,11 @@ func (tx *readOnlyTransaction) canUseSavepoints(_ string, _ bool) error {
 }
 
 func (tx *readOnlyTransaction) savepointCheckpoint() (int, int, error) {
-	return 0, 0, tx.canUseSavepoints("create", false)
+	return 0, 0, tx.canUseSavepoints(savepointActionCreate)
 }
 
 func (tx *readOnlyTransaction) rollbackToSavepointCheckpoint(_ context.Context, _, _ int) error {
-	return tx.canUseSavepoints("rollback to", false)
+	return tx.canUseSavepoints(savepointActionRollback)
 }
 
 // ErrAbortedDueToConcurrentModification is returned by a read/write transaction
@@ -633,6 +662,11 @@ type readWriteTransaction struct {
 	// retryAborts indicates whether this transaction will automatically retry
 	// the transaction if it is aborted by Spanner. The default is true.
 	retryAborts func() bool
+
+	// replayErr records any fatal error that occurred during a savepoint rollback replay.
+	// While replayErr is non-nil, statements and mutations cannot be executed, and the
+	// transaction can only be rolled back, or recovered by rolling back to an active savepoint.
+	replayErr error
 
 	// statements contains the list of statements that has been executed on this
 	// transaction so far. These statements will be replayed on a new read write
@@ -823,7 +857,15 @@ func (tx *readWriteTransaction) replayStatementsAndMutations(ctx context.Context
 // unless internal retries have been disabled.
 func (tx *readWriteTransaction) Commit() (err error) {
 	tx.logger.Debug("committing transaction")
-	if tx.closed || tx.rwTx == nil {
+	if tx.closed {
+		return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
+	}
+	if tx.replayErr != nil {
+		_ = tx.rollback()
+		return tx.savepointReplayError()
+	}
+	if tx.rwTx == nil {
+		_ = tx.rollback()
 		return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
 	}
 	tx.closed = true
@@ -869,12 +911,17 @@ func (tx *readWriteTransaction) rollback() error {
 		// to be executed, even if the transaction has timed out or been cancelled.
 		tx.rwTx.Rollback(context.Background())
 	}
-	tx.close(txResultRollback, nil, nil)
+	if tx.close != nil {
+		tx.close(txResultRollback, nil, nil)
+	}
 	return nil
 }
 
 func (tx *readWriteTransaction) resetForRetry(ctx context.Context) error {
 	tx.closed = false
+	if tx.replayErr != nil {
+		return tx.savepointReplayError()
+	}
 	if tx.rwTx == nil {
 		return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
 	}
@@ -891,6 +938,9 @@ func (tx *readWriteTransaction) resetForRetry(ctx context.Context) error {
 // transaction is aborted during the query or while iterating the returned rows.
 func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement, stmtType parser.StatementType, execOptions *ExecOptions) (rowIterator, error) {
 	tx.logger.Debug("Query", "stmt", stmt.SQL)
+	if tx.replayErr != nil {
+		return nil, tx.savepointReplayError()
+	}
 	if tx.rwTx == nil {
 		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
 	}
@@ -926,6 +976,9 @@ func (tx *readWriteTransaction) partitionQuery(ctx context.Context, stmt spanner
 
 func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.Statement, statementInfo *parser.StatementInfo, options spanner.QueryOptions) (res *result, err error) {
 	tx.logger.Debug("ExecContext", "stmt", stmt.SQL)
+	if tx.replayErr != nil {
+		return nil, tx.savepointReplayError()
+	}
 	if tx.rwTx == nil {
 		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
 	}
@@ -964,6 +1017,9 @@ func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.St
 }
 
 func (tx *readWriteTransaction) StartBatchDML(options spanner.QueryOptions, automatic bool) (driver.Result, error) {
+	if tx.replayErr != nil {
+		return nil, tx.savepointReplayError()
+	}
 	if tx.batch != nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This transaction already has an active batch."))
 	}
@@ -975,6 +1031,9 @@ func (tx *readWriteTransaction) StartBatchDML(options spanner.QueryOptions, auto
 }
 
 func (tx *readWriteTransaction) RunBatch(ctx context.Context) (driver.Result, error) {
+	if tx.replayErr != nil {
+		return nil, tx.savepointReplayError()
+	}
 	if tx.batch == nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This transaction does not have an active batch"))
 	}
@@ -989,6 +1048,9 @@ func (tx *readWriteTransaction) RunBatch(ctx context.Context) (driver.Result, er
 }
 
 func (tx *readWriteTransaction) RunDmlBatch(ctx context.Context) (SpannerResult, error) {
+	if tx.replayErr != nil {
+		return nil, tx.savepointReplayError()
+	}
 	if tx.batch == nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "this transaction does not have an active batch"))
 	}
@@ -1074,6 +1136,9 @@ func (tx *readWriteTransaction) runDmlBatch(ctx context.Context) (*result, error
 }
 
 func (tx *readWriteTransaction) BufferWrite(ms []*spanner.Mutation) error {
+	if tx.replayErr != nil {
+		return tx.savepointReplayError()
+	}
 	if tx.rwTx == nil {
 		return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
 	}
@@ -1092,8 +1157,24 @@ func (tx *readWriteTransaction) canRetryAborts() bool {
 	return tx.retryAborts()
 }
 
-func (tx *readWriteTransaction) canUseSavepoints(action string, allowNilBackend bool) error {
-	if tx.closed || (tx.rwTx == nil && (!allowNilBackend || tx.conn == nil || tx.conn.client == nil)) {
+func (tx *readWriteTransaction) savepointReplayError() error {
+	if tx.replayErr == nil {
+		return spannerErrorfWithSQLState(codes.FailedPrecondition, "25P02",
+			"transaction is in an error state after a failed rollback to savepoint and cannot be used, other than for rollback or rollback to savepoint")
+	}
+	return spannerErrorfWithSQLState(codes.FailedPrecondition, "25P02",
+		"transaction is in an error state after a failed rollback to savepoint and cannot be used, other than for rollback or rollback to savepoint (cause: %v)", tx.replayErr)
+}
+
+func (tx *readWriteTransaction) canUseSavepoints(action savepointAction) error {
+	if tx.closed {
+		return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
+	}
+	if action != savepointActionRollback && tx.replayErr != nil {
+		return tx.savepointReplayError()
+	}
+	allowNilBackend := action == savepointActionRollback
+	if tx.rwTx == nil && (!allowNilBackend || tx.conn == nil || tx.conn.client == nil) {
 		return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
 	}
 	if tx.IsInBatch() && !tx.batch.automatic {
@@ -1106,7 +1187,7 @@ func (tx *readWriteTransaction) canUseSavepoints(action string, allowNilBackend 
 }
 
 func (tx *readWriteTransaction) savepointCheckpoint() (int, int, error) {
-	if err := tx.canUseSavepoints("create", false); err != nil {
+	if err := tx.canUseSavepoints(savepointActionCreate); err != nil {
 		return 0, 0, err
 	}
 	if err := tx.maybeRunAutoDmlBatch(tx.ctx); err != nil {
@@ -1117,7 +1198,7 @@ func (tx *readWriteTransaction) savepointCheckpoint() (int, int, error) {
 }
 
 func (tx *readWriteTransaction) rollbackToSavepointCheckpoint(ctx context.Context, statementCount, mutationCount int) error {
-	if err := tx.canUseSavepoints("rollback to", true); err != nil {
+	if err := tx.canUseSavepoints(savepointActionRollback); err != nil {
 		return err
 	}
 	if statementCount < 0 || statementCount > len(tx.statements) || mutationCount < 0 || mutationCount > len(tx.mutations) {
@@ -1147,7 +1228,13 @@ func (tx *readWriteTransaction) rollbackToSavepointCheckpoint(ctx context.Contex
 	// is next used by a statement or commit, rather than replaying immediately here. This avoids
 	// starting a new Spanner transaction and replaying statements if the transaction is subsequently
 	// rolled back or if multiple savepoint rollbacks occur in succession.
-	return tx.recreateAndReplay(ctx)
+	err := tx.recreateAndReplay(ctx)
+	if err != nil {
+		tx.replayErr = err
+		return err
+	}
+	tx.replayErr = nil
+	return nil
 }
 
 func (tx *readWriteTransaction) recreateAndReplay(ctx context.Context) (err error) {
