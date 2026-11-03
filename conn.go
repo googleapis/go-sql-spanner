@@ -1483,9 +1483,11 @@ func (c *conn) resetTransactionForRetry(ctx context.Context, errDuringCommit boo
 			return noTransaction()
 		}
 		c.tx = c.prevTx
+		c.tx.closed = false
 		// If the aborted error happened during the Commit, then the transaction
 		// context has been cancelled, and we need to create a new one.
 		if rwTx, ok := c.tx.contextTransaction.(*readWriteTransaction); ok {
+			rwTx.closed = false
 			newCtx, cancel := c.addTransactionTimeout(c.tx.ctx)
 			rwTx.ctx = newCtx
 			// Make sure that we cancel the new context when the transaction is closed.
@@ -1734,6 +1736,7 @@ func (c *conn) activateTransaction() (contextTransaction, error) {
 			ro = c.client.ReadOnlyTransaction().WithBeginTransactionOption(beginTxOpt)
 		}
 		return &readOnlyTransaction{
+			conn:   c,
 			roTx:   ro,
 			boTx:   bo,
 			logger: logger,
@@ -1751,27 +1754,35 @@ func (c *conn) activateTransaction() (contextTransaction, error) {
 	// Add the current value of transaction_timeout to the context that is registered
 	// on the transaction.
 	ctx, cancel := c.addTransactionTimeout(c.tx.ctx)
-	tx, err := spanner.NewReadWriteStmtBasedTransactionWithCallbackForOptions(ctx, c.client, opts, func() spanner.TransactionOptions {
-		defer func() {
-			// Reset the transaction_tag after starting the transaction.
-			_ = propertyTransactionTag.ResetValue(c.state, connectionstate.ContextUser)
-		}()
-		execOptions, err := c.options( /*reset=*/ true)
-		if err != nil {
-			execOptions = &ExecOptions{}
-		}
-		return c.effectiveTransactionOptions(spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED, execOptions)
-	})
+	var cachedOpts spanner.TransactionOptions
+	var computeOptsOnce sync.Once
+	txOptsCallback := func() spanner.TransactionOptions {
+		computeOptsOnce.Do(func() {
+			defer func() {
+				// Reset the transaction_tag after starting the transaction.
+				_ = propertyTransactionTag.ResetValue(c.state, connectionstate.ContextUser)
+			}()
+			execOptions, err := c.options( /*reset=*/ true)
+			if err != nil {
+				execOptions = &ExecOptions{}
+			}
+			cachedOpts = c.effectiveTransactionOptions(spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED, execOptions)
+		})
+		return cachedOpts
+	}
+	tx, err := spanner.NewReadWriteStmtBasedTransactionWithCallbackForOptions(ctx, c.client, opts, txOptsCallback)
 	if err != nil {
 		cancel()
 		return nil, err
 	}
 	logger := c.logger.With("tx", "rw")
 	return &readWriteTransaction{
-		ctx:    ctx,
-		conn:   c,
-		logger: logger,
-		rwTx:   tx,
+		ctx:               ctx,
+		conn:              c,
+		logger:            logger,
+		rwTx:              tx,
+		txOptions:         opts,
+		txOptionsCallback: txOptsCallback,
 		close: func(result txResult, commitResponse *spanner.CommitResponse, commitErr error) {
 			c.prevTx = c.tx
 			if commitErr == nil {
