@@ -367,6 +367,9 @@ func (d *delegatingTransaction) savepointTransaction() (savepointTransaction, er
 }
 
 func (d *delegatingTransaction) Savepoint(name string) error {
+	if d.implicit {
+		return checkAndEnrichError(d.isPG(), spannerErrorfWithSQLState(codes.FailedPrecondition, "25P01", "SAVEPOINT can only be used in a transaction"))
+	}
 	if err := d.validateSavepointName(name); err != nil {
 		return err
 	}
@@ -397,6 +400,9 @@ func (d *delegatingTransaction) Savepoint(name string) error {
 }
 
 func (d *delegatingTransaction) RollbackToSavepoint(ctx context.Context, name string) error {
+	if d.implicit {
+		return checkAndEnrichError(d.isPG(), spannerErrorfWithSQLState(codes.FailedPrecondition, "25P01", "ROLLBACK TO SAVEPOINT can only be used in a transaction"))
+	}
 	if err := d.validateSavepointName(name); err != nil {
 		return err
 	}
@@ -430,6 +436,9 @@ func (d *delegatingTransaction) RollbackToSavepoint(ctx context.Context, name st
 }
 
 func (d *delegatingTransaction) ReleaseSavepoint(name string) error {
+	if d.implicit {
+		return checkAndEnrichError(d.isPG(), spannerErrorfWithSQLState(codes.FailedPrecondition, "25P01", "RELEASE SAVEPOINT can only be used in a transaction"))
+	}
 	if err := d.validateSavepointName(name); err != nil {
 		return err
 	}

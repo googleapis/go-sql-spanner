@@ -1218,32 +1218,6 @@ func TestSavepoint_ReadOnlyTransaction(t *testing.T) {
 	}
 }
 
-func TestSavepoint_SQLStatementNotExposedYet(t *testing.T) {
-	t.Parallel()
-
-	db, _, teardown := setupTestDBConnection(t)
-	defer teardown()
-	ctx := context.Background()
-
-	statements := []string{
-		"SAVEPOINT s1",
-		"ROLLBACK TO SAVEPOINT s1",
-		"RELEASE SAVEPOINT s1",
-	}
-
-	for _, sqlStmt := range statements {
-		t.Run(sqlStmt, func(t *testing.T) {
-			_, err := db.ExecContext(ctx, sqlStmt)
-			if err == nil {
-				t.Fatalf("expected error executing %q, got nil", sqlStmt)
-			}
-			if g, w := status.Code(err), codes.Internal; g != w {
-				t.Errorf("status code mismatch for %q\nGot:  %v\nWant: %v", sqlStmt, g, w)
-			}
-		})
-	}
-}
-
 func TestSavepoint_ReplayAborted_SuccessOnRetry(t *testing.T) {
 	t.Parallel()
 
