@@ -714,6 +714,10 @@ func TestNilBackendTransactionSafety(t *testing.T) {
 		if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
 			t.Errorf("resetForRetry nil rwTx error code mismatch\nGot:  %v\nWant: %v", g, w)
 		}
+		err = rwTx.retry(ctx)
+		if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+			t.Errorf("retry nil rwTx error code mismatch\nGot:  %v\nWant: %v", g, w)
+		}
 	})
 
 	t.Run("readOnlyTransaction_nil_roTx", func(t *testing.T) {
@@ -1414,6 +1418,12 @@ func TestSavepoint_ReplayFailed_ConcurrentModification(t *testing.T) {
 		c := driverConn.(*conn)
 		return c.tx.RollbackToSavepoint(ctx, "s1")
 	})
+	if err != nil {
+		t.Fatalf("rollback to savepoint s1 failed: %v", err)
+	}
+
+	// Executing the next statement triggers deferred replay, which detects concurrent modification.
+	_, err = tx.ExecContext(ctx, dml2)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -1493,6 +1503,12 @@ func TestSavepoint_ReplayAborted_ThenConcurrentModification(t *testing.T) {
 		c := driverConn.(*conn)
 		return c.tx.RollbackToSavepoint(ctx, "s1")
 	})
+	if err != nil {
+		t.Fatalf("rollback to savepoint s1 failed: %v", err)
+	}
+
+	// Executing the next statement triggers deferred replay, which aborts and then detects concurrent modification.
+	_, err = tx.ExecContext(ctx, dml2)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -3374,10 +3390,16 @@ func TestSavepoint_FailedRollbackPreservesSavepoints(t *testing.T) {
 			canceledCtx, cancel := context.WithCancel(ctx)
 			cancel()
 
-			// Rolling back to s2 with a canceled context fails during replay.
-			err := c.tx.RollbackToSavepoint(canceledCtx, "s2")
-			if err == nil {
-				return fmt.Errorf("expected error with canceled context, got nil")
+			// Rolling back to s2 with deferred replay succeeds locally.
+			if err := c.tx.RollbackToSavepoint(canceledCtx, "s2"); err != nil {
+				return fmt.Errorf("rollback to s2 failed: %w", err)
+			}
+
+			// Executing the next statement with the canceled context triggers deferred replay and fails.
+			stmt := spanner.NewStatement(updateStatement1)
+			stmtInfo := &parser.StatementInfo{StatementType: parser.StatementTypeDml}
+			if _, err := c.tx.ExecContext(canceledCtx, stmt, stmtInfo, spanner.QueryOptions{}); err == nil {
+				return fmt.Errorf("expected error executing statement with canceled context, got nil")
 			}
 
 			// Younger savepoint s3 must have been destroyed.
@@ -3399,6 +3421,11 @@ func TestSavepoint_FailedRollbackPreservesSavepoints(t *testing.T) {
 			// Retrying rollback to s2 with valid context succeeds.
 			if err := c.tx.RollbackToSavepoint(ctx, "s2"); err != nil {
 				return fmt.Errorf("retrying rollback to s2 with valid context failed: %w", err)
+			}
+
+			// Executing statement with valid context now succeeds.
+			if _, err := c.tx.ExecContext(ctx, stmt, stmtInfo, spanner.QueryOptions{}); err != nil {
+				return fmt.Errorf("executing statement after valid rollback failed: %w", err)
 			}
 
 			// Rollback to s1 also succeeds.
@@ -3551,15 +3578,12 @@ func TestSavepoint_ReplayFailed_RecoveryToEarlierSavepoint(t *testing.T) {
 		// Mutate statement 2's result on Spanner mock server to simulate concurrent modification during replay.
 		server.TestSpanner.PutStatementResult(updateStatement2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 99})
 
-		// Rollback to s2 should fail with ErrAbortedDueToConcurrentModification.
+		// Rollback to s2 with deferred replay succeeds locally.
 		err = dbConn.Raw(func(driverConn any) error {
 			return rawConn.tx.RollbackToSavepoint(ctx, "s2")
 		})
-		if err == nil {
-			t.Fatal("expected error rolling back to s2, got nil")
-		}
-		if g, w := err, ErrAbortedDueToConcurrentModification; !errors.Is(g, w) {
-			t.Fatalf("error mismatch\nGot:  %v\nWant: %v", g, w)
+		if err != nil {
+			t.Fatalf("rollback to s2 failed: %v", err)
 		}
 
 		// Savepoint s3 was destroyed by the rollback to s2.
@@ -3591,6 +3615,15 @@ func TestSavepoint_ReplayFailed_RecoveryToEarlierSavepoint(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		// Executing statement triggers deferred replay, which fails with concurrent modification.
+		_, execErr := tx.ExecContext(ctx, updateStatement1)
+		if execErr == nil {
+			t.Fatal("expected error from ExecContext, got nil")
+		}
+		if !errors.Is(execErr, ErrAbortedDueToConcurrentModification) {
+			t.Fatalf("error mismatch\nGot:  %v\nWant: %v", execErr, ErrAbortedDueToConcurrentModification)
+		}
+
 		assertSyntheticReplayErr := func(err error, op string) {
 			t.Helper()
 			if err == nil {
@@ -3611,8 +3644,8 @@ func TestSavepoint_ReplayFailed_RecoveryToEarlierSavepoint(t *testing.T) {
 		}
 
 		// Subsequent regular operations while in replay error state must return the synthetic error.
-		_, execErr := tx.ExecContext(ctx, updateStatement1)
-		assertSyntheticReplayErr(execErr, "ExecContext")
+		_, execErrAfterFailure := tx.ExecContext(ctx, updateStatement1)
+		assertSyntheticReplayErr(execErrAfterFailure, "ExecContext")
 
 		_, queryErr := tx.QueryContext(ctx, "SELECT 1")
 		assertSyntheticReplayErr(queryErr, "QueryContext")
@@ -3628,12 +3661,18 @@ func TestSavepoint_ReplayFailed_RecoveryToEarlierSavepoint(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Retrying rollback to s2 continues to fail because statement 2 is still modified.
+		// Retrying rollback to s2 succeeds locally with deferred replay.
 		err = dbConn.Raw(func(driverConn any) error {
 			return rawConn.tx.RollbackToSavepoint(ctx, "s2")
 		})
-		if !errors.Is(err, ErrAbortedDueToConcurrentModification) {
-			t.Fatalf("expected ErrAbortedDueToConcurrentModification on retrying s2, got: %v", err)
+		if err != nil {
+			t.Fatalf("retrying rollback to s2 failed: %v", err)
+		}
+
+		// Statement execution fails because statement 2 is still modified.
+		_, execErr2 := tx.ExecContext(ctx, updateStatement1)
+		if !errors.Is(execErr2, ErrAbortedDueToConcurrentModification) {
+			t.Fatalf("expected ErrAbortedDueToConcurrentModification on retrying s2, got: %v", execErr2)
 		}
 
 		// Rolling back to earlier savepoint s1 succeeds because s1 does not include statement 2!
@@ -3725,6 +3764,12 @@ func TestSavepoint_ReplayFailed_RecoveryToEarlierSavepoint(t *testing.T) {
 		err = dbConn.Raw(func(driverConn any) error {
 			return rawConn.tx.RollbackToSavepoint(ctx, "s2")
 		})
+		if err != nil {
+			t.Fatalf("rollback to s2 failed: %v", err)
+		}
+
+		// Executing statement triggers deferred replay, which fails.
+		_, err = tx.ExecContext(ctx, updateStatement1)
 		if !errors.Is(err, ErrAbortedDueToConcurrentModification) {
 			t.Fatalf("expected ErrAbortedDueToConcurrentModification, got: %v", err)
 		}
@@ -3794,6 +3839,12 @@ func TestSavepoint_ReplayFailed_RecoveryToEarlierSavepoint(t *testing.T) {
 		err = dbConn.Raw(func(driverConn any) error {
 			return rawConn.tx.RollbackToSavepoint(ctx, "s2")
 		})
+		if err != nil {
+			t.Fatalf("rollback to s2 failed: %v", err)
+		}
+
+		// Executing statement triggers deferred replay, which fails.
+		_, err = tx.ExecContext(ctx, updateStatement1)
 		if !errors.Is(err, ErrAbortedDueToConcurrentModification) {
 			t.Fatalf("expected ErrAbortedDueToConcurrentModification, got: %v", err)
 		}
@@ -3850,6 +3901,12 @@ func TestSavepoint_ReplayFailed_RecoveryToEarlierSavepoint(t *testing.T) {
 		err = dbConn.Raw(func(driverConn any) error {
 			return rawConn.tx.RollbackToSavepoint(ctx, "s2")
 		})
+		if err != nil {
+			t.Fatalf("rollback to s2 failed: %v", err)
+		}
+
+		// Executing statement triggers deferred replay, which fails.
+		_, err = tx.ExecContext(ctx, updateStatement1)
 		if !errors.Is(err, ErrAbortedDueToConcurrentModification) {
 			t.Fatalf("expected ErrAbortedDueToConcurrentModification, got: %v", err)
 		}
@@ -3908,13 +3965,14 @@ func TestSavepoint_ReplayFailed_RecoveryToEarlierSavepoint(t *testing.T) {
 		err = dbConn.Raw(func(driverConn any) error {
 			return rawConn.tx.RollbackToSavepoint(ctx, "s1")
 		})
-		if !errors.Is(err, ErrAbortedDueToConcurrentModification) {
-			t.Fatalf("expected ErrAbortedDueToConcurrentModification, got: %v", err)
+		if err != nil {
+			t.Fatalf("rollback to s1 failed: %v", err)
 		}
 
-		// Commit must fail with FailedPrecondition.
-		if err := tx.Commit(); status.Code(err) != codes.FailedPrecondition {
-			t.Fatalf("expected FailedPrecondition on Commit, got: %v", err)
+		// Commit triggers deferred replay, which fails with concurrent modification.
+		err = tx.Commit()
+		if !errors.Is(err, ErrAbortedDueToConcurrentModification) {
+			t.Fatalf("expected ErrAbortedDueToConcurrentModification on Commit, got: %v", err)
 		}
 
 		// The raw connection must be cleared of the transaction and restored to idle state.
@@ -3987,6 +4045,12 @@ func TestSavepoint_ReplayFailed_RecoveryToEarlierSavepoint(t *testing.T) {
 		err = dbConn.Raw(func(driverConn any) error {
 			return rawConn.tx.RollbackToSavepoint(ctx, "s1")
 		})
+		if err != nil {
+			t.Fatalf("rollback to s1 failed: %v", err)
+		}
+
+		// Executing a statement triggers deferred replay, which fails with concurrent modification.
+		_, err = tx.ExecContext(ctx, updateStatement1)
 		if !errors.Is(err, ErrAbortedDueToConcurrentModification) {
 			t.Fatalf("expected ErrAbortedDueToConcurrentModification, got: %v", err)
 		}
@@ -4036,6 +4100,12 @@ func TestSavepoint_ReplayFailed_RecoveryToEarlierSavepoint(t *testing.T) {
 		err = dbConn.Raw(func(driverConn any) error {
 			return rawConn.tx.RollbackToSavepoint(ctx, "s1")
 		})
+		if err != nil {
+			t.Fatalf("rollback to s1 failed: %v", err)
+		}
+
+		// Executing a statement triggers deferred replay, which fails with concurrent modification.
+		_, err = tx.ExecContext(ctx, updateStatement1)
 		if !errors.Is(err, ErrAbortedDueToConcurrentModification) {
 			t.Fatalf("expected ErrAbortedDueToConcurrentModification, got: %v", err)
 		}
@@ -4051,4 +4121,1111 @@ func TestSavepoint_ReplayFailed_RecoveryToEarlierSavepoint(t *testing.T) {
 			t.Errorf("SQLSTATE mismatch\nGot:  %v\nWant: %v", g, w)
 		}
 	})
+}
+
+func TestSavepoint_DeferredReplay_RollbackTransaction_ZeroReplayRPCs(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	dml1 := "UPDATE Foo SET Val=1 WHERE Id=1"
+	dml2 := "UPDATE Foo SET Val=2 WHERE Id=2"
+	server.TestSpanner.PutStatementResult(dml1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+	server.TestSpanner.PutStatementResult(dml2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, dml1); err != nil {
+		t.Fatalf("dml1 failed: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, "SAVEPOINT s1"); err != nil {
+		t.Fatalf("savepoint s1 failed: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, dml2); err != nil {
+		t.Fatalf("dml2 failed: %v", err)
+	}
+
+	// Drain all requests sent so far (BeginTransaction, dml1, dml2).
+	_ = server.TestSpanner.DrainRequestsFromServer()
+
+	// Rollback to savepoint s1. Because replay is deferred/lazy, this must not execute any SQL replay RPCs.
+	if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+		t.Fatalf("rollback to savepoint s1 failed: %v", err)
+	}
+
+	requestsAfterSavepointRollback := server.TestSpanner.DrainRequestsFromServer()
+	executeRequestsAfterSavepoint := testutil.RequestsOfType(requestsAfterSavepointRollback, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequestsAfterSavepoint), 0; g != w {
+		t.Fatalf("execute requests after savepoint rollback count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// Now roll back the entire transaction.
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("tx.Rollback() failed: %v", err)
+	}
+
+	// Verify that rolling back the transaction executed 0 replay ExecuteSql requests.
+	requestsAfterTxRollback := server.TestSpanner.DrainRequestsFromServer()
+	executeRequestsAfterTxRollback := testutil.RequestsOfType(requestsAfterTxRollback, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequestsAfterTxRollback), 0; g != w {
+		t.Errorf("execute requests during transaction rollback count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestSavepoint_DeferredReplay_SuccessiveRollbacks_ReplaysOnce(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	dml1 := "UPDATE Foo SET Val=1 WHERE Id=1"
+	dml2 := "UPDATE Foo SET Val=2 WHERE Id=2"
+	dml3 := "UPDATE Foo SET Val=3 WHERE Id=3"
+	dml4 := "UPDATE Foo SET Val=4 WHERE Id=4"
+
+	t.Run("followed_by_statement_and_commit", func(t *testing.T) {
+		server.TestSpanner.PutStatementResult(dml1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(dml2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(dml3, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(dml4, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+		tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatalf("BeginTx failed: %v", err)
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		if _, err := tx.ExecContext(ctx, dml1); err != nil {
+			t.Fatalf("dml1 failed: %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, "SAVEPOINT s1"); err != nil {
+			t.Fatalf("savepoint s1 failed: %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, dml2); err != nil {
+			t.Fatalf("dml2 failed: %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, "SAVEPOINT s2"); err != nil {
+			t.Fatalf("savepoint s2 failed: %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, dml3); err != nil {
+			t.Fatalf("dml3 failed: %v", err)
+		}
+
+		// First rollback to s2: deferred, no replay requests sent.
+		if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s2"); err != nil {
+			t.Fatalf("rollback to s2 failed: %v", err)
+		}
+
+		// Second rollback to s1: deferred, s2 is invalidated, target savepoint is s1.
+		// No replay requests sent.
+		if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+			t.Fatalf("rollback to s1 failed: %v", err)
+		}
+
+		// Executing dml4 triggers deferred replay of statements preserved at s1 (dml1).
+		// Neither dml2 nor dml3 should be replayed.
+		if _, err := tx.ExecContext(ctx, dml4); err != nil {
+			t.Fatalf("dml4 failed: %v", err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("Commit failed: %v", err)
+		}
+
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		// Expected executions:
+		// 1. dml1 (initial)
+		// 2. dml2 (initial)
+		// 3. dml3 (initial)
+		// 4. dml1 (replayed once when dml4 triggered deferred replay)
+		// 5. dml4 (executed in the new underlying transaction)
+		if g, w := len(executeRequests), 5; g != w {
+			t.Fatalf("execute requests count mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		expectedSqls := []string{dml1, dml2, dml3, dml1, dml4}
+		for index, expectedSql := range expectedSqls {
+			request := executeRequests[index].(*spannerpb.ExecuteSqlRequest)
+			if g, w := request.Sql, expectedSql; g != w {
+				t.Errorf("execute request %d sql mismatch\nGot:  %v\nWant: %v", index, g, w)
+			}
+		}
+	})
+
+	t.Run("followed_directly_by_commit", func(t *testing.T) {
+		server.TestSpanner.PutStatementResult(dml1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(dml2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(dml3, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+		tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatalf("BeginTx failed: %v", err)
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		if _, err := tx.ExecContext(ctx, dml1); err != nil {
+			t.Fatalf("dml1 failed: %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, "SAVEPOINT s1"); err != nil {
+			t.Fatalf("savepoint s1 failed: %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, dml2); err != nil {
+			t.Fatalf("dml2 failed: %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, "SAVEPOINT s2"); err != nil {
+			t.Fatalf("savepoint s2 failed: %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, dml3); err != nil {
+			t.Fatalf("dml3 failed: %v", err)
+		}
+
+		// First rollback to s2: deferred, zero replay requests sent.
+		if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s2"); err != nil {
+			t.Fatalf("rollback to s2 failed: %v", err)
+		}
+
+		// Second rollback to s1: deferred, s2 invalidated, target is s1.
+		// Zero replay requests sent.
+		if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+			t.Fatalf("rollback to s1 failed: %v", err)
+		}
+
+		// Commit directly triggers deferred replay of dml1 and commits the transaction.
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("Commit failed: %v", err)
+		}
+
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		// Expected executions:
+		// 1. dml1 (initial)
+		// 2. dml2 (initial)
+		// 3. dml3 (initial)
+		// 4. dml1 (replayed once on Commit)
+		if g, w := len(executeRequests), 4; g != w {
+			t.Fatalf("execute requests count mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		expectedSqls := []string{dml1, dml2, dml3, dml1}
+		for index, expectedSql := range expectedSqls {
+			request := executeRequests[index].(*spannerpb.ExecuteSqlRequest)
+			if g, w := request.Sql, expectedSql; g != w {
+				t.Errorf("execute request %d sql mismatch\nGot:  %v\nWant: %v", index, g, w)
+			}
+		}
+	})
+}
+
+func TestSavepoint_DeferredReplay_OpenRowIteratorAcrossRollback(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	dml1 := testutil.UpdateBarSetFoo
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Execute a query that returns multiple rows.
+	rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatalf("QueryContext failed: %v", err)
+	}
+	defer silentClose(rows)
+
+	// Consume the first row before establishing the savepoint.
+	if !rows.Next() {
+		t.Fatalf("expected first row, got none: %v", rows.Err())
+	}
+	var firstValue int64
+	if err := rows.Scan(&firstValue); err != nil {
+		t.Fatalf("failed to scan first row: %v", err)
+	}
+	if g, w := firstValue, int64(1); g != w {
+		t.Errorf("first row value mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// Create savepoint s1.
+	if _, err := tx.ExecContext(ctx, "SAVEPOINT s1"); err != nil {
+		t.Fatalf("savepoint s1 failed: %v", err)
+	}
+
+	// Execute a DML statement after savepoint s1.
+	if _, err := tx.ExecContext(ctx, dml1); err != nil {
+		t.Fatalf("dml1 failed: %v", err)
+	}
+
+	// Drain all requests sent so far (BeginTransaction/ExecuteSql for SelectFooFromBar, UpdateBarSetFoo).
+	_ = server.TestSpanner.DrainRequestsFromServer()
+
+	// Rollback to savepoint s1. Replay is deferred, so zero replay RPCs must be sent.
+	if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+		t.Fatalf("rollback to savepoint s1 failed: %v", err)
+	}
+
+	requestsAfterRollback := server.TestSpanner.DrainRequestsFromServer()
+	executeRequestsAfterRollback := testutil.RequestsOfType(requestsAfterRollback, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequestsAfterRollback), 0; g != w {
+		t.Fatalf("execute requests after savepoint rollback count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// Now consume the next row from the still-open rows iterator.
+	// This must trigger deferred replay, seamlessly swapping the underlying iterator and advancing past the already-read row.
+	if !rows.Next() {
+		t.Fatalf("expected second row after rollback to savepoint, got none: %v", rows.Err())
+	}
+	var secondValue int64
+	if err := rows.Scan(&secondValue); err != nil {
+		t.Fatalf("failed to scan second row: %v", err)
+	}
+	if g, w := secondValue, int64(2); g != w {
+		t.Errorf("second row value mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// Ensure no further rows remain.
+	if rows.Next() {
+		t.Fatal("expected no more rows, but Next returned true")
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows error after completion: %v", err)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatalf("closing rows failed: %v", err)
+	}
+
+	// Commit the transaction.
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	requestsAfterCommit := server.TestSpanner.DrainRequestsFromServer()
+	executeRequestsAfterCommit := testutil.RequestsOfType(requestsAfterCommit, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	// Exactly one ExecuteSql request for the replayed query.
+	if g, w := len(executeRequestsAfterCommit), 1; g != w {
+		t.Fatalf("replayed execute requests count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	request := executeRequestsAfterCommit[0].(*spannerpb.ExecuteSqlRequest)
+	if g, w := request.Sql, testutil.SelectFooFromBar; g != w {
+		t.Errorf("replayed execute sql mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestSavepoint_DeferredReplay_Triggers(t *testing.T) {
+	t.Parallel()
+
+	dml1 := "UPDATE Foo SET Val=1 WHERE Id=1"
+	dml2 := "UPDATE Foo SET Val=2 WHERE Id=2"
+	dml3 := "UPDATE Foo SET Val=3 WHERE Id=3"
+
+	t.Run("query_context_trigger", func(t *testing.T) {
+		db, server, teardown := setupTestDBConnection(t)
+		defer teardown()
+		ctx := context.Background()
+
+		server.TestSpanner.PutStatementResult(dml1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(dml2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+		tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatalf("BeginTx failed: %v", err)
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		if _, err := tx.ExecContext(ctx, dml1); err != nil {
+			t.Fatalf("dml1 failed: %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, "SAVEPOINT s1"); err != nil {
+			t.Fatalf("savepoint s1 failed: %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, dml2); err != nil {
+			t.Fatalf("dml2 failed: %v", err)
+		}
+
+		_ = server.TestSpanner.DrainRequestsFromServer()
+
+		// Rollback to s1: deferred, zero ExecuteSql requests.
+		if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+			t.Fatalf("rollback to s1 failed: %v", err)
+		}
+
+		requestsAfterRollback := server.TestSpanner.DrainRequestsFromServer()
+		if g, w := len(testutil.RequestsOfType(requestsAfterRollback, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))), 0; g != w {
+			t.Fatalf("execute requests count after rollback mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		// QueryContext triggers deferred replay of dml1 followed by SelectFooFromBar.
+		rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar)
+		if err != nil {
+			t.Fatalf("QueryContext failed: %v", err)
+		}
+		for rows.Next() {
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("rows error: %v", err)
+		}
+		_ = rows.Close()
+
+		requestsAfterQuery := server.TestSpanner.DrainRequestsFromServer()
+		executeRequestsAfterQuery := testutil.RequestsOfType(requestsAfterQuery, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		if g, w := len(executeRequestsAfterQuery), 2; g != w {
+			t.Fatalf("execute requests count after query mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if g, w := executeRequestsAfterQuery[0].(*spannerpb.ExecuteSqlRequest).Sql, dml1; g != w {
+			t.Errorf("first request sql mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if g, w := executeRequestsAfterQuery[1].(*spannerpb.ExecuteSqlRequest).Sql, testutil.SelectFooFromBar; g != w {
+			t.Errorf("second request sql mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("Commit failed: %v", err)
+		}
+	})
+
+	t.Run("buffer_write_trigger", func(t *testing.T) {
+		db, server, teardown := setupTestDBConnection(t)
+		defer teardown()
+		ctx := context.Background()
+
+		server.TestSpanner.PutStatementResult(dml1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(dml2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+		dbConn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatalf("Conn failed: %v", err)
+		}
+		defer silentClose(dbConn)
+
+		tx, err := dbConn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatalf("BeginTx failed: %v", err)
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		if _, err := tx.ExecContext(ctx, dml1); err != nil {
+			t.Fatalf("dml1 failed: %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, "SAVEPOINT s1"); err != nil {
+			t.Fatalf("savepoint s1 failed: %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, dml2); err != nil {
+			t.Fatalf("dml2 failed: %v", err)
+		}
+
+		_ = server.TestSpanner.DrainRequestsFromServer()
+
+		// Rollback to s1: deferred.
+		if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+			t.Fatalf("rollback to s1 failed: %v", err)
+		}
+
+		requestsAfterRollback := server.TestSpanner.DrainRequestsFromServer()
+		if g, w := len(testutil.RequestsOfType(requestsAfterRollback, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))), 0; g != w {
+			t.Fatalf("execute requests count after rollback mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		// BufferWrite triggers deferred replay of dml1.
+		mutation := spanner.Insert("Foo", []string{"Id", "Val"}, []any{int64(10), "bar"})
+		err = dbConn.Raw(func(driverConn any) error {
+			c := driverConn.(*conn)
+			rwTx, ok := c.tx.contextTransaction.(*readWriteTransaction)
+			if !ok {
+				return fmt.Errorf("unexpected transaction type: %T", c.tx.contextTransaction)
+			}
+			return rwTx.BufferWrite([]*spanner.Mutation{mutation})
+		})
+		if err != nil {
+			t.Fatalf("BufferWrite failed: %v", err)
+		}
+
+		requestsAfterBuffer := server.TestSpanner.DrainRequestsFromServer()
+		executeRequestsAfterBuffer := testutil.RequestsOfType(requestsAfterBuffer, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		if g, w := len(executeRequestsAfterBuffer), 1; g != w {
+			t.Fatalf("execute requests count after BufferWrite mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if g, w := executeRequestsAfterBuffer[0].(*spannerpb.ExecuteSqlRequest).Sql, dml1; g != w {
+			t.Errorf("replayed request sql mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("Commit failed: %v", err)
+		}
+
+		commitRequests := testutil.RequestsOfType(server.TestSpanner.DrainRequestsFromServer(), reflect.TypeOf(&spannerpb.CommitRequest{}))
+		if g, w := len(commitRequests), 1; g != w {
+			t.Fatalf("commit requests count mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		commitReq := commitRequests[0].(*spannerpb.CommitRequest)
+		if g, w := len(commitReq.Mutations), 1; g != w {
+			t.Fatalf("mutations count mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("batch_dml_trigger", func(t *testing.T) {
+		db, server, teardown := setupTestDBConnection(t)
+		defer teardown()
+		ctx := context.Background()
+
+		server.TestSpanner.PutStatementResult(dml1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(dml2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(dml3, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+		dbConn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatalf("Conn failed: %v", err)
+		}
+		defer silentClose(dbConn)
+
+		tx, err := dbConn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatalf("BeginTx failed: %v", err)
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		if _, err := tx.ExecContext(ctx, dml1); err != nil {
+			t.Fatalf("dml1 failed: %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, "SAVEPOINT s1"); err != nil {
+			t.Fatalf("savepoint s1 failed: %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, dml2); err != nil {
+			t.Fatalf("dml2 failed: %v", err)
+		}
+
+		_ = server.TestSpanner.DrainRequestsFromServer()
+
+		// Rollback to s1: deferred.
+		if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+			t.Fatalf("rollback to s1 failed: %v", err)
+		}
+
+		requestsAfterRollback := server.TestSpanner.DrainRequestsFromServer()
+		if g, w := len(testutil.RequestsOfType(requestsAfterRollback, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))), 0; g != w {
+			t.Fatalf("execute requests count after rollback mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		// Start manual DML batch. Deferred replay must NOT be triggered yet.
+		err = dbConn.Raw(func(driverConn any) error {
+			c := driverConn.(*conn)
+			rwTx := c.tx.contextTransaction.(*readWriteTransaction)
+			_, err := rwTx.StartBatchDML(spanner.QueryOptions{}, false)
+			return err
+		})
+		if err != nil {
+			t.Fatalf("StartBatchDML failed: %v", err)
+		}
+
+		requestsAfterStartBatch := server.TestSpanner.DrainRequestsFromServer()
+		if g, w := len(testutil.RequestsOfType(requestsAfterStartBatch, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))), 0; g != w {
+			t.Fatalf("execute requests count after StartBatchDML mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		// Buffer dml3 in batch. Buffering must NOT trigger deferred replay yet.
+		if _, err := tx.ExecContext(ctx, dml3); err != nil {
+			t.Fatalf("buffering dml3 failed: %v", err)
+		}
+
+		requestsAfterBufferDml := server.TestSpanner.DrainRequestsFromServer()
+		if g, w := len(testutil.RequestsOfType(requestsAfterBufferDml, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))), 0; g != w {
+			t.Fatalf("execute requests count after buffering dml3 mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		// Run batch: execution on Spanner triggers deferred replay of dml1, then executes batch containing dml3.
+		err = dbConn.Raw(func(driverConn any) error {
+			c := driverConn.(*conn)
+			rwTx := c.tx.contextTransaction.(*readWriteTransaction)
+			_, err := rwTx.RunDmlBatch(ctx)
+			return err
+		})
+		if err != nil {
+			t.Fatalf("RunDmlBatch failed: %v", err)
+		}
+
+		requestsAfterBatch := server.TestSpanner.DrainRequestsFromServer()
+		executeRequests := testutil.RequestsOfType(requestsAfterBatch, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		if g, w := len(executeRequests), 1; g != w {
+			t.Fatalf("execute requests count after batch mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if g, w := executeRequests[0].(*spannerpb.ExecuteSqlRequest).Sql, dml1; g != w {
+			t.Errorf("replayed request sql mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		batchRequests := testutil.RequestsOfType(requestsAfterBatch, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+		if g, w := len(batchRequests), 1; g != w {
+			t.Fatalf("execute batch dml requests count mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		batchReq := batchRequests[0].(*spannerpb.ExecuteBatchDmlRequest)
+		if g, w := len(batchReq.Statements), 1; g != w {
+			t.Fatalf("batch statements count mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if g, w := batchReq.Statements[0].Sql, dml3; g != w {
+			t.Errorf("batch statement sql mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("Commit failed: %v", err)
+		}
+	})
+
+	t.Run("batch_dml_aborted_zero_replay_rpcs", func(t *testing.T) {
+		db, server, teardown := setupTestDBConnection(t)
+		defer teardown()
+		ctx := context.Background()
+
+		server.TestSpanner.PutStatementResult(dml1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(dml2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+		server.TestSpanner.PutStatementResult(dml3, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+		dbConn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatalf("Conn failed: %v", err)
+		}
+		defer silentClose(dbConn)
+
+		tx, err := dbConn.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			t.Fatalf("BeginTx failed: %v", err)
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		if _, err := tx.ExecContext(ctx, dml1); err != nil {
+			t.Fatalf("dml1 failed: %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, "SAVEPOINT s1"); err != nil {
+			t.Fatalf("savepoint s1 failed: %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, dml2); err != nil {
+			t.Fatalf("dml2 failed: %v", err)
+		}
+
+		_ = server.TestSpanner.DrainRequestsFromServer()
+
+		// Rollback to s1: deferred.
+		if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+			t.Fatalf("rollback to s1 failed: %v", err)
+		}
+
+		// Start manual DML batch, buffer dml3, then abort batch.
+		err = dbConn.Raw(func(driverConn any) error {
+			c := driverConn.(*conn)
+			rwTx := c.tx.contextTransaction.(*readWriteTransaction)
+			if _, err := rwTx.StartBatchDML(spanner.QueryOptions{}, false); err != nil {
+				return err
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("StartBatchDML failed: %v", err)
+		}
+
+		if _, err := tx.ExecContext(ctx, dml3); err != nil {
+			t.Fatalf("buffering dml3 failed: %v", err)
+		}
+
+		err = dbConn.Raw(func(driverConn any) error {
+			c := driverConn.(*conn)
+			rwTx := c.tx.contextTransaction.(*readWriteTransaction)
+			if _, err := rwTx.AbortBatch(); err != nil {
+				return err
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("AbortBatch failed: %v", err)
+		}
+
+		// Rolling back the transaction must send 0 replay RPCs.
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("tx.Rollback() failed: %v", err)
+		}
+
+		requests := server.TestSpanner.DrainRequestsFromServer()
+		executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+		if g, w := len(executeRequests), 0; g != w {
+			t.Errorf("execute requests count after aborted batch and rollback mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+}
+
+func TestSavepoint_SavepointOperations_WhileInNeedsReplayState(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	dml1 := "UPDATE Foo SET Val=1 WHERE Id=1"
+	dml2 := "UPDATE Foo SET Val=2 WHERE Id=2"
+	dml3 := "UPDATE Foo SET Val=3 WHERE Id=3"
+
+	server.TestSpanner.PutStatementResult(dml1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+	server.TestSpanner.PutStatementResult(dml2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+	server.TestSpanner.PutStatementResult(dml3, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, dml1); err != nil {
+		t.Fatalf("dml1 failed: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, "SAVEPOINT s1"); err != nil {
+		t.Fatalf("savepoint s1 failed: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, dml2); err != nil {
+		t.Fatalf("dml2 failed: %v", err)
+	}
+
+	_ = server.TestSpanner.DrainRequestsFromServer()
+
+	// Rollback to s1: enters readWriteTxStateNeedsReplay.
+	if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+		t.Fatalf("rollback to s1 failed: %v", err)
+	}
+
+	requestsAfterRollback := server.TestSpanner.DrainRequestsFromServer()
+	if g, w := len(testutil.RequestsOfType(requestsAfterRollback, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))), 0; g != w {
+		t.Fatalf("execute requests count after rollback mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// Creating a new savepoint while in NeedsReplay state must succeed without triggering replay.
+	if _, err := tx.ExecContext(ctx, "SAVEPOINT s2"); err != nil {
+		t.Fatalf("savepoint s2 failed: %v", err)
+	}
+	requestsAfterSavepoint := server.TestSpanner.DrainRequestsFromServer()
+	if g, w := len(testutil.RequestsOfType(requestsAfterSavepoint, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))), 0; g != w {
+		t.Fatalf("execute requests count after savepoint s2 mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// Releasing savepoint s2 while in NeedsReplay state must succeed without triggering replay.
+	if _, err := tx.ExecContext(ctx, "RELEASE SAVEPOINT s2"); err != nil {
+		t.Fatalf("release savepoint s2 failed: %v", err)
+	}
+	requestsAfterRelease := server.TestSpanner.DrainRequestsFromServer()
+	if g, w := len(testutil.RequestsOfType(requestsAfterRelease, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))), 0; g != w {
+		t.Fatalf("execute requests count after release savepoint s2 mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// Releasing savepoint s1 while in NeedsReplay state must also succeed without triggering replay.
+	if _, err := tx.ExecContext(ctx, "RELEASE SAVEPOINT s1"); err != nil {
+		t.Fatalf("release savepoint s1 failed: %v", err)
+	}
+	requestsAfterRelease1 := server.TestSpanner.DrainRequestsFromServer()
+	if g, w := len(testutil.RequestsOfType(requestsAfterRelease1, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))), 0; g != w {
+		t.Fatalf("execute requests count after release savepoint s1 mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// Finally, executing dml3 triggers deferred replay of dml1, followed by dml3.
+	if _, err := tx.ExecContext(ctx, dml3); err != nil {
+		t.Fatalf("dml3 failed: %v", err)
+	}
+
+	requestsAfterDml3 := server.TestSpanner.DrainRequestsFromServer()
+	executeRequestsAfterDml3 := testutil.RequestsOfType(requestsAfterDml3, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequestsAfterDml3), 2; g != w {
+		t.Fatalf("execute requests count after dml3 mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := executeRequestsAfterDml3[0].(*spannerpb.ExecuteSqlRequest).Sql, dml1; g != w {
+		t.Errorf("replayed request sql mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := executeRequestsAfterDml3[1].(*spannerpb.ExecuteSqlRequest).Sql, dml3; g != w {
+		t.Errorf("dml3 request sql mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+}
+
+func TestSavepoint_EnsureReplayed_UnhappyPaths(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("closed_transaction", func(t *testing.T) {
+		tx := &readWriteTransaction{
+			state:  readWriteTxStateClosed,
+			logger: noopLogger,
+		}
+		// ensureReplayed is a no-op when the transaction is closed (nothing to replay, allows draining open result streams).
+		if err := tx.ensureReplayed(ctx); err != nil {
+			t.Fatalf("expected nil from ensureReplayed on closed transaction, got: %v", err)
+		}
+		// But attempting new queries, DML, or commits on a closed transaction must fail.
+		_, err := tx.Query(ctx, spanner.Statement{SQL: testutil.SelectFooFromBar}, parser.StatementTypeQuery, &ExecOptions{})
+		if err == nil {
+			t.Fatal("expected error for Query on closed transaction, got nil")
+		}
+		if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+			t.Errorf("status code mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if !strings.Contains(err.Error(), "underlying read-write transaction is closed or aborted") {
+			t.Errorf("error message does not contain expected substring\nGot:  %v", err)
+		}
+
+		if err := tx.Commit(); err == nil {
+			t.Fatal("expected error for Commit on closed transaction, got nil")
+		} else if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+			t.Errorf("Commit status code mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("not_connected_to_spanner", func(t *testing.T) {
+		tx := &readWriteTransaction{
+			state:  readWriteTxStateNeedsReplay,
+			conn:   &conn{},
+			logger: noopLogger,
+		}
+		err := tx.ensureReplayed(ctx)
+		if err == nil {
+			t.Fatal("expected error when conn.client is nil, got nil")
+		}
+		if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+			t.Errorf("status code mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if !strings.Contains(err.Error(), "transaction is not connected to Spanner") {
+			t.Errorf("error message does not contain expected substring\nGot:  %v", err)
+		}
+	})
+
+	t.Run("replay_failed_sticky_error", func(t *testing.T) {
+		syntheticErr := status.Error(codes.Aborted, "simulated abort during replay")
+		tx := &readWriteTransaction{
+			state:     readWriteTxStateReplayFailed,
+			replayErr: syntheticErr,
+			logger:    noopLogger,
+		}
+		err := tx.ensureReplayed(ctx)
+		if err == nil {
+			t.Fatal("expected error for ReplayFailed state, got nil")
+		}
+		if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+			t.Errorf("status code mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if !strings.Contains(err.Error(), "transaction is in an error state after a failed rollback to savepoint") {
+			t.Errorf("error message does not contain expected substring\nGot:  %v", err)
+		}
+		if !strings.Contains(err.Error(), "simulated abort during replay") {
+			t.Errorf("error message does not contain cause substring\nGot:  %v", err)
+		}
+
+		// Subsequent call returns the same sticky error.
+		secondErr := tx.ensureReplayed(ctx)
+		if g, w := secondErr.Error(), err.Error(); g != w {
+			t.Errorf("sticky error mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("nil_context_fallback", func(t *testing.T) {
+		tx := &readWriteTransaction{
+			state:  readWriteTxStateNeedsReplay,
+			conn:   &conn{},
+			logger: noopLogger,
+		}
+		// Passing nil context must not panic and must fall back to context.Background().
+		var nilContext context.Context
+		err := tx.ensureReplayed(nilContext)
+		if err == nil {
+			t.Fatal("expected error when conn.client is nil, got nil")
+		}
+		if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+			t.Errorf("status code mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		if !strings.Contains(err.Error(), "transaction is not connected to Spanner") {
+			t.Errorf("error message does not contain expected substring\nGot:  %v", err)
+		}
+	})
+
+	t.Run("tx_context_cancelled", func(t *testing.T) {
+		txCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+		tx := &readWriteTransaction{
+			ctx:    txCtx,
+			state:  readWriteTxStateNeedsReplay,
+			conn:   &conn{},
+			logger: noopLogger,
+		}
+		activeCtx := context.Background()
+		err := tx.ensureReplayed(activeCtx)
+		if g, w := err, context.Canceled; !errors.Is(g, w) {
+			t.Errorf("error mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+
+	t.Run("call_context_cancelled", func(t *testing.T) {
+		callCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+		tx := &readWriteTransaction{
+			ctx:    context.Background(),
+			state:  readWriteTxStateNeedsReplay,
+			conn:   &conn{},
+			logger: noopLogger,
+		}
+		err := tx.ensureReplayed(callCtx)
+		if g, w := err, context.Canceled; !errors.Is(g, w) {
+			t.Errorf("error mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+	})
+}
+
+func TestSavepoint_DeferredReplay_CloseRowIteratorWithoutReading(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	dml1 := testutil.UpdateBarSetFoo
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Execute a query, but do not read all rows.
+	rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatalf("QueryContext failed: %v", err)
+	}
+
+	// Consume only the first row before savepoint.
+	if !rows.Next() {
+		t.Fatalf("expected first row: %v", rows.Err())
+	}
+
+	// Create savepoint s1.
+	if _, err := tx.ExecContext(ctx, "SAVEPOINT s1"); err != nil {
+		t.Fatalf("savepoint s1 failed: %v", err)
+	}
+
+	// Execute DML after savepoint.
+	if _, err := tx.ExecContext(ctx, dml1); err != nil {
+		t.Fatalf("dml1 failed: %v", err)
+	}
+
+	// Drain all requests.
+	_ = server.TestSpanner.DrainRequestsFromServer()
+
+	// Rollback to savepoint s1. Deferred replay is pending.
+	if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+		t.Fatalf("rollback to s1 failed: %v", err)
+	}
+
+	// Close rows directly without reading any further.
+	// This must not panic, must stop the underlying stream cleanly, and must not trigger replay.
+	if err := rows.Close(); err != nil {
+		t.Fatalf("rows.Close() failed: %v", err)
+	}
+
+	requestsAfterClose := server.TestSpanner.DrainRequestsFromServer()
+	if g, w := len(testutil.RequestsOfType(requestsAfterClose, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))), 0; g != w {
+		t.Errorf("execute requests count after rows.Close() mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// Roll back the transaction. Zero replay RPCs must be sent.
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("tx.Rollback() failed: %v", err)
+	}
+
+	requestsAfterTxRollback := server.TestSpanner.DrainRequestsFromServer()
+	if g, w := len(testutil.RequestsOfType(requestsAfterTxRollback, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))), 0; g != w {
+		t.Errorf("execute requests count after tx.Rollback() mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestSavepoint_DeferredReplay_TransactionContextCancelled(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	txCtx, cancelTx := context.WithCancel(context.Background())
+	tx, err := db.BeginTx(txCtx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+
+	// Initialize the transaction with a DML.
+	if _, err := tx.ExecContext(context.Background(), testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("dml failed: %v", err)
+	}
+
+	// Create savepoint s1.
+	if _, err := tx.ExecContext(context.Background(), "SAVEPOINT s1"); err != nil {
+		t.Fatalf("savepoint s1 failed: %v", err)
+	}
+
+	// Execute DML after savepoint.
+	if _, err := tx.ExecContext(context.Background(), testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("dml failed: %v", err)
+	}
+
+	// Rollback to savepoint s1. Transaction enters NeedsReplay state.
+	if _, err := tx.ExecContext(context.Background(), "ROLLBACK TO SAVEPOINT s1"); err != nil {
+		t.Fatalf("rollback to s1 failed: %v", err)
+	}
+
+	// Drain all requests.
+	_ = server.TestSpanner.DrainRequestsFromServer()
+
+	// Cancel the transaction context.
+	cancelTx()
+
+	// Attempting a subsequent statement with a fresh active context must fail with context.Canceled
+	// without executing any replay requests on Spanner.
+	statementCtx := context.Background()
+	_, err = tx.ExecContext(statementCtx, testutil.UpdateBarSetFoo)
+	if err == nil {
+		t.Fatal("expected error for statement after transaction context was cancelled, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected error to be context.Canceled\nGot:  %v", err)
+	}
+
+	// Verify that zero ExecuteSqlRequest replay RPCs were sent to Spanner.
+	requestsAfterCancel := server.TestSpanner.DrainRequestsFromServer()
+	if g, w := len(testutil.RequestsOfType(requestsAfterCancel, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))), 0; g != w {
+		t.Errorf("execute requests count after cancel mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	_ = tx.Rollback()
+}
+
+func TestSavepoint_ResetForRetry_NeedsReplayState(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// When in NeedsReplay state, resetForRetry must return nil and keep NeedsReplay state,
+	// without attempting to reset or call Spanner.
+	tx := &readWriteTransaction{
+		state:  readWriteTxStateNeedsReplay,
+		conn:   &conn{},
+		logger: noopLogger,
+	}
+	if err := tx.resetForRetry(ctx); err != nil {
+		t.Fatalf("resetForRetry failed: %v", err)
+	}
+	if g, w := tx.state, readWriteTxStateNeedsReplay; g != w {
+		t.Errorf("state mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// When in ReplayFailed state, resetForRetry must return the sticky replay error.
+	syntheticErr := status.Error(codes.Aborted, "simulated abort during replay")
+	failedTx := &readWriteTransaction{
+		state:     readWriteTxStateReplayFailed,
+		replayErr: syntheticErr,
+		logger:    noopLogger,
+	}
+	if err := failedTx.resetForRetry(ctx); err == nil {
+		t.Fatal("expected error from resetForRetry in ReplayFailed state, got nil")
+	} else if !strings.Contains(err.Error(), "transaction is in an error state after a failed rollback to savepoint") {
+		t.Errorf("error message mismatch\nGot:  %v", err)
+	}
+
+	// When closed, resetForRetry must return FailedPrecondition.
+	closedTx := &readWriteTransaction{
+		state:  readWriteTxStateClosed,
+		logger: noopLogger,
+	}
+	if err := closedTx.resetForRetry(ctx); err == nil {
+		t.Fatal("expected error from resetForRetry in Closed state, got nil")
+	} else if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+		t.Errorf("status code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestSavepoint_DeferredReplay_ResetForRetryPreservesReplay(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	dbConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("Conn failed: %v", err)
+	}
+	defer dbConn.Close()
+
+	tx, err := dbConn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+
+	dml1 := testutil.UpdateBarSetFoo
+	dml2 := testutil.UpdateSingersSetLastName
+
+	// Execute dml1.
+	if _, err := tx.ExecContext(ctx, dml1); err != nil {
+		t.Fatalf("dml1 failed: %v", err)
+	}
+
+	// Create savepoint s1.
+	if _, err := tx.ExecContext(ctx, "SAVEPOINT s1"); err != nil {
+		t.Fatalf("savepoint s1 failed: %v", err)
+	}
+
+	// Execute dml2 after savepoint.
+	if _, err := tx.ExecContext(ctx, dml2); err != nil {
+		t.Fatalf("dml2 failed: %v", err)
+	}
+
+	// Rollback to savepoint s1. Transaction enters NeedsReplay state.
+	if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+		t.Fatalf("rollback to s1 failed: %v", err)
+	}
+
+	// Drain all requests.
+	_ = server.TestSpanner.DrainRequestsFromServer()
+
+	// Invoke resetTransactionForRetry on the connection.
+	err = dbConn.Raw(func(driverConn any) error {
+		spannerConn, ok := driverConn.(SpannerConn)
+		if !ok {
+			return status.Error(codes.InvalidArgument, "not a Spanner connection")
+		}
+		return spannerConn.resetTransactionForRetry(ctx, false)
+	})
+	if err != nil {
+		t.Fatalf("resetTransactionForRetry failed: %v", err)
+	}
+
+	// Verify that resetTransactionForRetry did NOT trigger any replay requests to Spanner.
+	requestsAfterReset := server.TestSpanner.DrainRequestsFromServer()
+	if g, w := len(testutil.RequestsOfType(requestsAfterReset, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))), 0; g != w {
+		t.Errorf("execute requests count after reset mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// Now commit the transaction. Commit must trigger ensureReplayed and replay dml1 before committing.
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("tx.Commit() failed: %v", err)
+	}
+
+	requestsAfterCommit := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requestsAfterCommit, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	commitRequests := testutil.RequestsOfType(requestsAfterCommit, reflect.TypeOf(&spannerpb.CommitRequest{}))
+
+	if g, w := len(executeRequests), 1; g != w {
+		t.Fatalf("execute requests count on commit mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := executeRequests[0].(*spannerpb.ExecuteSqlRequest).Sql, dml1; g != w {
+		t.Errorf("replayed sql mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("commit requests count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
 }
