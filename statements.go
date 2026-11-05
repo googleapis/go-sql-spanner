@@ -96,8 +96,9 @@ func (s *executableShowStatement) queryContext(ctx context.Context, c *conn, opt
 	case *time.Time:
 		it, err = createTimestampIterator(col, val)
 	case sql.IsolationLevel:
-		isolationStr := val.String()
-		if c.parser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		effectiveLevel := c.effectiveIsolationLevel(val)
+		isolationStr := effectiveLevel.String()
+		if c.isPostgreSQL() {
 			isolationStr = strings.ToLower(isolationStr)
 		}
 		it, err = createStringIterator(col, isolationStr)
