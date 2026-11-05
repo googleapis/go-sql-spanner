@@ -1487,7 +1487,7 @@ func (c *conn) resetTransactionForRetry(ctx context.Context, errDuringCommit boo
 		// If the aborted error happened during the Commit, then the transaction
 		// context has been cancelled, and we need to create a new one.
 		if rwTx, ok := c.tx.contextTransaction.(*readWriteTransaction); ok {
-			rwTx.closed = false
+			rwTx.state = readWriteTxStateActive
 			newCtx, cancel := c.addTransactionTimeout(c.tx.ctx)
 			rwTx.ctx = newCtx
 			// Make sure that we cancel the new context when the transaction is closed.
