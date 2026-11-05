@@ -279,6 +279,62 @@ func TestParseSetStatement(t *testing.T) {
 			},
 		},
 		{
+			input: "set transaction isolation level default",
+			want: ParsedSetStatement{
+				query:         "set transaction isolation level default",
+				Identifiers:   []Identifier{{Parts: []string{"isolation_level"}}},
+				Literals:      []Literal{{Value: "default"}},
+				IsLocal:       true,
+				IsTransaction: true,
+			},
+		},
+		{
+			input: "set session characteristics as transaction isolation level serializable",
+			want: ParsedSetStatement{
+				query:         "set session characteristics as transaction isolation level serializable",
+				Identifiers:   []Identifier{{Parts: []string{"isolation_level"}}},
+				Literals:      []Literal{{Value: "serializable"}},
+				IsLocal:       false,
+				IsTransaction: false,
+			},
+		},
+		{
+			input: "set session characteristics as transaction isolation level repeatable read",
+			want: ParsedSetStatement{
+				query:         "set session characteristics as transaction isolation level repeatable read",
+				Identifiers:   []Identifier{{Parts: []string{"isolation_level"}}},
+				Literals:      []Literal{{Value: "repeatable_read"}},
+				IsLocal:       false,
+				IsTransaction: false,
+			},
+		},
+		{
+			input: "set session characteristics as transaction isolation level default",
+			want: ParsedSetStatement{
+				query:         "set session characteristics as transaction isolation level default",
+				Identifiers:   []Identifier{{Parts: []string{"isolation_level"}}},
+				Literals:      []Literal{{Value: "default"}},
+				IsLocal:       false,
+				IsTransaction: false,
+			},
+		},
+		{
+			input: "set session characteristics as transaction read only, isolation level repeatable read",
+			want: ParsedSetStatement{
+				query: "set session characteristics as transaction read only, isolation level repeatable read",
+				Identifiers: []Identifier{
+					{Parts: []string{"transaction_read_only"}},
+					{Parts: []string{"isolation_level"}},
+				},
+				Literals: []Literal{
+					{Value: "true"},
+					{Value: "repeatable_read"},
+				},
+				IsLocal:       false,
+				IsTransaction: false,
+			},
+		},
+		{
 			input:   "set transaction isolation level repeatable",
 			wantErr: true,
 		},
@@ -523,6 +579,14 @@ func TestParseBeginStatementGoogleSQL(t *testing.T) {
 				Literals:    []Literal{{Value: "repeatable_read"}, {Value: "false"}},
 			},
 		},
+		{
+			input: "begin transaction isolation level default",
+			want: ParsedBeginStatement{
+				query:       "begin transaction isolation level default",
+				Identifiers: []Identifier{{Parts: []string{"isolation_level"}}},
+				Literals:    []Literal{{Value: "default"}},
+			},
+		},
 	}
 	parser, err := NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 1000)
 	if err != nil {
@@ -620,6 +684,22 @@ func TestParseBeginStatementPostgreSQL(t *testing.T) {
 				query:       "begin read write, isolation level repeatable read",
 				Identifiers: []Identifier{{Parts: []string{"transaction_read_only"}}, {Parts: []string{"isolation_level"}}},
 				Literals:    []Literal{{Value: "false"}, {Value: "repeatable_read"}},
+			},
+		},
+		{
+			input: "begin transaction isolation level default",
+			want: ParsedBeginStatement{
+				query:       "begin transaction isolation level default",
+				Identifiers: []Identifier{{Parts: []string{"isolation_level"}}},
+				Literals:    []Literal{{Value: "default"}},
+			},
+		},
+		{
+			input: "start transaction isolation level default",
+			want: ParsedBeginStatement{
+				query:       "start transaction isolation level default",
+				Identifiers: []Identifier{{Parts: []string{"isolation_level"}}},
+				Literals:    []Literal{{Value: "default"}},
 			},
 		},
 		{

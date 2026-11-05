@@ -1380,6 +1380,10 @@ export function createSelect1ResultSetWithStats(): protobuf.ResultSet {
 export function createDialectResultSet(): protobuf.ResultSet {
   const fields = [
     spannerProto.StructType.Field.create({
+      name: 'option_name',
+      type: spannerProto.Type.create({ code: spannerProto.TypeCode.STRING }),
+    }),
+    spannerProto.StructType.Field.create({
       name: 'option_value',
       type: spannerProto.Type.create({ code: spannerProto.TypeCode.STRING }),
     }),
@@ -1391,7 +1395,14 @@ export function createDialectResultSet(): protobuf.ResultSet {
   });
   return spannerProto.ResultSet.create({
     metadata,
-    rows: [{ values: [{ stringValue: 'GOOGLE_STANDARD_SQL' }] }],
+    rows: [
+      {
+        values: [
+          { stringValue: 'database_dialect' },
+          { stringValue: 'GOOGLE_STANDARD_SQL' },
+        ],
+      },
+    ],
   });
 }
 

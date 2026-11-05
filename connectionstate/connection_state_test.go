@@ -569,6 +569,63 @@ func TestConnectionState_Aliases(t *testing.T) {
 	}
 }
 
+func TestConnectionState_IsolationLevelSessionVsTransaction(t *testing.T) {
+	t.Parallel()
+
+	prop := CreateConnectionProperty("isolation_level", "Test isolation", "default-iso", false, nil, ContextUser, noop)
+	properties := map[string]ConnectionProperty{
+		"isolation_level": prop,
+	}
+
+	state, _ := NewConnectionState(TypeTransactional, properties, map[string]ConnectionPropertyValue{})
+	state.AddAlias("transaction_isolation", "isolation_level", true)
+	state.AddAlias("default_transaction_isolation", "isolation_level", false)
+
+	// 1. SetLocalTransactionValue preserves GetSessionValue
+	_ = state.Begin()
+	if err := prop.SetLocalTransactionValue(state, "repeatable-read"); err != nil {
+		t.Fatal(err)
+	}
+	if val, _, _ := state.GetValue("", "transaction_isolation"); val != "repeatable-read" {
+		t.Fatalf("GetValue got %v, want repeatable-read", val)
+	}
+	if val, _, _ := state.GetSessionValue("", "default_transaction_isolation"); val != "default-iso" {
+		t.Fatalf("GetSessionValue got %v, want default-iso", val)
+	}
+	_ = state.Rollback()
+
+	// 2. Session-level SetValue inside an active transaction preserves active transaction isolation
+	_ = state.Begin()
+	if err := state.SetValue("", "default_transaction_isolation", "serializable", ContextUser); err != nil {
+		t.Fatal(err)
+	}
+	if val, _, _ := state.GetValue("", "transaction_isolation"); val != "default-iso" {
+		t.Fatalf("GetValue in tx got %v, want default-iso", val)
+	}
+	if val, _, _ := state.GetSessionValue("", "default_transaction_isolation"); val != "serializable" {
+		t.Fatalf("GetSessionValue in tx got %v, want serializable", val)
+	}
+	_ = state.Commit()
+
+	// After commit, both return "serializable".
+	if val, _, _ := state.GetValue("", "transaction_isolation"); val != "serializable" {
+		t.Fatalf("GetValue after commit got %v, want serializable", val)
+	}
+
+	// 3. SetLocalValue with isSetTransaction=true and "default" restores current session value ("serializable"), not startup resetValue ("default-iso").
+	_ = state.Begin()
+	if err := state.SetLocalValue("", "isolation_level", "repeatable-read", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetLocalValue("", "isolation_level", "default", true); err != nil {
+		t.Fatal(err)
+	}
+	if val, _, _ := state.GetValue("", "transaction_isolation"); val != "serializable" {
+		t.Fatalf("GetValue after SET TRANSACTION DEFAULT got %v, want serializable", val)
+	}
+	_ = state.Rollback()
+}
+
 func TestPGTransactionState(t *testing.T) {
 	t.Run("DefaultIdleState", func(t *testing.T) {
 		state, err := NewConnectionState(TypeTransactional, nil, nil)

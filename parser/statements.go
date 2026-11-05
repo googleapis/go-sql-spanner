@@ -269,9 +269,14 @@ func (s *ParsedSetStatement) parse(parser *StatementParser, query string) error 
 	if !isLocal {
 		isTransaction = sp.eatKeyword("TRANSACTION")
 	}
-	if !isLocal && !isTransaction && parser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
-		// Just eat and ignore the SESSION keyword if it exists, as SESSION is the default.
-		_ = sp.eatKeyword("SESSION")
+	if !isLocal && !isTransaction {
+		if sp.eatKeywords([]string{"SESSION", "CHARACTERISTICS", "AS", "TRANSACTION"}) {
+			return s.parseSetSessionCharacteristics(sp, query)
+		}
+		if parser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+			// Just eat and ignore the SESSION keyword if it exists, as SESSION is the default.
+			_ = sp.eatKeyword("SESSION")
+		}
 	}
 	if isTransaction {
 		return s.parseSetTransaction(sp, query)
@@ -311,6 +316,22 @@ func (s *ParsedSetStatement) parseSetTransaction(sp *simpleParser, query string)
 	s.query = query
 	s.IsLocal = true
 	s.IsTransaction = true
+
+	var err error
+	s.Identifiers, s.Literals, err = parseTransactionOptions(sp)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *ParsedSetStatement) parseSetSessionCharacteristics(sp *simpleParser, query string) error {
+	if !sp.hasMoreTokens() {
+		return status.Errorf(codes.InvalidArgument, "syntax error: missing TRANSACTION OPTION, expected one of ISOLATION LEVEL, READ WRITE, or READ ONLY")
+	}
+	s.query = query
+	s.IsLocal = false
+	s.IsTransaction = false
 
 	var err error
 	s.Identifiers, s.Literals, err = parseTransactionOptions(sp)
@@ -361,8 +382,10 @@ func parseTransactionIsolationLevel(sp *simpleParser, identifiers []Identifier, 
 		value = Literal{Value: "serializable"}
 	} else if sp.eatKeywords([]string{"REPEATABLE", "READ"}) {
 		value = Literal{Value: "repeatable_read"}
+	} else if sp.eatKeyword("DEFAULT") {
+		value = Literal{Value: "default"}
 	} else {
-		return nil, nil, status.Errorf(codes.InvalidArgument, "syntax error: expected SERIALIZABLE OR REPETABLE READ")
+		return nil, nil, status.Errorf(codes.InvalidArgument, "syntax error: expected SERIALIZABLE, REPEATABLE READ, or DEFAULT")
 	}
 
 	identifiers = append(identifiers, Identifier{Parts: []string{"isolation_level"}})
@@ -643,7 +666,7 @@ func (s *ParsedBeginStatement) Query() string {
 
 func (s *ParsedBeginStatement) parse(parser *StatementParser, query string) error {
 	// Parse a statement of the form
-	// GoogleSQL: BEGIN [TRANSACTION] [READ WRITE | READ ONLY | ISOLATION LEVEL {SERIALIZABLE | READ COMMITTED}]
+	// GoogleSQL: BEGIN [TRANSACTION] [READ WRITE | READ ONLY | ISOLATION LEVEL {SERIALIZABLE | REPEATABLE READ | DEFAULT}]
 	// PostgreSQL: {START | BEGIN} [{TRANSACTION | WORK}] (https://www.postgresql.org/docs/current/sql-begin.html)
 	// TODO: Support transaction modes in the BEGIN / START statement.
 	sp := &simpleParser{sql: []byte(query), statementParser: parser}

@@ -22,6 +22,7 @@ import (
 	"io"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -275,18 +276,19 @@ type SpannerConn interface {
 var _ SpannerConn = &conn{}
 
 type conn struct {
-	parser        *parser.StatementParser
-	connector     *connector
-	closed        bool
-	client        *spanner.Client
-	adminClient   *adminapi.DatabaseAdminClient
-	connId        string
-	logger        *slog.Logger
-	tx            *delegatingTransaction
-	prevTx        *delegatingTransaction
-	resetForRetry bool
-	instance      string
-	database      string
+	parser                        *parser.StatementParser
+	connector                     *connector
+	closed                        bool
+	client                        *spanner.Client
+	adminClient                   *adminapi.DatabaseAdminClient
+	connId                        string
+	logger                        *slog.Logger
+	tx                            *delegatingTransaction
+	prevTx                        *delegatingTransaction
+	resetForRetry                 bool
+	instance                      string
+	database                      string
+	databaseDefaultIsolationLevel sql.IsolationLevel
 
 	execSingleQuery              func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, bound spanner.TimestampBound, options *ExecOptions) *spanner.RowIterator
 	execSingleQueryTransactional func(ctx context.Context, c *spanner.Client, statement spanner.Statement, statementInfo *parser.StatementInfo, options *ExecOptions) (rowIterator, *spanner.CommitResponse, error)
@@ -363,7 +365,23 @@ func (c *conn) showConnectionVariable(identifier parser.Identifier) (any, bool, 
 	if err != nil {
 		return nil, false, err
 	}
+	if extension == "" && strings.EqualFold(name, "default_transaction_isolation") {
+		return c.state.GetSessionValue(extension, name)
+	}
 	return c.state.GetValue(extension, name)
+}
+
+func (c *conn) effectiveIsolationLevel(level sql.IsolationLevel) sql.IsolationLevel {
+	if level != sql.LevelDefault {
+		return level
+	}
+	if c.databaseDefaultIsolationLevel != sql.LevelDefault {
+		return c.databaseDefaultIsolationLevel
+	}
+	if c.connector != nil && c.connector.databaseDefaultIsolationLevel != sql.LevelDefault {
+		return c.connector.databaseDefaultIsolationLevel
+	}
+	return sql.LevelSerializable
 }
 
 func (c *conn) setConnectionVariable(identifier parser.Identifier, value string, local bool, transaction bool, statementScoped bool) error {
@@ -1531,7 +1549,7 @@ func (c *conn) setReadWriteTransactionOptions(options *ReadWriteTransactionOptio
 		_ = propertyReadLockMode.SetLocalValue(c.state, options.TransactionOptions.ReadLockMode)
 	}
 	if options.TransactionOptions.IsolationLevel != spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED {
-		_ = propertyIsolationLevel.SetLocalValue(c.state, toSqlIsolationLevelOrDefault(options.TransactionOptions.IsolationLevel))
+		_ = propertyIsolationLevel.SetLocalTransactionValue(c.state, toSqlIsolationLevelOrDefault(options.TransactionOptions.IsolationLevel))
 	}
 	if options.TransactionOptions.ExcludeTxnFromChangeStreams {
 		_ = propertyExcludeTxnFromChangeStreams.SetLocalValue(c.state, options.TransactionOptions.ExcludeTxnFromChangeStreams)
@@ -1673,7 +1691,7 @@ func (c *conn) beginTx(ctx context.Context, driverOpts driver.TxOptions, closeFu
 	c.clearCommitResponse()
 
 	if isolationLevelFromTxOpts != spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED {
-		_ = propertyIsolationLevel.SetLocalValue(c.state, sql.IsolationLevel(driverOpts.Isolation))
+		_ = propertyIsolationLevel.SetLocalTransactionValue(c.state, sql.IsolationLevel(driverOpts.Isolation))
 	}
 	// TODO: Figure out how to distinguish between 'use the default' and 'use read/write'.
 	if driverOpts.ReadOnly {

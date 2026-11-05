@@ -40,15 +40,16 @@ public class SpannerMockServerFixture : IDisposable
     {
         SpannerMock = new MockSpannerService();
         SpannerMock.AddOrUpdateStatementResult(
-            "select option_value from information_schema.database_options where option_name='database_dialect'",
+            "select option_name, option_value from information_schema.database_options where option_name in ('database_dialect', 'default_transaction_isolation')",
             StatementResult.CreateResultSet(
                 new List<Tuple<Cloud.Spanner.V1.TypeCode, string>>
                 {
+                    Tuple.Create(Spanner.V1.TypeCode.String, "option_name"),
                     Tuple.Create(Spanner.V1.TypeCode.String, "option_value"),
                 },
                 new List<object[]>
                 {
-                    new object[] { "GOOGLE_STANDARD_SQL" },
+                    new object[] { "database_dialect", "GOOGLE_STANDARD_SQL" },
                 }));
         DatabaseAdminMock = new MockDatabaseAdminService();
             

@@ -1312,14 +1312,24 @@ func TestSetAndShowIsolationLevel(t *testing.T) {
 	}
 	defer func() { _ = conn.Close() }()
 
-	// Isolation level should start with 'Default'.
+	// Isolation level should start with 'Serializable' (the resolved database default) when queried via SHOW,
+	// while the connection's configured IsolationLevel() remains LevelDefault (ISOLATION_LEVEL_UNSPECIFIED on the wire).
 	row := conn.QueryRowContext(ctx, "show variable isolation_level")
 	var val string
 	if err := row.Scan(&val); err != nil {
 		t.Fatal(err)
 	}
-	if g, w := val, sql.LevelDefault.String(); g != w {
+	if g, w := val, sql.LevelSerializable.String(); g != w {
 		t.Fatalf("value mismatch\n Got: %v\nWant: %v", g, w)
+	}
+	if err := conn.Raw(func(driverConn any) error {
+		c := driverConn.(SpannerConn)
+		if g, w := c.IsolationLevel(), sql.LevelDefault; g != w {
+			return fmt.Errorf("isolation level mismatch\n Got: %v\nWant: %v", g, w)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 
 	// We can set the isolation level using a SET statement.
@@ -2076,6 +2086,329 @@ func TestPostgreSQLCompatibilityGUCs(t *testing.T) {
 		verifySetFails(t, conn, "default_transaction_isolation", "'read committed'")
 		verifySetFails(t, conn, "server_version_num", "'150000'")
 	})
+}
+
+func TestDatabaseDefaultTransactionIsolation(t *testing.T) {
+	t.Parallel()
+
+	for _, dialect := range []databasepb.DatabaseDialect{
+		databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+		databasepb.DatabaseDialect_POSTGRESQL,
+	} {
+		for _, dbOption := range []struct {
+			name            string
+			optionValue     string
+			wantGoogleSQL   string
+			wantPostgreSQL  string
+		}{
+			{
+				name:           "unset",
+				optionValue:    "",
+				wantGoogleSQL:  sql.LevelSerializable.String(),
+				wantPostgreSQL: "serializable",
+			},
+			{
+				name:           "serializable",
+				optionValue:    "serializable",
+				wantGoogleSQL:  sql.LevelSerializable.String(),
+				wantPostgreSQL: "serializable",
+			},
+			{
+				name:           "repeatable_read",
+				optionValue:    "repeatable read",
+				wantGoogleSQL:  sql.LevelRepeatableRead.String(),
+				wantPostgreSQL: "repeatable read",
+			},
+		} {
+			t.Run(fmt.Sprintf("%s_%s", dialect.String(), dbOption.name), func(t *testing.T) {
+				t.Parallel()
+				ctx := context.Background()
+				server, _, serverTeardown := testutil.NewMockedSpannerInMemTestServer(t)
+				server.SetupSelectDialectAndIsolationResult(dialect, dbOption.optionValue)
+				db, err := sql.Open(
+					"spanner",
+					fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address))
+				if err != nil {
+					serverTeardown()
+					t.Fatal(err)
+				}
+				defer func() {
+					_ = db.Close()
+					serverTeardown()
+				}()
+
+				conn, err := db.Conn(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer silentClose(conn)
+
+				wantDefault := dbOption.wantGoogleSQL
+				wantRepeatableRead := sql.LevelRepeatableRead.String()
+				wantSerializable := sql.LevelSerializable.String()
+				if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+					wantDefault = dbOption.wantPostgreSQL
+					wantRepeatableRead = "repeatable read"
+					wantSerializable = "serializable"
+				}
+
+				// 1. Connection-level IsolationLevel() should remain LevelDefault so that
+				// transactions without an explicit override send ISOLATION_LEVEL_UNSPECIFIED on the wire.
+				if err := conn.Raw(func(driverConn any) error {
+					sc := driverConn.(SpannerConn)
+					if g, w := sc.IsolationLevel(), sql.LevelDefault; g != w {
+						return fmt.Errorf("IsolationLevel() mismatch: got %v, want %v", g, w)
+					}
+					return nil
+				}); err != nil {
+					t.Fatal(err)
+				}
+
+				// 2. SHOW TRANSACTION ISOLATION LEVEL and SHOW [VARIABLE] isolation_level should
+				// return the effective database default isolation level.
+				var val string
+				if err := conn.QueryRowContext(ctx, "show transaction isolation level").Scan(&val); err != nil {
+					t.Fatal(err)
+				}
+				if g, w := val, wantDefault; g != w {
+					t.Fatalf("show transaction isolation level mismatch\n Got: %v\nWant: %v", g, w)
+				}
+				verifyConnectionPropertyValue(t, conn, "isolation_level", wantDefault)
+				if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+					verifyConnectionPropertyValue(t, conn, "transaction_isolation", wantDefault)
+					verifyConnectionPropertyValue(t, conn, "default_transaction_isolation", wantDefault)
+				}
+
+				// 3. Execute a read/write transaction without specifying an isolation level and
+				// verify that ISOLATION_LEVEL_UNSPECIFIED is sent on the wire.
+				tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+					t.Fatal(err)
+				}
+				if err := tx.Commit(); err != nil {
+					t.Fatal(err)
+				}
+				requests := server.TestSpanner.DrainRequestsFromServer()
+				executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+				if g, w := len(executeRequests), 1; g != w {
+					t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+				}
+				req := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+				if g, w := req.GetTransaction().GetBegin().GetIsolationLevel(), spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED; g != w {
+					t.Fatalf("begin isolation level mismatch\n Got: %v\nWant: %v", g, w)
+				}
+
+				// 4. Inside a transaction, SET TRANSACTION ISOLATION LEVEL overrides SHOW transaction_isolation /
+				// SHOW TRANSACTION ISOLATION LEVEL, while SHOW default_transaction_isolation (on PG) still reflects
+				// the session default.
+				tx, err = conn.BeginTx(ctx, &sql.TxOptions{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := tx.ExecContext(ctx, "set transaction isolation level repeatable read"); err != nil {
+					t.Fatal(err)
+				}
+				if err := tx.QueryRowContext(ctx, "show transaction isolation level").Scan(&val); err != nil {
+					t.Fatal(err)
+				}
+				if g, w := val, wantRepeatableRead; g != w {
+					t.Fatalf("show transaction isolation level in tx mismatch\n Got: %v\nWant: %v", g, w)
+				}
+				if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+					if err := tx.QueryRowContext(ctx, "show transaction_isolation").Scan(&val); err != nil {
+						t.Fatal(err)
+					}
+					if g, w := val, wantRepeatableRead; g != w {
+						t.Fatalf("show transaction_isolation in tx mismatch\n Got: %v\nWant: %v", g, w)
+					}
+					if err := tx.QueryRowContext(ctx, "show default_transaction_isolation").Scan(&val); err != nil {
+						t.Fatal(err)
+					}
+					if g, w := val, wantDefault; g != w {
+						t.Fatalf("show default_transaction_isolation in tx mismatch\n Got: %v\nWant: %v", g, w)
+					}
+				}
+				// Resetting transaction isolation level to DEFAULT inside the transaction should restore the default.
+				if _, err := tx.ExecContext(ctx, "set transaction isolation level default"); err != nil {
+					t.Fatal(err)
+				}
+				if err := tx.QueryRowContext(ctx, "show transaction isolation level").Scan(&val); err != nil {
+					t.Fatal(err)
+				}
+				if g, w := val, wantDefault; g != w {
+					t.Fatalf("show transaction isolation level after default mismatch\n Got: %v\nWant: %v", g, w)
+				}
+				if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+					t.Fatal(err)
+				}
+				if err := tx.Commit(); err != nil {
+					t.Fatal(err)
+				}
+				requests = server.TestSpanner.DrainRequestsFromServer()
+				executeRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+				if g, w := len(executeRequests), 1; g != w {
+					t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+				}
+				req = executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+				if g, w := req.GetTransaction().GetBegin().GetIsolationLevel(), spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED; g != w {
+					t.Fatalf("begin isolation level after default mismatch\n Got: %v\nWant: %v", g, w)
+				}
+
+				// 5. On PostgreSQL, SET default_transaction_isolation and SET SESSION CHARACTERISTICS changes the
+				// session isolation level, preserves active transaction isolation if called mid-transaction, and
+				// RESET default_transaction_isolation restores the database default.
+				if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+					// M1: BeginTx with sql.TxOptions{Isolation: ...} keeps SHOW default_transaction_isolation at session default.
+					tx, err = conn.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := tx.QueryRowContext(ctx, "show transaction_isolation").Scan(&val); err != nil {
+						t.Fatal(err)
+					}
+					if g, w := val, wantRepeatableRead; g != w {
+						t.Fatalf("show transaction_isolation in BeginTx(LevelRepeatableRead) mismatch\n Got: %v\nWant: %v", g, w)
+					}
+					if err := tx.QueryRowContext(ctx, "show default_transaction_isolation").Scan(&val); err != nil {
+						t.Fatal(err)
+					}
+					if g, w := val, wantDefault; g != w {
+						t.Fatalf("show default_transaction_isolation in BeginTx(LevelRepeatableRead) mismatch\n Got: %v\nWant: %v", g, w)
+					}
+					if err := tx.Rollback(); err != nil {
+						t.Fatal(err)
+					}
+
+					// M2: Changing default_transaction_isolation inside an active transaction does not affect the current transaction.
+					tx, err = conn.BeginTx(ctx, &sql.TxOptions{})
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err := tx.ExecContext(ctx, "set default_transaction_isolation = 'repeatable read'"); err != nil {
+						t.Fatal(err)
+					}
+					if err := tx.QueryRowContext(ctx, "show transaction_isolation").Scan(&val); err != nil {
+						t.Fatal(err)
+					}
+					if g, w := val, wantDefault; g != w {
+						t.Fatalf("show transaction_isolation after mid-tx set default_transaction_isolation mismatch\n Got: %v\nWant: %v", g, w)
+					}
+					if err := tx.QueryRowContext(ctx, "show default_transaction_isolation").Scan(&val); err != nil {
+						t.Fatal(err)
+					}
+					if g, w := val, wantRepeatableRead; g != w {
+						t.Fatalf("show default_transaction_isolation after mid-tx set default_transaction_isolation mismatch\n Got: %v\nWant: %v", g, w)
+					}
+					if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+						t.Fatal(err)
+					}
+					if err := tx.Commit(); err != nil {
+						t.Fatal(err)
+					}
+					requests = server.TestSpanner.DrainRequestsFromServer()
+					executeRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+					if g, w := len(executeRequests), 1; g != w {
+						t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+					}
+					req = executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+					if g, w := req.GetTransaction().GetBegin().GetIsolationLevel(), spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED; g != w {
+						t.Fatalf("begin isolation level for tx with mid-tx session set mismatch\n Got: %v\nWant: %v", g, w)
+					}
+
+					// After commit, the session default is now 'repeatable read'.
+					verifyConnectionPropertyValue(t, conn, "default_transaction_isolation", wantRepeatableRead)
+					verifyConnectionPropertyValue(t, conn, "transaction_isolation", wantRepeatableRead)
+
+					// M3: SET TRANSACTION ISOLATION LEVEL DEFAULT restores the current session default ('repeatable read').
+					tx, err = conn.BeginTx(ctx, &sql.TxOptions{})
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err := tx.ExecContext(ctx, "set transaction isolation level serializable"); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := tx.ExecContext(ctx, "set transaction isolation level default"); err != nil {
+						t.Fatal(err)
+					}
+					if err := tx.QueryRowContext(ctx, "show transaction_isolation").Scan(&val); err != nil {
+						t.Fatal(err)
+					}
+					if g, w := val, wantRepeatableRead; g != w {
+						t.Fatalf("show transaction_isolation after set transaction default mismatch\n Got: %v\nWant: %v", g, w)
+					}
+					if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+						t.Fatal(err)
+					}
+					if err := tx.Commit(); err != nil {
+						t.Fatal(err)
+					}
+					requests = server.TestSpanner.DrainRequestsFromServer()
+					executeRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+					if g, w := len(executeRequests), 1; g != w {
+						t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+					}
+					req = executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+					if g, w := req.GetTransaction().GetBegin().GetIsolationLevel(), spannerpb.TransactionOptions_REPEATABLE_READ; g != w {
+						t.Fatalf("begin isolation level mismatch\n Got: %v\nWant: %v", g, w)
+					}
+
+					// M4: SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL SERIALIZABLE
+					if _, err := conn.ExecContext(ctx, "set session characteristics as transaction isolation level serializable"); err != nil {
+						t.Fatal(err)
+					}
+					verifyConnectionPropertyValue(t, conn, "default_transaction_isolation", wantSerializable)
+					verifyConnectionPropertyValue(t, conn, "transaction_isolation", wantSerializable)
+
+					tx, err = conn.BeginTx(ctx, &sql.TxOptions{})
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+						t.Fatal(err)
+					}
+					if err := tx.Commit(); err != nil {
+						t.Fatal(err)
+					}
+					requests = server.TestSpanner.DrainRequestsFromServer()
+					executeRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+					if g, w := len(executeRequests), 1; g != w {
+						t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+					}
+					req = executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+					if g, w := req.GetTransaction().GetBegin().GetIsolationLevel(), spannerpb.TransactionOptions_SERIALIZABLE; g != w {
+						t.Fatalf("begin isolation level mismatch\n Got: %v\nWant: %v", g, w)
+					}
+
+					resetConnectionPropertyValue(t, conn, "default_transaction_isolation")
+					verifyConnectionPropertyValue(t, conn, "default_transaction_isolation", wantDefault)
+					verifyConnectionPropertyValue(t, conn, "transaction_isolation", wantDefault)
+
+					tx, err = conn.BeginTx(ctx, &sql.TxOptions{})
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+						t.Fatal(err)
+					}
+					if err := tx.Commit(); err != nil {
+						t.Fatal(err)
+					}
+					requests = server.TestSpanner.DrainRequestsFromServer()
+					executeRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+					if g, w := len(executeRequests), 1; g != w {
+						t.Fatalf("execute requests count mismatch\n Got: %v\nWant: %v", g, w)
+					}
+					req = executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+					if g, w := req.GetTransaction().GetBegin().GetIsolationLevel(), spannerpb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED; g != w {
+						t.Fatalf("begin isolation level after reset mismatch\n Got: %v\nWant: %v", g, w)
+					}
+				}
+			})
+		}
+	}
 }
 
 func TestPostgreSQLCompatibilityGUCs_GoogleSQL(t *testing.T) {
