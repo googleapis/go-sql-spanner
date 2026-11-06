@@ -464,17 +464,15 @@ var _ contextTransaction = &readOnlyTransaction{}
 var _ savepointTransaction = &readOnlyTransaction{}
 
 type readOnlyTransaction struct {
-	conn   *conn
 	roTx   *spanner.ReadOnlyTransaction
 	boTx   *spanner.BatchReadOnlyTransaction
 	logger *slog.Logger
 	close  func(result txResult)
 	closed bool
 
-	timestampBoundMu       sync.Mutex
-	timestampBoundSet      bool
-	timestampBoundCallback func() spanner.TimestampBound
-	state                  *connectionstate.ConnectionState
+	timestampBoundMu  sync.Mutex
+	timestampBoundSet bool
+	state             *connectionstate.ConnectionState
 }
 
 func (tx *readOnlyTransaction) deadline() (time.Time, bool) {
@@ -544,14 +542,15 @@ func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement
 		}
 		return mi, nil
 	}
-	if tx.timestampBoundCallback != nil {
-		tx.timestampBoundMu.Lock()
-		if !tx.timestampBoundSet {
-			tx.roTx.WithTimestampBound(tx.timestampBoundCallback())
-			tx.timestampBoundSet = true
-		}
-		tx.timestampBoundMu.Unlock()
+	if tx.roTx == nil {
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-only transaction is closed or aborted"))
 	}
+	tx.timestampBoundMu.Lock()
+	if !tx.timestampBoundSet {
+		tx.roTx.WithTimestampBound(propertyReadOnlyStaleness.GetValueOrDefault(tx.state))
+		tx.timestampBoundSet = true
+	}
+	tx.timestampBoundMu.Unlock()
 	return &readOnlyRowIterator{tx.roTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions), stmtType}, nil
 }
 
