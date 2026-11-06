@@ -309,7 +309,7 @@ type conn struct {
 }
 
 func (c *conn) isPostgreSQL() bool {
-	return c.parser != nil && c.parser.Dialect == adminpb.DatabaseDialect_POSTGRESQL
+	return c != nil && c.DatabaseDialect() == adminpb.DatabaseDialect_POSTGRESQL
 }
 
 func (c *conn) UnderlyingClient() (*spanner.Client, error) {
@@ -497,6 +497,14 @@ func (c *conn) SetIsolationLevel(level sql.IsolationLevel) error {
 }
 
 func (c *conn) DatabaseDialect() adminpb.DatabaseDialect {
+	if c == nil {
+		return adminpb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED
+	}
+	if c.state != nil {
+		if d := propertyDatabaseDialect.GetValueOrDefault(c.state); d != adminpb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED {
+			return d
+		}
+	}
 	if c.parser == nil {
 		return adminpb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED
 	}
@@ -744,9 +752,11 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 			ddlStatements[i] = s.SQL
 		}
 		if c.parser.IsCreateDatabaseStatement(ddlStatements[0]) {
-			dialect := c.parser.Dialect
-			if d := propertyDialect.GetValueOrDefault(c.state); d != adminpb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED {
-				dialect = d
+			dialect := c.DatabaseDialect()
+			if c.state != nil {
+				if d := propertyDialect.GetValueOrDefault(c.state); d != adminpb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED {
+					dialect = d
+				}
 			}
 			op, err := c.adminClient.CreateDatabase(ctx, &adminpb.CreateDatabaseRequest{
 				CreateStatement: ddlStatements[0],
@@ -1247,7 +1257,7 @@ func (c *conn) queryContext(ctx context.Context, query string, statementInfo *pa
 			return nil, err
 		}
 	}
-	res := createRows(c.isPostgreSQL(), c.state, iter, cancel, execOptions, c.handleTxError)
+	res := createRows(c.state, iter, cancel, execOptions, c.handleTxError)
 	if execOptions.DirectExecuteQuery {
 		if err := c.directExecuteQuery(ctx, cancelCause, res, execOptions); err != nil {
 			return nil, err
