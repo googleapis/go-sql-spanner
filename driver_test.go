@@ -1664,3 +1664,398 @@ func TestIsMissingDefaultSequenceKindError(t *testing.T) {
 		t.Errorf("isMissingDefaultSequenceKindError returned false for: %v", errNoQuotes)
 	}
 }
+
+func TestConnectorConfig_ParamsPrecedenceOverExplicitFields(t *testing.T) {
+	connectorConfig := ConnectorConfig{
+		Project:  "test-project",
+		Instance: "test-instance",
+		Database: "test-database",
+		Params: map[string]string{
+			"isolation_level":                          "SERIALIZABLE",
+			"decode_to_native_arrays":                  "false",
+			"auto_batch_dml":                           "false",
+			"auto_batch_dml_update_count":              "25",
+			"auto_batch_dml_update_count_verification": "true",
+			"connection_state_type":                    "NonTransactional",
+			"statement_cache_size":                     "250",
+			"disable_statement_cache":                  "false",
+			"begin_transaction_option":                 "InlinedBeginTransaction",
+			"auto_config_emulator":                     "false",
+		},
+		IsolationLevel:          sql.LevelRepeatableRead,
+		DecodeToNativeArrays:    true,
+		AutoBatchDml:            true,
+		AutoBatchDmlUpdateCount: 10,
+		DisableAutoBatchDmlUpdateCountVerification: true,
+		ConnectionStateType:                        connectionstate.TypeTransactional,
+		StatementCacheSize:                         500,
+		DisableStatementCache:                      true,
+		BeginTransactionOption:                     spanner.ExplicitBeginTransaction,
+		AutoConfigEmulator:                         true,
+	}
+	connector, err := createConnector(&Driver{}, connectorConfig)
+	if err != nil {
+		t.Fatalf("createConnector failed: %v", err)
+	}
+	state := connector.configuredConnectionState()
+
+	// Verify connectorConfig struct fields were updated to match Params.
+	if g, w := connector.connectorConfig.IsolationLevel, sql.LevelSerializable; g != w {
+		t.Errorf("IsolationLevel mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := connector.connectorConfig.DecodeToNativeArrays, false; g != w {
+		t.Errorf("DecodeToNativeArrays mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := connector.connectorConfig.AutoBatchDml, false; g != w {
+		t.Errorf("AutoBatchDml mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := connector.connectorConfig.AutoBatchDmlUpdateCount, int64(25); g != w {
+		t.Errorf("AutoBatchDmlUpdateCount mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := connector.connectorConfig.DisableAutoBatchDmlUpdateCountVerification, false; g != w {
+		t.Errorf("DisableAutoBatchDmlUpdateCountVerification mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := connector.connectorConfig.ConnectionStateType, connectionstate.TypeNonTransactional; g != w {
+		t.Errorf("ConnectionStateType mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := connector.connectorConfig.StatementCacheSize, 250; g != w {
+		t.Errorf("StatementCacheSize mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := connector.connectorConfig.DisableStatementCache, false; g != w {
+		t.Errorf("DisableStatementCache mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := connector.connectorConfig.BeginTransactionOption, spanner.InlinedBeginTransaction; g != w {
+		t.Errorf("BeginTransactionOption mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := connector.connectorConfig.AutoConfigEmulator, false; g != w {
+		t.Errorf("AutoConfigEmulator mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// Verify configured ConnectionState values match Params.
+	if g, w := propertyIsolationLevel.GetValueOrDefault(state), sql.LevelSerializable; g != w {
+		t.Errorf("propertyIsolationLevel mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyDecodeToNativeArrays.GetValueOrDefault(state), false; g != w {
+		t.Errorf("propertyDecodeToNativeArrays mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoBatchDml.GetValueOrDefault(state), false; g != w {
+		t.Errorf("propertyAutoBatchDml mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoBatchDmlUpdateCount.GetValueOrDefault(state), int64(25); g != w {
+		t.Errorf("propertyAutoBatchDmlUpdateCount mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoBatchDmlUpdateCountVerification.GetValueOrDefault(state), true; g != w {
+		t.Errorf("propertyAutoBatchDmlUpdateCountVerification mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyConnectionStateType.GetValueOrDefault(state), connectionstate.TypeNonTransactional; g != w {
+		t.Errorf("propertyConnectionStateType mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyStatementCacheSize.GetValueOrDefault(state), 250; g != w {
+		t.Errorf("propertyStatementCacheSize mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyDisableStatementCache.GetValueOrDefault(state), false; g != w {
+		t.Errorf("propertyDisableStatementCache mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyBeginTransactionOption.GetValueOrDefault(state), spanner.InlinedBeginTransaction; g != w {
+		t.Errorf("propertyBeginTransactionOption mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoConfigEmulator.GetValueOrDefault(state), false; g != w {
+		t.Errorf("propertyAutoConfigEmulator mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConnectorConfig_ExplicitFieldsPrecedenceOverDefaults(t *testing.T) {
+	connectorConfig := ConnectorConfig{
+		Project:                 "test-project",
+		Instance:                "test-instance",
+		Database:                "test-database",
+		IsolationLevel:          sql.LevelRepeatableRead,
+		DecodeToNativeArrays:    true,
+		AutoBatchDml:            true,
+		AutoBatchDmlUpdateCount: 10,
+		DisableAutoBatchDmlUpdateCountVerification: true,
+		ConnectionStateType:                        connectionstate.TypeTransactional,
+		StatementCacheSize:                         500,
+		DisableStatementCache:                      true,
+		BeginTransactionOption:                     spanner.ExplicitBeginTransaction,
+	}
+	connector, err := createConnector(&Driver{}, connectorConfig)
+	if err != nil {
+		t.Fatalf("createConnector failed: %v", err)
+	}
+	state := connector.configuredConnectionState()
+
+	if g, w := propertyIsolationLevel.GetValueOrDefault(state), sql.LevelRepeatableRead; g != w {
+		t.Errorf("propertyIsolationLevel mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyDecodeToNativeArrays.GetValueOrDefault(state), true; g != w {
+		t.Errorf("propertyDecodeToNativeArrays mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoBatchDml.GetValueOrDefault(state), true; g != w {
+		t.Errorf("propertyAutoBatchDml mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoBatchDmlUpdateCount.GetValueOrDefault(state), int64(10); g != w {
+		t.Errorf("propertyAutoBatchDmlUpdateCount mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoBatchDmlUpdateCountVerification.GetValueOrDefault(state), false; g != w {
+		t.Errorf("propertyAutoBatchDmlUpdateCountVerification mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyConnectionStateType.GetValueOrDefault(state), connectionstate.TypeTransactional; g != w {
+		t.Errorf("propertyConnectionStateType mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyStatementCacheSize.GetValueOrDefault(state), 500; g != w {
+		t.Errorf("propertyStatementCacheSize mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyDisableStatementCache.GetValueOrDefault(state), true; g != w {
+		t.Errorf("propertyDisableStatementCache mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyBeginTransactionOption.GetValueOrDefault(state), spanner.ExplicitBeginTransaction; g != w {
+		t.Errorf("propertyBeginTransactionOption mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// Verify that all explicitly configured fields have HasValue() == true in initialPropertyValues.
+	checkedPropertyKeys := []string{
+		propertyIsolationLevel.Key(),
+		propertyDecodeToNativeArrays.Key(),
+		propertyAutoBatchDml.Key(),
+		propertyAutoBatchDmlUpdateCount.Key(),
+		propertyAutoBatchDmlUpdateCountVerification.Key(),
+		propertyConnectionStateType.Key(),
+		propertyStatementCacheSize.Key(),
+		propertyDisableStatementCache.Key(),
+		propertyBeginTransactionOption.Key(),
+	}
+	for _, propertyKey := range checkedPropertyKeys {
+		propertyValue, ok := connector.initialPropertyValues[propertyKey]
+		if !ok {
+			t.Errorf("expected property %q to be present in initialPropertyValues", propertyKey)
+			continue
+		}
+		if g, w := propertyValue.HasValue(), true; g != w {
+			t.Errorf("HasValue for property %q mismatch\nGot:  %v\nWant: %v", propertyKey, g, w)
+		}
+	}
+
+	// Verify AutoConfigEmulator explicit field precedence separately via mergeConnectorConfigIntoInitialValues
+	// to avoid triggering autoConfigEmulator network calls to localhost:9010 during unit test execution.
+	emulatorInitialValues := make(map[string]connectionstate.ConnectionPropertyValue)
+	mergeConnectorConfigIntoInitialValues(ConnectorConfig{AutoConfigEmulator: true}, emulatorInitialValues)
+	propertyValue, ok := emulatorInitialValues[propertyAutoConfigEmulator.Key()]
+	if !ok {
+		t.Fatalf("expected property %q to be present in initialPropertyValues", propertyAutoConfigEmulator.Key())
+	}
+	if g, w := propertyValue.HasValue(), true; g != w {
+		t.Errorf("HasValue for property %q mismatch\nGot:  %v\nWant: %v", propertyAutoConfigEmulator.Key(), g, w)
+	}
+	emulatorState := createConfiguredConnectionState(emulatorInitialValues)
+	if g, w := propertyAutoConfigEmulator.GetValueOrDefault(emulatorState), true; g != w {
+		t.Errorf("propertyAutoConfigEmulator mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConnectorConfig_UnsetFieldsRetainHasValueFalse(t *testing.T) {
+	connectorConfig := ConnectorConfig{
+		Project:  "test-project",
+		Instance: "test-instance",
+		Database: "test-database",
+	}
+	connector, err := createConnector(&Driver{}, connectorConfig)
+	if err != nil {
+		t.Fatalf("createConnector failed: %v", err)
+	}
+
+	// Verify unset properties are NOT present in connector.initialPropertyValues.
+	checkedPropertyKeys := []string{
+		propertyDecodeToNativeArrays.Key(),
+		propertyIsolationLevel.Key(),
+		propertyBeginTransactionOption.Key(),
+		propertyAutoBatchDml.Key(),
+		propertyAutoBatchDmlUpdateCount.Key(),
+		propertyAutoBatchDmlUpdateCountVerification.Key(),
+		propertyConnectionStateType.Key(),
+		propertyStatementCacheSize.Key(),
+		propertyDisableStatementCache.Key(),
+		propertyAutoConfigEmulator.Key(),
+		propertyRetryAbortsInternally.Key(),
+	}
+	for _, propertyKey := range checkedPropertyKeys {
+		if _, ok := connector.initialPropertyValues[propertyKey]; ok {
+			t.Errorf("property %q unexpectedly present in initialPropertyValues for unset ConnectorConfig", propertyKey)
+		}
+	}
+
+	// Verify that when a full ConnectionState is created from initialPropertyValues,
+	// default values are preserved and HasValue() is false for all unset properties.
+	connectionState := createInitialConnectionState(connectionstate.TypeNonTransactional, connector.initialPropertyValues)
+
+	if g, w := propertyRetryAbortsInternally.GetValueOrDefault(connectionState), true; g != w {
+		t.Errorf("propertyRetryAbortsInternally default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyRetryAbortsInternally.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyRetryAbortsInternally HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyDecodeToNativeArrays.GetValueOrDefault(connectionState), false; g != w {
+		t.Errorf("propertyDecodeToNativeArrays default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyDecodeToNativeArrays.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyDecodeToNativeArrays HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyIsolationLevel.GetValueOrDefault(connectionState), sql.LevelDefault; g != w {
+		t.Errorf("propertyIsolationLevel default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyIsolationLevel.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyIsolationLevel HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyAutoBatchDml.GetValueOrDefault(connectionState), false; g != w {
+		t.Errorf("propertyAutoBatchDml default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoBatchDml.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyAutoBatchDml HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyAutoBatchDmlUpdateCount.GetValueOrDefault(connectionState), int64(1); g != w {
+		t.Errorf("propertyAutoBatchDmlUpdateCount default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoBatchDmlUpdateCount.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyAutoBatchDmlUpdateCount HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyAutoBatchDmlUpdateCountVerification.GetValueOrDefault(connectionState), true; g != w {
+		t.Errorf("propertyAutoBatchDmlUpdateCountVerification default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoBatchDmlUpdateCountVerification.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyAutoBatchDmlUpdateCountVerification HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyConnectionStateType.GetValueOrDefault(connectionState), connectionstate.TypeDefault; g != w {
+		t.Errorf("propertyConnectionStateType default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyConnectionStateType.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyConnectionStateType HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyStatementCacheSize.GetValueOrDefault(connectionState), 0; g != w {
+		t.Errorf("propertyStatementCacheSize default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyStatementCacheSize.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyStatementCacheSize HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyDisableStatementCache.GetValueOrDefault(connectionState), false; g != w {
+		t.Errorf("propertyDisableStatementCache default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyDisableStatementCache.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyDisableStatementCache HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyBeginTransactionOption.GetValueOrDefault(connectionState), spanner.InlinedBeginTransaction; g != w {
+		t.Errorf("propertyBeginTransactionOption default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyBeginTransactionOption.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyBeginTransactionOption HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyAutoConfigEmulator.GetValueOrDefault(connectionState), false; g != w {
+		t.Errorf("propertyAutoConfigEmulator default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoConfigEmulator.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyAutoConfigEmulator HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestRetryAbortsInternally(t *testing.T) {
+	tests := []struct {
+		name         string
+		params       map[string]string
+		wantInMap    bool
+		wantHasValue bool
+		wantValue    bool
+	}{
+		{
+			name: "ExplicitlySetFalseInParams",
+			params: map[string]string{
+				"retry_aborts_internally": "false",
+			},
+			wantInMap:    true,
+			wantHasValue: true,
+			wantValue:    false,
+		},
+		{
+			name: "ExplicitlySetTrueInParams",
+			params: map[string]string{
+				"retry_aborts_internally": "true",
+			},
+			wantInMap:    true,
+			wantHasValue: true,
+			wantValue:    true,
+		},
+		{
+			name:         "UnsetInParamsDefaultsToTrueWithHasValueFalse",
+			params:       nil,
+			wantInMap:    false,
+			wantHasValue: false,
+			wantValue:    true,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			connectorConfig := ConnectorConfig{
+				Project:  "test-project",
+				Instance: "test-instance",
+				Database: "test-database",
+				Params:   testCase.params,
+			}
+			connector, err := createConnector(&Driver{}, connectorConfig)
+			if err != nil {
+				t.Fatalf("createConnector failed: %v", err)
+			}
+			propertyValue, ok := connector.initialPropertyValues[propertyRetryAbortsInternally.Key()]
+			if g, w := ok, testCase.wantInMap; g != w {
+				t.Errorf("presence in initialPropertyValues mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if testCase.wantInMap {
+				if g, w := propertyValue.HasValue(), testCase.wantHasValue; g != w {
+					t.Errorf("HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+			}
+			connectionState := createInitialConnectionState(connectionstate.TypeNonTransactional, connector.initialPropertyValues)
+			if g, w := propertyRetryAbortsInternally.GetValueOrDefault(connectionState), testCase.wantValue; g != w {
+				t.Errorf("retry_aborts_internally value mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := propertyRetryAbortsInternally.GetConnectionPropertyValue(connectionState).HasValue(), testCase.wantHasValue; g != w {
+				t.Errorf("retry_aborts_internally HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
+func TestConnectorConfig_ConfiguredConnectionStateReadsFromInitialValues(t *testing.T) {
+	connectorConfig := ConnectorConfig{
+		Project:  "test-project",
+		Instance: "test-instance",
+		Database: "test-database",
+		Params: map[string]string{
+			"connect_timeout":         "250ms",
+			"statement_cache_size":    "123",
+			"disable_statement_cache": "true",
+		},
+	}
+	connector, err := createConnector(&Driver{}, connectorConfig)
+	if err != nil {
+		t.Fatalf("createConnector failed: %v", err)
+	}
+	state := connector.configuredConnectionState()
+	if g, w := propertyConnectTimeout.GetValueOrDefault(state), 250*time.Millisecond; g != w {
+		t.Errorf("propertyConnectTimeout mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyStatementCacheSize.GetValueOrDefault(state), 123; g != w {
+		t.Errorf("propertyStatementCacheSize mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyDisableStatementCache.GetValueOrDefault(state), true; g != w {
+		t.Errorf("propertyDisableStatementCache mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
