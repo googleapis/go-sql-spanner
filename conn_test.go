@@ -180,23 +180,118 @@ func TestInErrorTxBehavior_Dialects(t *testing.T) {
 	})
 }
 
-func TestDatabaseDialectMethod(t *testing.T) {
+func TestDatabaseDialect(t *testing.T) {
 	t.Parallel()
 
-	pGoogleSQL, _ := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 0)
-	cGoogleSQL := &conn{parser: pGoogleSQL}
-	if g, w := cGoogleSQL.DatabaseDialect(), databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL; g != w {
-		t.Errorf("GoogleSQL DatabaseDialect mismatch\nGot:  %v\nWant: %v", g, w)
+	pGoogleSQL, err := parser.NewStatementParser(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, 0)
+	if err != nil {
+		t.Fatalf("failed to create GoogleSQL parser: %v", err)
+	}
+	pPostgreSQL, err := parser.NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 0)
+	if err != nil {
+		t.Fatalf("failed to create PostgreSQL parser: %v", err)
 	}
 
-	pPostgreSQL, _ := parser.NewStatementParser(databasepb.DatabaseDialect_POSTGRESQL, 0)
-	cPostgreSQL := &conn{parser: pPostgreSQL}
-	if g, w := cPostgreSQL.DatabaseDialect(), databasepb.DatabaseDialect_POSTGRESQL; g != w {
-		t.Errorf("PostgreSQL DatabaseDialect mismatch\nGot:  %v\nWant: %v", g, w)
+	stateGoogleSQL := createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, connectionstate.TypeNonTransactional, nil)
+	statePostgreSQL := createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_POSTGRESQL, connectionstate.TypeTransactional, nil)
+	stateUnspecified := createConfiguredConnectionState(nil)
+
+	tests := []struct {
+		name        string
+		conn        *conn
+		wantDialect databasepb.DatabaseDialect
+		wantIsPG    bool
+	}{
+		{
+			name:        "NilConn",
+			conn:        nil,
+			wantDialect: databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED,
+			wantIsPG:    false,
+		},
+		{
+			name:        "EmptyConn",
+			conn:        &conn{},
+			wantDialect: databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED,
+			wantIsPG:    false,
+		},
+		{
+			name: "State_GoogleSQL_NoParser",
+			conn: &conn{
+				state: stateGoogleSQL,
+			},
+			wantDialect: databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+			wantIsPG:    false,
+		},
+		{
+			name: "State_PostgreSQL_NoParser",
+			conn: &conn{
+				state: statePostgreSQL,
+			},
+			wantDialect: databasepb.DatabaseDialect_POSTGRESQL,
+			wantIsPG:    true,
+		},
+		{
+			name: "Parser_GoogleSQL_NoState",
+			conn: &conn{
+				parser: pGoogleSQL,
+			},
+			wantDialect: databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+			wantIsPG:    false,
+		},
+		{
+			name: "Parser_PostgreSQL_NoState",
+			conn: &conn{
+				parser: pPostgreSQL,
+			},
+			wantDialect: databasepb.DatabaseDialect_POSTGRESQL,
+			wantIsPG:    true,
+		},
+		{
+			name: "Precedence_StatePostgreSQL_Overrides_ParserGoogleSQL",
+			conn: &conn{
+				state:  statePostgreSQL,
+				parser: pGoogleSQL,
+			},
+			wantDialect: databasepb.DatabaseDialect_POSTGRESQL,
+			wantIsPG:    true,
+		},
+		{
+			name: "Precedence_StateGoogleSQL_Overrides_ParserPostgreSQL",
+			conn: &conn{
+				state:  stateGoogleSQL,
+				parser: pPostgreSQL,
+			},
+			wantDialect: databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+			wantIsPG:    false,
+		},
+		{
+			name: "Fallback_StateUnspecified_FallsBackToParserPostgreSQL",
+			conn: &conn{
+				state:  stateUnspecified,
+				parser: pPostgreSQL,
+			},
+			wantDialect: databasepb.DatabaseDialect_POSTGRESQL,
+			wantIsPG:    true,
+		},
+		{
+			name: "Fallback_StateUnspecified_FallsBackToParserGoogleSQL",
+			conn: &conn{
+				state:  stateUnspecified,
+				parser: pGoogleSQL,
+			},
+			wantDialect: databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+			wantIsPG:    false,
+		},
 	}
 
-	cNil := &conn{}
-	if g, w := cNil.DatabaseDialect(), databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED; g != w {
-		t.Errorf("nil parser DatabaseDialect mismatch\nGot:  %v\nWant: %v", g, w)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if g, w := tc.conn.DatabaseDialect(), tc.wantDialect; g != w {
+				t.Errorf("DatabaseDialect mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := tc.conn.isPostgreSQL(), tc.wantIsPG; g != w {
+				t.Errorf("isPostgreSQL mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
 	}
 }

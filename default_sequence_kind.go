@@ -109,7 +109,7 @@ func (c *conn) executeDDLWithDefaultSequenceKindRetry(ctx context.Context, origi
 func (c *conn) setDefaultSequenceKind(ctx context.Context, defaultSequenceKind string) error {
 	dbID := c.databaseID()
 	var alterStatement string
-	if c.parser.Dialect == adminpb.DatabaseDialect_POSTGRESQL {
+	if c.isPostgreSQL() {
 		alterStatement = fmt.Sprintf(`ALTER DATABASE "%s" SET spanner.default_sequence_kind = '%s'`, strings.ReplaceAll(dbID, `"`, `""`), defaultSequenceKind)
 	} else {
 		alterStatement = fmt.Sprintf("ALTER DATABASE `%s` SET OPTIONS (default_sequence_kind = '%s')", strings.ReplaceAll(dbID, "`", "``"), defaultSequenceKind)

@@ -757,7 +757,7 @@ var propertyDatabaseDialect = createReadOnlyConnectionProperty(
 	databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED,
 	false,
 	nil,
-	connectionstate.ContextUser,
+	connectionstate.ContextStartup,
 )
 
 // PostgreSQL compatibility connection properties (no-op or defaults for client library setup queries)
@@ -846,5 +846,8 @@ func createInitialConnectionStateWithDialect(dialect databasepb.DatabaseDialect,
 		}
 	}
 	state.SetInErrorTxBehavior(connectionstate.InErrorTxBehaviorAllowCommands)
+	if _, hasVal, _ := propertyDatabaseDialect.GetValue(state); !hasVal && dialect != databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED {
+		_ = propertyDatabaseDialect.SetValue(state, dialect, connectionstate.ContextStartup)
+	}
 	return state
 }
