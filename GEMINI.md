@@ -69,10 +69,20 @@ Any pull request modifying or extending the driver's features must include:
   }
   ```
   Note the two spaces after `Got:` to align the values visually.
-- **Subtests & Early Failure**: Prefer using Go subtests (`t.Run`) to isolate distinct test cases. When an intermediate setup step fails (e.g., helper function error, unexpected nil, client initialization failure), use `t.Fatalf` or `t.Fatal` to fail and abort that specific test/subtest immediately. Avoid using `t.Errorf` or `t.Error` if subsequent assertions rely on values or state from the failed step, as this results in redundant and confusing secondary error outputs.
+- **Table-Driven Tests & Subtests (`t.Run`) vs. Top-Level Tests**:
+  - **Prefer Table-Driven Tests for Repetitive Scenarios**: Whenever testing repetitive cases, parameterized inputs, multiple error codes, converters, data types, or statement variations, **strongly prefer table-driven tests** using subtests: `for _, tc := range tests { t.Run(tc.name, func(t *testing.T) { ... }) }`. This is the canonical Go pattern to eliminate boilerplate while providing clear failure attribution for each test case.
+  - **Top-Level Tests for Distinct Scenarios**: Use independent top-level test functions (`Test<Feature>_<Scenario>`) for distinct, self-contained workflows, state transitions, or lifecycle scenarios that do not share test logic or data. Do NOT create monolithic mega-test functions that aggregate dozens of unrelated, non-table-driven tests into arbitrary `t.Run` blocks simply as a substitute for separate test functions.
+  - **Shared Fixtures & Parallelism**: Subtests (`t.Run`) are also encouraged when sharing expensive test setup (e.g. mock server or emulator fixtures across related sub-scenarios) or when running parallel subtests (`t.Parallel()`).
+- **Early Failure on Setup Errors**: When an intermediate setup step fails (e.g., helper function error, unexpected nil, client initialization failure), use `t.Fatalf` or `t.Fatal` to fail and abort that specific test/subtest immediately. Avoid using `t.Errorf` or `t.Error` if subsequent assertions rely on values or state from the failed step, as this results in redundant and confusing secondary error outputs.
 
 ---
 
-## 6. Code Style & Formatting
+## 6. Code Style, Formatting & Commit Messages
 
 - **Go Code Formatting**: All Go code must be formatted using the standard `gofmt -w -s .` formatter. Running this formatting command is required before submitting a pull request.
+- **Zero Panics in Library Code**: Never use `panic(...)` in driver or library code. All error conditions, invariant checks, and invalid validation paths must be handled gracefully and returned to callers as `error` values.
+- **Commit Message Prefixes (Release Notes Policy)**:
+  - `feat:` is strictly reserved for **user-visible features** or new driver capabilities.
+  - `fix:` is strictly reserved for fixing **user-visible bugs** or incorrect driver behaviors.
+  - `perf:` is for **internal optimizations that improve performance** for applications.
+  - Use `refactor:`, `chore:`, or other non-releasing prefixes for internal architectural changes, foundational groundwork, or test improvements that are not visible or interesting to end users.
