@@ -59,6 +59,8 @@ type ConnectionProperty interface {
 	// The returned bool indicates whether a value has been set or not. This can be used to distinguish between a
 	// connection where the zero value has explicitly been set as the value and just having the default value.
 	GetValue(state *ConnectionState) (any, bool, error)
+	// GetSessionValue returns the current session-level value of the property, ignoring local values.
+	GetSessionValue(state *ConnectionState) (any, bool, error)
 	// SetUntypedValue sets a new value for the property without knowing the type in advance.
 	// This is a synonym for SetValue.
 	SetUntypedValue(state *ConnectionState, value any, context Context) error
@@ -187,9 +189,24 @@ func (p *TypedConnectionProperty[T]) Convert(value string) (any, error) {
 	return p.converter(value)
 }
 
-// GetValue implements ConnectionPropertyValue.GetValue
+// GetValue implements ConnectionProperty.GetValue
 func (p *TypedConnectionProperty[T]) GetValue(state *ConnectionState) (any, bool, error) {
 	return p.GetValueOrError(state)
+}
+
+// GetSessionValue implements ConnectionProperty.GetSessionValue
+func (p *TypedConnectionProperty[T]) GetSessionValue(state *ConnectionState) (any, bool, error) {
+	value, err := state.sessionValue(p /*returnErrForUnknownProperty=*/, true)
+	if err != nil {
+		return p.zeroAndErr(err)
+	}
+	if value == nil {
+		return p.zeroAndErr(status.Errorf(codes.InvalidArgument, "no value found for property: %q", p))
+	}
+	if typedValue, ok := value.(*connectionPropertyValue[T]); ok {
+		return typedValue.value, typedValue.hasValue, nil
+	}
+	return p.zeroAndErr(status.Errorf(codes.InvalidArgument, "value has wrong type: %s", value))
 }
 
 // GetValueOrDefault returns the current value of the property in the given ConnectionState.
@@ -281,15 +298,34 @@ func (p *TypedConnectionProperty[T]) setConnectionStateValue(state *ConnectionSt
 	if p.context < context {
 		return status.Errorf(codes.FailedPrecondition, "property has context %s and cannot be set in context %s", p.context, context)
 	}
+	if err := p.checkValidValue(value); err != nil {
+		return err
+	}
+	if state.inTransaction && p.key == "isolation_level" {
+		if state.setTransactionProperties == nil || !state.setTransactionProperties[p.key] {
+			if currentVal, err := state.value(p, false); err == nil && currentVal != nil {
+				if state.localProperties == nil {
+					state.localProperties = make(map[string]ConnectionPropertyValue)
+				}
+				state.localProperties[p.key] = currentVal.Copy()
+				if state.setTransactionProperties == nil {
+					state.setTransactionProperties = make(map[string]bool)
+				}
+				state.setTransactionProperties[p.key] = true
+			}
+		}
+	}
 	if !state.inTransaction || state.connectionStateType == TypeNonTransactional || context < ContextUser {
 		// Set the value in non-transactional mode.
 		if err := p.setValue(state, state.properties, value, setValueCommand, context); err != nil {
 			return err
 		}
-		// Remove the setting from the local settings if it's there, as the new setting is
-		// the one that should be used.
-		if state.localProperties != nil {
-			delete(state.localProperties, p.key)
+		// Remove the setting from the local settings if it's there (unless it is a transaction-scoped
+		// property set via SET TRANSACTION / BEGIN), as the new setting is the one that should be used.
+		if state.setTransactionProperties == nil || !state.setTransactionProperties[p.key] {
+			if state.localProperties != nil {
+				delete(state.localProperties, p.key)
+			}
 		}
 		return nil
 	}
@@ -300,10 +336,12 @@ func (p *TypedConnectionProperty[T]) setConnectionStateValue(state *ConnectionSt
 	if err := p.setValue(state, state.transactionProperties, value, setValueCommand, context); err != nil {
 		return err
 	}
-	// Remove the setting from the local settings if it's there, as the new transaction setting is
-	// the one that should be used.
-	if state.localProperties != nil {
-		delete(state.localProperties, p.key)
+	// Remove the setting from the local settings if it's there (unless it is a transaction-scoped
+	// property set via SET TRANSACTION / BEGIN), as the new transaction setting is the one that should be used.
+	if state.setTransactionProperties == nil || !state.setTransactionProperties[p.key] {
+		if state.localProperties != nil {
+			delete(state.localProperties, p.key)
+		}
 	}
 	return nil
 }
@@ -374,6 +412,22 @@ func (p *TypedConnectionProperty[T]) getResetValue(state *ConnectionState) (T, e
 // Setting a local value outside a transaction is a no-op.
 func (p *TypedConnectionProperty[T]) SetLocalValue(state *ConnectionState, value T) error {
 	return p.setLocalValue(state, value, setValueCommandSet)
+}
+
+// SetLocalTransactionValue sets the transaction-scoped local value of the property in the given ConnectionState
+// (equivalent to SET TRANSACTION) and marks the property in state.setTransactionProperties so that GetSessionValue
+// continues to return the session-level value.
+func (p *TypedConnectionProperty[T]) SetLocalTransactionValue(state *ConnectionState, value T) error {
+	if err := p.setLocalValue(state, value, setValueCommandSet); err != nil {
+		return err
+	}
+	if state.inTransaction {
+		if state.setTransactionProperties == nil {
+			state.setTransactionProperties = make(map[string]bool)
+		}
+		state.setTransactionProperties[p.key] = true
+	}
+	return nil
 }
 
 func (p *TypedConnectionProperty[T]) setLocalValue(state *ConnectionState, value T, setValueCommand setValueCommand) error {

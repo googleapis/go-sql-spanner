@@ -280,7 +280,7 @@ class SpannerMockServer < Google::Cloud::Spanner::V1::Spanner::Service
     put_statement_result "SELECT 1", StatementResult.create_select1_result
     put_statement_result "INSERT INTO test_table (id, name) VALUES ('1', 'Alice')", StatementResult.create_update_count_result(1)
 
-    dialect_sql = "select option_value from information_schema.database_options where option_name='database_dialect'"
+    dialect_sql = "select option_name, option_value from information_schema.database_options where option_name in ('database_dialect', 'default_transaction_isolation')"
     put_statement_result dialect_sql, StatementResult.create_dialect_result
   end
 

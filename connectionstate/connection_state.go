@@ -78,6 +78,7 @@ type ConnectionState struct {
 	properties                map[string]ConnectionPropertyValue
 	transactionProperties     map[string]ConnectionPropertyValue
 	localProperties           map[string]ConnectionPropertyValue
+	setTransactionProperties  map[string]bool
 	statementScopedProperties map[string]ConnectionPropertyValue
 	aliases                   map[string]alias
 }
@@ -177,6 +178,19 @@ func (cs *ConnectionState) GetValue(extension, name string) (any, bool, error) {
 	return prop.GetValue(cs)
 }
 
+// GetSessionValue returns the current session-level value of the property, ignoring
+// transaction-only overrides that were set via SET TRANSACTION or BEGIN ... ISOLATION LEVEL.
+func (cs *ConnectionState) GetSessionValue(extension, name string) (any, bool, error) {
+	prop, err := cs.findProperty(extension, name)
+	if err != nil {
+		return nil, false, err
+	}
+	if cs.setTransactionProperties != nil && cs.setTransactionProperties[prop.Key()] {
+		return prop.GetSessionValue(cs)
+	}
+	return prop.GetValue(cs)
+}
+
 func (cs *ConnectionState) SetValue(extension, name, value string, context Context) error {
 	return cs.setValue(extension, name, value, context, valueTypeSession)
 }
@@ -185,7 +199,39 @@ func (cs *ConnectionState) SetLocalValue(extension, name, value string, isSetTra
 	if isSetTransaction && !cs.inTransaction {
 		return status.Error(codes.FailedPrecondition, "SET TRANSACTION can only be used in transaction blocks")
 	}
-	return cs.setValue(extension, name, value, ContextUser, valueTypeLocal)
+	if isSetTransaction && strings.EqualFold(strings.TrimSpace(value), "default") {
+		prop, err := cs.findProperty(extension, name)
+		if err != nil {
+			return err
+		}
+		sessionVal, err := cs.sessionValue(prop, true)
+		if err != nil {
+			return err
+		}
+		if cs.localProperties == nil {
+			cs.localProperties = make(map[string]ConnectionPropertyValue)
+		}
+		cs.localProperties[prop.Key()] = sessionVal.Copy()
+		if cs.setTransactionProperties == nil {
+			cs.setTransactionProperties = make(map[string]bool)
+		}
+		cs.setTransactionProperties[prop.Key()] = true
+		return nil
+	}
+	err := cs.setValue(extension, name, value, ContextUser, valueTypeLocal)
+	if err == nil && cs.inTransaction {
+		if prop, findErr := cs.findProperty(extension, name); findErr == nil {
+			if isSetTransaction {
+				if cs.setTransactionProperties == nil {
+					cs.setTransactionProperties = make(map[string]bool)
+				}
+				cs.setTransactionProperties[prop.Key()] = true
+			} else if cs.setTransactionProperties != nil {
+				delete(cs.setTransactionProperties, prop.Key())
+			}
+		}
+	}
+	return err
 }
 
 func (cs *ConnectionState) SetStatementScopedValue(extension, name, value string) error {
@@ -364,6 +410,7 @@ func (cs *ConnectionState) Commit() error {
 	}
 	cs.transactionProperties = nil
 	cs.localProperties = nil
+	cs.setTransactionProperties = nil
 	cs.statementScopedProperties = nil
 	for key, value := range cs.properties {
 		if value.isRemoved() {
@@ -386,6 +433,7 @@ func (cs *ConnectionState) Rollback() error {
 	cs.txState = TransactionStateIdle
 	cs.transactionProperties = nil
 	cs.localProperties = nil
+	cs.setTransactionProperties = nil
 	cs.statementScopedProperties = nil
 	return nil
 }
@@ -404,6 +452,7 @@ func (cs *ConnectionState) Reset(context Context) error {
 	cs.txState = TransactionStateIdle
 	cs.transactionProperties = nil
 	cs.localProperties = nil
+	cs.setTransactionProperties = nil
 	cs.statementScopedProperties = nil
 	for _, value := range cs.properties {
 		if value.ConnectionProperty().Context() >= context {
@@ -426,6 +475,10 @@ func (cs *ConnectionState) value(property ConnectionProperty, returnErrForUnknow
 	if val, ok := cs.localProperties[property.Key()]; ok {
 		return valOrError(property, returnErrForUnknownProperty, val)
 	}
+	return cs.sessionValue(property, returnErrForUnknownProperty)
+}
+
+func (cs *ConnectionState) sessionValue(property ConnectionProperty, returnErrForUnknownProperty bool) (ConnectionPropertyValue, error) {
 	if val, ok := cs.transactionProperties[property.Key()]; ok {
 		return valOrError(property, returnErrForUnknownProperty, val)
 	}

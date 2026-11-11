@@ -62,6 +62,12 @@ class StatementResult
       row_type: Google::Cloud::Spanner::V1::StructType.new(
         fields: [
           Google::Cloud::Spanner::V1::StructType::Field.new(
+            name: "option_name",
+            type: Google::Cloud::Spanner::V1::Type.new(
+              code: Google::Cloud::Spanner::V1::TypeCode::STRING
+            )
+          ),
+          Google::Cloud::Spanner::V1::StructType::Field.new(
             name: "option_value",
             type: Google::Cloud::Spanner::V1::Type.new(
               code: Google::Cloud::Spanner::V1::TypeCode::STRING
@@ -73,6 +79,9 @@ class StatementResult
     rows = [
       Google::Protobuf::ListValue.new(
         values: [
+          Google::Protobuf::Value.new(
+            string_value: "database_dialect"
+          ),
           Google::Protobuf::Value.new(
             string_value: "GOOGLE_STANDARD_SQL"
           )

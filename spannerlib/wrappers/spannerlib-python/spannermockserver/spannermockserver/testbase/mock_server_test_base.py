@@ -133,14 +133,17 @@ def set_database_dialect(
 ):
 
     sql = (
-        "select option_value from information_schema.database_options"
-        " where option_name='database_dialect'"
+        "select option_name, option_value from information_schema.database_options"
+        " where option_name in ('database_dialect', 'default_transaction_isolation')"
     )
     result = ResultSet()
     result.metadata.row_type.fields.append(
+        StructType.Field(name="option_name", type=Type(code=TypeCode.STRING))
+    )
+    result.metadata.row_type.fields.append(
         StructType.Field(name="option_value", type=Type(code=TypeCode.STRING))
     )
-    result.rows.append([dialect.name])
+    result.rows.append(["database_dialect", dialect.name])
     add_result(sql, result)
 
 

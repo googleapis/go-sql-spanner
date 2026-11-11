@@ -665,13 +665,14 @@ type connector struct {
 	// propagated to the caller. This option is enabled by default.
 	retryAbortsInternally bool
 
-	clientMu       sync.Mutex
-	client         *spanner.Client
-	clientErr      error
-	adminClient    *adminapi.DatabaseAdminClient
-	adminClientErr error
-	connCount      int32
-	parser         *parser.StatementParser
+	clientMu                      sync.Mutex
+	client                        *spanner.Client
+	clientErr                     error
+	adminClient                   *adminapi.DatabaseAdminClient
+	adminClientErr                error
+	connCount                     int32
+	parser                        *parser.StatementParser
+	databaseDefaultIsolationLevel sql.IsolationLevel
 }
 
 func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
@@ -704,7 +705,29 @@ func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
 
 func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, error) {
 	opts := make([]option.ClientOption, 0)
-	initialPropertyValues, err := connectionstate.ExtractValues(connectionProperties, connectorConfig.Params)
+	params := connectorConfig.Params
+	if params != nil {
+		_, hasIsolation := params[propertyIsolationLevel.Key()]
+		_, hasIsolationNoUnderscore := params[strings.ReplaceAll(propertyIsolationLevel.Key(), "_", "")]
+		if !hasIsolation && !hasIsolationNoUnderscore {
+			if val, ok := params["default_transaction_isolation"]; ok {
+				cloned := make(map[string]string, len(params)+1)
+				for k, v := range params {
+					cloned[k] = v
+				}
+				cloned[propertyIsolationLevel.Key()] = val
+				params = cloned
+			} else if val, ok := params["defaulttransactionisolation"]; ok {
+				cloned := make(map[string]string, len(params)+1)
+				for k, v := range params {
+					cloned[k] = v
+				}
+				cloned[propertyIsolationLevel.Key()] = val
+				params = cloned
+			}
+		}
+	}
+	initialPropertyValues, err := connectionstate.ExtractValues(connectionProperties, params)
 	if err != nil {
 		return nil, err
 	}
@@ -951,19 +974,20 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		}
 	}
 	connection := &conn{
-		parser:                       c.parser,
-		connector:                    c,
-		client:                       c.client,
-		adminClient:                  c.adminClient,
-		connId:                       connId,
-		logger:                       logger,
-		instance:                     instanceName,
-		database:                     databaseName,
-		state:                        createInitialConnectionStateWithDialect(c.parser.Dialect, connectionStateType, c.initialPropertyValues),
-		execSingleQuery:              queryInSingleUse,
-		execSingleQueryTransactional: queryInNewRWTransaction,
-		execSingleDMLTransactional:   execInNewRWTransaction,
-		execSingleDMLPartitioned:     execAsPartitionedDML,
+		parser:                        c.parser,
+		connector:                     c,
+		client:                        c.client,
+		adminClient:                   c.adminClient,
+		connId:                        connId,
+		logger:                        logger,
+		instance:                      instanceName,
+		database:                      databaseName,
+		databaseDefaultIsolationLevel: c.databaseDefaultIsolationLevel,
+		state:                         createInitialConnectionStateWithDialect(c.parser.Dialect, connectionStateType, c.initialPropertyValues),
+		execSingleQuery:               queryInSingleUse,
+		execSingleQueryTransactional:  queryInNewRWTransaction,
+		execSingleDMLTransactional:    execInNewRWTransaction,
+		execSingleDMLPartitioned:      execAsPartitionedDML,
 	}
 	// Initialize the session.
 	_ = connection.ResetSession(context.Background())
@@ -1004,15 +1028,16 @@ func (c *connector) increaseConnCount(ctx context.Context, databaseName string, 
 		if c.clientErr != nil {
 			return c.clientErr
 		}
-		c.logger.Log(ctx, LevelNotice, "fetching database dialect")
+		c.logger.Log(ctx, LevelNotice, "fetching database dialect and default isolation level")
 		closeClient := func() {
 			c.client.Close()
 			c.client = nil
 		}
-		if dialect, err := determineDialect(ctx, c.client); err != nil {
+		if dialect, defaultIsolationLevel, err := determineDatabaseMetadata(ctx, c.client); err != nil {
 			closeClient()
 			return err
 		} else {
+			c.databaseDefaultIsolationLevel = defaultIsolationLevel
 			// Create a separate statement parser and cache per connector.
 			cacheSize := c.connectorConfig.StatementCacheSize
 			if c.connectorConfig.DisableStatementCache {
@@ -1046,31 +1071,66 @@ func (c *connector) increaseConnCount(ctx context.Context, databaseName string, 
 	return nil
 }
 
-func determineDialect(ctx context.Context, client *spanner.Client) (databasepb.DatabaseDialect, error) {
-	it := client.Single().Query(ctx, spanner.Statement{SQL: "select option_value from information_schema.database_options where option_name='database_dialect'"})
+func determineDatabaseMetadata(ctx context.Context, client *spanner.Client) (databasepb.DatabaseDialect, sql.IsolationLevel, error) {
+	it := client.Single().Query(ctx, spanner.Statement{SQL: "select option_name, option_value from information_schema.database_options where option_name in ('database_dialect', 'default_transaction_isolation')"})
 	defer it.Stop()
+	dialect := databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED
+	hasDialect := false
+	defaultIsolationLevel := sql.LevelDefault
 	for {
-		if row, err := it.Next(); err != nil {
-			return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, err
-		} else {
+		row, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, sql.LevelDefault, err
+		}
+		if row.Size() == 1 {
 			var dialectName string
 			if err := row.Columns(&dialectName); err != nil {
-				return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, err
+				return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, sql.LevelDefault, err
 			}
-			if _, err := it.Next(); !errors.Is(err, iterator.Done) {
-				if err == nil {
-					return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, fmt.Errorf("more than one dialect result returned")
-				} else {
-					return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, err
+			if hasDialect {
+				return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, sql.LevelDefault, fmt.Errorf("more than one dialect result returned")
+			}
+			d, ok := databasepb.DatabaseDialect_value[dialectName]
+			if !ok {
+				return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, sql.LevelDefault, fmt.Errorf("unknown database dialect: %s", dialectName)
+			}
+			dialect = databasepb.DatabaseDialect(d)
+			hasDialect = true
+			continue
+		}
+		var optionName, optionValue string
+		if err := row.Columns(&optionName, &optionValue); err != nil {
+			return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, sql.LevelDefault, err
+		}
+		switch strings.ToLower(optionName) {
+		case "database_dialect":
+			if hasDialect {
+				return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, sql.LevelDefault, fmt.Errorf("more than one dialect result returned")
+			}
+			d, ok := databasepb.DatabaseDialect_value[optionValue]
+			if !ok {
+				return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, sql.LevelDefault, fmt.Errorf("unknown database dialect: %s", optionValue)
+			}
+			dialect = databasepb.DatabaseDialect(d)
+			hasDialect = true
+		case "default_transaction_isolation":
+			if level, err := parseIsolationLevel(optionValue); err == nil {
+				if _, err := toProtoIsolationLevel(level); err == nil {
+					if level == sql.LevelSnapshot {
+						level = sql.LevelRepeatableRead
+					}
+					defaultIsolationLevel = level
 				}
-			}
-			if dialect, ok := databasepb.DatabaseDialect_value[dialectName]; ok {
-				return databasepb.DatabaseDialect(dialect), nil
-			} else {
-				return databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED, fmt.Errorf("unknown database dialect: %s", dialectName)
 			}
 		}
 	}
+	if !hasDialect {
+		dialect = databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL
+	}
+	return dialect, defaultIsolationLevel, nil
 }
 
 // decreaseConnCount decreases the number of connections that are active and closes the underlying clients if it was the
