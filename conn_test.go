@@ -15,10 +15,14 @@
 package spannerdriver
 
 import (
+	"context"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"testing"
 
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
+	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
@@ -198,5 +202,144 @@ func TestDatabaseDialectMethod(t *testing.T) {
 	cNil := &conn{}
 	if g, w := cNil.DatabaseDialect(), databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED; g != w {
 		t.Errorf("nil parser DatabaseDialect mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestRegisterTransactionCloseFunc(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name               string
+		hasTransaction     bool
+		closeFunctions     []func(record func(string))
+		triggerResult      txResult
+		wantExecutionOrder []string
+		wantResult         txResult
+	}{
+		{
+			name:           "NilTransaction",
+			hasTransaction: false,
+			closeFunctions: []func(record func(string)){
+				func(record func(string)) {},
+			},
+			wantExecutionOrder: nil,
+		},
+		{
+			name:           "NilCloseFunction",
+			hasTransaction: true,
+			closeFunctions: []func(record func(string)){
+				nil,
+			},
+			triggerResult:      txResultCommit,
+			wantExecutionOrder: []string{"original"},
+			wantResult:         txResultCommit,
+		},
+		{
+			name:           "SingleRegistration",
+			hasTransaction: true,
+			closeFunctions: []func(record func(string)){
+				func(record func(string)) { record("registered") },
+			},
+			triggerResult:      txResultCommit,
+			wantExecutionOrder: []string{"original", "registered"},
+			wantResult:         txResultCommit,
+		},
+		{
+			name:           "ChainedRegistration",
+			hasTransaction: true,
+			closeFunctions: []func(record func(string)){
+				func(record func(string)) { record("first") },
+				func(record func(string)) { record("second") },
+			},
+			triggerResult:      txResultRollback,
+			wantExecutionOrder: []string{"original", "first", "second"},
+			wantResult:         txResultRollback,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			var executionOrder []string
+			var gotResult txResult
+
+			connection := &conn{}
+			if testCase.hasTransaction {
+				connection.tx = &delegatingTransaction{
+					close: func(result txResult) {
+						executionOrder = append(executionOrder, "original")
+						gotResult = result
+					},
+				}
+			}
+
+			for _, closeFunction := range testCase.closeFunctions {
+				if closeFunction == nil {
+					connection.registerTransactionCloseFunc(nil)
+				} else {
+					callback := closeFunction
+					connection.registerTransactionCloseFunc(func() {
+						callback(func(step string) {
+							executionOrder = append(executionOrder, step)
+						})
+					})
+				}
+			}
+
+			if connection.tx != nil && connection.tx.close != nil {
+				connection.tx.close(testCase.triggerResult)
+			}
+
+			if !testCase.hasTransaction {
+				if g, w := connection.tx, (*delegatingTransaction)(nil); g != w {
+					t.Fatalf("connection.tx mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+			}
+
+			if diff := cmp.Diff(testCase.wantExecutionOrder, executionOrder); diff != "" {
+				t.Errorf("execution order mismatch (-want +got):\n%s", diff)
+			}
+			if g, w := gotResult, testCase.wantResult; g != w {
+				t.Errorf("result mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
+func TestConn_BeginTransactions_Error(t *testing.T) {
+	t.Parallel()
+
+	canceledContext, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	testCases := []struct {
+		name      string
+		beginFunc func(connection *conn) (driver.Tx, error)
+	}{
+		{
+			name: "ReadOnlyTransaction",
+			beginFunc: func(connection *conn) (driver.Tx, error) {
+				return connection.BeginReadOnlyTransaction(canceledContext, &ReadOnlyTransactionOptions{}, nil)
+			},
+		},
+		{
+			name: "ReadWriteTransaction",
+			beginFunc: func(connection *conn) (driver.Tx, error) {
+				return connection.BeginReadWriteTransaction(canceledContext, &ReadWriteTransactionOptions{}, nil)
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			connection := &conn{}
+			transaction, err := testCase.beginFunc(connection)
+			if transaction != nil {
+				_ = transaction.Rollback()
+				t.Fatalf("expected nil transaction, got: %v", transaction)
+			}
+			if g, w := errors.Is(err, context.Canceled), true; g != w {
+				t.Fatalf("errors.Is(err, context.Canceled) mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
 	}
 }
