@@ -251,10 +251,9 @@ type SpannerConn interface {
 	// returned.
 	resetTransactionForRetry(ctx context.Context, errDuringCommit bool) error
 
-	// withTransactionCloseFunc sets the close function that should be registered
-	// on the next transaction on this connection. This method should only be called
-	// directly before starting a new transaction.
-	withTransactionCloseFunc(close func())
+	// registerTransactionCloseFunc registers a close function that is called when
+	// the active transaction on this connection finishes (commits or rolls back).
+	registerTransactionCloseFunc(close func())
 
 	// setReadWriteTransactionOptions sets the ReadWriteTransactionOptions that should be
 	// used for the current read/write transaction. This method should be called right
@@ -301,9 +300,6 @@ type conn struct {
 	// tempExecOptions can be set by passing it in as an argument to ExecContext or QueryContext
 	// and are applied only to that statement.
 	tempExecOptions *ExecOptions
-	// tempTransactionCloseFunc is set right before a transaction is started, and is set as the
-	// close function for that transaction.
-	tempTransactionCloseFunc func()
 	// lastDDLOperationID is the ID of the last DDL operation that was executed on this connection.
 	lastDDLOperationID string
 }
@@ -1504,8 +1500,17 @@ func (c *conn) resetTransactionForRetry(ctx context.Context, errDuringCommit boo
 	return c.tx.resetForRetry(ctx)
 }
 
-func (c *conn) withTransactionCloseFunc(close func()) {
-	c.tempTransactionCloseFunc = close
+func (c *conn) registerTransactionCloseFunc(closeFunction func()) {
+	if c.tx == nil || closeFunction == nil {
+		return
+	}
+	prevClose := c.tx.close
+	c.tx.close = func(result txResult) {
+		if prevClose != nil {
+			prevClose(result)
+		}
+		closeFunction()
+	}
 }
 
 func (c *conn) setReadWriteTransactionOptions(options *ReadWriteTransactionOptions) {
@@ -1587,11 +1592,12 @@ func (c *conn) setBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransact
 //
 // BeginReadOnlyTransaction starts a new read-only transaction on this connection.
 func (c *conn) BeginReadOnlyTransaction(ctx context.Context, options *ReadOnlyTransactionOptions, close func()) (driver.Tx, error) {
-	tx, err := c.beginTx(ctx, driver.TxOptions{ReadOnly: true}, close, options.implicit)
-	c.setReadOnlyTransactionOptions(options)
+	tx, err := c.beginTx(ctx, driver.TxOptions{ReadOnly: true}, options.implicit)
 	if err != nil {
 		return nil, err
 	}
+	c.registerTransactionCloseFunc(close)
+	c.setReadOnlyTransactionOptions(options)
 	return tx, nil
 }
 
@@ -1600,11 +1606,12 @@ func (c *conn) BeginReadOnlyTransaction(ctx context.Context, options *ReadOnlyTr
 //
 // BeginReadWriteTransaction starts a new read/write transaction on this connection.
 func (c *conn) BeginReadWriteTransaction(ctx context.Context, options *ReadWriteTransactionOptions, close func()) (driver.Tx, error) {
-	tx, err := c.beginTx(ctx, driver.TxOptions{}, close, options.implicit)
-	c.setReadWriteTransactionOptions(options)
+	tx, err := c.beginTx(ctx, driver.TxOptions{}, options.implicit)
 	if err != nil {
 		return nil, checkAndEnrichError(c.isPostgreSQL(), err)
 	}
+	c.registerTransactionCloseFunc(close)
+	c.setReadWriteTransactionOptions(options)
 	return tx, nil
 }
 
@@ -1613,14 +1620,14 @@ func (c *conn) Begin() (driver.Tx, error) {
 }
 
 func (c *conn) BeginTx(ctx context.Context, driverOpts driver.TxOptions) (driver.Tx, error) {
-	defer func() {
-		c.tempTransactionCloseFunc = nil
-	}()
-	tx, err := c.beginTx(ctx, driverOpts, c.tempTransactionCloseFunc, false)
+	tx, err := c.beginTx(ctx, driverOpts, false)
 	return tx, checkAndEnrichError(c.isPostgreSQL(), err)
 }
 
-func (c *conn) beginTx(ctx context.Context, driverOpts driver.TxOptions, closeFunc func(), implicitBegin bool) (driver.Tx, error) {
+func (c *conn) beginTx(ctx context.Context, driverOpts driver.TxOptions, implicitBegin bool) (driver.Tx, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if c.resetForRetry {
 		c.resetForRetry = false
 		return c.tx, nil
@@ -1664,9 +1671,6 @@ func (c *conn) beginTx(ctx context.Context, driverOpts driver.TxOptions, closeFu
 	if batchReadOnly && !driverOpts.ReadOnly {
 		return nil, status.Error(codes.InvalidArgument, "levelBatchReadOnly can only be used for read-only transactions")
 	}
-	if closeFunc == nil {
-		closeFunc = func() {}
-	}
 	if err := c.state.Begin(); err != nil {
 		return nil, err
 	}
@@ -1690,7 +1694,6 @@ func (c *conn) beginTx(ctx context.Context, driverOpts driver.TxOptions, closeFu
 		conn: c,
 		ctx:  ctx,
 		close: func(result txResult) {
-			closeFunc()
 			if result == txResultCommit {
 				_ = c.state.Commit()
 			} else {
@@ -1715,7 +1718,12 @@ func (c *conn) addTransactionTimeout(ctx context.Context) (context.Context, cont
 }
 
 func (c *conn) activateTransaction() (contextTransaction, error) {
-	closeFunc := c.tx.close
+	closeTx := c.tx
+	closeCallback := func(result txResult) {
+		if closeTx != nil && closeTx.close != nil {
+			closeTx.close(result)
+		}
+	}
 	if propertyTransactionReadOnly.GetValueOrDefault(c.state) {
 		var logger *slog.Logger
 		var ro *spanner.ReadOnlyTransaction
@@ -1740,7 +1748,7 @@ func (c *conn) activateTransaction() (contextTransaction, error) {
 			roTx:   ro,
 			boTx:   bo,
 			logger: logger,
-			close:  closeFunc,
+			close:  closeCallback,
 			timestampBoundCallback: func() spanner.TimestampBound {
 				return propertyReadOnlyStaleness.GetValueOrDefault(c.state)
 			},
@@ -1787,9 +1795,9 @@ func (c *conn) activateTransaction() (contextTransaction, error) {
 			c.prevTx = c.tx
 			if commitErr == nil {
 				c.setCommitResponse(commitResponse)
-				closeFunc(result)
+				closeCallback(result)
 			} else {
-				closeFunc(txResultRollback)
+				closeCallback(txResultRollback)
 			}
 			cancel()
 		},

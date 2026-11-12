@@ -1386,18 +1386,14 @@ func BeginReadWriteTransaction(ctx context.Context, db *sql.DB, options ReadWrit
 	if err != nil {
 		return nil, err
 	}
-	if err := withTransactionCloseFunc(conn, func() {
-		// Close the connection asynchronously, as the transaction will still
-		// be active when we hit this point.
-		go conn.Close()
-	}); err != nil {
-		return nil, err
-	}
 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
-	if err := withTempReadWriteTransactionOptions(conn, &options); err != nil {
+	if err != nil {
+		_ = conn.Close()
 		return nil, err
 	}
-	if err != nil {
+	if err := withTempReadWriteTransactionOptions(conn, &options); err != nil {
+		_ = tx.Rollback()
+		_ = conn.Close()
 		return nil, err
 	}
 	return tx, nil
@@ -1410,6 +1406,11 @@ func withTempReadWriteTransactionOptions(conn *sql.Conn, options *ReadWriteTrans
 			// It is not a Spanner connection.
 			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
 		}
+		spannerConn.registerTransactionCloseFunc(func() {
+			// Close the connection asynchronously, as the transaction will still
+			// be active when we hit this point.
+			go conn.Close()
+		})
 		spannerConn.setReadWriteTransactionOptions(options)
 		return nil
 	})
@@ -1434,34 +1435,17 @@ func BeginReadOnlyTransaction(ctx context.Context, db *sql.DB, options ReadOnlyT
 	if err != nil {
 		return nil, err
 	}
-	if err := withTransactionCloseFunc(conn, func() {
-		// Close the connection asynchronously, as the transaction will still
-		// be active when we hit this point.
-		go conn.Close()
-	}); err != nil {
-		return nil, err
-	}
 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err := withTempReadOnlyTransactionOptions(conn, &options); err != nil {
+	if err != nil {
+		_ = conn.Close()
 		return nil, err
 	}
-	if err != nil {
-		clearTempReadOnlyTransactionOptions(conn)
+	if err := withTempReadOnlyTransactionOptions(conn, &options); err != nil {
+		_ = tx.Rollback()
+		_ = conn.Close()
 		return nil, err
 	}
 	return tx, nil
-}
-
-func withTransactionCloseFunc(conn *sql.Conn, close func()) error {
-	return conn.Raw(func(driverConn any) error {
-		spannerConn, ok := driverConn.(SpannerConn)
-		if !ok {
-			// It is not a Spanner connection.
-			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
-		}
-		spannerConn.withTransactionCloseFunc(close)
-		return nil
-	})
 }
 
 func withTempReadOnlyTransactionOptions(conn *sql.Conn, options *ReadOnlyTransactionOptions) error {
@@ -1471,14 +1455,14 @@ func withTempReadOnlyTransactionOptions(conn *sql.Conn, options *ReadOnlyTransac
 			// It is not a Spanner connection.
 			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
 		}
+		spannerConn.registerTransactionCloseFunc(func() {
+			// Close the connection asynchronously, as the transaction will still
+			// be active when we hit this point.
+			go conn.Close()
+		})
 		spannerConn.setReadOnlyTransactionOptions(options)
 		return nil
 	})
-}
-
-func clearTempReadOnlyTransactionOptions(conn *sql.Conn) {
-	_ = withTempReadOnlyTransactionOptions(conn, nil)
-	_ = conn.Close()
 }
 
 // DmlBatch is used to execute a batch of DML statements on Spanner in a single round-trip.
