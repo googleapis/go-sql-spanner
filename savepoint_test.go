@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"cloud.google.com/go/spanner"
@@ -230,16 +231,15 @@ func TestSavepoints_PostgreSQL_NestedAndShadowedSavepoints(t *testing.T) {
 	// 1. dml1
 	// 2. dml2
 	// 3. dml3
-	// First rollback to inner s1: replays dml1, dml2
+	// First rollback to inner s1: deferred (no replay yet)
+	// Second rollback to outer s1: deferred (inner s1 discarded, target is outer s1)
+	// Commit: triggers deferred replay of statements up to outer s1 (dml1)
 	// 4. dml1 (replayed)
-	// 5. dml2 (replayed)
-	// Second rollback to outer s1: replays dml1
-	// 6. dml1 (replayed)
-	if g, w := len(executeRequests), 6; g != w {
+	if g, w := len(executeRequests), 4; g != w {
 		t.Fatalf("execute requests count mismatch\nGot:  %v\nWant: %v", g, w)
 	}
 
-	expectedSqls := []string{dml1, dml2, dml3, dml1, dml2, dml1}
+	expectedSqls := []string{dml1, dml2, dml3, dml1}
 	for i, expectedSql := range expectedSqls {
 		req := executeRequests[i].(*spannerpb.ExecuteSqlRequest)
 		if g, w := req.Sql, expectedSql; g != w {
@@ -950,9 +950,15 @@ func TestSavepoints_ReplayFailure_ConcurrentModification_GoogleSQL(t *testing.T)
 	// Mutate mock server result so replay of dml1 sees a concurrent modification.
 	server.TestSpanner.PutStatementResult(dml1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 2})
 
-	_, err = tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1")
+	// Rollback to savepoint is deferred/lazy, so the rollback statement itself succeeds locally.
+	if _, err = tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+		t.Fatalf("expected rollback to s1 to succeed locally, got error: %v", err)
+	}
+
+	// The next statement triggers deferred replay, which fails with concurrent modification error.
+	_, err = tx.ExecContext(ctx, dml2)
 	if err == nil {
-		t.Fatalf("expected error from rollback to s1, got nil")
+		t.Fatalf("expected error from statement triggering replay, got nil")
 	}
 	if !errors.Is(err, ErrAbortedDueToConcurrentModification) {
 		if g, w := spanner.ErrCode(err), codes.Aborted; g != w {
@@ -960,7 +966,7 @@ func TestSavepoints_ReplayFailure_ConcurrentModification_GoogleSQL(t *testing.T)
 		}
 	}
 
-	// Subsequent statements in the failed replay transaction must be rejected.
+	// Subsequent statements in the failed replay transaction must be rejected with FailedPrecondition.
 	_, err = tx.ExecContext(ctx, dml2)
 	if err == nil {
 		t.Fatalf("expected error executing statement after failed replay, got nil")
@@ -1001,9 +1007,15 @@ func TestSavepoints_ReplayFailure_ConcurrentModification_PostgreSQL(t *testing.T
 
 	server.TestSpanner.PutStatementResult(dml1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 2})
 
-	_, err = tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1")
+	// Rollback to savepoint is deferred/lazy, so the rollback statement itself succeeds locally.
+	if _, err = tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+		t.Fatalf("expected rollback to s1 to succeed locally, got error: %v", err)
+	}
+
+	// The next statement triggers deferred replay, which fails with 40001 (serialization failure / concurrent modification).
+	_, err = tx.ExecContext(ctx, dml2)
 	if err == nil {
-		t.Fatalf("expected error from rollback to s1, got nil")
+		t.Fatalf("expected error from statement triggering replay, got nil")
 	}
 	if g, w := ToPGSQLState(err), "40001"; g != w {
 		t.Errorf("SQLSTATE mismatch for concurrent modification in PG\nGot:  %v\nWant: %v", g, w)
@@ -1201,6 +1213,51 @@ func TestSavepoints_AutoBatchDml(t *testing.T) {
 	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
 	if g, w := len(commitRequests), 1; g != w {
 		t.Fatalf("commit requests count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestSavepoints_AutoBatchDml_FlushFailure(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	dml1 := "UPDATE Foo SET Val=1 WHERE Id=1"
+	server.TestSpanner.PutStatementResult(dml1, &testutil.StatementResult{
+		Type: testutil.StatementResultError,
+		Err:  status.Error(codes.InvalidArgument, "invalid DML statement"),
+	})
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("db.Conn failed: %v", err)
+	}
+	defer silentClose(conn)
+
+	if _, err := conn.ExecContext(ctx, "SET AUTO_BATCH_DML = true"); err != nil {
+		t.Fatalf("set AUTO_BATCH_DML failed: %v", err)
+	}
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, dml1); err != nil {
+		t.Fatalf("dml1 failed: %v", err)
+	}
+	// Creating savepoint attempts to flush buffered auto-batch DML, which fails.
+	_, err = tx.ExecContext(ctx, "SAVEPOINT sp_autobatch")
+	if err == nil {
+		t.Fatal("expected error from SAVEPOINT when auto-batch flush fails, got nil")
+	}
+	if !strings.Contains(err.Error(), "running auto-dml-batch failed") {
+		t.Errorf("error message mismatch\nGot:  %v", err)
+	}
+	if !strings.Contains(err.Error(), "invalid DML statement") {
+		t.Errorf("underlying error message mismatch\nGot:  %v", err)
 	}
 }
 
