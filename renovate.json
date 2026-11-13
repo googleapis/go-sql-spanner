@@ -26,6 +26,15 @@
       "allowedVersions": "<7.0.0"
     },
     {
+      "matchDatasources": [
+        "rubygems"
+      ],
+      "matchPackageNames": [
+        "grpc"
+      ],
+      "allowedVersions": "<1.85.0"
+    },
+    {
       "matchPackageNames": [
         "go",
         "golang"
