@@ -16,8 +16,18 @@
 
 package com.google.cloud.spannerlib;
 
+import com.google.cloud.spanner.MockSpannerServiceImpl.StatementResult;
+import com.google.cloud.spanner.Statement;
 import com.google.cloud.spanner.connection.AbstractMockServerTest;
 import com.google.common.collect.ImmutableList;
+import com.google.protobuf.ListValue;
+import com.google.protobuf.Value;
+import com.google.spanner.v1.ResultSet;
+import com.google.spanner.v1.ResultSetMetadata;
+import com.google.spanner.v1.StructType;
+import com.google.spanner.v1.StructType.Field;
+import com.google.spanner.v1.Type;
+import com.google.spanner.v1.TypeCode;
 import io.grpc.Channel;
 import io.grpc.ManagedChannelBuilder;
 import java.util.ArrayList;
@@ -45,6 +55,28 @@ public abstract class AbstractSpannerLibTest extends AbstractMockServerTest {
 
   @BeforeClass
   public static void startGrpcServer() throws Exception {
+    mockSpanner.putStatementResult(
+        StatementResult.query(
+            Statement.of(
+                "select option_value from information_schema.database_options"
+                    + " where option_name='database_dialect'"),
+            ResultSet.newBuilder()
+                .setMetadata(
+                    ResultSetMetadata.newBuilder()
+                        .setRowType(
+                            StructType.newBuilder()
+                                .addFields(
+                                    Field.newBuilder()
+                                        .setName("option_value")
+                                        .setType(Type.newBuilder().setCode(TypeCode.STRING).build())
+                                        .build())
+                                .build())
+                        .build())
+                .addRows(
+                    ListValue.newBuilder()
+                        .addValues(Value.newBuilder().setStringValue("GOOGLE_STANDARD_SQL").build())
+                        .build())
+                .build()));
     grpcServer = new GrpcServer();
     grpcServerAddress = grpcServer.start();
   }
