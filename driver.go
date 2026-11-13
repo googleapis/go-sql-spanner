@@ -16,8 +16,10 @@ package spannerdriver
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -462,7 +464,7 @@ type ConnectorConfig struct {
 	// Params contains key/value pairs for commonly used configuration parameters
 	// for connections. The valid values are the same as the parameters that can
 	// be added to a connection string.
-	Params map[string]string
+	Params map[string]string `json:"-"`
 
 	// The initial values for automatic DML batching.
 	// The values in the Params map take precedence above these.
@@ -488,7 +490,6 @@ type ConnectorConfig struct {
 	DecodeToNativeArrays bool
 
 	logger *slog.Logger
-	name   string
 
 	// Configurator is called with the spanner.ClientConfig and []option.ClientOption
 	// that will be used to create connections by the driver.Connector. Use this
@@ -497,8 +498,32 @@ type ConnectorConfig struct {
 	Configurator func(config *spanner.ClientConfig, opts *[]option.ClientOption) `json:"-"`
 }
 
-func (cc *ConnectorConfig) String() string {
-	return cc.name
+// String returns the target Spanner endpoint and database path without any query parameters or credentials.
+func (cc ConnectorConfig) String() string {
+	var dbPath string
+	if cc.Project != "" && cc.Instance != "" && cc.Database != "" {
+		dbPath = fmt.Sprintf("projects/%s/instances/%s/databases/%s", cc.Project, cc.Instance, cc.Database)
+	} else if cc.Database != "" {
+		dbPath = "databases/" + cc.Database
+	}
+	if cc.Host != "" && dbPath != "" {
+		return cc.Host + "/" + dbPath
+	}
+	if dbPath != "" {
+		return dbPath
+	}
+	return cc.Host
+}
+
+// LogValue implements slog.LogValuer so structured loggers (including slog.JSONHandler)
+// emit only the non-secret target endpoint and database path instead of serializing Params.
+func (cc ConnectorConfig) LogValue() slog.Value {
+	return slog.StringValue(cc.String())
+}
+
+func dsnCacheKey(dsn string) string {
+	sum := sha256.Sum256([]byte(dsn))
+	return hex.EncodeToString(sum[:])
 }
 
 // ExtractConnectorConfig extracts a ConnectorConfig for Spanner from the given
@@ -510,7 +535,7 @@ func ExtractConnectorConfig(dsn string) (ConnectorConfig, error) {
 	}
 	match := dsnRegExp.FindStringSubmatch(dsn)
 	if match == nil {
-		return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection string: %s", dsn))
+		return ConnectorConfig{}, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "invalid connection string"))
 	}
 	matches := make(map[string]string)
 	for i, name := range dsnRegExp.SubexpNames() {
@@ -530,7 +555,6 @@ func ExtractConnectorConfig(dsn string) (ConnectorConfig, error) {
 		Instance: matches["INSTANCEGROUP"],
 		Database: matches["DATABASEGROUP"],
 		Params:   params,
-		name:     dsn,
 	}
 	return validateAndConfigureConnector(c, matches)
 }
@@ -538,12 +562,15 @@ func ExtractConnectorConfig(dsn string) (ConnectorConfig, error) {
 func extractPostgresConnectorConfig(dsn string) (ConnectorConfig, error) {
 	u, err := url.Parse(dsn)
 	if err != nil {
-		return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection string: %v", err))
+		if urlErr, ok := err.(*url.Error); ok {
+			return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection string: %s: %v", urlErr.Op, urlErr.Err))
+		}
+		return ConnectorConfig{}, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "invalid connection string"))
 	}
 	dbPath := strings.TrimPrefix(u.Path, "/")
 	match := dsnRegExp.FindStringSubmatch(dbPath)
 	if match == nil {
-		return ConnectorConfig{}, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection string: %s", u.Redacted()))
+		return ConnectorConfig{}, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "invalid connection string"))
 	}
 	matches := make(map[string]string)
 	for i, name := range dsnRegExp.SubexpNames() {
@@ -570,7 +597,6 @@ func extractPostgresConnectorConfig(dsn string) (ConnectorConfig, error) {
 		Instance: matches["INSTANCEGROUP"],
 		Database: matches["DATABASEGROUP"],
 		Params:   params,
-		name:     u.Redacted(),
 	}
 	return validateAndConfigureConnector(c, matches)
 }
@@ -579,7 +605,7 @@ func isOmniConfig(params map[string]string) (bool, error) {
 	if rawType, ok := params[propertyType.Key()]; ok {
 		t, err := parseInstanceType(rawType)
 		if err != nil {
-			return false, err
+			return false, connectionstate.SanitizePropertyConversionError(propertyType.Key(), rawType, err)
 		}
 		return t == spanner.OMNI, nil
 	}
@@ -590,7 +616,7 @@ func isOmniConfig(params map[string]string) (bool, error) {
 	if ok {
 		val, err := connectionstate.ConvertBool(strings.TrimSpace(rawVal))
 		if err != nil {
-			return false, err
+			return false, connectionstate.SanitizePropertyConversionError(propertyIsExperimentalHost.Key(), rawVal, err)
 		}
 		return val, nil
 	}
@@ -635,7 +661,7 @@ func extractConnectorParams(paramsString string) (map[string]string, error) {
 		}
 		keyValue := strings.SplitN(keyValueString, "=", 2)
 		if keyValue == nil || len(keyValue) != 2 {
-			return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "invalid connection property: %s", keyValueString))
+			return nil, spanner.ToSpannerError(status.Error(codes.InvalidArgument, "invalid connection property: expected key=value"))
 		}
 		params[strings.ToLower(keyValue[0])] = keyValue[1]
 	}
@@ -683,8 +709,9 @@ func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
 	if d.connectorUsageCount == nil {
 		d.connectorUsageCount = make(map[string]int)
 	}
-	if c, ok := d.connectors[dsn]; ok {
-		d.connectorUsageCount[dsn]++
+	cacheKey := dsnCacheKey(dsn)
+	if c, ok := d.connectors[cacheKey]; ok {
+		d.connectorUsageCount[cacheKey]++
 		return c, nil
 	}
 
@@ -696,9 +723,9 @@ func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.cacheKey = dsn
-	d.connectors[dsn] = c
-	d.connectorUsageCount[dsn] = 1
+	c.cacheKey = cacheKey
+	d.connectors[cacheKey] = c
+	d.connectorUsageCount[cacheKey] = 1
 	return c, nil
 }
 
@@ -804,7 +831,7 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	} else {
 		logger = connectorConfig.logger
 	}
-	logger = logger.With("config", &connectorConfig)
+	logger = logger.With("config", connectorConfig.String())
 	if config.Type == spanner.OMNI {
 		assignPropertyValueIfExists(state, propertyCaCertFile, &config.CaCertificateFile)
 		assignPropertyValueIfExists(state, propertyClientCertFile, &config.ClientCertificateFile)
@@ -843,6 +870,20 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		opts = append(emulatorOpts, opts...)
 		if err := autoConfigEmulator(context.Background(), connectorConfig.Host, connectorConfig.Project, connectorConfig.Instance, connectorConfig.Database, propertyDialect.GetValueOrDefault(state), opts); err != nil {
 			return nil, err
+		}
+	}
+
+	// Remove sensitive properties now that they have been applied to the client configuration so
+	// individual connections never inherit credentials or private keys in their connection state.
+	//
+	// While the connector is open, client options, TLS config, and Params stay on the connector so
+	// Spanner clients can be lazily created and recreated, and parsed config remains inspectable;
+	// Params is never exposed through logging, JSON, or SQL, and all of these fields are cleared on close.
+	for _, prop := range connectionProperties {
+		if prop.IsSensitive() {
+			// Delete the property rather than clearing its value: ClearValue() would preserve
+			// the secret in resetValue, which would resurrect it upon connection reset.
+			delete(initialPropertyValues, prop.Key())
 		}
 	}
 
@@ -1127,7 +1168,13 @@ func (c *connector) close() error {
 
 	c.clientMu.Lock()
 	defer c.clientMu.Unlock()
-	return c.closeClients()
+	err := c.closeClients()
+	c.options = nil
+	c.spannerClientConfig = spanner.ClientConfig{}
+	c.initialPropertyValues = nil
+	c.connectorConfig.Params = nil
+	c.connectorConfig.Configurator = nil
+	return err
 }
 
 // Closes the underlying clients.

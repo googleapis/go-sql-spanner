@@ -363,7 +363,14 @@ func (c *conn) showConnectionVariable(identifier parser.Identifier) (any, bool, 
 	if err != nil {
 		return nil, false, err
 	}
-	return c.state.GetValue(extension, name)
+	prop, err := c.state.FindProperty(extension, name)
+	if err != nil {
+		return nil, false, err
+	}
+	if prop.IsSensitive() {
+		return nil, false, status.Errorf(codes.PermissionDenied, "cannot show sensitive connection property %q", prop.Key())
+	}
+	return prop.GetValue(c.state)
 }
 
 func (c *conn) setConnectionVariable(identifier parser.Identifier, value string, local bool, transaction bool, statementScoped bool) error {
