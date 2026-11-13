@@ -42,9 +42,9 @@ import (
 	"github.com/googleapis/gax-go/v2"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/parser"
+	"golang.org/x/sync/singleflight"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
-	"google.golang.org/api/option/internaloption"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -380,6 +380,12 @@ type Driver struct {
 	mu                  sync.Mutex
 	connectors          map[string]*connector
 	connectorUsageCount map[string]int
+	singleFlight        singleflight.Group
+
+	// Synchronization hooks used exclusively in unit tests to deterministically
+	// simulate concurrent execution interleavings and race conditions.
+	connectorCreationBarrier func()
+	postSingleFlightBarrier  func(*connector)
 }
 
 // Open opens a connection to a Google Cloud Spanner database.
@@ -674,33 +680,104 @@ type connector struct {
 	parser         *parser.StatementParser
 }
 
-func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.connectors == nil {
-		d.connectors = make(map[string]*connector)
-	}
-	if d.connectorUsageCount == nil {
-		d.connectorUsageCount = make(map[string]int)
-	}
-	if c, ok := d.connectors[dsn]; ok {
-		d.connectorUsageCount[dsn]++
-		return c, nil
-	}
+func newOrCachedConnector(driver *Driver, dsn string) (*connector, error) {
+	// Loop until we obtain an active connector. In the rare event that a
+	// connector is closed concurrently before its usage count can be incremented,
+	// we evict the stale connector and retry.
+	for {
+		driver.mu.Lock()
+		if driver.connectors == nil {
+			driver.connectors = make(map[string]*connector)
+		}
+		if driver.connectorUsageCount == nil {
+			driver.connectorUsageCount = make(map[string]int)
+		}
+		if existingConnector := driver.getCachedConnector(dsn, true); existingConnector != nil {
+			driver.mu.Unlock()
+			return existingConnector, nil
+		}
+		driver.mu.Unlock()
 
+		connectorInterface, err, _ := driver.singleFlight.Do(dsn, func() (any, error) {
+			if driver.connectorCreationBarrier != nil {
+				driver.connectorCreationBarrier()
+			}
+
+			driver.mu.Lock()
+			if existingConnector := driver.getCachedConnector(dsn, false); existingConnector != nil {
+				driver.mu.Unlock()
+				return existingConnector, nil
+			}
+			driver.mu.Unlock()
+
+			return driver.createAndCacheConnector(dsn)
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		createdConnector := connectorInterface.(*connector)
+		if driver.postSingleFlightBarrier != nil {
+			driver.postSingleFlightBarrier(createdConnector)
+		}
+		driver.mu.Lock()
+		createdConnector.closerMu.RLock()
+		isClosed := createdConnector.closed
+		createdConnector.closerMu.RUnlock()
+		if isClosed {
+			if driver.connectors[dsn] == createdConnector {
+				delete(driver.connectors, dsn)
+				delete(driver.connectorUsageCount, dsn)
+			}
+			driver.mu.Unlock()
+			continue
+		}
+		driver.connectorUsageCount[dsn]++
+		driver.mu.Unlock()
+		return createdConnector, nil
+	}
+}
+
+// getCachedConnector returns an active cached connector for the given DSN if one exists,
+// or evicts any stale closed connector found in the cache. Must be called while holding driver.mu.
+func (driver *Driver) getCachedConnector(dsn string, incrementUsage bool) *connector {
+	existingConnector, ok := driver.connectors[dsn]
+	if !ok {
+		return nil
+	}
+	existingConnector.closerMu.RLock()
+	isClosed := existingConnector.closed
+	existingConnector.closerMu.RUnlock()
+	if !isClosed {
+		if incrementUsage {
+			driver.connectorUsageCount[dsn]++
+		}
+		return existingConnector
+	}
+	delete(driver.connectors, dsn)
+	delete(driver.connectorUsageCount, dsn)
+	return nil
+}
+
+func (driver *Driver) createAndCacheConnector(dsn string) (*connector, error) {
 	connectorConfig, err := ExtractConnectorConfig(dsn)
 	if err != nil {
 		return nil, err
 	}
-	c, err := createConnector(d, connectorConfig)
+	createdConnector, err := createConnector(driver, connectorConfig)
 	if err != nil {
 		return nil, err
 	}
-	c.cacheKey = dsn
-	d.connectors[dsn] = c
-	d.connectorUsageCount[dsn] = 1
-	return c, nil
+	createdConnector.cacheKey = dsn
+
+	driver.mu.Lock()
+	driver.connectors[dsn] = createdConnector
+	driver.mu.Unlock()
+
+	return createdConnector, nil
 }
+
+var disableLogClientOptionsOnce sync.Once
 
 func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, error) {
 	opts := make([]option.ClientOption, 0)
@@ -733,9 +810,11 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		SessionPoolConfig: spanner.DefaultSessionPoolConfig,
 	}
 	// Disable client config logging by default.
-	if _, found := os.LookupEnv("GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS"); !found {
-		_ = os.Setenv("GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS", "true")
-	}
+	disableLogClientOptionsOnce.Do(func() {
+		if _, found := os.LookupEnv("GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS"); !found {
+			_ = os.Setenv("GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS", "true")
+		}
+	})
 
 	if _, ok := initialPropertyValues[propertyType.Key()]; ok {
 		assignPropertyValueIfExists(state, propertyType, &config.Type)
@@ -830,18 +909,8 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			expectedType, config.Type))
 	}
 	if connectorConfig.AutoConfigEmulator {
-		if connectorConfig.Host == "" {
-			connectorConfig.Host = "localhost:9010"
-		}
-		schemeRemoved := regexp.MustCompile("^(http://|https://|passthrough:///)").ReplaceAllString(connectorConfig.Host, "")
-		emulatorOpts := []option.ClientOption{
-			option.WithEndpoint("passthrough:///" + schemeRemoved),
-			option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
-			option.WithoutAuthentication(),
-			internaloption.SkipDialSettingsValidation(),
-		}
-		opts = append(emulatorOpts, opts...)
-		if err := autoConfigEmulator(context.Background(), connectorConfig.Host, connectorConfig.Project, connectorConfig.Instance, connectorConfig.Database, propertyDialect.GetValueOrDefault(state), opts); err != nil {
+		var err error
+		if opts, err = configureEmulator(&connectorConfig, state, opts); err != nil {
 			return nil, err
 		}
 	}
@@ -1096,13 +1165,15 @@ func (c *connector) Close() error {
 	shouldClose := true
 	if c.cacheKey != "" {
 		c.driver.mu.Lock()
-		if usageCount, ok := c.driver.connectorUsageCount[c.cacheKey]; ok {
-			if usageCount == 1 {
-				delete(c.driver.connectors, c.cacheKey)
-				delete(c.driver.connectorUsageCount, c.cacheKey)
-			} else {
-				c.driver.connectorUsageCount[c.cacheKey] = usageCount - 1
-				shouldClose = false
+		if cachedConnector, ok := c.driver.connectors[c.cacheKey]; ok && cachedConnector == c {
+			if usageCount, ok := c.driver.connectorUsageCount[c.cacheKey]; ok {
+				if usageCount <= 1 {
+					delete(c.driver.connectors, c.cacheKey)
+					delete(c.driver.connectorUsageCount, c.cacheKey)
+				} else {
+					c.driver.connectorUsageCount[c.cacheKey] = usageCount - 1
+					shouldClose = false
+				}
 			}
 		}
 		c.driver.mu.Unlock()
@@ -1116,12 +1187,19 @@ func (c *connector) Close() error {
 func (c *connector) close() error {
 	c.logger.Debug("closing connector")
 	c.closerMu.Lock()
+	if c.closed {
+		c.closerMu.Unlock()
+		return nil
+	}
 	c.closed = true
 	c.closerMu.Unlock()
 
 	if c.cacheKey != "" {
 		c.driver.mu.Lock()
-		delete(c.driver.connectors, c.cacheKey)
+		if c.driver.connectors[c.cacheKey] == c {
+			delete(c.driver.connectors, c.cacheKey)
+			delete(c.driver.connectorUsageCount, c.cacheKey)
+		}
 		c.driver.mu.Unlock()
 	}
 

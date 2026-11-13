@@ -19,22 +19,31 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
+	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
+	"cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/api/option"
+	pbstatus "google.golang.org/genproto/googleapis/rpc/status"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 func silentClose(c io.Closer) {
@@ -1662,5 +1671,1062 @@ func TestIsMissingDefaultSequenceKindError(t *testing.T) {
 	errNoQuotes := fmt.Errorf("rpc error: code = InvalidArgument desc = The sequence kind of an identity column id is not specified. Please specify the sequence kind explicitly or set the database option default_sequence_kind.")
 	if !isMissingDefaultSequenceKindError(errNoQuotes) {
 		t.Errorf("isMissingDefaultSequenceKindError returned false for: %v", errNoQuotes)
+	}
+}
+
+func isCanceled(err error) bool {
+	return errors.Is(err, context.Canceled) || status.Code(err) == codes.Canceled
+}
+
+func isDeadlineExceeded(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded
+}
+
+func TestNewOrCachedConnector_ConcurrentSameDSN(t *testing.T) {
+	t.Parallel()
+
+	driverInstance := &Driver{
+		connectors:          make(map[string]*connector),
+		connectorUsageCount: make(map[string]int),
+	}
+	dsn := "projects/test-project/instances/test-instance/databases/test-database"
+	concurrentCalls := 50
+
+	// Use a creation barrier to guarantee that goroutine 0 pauses inside
+	// singleflight.Do while the other 49 goroutines queue up on the same in-flight call.
+	creationStarted := make(chan struct{})
+	unblockCreation := make(chan struct{})
+	var barrierOnce sync.Once
+	driverInstance.connectorCreationBarrier = func() {
+		barrierOnce.Do(func() {
+			close(creationStarted)
+			<-unblockCreation
+		})
+	}
+
+	var waitGroup sync.WaitGroup
+	connectors := make([]*connector, concurrentCalls)
+	callErrors := make([]error, concurrentCalls)
+
+	// Launch goroutine 0, which enters singleflight.Do and pauses at the barrier.
+	waitGroup.Add(1)
+	go func() {
+		defer waitGroup.Done()
+		createdConnector, err := newOrCachedConnector(driverInstance, dsn)
+		connectors[0] = createdConnector
+		callErrors[0] = err
+	}()
+
+	// Wait until goroutine 0 is demonstrably executing singleflight.Do.
+	<-creationStarted
+
+	// Launch the remaining 49 goroutines while goroutine 0 is held in-flight.
+	for i := 1; i < concurrentCalls; i++ {
+		waitGroup.Add(1)
+		go func(index int) {
+			defer waitGroup.Done()
+			createdConnector, err := newOrCachedConnector(driverInstance, dsn)
+			connectors[index] = createdConnector
+			callErrors[index] = err
+		}(i)
+	}
+
+	// Release goroutine 0 to complete connector creation.
+	close(unblockCreation)
+	waitGroup.Wait()
+
+	for index := 0; index < concurrentCalls; index++ {
+		if callErrors[index] != nil {
+			t.Fatalf("unexpected error for call %d: %v", index, callErrors[index])
+		}
+		if connectors[index] == nil {
+			t.Fatalf("expected non-nil connector for call %d", index)
+		}
+	}
+
+	firstConnector := connectors[0]
+	for index := 1; index < concurrentCalls; index++ {
+		if g, w := connectors[index], firstConnector; g != w {
+			t.Errorf("connector pointer mismatch at index %d\nGot:  %p\nWant: %p", index, g, w)
+		}
+	}
+
+	driverInstance.mu.Lock()
+	usageCount := driverInstance.connectorUsageCount[dsn]
+	registeredConnector := driverInstance.connectors[dsn]
+	driverInstance.mu.Unlock()
+
+	if g, w := usageCount, concurrentCalls; g != w {
+		t.Errorf("usage count mismatch\nGot:  %d\nWant: %d", g, w)
+	}
+	if g, w := registeredConnector, firstConnector; g != w {
+		t.Errorf("registered connector mismatch\nGot:  %p\nWant: %p", g, w)
+	}
+
+	// Concurrently close all connectors.
+	for i := 0; i < concurrentCalls; i++ {
+		waitGroup.Add(1)
+		go func(index int) {
+			defer waitGroup.Done()
+			_ = connectors[index].Close()
+		}(i)
+	}
+	waitGroup.Wait()
+
+	driverInstance.mu.Lock()
+	finalUsageCount, hasUsageCount := driverInstance.connectorUsageCount[dsn]
+	_, hasConnector := driverInstance.connectors[dsn]
+	driverInstance.mu.Unlock()
+
+	if hasUsageCount {
+		t.Errorf("expected usage count to be deleted from map, but found count: %d", finalUsageCount)
+	}
+	if hasConnector {
+		t.Errorf("expected connector to be deleted from map after all closes")
+	}
+}
+
+func TestNewOrCachedConnector_ConcurrentDistinctDSNs(t *testing.T) {
+	t.Parallel()
+
+	driverInstance := &Driver{
+		connectors:          make(map[string]*connector),
+		connectorUsageCount: make(map[string]int),
+	}
+	concurrentCalls := 30
+
+	var waitGroup sync.WaitGroup
+	connectors := make([]*connector, concurrentCalls)
+	callErrors := make([]error, concurrentCalls)
+	dsns := make([]string, concurrentCalls)
+
+	for i := 0; i < concurrentCalls; i++ {
+		dsns[i] = fmt.Sprintf("projects/test-project/instances/test-instance/databases/database-%d", i)
+		waitGroup.Add(1)
+		go func(index int) {
+			defer waitGroup.Done()
+			createdConnector, err := newOrCachedConnector(driverInstance, dsns[index])
+			connectors[index] = createdConnector
+			callErrors[index] = err
+		}(i)
+	}
+	waitGroup.Wait()
+
+	for index := 0; index < concurrentCalls; index++ {
+		if callErrors[index] != nil {
+			t.Fatalf("unexpected error for distinct DSN %d: %v", index, callErrors[index])
+		}
+		if connectors[index] == nil {
+			t.Fatalf("expected non-nil connector for distinct DSN %d", index)
+		}
+	}
+
+	driverInstance.mu.Lock()
+	totalRegistered := len(driverInstance.connectors)
+	totalUsageEntries := len(driverInstance.connectorUsageCount)
+	driverInstance.mu.Unlock()
+
+	if g, w := totalRegistered, concurrentCalls; g != w {
+		t.Errorf("total registered connectors mismatch\nGot:  %d\nWant: %d", g, w)
+	}
+	if g, w := totalUsageEntries, concurrentCalls; g != w {
+		t.Errorf("total usage count entries mismatch\nGot:  %d\nWant: %d", g, w)
+	}
+
+	// Concurrently close all connectors.
+	for i := 0; i < concurrentCalls; i++ {
+		waitGroup.Add(1)
+		go func(index int) {
+			defer waitGroup.Done()
+			_ = connectors[index].Close()
+		}(i)
+	}
+	waitGroup.Wait()
+
+	driverInstance.mu.Lock()
+	remainingRegistered := len(driverInstance.connectors)
+	remainingUsage := len(driverInstance.connectorUsageCount)
+	driverInstance.mu.Unlock()
+
+	if g, w := remainingRegistered, 0; g != w {
+		t.Errorf("remaining registered connectors mismatch\nGot:  %d\nWant: %d", g, w)
+	}
+	if g, w := remainingUsage, 0; g != w {
+		t.Errorf("remaining usage count entries mismatch\nGot:  %d\nWant: %d", g, w)
+	}
+}
+
+func TestNewOrCachedConnector_InvalidDSN(t *testing.T) {
+	t.Parallel()
+
+	driverInstance := &Driver{
+		connectors:          make(map[string]*connector),
+		connectorUsageCount: make(map[string]int),
+	}
+	_, err := newOrCachedConnector(driverInstance, "invalid-dsn")
+	if err == nil {
+		t.Fatalf("expected error for invalid DSN, got nil")
+	}
+}
+
+func TestNewOrCachedConnector_NilMapsInitialization(t *testing.T) {
+	t.Parallel()
+
+	// Initializing with nil maps should safely initialize connectors and usage count maps.
+	driverInstance := &Driver{}
+	dsn := "projects/test-project/instances/test-instance/databases/test-database"
+	createdConnector, err := newOrCachedConnector(driverInstance, dsn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if createdConnector == nil {
+		t.Fatalf("expected non-nil connector")
+	}
+	_ = createdConnector.Close()
+}
+
+func TestNewOrCachedConnector_InFlightCacheHit(t *testing.T) {
+	t.Parallel()
+
+	driverInstance := &Driver{}
+	dsn := "projects/test-project/instances/test-instance/databases/test-database"
+
+	unblockBarrier := make(chan struct{})
+	barrierHit := make(chan struct{})
+	var barrierOnce sync.Once
+
+	driverInstance.connectorCreationBarrier = func() {
+		barrierOnce.Do(func() {
+			close(barrierHit)
+			<-unblockBarrier
+		})
+	}
+
+	var waitGroup sync.WaitGroup
+	var firstConnector, secondConnector *connector
+	var firstError, secondError error
+
+	waitGroup.Add(1)
+	go func() {
+		defer waitGroup.Done()
+		firstConnector, firstError = newOrCachedConnector(driverInstance, dsn)
+	}()
+
+	// Wait for goroutine 1 to be inside singleflight.Do at the barrier.
+	<-barrierHit
+
+	// Populate cache while goroutine 1 is at the barrier.
+	dummyConnector := &connector{cacheKey: dsn, driver: driverInstance}
+	driverInstance.mu.Lock()
+	driverInstance.connectors[dsn] = dummyConnector
+	driverInstance.connectorUsageCount[dsn] = 1
+	driverInstance.mu.Unlock()
+
+	// Unblock goroutine 1.
+	close(unblockBarrier)
+
+	waitGroup.Add(1)
+	go func() {
+		defer waitGroup.Done()
+		secondConnector, secondError = newOrCachedConnector(driverInstance, dsn)
+	}()
+	waitGroup.Wait()
+
+	if firstError != nil {
+		t.Fatalf("unexpected error from call 1: %v", firstError)
+	}
+	if secondError != nil {
+		t.Fatalf("unexpected error from call 2: %v", secondError)
+	}
+	if g, w := firstConnector, dummyConnector; g != w {
+		t.Errorf("expected dummy connector\nGot:  %p\nWant: %p", g, w)
+	}
+	if g, w := secondConnector, dummyConnector; g != w {
+		t.Errorf("expected dummy connector\nGot:  %p\nWant: %p", g, w)
+	}
+	_ = firstConnector.Close()
+	_ = secondConnector.Close()
+}
+
+func TestNewOrCachedConnector_InFlightCacheHitClosed(t *testing.T) {
+	t.Parallel()
+
+	driverInstance := &Driver{}
+	dsn := "projects/test-project/instances/test-instance/databases/test-database"
+
+	unblockBarrier := make(chan struct{})
+	barrierHit := make(chan struct{})
+	var barrierOnce sync.Once
+
+	driverInstance.connectorCreationBarrier = func() {
+		barrierOnce.Do(func() {
+			close(barrierHit)
+			<-unblockBarrier
+		})
+	}
+
+	var waitGroup sync.WaitGroup
+	var createdConnector *connector
+	var callError error
+
+	waitGroup.Add(1)
+	go func() {
+		defer waitGroup.Done()
+		createdConnector, callError = newOrCachedConnector(driverInstance, dsn)
+	}()
+
+	<-barrierHit
+
+	// Populate cache with a closed connector while at the barrier.
+	dummyClosedConnector := &connector{cacheKey: dsn, driver: driverInstance, closed: true}
+	driverInstance.mu.Lock()
+	driverInstance.connectors[dsn] = dummyClosedConnector
+	driverInstance.connectorUsageCount[dsn] = 1
+	driverInstance.mu.Unlock()
+
+	// Unblock goroutine. The inner check will detect the closed connector, evict it, and create a fresh one.
+	close(unblockBarrier)
+	waitGroup.Wait()
+
+	if callError != nil {
+		t.Fatalf("unexpected error: %v", callError)
+	}
+	if createdConnector == nil {
+		t.Fatalf("expected non-nil connector")
+	}
+	if g, w := createdConnector, dummyClosedConnector; g == w {
+		t.Errorf("expected fresh connector, got closed dummy connector")
+	}
+	_ = createdConnector.Close()
+}
+
+func TestNewOrCachedConnector_RetryWhenClosed(t *testing.T) {
+	t.Parallel()
+
+	driverInstance := &Driver{}
+	dsn := "projects/test-project/instances/test-instance/databases/test-database"
+
+	var markClosedOnce sync.Once
+	driverInstance.postSingleFlightBarrier = func(createdConnector *connector) {
+		markClosedOnce.Do(func() {
+			createdConnector.closerMu.Lock()
+			createdConnector.closed = true
+			createdConnector.closerMu.Unlock()
+		})
+	}
+
+	connectorInstance, err := newOrCachedConnector(driverInstance, dsn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if connectorInstance == nil {
+		t.Fatalf("expected non-nil connector")
+	}
+	connectorInstance.closerMu.RLock()
+	isOpen := !connectorInstance.closed
+	connectorInstance.closerMu.RUnlock()
+	if !isOpen {
+		t.Errorf("expected fresh open connector")
+	}
+	_ = connectorInstance.Close()
+}
+
+func TestNewOrCachedConnector_FastPathSkipsAndEvictsClosed(t *testing.T) {
+	t.Parallel()
+
+	driverInstance := &Driver{
+		connectors:          make(map[string]*connector),
+		connectorUsageCount: make(map[string]int),
+	}
+	dsn := "projects/test-project/instances/test-instance/databases/test-database"
+
+	dummyClosedConnector := &connector{cacheKey: dsn, driver: driverInstance, closed: true}
+	driverInstance.mu.Lock()
+	driverInstance.connectors[dsn] = dummyClosedConnector
+	driverInstance.connectorUsageCount[dsn] = 1
+	driverInstance.mu.Unlock()
+
+	createdConnector, err := newOrCachedConnector(driverInstance, dsn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if createdConnector == nil {
+		t.Fatalf("expected non-nil connector")
+	}
+	if g, w := createdConnector, dummyClosedConnector; g == w {
+		t.Errorf("expected fresh open connector, got closed connector")
+	}
+	createdConnector.closerMu.RLock()
+	isOpen := !createdConnector.closed
+	createdConnector.closerMu.RUnlock()
+	if !isOpen {
+		t.Errorf("expected returned connector to be open")
+	}
+
+	_ = createdConnector.Close()
+}
+
+func TestNewOrCachedConnector_RetryDoesNotEvictReplacement(t *testing.T) {
+	t.Parallel()
+
+	driverInstance := &Driver{}
+	dsn := "projects/test-project/instances/test-instance/databases/test-database"
+
+	unblockBarrier := make(chan struct{})
+	barrierHit := make(chan struct{})
+	var barrierOnce sync.Once
+
+	driverInstance.connectorCreationBarrier = func() {
+		barrierOnce.Do(func() {
+			close(barrierHit)
+			<-unblockBarrier
+		})
+	}
+
+	var waitGroup sync.WaitGroup
+	var createdConnector *connector
+	var callError error
+
+	waitGroup.Add(1)
+	go func() {
+		defer waitGroup.Done()
+		createdConnector, callError = newOrCachedConnector(driverInstance, dsn)
+	}()
+
+	<-barrierHit
+
+	// Create and insert replacement connector into cache before unblocking.
+	replacementConnector := &connector{cacheKey: dsn, driver: driverInstance}
+	driverInstance.mu.Lock()
+	driverInstance.connectors[dsn] = replacementConnector
+	driverInstance.connectorUsageCount[dsn] = 1
+	driverInstance.mu.Unlock()
+
+	// Clear barrier hook so retry does not pause.
+	driverInstance.connectorCreationBarrier = nil
+	close(unblockBarrier)
+	waitGroup.Wait()
+
+	if callError != nil {
+		t.Fatalf("unexpected error: %v", callError)
+	}
+	if g, w := createdConnector, replacementConnector; g != w {
+		t.Errorf("expected replacement connector\nGot:  %p\nWant: %p", g, w)
+	}
+
+	_ = createdConnector.Close()
+}
+
+func TestConnectorClose_IdempotentAndDoesNotCorruptReplacement(t *testing.T) {
+	t.Parallel()
+
+	driverInstance := &Driver{
+		connectors:          make(map[string]*connector),
+		connectorUsageCount: make(map[string]int),
+	}
+	dsn := "projects/test-project/instances/test-instance/databases/test-database"
+
+	firstConnector, err := newOrCachedConnector(driverInstance, dsn)
+	if err != nil {
+		t.Fatalf("unexpected error creating first connector: %v", err)
+	}
+
+	// Close firstConnector, evicting it from the driver's cache.
+	if err := firstConnector.Close(); err != nil {
+		t.Fatalf("unexpected error closing first connector: %v", err)
+	}
+
+	// Create secondConnector under the same DSN.
+	secondConnector, err := newOrCachedConnector(driverInstance, dsn)
+	if err != nil {
+		t.Fatalf("unexpected error creating second connector: %v", err)
+	}
+
+	driverInstance.mu.Lock()
+	initialUsageCount := driverInstance.connectorUsageCount[dsn]
+	cachedConnector := driverInstance.connectors[dsn]
+	driverInstance.mu.Unlock()
+
+	if g, w := initialUsageCount, 1; g != w {
+		t.Errorf("initial usage count mismatch\nGot:  %d\nWant: %d", g, w)
+	}
+	if g, w := cachedConnector, secondConnector; g != w {
+		t.Errorf("cached connector mismatch\nGot:  %p\nWant: %p", g, w)
+	}
+
+	// Calling Close() on the old, already-closed firstConnector should be a no-op:
+	// it must NOT decrement secondConnector's usage count or delete secondConnector from the map.
+	if err := firstConnector.Close(); err != nil {
+		t.Fatalf("unexpected error on redundant close: %v", err)
+	}
+
+	driverInstance.mu.Lock()
+	postUsageCount := driverInstance.connectorUsageCount[dsn]
+	postCachedConnector := driverInstance.connectors[dsn]
+	driverInstance.mu.Unlock()
+
+	if g, w := postUsageCount, 1; g != w {
+		t.Errorf("usage count after stale close mismatch\nGot:  %d\nWant: %d", g, w)
+	}
+	if g, w := postCachedConnector, secondConnector; g != w {
+		t.Errorf("cached connector after stale close mismatch\nGot:  %p\nWant: %p", g, w)
+	}
+
+	_ = secondConnector.Close()
+}
+
+func TestNewOrCachedConnector_EmulatorTimeoutDoesNotBlockOtherDSN(t *testing.T) {
+	t.Parallel()
+
+	driverInstance := &Driver{
+		connectors:          make(map[string]*connector),
+		connectorUsageCount: make(map[string]int),
+	}
+
+	slowDSN := "projects/test-project/instances/test-instance/databases/test-database;auto_config_emulator=true;connect_timeout=250ms;endpoint=127.0.0.1:1"
+	fastDSN := "projects/test-project/instances/test-instance/databases/other-database"
+
+	slowStarted := make(chan struct{})
+	var slowStartedOnce sync.Once
+	driverInstance.connectorCreationBarrier = func() {
+		slowStartedOnce.Do(func() {
+			close(slowStarted)
+		})
+	}
+
+	slowDone := make(chan struct{})
+	fastDone := make(chan struct{})
+	var slowErr error
+	var fastConnector *connector
+	var fastErr error
+
+	go func() {
+		_, slowErr = newOrCachedConnector(driverInstance, slowDSN)
+		close(slowDone)
+	}()
+
+	// Wait until the slow DSN has entered connector creation.
+	<-slowStarted
+
+	go func() {
+		fastConnector, fastErr = newOrCachedConnector(driverInstance, fastDSN)
+		close(fastDone)
+	}()
+
+	select {
+	case <-fastDone:
+		// Fast DSN completed without being blocked by the slow DSN.
+	case <-time.After(150 * time.Millisecond):
+		t.Fatalf("fast DSN was blocked by slow DSN emulator configuration")
+	}
+
+	if fastErr != nil {
+		t.Fatalf("unexpected error for fast DSN: %v", fastErr)
+	}
+	if fastConnector == nil {
+		t.Fatalf("expected non-nil fast connector")
+	}
+	_ = fastConnector.Close()
+
+	// Wait for slow DSN to finish.
+	select {
+	case <-slowDone:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timed out waiting for slow DSN to finish")
+	}
+
+	if slowErr == nil {
+		t.Fatalf("expected error for slow DSN, got nil")
+	}
+	if !isDeadlineExceeded(slowErr) && status.Code(slowErr) != codes.Unavailable {
+		t.Errorf("unexpected error for slow DSN\nGot:  %v\nWant: deadline exceeded or unavailable", slowErr)
+	}
+}
+
+func TestAutoConfigEmulator_ContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	_, clientOptions, cleanup := setupMockAdminServer(t)
+	defer cleanup()
+
+	canceledContext, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := autoConfigEmulator(
+		canceledContext,
+		"test-project",
+		"test-instance",
+		"test-database",
+		databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+		clientOptions,
+	)
+	if err == nil {
+		t.Fatalf("expected error for canceled context, got nil")
+	}
+	if !isCanceled(err) {
+		t.Errorf("unexpected error for canceled context\nGot:  %v\nWant: context.Canceled or codes.Canceled", err)
+	}
+}
+
+func TestAutoConfigEmulator_ContextTimeout(t *testing.T) {
+	t.Parallel()
+
+	_, clientOptions, cleanup := setupMockAdminServer(t)
+	defer cleanup()
+
+	expiredContext, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	time.Sleep(time.Millisecond)
+
+	err := autoConfigEmulator(
+		expiredContext,
+		"test-project",
+		"test-instance",
+		"test-database",
+		databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+		clientOptions,
+	)
+	if err == nil {
+		t.Fatalf("expected error for expired context, got nil")
+	}
+	if !isDeadlineExceeded(err) {
+		t.Errorf("unexpected error for expired context\nGot:  %v\nWant: context.DeadlineExceeded or codes.DeadlineExceeded", err)
+	}
+}
+
+func TestCreateDatabase_ContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	_, clientOptions, cleanup := setupMockAdminServer(t)
+	defer cleanup()
+
+	canceledContext, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := createDatabase(
+		canceledContext,
+		"test-project",
+		"test-instance",
+		"test-database",
+		databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+		clientOptions,
+	)
+	if err == nil {
+		t.Fatalf("expected error for canceled context, got nil")
+	}
+	if !isCanceled(err) {
+		t.Errorf("unexpected error for canceled context\nGot:  %v\nWant: context.Canceled or codes.Canceled", err)
+	}
+}
+
+func TestCreateDatabase_ContextTimeout(t *testing.T) {
+	t.Parallel()
+
+	_, clientOptions, cleanup := setupMockAdminServer(t)
+	defer cleanup()
+
+	expiredContext, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	time.Sleep(time.Millisecond)
+
+	err := createDatabase(
+		expiredContext,
+		"test-project",
+		"test-instance",
+		"test-database",
+		databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+		clientOptions,
+	)
+	if err == nil {
+		t.Fatalf("expected error for expired context, got nil")
+	}
+	if !isDeadlineExceeded(err) {
+		t.Errorf("unexpected error for expired context\nGot:  %v\nWant: context.DeadlineExceeded or codes.DeadlineExceeded", err)
+	}
+}
+
+type mockAdminServer struct {
+	mu                    sync.Mutex
+	createInstanceErr     error
+	createInstanceOp      *longrunningpb.Operation
+	createDatabaseErr     error
+	createDatabaseOp      *longrunningpb.Operation
+	lastDatabaseStatement string
+	lastDatabaseDialect   databasepb.DatabaseDialect
+	operations            map[string]*longrunningpb.Operation
+}
+
+type mockInstanceAdminServer struct {
+	instancepb.UnimplementedInstanceAdminServer
+	mock *mockAdminServer
+}
+
+func (s *mockInstanceAdminServer) CreateInstance(ctx context.Context, req *instancepb.CreateInstanceRequest) (*longrunningpb.Operation, error) {
+	s.mock.mu.Lock()
+	defer s.mock.mu.Unlock()
+	if s.mock.createInstanceErr != nil {
+		return nil, s.mock.createInstanceErr
+	}
+	op := s.mock.createInstanceOp
+	if op == nil {
+		respAny, err := anypb.New(&instancepb.Instance{
+			Name: fmt.Sprintf("%s/instances/%s", req.Parent, req.InstanceId),
+		})
+		if err != nil {
+			return nil, err
+		}
+		op = &longrunningpb.Operation{
+			Name: "operations/create-instance-op",
+			Done: true,
+			Result: &longrunningpb.Operation_Response{
+				Response: respAny,
+			},
+		}
+	}
+	if s.mock.operations != nil {
+		s.mock.operations[op.Name] = op
+	}
+	return op, nil
+}
+
+type mockDatabaseAdminServer struct {
+	databasepb.UnimplementedDatabaseAdminServer
+	mock *mockAdminServer
+}
+
+func (s *mockDatabaseAdminServer) CreateDatabase(ctx context.Context, req *databasepb.CreateDatabaseRequest) (*longrunningpb.Operation, error) {
+	s.mock.mu.Lock()
+	defer s.mock.mu.Unlock()
+	s.mock.lastDatabaseStatement = req.CreateStatement
+	s.mock.lastDatabaseDialect = req.DatabaseDialect
+	if s.mock.createDatabaseErr != nil {
+		return nil, s.mock.createDatabaseErr
+	}
+	op := s.mock.createDatabaseOp
+	if op == nil {
+		respAny, err := anypb.New(&databasepb.Database{
+			Name: fmt.Sprintf("%s/databases/test-database", req.Parent),
+		})
+		if err != nil {
+			return nil, err
+		}
+		op = &longrunningpb.Operation{
+			Name: "operations/create-database-op",
+			Done: true,
+			Result: &longrunningpb.Operation_Response{
+				Response: respAny,
+			},
+		}
+	}
+	if s.mock.operations != nil {
+		s.mock.operations[op.Name] = op
+	}
+	return op, nil
+}
+
+type mockOperationsServer struct {
+	longrunningpb.UnimplementedOperationsServer
+	mock *mockAdminServer
+}
+
+func (s *mockOperationsServer) GetOperation(ctx context.Context, req *longrunningpb.GetOperationRequest) (*longrunningpb.Operation, error) {
+	s.mock.mu.Lock()
+	defer s.mock.mu.Unlock()
+	if op, ok := s.mock.operations[req.Name]; ok {
+		return op, nil
+	}
+	return &longrunningpb.Operation{
+		Name: req.Name,
+		Done: true,
+	}, nil
+}
+
+func setupMockAdminServer(t *testing.T) (*mockAdminServer, []option.ClientOption, func()) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		t.Fatalf("failed to listen on localhost: %v", err)
+	}
+	grpcServer := grpc.NewServer()
+	mockServer := &mockAdminServer{
+		operations: make(map[string]*longrunningpb.Operation),
+	}
+	instancepb.RegisterInstanceAdminServer(grpcServer, &mockInstanceAdminServer{mock: mockServer})
+	databasepb.RegisterDatabaseAdminServer(grpcServer, &mockDatabaseAdminServer{mock: mockServer})
+	longrunningpb.RegisterOperationsServer(grpcServer, &mockOperationsServer{mock: mockServer})
+
+	go func() {
+		_ = grpcServer.Serve(listener)
+	}()
+
+	clientOptions := []option.ClientOption{
+		option.WithEndpoint(listener.Addr().String()),
+		option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+		option.WithoutAuthentication(),
+	}
+	cleanup := func() {
+		grpcServer.Stop()
+		_ = listener.Close()
+	}
+	return mockServer, clientOptions, cleanup
+}
+
+func TestAutoConfigEmulator_Success(t *testing.T) {
+	t.Parallel()
+
+	mockServer, clientOptions, cleanup := setupMockAdminServer(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	err := autoConfigEmulator(
+		ctx,
+		"test-project",
+		"test-instance",
+		"test-database",
+		databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+		clientOptions,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error from autoConfigEmulator: %v", err)
+	}
+
+	if g, w := mockServer.lastDatabaseStatement, "CREATE DATABASE `test-database`"; g != w {
+		t.Errorf("database create statement mismatch\nGot:  %s\nWant: %s", g, w)
+	}
+	if g, w := mockServer.lastDatabaseDialect, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL; g != w {
+		t.Errorf("database dialect mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestAutoConfigEmulator_PostgreSQLDialect(t *testing.T) {
+	t.Parallel()
+
+	mockServer, clientOptions, cleanup := setupMockAdminServer(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	err := autoConfigEmulator(
+		ctx,
+		"test-project",
+		"test-instance",
+		"test-database",
+		databasepb.DatabaseDialect_POSTGRESQL,
+		clientOptions,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error from autoConfigEmulator: %v", err)
+	}
+
+	if g, w := mockServer.lastDatabaseStatement, `CREATE DATABASE "test-database"`; g != w {
+		t.Errorf("database create statement mismatch\nGot:  %s\nWant: %s", g, w)
+	}
+	if g, w := mockServer.lastDatabaseDialect, databasepb.DatabaseDialect_POSTGRESQL; g != w {
+		t.Errorf("database dialect mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestAutoConfigEmulator_InstanceAlreadyExists(t *testing.T) {
+	t.Parallel()
+
+	mockServer, clientOptions, cleanup := setupMockAdminServer(t)
+	defer cleanup()
+
+	mockServer.createInstanceErr = status.Error(codes.AlreadyExists, "instance already exists")
+
+	ctx := context.Background()
+	err := autoConfigEmulator(
+		ctx,
+		"test-project",
+		"test-instance",
+		"test-database",
+		databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+		clientOptions,
+	)
+	if err != nil {
+		t.Fatalf("expected AlreadyExists error on instance to be ignored, got: %v", err)
+	}
+}
+
+func TestAutoConfigEmulator_DatabaseAlreadyExists(t *testing.T) {
+	t.Parallel()
+
+	mockServer, clientOptions, cleanup := setupMockAdminServer(t)
+	defer cleanup()
+
+	mockServer.createDatabaseErr = status.Error(codes.AlreadyExists, "database already exists")
+
+	ctx := context.Background()
+	err := autoConfigEmulator(
+		ctx,
+		"test-project",
+		"test-instance",
+		"test-database",
+		databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+		clientOptions,
+	)
+	if err != nil {
+		t.Fatalf("expected AlreadyExists error on database to be ignored, got: %v", err)
+	}
+}
+
+func TestAutoConfigEmulator_InstanceCreationError(t *testing.T) {
+	t.Parallel()
+
+	mockServer, clientOptions, cleanup := setupMockAdminServer(t)
+	defer cleanup()
+
+	mockServer.createInstanceErr = status.Error(codes.PermissionDenied, "permission denied")
+
+	ctx := context.Background()
+	err := autoConfigEmulator(
+		ctx,
+		"test-project",
+		"test-instance",
+		"test-database",
+		databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+		clientOptions,
+	)
+	if err == nil {
+		t.Fatalf("expected error from autoConfigEmulator, got nil")
+	}
+	if g, w := status.Code(err), codes.PermissionDenied; g != w {
+		t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestAutoConfigEmulator_DatabaseCreationError(t *testing.T) {
+	t.Parallel()
+
+	mockServer, clientOptions, cleanup := setupMockAdminServer(t)
+	defer cleanup()
+
+	mockServer.createDatabaseErr = status.Error(codes.PermissionDenied, "permission denied")
+
+	ctx := context.Background()
+	err := autoConfigEmulator(
+		ctx,
+		"test-project",
+		"test-instance",
+		"test-database",
+		databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+		clientOptions,
+	)
+	if err == nil {
+		t.Fatalf("expected error from autoConfigEmulator, got nil")
+	}
+	if g, w := status.Code(err), codes.PermissionDenied; g != w {
+		t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestCreateInstance_OperationWaitError(t *testing.T) {
+	t.Parallel()
+
+	mockServer, clientOptions, cleanup := setupMockAdminServer(t)
+	defer cleanup()
+
+	mockServer.createInstanceOp = &longrunningpb.Operation{
+		Name: "operations/failed-instance-op",
+		Done: true,
+		Result: &longrunningpb.Operation_Error{
+			Error: &pbstatus.Status{
+				Code:    int32(codes.ResourceExhausted),
+				Message: "instance quota exceeded",
+			},
+		},
+	}
+
+	ctx := context.Background()
+	err := createInstance(ctx, "test-project", "test-instance", clientOptions)
+	if err == nil {
+		t.Fatalf("expected error from createInstance, got nil")
+	}
+	if g, w := status.Code(err), codes.ResourceExhausted; g != w {
+		t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestCreateDatabase_OperationWaitError(t *testing.T) {
+	t.Parallel()
+
+	mockServer, clientOptions, cleanup := setupMockAdminServer(t)
+	defer cleanup()
+
+	mockServer.createDatabaseOp = &longrunningpb.Operation{
+		Name: "operations/failed-database-op",
+		Done: true,
+		Result: &longrunningpb.Operation_Error{
+			Error: &pbstatus.Status{
+				Code:    int32(codes.ResourceExhausted),
+				Message: "database quota exceeded",
+			},
+		},
+	}
+
+	ctx := context.Background()
+	err := createDatabase(ctx, "test-project", "test-instance", "test-database", databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, clientOptions)
+	if err == nil {
+		t.Fatalf("expected error from createDatabase, got nil")
+	}
+	if g, w := status.Code(err), codes.ResourceExhausted; g != w {
+		t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestCreateInstance_ClientInitError(t *testing.T) {
+	t.Parallel()
+
+	err := createInstance(context.Background(), "test-project", "test-instance", []option.ClientOption{
+		option.WithAuthCredentialsFile(option.ServiceAccount, "non-existent-file.json"),
+	})
+	if err == nil {
+		t.Fatalf("expected error from createInstance with invalid options, got nil")
+	}
+}
+
+func TestCreateDatabase_ClientInitError(t *testing.T) {
+	t.Parallel()
+
+	err := createDatabase(context.Background(), "test-project", "test-instance", "test-database", databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, []option.ClientOption{
+		option.WithAuthCredentialsFile(option.ServiceAccount, "non-existent-file.json"),
+	})
+	if err == nil {
+		t.Fatalf("expected error from createDatabase with invalid options, got nil")
+	}
+}
+
+func TestConfigureEmulator_Success(t *testing.T) {
+	t.Parallel()
+
+	mockServer, clientOptions, cleanup := setupMockAdminServer(t)
+	defer cleanup()
+
+	initialPropertyValues, err := connectionstate.ExtractValues(connectionProperties, map[string]string{
+		propertyConnectTimeout.Key(): "10s",
+		propertyDialect.Key():        "GOOGLE_STANDARD_SQL",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error extracting connection property values: %v", err)
+	}
+	state := createConfiguredConnectionState(initialPropertyValues)
+	connectorConfig := ConnectorConfig{
+		Project:  "test-project",
+		Instance: "test-instance",
+		Database: "test-database",
+	}
+
+	configuredOptions, err := configureEmulator(&connectorConfig, state, clientOptions)
+	if err != nil {
+		t.Fatalf("unexpected error from configureEmulator: %v", err)
+	}
+
+	if g, w := connectorConfig.Host, "localhost:9010"; g != w {
+		t.Errorf("default host mismatch\nGot:  %s\nWant: %s", g, w)
+	}
+	if len(configuredOptions) <= len(clientOptions) {
+		t.Errorf("expected configuredOptions to include prepended emulator options, got %d <= %d", len(configuredOptions), len(clientOptions))
+	}
+	if g, w := mockServer.lastDatabaseStatement, "CREATE DATABASE `test-database`"; g != w {
+		t.Errorf("database create statement mismatch\nGot:  %s\nWant: %s", g, w)
 	}
 }
