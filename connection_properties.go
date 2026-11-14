@@ -759,6 +759,14 @@ var propertyDatabaseDialect = createReadOnlyConnectionProperty(
 	nil,
 	connectionstate.ContextUser,
 )
+var propertyLastDDLOperationID = createReadOnlyConnectionProperty(
+	"last_ddl_operation_id",
+	"The operation ID of the last DDL operation that was executed on this connection.",
+	"",
+	false,
+	nil,
+	connectionstate.ContextUser,
+)
 
 // PostgreSQL compatibility connection properties (no-op or defaults for client library setup queries)
 var postgresConnectionProperties map[string]connectionstate.ConnectionProperty
