@@ -718,3 +718,393 @@ func TestPGTransactionState(t *testing.T) {
 		}
 	})
 }
+
+func setupSensitivePropertiesTestState(t *testing.T) *ConnectionState {
+	secretProp := CreateSensitiveConnectionProperty("secret_key", "Secret property", "initial_secret", true, nil, ContextStartup, noop)
+	secretUserProp := CreateSensitiveConnectionProperty("secret_user_key", "Secret user property", "initial_user_secret", true, nil, ContextUser, noop)
+	normalProp := CreateConnectionProperty("normal_key", "Normal property", "initial_normal", true, nil, ContextUser, noop)
+	secretExtProp := CreateSensitiveConnectionPropertyWithExtension("custom", "sensitive_ext", "Custom extension secret", "initial_ext", true, nil, ContextStartup, noop)
+
+	properties := map[string]ConnectionProperty{
+		secretProp.Key():     secretProp,
+		secretUserProp.Key(): secretUserProp,
+		normalProp.Key():     normalProp,
+		secretExtProp.Key():  secretExtProp,
+	}
+
+	state, err := NewConnectionState(TypeNonTransactional, properties, map[string]ConnectionPropertyValue{})
+	if err != nil {
+		t.Fatalf("failed to create connection state: %v", err)
+	}
+	state.AddAlias("secret_alias", "secret_key", false /* readOnly */)
+	state.AddAlias("secret_alias_ro", "secret_key", true /* readOnly */)
+	return state
+}
+
+func TestConnectionState_FindProperty_Sensitive(t *testing.T) {
+	state := setupSensitivePropertiesTestState(t)
+
+	findTests := []struct {
+		name          string
+		extension     string
+		propName      string
+		wantSensitive bool
+		wantCode      codes.Code
+	}{
+		{
+			name:          "sensitive property is marked sensitive",
+			extension:     "",
+			propName:      "secret_key",
+			wantSensitive: true,
+			wantCode:      codes.OK,
+		},
+		{
+			name:          "sensitive property case insensitive",
+			extension:     "",
+			propName:      "SECRET_KEY",
+			wantSensitive: true,
+			wantCode:      codes.OK,
+		},
+		{
+			name:          "alias to sensitive property resolves and is sensitive",
+			extension:     "",
+			propName:      "secret_alias",
+			wantSensitive: true,
+			wantCode:      codes.OK,
+		},
+		{
+			name:          "read-only alias to sensitive property resolves and is sensitive",
+			extension:     "",
+			propName:      "secret_alias_ro",
+			wantSensitive: true,
+			wantCode:      codes.OK,
+		},
+		{
+			name:          "sensitive extension property is marked sensitive",
+			extension:     "custom",
+			propName:      "sensitive_ext",
+			wantSensitive: true,
+			wantCode:      codes.OK,
+		},
+		{
+			name:          "normal property is not sensitive",
+			extension:     "",
+			propName:      "normal_key",
+			wantSensitive: false,
+			wantCode:      codes.OK,
+		},
+		{
+			name:          "unknown property returns InvalidArgument",
+			extension:     "",
+			propName:      "unknown_prop",
+			wantSensitive: false,
+			wantCode:      codes.InvalidArgument,
+		},
+	}
+
+	for _, tc := range findTests {
+		t.Run(tc.name, func(t *testing.T) {
+			prop, err := state.FindProperty(tc.extension, tc.propName)
+			if g, w := status.Code(err), tc.wantCode; g != w {
+				t.Fatalf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if tc.wantCode == codes.OK {
+				if g, w := prop.IsSensitive(), tc.wantSensitive; g != w {
+					t.Errorf("IsSensitive mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+			}
+		})
+	}
+}
+
+func TestConnectionState_GetValue_Sensitive(t *testing.T) {
+	state := setupSensitivePropertiesTestState(t)
+
+	getValueTests := []struct {
+		name      string
+		extension string
+		propName  string
+		wantCode  codes.Code
+		wantVal   any
+	}{
+		{
+			name:      "sensitive property returns value for programmatic access",
+			extension: "",
+			propName:  "secret_key",
+			wantCode:  codes.OK,
+			wantVal:   "initial_secret",
+		},
+		{
+			name:      "sensitive property case insensitive returns value",
+			extension: "",
+			propName:  "SECRET_KEY",
+			wantCode:  codes.OK,
+			wantVal:   "initial_secret",
+		},
+		{
+			name:      "alias to sensitive property returns value",
+			extension: "",
+			propName:  "secret_alias",
+			wantCode:  codes.OK,
+			wantVal:   "initial_secret",
+		},
+		{
+			name:      "sensitive extension property returns value",
+			extension: "custom",
+			propName:  "sensitive_ext",
+			wantCode:  codes.OK,
+			wantVal:   "initial_ext",
+		},
+		{
+			name:      "normal property returns value",
+			extension: "",
+			propName:  "normal_key",
+			wantCode:  codes.OK,
+			wantVal:   "initial_normal",
+		},
+		{
+			name:      "unknown property returns InvalidArgument",
+			extension: "",
+			propName:  "unknown_prop",
+			wantCode:  codes.InvalidArgument,
+		},
+	}
+
+	for _, tc := range getValueTests {
+		t.Run(tc.name, func(t *testing.T) {
+			val, _, err := state.GetValue(tc.extension, tc.propName)
+			if g, w := status.Code(err), tc.wantCode; g != w {
+				t.Fatalf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if tc.wantCode == codes.OK {
+				if g, w := val, tc.wantVal; g != w {
+					t.Errorf("value mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+			}
+		})
+	}
+}
+
+func TestConnectionState_SetValue_Sensitive(t *testing.T) {
+	setValueTests := []struct {
+		name      string
+		operation func(state *ConnectionState) error
+		wantCode  codes.Code
+	}{
+		{
+			name: "sensitive property SetValue in ContextStartup succeeds",
+			operation: func(state *ConnectionState) error {
+				return state.SetValue("", "secret_key", "new_secret", ContextStartup)
+			},
+			wantCode: codes.OK,
+		},
+		{
+			name: "sensitive property SetValue in ContextUser fails with PermissionDenied",
+			operation: func(state *ConnectionState) error {
+				return state.SetValue("", "secret_key", "new_secret", ContextUser)
+			},
+			wantCode: codes.PermissionDenied,
+		},
+		{
+			name: "sensitive property SetValue NULL in ContextUser fails with PermissionDenied",
+			operation: func(state *ConnectionState) error {
+				return state.SetValue("", "secret_key", "null", ContextUser)
+			},
+			wantCode: codes.PermissionDenied,
+		},
+		{
+			name: "sensitive property SetValue DEFAULT in ContextUser fails with PermissionDenied",
+			operation: func(state *ConnectionState) error {
+				return state.SetValue("", "secret_key", "default", ContextUser)
+			},
+			wantCode: codes.PermissionDenied,
+		},
+		{
+			name: "sensitive property SetLocalValue fails with PermissionDenied",
+			operation: func(state *ConnectionState) error {
+				return state.SetLocalValue("", "secret_key", "new_secret", false)
+			},
+			wantCode: codes.PermissionDenied,
+		},
+		{
+			name: "sensitive property SetStatementScopedValue fails with PermissionDenied",
+			operation: func(state *ConnectionState) error {
+				return state.SetStatementScopedValue("", "secret_key", "new_secret")
+			},
+			wantCode: codes.PermissionDenied,
+		},
+		{
+			name: "alias to sensitive property SetValue fails with PermissionDenied",
+			operation: func(state *ConnectionState) error {
+				return state.SetValue("", "secret_alias", "new_secret", ContextUser)
+			},
+			wantCode: codes.PermissionDenied,
+		},
+		{
+			name: "read-only alias to sensitive property SetValue fails with PermissionDenied",
+			operation: func(state *ConnectionState) error {
+				return state.SetValue("", "secret_alias_ro", "new_secret", ContextUser)
+			},
+			wantCode: codes.PermissionDenied,
+		},
+		{
+			name: "sensitive extension property SetValue fails with PermissionDenied",
+			operation: func(state *ConnectionState) error {
+				return state.SetValue("custom", "sensitive_ext", "new_secret", ContextUser)
+			},
+			wantCode: codes.PermissionDenied,
+		},
+		{
+			name: "ContextUser sensitive property SetValue in ContextUser fails with PermissionDenied",
+			operation: func(state *ConnectionState) error {
+				return state.SetValue("", "secret_user_key", "new_secret", ContextUser)
+			},
+			wantCode: codes.PermissionDenied,
+		},
+		{
+			name: "ContextUser sensitive property SetValue NULL fails with PermissionDenied",
+			operation: func(state *ConnectionState) error {
+				return state.SetValue("", "secret_user_key", "null", ContextUser)
+			},
+			wantCode: codes.PermissionDenied,
+		},
+		{
+			name: "ContextUser sensitive property SetValue DEFAULT fails with PermissionDenied",
+			operation: func(state *ConnectionState) error {
+				return state.SetValue("", "secret_user_key", "default", ContextUser)
+			},
+			wantCode: codes.PermissionDenied,
+		},
+		{
+			name: "ContextUser sensitive property SetLocalValue fails with PermissionDenied",
+			operation: func(state *ConnectionState) error {
+				return state.SetLocalValue("", "secret_user_key", "new_secret", false)
+			},
+			wantCode: codes.PermissionDenied,
+		},
+		{
+			name: "ContextUser sensitive property SetStatementScopedValue fails with PermissionDenied",
+			operation: func(state *ConnectionState) error {
+				return state.SetStatementScopedValue("", "secret_user_key", "new_secret")
+			},
+			wantCode: codes.PermissionDenied,
+		},
+		{
+			name: "sensitive property SET TRANSACTION outside transaction fails with FailedPrecondition",
+			operation: func(state *ConnectionState) error {
+				return state.SetLocalValue("", "secret_user_key", "new_secret", true)
+			},
+			wantCode: codes.FailedPrecondition,
+		},
+		{
+			name: "sensitive property SET TRANSACTION inside transaction fails with PermissionDenied",
+			operation: func(state *ConnectionState) error {
+				if err := state.Begin(); err != nil {
+					return err
+				}
+				return state.SetLocalValue("", "secret_user_key", "new_secret", true)
+			},
+			wantCode: codes.PermissionDenied,
+		},
+		{
+			name: "normal property SetValue succeeds",
+			operation: func(state *ConnectionState) error {
+				return state.SetValue("", "normal_key", "new_normal", ContextUser)
+			},
+			wantCode: codes.OK,
+		},
+		{
+			name: "unknown property SetValue returns InvalidArgument",
+			operation: func(state *ConnectionState) error {
+				return state.SetValue("", "unknown_prop", "val", ContextUser)
+			},
+			wantCode: codes.InvalidArgument,
+		},
+	}
+
+	for _, tc := range setValueTests {
+		t.Run(tc.name, func(t *testing.T) {
+			state := setupSensitivePropertiesTestState(t)
+			err := tc.operation(state)
+			if g, w := status.Code(err), tc.wantCode; g != w {
+				t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
+func TestConnectionState_ExtractValues_Sensitive(t *testing.T) {
+	secretProp := CreateSensitiveConnectionProperty("secret_key", "Secret property", "", false, nil, ContextStartup, noop)
+	properties := map[string]ConnectionProperty{
+		secretProp.Key(): secretProp,
+	}
+
+	tests := []struct {
+		name      string
+		rawValues map[string]string
+		wantVal   string
+	}{
+		{
+			name:      "exact key name",
+			rawValues: map[string]string{"secret_key": "secret-val-1"},
+			wantVal:   "secret-val-1",
+		},
+		{
+			name:      "underscore stripped key name",
+			rawValues: map[string]string{"secretkey": "secret-val-2"},
+			wantVal:   "secret-val-2",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			extracted, err := ExtractValues(properties, tc.rawValues)
+			if err != nil {
+				t.Fatalf("ExtractValues failed: %v", err)
+			}
+			val, ok := extracted[secretProp.Key()]
+			if g, w := ok, true; g != w {
+				t.Fatalf("extracted map key presence mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			gotVal, err := val.GetValue()
+			if err != nil {
+				t.Fatalf("val.GetValue() failed: %v", err)
+			}
+			if g, w := gotVal, tc.wantVal; g != w {
+				t.Errorf("extracted value mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
+func TestConnectionState_Reset_SensitiveScrubbed(t *testing.T) {
+	secretProp := CreateSensitiveConnectionProperty("secret_key", "Secret property", "", false, nil, ContextStartup, noop)
+	normalProp := CreateConnectionProperty("normal_key", "Normal property", "default_normal", true, nil, ContextUser, noop)
+	properties := map[string]ConnectionProperty{
+		secretProp.Key(): secretProp,
+		normalProp.Key(): normalProp,
+	}
+
+	// Simulate scrubbed initialPropertyValues where the sensitive property was deleted.
+	state, err := NewConnectionState(TypeTransactional, properties, map[string]ConnectionPropertyValue{})
+	if err != nil {
+		t.Fatalf("NewConnectionState failed: %v", err)
+	}
+	if err := state.SetValue("", "normal_key", "changed", ContextUser); err != nil {
+		t.Fatalf("SetValue failed: %v", err)
+	}
+	if err := state.Reset(ContextStartup); err != nil {
+		t.Fatalf("Reset(ContextStartup) failed: %v", err)
+	}
+
+	val, hasValue, err := state.GetValue("", "secret_key")
+	if err != nil {
+		t.Fatalf("GetValue(secret_key) failed: %v", err)
+	}
+	if g, w := hasValue, false; g != w {
+		t.Errorf("secret_key hasValue after Reset mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := val, ""; g != w {
+		t.Errorf("secret_key value after Reset mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}

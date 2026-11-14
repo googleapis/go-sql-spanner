@@ -69,6 +69,11 @@ func (s *stmt) Exec(_ []driver.Value) (driver.Result, error) {
 }
 
 func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
+	cleanup, err := s.conn.applyStatementScopedValues(s.execOptions)
+	if err != nil {
+		return nil, s.conn.handleTxError(err)
+	}
+	defer cleanup()
 	res, err := s.conn.execParsed(ctx, s.query, s.parsedStatement, s.statementInfo, s.execOptions, args)
 	return res, checkAndEnrichError(s.conn.isPostgreSQL(), err)
 }
@@ -78,6 +83,11 @@ func (s *stmt) Query(_ []driver.Value) (driver.Rows, error) {
 }
 
 func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
+	cleanup, err := s.conn.applyStatementScopedValues(s.execOptions)
+	if err != nil {
+		return nil, s.conn.handleTxError(err)
+	}
+	defer cleanup()
 	rows, err := s.conn.queryParsed(ctx, s.query, s.parsedStatement, s.statementInfo, s.execOptions, args)
 	return rows, checkAndEnrichError(s.conn.isPostgreSQL(), err)
 }
