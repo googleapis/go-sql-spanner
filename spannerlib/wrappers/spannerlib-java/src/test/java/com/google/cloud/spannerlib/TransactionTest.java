@@ -111,8 +111,8 @@ public class TransactionTest extends AbstractSpannerLibTest {
       // There should be no BeginTransaction requests, as the transaction start is inlined with the
       // first statement.
       assertEquals(0, mockSpanner.countRequestsOfType(BeginTransactionRequest.class));
-      assertEquals(1, mockSpanner.countRequestsOfType(ExecuteSqlRequest.class));
-      ExecuteSqlRequest request = mockSpanner.getRequestsOfType(ExecuteSqlRequest.class).get(0);
+      assertEquals(1, countExecuteSqlRequests());
+      ExecuteSqlRequest request = getExecuteSqlRequests().get(0);
       assertTrue(request.hasTransaction());
       assertTrue(request.getTransaction().hasBegin());
       assertTrue(request.getTransaction().getBegin().hasReadWrite());
@@ -147,8 +147,8 @@ public class TransactionTest extends AbstractSpannerLibTest {
     // There should be no BeginTransaction requests, as the transaction start is inlined with the
     // first statement.
     assertEquals(0, mockSpanner.countRequestsOfType(BeginTransactionRequest.class));
-    assertEquals(1, mockSpanner.countRequestsOfType(ExecuteSqlRequest.class));
-    ExecuteSqlRequest request = mockSpanner.getRequestsOfType(ExecuteSqlRequest.class).get(0);
+    assertEquals(1, countExecuteSqlRequests());
+    ExecuteSqlRequest request = getExecuteSqlRequests().get(0);
     assertTrue(request.hasTransaction());
     assertTrue(request.getTransaction().hasBegin());
     assertTrue(request.getTransaction().getBegin().hasReadOnly());

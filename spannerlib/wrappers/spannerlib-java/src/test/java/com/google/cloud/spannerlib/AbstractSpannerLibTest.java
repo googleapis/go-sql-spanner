@@ -22,6 +22,7 @@ import com.google.cloud.spanner.connection.AbstractMockServerTest;
 import com.google.common.collect.ImmutableList;
 import com.google.protobuf.ListValue;
 import com.google.protobuf.Value;
+import com.google.spanner.v1.ExecuteSqlRequest;
 import com.google.spanner.v1.ResultSet;
 import com.google.spanner.v1.ResultSetMetadata;
 import com.google.spanner.v1.StructType;
@@ -33,6 +34,7 @@ import io.grpc.ManagedChannelBuilder;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.stream.Collectors;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -44,6 +46,10 @@ import org.junit.runners.Parameterized.Parameters;
 
 @RunWith(Parameterized.class)
 public abstract class AbstractSpannerLibTest extends AbstractMockServerTest {
+  protected static final String SELECT_DIALECT_SQL =
+      "select option_value from information_schema.database_options"
+          + " where option_name='database_dialect'";
+
   public enum LibraryType {
     SHARED,
     GRPC,
@@ -57,9 +63,7 @@ public abstract class AbstractSpannerLibTest extends AbstractMockServerTest {
   public static void startGrpcServer() throws Exception {
     mockSpanner.putStatementResult(
         StatementResult.query(
-            Statement.of(
-                "select option_value from information_schema.database_options"
-                    + " where option_name='database_dialect'"),
+            Statement.of(SELECT_DIALECT_SQL),
             ResultSet.newBuilder()
                 .setMetadata(
                     ResultSetMetadata.newBuilder()
@@ -135,5 +139,15 @@ public abstract class AbstractSpannerLibTest extends AbstractMockServerTest {
   @After
   public void cleanup() {
     mockSpanner.removeAllExecutionTimes();
+  }
+
+  protected static List<ExecuteSqlRequest> getExecuteSqlRequests() {
+    return mockSpanner.getRequestsOfType(ExecuteSqlRequest.class).stream()
+        .filter(request -> !SELECT_DIALECT_SQL.equals(request.getSql()))
+        .collect(Collectors.toList());
+  }
+
+  protected static int countExecuteSqlRequests() {
+    return getExecuteSqlRequests().size();
   }
 }
