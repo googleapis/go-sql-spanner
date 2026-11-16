@@ -15,6 +15,8 @@
 package connectionstate
 
 import (
+	"strings"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -50,6 +52,9 @@ type ConnectionProperty interface {
 	// Context returns the Context where the property is allowed to be updated (e.g. only at startup or during the
 	// lifetime of a connection).
 	Context() Context
+	// Internal indicates whether this property is internal to the driver and not exposed
+	// to SQL statements or DSN extraction.
+	Internal() bool
 	// CreateDefaultValue creates an initial value of the property with the default value of the property as the current
 	// and reset value.
 	CreateDefaultValue() ConnectionPropertyValue
@@ -118,6 +123,35 @@ func CreateConnectionPropertyWithExtension[T comparable](extension, name, descri
 	}
 }
 
+// CreateInternalConnectionProperty creates a new internal-only ConnectionProperty with ContextUser.
+// Internal properties are used by the driver to store programmatic Go values
+// (such as context.Context or query metadata) in ConnectionState.
+// They are not exposed to SQL statements (SET/SHOW/RESET) or DSN parameter extraction.
+// If an internal property stores a pointer type or composite struct, it should be treated
+// as immutable and replaced via setters rather than mutated in-place.
+func CreateInternalConnectionProperty[T comparable](name string, defaultValue T) (*TypedConnectionProperty[T], error) {
+	return CreateInternalConnectionPropertyWithContext(name, defaultValue, ContextUser)
+}
+
+// CreateInternalConnectionPropertyWithContext creates a new internal-only ConnectionProperty with the given context.
+func CreateInternalConnectionPropertyWithContext[T comparable](name string, defaultValue T, context Context) (*TypedConnectionProperty[T], error) {
+	trimmedName := strings.TrimSpace(name)
+	if trimmedName == "" {
+		return nil, status.Error(codes.InvalidArgument, "internal connection property name cannot be empty")
+	}
+	if strings.Contains(trimmedName, ".") {
+		return nil, status.Errorf(codes.InvalidArgument, "internal connection property name %q cannot contain '.'", name)
+	}
+	return &TypedConnectionProperty[T]{
+		key:             strings.ToLower(trimmedName),
+		name:            trimmedName,
+		defaultValue:    defaultValue,
+		hasDefaultValue: true,
+		context:         context,
+		internal:        true,
+	}, nil
+}
+
 var _ ConnectionProperty = (*TypedConnectionProperty[any])(nil)
 
 // TypedConnectionProperty implements the ConnectionProperty interface.
@@ -136,6 +170,11 @@ type TypedConnectionProperty[T comparable] struct {
 	validValues     []T
 	context         Context
 	converter       func(string) (T, error)
+	internal        bool
+}
+
+func (p *TypedConnectionProperty[T]) Internal() bool {
+	return p.internal
 }
 
 func (p *TypedConnectionProperty[T]) String() string {
@@ -184,6 +223,9 @@ func (p *TypedConnectionProperty[T]) CreateTypedInitialValue(value T) Connection
 }
 
 func (p *TypedConnectionProperty[T]) Convert(value string) (any, error) {
+	if p.converter == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "property %q does not support string conversion", p.Key())
+	}
 	return p.converter(value)
 }
 
@@ -195,6 +237,9 @@ func (p *TypedConnectionProperty[T]) GetValue(state *ConnectionState) (any, bool
 // GetValueOrDefault returns the current value of the property in the given ConnectionState.
 // It returns the default of the property if no value is found.
 func (p *TypedConnectionProperty[T]) GetValueOrDefault(state *ConnectionState) T {
+	if state == nil {
+		return p.defaultValue
+	}
 	value, _ := state.value(p /*returnErrForUnknownProperty=*/, false)
 	if value == nil {
 		return p.defaultValue
@@ -210,6 +255,9 @@ func (p *TypedConnectionProperty[T]) GetValueOrDefault(state *ConnectionState) T
 // The function returns the default value if the property exists, but there is no value for the property in the given
 // ConnectionState.
 func (p *TypedConnectionProperty[T]) GetConnectionPropertyValue(state *ConnectionState) ConnectionPropertyValue {
+	if state == nil {
+		return nil
+	}
 	value, _ := state.value(p /*returnErrForUnknownProperty=*/, false)
 	if value == nil {
 		return nil
@@ -223,6 +271,9 @@ func (p *TypedConnectionProperty[T]) GetConnectionPropertyValue(state *Connectio
 // GetValueOrError returns the current value of the property in the given ConnectionState.
 // It returns an error if no value is found.
 func (p *TypedConnectionProperty[T]) GetValueOrError(state *ConnectionState) (T, bool, error) {
+	if state == nil {
+		return p.zeroAndErr(status.Error(codes.InvalidArgument, "connection state is nil"))
+	}
 	value, err := state.value(p /*returnErrForUnknownProperty=*/, true)
 	if err != nil {
 		return p.zeroAndErr(err)
@@ -242,6 +293,9 @@ func (p *TypedConnectionProperty[T]) GetValueOrError(state *ConnectionState) (T,
 // be ContextUser if the reset happens during the lifetime of a connection, and ContextStartup if the reset happens at
 // the creation of a connection.
 func (p *TypedConnectionProperty[T]) ResetValue(state *ConnectionState, context Context) error {
+	if state == nil {
+		return status.Error(codes.InvalidArgument, "connection state is nil")
+	}
 	value, _ := state.value(p /*returnErrForUnknownProperty=*/, false)
 	if value == nil {
 		return p.setConnectionStateValue(state, p.defaultValue, setValueCommandReset, context)
@@ -278,6 +332,9 @@ func (p *TypedConnectionProperty[T]) SetValue(state *ConnectionState, value T, c
 }
 
 func (p *TypedConnectionProperty[T]) setConnectionStateValue(state *ConnectionState, value T, setValueCommand setValueCommand, context Context) error {
+	if state == nil {
+		return status.Error(codes.InvalidArgument, "connection state is nil")
+	}
 	if p.context < context {
 		return status.Errorf(codes.FailedPrecondition, "property has context %s and cannot be set in context %s", p.context, context)
 	}
@@ -310,6 +367,9 @@ func (p *TypedConnectionProperty[T]) setConnectionStateValue(state *ConnectionSt
 
 // SetLocalUntypedValue implements ConnectionProperty.SetLocalUntypedValue.
 func (p *TypedConnectionProperty[T]) SetLocalUntypedValue(state *ConnectionState, value any) error {
+	if state == nil {
+		return status.Error(codes.InvalidArgument, "connection state is nil")
+	}
 	valueT, ok := value.(T)
 	if !ok {
 		return status.Errorf(codes.InvalidArgument, "invalid type for value: %T", value)
@@ -319,6 +379,9 @@ func (p *TypedConnectionProperty[T]) SetLocalUntypedValue(state *ConnectionState
 
 // SetStatementScopedUntypedValue implements ConnectionProperty.SetStatementScopedUntypedValue.
 func (p *TypedConnectionProperty[T]) SetStatementScopedUntypedValue(state *ConnectionState, value any) error {
+	if state == nil {
+		return status.Error(codes.InvalidArgument, "connection state is nil")
+	}
 	valueT, ok := value.(T)
 	if !ok {
 		return status.Errorf(codes.InvalidArgument, "invalid type for value: %T", value)
@@ -328,11 +391,17 @@ func (p *TypedConnectionProperty[T]) SetStatementScopedUntypedValue(state *Conne
 
 // SetLocalDefaultValue implements ConnectionProperty.SetLocalDefaultValue.
 func (p *TypedConnectionProperty[T]) SetLocalDefaultValue(state *ConnectionState) error {
+	if state == nil {
+		return status.Error(codes.InvalidArgument, "connection state is nil")
+	}
 	return p.setLocalValue(state, p.defaultValue, setValueCommandDefault)
 }
 
 // SetStatementScopedDefaultValue implements ConnectionProperty.SetStatementScopedDefaultValue.
 func (p *TypedConnectionProperty[T]) SetStatementScopedDefaultValue(state *ConnectionState) error {
+	if state == nil {
+		return status.Error(codes.InvalidArgument, "connection state is nil")
+	}
 	return p.setStatementScopedValue(state, p.defaultValue, setValueCommandDefault)
 }
 
@@ -355,6 +424,9 @@ func (p *TypedConnectionProperty[T]) ResetStatementScopedValue(state *Connection
 }
 
 func (p *TypedConnectionProperty[T]) getResetValue(state *ConnectionState) (T, error) {
+	if state == nil {
+		return p.defaultValue, status.Error(codes.InvalidArgument, "connection state is nil")
+	}
 	value, err := state.value(p /*returnErrForUnknownProperty=*/, true)
 	if err != nil {
 		return p.defaultValue, err
@@ -377,6 +449,9 @@ func (p *TypedConnectionProperty[T]) SetLocalValue(state *ConnectionState, value
 }
 
 func (p *TypedConnectionProperty[T]) setLocalValue(state *ConnectionState, value T, setValueCommand setValueCommand) error {
+	if state == nil {
+		return status.Error(codes.InvalidArgument, "connection state is nil")
+	}
 	if p.context < ContextUser {
 		return status.Error(codes.FailedPrecondition, "SetLocalValue is only supported for properties with context USER or higher")
 	}
@@ -397,6 +472,9 @@ func (p *TypedConnectionProperty[T]) SetStatementScopedValue(state *ConnectionSt
 }
 
 func (p *TypedConnectionProperty[T]) setStatementScopedValue(state *ConnectionState, value T, setValueCommand setValueCommand) error {
+	if state == nil {
+		return status.Error(codes.InvalidArgument, "connection state is nil")
+	}
 	if p.context < ContextUser {
 		return status.Error(codes.FailedPrecondition, "SetStatementScopedValue is only supported for properties with context USER or higher")
 	}
@@ -414,10 +492,19 @@ func (p *TypedConnectionProperty[T]) setValue(state *ConnectionState, currentPro
 	if !ok {
 		existingValue, ok := state.properties[p.key]
 		if !ok {
-			if p.extension == "" || setValueCommand == setValueCommandReset {
-				return unknownPropertyErr(p)
+			if !p.internal {
+				if p.extension == "" || setValueCommand == setValueCommandReset {
+					return unknownPropertyErr(p.key)
+				}
 			}
-			newValue = &connectionPropertyValue[T]{connectionProperty: p, removeAtReset: true}
+			newValue = &connectionPropertyValue[T]{
+				connectionProperty: p,
+				resetValue:         p.defaultValue,
+				hasResetValue:      p.hasDefaultValue,
+				value:              p.defaultValue,
+				hasValue:           p.hasDefaultValue,
+				removeAtReset:      !p.internal,
+			}
 		} else {
 			newValue = existingValue.Copy()
 		}
@@ -446,8 +533,8 @@ func (p *TypedConnectionProperty[T]) checkValidValue(value T) error {
 	return status.Errorf(codes.InvalidArgument, "value %v is not a valid value for %s", value, p)
 }
 
-func unknownPropertyErr(p ConnectionProperty) error {
-	return status.Errorf(codes.InvalidArgument, "unrecognized configuration property %q", p.Key())
+func unknownPropertyErr(key string) error {
+	return status.Errorf(codes.InvalidArgument, "unrecognized configuration property %q", key)
 }
 
 // ConnectionPropertyValue is the public interface for connection state property values.
@@ -499,6 +586,7 @@ func (v *connectionPropertyValue[T]) Copy() ConnectionPropertyValue {
 		value:              v.value,
 		hasValue:           v.hasValue,
 		removeAtReset:      v.removeAtReset,
+		removed:            v.removed,
 	}
 }
 
@@ -539,11 +627,13 @@ func (v *connectionPropertyValue[T]) SetValue(value any, setValueCommand setValu
 	switch setValueCommand {
 	case setValueCommandSet:
 		v.hasValue = true
+		v.removed = false
 	case setValueCommandReset:
 		v.hasValue = v.hasResetValue
 		v.removed = v.removeAtReset
 	case setValueCommandDefault:
 		v.hasValue = v.connectionProperty.hasDefaultValue
+		v.removed = false
 	}
 	return nil
 }
