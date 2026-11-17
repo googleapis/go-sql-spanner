@@ -115,8 +115,8 @@ public class RowsTest extends AbstractSpannerLibTest {
       }
     }
 
-    assertEquals(1, mockSpanner.countRequestsOfType(ExecuteSqlRequest.class));
-    ExecuteSqlRequest request = mockSpanner.getRequestsOfType(ExecuteSqlRequest.class).get(0);
+    assertEquals(1, countExecuteSqlRequests());
+    ExecuteSqlRequest request = getExecuteSqlRequests().get(0);
     assertEquals(sql, request.getSql());
     assertTrue(request.hasTransaction());
     assertTrue(request.getTransaction().hasSingleUse());
@@ -153,8 +153,8 @@ public class RowsTest extends AbstractSpannerLibTest {
       }
     }
 
-    assertEquals(1, mockSpanner.countRequestsOfType(ExecuteSqlRequest.class));
-    ExecuteSqlRequest request = mockSpanner.getRequestsOfType(ExecuteSqlRequest.class).get(0);
+    assertEquals(1, countExecuteSqlRequests());
+    ExecuteSqlRequest request = getExecuteSqlRequests().get(0);
     assertEquals(sql, request.getSql());
     assertTrue(request.hasTransaction());
     assertTrue(request.getTransaction().hasSingleUse());
@@ -194,8 +194,8 @@ public class RowsTest extends AbstractSpannerLibTest {
       }
     }
 
-    assertEquals(1, mockSpanner.countRequestsOfType(ExecuteSqlRequest.class));
-    ExecuteSqlRequest request = mockSpanner.getRequestsOfType(ExecuteSqlRequest.class).get(0);
+    assertEquals(1, countExecuteSqlRequests());
+    ExecuteSqlRequest request = getExecuteSqlRequests().get(0);
     assertEquals(sql, request.getSql());
     assertTrue(request.hasTransaction());
     assertTrue(request.getTransaction().hasBegin());
@@ -235,7 +235,7 @@ public class RowsTest extends AbstractSpannerLibTest {
       }
     }
 
-    assertEquals(0, mockSpanner.countRequestsOfType(ExecuteSqlRequest.class));
+    assertEquals(0, countExecuteSqlRequests());
     assertEquals(1, mockDatabaseAdmin.getRequests().size());
   }
 
@@ -347,8 +347,8 @@ public class RowsTest extends AbstractSpannerLibTest {
       }
     }
 
-    assertEquals(2, mockSpanner.countRequestsOfType(ExecuteSqlRequest.class));
-    ExecuteSqlRequest selectRequest = mockSpanner.getRequestsOfType(ExecuteSqlRequest.class).get(0);
+    assertEquals(2, countExecuteSqlRequests());
+    ExecuteSqlRequest selectRequest = getExecuteSqlRequests().get(0);
     assertEquals(selectSql, selectRequest.getSql());
     assertTrue(selectRequest.hasTransaction());
     // The library uses inline-begin-transaction, even if a transaction is started by executing a
@@ -356,7 +356,7 @@ public class RowsTest extends AbstractSpannerLibTest {
     assertTrue(selectRequest.getTransaction().hasBegin());
     assertTrue(selectRequest.getTransaction().getBegin().hasReadWrite());
 
-    ExecuteSqlRequest updateRequest = mockSpanner.getRequestsOfType(ExecuteSqlRequest.class).get(1);
+    ExecuteSqlRequest updateRequest = getExecuteSqlRequests().get(1);
     assertEquals(updateSql, updateRequest.getSql());
     assertTrue(updateRequest.hasTransaction());
     assertTrue(updateRequest.getTransaction().hasId());
@@ -404,10 +404,10 @@ public class RowsTest extends AbstractSpannerLibTest {
       }
     }
 
-    assertEquals(2, mockSpanner.countRequestsOfType(ExecuteSqlRequest.class));
-    ExecuteSqlRequest request1 = mockSpanner.getRequestsOfType(ExecuteSqlRequest.class).get(0);
+    assertEquals(2, countExecuteSqlRequests());
+    ExecuteSqlRequest request1 = getExecuteSqlRequests().get(0);
     assertEquals(random1, request1.getSql());
-    ExecuteSqlRequest request2 = mockSpanner.getRequestsOfType(ExecuteSqlRequest.class).get(1);
+    ExecuteSqlRequest request2 = getExecuteSqlRequests().get(1);
     assertEquals(random2, request2.getSql());
   }
 
@@ -490,10 +490,10 @@ public class RowsTest extends AbstractSpannerLibTest {
 
     assertEquals(readRowsPerResultSet * 2, totalReadRows);
 
-    assertEquals(2, mockSpanner.countRequestsOfType(ExecuteSqlRequest.class));
-    ExecuteSqlRequest request1 = mockSpanner.getRequestsOfType(ExecuteSqlRequest.class).get(0);
+    assertEquals(2, countExecuteSqlRequests());
+    ExecuteSqlRequest request1 = getExecuteSqlRequests().get(0);
     assertEquals(random1, request1.getSql());
-    ExecuteSqlRequest request2 = mockSpanner.getRequestsOfType(ExecuteSqlRequest.class).get(1);
+    ExecuteSqlRequest request2 = getExecuteSqlRequests().get(1);
     assertEquals(random2, request2.getSql());
   }
 }

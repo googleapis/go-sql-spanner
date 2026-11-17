@@ -727,6 +727,17 @@ func TestNilBackendTransactionSafety(t *testing.T) {
 			t.Errorf("Query nil roTx error code mismatch\nGot:  %v\nWant: %v", g, w)
 		}
 
+		roTxWithBoOnly := &readOnlyTransaction{
+			roTx:   nil,
+			boTx:   &spanner.BatchReadOnlyTransaction{},
+			logger: noopLogger,
+			state:  createInitialConnectionState(connectionstate.TypeTransactional, map[string]connectionstate.ConnectionPropertyValue{}),
+		}
+		_, err = roTxWithBoOnly.Query(ctx, selectStmt, parser.StatementTypeQuery, &ExecOptions{})
+		if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+			t.Errorf("Query nil roTx with boTx error code mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
 		dRo := &delegatingTransaction{
 			contextTransaction: roTx,
 		}
