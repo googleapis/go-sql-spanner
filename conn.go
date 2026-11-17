@@ -1744,15 +1744,11 @@ func (c *conn) activateTransaction() (contextTransaction, error) {
 			ro = c.client.ReadOnlyTransaction().WithBeginTransactionOption(beginTxOpt)
 		}
 		return &readOnlyTransaction{
-			conn:   c,
 			roTx:   ro,
 			boTx:   bo,
 			logger: logger,
 			close:  closeCallback,
-			timestampBoundCallback: func() spanner.TimestampBound {
-				return propertyReadOnlyStaleness.GetValueOrDefault(c.state)
-			},
-			state: c.state,
+			state:  c.state,
 		}, nil
 	}
 

@@ -15,9 +15,12 @@
 package spannerdriver
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -702,6 +705,140 @@ func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
 	return c, nil
 }
 
+const maxCredentialFileSize = 10 * 1024 * 1024 // 10MB limit
+
+// credentialPayload represents the minimal JSON structure needed to validate credential types.
+type credentialPayload struct {
+	Type string `json:"type"`
+}
+
+func isJSONObject(data []byte) bool {
+	trimmed := bytes.TrimSpace(data)
+	return len(trimmed) >= 2 && trimmed[0] == '{' && trimmed[len(trimmed)-1] == '}' && json.Valid(trimmed)
+}
+
+func parseAndValidateCredentialType(data []byte) (option.CredentialsType, error) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return "", status.Errorf(codes.InvalidArgument, "credentials data is empty")
+	}
+	if !isJSONObject(trimmed) {
+		return "", status.Errorf(codes.InvalidArgument, "credentials data must be a valid JSON object")
+	}
+	var payload credentialPayload
+	if err := json.Unmarshal(trimmed, &payload); err != nil {
+		return "", status.Errorf(codes.InvalidArgument, "failed to parse credentials JSON: %v", err)
+	}
+	if payload.Type == "" {
+		return "", status.Errorf(codes.InvalidArgument, "credentials JSON does not contain a 'type' field")
+	}
+	switch payload.Type {
+	case string(option.ServiceAccount):
+		return option.ServiceAccount, nil
+	case string(option.AuthorizedUser):
+		return option.AuthorizedUser, nil
+	default:
+		return "", status.Errorf(codes.InvalidArgument,
+			"unsupported credential type %q; only 'service_account' and 'authorized_user' are supported via connection properties",
+			payload.Type)
+	}
+}
+
+func decodeCredentialJSON(raw string) ([]byte, error) {
+	if len(raw) > maxCredentialFileSize {
+		return nil, status.Errorf(codes.InvalidArgument, "credentials_json exceeds maximum allowed size of %d bytes", maxCredentialFileSize)
+	}
+	trimmed := strings.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "credentials data is empty")
+	}
+	data := []byte(trimmed)
+	if isJSONObject(data) {
+		return data, nil
+	}
+	encodings := []*base64.Encoding{
+		base64.StdEncoding,
+		base64.URLEncoding,
+		base64.RawStdEncoding,
+		base64.RawURLEncoding,
+	}
+	candidates := []string{trimmed}
+	if strings.Contains(trimmed, " ") {
+		candidates = append(candidates, strings.ReplaceAll(trimmed, " ", "+"))
+	}
+	for _, candidate := range candidates {
+		for _, encoding := range encodings {
+			if decoded, err := encoding.DecodeString(candidate); err == nil && isJSONObject(decoded) {
+				return decoded, nil
+			}
+		}
+	}
+	return nil, status.Errorf(codes.InvalidArgument, "credentials_json must be a valid JSON object or base64-encoded JSON object")
+}
+
+func readBoundedCredentialFile(filename string) ([]byte, error) {
+	fileInfo, err := os.Stat(filename)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "cannot read credentials file %q: %v", filename, err)
+	}
+	if !fileInfo.Mode().IsRegular() {
+		return nil, status.Errorf(codes.InvalidArgument, "credentials file %q is not a regular file", filename)
+	}
+	if fileInfo.Size() > maxCredentialFileSize {
+		return nil, status.Errorf(codes.InvalidArgument, "credentials file %q exceeds maximum allowed size of %d bytes", filename, maxCredentialFileSize)
+	}
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "cannot read credentials file %q: %v", filename, err)
+	}
+	defer file.Close()
+
+	if fi, err := file.Stat(); err != nil || !fi.Mode().IsRegular() {
+		return nil, status.Errorf(codes.InvalidArgument, "credentials file %q is not a regular file", filename)
+	}
+
+	data, err := io.ReadAll(io.LimitReader(file, maxCredentialFileSize+1))
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "cannot read credentials file %q: %v", filename, err)
+	}
+	if int64(len(data)) > maxCredentialFileSize {
+		return nil, status.Errorf(codes.InvalidArgument, "credentials file %q exceeds maximum allowed size of %d bytes", filename, maxCredentialFileSize)
+	}
+	if len(data) == 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "credentials data is empty")
+	}
+	return data, nil
+}
+
+func resolveAndValidateCredentials(credentialsFile, credentialsJSON string) ([]option.ClientOption, error) {
+	if credentialsFile != "" && credentialsJSON != "" {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "cannot specify both 'credentials' and 'credentials_json' in connection properties"))
+	}
+	if credentialsFile != "" {
+		data, err := readBoundedCredentialFile(credentialsFile)
+		if err != nil {
+			return nil, spanner.ToSpannerError(err)
+		}
+		credType, err := parseAndValidateCredentialType(data)
+		if err != nil {
+			return nil, spanner.ToSpannerError(err)
+		}
+		return []option.ClientOption{option.WithAuthCredentialsFile(credType, credentialsFile)}, nil
+	}
+	if credentialsJSON != "" {
+		data, err := decodeCredentialJSON(credentialsJSON)
+		if err != nil {
+			return nil, spanner.ToSpannerError(err)
+		}
+		credType, err := parseAndValidateCredentialType(data)
+		if err != nil {
+			return nil, spanner.ToSpannerError(err)
+		}
+		return []option.ClientOption{option.WithAuthCredentialsJSON(credType, data)}, nil
+	}
+	return nil, nil
+}
+
 func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, error) {
 	opts := make([]option.ClientOption, 0)
 	initialPropertyValues, err := connectionstate.ExtractValues(connectionProperties, connectorConfig.Params)
@@ -718,16 +855,14 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	if connectorConfig.Authority != "" {
 		opts = append(opts, option.WithGRPCDialOption(grpc.WithAuthority(connectorConfig.Authority)))
 	}
-	if val := propertyCredentials.GetValueOrDefault(state); val != "" {
-		// TODO: Replace with option.WithAuthCredentialsFile and a config option to fall back to this.
-		//lint:ignore SA1019 Needs a change that is backwards compatible
-		opts = append(opts, option.WithCredentialsFile(val))
+	credOpts, err := resolveAndValidateCredentials(
+		propertyCredentials.GetValueOrDefault(state),
+		propertyCredentialsJson.GetValueOrDefault(state),
+	)
+	if err != nil {
+		return nil, err
 	}
-	if val := propertyCredentialsJson.GetValueOrDefault(state); val != "" {
-		// TODO: Replace with option.WithAuthCredentialsJSON and a config option to fall back to this.
-		//lint:ignore SA1019 Needs a change that is backwards compatible
-		opts = append(opts, option.WithCredentialsJSON([]byte(val)))
-	}
+	opts = append(opts, credOpts...)
 	config := spanner.ClientConfig{
 		//lint:ignore SA1019 Needs a change that is backwards compatible
 		SessionPoolConfig: spanner.DefaultSessionPoolConfig,

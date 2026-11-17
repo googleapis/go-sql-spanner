@@ -551,7 +551,9 @@ var propertyAuthority = createConnectionProperty(
 var propertyCredentials = createConnectionProperty(
 	"credentials",
 	"The location of the credentials file to use for this connection. If neither this property or encoded "+
-		"credentials are set, the connection will use the default Google Cloud credentials for the runtime environment.",
+		"credentials are set, the connection will use the default Google Cloud credentials for the runtime environment. "+
+		"Only 'service_account' and 'authorized_user' credential types are supported via connection properties; "+
+		"for other credential types (such as Workload Identity Federation), use GOOGLE_APPLICATION_CREDENTIALS or Configurator.",
 	"",
 	false,
 	nil,
@@ -560,7 +562,9 @@ var propertyCredentials = createConnectionProperty(
 )
 var propertyCredentialsJson = createConnectionProperty(
 	"credentials_json",
-	"Service account or refresh token JSON credentials.",
+	"Service account or refresh token JSON credentials (in raw JSON or base64-encoded format). "+
+		"Only 'service_account' and 'authorized_user' credential types are supported via connection properties; "+
+		"for other credential types (such as Workload Identity Federation), use GOOGLE_APPLICATION_CREDENTIALS or Configurator.",
 	"",
 	false,
 	nil,
