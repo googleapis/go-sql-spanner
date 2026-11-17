@@ -79,6 +79,9 @@ func (it *checksumRowIterator) Next() (row *spanner.Row, err error) {
 	if it.stopped {
 		return nil, errNextAfterSTop
 	}
+	if err := it.tx.ensureReplayed(it.ctx); err != nil {
+		return nil, err
+	}
 	err = it.tx.runWithRetry(it.ctx, func(ctx context.Context) error {
 		row, err = it.RowIterator.Next()
 		// spanner.ErrCode returns codes.Ok for nil errors.
