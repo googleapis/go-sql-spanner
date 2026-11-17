@@ -497,7 +497,6 @@ func TestExtractDnsParts(t *testing.T) {
 					t.Errorf("connector Spanner client config mismatch for %q\n%v", tc.input, diff)
 				}
 				actualConfig := conn.connectorConfig
-				actualConfig.name = ""
 				if diff := cmp.Diff(actualConfig, tc.wantConnectorConfig, cmp.AllowUnexported(ConnectorConfig{})); diff != "" {
 					t.Errorf("actual connector config mismatch for %q\n%v", tc.input, diff)
 				}
@@ -941,7 +940,6 @@ func TestOmniConnectorConfig(t *testing.T) {
 				t.Errorf("connector Spanner client config mismatch for %q\n%v", tc.input, diff)
 			}
 			actualConfig := conn.connectorConfig
-			actualConfig.name = ""
 			if diff := cmp.Diff(actualConfig, tc.wantConnectorConfig, cmp.AllowUnexported(ConnectorConfig{})); diff != "" {
 				t.Errorf("actual connector config mismatch for %q\n%v", tc.input, diff)
 			}

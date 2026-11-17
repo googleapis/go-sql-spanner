@@ -121,6 +121,16 @@ func ExtractValues(properties map[string]ConnectionProperty, values map[string]s
 	return result, nil
 }
 
+// SanitizePropertyConversionError avoids echoing parameter values that look like additional
+// connection string parameters (such as 'type=CLOUD&credentials_json=SECRET' when '&' is
+// mistakenly used instead of ';'), so trailing secrets are not included in validation errors.
+func SanitizePropertyConversionError(key, rawValue string, err error) error {
+	if err != nil && strings.ContainsAny(rawValue, "=&?") {
+		return status.Errorf(codes.InvalidArgument, "invalid value for connection property %q", key)
+	}
+	return err
+}
+
 func extractValue(prop ConnectionProperty, values map[string]string) (ConnectionPropertyValue, error) {
 	strVal, ok := values[prop.Key()]
 	if !ok {
@@ -132,7 +142,7 @@ func extractValue(prop ConnectionProperty, values map[string]string) (Connection
 	}
 	val, err := prop.Convert(strVal)
 	if err != nil {
-		return nil, err
+		return nil, SanitizePropertyConversionError(prop.Key(), strVal, err)
 	}
 	return prop.CreateInitialValue(val)
 }
@@ -173,9 +183,9 @@ func toKey(extension, name string) (key string) {
 }
 
 func (cs *ConnectionState) GetValue(extension, name string) (any, bool, error) {
-	prop := cs.findProperty(extension, name)
-	if prop == nil {
-		return nil, false, unknownPropertyErr(toKey(extension, name))
+	prop, err := cs.FindProperty(extension, name)
+	if err != nil {
+		return nil, false, err
 	}
 	return prop.GetValue(cs)
 }
@@ -206,16 +216,19 @@ const (
 var errInvalidValueType = status.Error(codes.InvalidArgument, "invalid value type")
 
 func (cs *ConnectionState) setValue(extension, name, value string, context Context, valueType valueType) error {
+	prop, err := cs.FindProperty(extension, name)
+	if err != nil {
+		return err
+	}
+	if context >= ContextUser && prop.IsSensitive() {
+		return errCannotSetSensitiveProperty(prop.Key())
+	}
 	if extension == "" {
 		if a, ok := cs.aliases[strings.ToLower(name)]; ok {
 			if a.readOnly {
 				return status.Errorf(codes.InvalidArgument, "variable %q is read-only", name)
 			}
 		}
-	}
-	prop := cs.findProperty(extension, name)
-	if prop == nil {
-		return unknownPropertyErr(toKey(extension, name))
 	}
 	// The special value null (or NULL) is used to set a connection property to the null value of the property (the
 	// property's default value).
@@ -264,7 +277,9 @@ func (cs *ConnectionState) setValue(extension, name, value string, context Conte
 
 }
 
-func (cs *ConnectionState) findProperty(extension, name string) ConnectionProperty {
+// FindProperty returns the ConnectionProperty for the given extension and name.
+// It resolves any aliases defined on the connection state.
+func (cs *ConnectionState) FindProperty(extension, name string) (ConnectionProperty, error) {
 	if extension == "" {
 		if a, ok := cs.aliases[strings.ToLower(name)]; ok {
 			name = a.target
@@ -273,9 +288,9 @@ func (cs *ConnectionState) findProperty(extension, name string) ConnectionProper
 	key := toKey(extension, name)
 	if existingValue := cs.findExistingPropertyValue(key); existingValue != nil {
 		if prop := existingValue.ConnectionProperty(); !prop.Internal() {
-			return prop
+			return prop, nil
 		}
-		return nil
+		return nil, unknownPropertyErr(key)
 	}
 	if extension != "" {
 		return &TypedConnectionProperty[string]{
@@ -284,9 +299,9 @@ func (cs *ConnectionState) findProperty(extension, name string) ConnectionProper
 			name:      name,
 			context:   ContextUser,
 			converter: ConvertString,
-		}
+		}, nil
 	}
-	return nil
+	return nil, unknownPropertyErr(key)
 }
 
 func (cs *ConnectionState) findExistingPropertyValue(key string) ConnectionPropertyValue {
