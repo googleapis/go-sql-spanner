@@ -107,6 +107,9 @@ func (cs *ConnectionState) AddAlias(name, target string, readOnly bool) {
 func ExtractValues(properties map[string]ConnectionProperty, values map[string]string) (map[string]ConnectionPropertyValue, error) {
 	result := make(map[string]ConnectionPropertyValue)
 	for _, prop := range properties {
+		if prop.Internal() {
+			continue
+		}
 		value, err := extractValue(prop, values)
 		if err != nil {
 			return nil, err
@@ -283,23 +286,38 @@ func (cs *ConnectionState) FindProperty(extension, name string) (ConnectionPrope
 		}
 	}
 	key := toKey(extension, name)
-	var prop ConnectionProperty
-	existingValue, ok := cs.properties[key]
-	if !ok {
-		prop = &TypedConnectionProperty[string]{
+	if existingValue := cs.findExistingPropertyValue(key); existingValue != nil {
+		if prop := existingValue.ConnectionProperty(); !prop.Internal() {
+			return prop, nil
+		}
+		return nil, unknownPropertyErr(key)
+	}
+	if extension != "" {
+		return &TypedConnectionProperty[string]{
 			key:       key,
 			extension: extension,
 			name:      name,
 			context:   ContextUser,
 			converter: ConvertString,
-		}
-		if extension == "" {
-			return nil, unknownPropertyErr(prop)
-		}
-	} else {
-		prop = existingValue.ConnectionProperty()
+		}, nil
 	}
-	return prop, nil
+	return nil, unknownPropertyErr(key)
+}
+
+func (cs *ConnectionState) findExistingPropertyValue(key string) ConnectionPropertyValue {
+	if val, ok := cs.statementScopedProperties[key]; ok {
+		return val
+	}
+	if val, ok := cs.localProperties[key]; ok {
+		return val
+	}
+	if val, ok := cs.transactionProperties[key]; ok {
+		return val
+	}
+	if val, ok := cs.properties[key]; ok {
+		return val
+	}
+	return nil
 }
 
 // InTransaction returns true if the connection is currently in a transaction block.
@@ -411,6 +429,46 @@ func (cs *ConnectionState) ClearStatementScopedValues() {
 	cs.statementScopedProperties = nil
 }
 
+// Snapshot returns a copy of ConnectionState with its active
+// property maps isolated from subsequent connection mutations.
+// This is used by consumers (such as driver.Rows) that outlive a single statement's execution.
+func (cs *ConnectionState) Snapshot() *ConnectionState {
+	if cs == nil {
+		return nil
+	}
+	snapshot := *cs
+	snapshot.statementScopedProperties = copyPropertyMap(cs.statementScopedProperties)
+	snapshot.localProperties = copyPropertyMap(cs.localProperties)
+	snapshot.transactionProperties = copyPropertyMap(cs.transactionProperties)
+	snapshot.properties = copyPropertyMap(cs.properties)
+	snapshot.aliases = copyAliases(cs.aliases)
+	return &snapshot
+}
+
+func copyPropertyMap(source map[string]ConnectionPropertyValue) map[string]ConnectionPropertyValue {
+	if len(source) == 0 {
+		return nil
+	}
+	target := make(map[string]ConnectionPropertyValue, len(source))
+	for key, value := range source {
+		if value != nil {
+			target[key] = value.Copy()
+		}
+	}
+	return target
+}
+
+func copyAliases(source map[string]alias) map[string]alias {
+	if len(source) == 0 {
+		return nil
+	}
+	target := make(map[string]alias, len(source))
+	for key, value := range source {
+		target[key] = value
+	}
+	return target
+}
+
 // Reset the state to the initial values. Only the properties with a Context equal to or higher
 // than the given Context will be reset. E.g. if the given Context is ContextUser, then properties
 // with ContextStartup will not be reset.
@@ -435,31 +493,18 @@ func (cs *ConnectionState) Reset(context Context) error {
 }
 
 func (cs *ConnectionState) value(property ConnectionProperty, returnErrForUnknownProperty bool) (ConnectionPropertyValue, error) {
-	if val, ok := cs.statementScopedProperties[property.Key()]; ok {
-		return valOrError(property, returnErrForUnknownProperty, val)
-	}
-	if val, ok := cs.localProperties[property.Key()]; ok {
-		return valOrError(property, returnErrForUnknownProperty, val)
-	}
-	if val, ok := cs.transactionProperties[property.Key()]; ok {
-		return valOrError(property, returnErrForUnknownProperty, val)
-	}
-	if val, ok := cs.properties[property.Key()]; ok {
+	if val := cs.findExistingPropertyValue(property.Key()); val != nil {
 		return valOrError(property, returnErrForUnknownProperty, val)
 	}
 	if returnErrForUnknownProperty {
-		return nil, unrecognizedPropertyErr(property)
+		return nil, unknownPropertyErr(property.Key())
 	}
 	return nil, nil
 }
 
 func valOrError(property ConnectionProperty, returnErrForUnknownProperty bool, val ConnectionPropertyValue) (ConnectionPropertyValue, error) {
 	if returnErrForUnknownProperty && val.isRemoved() {
-		return nil, unknownPropertyErr(property)
+		return nil, unknownPropertyErr(property.Key())
 	}
 	return val, nil
-}
-
-func unrecognizedPropertyErr(property ConnectionProperty) error {
-	return status.Errorf(codes.InvalidArgument, "unrecognized configuration property %q", property.Key())
 }

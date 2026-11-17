@@ -33,7 +33,6 @@ import com.google.spanner.v1.CommitRequest;
 import com.google.spanner.v1.ExecuteBatchDmlRequest;
 import com.google.spanner.v1.ExecuteBatchDmlRequest.Statement;
 import com.google.spanner.v1.ExecuteBatchDmlResponse;
-import com.google.spanner.v1.ExecuteSqlRequest;
 import com.google.spanner.v1.Type;
 import com.google.spanner.v1.TypeCode;
 import java.util.List;
@@ -108,7 +107,7 @@ public class BatchTest extends AbstractSpannerLibTest {
 
     assertEquals(1, mockSpanner.countRequestsOfType(ExecuteBatchDmlRequest.class));
     assertEquals(1, mockSpanner.countRequestsOfType(CommitRequest.class));
-    assertEquals(0, mockSpanner.countRequestsOfType(ExecuteSqlRequest.class));
+    assertEquals(0, countExecuteSqlRequests());
   }
 
   @Test

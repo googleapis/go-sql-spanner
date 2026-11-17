@@ -22,6 +22,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -445,50 +447,74 @@ func TestMemoryHygiene_SensitivePropertiesScrubbedFromConnection(t *testing.T) {
 		"client_cert_key",
 	}
 
-	// Verify all 5 sensitive properties (including credentials & credentials_json) are scrubbed
+	credsFile := filepath.Join(t.TempDir(), "credentials.json")
+	if err := os.WriteFile(credsFile, []byte(`{"type":"service_account","private_key":"secret-key"}`), 0o600); err != nil {
+		t.Fatalf("failed to write temp credentials file: %v", err)
+	}
+
+	// Verify all 5 sensitive properties (credentials, credentials_json, and TLS keys/certs) are scrubbed
 	// from initialPropertyValues while non-sensitive properties are preserved.
-	allSensitiveConfig := ConnectorConfig{
-		Host:     "localhost:9010",
-		Project:  "test-project",
-		Instance: "test-instance",
-		Database: "test-database",
-		Params: map[string]string{
-			"credentials":             "/nonexistent/credentials.json",
-			"credentials_json":        `{"type":"service_account","private_key":"secret-key"}`,
-			"ca_cert_file":            "/etc/ssl/ca.crt",
-			"client_cert_file":        "/etc/ssl/client.crt",
-			"client_cert_key":         "/etc/ssl/client.key",
-			"retry_aborts_internally": "false",
+	sensitiveConfigs := []struct {
+		name   string
+		params map[string]string
+	}{
+		{
+			name: "credentials_json and TLS properties",
+			params: map[string]string{
+				"credentials_json":        `{"type":"service_account","private_key":"secret-key"}`,
+				"ca_cert_file":            "/etc/ssl/ca.crt",
+				"client_cert_file":        "/etc/ssl/client.crt",
+				"client_cert_key":         "/etc/ssl/client.key",
+				"retry_aborts_internally": "false",
+			},
+		},
+		{
+			name: "credentials file and TLS properties",
+			params: map[string]string{
+				"credentials":             credsFile,
+				"ca_cert_file":            "/etc/ssl/ca.crt",
+				"client_cert_file":        "/etc/ssl/client.crt",
+				"client_cert_key":         "/etc/ssl/client.key",
+				"retry_aborts_internally": "false",
+			},
 		},
 	}
 
-	allSensitiveConnector, err := createConnector(&Driver{}, allSensitiveConfig)
-	if err != nil {
-		t.Fatalf("failed to create connector with all sensitive params: %v", err)
-	}
-	for _, key := range sensitiveKeys {
-		_, ok := allSensitiveConnector.initialPropertyValues[key]
-		if g, w := ok, false; g != w {
-			t.Errorf("sensitive property %q presence in initialPropertyValues mismatch\nGot:  %v\nWant: %v", key, g, w)
-		}
-	}
-	_, ok := allSensitiveConnector.initialPropertyValues["retry_aborts_internally"]
-	if g, w := ok, true; g != w {
-		t.Errorf("non-sensitive property retry_aborts_internally presence mismatch\nGot:  %v\nWant: %v", g, w)
-	}
-
-	// Verify the state constructed from scrubbed initialPropertyValues holds no sensitive values.
-	scrubbedState := createInitialConnectionState(connectionstate.TypeNonTransactional, allSensitiveConnector.initialPropertyValues)
-	for _, key := range sensitiveKeys {
-		val, hasValue, err := scrubbedState.GetValue("", key)
+	for _, cfg := range sensitiveConfigs {
+		sensitiveConnector, err := createConnector(&Driver{}, ConnectorConfig{
+			Host:     "localhost:9010",
+			Project:  "test-project",
+			Instance: "test-instance",
+			Database: "test-database",
+			Params:   cfg.params,
+		})
 		if err != nil {
-			t.Errorf("scrubbedState.GetValue(%q) error mismatch\nGot:  %v\nWant: nil", key, err)
+			t.Fatalf("failed to create connector (%s): %v", cfg.name, err)
 		}
-		if g, w := hasValue, false; g != w {
-			t.Errorf("scrubbedState.GetValue(%q) hasValue mismatch\nGot:  %v\nWant: %v", key, g, w)
+		for _, key := range sensitiveKeys {
+			_, ok := sensitiveConnector.initialPropertyValues[key]
+			if g, w := ok, false; g != w {
+				t.Errorf("%s: sensitive property %q presence in initialPropertyValues mismatch\nGot:  %v\nWant: %v", cfg.name, key, g, w)
+			}
 		}
-		if g, w := val, ""; g != w {
-			t.Errorf("scrubbedState.GetValue(%q) value mismatch\nGot:  %v\nWant: %v", key, g, w)
+		_, ok := sensitiveConnector.initialPropertyValues["retry_aborts_internally"]
+		if g, w := ok, true; g != w {
+			t.Errorf("%s: non-sensitive property retry_aborts_internally presence mismatch\nGot:  %v\nWant: %v", cfg.name, g, w)
+		}
+
+		// Verify the state constructed from scrubbed initialPropertyValues holds no sensitive values.
+		scrubbedState := createInitialConnectionState(connectionstate.TypeNonTransactional, sensitiveConnector.initialPropertyValues)
+		for _, key := range sensitiveKeys {
+			val, hasValue, err := scrubbedState.GetValue("", key)
+			if err != nil {
+				t.Errorf("%s: scrubbedState.GetValue(%q) error mismatch\nGot:  %v\nWant: nil", cfg.name, key, err)
+			}
+			if g, w := hasValue, false; g != w {
+				t.Errorf("%s: scrubbedState.GetValue(%q) hasValue mismatch\nGot:  %v\nWant: %v", cfg.name, key, g, w)
+			}
+			if g, w := val, ""; g != w {
+				t.Errorf("%s: scrubbedState.GetValue(%q) value mismatch\nGot:  %v\nWant: %v", cfg.name, key, g, w)
+			}
 		}
 	}
 
@@ -638,8 +664,11 @@ func TestMemoryHygiene_OmniSensitivePropertiesPreservedInClientConfig(t *testing
 func TestSensitiveProperties_DSNRedactionAndLogger(t *testing.T) {
 	t.Parallel()
 
-	secretJSON := `{"private_key":"SUPER_SECRET_PRIVATE_KEY"}`
-	secretCredsPath := "/secret/path/to/creds.json"
+	secretJSON := `{"type":"service_account","private_key":"SUPER_SECRET_PRIVATE_KEY"}`
+	secretCredsPath := filepath.Join(t.TempDir(), "secret-creds.json")
+	if err := os.WriteFile(secretCredsPath, []byte(secretJSON), 0o600); err != nil {
+		t.Fatalf("failed to write temp credentials file: %v", err)
+	}
 	secretKeyPath := "/secret/path/to/client.key"
 	pgPassword := "pg_secret_password"
 
@@ -653,10 +682,18 @@ func TestSensitiveProperties_DSNRedactionAndLogger(t *testing.T) {
 			name: "GoogleSQL DSN emits target path in String/logger and omits Params in JSON",
 			dsn: "spanner.googleapis.com/projects/p/instances/i/databases/d" +
 				"?credentials_json=" + secretJSON +
-				";credentials=" + secretCredsPath +
 				";client_cert_key=" + secretKeyPath +
 				";readonly=true",
-			wantSecrets: []string{secretJSON, "SUPER_SECRET_PRIVATE_KEY", secretCredsPath, secretKeyPath},
+			wantSecrets: []string{secretJSON, "SUPER_SECRET_PRIVATE_KEY", secretKeyPath},
+			wantString:  "spanner.googleapis.com/projects/p/instances/i/databases/d",
+		},
+		{
+			name: "GoogleSQL DSN with credentials file omits path in String/logger and Params in JSON",
+			dsn: "spanner.googleapis.com/projects/p/instances/i/databases/d" +
+				"?credentials=" + secretCredsPath +
+				";client_cert_key=" + secretKeyPath +
+				";readonly=true",
+			wantSecrets: []string{secretCredsPath, secretKeyPath},
 			wantString:  "spanner.googleapis.com/projects/p/instances/i/databases/d",
 		},
 		{
@@ -907,8 +944,8 @@ func TestSensitiveProperties_DriverCacheKeyHashed(t *testing.T) {
 
 	secret1 := "SUPER_SECRET_PRIVATE_KEY_1"
 	secret2 := "SUPER_SECRET_PRIVATE_KEY_2"
-	dsn1 := "localhost:9010/projects/p/instances/i/databases/d?credentials_json={\"private_key\":\"" + secret1 + "\"};usePlainText=true"
-	dsn2 := "localhost:9010/projects/p/instances/i/databases/d?credentials_json={\"private_key\":\"" + secret2 + "\"};usePlainText=true"
+	dsn1 := "localhost:9010/projects/p/instances/i/databases/d?credentials_json={\"type\":\"service_account\",\"private_key\":\"" + secret1 + "\"};usePlainText=true"
+	dsn2 := "localhost:9010/projects/p/instances/i/databases/d?credentials_json={\"type\":\"service_account\",\"private_key\":\"" + secret2 + "\"};usePlainText=true"
 	testDriver := &Driver{
 		connectors:          make(map[string]*connector),
 		connectorUsageCount: make(map[string]int),
