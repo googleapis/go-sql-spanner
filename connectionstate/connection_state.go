@@ -89,8 +89,13 @@ type alias struct {
 	readOnly bool
 }
 
+var errNilConnectionState = status.Error(codes.InvalidArgument, "connection state is nil")
+
 // AddAlias adds a new alias for a connection property.
 func (cs *ConnectionState) AddAlias(name, target string, readOnly bool) {
+	if cs == nil {
+		return
+	}
 	if cs.aliases == nil {
 		cs.aliases = make(map[string]alias)
 	}
@@ -107,7 +112,7 @@ func (cs *ConnectionState) AddAlias(name, target string, readOnly bool) {
 func ExtractValues(properties map[string]ConnectionProperty, values map[string]string) (map[string]ConnectionPropertyValue, error) {
 	result := make(map[string]ConnectionPropertyValue)
 	for _, prop := range properties {
-		if prop.Internal() {
+		if prop == nil || prop.Internal() {
 			continue
 		}
 		value, err := extractValue(prop, values)
@@ -153,9 +158,14 @@ func NewConnectionState(connectionStateType Type, properties map[string]Connecti
 		statementScopedProperties: nil,
 	}
 	for key, value := range initialValues {
-		state.properties[key] = value.Copy()
+		if value != nil {
+			state.properties[key] = value.Copy()
+		}
 	}
 	for key, value := range properties {
+		if value == nil {
+			continue
+		}
 		if _, ok := state.properties[key]; !ok {
 			state.properties[key] = value.CreateDefaultValue()
 		}
@@ -173,6 +183,9 @@ func toKey(extension, name string) (key string) {
 }
 
 func (cs *ConnectionState) GetValue(extension, name string) (any, bool, error) {
+	if cs == nil {
+		return nil, false, errNilConnectionState
+	}
 	prop := cs.findProperty(extension, name)
 	if prop == nil {
 		return nil, false, unknownPropertyErr(toKey(extension, name))
@@ -181,10 +194,16 @@ func (cs *ConnectionState) GetValue(extension, name string) (any, bool, error) {
 }
 
 func (cs *ConnectionState) SetValue(extension, name, value string, context Context) error {
+	if cs == nil {
+		return errNilConnectionState
+	}
 	return cs.setValue(extension, name, value, context, valueTypeSession)
 }
 
 func (cs *ConnectionState) SetLocalValue(extension, name, value string, isSetTransaction bool) error {
+	if cs == nil {
+		return errNilConnectionState
+	}
 	if isSetTransaction && !cs.inTransaction {
 		return status.Error(codes.FailedPrecondition, "SET TRANSACTION can only be used in transaction blocks")
 	}
@@ -192,6 +211,9 @@ func (cs *ConnectionState) SetLocalValue(extension, name, value string, isSetTra
 }
 
 func (cs *ConnectionState) SetStatementScopedValue(extension, name, value string) error {
+	if cs == nil {
+		return errNilConnectionState
+	}
 	return cs.setValue(extension, name, value, ContextUser, valueTypeStatementScoped)
 }
 
@@ -307,26 +329,41 @@ func (cs *ConnectionState) findExistingPropertyValue(key string) ConnectionPrope
 
 // InTransaction returns true if the connection is currently in a transaction block.
 func (cs *ConnectionState) InTransaction() bool {
+	if cs == nil {
+		return false
+	}
 	return cs.inTransaction
 }
 
 // TransactionState returns the current PostgreSQL readiness transaction state ('I', 'T', 'E').
 func (cs *ConnectionState) TransactionState() TransactionState {
+	if cs == nil {
+		return TransactionStateIdle
+	}
 	return cs.txState
 }
 
 // InErrorTxBehavior returns the connection's behavior when a transaction fails.
 func (cs *ConnectionState) InErrorTxBehavior() InErrorTxBehavior {
+	if cs == nil {
+		return InErrorTxBehaviorDefault
+	}
 	return cs.inErrorTxBehavior
 }
 
 // SetInErrorTxBehavior sets the connection's behavior when a transaction fails.
 func (cs *ConnectionState) SetInErrorTxBehavior(behavior InErrorTxBehavior) {
+	if cs == nil {
+		return
+	}
 	cs.inErrorTxBehavior = behavior
 }
 
 // SetTransactionFailed transitions the transaction state to Failed ('E') if currently in a transaction.
 func (cs *ConnectionState) SetTransactionFailed() {
+	if cs == nil {
+		return
+	}
 	if cs.inTransaction {
 		cs.txState = TransactionStateFailed
 	}
@@ -334,6 +371,9 @@ func (cs *ConnectionState) SetTransactionFailed() {
 
 // SetTransactionActive transitions the transaction state to Transaction ('T') if currently in a transaction.
 func (cs *ConnectionState) SetTransactionActive() {
+	if cs == nil {
+		return
+	}
 	if cs.inTransaction {
 		cs.txState = TransactionStateTransaction
 	}
@@ -343,6 +383,9 @@ func (cs *ConnectionState) SetTransactionActive() {
 // If InErrorTxBehaviorEnforceInErrorState is enabled and the state is 'E', commands other than
 // COMMIT or ROLLBACK are rejected with codes.FailedPrecondition.
 func (cs *ConnectionState) CheckInErrorTxState(isCommitOrRollback bool) error {
+	if cs == nil {
+		return errNilConnectionState
+	}
 	if cs.inErrorTxBehavior == InErrorTxBehaviorEnforceInErrorState &&
 		cs.txState == TransactionStateFailed && !isCommitOrRollback {
 		return status.Error(codes.FailedPrecondition, "current transaction is failed, commands ignored until end of transaction block")
@@ -352,6 +395,9 @@ func (cs *ConnectionState) CheckInErrorTxState(isCommitOrRollback bool) error {
 
 // Begin starts a new transaction for this ConnectionState.
 func (cs *ConnectionState) Begin() error {
+	if cs == nil {
+		return errNilConnectionState
+	}
 	if cs.inTransaction {
 		return status.Error(codes.FailedPrecondition, "connection state is already in transaction")
 	}
@@ -366,12 +412,18 @@ func (cs *ConnectionState) Begin() error {
 // If the Type is TypeNonTransactional, all state changes during the transaction have already been persisted during the
 // transaction.
 func (cs *ConnectionState) Commit() error {
+	if cs == nil {
+		return errNilConnectionState
+	}
 	if !cs.inTransaction {
 		return status.Error(codes.FailedPrecondition, "connection state is not in a transaction")
 	}
 	cs.inTransaction = false
 	cs.txState = TransactionStateIdle
 	if cs.transactionProperties != nil {
+		if cs.properties == nil {
+			cs.properties = make(map[string]ConnectionPropertyValue)
+		}
 		for key, value := range cs.transactionProperties {
 			if value.isRemoved() {
 				delete(cs.properties, key)
@@ -397,6 +449,9 @@ func (cs *ConnectionState) Commit() error {
 // If the Type is TypeNonTransactional, all state changes during the transaction have already been persisted during the
 // transaction.
 func (cs *ConnectionState) Rollback() error {
+	if cs == nil {
+		return errNilConnectionState
+	}
 	if !cs.inTransaction {
 		return status.Error(codes.FailedPrecondition, "connection state is not in a transaction")
 	}
@@ -411,6 +466,9 @@ func (cs *ConnectionState) Rollback() error {
 // ClearStatementScopedValues clears all values that have been set for the current statement.
 // This function must be called after the execution of a statement that set statement values has finished.
 func (cs *ConnectionState) ClearStatementScopedValues() {
+	if cs == nil {
+		return
+	}
 	cs.statementScopedProperties = nil
 }
 
@@ -458,6 +516,9 @@ func copyAliases(source map[string]alias) map[string]alias {
 // than the given Context will be reset. E.g. if the given Context is ContextUser, then properties
 // with ContextStartup will not be reset.
 func (cs *ConnectionState) Reset(context Context) error {
+	if cs == nil {
+		return errNilConnectionState
+	}
 	cs.inTransaction = false
 	cs.txState = TransactionStateIdle
 	cs.transactionProperties = nil
