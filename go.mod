@@ -13,8 +13,8 @@ require (
 	github.com/googleapis/gax-go/v2 v2.27.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	go.uber.org/goleak v1.3.0
-	google.golang.org/api v0.314.0
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261110000943-09e21b237f2c
+	google.golang.org/api v0.316.0
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261116203732-fd2c7689a808
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 )
