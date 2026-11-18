@@ -40,10 +40,14 @@ type mergedRowIterator struct {
 	mu           sync.Mutex
 	err          error
 	pIndex       int
+	started      bool
 	stopped      bool
+	metadataSet  bool
 	numProducers int
 	metadata     *sppb.ResultSetMetadata
+	cancel       context.CancelFunc
 
+	metadataOnce  sync.Once
 	buffer        chan *spanner.Row
 	metadataReady chan struct{}
 	errReady      chan struct{}
@@ -53,6 +57,7 @@ type mergedRowIterator struct {
 	logger           *slog.Logger
 	partitionedQuery *PartitionedQuery
 	maxParallelism   int
+	executePartition func(ctx context.Context, index int) (rowIterator, func() error, error)
 }
 
 func createMergedIterator(logger *slog.Logger, partitionedQuery *PartitionedQuery, maxParallelism int) *mergedRowIterator {
@@ -63,11 +68,18 @@ func createMergedIterator(logger *slog.Logger, partitionedQuery *PartitionedQuer
 		logger:           logger.With("type", "merged_iterator", "stmt", partitionedQuery.stmt.SQL, "parallelism", maxParallelism),
 		partitionedQuery: partitionedQuery,
 		maxParallelism:   maxParallelism,
-		buffer:           make(chan *spanner.Row, 10),
-		done:             make(chan struct{}),
-		producersDone:    make(chan struct{}),
-		errReady:         make(chan struct{}),
-		metadataReady:    make(chan struct{}),
+		executePartition: func(ctx context.Context, index int) (rowIterator, func() error, error) {
+			r, err := partitionedQuery.execute(ctx /*cancel=*/, nil, index)
+			if err != nil {
+				return nil, nil, err
+			}
+			return r.it, r.Close, nil
+		},
+		buffer:        make(chan *spanner.Row, 10),
+		done:          make(chan struct{}),
+		producersDone: make(chan struct{}),
+		errReady:      make(chan struct{}),
+		metadataReady: make(chan struct{}),
 	}
 }
 
@@ -82,13 +94,28 @@ func (m *mergedRowIterator) run(ctx context.Context) error {
 	}
 
 	m.mu.Lock()
+	if m.stopped {
+		m.mu.Unlock()
+		return spanner.ToSpannerError(status.Error(codes.Canceled, "merged iterator is stopped"))
+	}
+	if m.started {
+		m.mu.Unlock()
+		return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "merged iterator already started"))
+	}
+	m.started = true
+	childCtx, cancel := context.WithCancel(ctx)
+	m.cancel = cancel
 	m.numProducers = parallelism
 	m.mu.Unlock()
+
 	for i := 0; i < parallelism; i++ {
-		go m.produceRows(ctx)
+		go m.produceRows(childCtx)
 	}
 	// Wait until we have metadata or an error.
 	_, err := m.Metadata()
+	if err != nil {
+		m.Stop()
+	}
 	return err
 }
 
@@ -100,78 +127,84 @@ func (m *mergedRowIterator) produceRows(ctx context.Context) {
 		m.numProducers--
 		if m.numProducers == 0 {
 			m.logger.DebugContext(ctx, "all merged iterator producers done")
-			m.stopLocked()
+			if m.cancel != nil {
+				m.cancel()
+			}
+			close(m.buffer)
 			close(m.producersDone)
 		}
 	}()
 	for {
-		index := m.nextIndex()
-		if index >= len(m.partitionedQuery.Partitions) || m.hasErr() {
+		index, ok := m.nextPartitionIndex()
+		if !ok {
 			break
 		}
 		m.produceRowsFromPartition(ctx, index)
 	}
 }
 
-func (m *mergedRowIterator) nextIndex() int {
+// nextPartitionIndex claims and returns the next partition index to execute.
+// It returns (0, false) when all partitions have been claimed or the iterator
+// has stopped or encountered an error.
+func (m *mergedRowIterator) nextPartitionIndex() (int, bool) {
 	m.logger.Debug("merged iterator moving to next partition index")
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.err != nil || m.stopped || m.pIndex >= len(m.partitionedQuery.Partitions) {
+		return 0, false
+	}
 	index := m.pIndex
 	m.pIndex++
-
-	return index
+	return index, true
 }
 
 func (m *mergedRowIterator) produceRowsFromPartition(ctx context.Context, index int) {
 	m.logger.DebugContext(ctx, "merged row iterator producing rows from partition", "index", index)
-	r, err := m.partitionedQuery.execute(ctx /*cancel=*/, nil, index)
+	it, closeFn, err := m.executePartition(ctx, index)
 	if err != nil {
 		m.registerErr(err)
 		return
 	}
-	defer func() { _ = r.Close() }()
+	if closeFn != nil {
+		defer func() { _ = closeFn() }()
+	} else {
+		defer it.Stop()
+	}
 
 	first := true
-	it := r.it
 	for {
 		row, err := it.Next()
 		if err != nil && err != iterator.Done {
 			m.registerErr(err)
 			return
 		}
-		if first && (err == iterator.Done || row != nil) {
+		if first {
 			first = false
-			m.mu.Lock()
-			if m.metadata == nil {
+			m.metadataOnce.Do(func() {
 				metadata, metadataErr := it.Metadata()
+				m.mu.Lock()
 				if metadataErr != nil {
-					m.logger.DebugContext(ctx, "merged iterator metadata error", "err", err)
+					m.logger.DebugContext(ctx, "merged iterator metadata error", "err", metadataErr)
 					m.registerErrLocked(metadataErr)
 				} else {
+					m.metadataSet = true
 					m.metadata = metadata
 				}
-				m.mu.Unlock()
 				close(m.metadataReady)
-			} else {
 				m.mu.Unlock()
-			}
+			})
 		}
 		if row == nil {
 			return
 		}
 		select {
 		case m.buffer <- row:
+		case <-m.errReady:
+			return
 		case <-m.done:
 			return
 		}
 	}
-}
-
-func (m *mergedRowIterator) hasErr() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.err != nil
 }
 
 func (m *mergedRowIterator) registerErr(err error) {
@@ -182,78 +215,96 @@ func (m *mergedRowIterator) registerErr(err error) {
 }
 
 func (m *mergedRowIterator) registerErrLocked(err error) {
-	if m.err == nil {
+	if err != nil && m.err == nil && !m.stopped {
 		m.err = err
 		close(m.errReady)
+		if m.cancel != nil {
+			m.cancel()
+		}
 	}
 }
 
-func (m *mergedRowIterator) Next() (*spanner.Row, error) {
+func (m *mergedRowIterator) waitReady() {
 	select {
 	case <-m.metadataReady:
 	case <-m.errReady:
 	case <-m.done:
+	case <-m.producersDone:
 	}
+}
+
+func (m *mergedRowIterator) Next() (*spanner.Row, error) {
+	m.waitReady()
 	m.mu.Lock()
 	if m.err != nil {
-		defer m.mu.Unlock()
+		m.mu.Unlock()
 		return nil, m.err
+	}
+	if m.stopped {
+		m.mu.Unlock()
+		return nil, iterator.Done
 	}
 	m.mu.Unlock()
 
-	// Pick an element from the buffer if there is any.
-	// This prevents the select statement from selecting 'done'
-	// when all producers are done, but there are still elements
-	// in the buffer.
-	if len(m.buffer) > 0 {
-		select {
-		case v := <-m.buffer:
-			return v, nil
-		default:
-			// fallthrough
-		}
-	}
-
+	// When all producers finish normally, m.buffer is closed while m.done stays
+	// open (m.done is only closed by Stop). Reading from m.buffer therefore
+	// yields all remaining buffered rows before returning iterator.Done.
 	select {
-	case v := <-m.buffer:
+	case v, ok := <-m.buffer:
+		if !ok {
+			return m.finishNext()
+		}
 		return v, nil
-	case <-m.done:
+	case <-m.errReady:
 		m.mu.Lock()
 		defer m.mu.Unlock()
-		if m.err != nil {
-			return nil, m.err
-		}
-		m.logger.Debug("merged iterator is done")
-		return nil, iterator.Done
+		return nil, m.err
+	case <-m.done:
+		return m.finishNext()
 	}
+}
+
+func (m *mergedRowIterator) finishNext() (*spanner.Row, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.err != nil {
+		return nil, m.err
+	}
+	m.logger.Debug("merged iterator is done")
+	return nil, iterator.Done
 }
 
 func (m *mergedRowIterator) Stop() {
 	m.logger.Debug("merged iterator stopped")
 	m.mu.Lock()
 	m.stopLocked()
+	hasProducers := m.numProducers > 0
 	m.mu.Unlock()
-	// Block until all producers have stopped.
-	<-m.producersDone
+	if hasProducers {
+		// Block until all producers have stopped.
+		<-m.producersDone
+	}
 }
 
 func (m *mergedRowIterator) stopLocked() {
 	if !m.stopped {
 		m.stopped = true
 		close(m.done)
+		if m.cancel != nil {
+			m.cancel()
+		}
 	}
 }
 
 func (m *mergedRowIterator) Metadata() (*sppb.ResultSetMetadata, error) {
-	select {
-	case <-m.metadataReady:
-	case <-m.errReady:
-	case <-m.done:
-	}
+	m.waitReady()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.err != nil {
 		return nil, m.err
+	}
+	if !m.metadataSet && m.stopped {
+		return nil, spanner.ToSpannerError(status.Error(codes.Canceled, "merged iterator is stopped"))
 	}
 	return m.metadata, nil
 }
