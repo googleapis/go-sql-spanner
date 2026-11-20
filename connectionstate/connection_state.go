@@ -78,6 +78,7 @@ type ConnectionState struct {
 	properties                map[string]ConnectionPropertyValue
 	transactionProperties     map[string]ConnectionPropertyValue
 	localProperties           map[string]ConnectionPropertyValue
+	setTransactionProperties  map[string]bool
 	statementScopedProperties map[string]ConnectionPropertyValue
 	aliases                   map[string]alias
 }
@@ -193,6 +194,19 @@ func (cs *ConnectionState) GetValue(extension, name string) (any, bool, error) {
 	return prop.GetValue(cs)
 }
 
+// GetSessionValue returns the current session-level value of the property, ignoring
+// transaction-only overrides that were set via SET TRANSACTION or BEGIN ... ISOLATION LEVEL.
+func (cs *ConnectionState) GetSessionValue(extension, name string) (any, bool, error) {
+	prop := cs.findProperty(extension, name)
+	if prop == nil {
+		return nil, false, unknownPropertyErr(toKey(extension, name))
+	}
+	if cs.setTransactionProperties != nil && cs.setTransactionProperties[prop.Key()] {
+		return prop.GetSessionValue(cs)
+	}
+	return prop.GetValue(cs)
+}
+
 func (cs *ConnectionState) SetValue(extension, name, value string, context Context) error {
 	if cs == nil {
 		return errNilConnectionState
@@ -207,7 +221,39 @@ func (cs *ConnectionState) SetLocalValue(extension, name, value string, isSetTra
 	if isSetTransaction && !cs.inTransaction {
 		return status.Error(codes.FailedPrecondition, "SET TRANSACTION can only be used in transaction blocks")
 	}
-	return cs.setValue(extension, name, value, ContextUser, valueTypeLocal)
+	if isSetTransaction && strings.EqualFold(strings.TrimSpace(value), "default") {
+		prop := cs.findProperty(extension, name)
+		if prop == nil {
+			return unknownPropertyErr(toKey(extension, name))
+		}
+		sessionVal, err := cs.sessionValue(prop, true)
+		if err != nil {
+			return err
+		}
+		if cs.localProperties == nil {
+			cs.localProperties = make(map[string]ConnectionPropertyValue)
+		}
+		cs.localProperties[prop.Key()] = sessionVal.Copy()
+		if cs.setTransactionProperties == nil {
+			cs.setTransactionProperties = make(map[string]bool)
+		}
+		cs.setTransactionProperties[prop.Key()] = true
+		return nil
+	}
+	err := cs.setValue(extension, name, value, ContextUser, valueTypeLocal)
+	if err == nil && cs.inTransaction {
+		if prop := cs.findProperty(extension, name); prop != nil {
+			if isSetTransaction {
+				if cs.setTransactionProperties == nil {
+					cs.setTransactionProperties = make(map[string]bool)
+				}
+				cs.setTransactionProperties[prop.Key()] = true
+			} else if cs.setTransactionProperties != nil {
+				delete(cs.setTransactionProperties, prop.Key())
+			}
+		}
+	}
+	return err
 }
 
 func (cs *ConnectionState) SetStatementScopedValue(extension, name, value string) error {
@@ -434,6 +480,7 @@ func (cs *ConnectionState) Commit() error {
 	}
 	cs.transactionProperties = nil
 	cs.localProperties = nil
+	cs.setTransactionProperties = nil
 	cs.statementScopedProperties = nil
 	for key, value := range cs.properties {
 		if value.isRemoved() {
@@ -459,6 +506,7 @@ func (cs *ConnectionState) Rollback() error {
 	cs.txState = TransactionStateIdle
 	cs.transactionProperties = nil
 	cs.localProperties = nil
+	cs.setTransactionProperties = nil
 	cs.statementScopedProperties = nil
 	return nil
 }
@@ -482,10 +530,22 @@ func (cs *ConnectionState) Snapshot() *ConnectionState {
 	snapshot := *cs
 	snapshot.statementScopedProperties = copyPropertyMap(cs.statementScopedProperties)
 	snapshot.localProperties = copyPropertyMap(cs.localProperties)
+	snapshot.setTransactionProperties = copyBoolMap(cs.setTransactionProperties)
 	snapshot.transactionProperties = copyPropertyMap(cs.transactionProperties)
 	snapshot.properties = copyPropertyMap(cs.properties)
 	snapshot.aliases = copyAliases(cs.aliases)
 	return &snapshot
+}
+
+func copyBoolMap(source map[string]bool) map[string]bool {
+	if len(source) == 0 {
+		return nil
+	}
+	target := make(map[string]bool, len(source))
+	for key, value := range source {
+		target[key] = value
+	}
+	return target
 }
 
 func copyPropertyMap(source map[string]ConnectionPropertyValue) map[string]ConnectionPropertyValue {
@@ -523,6 +583,7 @@ func (cs *ConnectionState) Reset(context Context) error {
 	cs.txState = TransactionStateIdle
 	cs.transactionProperties = nil
 	cs.localProperties = nil
+	cs.setTransactionProperties = nil
 	cs.statementScopedProperties = nil
 	for _, value := range cs.properties {
 		if value.ConnectionProperty().Context() >= context {
@@ -540,6 +601,19 @@ func (cs *ConnectionState) Reset(context Context) error {
 
 func (cs *ConnectionState) value(property ConnectionProperty, returnErrForUnknownProperty bool) (ConnectionPropertyValue, error) {
 	if val := cs.findExistingPropertyValue(property.Key()); val != nil {
+		return valOrError(property, returnErrForUnknownProperty, val)
+	}
+	if returnErrForUnknownProperty {
+		return nil, unknownPropertyErr(property.Key())
+	}
+	return nil, nil
+}
+
+func (cs *ConnectionState) sessionValue(property ConnectionProperty, returnErrForUnknownProperty bool) (ConnectionPropertyValue, error) {
+	if val, ok := cs.transactionProperties[property.Key()]; ok {
+		return valOrError(property, returnErrForUnknownProperty, val)
+	}
+	if val, ok := cs.properties[property.Key()]; ok {
 		return valOrError(property, returnErrForUnknownProperty, val)
 	}
 	if returnErrForUnknownProperty {

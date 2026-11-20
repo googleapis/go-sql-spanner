@@ -330,7 +330,7 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
     }
 
     private static readonly string SDialectQuery =
-        "select option_value from information_schema.database_options where option_name='database_dialect'";
+        "select option_name, option_value from information_schema.database_options where option_name in ('database_dialect', 'default_transaction_isolation')";
     private static readonly Empty SEmpty = new ();
     private static readonly TransactionOptions STransactionSingleUse = new() { ReadOnly = new TransactionOptions.Types.ReadOnly { Strong = true, ReturnReadTimestamp = false } };
 
@@ -380,11 +380,12 @@ public class MockSpannerService : Spanner.V1.Spanner.SpannerBase
             StatementResult.CreateResultSet(
                 new List<Tuple<Spanner.V1.TypeCode, string>>
                 {
+                    Tuple.Create(Spanner.V1.TypeCode.String, "option_name"),
                     Tuple.Create(Spanner.V1.TypeCode.String, "option_value"),
                 },
                 new List<object[]>
                 {
-                    new object[] { GetEnumOriginalName(dialect) },
+                    new object[] { "database_dialect", GetEnumOriginalName(dialect) },
                 }));
     }
     
