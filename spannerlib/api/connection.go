@@ -68,6 +68,9 @@ func CloseConnection(ctx context.Context, poolId, connId int64) error {
 //
 // The mutationsBytes must be an encoded BatchWriteRequest_MutationGroup protobuf object.
 func WriteMutations(ctx context.Context, poolId, connId int64, mutations *spannerpb.BatchWriteRequest_MutationGroup) (*spannerpb.CommitResponse, error) {
+	if mutations == nil {
+		return nil, status.Error(codes.InvalidArgument, "mutations must not be nil")
+	}
 	conn, err := findConnection(poolId, connId)
 	if err != nil {
 		return nil, err
@@ -113,6 +116,9 @@ func Execute(ctx context.Context, poolId, connId int64, executeSqlRequest *spann
 }
 
 func ExecuteWithDirectExecuteContext(ctx, directExecuteContext context.Context, poolId, connId int64, executeSqlRequest *spannerpb.ExecuteSqlRequest) (int64, error) {
+	if executeSqlRequest == nil {
+		return 0, status.Error(codes.InvalidArgument, "execute_sql_request must not be nil")
+	}
 	conn, err := findConnection(poolId, connId)
 	if err != nil {
 		return 0, err
@@ -121,6 +127,9 @@ func ExecuteWithDirectExecuteContext(ctx, directExecuteContext context.Context, 
 }
 
 func ExecuteBatch(ctx context.Context, poolId, connId int64, statements *spannerpb.ExecuteBatchDmlRequest) (*spannerpb.ExecuteBatchDmlResponse, error) {
+	if statements == nil {
+		return nil, status.Error(codes.InvalidArgument, "execute_batch_dml_request must not be nil")
+	}
 	conn, err := findConnection(poolId, connId)
 	if err != nil {
 		return nil, err
@@ -177,6 +186,9 @@ func (conn *Connection) close(ctx context.Context) error {
 func (conn *Connection) writeMutations(ctx context.Context, mutation *spannerpb.BatchWriteRequest_MutationGroup) (*spannerpb.CommitResponse, error) {
 	mutations := make([]*spanner.Mutation, 0, len(mutation.Mutations))
 	for _, m := range mutation.Mutations {
+		if m == nil {
+			return nil, status.Error(codes.InvalidArgument, "mutation must not be nil")
+		}
 		spannerMutation, err := spanner.WrapMutation(m)
 		if err != nil {
 			return nil, err
@@ -543,6 +555,11 @@ func extractTimestampBound(statement *spannerpb.ExecuteSqlRequest) *spanner.Time
 func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (parser.BatchType, error) {
 	if len(statements) == 0 {
 		return parser.BatchTypeDdl, status.Errorf(codes.InvalidArgument, "cannot determine type of an empty batch")
+	}
+	for i, statement := range statements {
+		if statement == nil {
+			return parser.BatchTypeDdl, status.Errorf(codes.InvalidArgument, "statement at position %d must not be nil", i+1)
+		}
 	}
 	var batchType parser.BatchType
 	if err := conn.backend.Raw(func(driverConn any) error {
