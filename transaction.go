@@ -1316,26 +1316,55 @@ func (tx *readWriteTransaction) ensureReplayed(ctx context.Context) error {
 	if tx.state != readWriteTxStateNeedsReplay {
 		return nil
 	}
-	if tx.ctx != nil && tx.ctx.Err() != nil {
-		return tx.ctx.Err()
+	if isContextExpiredOrCancelled(tx.ctx) {
+		return retryContextError(tx.ctx, nil, nil)
 	}
-	if ctx != nil && ctx.Err() != nil {
-		return ctx.Err()
+	if isContextExpiredOrCancelled(ctx) {
+		return retryContextError(ctx, nil, nil)
 	}
-	if ctx == nil {
-		ctx = tx.ctx
+	for _, stmt := range tx.statements {
+		if it, ok := stmt.(*checksumRowIterator); ok && !it.stopped {
+			if isContextExpiredOrCancelled(it.ctx) {
+				return retryContextError(ctx, it.ctx, nil)
+			}
+		}
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	err := tx.recreateAndReplay(ctx)
+	replayCtx, cleanup := combineContexts(ctx, tx.ctx)
+	defer cleanup()
+
+	err := tx.recreateAndReplay(replayCtx)
 	if err != nil {
+		if ctxErr := tx.ensureReplayedContextError(ctx, replayCtx, err); ctxErr != nil {
+			// A context expired or was cancelled mid-replay. Keep NeedsReplay so a later call with
+			// a healthy context (or after closing a cancelled query) can still recover; if the
+			// transaction or an open query is still cancelled, the checks above will fail immediately.
+			tx.state = readWriteTxStateNeedsReplay
+			tx.replayErr = nil
+			return ctxErr
+		}
 		tx.state = readWriteTxStateReplayFailed
 		tx.replayErr = err
 		return err
 	}
 	tx.state = readWriteTxStateActive
 	tx.replayErr = nil
+	return nil
+}
+
+// ensureReplayedContextError returns the matching context error if err was
+// caused by the transaction, operation, or an open query context being
+// cancelled or expired, or nil if err is not a context error.
+func (tx *readWriteTransaction) ensureReplayedContextError(ctx, replayCtx context.Context, err error) error {
+	for _, checkCtx := range [3]context.Context{tx.ctx, ctx, replayCtx} {
+		if isContextCancelledOrTimedOut(checkCtx, err) {
+			return retryContextError(checkCtx, nil, err)
+		}
+	}
+	for _, stmt := range tx.statements {
+		if it, ok := stmt.(*checksumRowIterator); ok && !it.stopped && isContextCancelledOrTimedOut(it.ctx, err) {
+			return retryContextError(ctx, it.ctx, err)
+		}
+	}
 	return nil
 }
 
