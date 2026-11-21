@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.29.0](https://github.com/googleapis/go-sql-spanner/compare/v1.28.0...v1.29.0) (2026-11-21)
+
+
+### Features
+
+* Support savepoint SQL statement execution and in-error recovery ([#939](https://github.com/googleapis/go-sql-spanner/issues/939)) ([29ee290](https://github.com/googleapis/go-sql-spanner/commit/29ee2903fc99af5949fa4028319f61823e508fe0))
+
+
+### Bug Fixes
+
+* Propagate context errors and clean up transactions during retries ([#966](https://github.com/googleapis/go-sql-spanner/issues/966)) ([b3f7415](https://github.com/googleapis/go-sql-spanner/commit/b3f7415d14f4c41962c3b501a63b61685a9c1c9c))
+* Update all dependencies ([#931](https://github.com/googleapis/go-sql-spanner/issues/931)) ([07ec3e0](https://github.com/googleapis/go-sql-spanner/commit/07ec3e027729823a2c61fbbe401ac2368d6b4d60))
+* Update all dependencies ([#942](https://github.com/googleapis/go-sql-spanner/issues/942)) ([f9bfef5](https://github.com/googleapis/go-sql-spanner/commit/f9bfef50c162ebd2f02275a44590f73cf1871c02))
+* Update all dependencies ([#944](https://github.com/googleapis/go-sql-spanner/issues/944)) ([fdd78c3](https://github.com/googleapis/go-sql-spanner/commit/fdd78c39330c75a681ac306735294da84c484737))
+* Update all dependencies ([#964](https://github.com/googleapis/go-sql-spanner/issues/964)) ([a9e3106](https://github.com/googleapis/go-sql-spanner/commit/a9e3106773c37a23261380baff8894a492adefbb))
+* Update all dependencies ([#967](https://github.com/googleapis/go-sql-spanner/issues/967)) ([b321b21](https://github.com/googleapis/go-sql-spanner/commit/b321b219af20738ce67bb48859123b2b2b0e6f5e))
+* Update dependency com.google.errorprone:error_prone_annotations to v2.52.0 ([#940](https://github.com/googleapis/go-sql-spanner/issues/940)) ([bb19d9a](https://github.com/googleapis/go-sql-spanner/commit/bb19d9ae6e9ca2dcb08c98e8dbe729a0c726af6e))
+* Update dependency com.google.errorprone:error_prone_annotations to v2.53.0 ([#968](https://github.com/googleapis/go-sql-spanner/issues/968)) ([1303ed0](https://github.com/googleapis/go-sql-spanner/commit/1303ed05a2bfb5c0089b9a7a8ef0c4a0f6a59614))
+* Update dependency io.netty:netty-transport-native-epoll to v4.2.20.final ([#937](https://github.com/googleapis/go-sql-spanner/issues/937)) ([12db54e](https://github.com/googleapis/go-sql-spanner/commit/12db54e3ace381bdecca715fb653040a40115721))
+* Update dependency io.netty:netty-transport-native-epoll to v4.2.21.final ([#963](https://github.com/googleapis/go-sql-spanner/issues/963)) ([745ece4](https://github.com/googleapis/go-sql-spanner/commit/745ece4d7255e11da6d1a63e892a9de2db24d9ed))
+* Update module cloud.google.com/go/longrunning to v1.5.0 ([#941](https://github.com/googleapis/go-sql-spanner/issues/941)) ([de4711d](https://github.com/googleapis/go-sql-spanner/commit/de4711d3c16c4e9c9fad433e6ea6a2db6201da4e))
+* Update module github.com/testcontainers/testcontainers-go to v0.45.0 ([#945](https://github.com/googleapis/go-sql-spanner/issues/945)) ([46d095f](https://github.com/googleapis/go-sql-spanner/commit/46d095faf0b84015f423dc759b1ef0bd1c26b137))
+* Validate credential types in connection properties ([#955](https://github.com/googleapis/go-sql-spanner/issues/955)) ([359d1f8](https://github.com/googleapis/go-sql-spanner/commit/359d1f8012161e0eefd75849a0db5671f3f07b56))
+
 ## [1.28.0](https://github.com/googleapis/go-sql-spanner/compare/v1.27.0...v1.28.0) (2026-10-28)
 
 
