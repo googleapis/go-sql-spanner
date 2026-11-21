@@ -200,3 +200,43 @@ func TestDatabaseDialectMethod(t *testing.T) {
 		t.Errorf("nil parser DatabaseDialect mismatch\nGot:  %v\nWant: %v", g, w)
 	}
 }
+
+func TestLastDDLOperationID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		conn         *conn
+		setOpID      string
+		wantInitial  string
+		wantAfterSet string
+	}{
+		{
+			name:         "NilState",
+			conn:         &conn{},
+			setOpID:      "operations/test-op",
+			wantInitial:  "",
+			wantAfterSet: "",
+		},
+		{
+			name: "PopulatedState",
+			conn: &conn{
+				state: createInitialConnectionState(connectionstate.TypeNonTransactional, nil),
+			},
+			setOpID:      "projects/test-project/instances/test-instance/databases/test-db/operations/op-12345",
+			wantInitial:  "",
+			wantAfterSet: "projects/test-project/instances/test-instance/databases/test-db/operations/op-12345",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if g, w := tc.conn.LastDDLOperationID(), tc.wantInitial; g != w {
+				t.Errorf("initial LastDDLOperationID mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			tc.conn.setLastDDLOperationID(tc.setOpID)
+			if g, w := tc.conn.LastDDLOperationID(), tc.wantAfterSet; g != w {
+				t.Errorf("after set LastDDLOperationID mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}

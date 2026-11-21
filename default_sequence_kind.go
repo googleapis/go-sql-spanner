@@ -43,7 +43,7 @@ func (c *conn) executeDDLWithDefaultSequenceKindRetry(ctx context.Context, origi
 			}
 		}
 	} else {
-		c.lastDDLOperationID = op.Name()
+		c.setLastDDLOperationID(op.Name())
 		err = c.waitForDDLOperation(ctx, op.Name(), func(ctx context.Context) error {
 			return op.Wait(ctx)
 		})
@@ -66,7 +66,7 @@ func (c *conn) executeDDLWithDefaultSequenceKindRetry(ctx context.Context, origi
 
 	// If a retry was successfully scheduled
 	if opRetry != nil && retryErr == nil {
-		c.lastDDLOperationID = opRetry.Name()
+		c.setLastDDLOperationID(opRetry.Name())
 		err = c.waitForDDLOperation(ctx, opRetry.Name(), func(ctx context.Context) error {
 			return opRetry.Wait(ctx)
 		})
