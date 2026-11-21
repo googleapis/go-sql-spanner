@@ -6137,6 +6137,107 @@ func TestCloseDB(t *testing.T) {
 	}
 }
 
+func TestConcurrentConnectionOpen_SameDSN(t *testing.T) {
+	t.Parallel()
+
+	server, _, serverTeardown := testutil.NewMockedSpannerInMemTestServer(t)
+	defer serverTeardown()
+	server.SetupSelectDialectResult(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL)
+
+	ctx := context.Background()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+	concurrentCalls := 20
+
+	var waitGroup sync.WaitGroup
+	connectors := make([]driver.Connector, concurrentCalls)
+	databases := make([]*sql.DB, concurrentCalls)
+	openErrors := make([]error, concurrentCalls)
+	pingErrors := make([]error, concurrentCalls)
+
+	for index := 0; index < concurrentCalls; index++ {
+		waitGroup.Add(1)
+		go func(workerIndex int) {
+			defer waitGroup.Done()
+			driverConnector, err := spannerDriver.OpenConnector(dsn)
+			connectors[workerIndex] = driverConnector
+			openErrors[workerIndex] = err
+			if err != nil {
+				return
+			}
+			databaseInstance := sql.OpenDB(driverConnector)
+			databases[workerIndex] = databaseInstance
+			if pingError := databaseInstance.PingContext(ctx); pingError != nil {
+				pingErrors[workerIndex] = pingError
+			}
+		}(index)
+	}
+	waitGroup.Wait()
+
+	for index := 0; index < concurrentCalls; index++ {
+		if openErrors[index] != nil {
+			t.Fatalf("unexpected OpenConnector error for worker %d: %v", index, openErrors[index])
+		}
+		if pingErrors[index] != nil {
+			t.Fatalf("unexpected ping error for worker %d: %v", index, pingErrors[index])
+		}
+	}
+
+	// Verify all workers received the exact same cached connector instance.
+	firstConnector := connectors[0].(*connector)
+	for index := 1; index < concurrentCalls; index++ {
+		if g, w := connectors[index].(*connector), firstConnector; g != w {
+			t.Errorf("connector pointer mismatch at worker %d\nGot:  %p\nWant: %p", index, g, w)
+		}
+	}
+
+	// Verify that the shared connector's client was initialized and shared by all connections.
+	firstConnector.clientMu.Lock()
+	sharedClient := firstConnector.client
+	firstConnector.clientMu.Unlock()
+	if sharedClient == nil {
+		t.Fatalf("expected non-nil shared Spanner client on connector")
+	}
+
+	// Verify all 20 concurrent connections successfully executed their ping queries against the server.
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+	var pingQueries int
+	for _, req := range sqlRequests {
+		if execReq, ok := req.(*sppb.ExecuteSqlRequest); ok && execReq.Sql == "SELECT 1" {
+			pingQueries++
+		}
+	}
+	if g, w := pingQueries, concurrentCalls; g != w {
+		t.Errorf("ping query count mismatch\nGot:  %d\nWant: %d", g, w)
+	}
+
+	// Close all database connection pools.
+	for index := 0; index < concurrentCalls; index++ {
+		if databases[index] != nil {
+			_ = databases[index].Close()
+		}
+	}
+
+	// Close all connector handles and verify driver cache cleanup.
+	for index := 0; index < concurrentCalls; index++ {
+		if connectors[index] != nil {
+			_ = connectors[index].(*connector).Close()
+		}
+	}
+
+	spannerDriver.mu.Lock()
+	_, hasConnector := spannerDriver.connectors[dsn]
+	finalUsageCount, hasUsageCount := spannerDriver.connectorUsageCount[dsn]
+	spannerDriver.mu.Unlock()
+
+	if hasConnector {
+		t.Errorf("expected connector to be deleted from driver map after all closes")
+	}
+	if hasUsageCount {
+		t.Errorf("expected usage count to be deleted from driver map, found count: %d", finalUsageCount)
+	}
+}
+
 func TestCloseAndOpenDB(t *testing.T) {
 	t.Parallel()
 
