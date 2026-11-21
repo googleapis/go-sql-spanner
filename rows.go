@@ -25,6 +25,7 @@ import (
 
 	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/uuid"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
@@ -44,9 +45,8 @@ const (
 
 var _ driver.RowsNextResultSet = &rows{}
 
-func createRows(isPG bool, state *connectionstate.ConnectionState, it rowIterator, cancel context.CancelFunc, opts *ExecOptions, handleError func(error) error) *rows {
+func createRows(state *connectionstate.ConnectionState, it rowIterator, cancel context.CancelFunc, opts *ExecOptions, handleError func(error) error) *rows {
 	return &rows{
-		isPG:                    isPG,
 		state:                   state,
 		it:                      it,
 		cancel:                  cancel,
@@ -59,7 +59,6 @@ func createRows(isPG bool, state *connectionstate.ConnectionState, it rowIterato
 }
 
 type rows struct {
-	isPG   bool
 	it     rowIterator
 	close  func() error
 	cancel context.CancelFunc
@@ -84,6 +83,13 @@ type rows struct {
 	hasReturnedResultSetStats    bool
 }
 
+func isPostgreSQLState(state *connectionstate.ConnectionState) bool {
+	if state == nil {
+		return false
+	}
+	return propertyDatabaseDialect.GetValueOrDefault(state) == databasepb.DatabaseDialect_POSTGRESQL
+}
+
 func (r *rows) handleRowError(err error) error {
 	if err == nil || err == io.EOF || err == iterator.Done {
 		return err
@@ -91,7 +97,7 @@ func (r *rows) handleRowError(err error) error {
 	if r.handleError != nil {
 		return r.handleError(err)
 	}
-	return checkAndEnrichError(r.isPG, err)
+	return checkAndEnrichError(isPostgreSQLState(r.state), err)
 }
 
 // HasNextResultSet implements [driver.RowsNextResultSet.HasNextResultSet].

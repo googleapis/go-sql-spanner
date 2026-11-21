@@ -2018,9 +2018,9 @@ func getShowStatement(c *sql.Conn) string {
 
 func getDialect(c *sql.Conn) (dialect databasepb.DatabaseDialect) {
 	_ = c.Raw(func(driverConn any) error {
-		sc, _ := driverConn.(SpannerConn)
-		conn := sc.(*conn)
-		dialect = conn.parser.Dialect
+		if sc, ok := driverConn.(SpannerConn); ok {
+			dialect = sc.DatabaseDialect()
+		}
 		return nil
 	})
 	return

@@ -24,9 +24,14 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/testutil"
+	"google.golang.org/api/iterator"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -282,6 +287,179 @@ func TestScanNumericAsFloat32(t *testing.T) {
 			}
 			if err := r.Err(); err != nil {
 				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestIsPostgreSQLState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		state *connectionstate.ConnectionState
+		want  bool
+	}{
+		{
+			name:  "NilState",
+			state: nil,
+			want:  false,
+		},
+		{
+			name:  "GoogleSQL",
+			state: createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, connectionstate.TypeNonTransactional, nil),
+			want:  false,
+		},
+		{
+			name:  "PostgreSQL",
+			state: createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_POSTGRESQL, connectionstate.TypeTransactional, nil),
+			want:  true,
+		},
+		{
+			name:  "Unspecified",
+			state: createConfiguredConnectionState(nil),
+			want:  false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if g, w := isPostgreSQLState(tc.state), tc.want; g != w {
+				t.Errorf("isPostgreSQLState mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
+type errorIterator struct {
+	testIterator
+	err error
+}
+
+func (e *errorIterator) Next() (*spanner.Row, error) {
+	return nil, e.err
+}
+
+func TestRows_HandleRowError(t *testing.T) {
+	t.Parallel()
+
+	permErr := status.Error(codes.PermissionDenied, "user has insufficient privileges")
+	customErr := errors.New("custom error handler")
+
+	tests := []struct {
+		name        string
+		state       *connectionstate.ConnectionState
+		handleError func(error) error
+		inErr       error
+		wantErr     string
+	}{
+		{
+			name:    "NilError",
+			state:   nil,
+			inErr:   nil,
+			wantErr: "",
+		},
+		{
+			name:    "EOF",
+			state:   createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_POSTGRESQL, connectionstate.TypeTransactional, nil),
+			inErr:   io.EOF,
+			wantErr: io.EOF.Error(),
+		},
+		{
+			name:    "IteratorDone",
+			state:   createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_POSTGRESQL, connectionstate.TypeTransactional, nil),
+			inErr:   iterator.Done,
+			wantErr: iterator.Done.Error(),
+		},
+		{
+			name:    "NilState_NoEnrichment",
+			state:   nil,
+			inErr:   permErr,
+			wantErr: permErr.Error(),
+		},
+		{
+			name:    "GoogleSQL_NoEnrichment",
+			state:   createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, connectionstate.TypeNonTransactional, nil),
+			inErr:   permErr,
+			wantErr: permErr.Error(),
+		},
+		{
+			name:    "PostgreSQL_EnrichedWithSQLState",
+			state:   createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_POSTGRESQL, connectionstate.TypeTransactional, nil),
+			inErr:   permErr,
+			wantErr: "[SQLSTATE 42501] " + permErr.Error(),
+		},
+		{
+			name:  "CustomHandleError_Precedence",
+			state: createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_POSTGRESQL, connectionstate.TypeTransactional, nil),
+			handleError: func(err error) error {
+				return customErr
+			},
+			inErr:   permErr,
+			wantErr: customErr.Error(),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &rows{
+				state:       tc.state,
+				handleError: tc.handleError,
+			}
+			err := r.handleRowError(tc.inErr)
+			if tc.inErr == nil {
+				if err != nil {
+					t.Fatalf("expected nil error\nGot:  %v\nWant: nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected non-nil error\nGot:  nil\nWant: %v", tc.wantErr)
+			}
+			if g, w := err.Error(), tc.wantErr; g != w {
+				t.Errorf("handleRowError message mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
+func TestRows_Next_ErrorEnrichment(t *testing.T) {
+	t.Parallel()
+
+	permErr := status.Error(codes.PermissionDenied, "user has insufficient privileges")
+
+	tests := []struct {
+		name    string
+		state   *connectionstate.ConnectionState
+		wantErr string
+	}{
+		{
+			name:    "NilState",
+			state:   nil,
+			wantErr: permErr.Error(),
+		},
+		{
+			name:    "GoogleSQL",
+			state:   createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, connectionstate.TypeNonTransactional, nil),
+			wantErr: permErr.Error(),
+		},
+		{
+			name:    "PostgreSQL",
+			state:   createInitialConnectionStateWithDialect(databasepb.DatabaseDialect_POSTGRESQL, connectionstate.TypeTransactional, nil),
+			wantErr: "[SQLSTATE 42501] " + permErr.Error(),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := createRows(tc.state, &errorIterator{err: permErr}, nil, &ExecOptions{}, nil)
+			dest := make([]driver.Value, 1)
+			err := r.Next(dest)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if g, w := err.Error(), tc.wantErr; g != w {
+				t.Errorf("r.Next error mismatch\nGot:  %v\nWant: %v", g, w)
 			}
 		})
 	}
