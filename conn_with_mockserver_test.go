@@ -2426,3 +2426,72 @@ func TestPGTransactionState_ServerAndClientErrors(t *testing.T) {
 		_ = tx.Rollback()
 	})
 }
+
+func TestRegisterTransactionCloseFunc_LateRegistration(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name       string
+		isReadOnly bool
+	}{
+		{
+			name:       "ReadWrite",
+			isReadOnly: false,
+		},
+		{
+			name:       "ReadOnly",
+			isReadOnly: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			db, _, teardown := setupTestDBConnection(t)
+			defer teardown()
+
+			ctx := context.Background()
+			connection, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer silentClose(connection)
+
+			transaction, err := connection.BeginTx(ctx, &sql.TxOptions{ReadOnly: testCase.isReadOnly})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Execute a statement to activate the transaction.
+			rows, err := transaction.QueryContext(ctx, testutil.SelectFooFromBar)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = rows.Close()
+			if err := rows.Err(); err != nil {
+				t.Fatal(err)
+			}
+
+			var lateCloseCalled bool
+			if err := connection.Raw(func(driverConn any) error {
+				spannerConn, ok := driverConn.(SpannerConn)
+				if !ok {
+					return fmt.Errorf("not a SpannerConn")
+				}
+				spannerConn.registerTransactionCloseFunc(func() {
+					lateCloseCalled = true
+				})
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := transaction.Commit(); err != nil {
+				t.Fatal(err)
+			}
+
+			if g, w := lateCloseCalled, true; g != w {
+				t.Errorf("late close called mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}

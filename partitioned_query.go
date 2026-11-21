@@ -181,19 +181,14 @@ func BeginBatchReadOnlyTransaction(ctx context.Context, db *sql.DB, options Batc
 	if err != nil {
 		return nil, err
 	}
-	if err := withTransactionCloseFunc(conn, func() {
-		// Close the connection asynchronously, as the transaction will still
-		// be active when we hit this point.
-		go conn.Close()
-	}); err != nil {
-		return nil, err
-	}
 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: WithBatchReadOnly(sql.LevelDefault)})
-	if err := withTempBatchReadOnlyTransactionOptions(conn, &options); err != nil {
+	if err != nil {
+		_ = conn.Close()
 		return nil, err
 	}
-	if err != nil {
-		clearTempBatchReadOnlyTransactionOptions(conn)
+	if err := withTempBatchReadOnlyTransactionOptions(conn, &options); err != nil {
+		_ = tx.Rollback()
+		_ = conn.Close()
 		return nil, err
 	}
 	return tx, nil
@@ -206,14 +201,14 @@ func withTempBatchReadOnlyTransactionOptions(conn *sql.Conn, options *BatchReadO
 			// It is not a Spanner connection.
 			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
 		}
+		spannerConn.registerTransactionCloseFunc(func() {
+			// Close the connection asynchronously, as the transaction will still
+			// be active when we hit this point.
+			go conn.Close()
+		})
 		spannerConn.setBatchReadOnlyTransactionOptions(options)
 		return nil
 	})
-}
-
-func clearTempBatchReadOnlyTransactionOptions(conn *sql.Conn) {
-	_ = withTempBatchReadOnlyTransactionOptions(conn, nil)
-	_ = conn.Close()
 }
 
 func (pq *PartitionedQuery) Execute(ctx context.Context, index int, db *sql.DB) (*sql.Rows, error) {
