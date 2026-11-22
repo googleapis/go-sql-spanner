@@ -2311,6 +2311,127 @@ func TestConnectionStreamInvalidNilRequests(t *testing.T) {
 	}
 }
 
+func TestExecuteBatchWithRequestOptions(t *testing.T) {
+	t.Parallel()
+
+	for _, bidi := range []bool{false, true} {
+		mode := "unary"
+		if bidi {
+			mode = "bidi"
+		}
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+
+			server, teardown := setupMockSpannerServer(t)
+			defer teardown()
+			dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+			client, cleanup := startTestSpannerLibServer(t)
+			defer cleanup()
+
+			pool, err := client.CreatePool(ctx, &pb.CreatePoolRequest{ConnectionString: dsn})
+			if err != nil {
+				t.Fatalf("failed to create pool: %v", err)
+			}
+			defer func() { _, _ = client.ClosePool(ctx, pool) }()
+			connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
+			if err != nil {
+				t.Fatalf("failed to create connection: %v", err)
+			}
+
+			if _, err := client.BeginTransaction(ctx, &pb.BeginTransactionRequest{
+				Connection:         connection,
+				TransactionOptions: &sppb.TransactionOptions{},
+			}); err != nil {
+				t.Fatalf("BeginTransaction failed: %v", err)
+			}
+			batchReqProto := &pb.ExecuteBatchRequest{
+				Connection: connection,
+				ExecuteBatchDmlRequest: &sppb.ExecuteBatchDmlRequest{
+					Statements: []*sppb.ExecuteBatchDmlRequest_Statement{
+						{Sql: testutil.UpdateBarSetFoo},
+					},
+					RequestOptions: &sppb.RequestOptions{
+						RequestTag:     "grpc_batch_req",
+						TransactionTag: "grpc_batch_tx",
+						Priority:       sppb.RequestOptions_PRIORITY_MEDIUM,
+					},
+				},
+			}
+			if bidi {
+				stream, err := client.ConnectionStream(ctx)
+				if err != nil {
+					t.Fatalf("failed to open connection stream: %v", err)
+				}
+				if err := stream.Send(&pb.ConnectionStreamRequest{
+					Request: &pb.ConnectionStreamRequest_ExecuteBatchRequest{
+						ExecuteBatchRequest: batchReqProto,
+					},
+				}); err != nil {
+					t.Fatalf("stream Send ExecuteBatchRequest failed: %v", err)
+				}
+				if _, err := stream.Recv(); err != nil {
+					t.Fatalf("stream Recv failed: %v", err)
+				}
+			} else {
+				if _, err := client.ExecuteBatch(ctx, batchReqProto); err != nil {
+					t.Fatalf("ExecuteBatch failed: %v", err)
+				}
+			}
+			if _, err := client.Commit(ctx, connection); err != nil {
+				t.Fatalf("Commit failed: %v", err)
+			}
+
+			requests := server.TestSpanner.DrainRequestsFromServer()
+			batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+			if g, w := len(batchRequests), 1; g != w {
+				t.Fatalf("ExecuteBatchDmlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			batchReq := batchRequests[0].(*sppb.ExecuteBatchDmlRequest)
+			if g, w := batchReq.RequestOptions.GetRequestTag(), "grpc_batch_req"; g != w {
+				t.Errorf("request tag mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := batchReq.RequestOptions.GetTransactionTag(), "grpc_batch_tx"; g != w {
+				t.Errorf("transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := batchReq.RequestOptions.GetPriority(), sppb.RequestOptions_PRIORITY_MEDIUM; g != w {
+				t.Errorf("priority mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+			if g, w := len(commitRequests), 1; g != w {
+				t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := commitRequests[0].(*sppb.CommitRequest).RequestOptions.GetTransactionTag(), "grpc_batch_tx"; g != w {
+				t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			rows, err := client.Execute(ctx, &pb.ExecuteRequest{
+				Connection:        connection,
+				ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: testutil.UpdateBarSetFoo},
+			})
+			if err != nil {
+				t.Fatalf("subsequent Execute failed: %v", err)
+			}
+			_, _ = client.CloseRows(ctx, rows)
+			requests = server.TestSpanner.DrainRequestsFromServer()
+			execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+			if g, w := len(execRequests), 1; g != w {
+				t.Fatalf("subsequent ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := execRequests[0].(*sppb.ExecuteSqlRequest).RequestOptions.GetRequestTag(), ""; g != w {
+				t.Errorf("leaked request tag\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := execRequests[0].(*sppb.ExecuteSqlRequest).RequestOptions.GetTransactionTag(), ""; g != w {
+				t.Errorf("leaked transaction tag\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := execRequests[0].(*sppb.ExecuteSqlRequest).RequestOptions.GetPriority(), sppb.RequestOptions_PRIORITY_UNSPECIFIED; g != w {
+				t.Errorf("leaked priority\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
 func createInt64Slice(n int) []int64 {
 	res := make([]int64, n)
 	for i := 0; i < n; i++ {

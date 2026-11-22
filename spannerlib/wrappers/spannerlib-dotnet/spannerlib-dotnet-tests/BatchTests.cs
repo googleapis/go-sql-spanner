@@ -16,6 +16,7 @@ using Google.Cloud.Spanner.Admin.Database.V1;
 using Google.Cloud.Spanner.V1;
 using Google.Cloud.SpannerLib.MockServer;
 using Google.Protobuf.WellKnownTypes;
+using Grpc.Core;
 
 namespace Google.Cloud.SpannerLib.Tests;
 
@@ -139,5 +140,134 @@ public class BatchTests : AbstractMockServerTests
         Assert.That(Fixture.DatabaseAdminMock.Requests.OfType<UpdateDatabaseDdlRequest>().ToList(), Has.Count.EqualTo(1));
         Assert.That(Fixture.DatabaseAdminMock.Requests.OfType<UpdateDatabaseDdlRequest>().First().Statements, Has.Count.EqualTo(2));
     }
-    
+
+    [Test]
+    public void TestBatchDmlWithRequestOptions([Values] LibType libType, [Values] bool useTransaction)
+    {
+        var insert = "insert into test (id, value) values (1, 'One')";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(insert, StatementResult.CreateUpdateCount(1));
+
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        using var connection = pool.CreateConnection();
+        if (useTransaction)
+        {
+            connection.BeginTransaction(new TransactionOptions());
+        }
+        var request = new ExecuteBatchDmlRequest
+        {
+            Statements =
+            {
+                new ExecuteBatchDmlRequest.Types.Statement { Sql = insert },
+                new ExecuteBatchDmlRequest.Types.Statement { Sql = insert },
+            },
+            RequestOptions = new RequestOptions
+            {
+                RequestTag = "dotnet_batch_req';--",
+                TransactionTag = "dotnet_batch_tx';--",
+                Priority = RequestOptions.Types.Priority.Medium,
+            },
+        };
+        var updateCounts = connection.ExecuteBatch(request);
+        if (useTransaction)
+        {
+            connection.Commit();
+        }
+        Assert.That(updateCounts, Is.EqualTo(new long[] { 1, 1 }));
+        var batchRequests = Fixture.SpannerMock.Requests.OfType<ExecuteBatchDmlRequest>().ToList();
+        Assert.That(batchRequests, Has.Count.EqualTo(1));
+        Assert.That(batchRequests[0].RequestOptions?.RequestTag, Is.EqualTo("dotnet_batch_req';--"));
+        Assert.That(batchRequests[0].RequestOptions?.TransactionTag, Is.EqualTo("dotnet_batch_tx';--"));
+        Assert.That(batchRequests[0].RequestOptions?.Priority, Is.EqualTo(RequestOptions.Types.Priority.Medium));
+
+        var commitRequests = Fixture.SpannerMock.Requests.OfType<CommitRequest>().ToList();
+        Assert.That(commitRequests, Has.Count.EqualTo(1));
+        Assert.That(commitRequests[0].RequestOptions?.TransactionTag, Is.EqualTo("dotnet_batch_tx';--"));
+
+        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = insert });
+        var execRequests = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().ToList();
+        Assert.That(execRequests, Has.Count.EqualTo(1));
+        Assert.That(execRequests[0].RequestOptions?.RequestTag ?? "", Is.Empty);
+        Assert.That(execRequests[0].RequestOptions?.TransactionTag ?? "", Is.Empty);
+        Assert.That(execRequests[0].RequestOptions?.Priority ?? RequestOptions.Types.Priority.Unspecified, Is.EqualTo(RequestOptions.Types.Priority.Unspecified));
+    }
+
+    [Test]
+    public async Task TestBatchDmlWithRequestOptionsAsync([Values] LibType libType, [Values] bool useTransaction)
+    {
+        var insert = "insert into test (id, value) values (1, 'One')";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(insert, StatementResult.CreateUpdateCount(1));
+
+        await using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        await using var connection = pool.CreateConnection();
+        if (useTransaction)
+        {
+            await connection.BeginTransactionAsync(new TransactionOptions());
+        }
+        var request = new ExecuteBatchDmlRequest
+        {
+            Statements =
+            {
+                new ExecuteBatchDmlRequest.Types.Statement { Sql = insert },
+                new ExecuteBatchDmlRequest.Types.Statement { Sql = insert },
+            },
+            RequestOptions = new RequestOptions
+            {
+                RequestTag = "dotnet_async_batch_req",
+                TransactionTag = "dotnet_async_batch_tx",
+                Priority = RequestOptions.Types.Priority.Low,
+            },
+        };
+        var updateCounts = await connection.ExecuteBatchAsync(request);
+        if (useTransaction)
+        {
+            await connection.CommitAsync();
+        }
+        Assert.That(updateCounts, Is.EqualTo(new long[] { 1, 1 }));
+        var batchRequests = Fixture.SpannerMock.Requests.OfType<ExecuteBatchDmlRequest>().ToList();
+        Assert.That(batchRequests, Has.Count.EqualTo(1));
+        Assert.That(batchRequests[0].RequestOptions?.RequestTag, Is.EqualTo("dotnet_async_batch_req"));
+        Assert.That(batchRequests[0].RequestOptions?.TransactionTag, Is.EqualTo("dotnet_async_batch_tx"));
+        Assert.That(batchRequests[0].RequestOptions?.Priority, Is.EqualTo(RequestOptions.Types.Priority.Low));
+
+        var commitRequests = Fixture.SpannerMock.Requests.OfType<CommitRequest>().ToList();
+        Assert.That(commitRequests, Has.Count.EqualTo(1));
+        Assert.That(commitRequests[0].RequestOptions?.TransactionTag, Is.EqualTo("dotnet_async_batch_tx"));
+
+        await using var rows = await connection.ExecuteAsync(new ExecuteSqlRequest { Sql = insert });
+        var execRequests = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().ToList();
+        Assert.That(execRequests, Has.Count.EqualTo(1));
+        Assert.That(execRequests[0].RequestOptions?.RequestTag ?? "", Is.Empty);
+        Assert.That(execRequests[0].RequestOptions?.TransactionTag ?? "", Is.Empty);
+        Assert.That(execRequests[0].RequestOptions?.Priority ?? RequestOptions.Types.Priority.Unspecified, Is.EqualTo(RequestOptions.Types.Priority.Unspecified));
+    }
+
+    [Test]
+    public void TestBatchDmlWithRequestOptionsErrorNoLeak([Values] LibType libType)
+    {
+        var invalidInsert = "insert into non_existing_table (id, value) values (1, 'One')";
+        var validInsert = "insert into test (id, value) values (1, 'One')";
+        Fixture.SpannerMock.AddOrUpdateStatementResult(invalidInsert,
+            StatementResult.CreateException(new RpcException(new Status(StatusCode.NotFound, "Table not found"))));
+        Fixture.SpannerMock.AddOrUpdateStatementResult(validInsert, StatementResult.CreateUpdateCount(1));
+
+        using var pool = Pool.Create(SpannerLibDictionary[libType], ConnectionString);
+        using var connection = pool.CreateConnection();
+        Assert.Throws<SpannerException>(() => connection.ExecuteBatch(new ExecuteBatchDmlRequest
+        {
+            Statements = { new ExecuteBatchDmlRequest.Types.Statement { Sql = invalidInsert } },
+            RequestOptions = new RequestOptions
+            {
+                RequestTag = "dotnet_err_req",
+                TransactionTag = "dotnet_err_tx",
+                Priority = RequestOptions.Types.Priority.High,
+            },
+        }));
+
+        using var rows = connection.Execute(new ExecuteSqlRequest { Sql = validInsert });
+        var execRequests = Fixture.SpannerMock.Requests.OfType<ExecuteSqlRequest>().ToList();
+        Assert.That(execRequests, Has.Count.EqualTo(1));
+        Assert.That(execRequests[0].RequestOptions?.RequestTag ?? "", Is.Empty);
+        Assert.That(execRequests[0].RequestOptions?.TransactionTag ?? "", Is.Empty);
+        Assert.That(execRequests[0].RequestOptions?.Priority ?? RequestOptions.Types.Priority.Unspecified, Is.EqualTo(RequestOptions.Types.Priority.Unspecified));
+    }
 }

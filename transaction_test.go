@@ -1121,7 +1121,7 @@ func TestSavepoint_Errors(t *testing.T) {
 		})
 
 		t.Run("savepoint_during_batch", func(t *testing.T) {
-			if _, err := c.tx.StartBatchDML(spanner.QueryOptions{}, false); err != nil {
+			if _, err := c.tx.StartBatchDML(nil, false); err != nil {
 				t.Fatalf("failed to start batch: %v", err)
 			}
 			defer func() {
@@ -3301,7 +3301,7 @@ func TestSavepoint_FailedRollbackPreservesSavepoints(t *testing.T) {
 			}
 
 			// Start a manual DML batch, which causes savepoint operations to fail validation.
-			if _, err := c.tx.StartBatchDML(spanner.QueryOptions{}, false); err != nil {
+			if _, err := c.tx.StartBatchDML(nil, false); err != nil {
 				return fmt.Errorf("failed to start batch: %w", err)
 			}
 
@@ -3664,7 +3664,7 @@ func TestSavepoint_ReplayFailed_RecoveryToEarlierSavepoint(t *testing.T) {
 		err = dbConn.Raw(func(driverConn any) error {
 			assertSyntheticReplayErr(rawConn.tx.Savepoint("s4"), "Savepoint")
 			assertSyntheticReplayErr(rawConn.tx.ReleaseSavepoint("s2"), "ReleaseSavepoint")
-			_, batchErr := rawConn.tx.StartBatchDML(spanner.QueryOptions{}, false)
+			_, batchErr := rawConn.tx.StartBatchDML(nil, false)
 			assertSyntheticReplayErr(batchErr, "StartBatchDML")
 			return nil
 		})
@@ -4631,7 +4631,7 @@ func TestSavepoint_DeferredReplay_Triggers(t *testing.T) {
 		err = dbConn.Raw(func(driverConn any) error {
 			c := driverConn.(*conn)
 			rwTx := c.tx.contextTransaction.(*readWriteTransaction)
-			_, err := rwTx.StartBatchDML(spanner.QueryOptions{}, false)
+			_, err := rwTx.StartBatchDML(nil, false)
 			return err
 		})
 		if err != nil {
@@ -4732,7 +4732,7 @@ func TestSavepoint_DeferredReplay_Triggers(t *testing.T) {
 		err = dbConn.Raw(func(driverConn any) error {
 			c := driverConn.(*conn)
 			rwTx := c.tx.contextTransaction.(*readWriteTransaction)
-			if _, err := rwTx.StartBatchDML(spanner.QueryOptions{}, false); err != nil {
+			if _, err := rwTx.StartBatchDML(nil, false); err != nil {
 				return err
 			}
 			return nil

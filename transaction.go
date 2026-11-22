@@ -53,7 +53,7 @@ type contextTransaction interface {
 	partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions *ExecOptions) (driver.Rows, error)
 	ExecContext(ctx context.Context, stmt spanner.Statement, statementInfo *parser.StatementInfo, options spanner.QueryOptions) (*result, error)
 
-	StartBatchDML(options spanner.QueryOptions, automatic bool) (driver.Result, error)
+	StartBatchDML(options *ExecOptions, automatic bool) (driver.Result, error)
 	RunBatch(ctx context.Context) (driver.Result, error)
 	RunDmlBatch(ctx context.Context) (SpannerResult, error)
 	AbortBatch() (driver.Result, error)
@@ -294,7 +294,7 @@ func (d *delegatingTransaction) ExecContext(ctx context.Context, stmt spanner.St
 	return d.contextTransaction.ExecContext(ctx, stmt, statementInfo, options)
 }
 
-func (d *delegatingTransaction) StartBatchDML(options spanner.QueryOptions, automatic bool) (driver.Result, error) {
+func (d *delegatingTransaction) StartBatchDML(options *ExecOptions, automatic bool) (driver.Result, error) {
 	if err := d.ensureActivated(); err != nil {
 		return nil, err
 	}
@@ -587,7 +587,7 @@ func (tx *readOnlyTransaction) ExecContext(_ context.Context, _ spanner.Statemen
 	return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
-func (tx *readOnlyTransaction) StartBatchDML(_ spanner.QueryOptions, _ bool) (driver.Result, error) {
+func (tx *readOnlyTransaction) StartBatchDML(_ *ExecOptions, _ bool) (driver.Result, error) {
 	return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
@@ -1095,7 +1095,7 @@ func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.St
 	return res, err
 }
 
-func (tx *readWriteTransaction) StartBatchDML(options spanner.QueryOptions, automatic bool) (driver.Result, error) {
+func (tx *readWriteTransaction) StartBatchDML(options *ExecOptions, automatic bool) (driver.Result, error) {
 	if tx.state == readWriteTxStateClosed {
 		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
 	}
@@ -1106,8 +1106,12 @@ func (tx *readWriteTransaction) StartBatchDML(options spanner.QueryOptions, auto
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This transaction already has an active batch."))
 	}
 	tx.logger.Debug("starting dml batch in transaction", "automatic", automatic)
-	options.DirectedReadOptions = nil
-	tx.batch = &batch{tp: parser.BatchTypeDml, options: &ExecOptions{QueryOptions: options}, automatic: automatic}
+	var batchOptions ExecOptions
+	if options != nil {
+		batchOptions = *options
+	}
+	batchOptions.QueryOptions.DirectedReadOptions = nil
+	tx.batch = &batch{tp: parser.BatchTypeDml, options: &batchOptions, automatic: automatic}
 	return driver.ResultNoRows, nil
 }
 
@@ -1193,27 +1197,41 @@ func (tx *readWriteTransaction) runDmlBatch(ctx context.Context) (*result, error
 	}
 	statements := tx.batch.statements
 	options := tx.batch.options
+	if options == nil {
+		options = &ExecOptions{}
+	}
+	queryOptions := options.QueryOptions
+	queryOptions.DirectedReadOptions = nil
 	tx.batch = nil
 
-	if !tx.retryAborts() {
-		affected, err := tx.rwTx.BatchUpdateWithOptions(ctx, statements, options.QueryOptions)
-		res := &result{rowsAffected: sum(affected), batchUpdateCounts: affected}
-		ba := toBatchError(res, err)
-		return res, ba
+	retryAborts := tx.canRetryAborts()
+	runBatchUpdate := func() ([]int64, error) {
+		if !retryAborts {
+			return tx.rwTx.BatchUpdateWithOptions(ctx, statements, queryOptions)
+		}
+		var affected []int64
+		var err error
+		err = tx.runWithRetry(ctx, func(ctx context.Context) error {
+			affected, err = tx.rwTx.BatchUpdateWithOptions(ctx, statements, queryOptions)
+			return err
+		})
+		return affected, err
 	}
 
 	var affected []int64
 	var err error
-	err = tx.runWithRetry(ctx, func(ctx context.Context) error {
-		affected, err = tx.rwTx.BatchUpdateWithOptions(ctx, statements, options.QueryOptions)
-		return err
+	tx.conn.withBatchExecOptions(options, func() {
+		affected, err = runBatchUpdate()
 	})
-	tx.statements = append(tx.statements, &retriableBatchUpdate{
-		statements: statements,
-		options:    options.QueryOptions,
-		c:          affected,
-		err:        err,
-	})
+
+	if retryAborts {
+		tx.statements = append(tx.statements, &retriableBatchUpdate{
+			statements: statements,
+			options:    queryOptions,
+			c:          affected,
+			err:        err,
+		})
+	}
 	res := &result{rowsAffected: sum(affected), batchUpdateCounts: affected}
 	ba := toBatchError(res, err)
 	return res, ba
