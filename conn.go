@@ -896,10 +896,69 @@ func sum(affected []int64) int64 {
 // The returned CommitResponse is nil if the connection currently has a transaction, as the mutations will only be
 // applied to Spanner when the transaction commits.
 func (c *conn) WriteMutations(ctx context.Context, ms []*spanner.Mutation) (*spanner.CommitResponse, error) {
+	return c.WriteMutationsWithOptions(ctx, ms, nil)
+}
+
+// WriteMutationsWithOptions is not part of the public API of the database/sql driver.
+// It is exported for internal reasons, and may receive breaking changes without prior notice.
+//
+// WriteMutationsWithOptions writes mutations using this connection with the given request options.
+// The mutations are either buffered in the current transaction, or written directly to Spanner using
+// a new read/write transaction if the connection does not have a transaction.
+// When called inside a transaction before any statement has activated it on Spanner, non-empty
+// TransactionTag and Priority apply to the transaction; once activated, transaction options are fixed.
+func (c *conn) WriteMutationsWithOptions(ctx context.Context, ms []*spanner.Mutation, requestOptions *spannerpb.RequestOptions) (*spanner.CommitResponse, error) {
 	if c.inTransaction() {
-		return nil, checkAndEnrichError(c.isPostgreSQL(), c.BufferWrite(ms))
+		if err := c.checkInErrorTxState(nil); err != nil {
+			return nil, err
+		}
+		var prevTag string
+		var restoreTag bool
+		var prevPriority spannerpb.RequestOptions_Priority
+		var restorePriority bool
+		if requestOptions != nil && !propertyTransactionReadOnly.GetValueOrDefault(c.state) {
+			if requestOptions.TransactionTag != "" {
+				prevTag = propertyTransactionTag.GetValueOrDefault(c.state)
+				restoreTag = true
+				_ = propertyTransactionTag.SetLocalValue(c.state, requestOptions.TransactionTag)
+			}
+			if requestOptions.Priority != spannerpb.RequestOptions_PRIORITY_UNSPECIFIED {
+				prevPriority = propertyCommitPriority.GetValueOrDefault(c.state)
+				restorePriority = true
+				_ = propertyCommitPriority.SetLocalValue(c.state, requestOptions.Priority)
+			}
+		}
+		if err := c.BufferWrite(ms); err != nil {
+			if restoreTag {
+				_ = propertyTransactionTag.SetLocalValue(c.state, prevTag)
+			}
+			if restorePriority {
+				_ = propertyCommitPriority.SetLocalValue(c.state, prevPriority)
+			}
+			return nil, checkAndEnrichError(c.isPostgreSQL(), err)
+		}
+		return nil, nil
 	}
-	ts, err := c.Apply(ctx, ms)
+	// Reset transaction_tag after reading options without clearing statement_tag, which Apply does not consume.
+	defer func() {
+		_ = propertyTransactionTag.ResetValue(c.state, connectionstate.ContextUser)
+	}()
+	var applyOpts []spanner.ApplyOption
+	transactionTag := propertyTransactionTag.GetValueOrDefault(c.state)
+	if requestOptions != nil && requestOptions.TransactionTag != "" {
+		transactionTag = requestOptions.TransactionTag
+	}
+	if transactionTag != "" {
+		applyOpts = append(applyOpts, spanner.TransactionTag(transactionTag))
+	}
+	priority := propertyCommitPriority.GetValueOrDefault(c.state)
+	if requestOptions != nil && requestOptions.Priority != spannerpb.RequestOptions_PRIORITY_UNSPECIFIED {
+		priority = requestOptions.Priority
+	}
+	if priority != spannerpb.RequestOptions_PRIORITY_UNSPECIFIED {
+		applyOpts = append(applyOpts, spanner.Priority(priority))
+	}
+	ts, err := c.Apply(ctx, ms, applyOpts...)
 	if err != nil {
 		return nil, checkAndEnrichError(c.isPostgreSQL(), err)
 	}
@@ -1631,11 +1690,15 @@ func (c *conn) setBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransact
 //
 // BeginReadOnlyTransaction starts a new read-only transaction on this connection.
 func (c *conn) BeginReadOnlyTransaction(ctx context.Context, options *ReadOnlyTransactionOptions, close func()) (driver.Tx, error) {
-	tx, err := c.beginTx(ctx, driver.TxOptions{ReadOnly: true}, close, options.implicit)
-	c.setReadOnlyTransactionOptions(options)
+	implicit := false
+	if options != nil {
+		implicit = options.implicit
+	}
+	tx, err := c.beginTx(ctx, driver.TxOptions{ReadOnly: true}, close, implicit)
 	if err != nil {
 		return nil, err
 	}
+	c.setReadOnlyTransactionOptions(options)
 	return tx, nil
 }
 
@@ -1644,11 +1707,15 @@ func (c *conn) BeginReadOnlyTransaction(ctx context.Context, options *ReadOnlyTr
 //
 // BeginReadWriteTransaction starts a new read/write transaction on this connection.
 func (c *conn) BeginReadWriteTransaction(ctx context.Context, options *ReadWriteTransactionOptions, close func()) (driver.Tx, error) {
-	tx, err := c.beginTx(ctx, driver.TxOptions{}, close, options.implicit)
-	c.setReadWriteTransactionOptions(options)
+	implicit := false
+	if options != nil {
+		implicit = options.implicit
+	}
+	tx, err := c.beginTx(ctx, driver.TxOptions{}, close, implicit)
 	if err != nil {
 		return nil, checkAndEnrichError(c.isPostgreSQL(), err)
 	}
+	c.setReadWriteTransactionOptions(options)
 	return tx, nil
 }
 

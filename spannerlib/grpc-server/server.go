@@ -440,7 +440,7 @@ func (s *spannerLibServer) BeginTransaction(ctx context.Context, request *pb.Beg
 	// to this function will be cancelled once the RPC call finishes. That again would cause further calls on
 	// the underlying transaction to fail with a 'Context cancelled' error.
 	txContext := context.WithoutCancel(ctx)
-	err = api.BeginTransaction(txContext, poolId, connId, request.TransactionOptions)
+	err = api.BeginTransactionWithOptions(txContext, poolId, connId, request.TransactionOptions, request.RequestOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -503,7 +503,7 @@ func (s *spannerLibServer) WriteMutations(ctx context.Context, request *pb.Write
 	if err != nil {
 		return nil, err
 	}
-	resp, err := api.WriteMutations(ctx, poolId, connId, request.Mutations)
+	resp, err := api.WriteMutationsWithOptions(ctx, poolId, connId, request.Mutations, request.RequestOptions)
 	if err != nil {
 		return nil, err
 	}

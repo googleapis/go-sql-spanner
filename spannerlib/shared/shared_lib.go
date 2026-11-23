@@ -130,6 +130,18 @@ func WriteMutations(poolId, connectionId int64, mutationsBytes []byte) (int64, i
 	return pin(msg)
 }
 
+// WriteMutationsWithOptions writes an array of mutations to Spanner with the given request options.
+//
+// The mutationsBytes must be an encoded BatchWriteRequest_MutationGroup protobuf object.
+// The requestOptionsBytes must be an encoded RequestOptions protobuf object (or empty).
+//
+//export WriteMutationsWithOptions
+func WriteMutationsWithOptions(poolId, connectionId int64, mutationsBytes, requestOptionsBytes []byte) (int64, int32, int64, int32, unsafe.Pointer, int32) {
+	ctx := context.Background()
+	msg := lib.WriteMutationsWithOptions(ctx, poolId, connectionId, mutationsBytes, requestOptionsBytes)
+	return pin(msg)
+}
+
 // Execute executes a SQL statement on the given connection.
 // The return type is an identifier for a Rows object. This identifier can be used to
 // call the functions Metadata and Next to get respectively the metadata of the result
@@ -218,6 +230,17 @@ func CloseRows(poolId, connId, rowsId int64) (int64, int32, int64, int32, unsafe
 func BeginTransaction(poolId, connectionId int64, txOpts []byte) (int64, int32, int64, int32, unsafe.Pointer, int32) {
 	ctx := context.Background()
 	msg := lib.BeginTransaction(ctx, poolId, connectionId, txOpts)
+	return pin(msg)
+}
+
+// BeginTransactionWithOptions begins a new transaction on the given connection with the given request options.
+// The txOpts byte slice contains a serialized protobuf TransactionOptions object.
+// The requestOptionsBytes byte slice contains a serialized protobuf RequestOptions object (or empty).
+//
+//export BeginTransactionWithOptions
+func BeginTransactionWithOptions(poolId, connectionId int64, txOpts, requestOptionsBytes []byte) (int64, int32, int64, int32, unsafe.Pointer, int32) {
+	ctx := context.Background()
+	msg := lib.BeginTransactionWithOptions(ctx, poolId, connectionId, txOpts, requestOptionsBytes)
 	return pin(msg)
 }
 

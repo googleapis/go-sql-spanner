@@ -57,11 +57,32 @@ func CloseConnection(ctx context.Context, poolId, connId int64) *Message {
 //
 // The mutationsBytes must be an encoded BatchWriteRequest_MutationGroup protobuf object.
 func WriteMutations(ctx context.Context, poolId, connId int64, mutationBytes []byte) *Message {
+	return WriteMutationsWithOptions(ctx, poolId, connId, mutationBytes, nil)
+}
+
+func unmarshalRequestOptions(requestOptionsBytes []byte) (*spannerpb.RequestOptions, error) {
+	if len(requestOptionsBytes) == 0 {
+		return nil, nil
+	}
+	requestOptions := &spannerpb.RequestOptions{}
+	if err := proto.Unmarshal(requestOptionsBytes, requestOptions); err != nil {
+		return nil, err
+	}
+	return requestOptions, nil
+}
+
+// WriteMutationsWithOptions writes an array of mutations to Spanner with the given request options.
+// The requestOptionsBytes must be an encoded RequestOptions protobuf object (or nil/empty).
+func WriteMutationsWithOptions(ctx context.Context, poolId, connId int64, mutationBytes, requestOptionsBytes []byte) *Message {
 	mutations := spannerpb.BatchWriteRequest_MutationGroup{}
 	if err := proto.Unmarshal(mutationBytes, &mutations); err != nil {
 		return withConnTxState(errMessage(err), poolId, connId)
 	}
-	response, err := api.WriteMutations(ctx, poolId, connId, &mutations)
+	requestOptions, err := unmarshalRequestOptions(requestOptionsBytes)
+	if err != nil {
+		return withConnTxState(errMessage(err), poolId, connId)
+	}
+	response, err := api.WriteMutationsWithOptions(ctx, poolId, connId, &mutations, requestOptions)
 	if err != nil {
 		return withConnTxState(errMessage(err), poolId, connId)
 	}
@@ -75,12 +96,20 @@ func WriteMutations(ctx context.Context, poolId, connId int64, mutationBytes []b
 // BeginTransaction starts a new transaction on the given connection. A connection can have at most one active
 // transaction at any time. This function therefore returns an error if the connection has an active transaction.
 func BeginTransaction(ctx context.Context, poolId, connId int64, txOptsBytes []byte) *Message {
+	return BeginTransactionWithOptions(ctx, poolId, connId, txOptsBytes, nil)
+}
+
+// BeginTransactionWithOptions starts a new transaction on the given connection with the given request options.
+func BeginTransactionWithOptions(ctx context.Context, poolId, connId int64, txOptsBytes, requestOptionsBytes []byte) *Message {
 	txOpts := spannerpb.TransactionOptions{}
 	if err := proto.Unmarshal(txOptsBytes, &txOpts); err != nil {
 		return withConnTxState(errMessage(err), poolId, connId)
 	}
-	err := api.BeginTransaction(ctx, poolId, connId, &txOpts)
+	requestOptions, err := unmarshalRequestOptions(requestOptionsBytes)
 	if err != nil {
+		return withConnTxState(errMessage(err), poolId, connId)
+	}
+	if err := api.BeginTransactionWithOptions(ctx, poolId, connId, &txOpts, requestOptions); err != nil {
 		return withConnTxState(errMessage(err), poolId, connId)
 	}
 	return withConnTxState(okMessage(), poolId, connId)

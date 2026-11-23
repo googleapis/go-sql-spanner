@@ -587,3 +587,179 @@ func TestExecuteBatch_RequestOptions(t *testing.T) {
 		t.Errorf("priority mismatch\nGot:  %v\nWant: %v", g, w)
 	}
 }
+
+func TestWriteMutationsWithOptions(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolMsg := CreatePool(ctx, "test", dsn)
+	if g, w := poolMsg.Code, int32(0); g != w {
+		t.Fatalf("CreatePool code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	defer func() { _ = ClosePool(ctx, poolMsg.ObjectId) }()
+	connMsg := CreateConnection(ctx, poolMsg.ObjectId)
+	if g, w := connMsg.Code, int32(0); g != w {
+		t.Fatalf("CreateConnection code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	mutations := &spannerpb.BatchWriteRequest_MutationGroup{Mutations: []*spannerpb.Mutation{
+		{Operation: &spannerpb.Mutation_Insert{Insert: &spannerpb.Mutation_Write{
+			Table:   "my_table",
+			Columns: []string{"id", "value"},
+			Values: []*structpb.ListValue{
+				{Values: []*structpb.Value{structpb.NewStringValue("1"), structpb.NewStringValue("One")}},
+			},
+		}}},
+	}}
+	mutationBytes, err := proto.Marshal(mutations)
+	if err != nil {
+		t.Fatalf("Marshal mutations failed: %v", err)
+	}
+	reqOptsBytes, err := proto.Marshal(&spannerpb.RequestOptions{
+		TransactionTag: "lib_mut_tx",
+		Priority:       spannerpb.RequestOptions_PRIORITY_LOW,
+	})
+	if err != nil {
+		t.Fatalf("Marshal RequestOptions failed: %v", err)
+	}
+	msg := WriteMutationsWithOptions(ctx, poolMsg.ObjectId, connMsg.ObjectId, mutationBytes, reqOptsBytes)
+	if g, w := msg.Code, int32(0); g != w {
+		t.Fatalf("WriteMutationsWithOptions code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitReq := commitRequests[0].(*spannerpb.CommitRequest)
+	if g, w := commitReq.RequestOptions.GetTransactionTag(), "lib_mut_tx"; g != w {
+		t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitReq.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_LOW; g != w {
+		t.Errorf("commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestBeginTransactionWithOptions(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolMsg := CreatePool(ctx, "test", dsn)
+	if g, w := poolMsg.Code, int32(0); g != w {
+		t.Fatalf("CreatePool code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	defer func() { _ = ClosePool(ctx, poolMsg.ObjectId) }()
+	connMsg := CreateConnection(ctx, poolMsg.ObjectId)
+	if g, w := connMsg.Code, int32(0); g != w {
+		t.Fatalf("CreateConnection code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	txOptsBytes, err := proto.Marshal(&spannerpb.TransactionOptions{})
+	if err != nil {
+		t.Fatalf("Marshal TransactionOptions failed: %v", err)
+	}
+	reqOptsBytes, err := proto.Marshal(&spannerpb.RequestOptions{
+		TransactionTag: "lib_begin_tx",
+		Priority:       spannerpb.RequestOptions_PRIORITY_HIGH,
+	})
+	if err != nil {
+		t.Fatalf("Marshal RequestOptions failed: %v", err)
+	}
+	beginMsg := BeginTransactionWithOptions(ctx, poolMsg.ObjectId, connMsg.ObjectId, txOptsBytes, reqOptsBytes)
+	if g, w := beginMsg.Code, int32(0); g != w {
+		t.Fatalf("BeginTransactionWithOptions code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	execBytes, err := proto.Marshal(&spannerpb.ExecuteSqlRequest{Sql: testutil.UpdateBarSetFoo})
+	if err != nil {
+		t.Fatalf("Marshal ExecuteSqlRequest failed: %v", err)
+	}
+	execMsg := Execute(ctx, poolMsg.ObjectId, connMsg.ObjectId, execBytes)
+	if g, w := execMsg.Code, int32(0); g != w {
+		t.Fatalf("Execute code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	closeMsg := CloseRows(ctx, poolMsg.ObjectId, connMsg.ObjectId, execMsg.ObjectId)
+	if g, w := closeMsg.Code, int32(0); g != w {
+		t.Fatalf("CloseRows code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	mutationBytes, err := proto.Marshal(&spannerpb.BatchWriteRequest_MutationGroup{Mutations: []*spannerpb.Mutation{
+		{Operation: &spannerpb.Mutation_Insert{Insert: &spannerpb.Mutation_Write{
+			Table:   "my_table",
+			Columns: []string{"id", "value"},
+			Values: []*structpb.ListValue{
+				{Values: []*structpb.Value{structpb.NewStringValue("1"), structpb.NewStringValue("One")}},
+			},
+		}}},
+	}})
+	if err != nil {
+		t.Fatalf("Marshal MutationGroup failed: %v", err)
+	}
+	inTxMutMsg := WriteMutationsWithOptions(ctx, poolMsg.ObjectId, connMsg.ObjectId, mutationBytes, reqOptsBytes)
+	if g, w := inTxMutMsg.Code, int32(0); g != w {
+		t.Fatalf("in-tx WriteMutationsWithOptions code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitMsg := Commit(ctx, poolMsg.ObjectId, connMsg.ObjectId)
+	if g, w := commitMsg.Code, int32(0); g != w {
+		t.Fatalf("Commit code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitReq := commitRequests[0].(*spannerpb.CommitRequest)
+	if g, w := commitReq.RequestOptions.GetTransactionTag(), "lib_begin_tx"; g != w {
+		t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitReq.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_HIGH; g != w {
+		t.Errorf("commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestWriteMutationsAndBeginTransaction_InvalidRequestOptionsBytes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolMsg := CreatePool(ctx, "test", dsn)
+	if g, w := poolMsg.Code, int32(0); g != w {
+		t.Fatalf("CreatePool code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	defer func() { _ = ClosePool(ctx, poolMsg.ObjectId) }()
+	connMsg := CreateConnection(ctx, poolMsg.ObjectId)
+	if g, w := connMsg.Code, int32(0); g != w {
+		t.Fatalf("CreateConnection code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	mutationBytes, err := proto.Marshal(&spannerpb.BatchWriteRequest_MutationGroup{})
+	if err != nil {
+		t.Fatalf("Marshal MutationGroup failed: %v", err)
+	}
+	txOptsBytes, err := proto.Marshal(&spannerpb.TransactionOptions{})
+	if err != nil {
+		t.Fatalf("Marshal TransactionOptions failed: %v", err)
+	}
+	invalidBytes := []byte{0xff, 0xff, 0xff}
+
+	mutMsg := WriteMutationsWithOptions(ctx, poolMsg.ObjectId, connMsg.ObjectId, mutationBytes, invalidBytes)
+	if mutMsg.Code == 0 {
+		t.Fatal("expected non-zero error code for invalid RequestOptions bytes in WriteMutationsWithOptions")
+	}
+
+	beginMsg := BeginTransactionWithOptions(ctx, poolMsg.ObjectId, connMsg.ObjectId, txOptsBytes, invalidBytes)
+	if beginMsg.Code == 0 {
+		t.Fatal("expected non-zero error code for invalid RequestOptions bytes in BeginTransactionWithOptions")
+	}
+}

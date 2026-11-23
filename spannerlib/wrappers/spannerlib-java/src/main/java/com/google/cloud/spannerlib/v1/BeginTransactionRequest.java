@@ -96,6 +96,32 @@ private static final long serialVersionUID = 0L;
     return transactionOptions_ == null ? com.google.spanner.v1.TransactionOptions.getDefaultInstance() : transactionOptions_;
   }
 
+  public static final int REQUEST_OPTIONS_FIELD_NUMBER = 3;
+  private com.google.spanner.v1.RequestOptions requestOptions_;
+  /**
+   * <code>.google.spanner.v1.RequestOptions request_options = 3;</code>
+   * @return Whether the requestOptions field is set.
+   */
+  @java.lang.Override
+  public boolean hasRequestOptions() {
+    return ((bitField0_ & 0x00000004) != 0);
+  }
+  /**
+   * <code>.google.spanner.v1.RequestOptions request_options = 3;</code>
+   * @return The requestOptions.
+   */
+  @java.lang.Override
+  public com.google.spanner.v1.RequestOptions getRequestOptions() {
+    return requestOptions_ == null ? com.google.spanner.v1.RequestOptions.getDefaultInstance() : requestOptions_;
+  }
+  /**
+   * <code>.google.spanner.v1.RequestOptions request_options = 3;</code>
+   */
+  @java.lang.Override
+  public com.google.spanner.v1.RequestOptionsOrBuilder getRequestOptionsOrBuilder() {
+    return requestOptions_ == null ? com.google.spanner.v1.RequestOptions.getDefaultInstance() : requestOptions_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -116,6 +142,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       output.writeMessage(2, getTransactionOptions());
     }
+    if (((bitField0_ & 0x00000004) != 0)) {
+      output.writeMessage(3, getRequestOptions());
+    }
     getUnknownFields().writeTo(output);
   }
 
@@ -132,6 +161,10 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(2, getTransactionOptions());
+    }
+    if (((bitField0_ & 0x00000004) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(3, getRequestOptions());
     }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
@@ -158,6 +191,11 @@ private static final long serialVersionUID = 0L;
       if (!getTransactionOptions()
           .equals(other.getTransactionOptions())) return false;
     }
+    if (hasRequestOptions() != other.hasRequestOptions()) return false;
+    if (hasRequestOptions()) {
+      if (!getRequestOptions()
+          .equals(other.getRequestOptions())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -176,6 +214,10 @@ private static final long serialVersionUID = 0L;
     if (hasTransactionOptions()) {
       hash = (37 * hash) + TRANSACTION_OPTIONS_FIELD_NUMBER;
       hash = (53 * hash) + getTransactionOptions().hashCode();
+    }
+    if (hasRequestOptions()) {
+      hash = (37 * hash) + REQUEST_OPTIONS_FIELD_NUMBER;
+      hash = (53 * hash) + getRequestOptions().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -309,6 +351,7 @@ private static final long serialVersionUID = 0L;
               .alwaysUseFieldBuilders) {
         internalGetConnectionFieldBuilder();
         internalGetTransactionOptionsFieldBuilder();
+        internalGetRequestOptionsFieldBuilder();
       }
     }
     @java.lang.Override
@@ -324,6 +367,11 @@ private static final long serialVersionUID = 0L;
       if (transactionOptionsBuilder_ != null) {
         transactionOptionsBuilder_.dispose();
         transactionOptionsBuilder_ = null;
+      }
+      requestOptions_ = null;
+      if (requestOptionsBuilder_ != null) {
+        requestOptionsBuilder_.dispose();
+        requestOptionsBuilder_ = null;
       }
       return this;
     }
@@ -371,6 +419,12 @@ private static final long serialVersionUID = 0L;
             : transactionOptionsBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
+      if (((from_bitField0_ & 0x00000004) != 0)) {
+        result.requestOptions_ = requestOptionsBuilder_ == null
+            ? requestOptions_
+            : requestOptionsBuilder_.build();
+        to_bitField0_ |= 0x00000004;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -391,6 +445,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasTransactionOptions()) {
         mergeTransactionOptions(other.getTransactionOptions());
+      }
+      if (other.hasRequestOptions()) {
+        mergeRequestOptions(other.getRequestOptions());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -432,6 +489,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000002;
               break;
             } // case 18
+            case 26: {
+              input.readMessage(
+                  internalGetRequestOptionsFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000004;
+              break;
+            } // case 26
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -689,6 +753,127 @@ private static final long serialVersionUID = 0L;
         transactionOptions_ = null;
       }
       return transactionOptionsBuilder_;
+    }
+
+    private com.google.spanner.v1.RequestOptions requestOptions_;
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.spanner.v1.RequestOptions, com.google.spanner.v1.RequestOptions.Builder, com.google.spanner.v1.RequestOptionsOrBuilder> requestOptionsBuilder_;
+    /**
+     * <code>.google.spanner.v1.RequestOptions request_options = 3;</code>
+     * @return Whether the requestOptions field is set.
+     */
+    public boolean hasRequestOptions() {
+      return ((bitField0_ & 0x00000004) != 0);
+    }
+    /**
+     * <code>.google.spanner.v1.RequestOptions request_options = 3;</code>
+     * @return The requestOptions.
+     */
+    public com.google.spanner.v1.RequestOptions getRequestOptions() {
+      if (requestOptionsBuilder_ == null) {
+        return requestOptions_ == null ? com.google.spanner.v1.RequestOptions.getDefaultInstance() : requestOptions_;
+      } else {
+        return requestOptionsBuilder_.getMessage();
+      }
+    }
+    /**
+     * <code>.google.spanner.v1.RequestOptions request_options = 3;</code>
+     */
+    public Builder setRequestOptions(com.google.spanner.v1.RequestOptions value) {
+      if (requestOptionsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        requestOptions_ = value;
+      } else {
+        requestOptionsBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.spanner.v1.RequestOptions request_options = 3;</code>
+     */
+    public Builder setRequestOptions(
+        com.google.spanner.v1.RequestOptions.Builder builderForValue) {
+      if (requestOptionsBuilder_ == null) {
+        requestOptions_ = builderForValue.build();
+      } else {
+        requestOptionsBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.spanner.v1.RequestOptions request_options = 3;</code>
+     */
+    public Builder mergeRequestOptions(com.google.spanner.v1.RequestOptions value) {
+      if (requestOptionsBuilder_ == null) {
+        if (((bitField0_ & 0x00000004) != 0) &&
+          requestOptions_ != null &&
+          requestOptions_ != com.google.spanner.v1.RequestOptions.getDefaultInstance()) {
+          getRequestOptionsBuilder().mergeFrom(value);
+        } else {
+          requestOptions_ = value;
+        }
+      } else {
+        requestOptionsBuilder_.mergeFrom(value);
+      }
+      if (requestOptions_ != null) {
+        bitField0_ |= 0x00000004;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <code>.google.spanner.v1.RequestOptions request_options = 3;</code>
+     */
+    public Builder clearRequestOptions() {
+      bitField0_ = (bitField0_ & ~0x00000004);
+      requestOptions_ = null;
+      if (requestOptionsBuilder_ != null) {
+        requestOptionsBuilder_.dispose();
+        requestOptionsBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.spanner.v1.RequestOptions request_options = 3;</code>
+     */
+    public com.google.spanner.v1.RequestOptions.Builder getRequestOptionsBuilder() {
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return internalGetRequestOptionsFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.google.spanner.v1.RequestOptions request_options = 3;</code>
+     */
+    public com.google.spanner.v1.RequestOptionsOrBuilder getRequestOptionsOrBuilder() {
+      if (requestOptionsBuilder_ != null) {
+        return requestOptionsBuilder_.getMessageOrBuilder();
+      } else {
+        return requestOptions_ == null ?
+            com.google.spanner.v1.RequestOptions.getDefaultInstance() : requestOptions_;
+      }
+    }
+    /**
+     * <code>.google.spanner.v1.RequestOptions request_options = 3;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.spanner.v1.RequestOptions, com.google.spanner.v1.RequestOptions.Builder, com.google.spanner.v1.RequestOptionsOrBuilder> 
+        internalGetRequestOptionsFieldBuilder() {
+      if (requestOptionsBuilder_ == null) {
+        requestOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.spanner.v1.RequestOptions, com.google.spanner.v1.RequestOptions.Builder, com.google.spanner.v1.RequestOptionsOrBuilder>(
+                getRequestOptions(),
+                getParentForChildren(),
+                isClean());
+        requestOptions_ = null;
+      }
+      return requestOptionsBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:google.spannerlib.v1.BeginTransactionRequest)
