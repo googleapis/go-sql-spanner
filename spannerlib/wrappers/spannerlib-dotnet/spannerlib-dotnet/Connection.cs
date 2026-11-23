@@ -161,6 +161,18 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
         {
             Statements = { statements }
         };
+        return ExecuteBatch(request);
+    }
+
+    /// <summary>
+    /// Executes a batch of DML or DDL statements on Spanner. The batch may not contain a mix of DML and DDL statements.
+    /// The batch will use the current transaction of the connection (if any). Executing a batch of DDL statements in a
+    /// transaction is not supported.
+    /// </summary>
+    /// <param name="request">The batch DML/DDL request to execute</param>
+    /// <returns>The update count per statement. The update count for a DDL statement is -1.</returns>
+    public virtual long[] ExecuteBatch(ExecuteBatchDmlRequest request)
+    {
         return Spanner.ExecuteBatch(this, request);
     }
 
@@ -178,6 +190,19 @@ public class Connection(Pool pool, long id) : AbstractLibObject(pool.Spanner, id
         {
             Statements = { statements }
         };
+        return ExecuteBatchAsync(request, cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes a batch of DML or DDL statements on Spanner. The batch may not contain a mix of DML and DDL statements.
+    /// The batch will use the current transaction of the connection (if any). Executing a batch of DDL statements in a
+    /// transaction is not supported.
+    /// </summary>
+    /// <param name="request">The batch DML/DDL request to execute</param>
+    /// <param name="cancellationToken">The cancellation token</param>
+    /// <returns>The update count per statement. The update count for a DDL statement is -1.</returns>
+    public virtual Task<long[]> ExecuteBatchAsync(ExecuteBatchDmlRequest request, CancellationToken cancellationToken = default)
+    {
         return Spanner.ExecuteBatchAsync(this, request, cancellationToken);
     }
 
