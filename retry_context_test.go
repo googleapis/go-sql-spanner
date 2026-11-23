@@ -21,7 +21,9 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"log/slog"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -3103,6 +3105,343 @@ func TestSavepoint_EnsureReplayed_AbortedThenOpTimeoutRecovers(t *testing.T) {
 			}
 			if g, w := recoveryExecSQLCount, 2; g != w {
 				t.Errorf("recovery ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
+type capturedLogRecord struct {
+	level   slog.Level
+	message string
+	attrs   map[string]any
+}
+
+type capturingSlogHandler struct {
+	mu      sync.Mutex
+	records []capturedLogRecord
+}
+
+func (h *capturingSlogHandler) Enabled(_ context.Context, _ slog.Level) bool {
+	return true
+}
+
+func (h *capturingSlogHandler) Handle(_ context.Context, r slog.Record) error {
+	attrs := make(map[string]any)
+	r.Attrs(func(a slog.Attr) bool {
+		attrs[a.Key] = a.Value.Any()
+		return true
+	})
+	h.mu.Lock()
+	h.records = append(h.records, capturedLogRecord{
+		level:   r.Level,
+		message: r.Message,
+		attrs:   attrs,
+	})
+	h.mu.Unlock()
+	return nil
+}
+
+func (h *capturingSlogHandler) WithAttrs(_ []slog.Attr) slog.Handler {
+	return h
+}
+
+func (h *capturingSlogHandler) WithGroup(_ string) slog.Handler {
+	return h
+}
+
+func (h *capturingSlogHandler) findByMessage(msg string) (capturedLogRecord, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, r := range h.records {
+		if r.message == msg {
+			return r, true
+		}
+	}
+	return capturedLogRecord{}, false
+}
+
+func TestSavepoint_EnsureReplayed_Observability(t *testing.T) {
+	t.Parallel()
+
+	type failureScenario int
+	const (
+		scenarioPreflightTxDeadline failureScenario = iota
+		scenarioPreflightOpCanceled
+		scenarioPreflightOpenQueryDeadline
+		scenarioMidReplayOpDeadline
+		scenarioMidReplayOpCanceled
+		scenarioMidReplayTxDeadline
+		scenarioMidReplayOpenQueryDeadline
+		scenarioMidReplayPGEnforceInErrorState
+	)
+
+	tests := []struct {
+		name           string
+		scenario       failureScenario
+		wantErr        error
+		wantCode       codes.Code
+		wantPGSQLState string
+		wantLogMsg     string
+		wantSource     string
+		wantSubstrings []string
+	}{
+		{
+			name:           "preflight_tx_deadline",
+			scenario:       scenarioPreflightTxDeadline,
+			wantErr:        context.DeadlineExceeded,
+			wantCode:       codes.DeadlineExceeded,
+			wantPGSQLState: "57014",
+			wantLogMsg:     "skipping savepoint replay because context is already cancelled or expired",
+			wantSource:     "transaction",
+			wantSubstrings: []string{"savepoint replay (1 statements, 1 mutations) skipped (transaction context ended):"},
+		},
+		{
+			name:           "preflight_statement_canceled",
+			scenario:       scenarioPreflightOpCanceled,
+			wantErr:        context.Canceled,
+			wantCode:       codes.Canceled,
+			wantPGSQLState: "57014",
+			wantLogMsg:     "skipping savepoint replay because context is already cancelled or expired",
+			wantSource:     "statement",
+			wantSubstrings: []string{"savepoint replay (1 statements, 1 mutations) skipped (statement context ended):"},
+		},
+		{
+			name:           "preflight_open_query_deadline",
+			scenario:       scenarioPreflightOpenQueryDeadline,
+			wantErr:        context.DeadlineExceeded,
+			wantCode:       codes.DeadlineExceeded,
+			wantPGSQLState: "57014",
+			wantLogMsg:     "skipping savepoint replay because context is already cancelled or expired",
+			wantSource:     "open query",
+			wantSubstrings: []string{"savepoint replay (1 statements, 0 mutations) skipped (open query context ended):"},
+		},
+		{
+			name:           "mid_replay_statement_deadline",
+			scenario:       scenarioMidReplayOpDeadline,
+			wantErr:        context.DeadlineExceeded,
+			wantCode:       codes.DeadlineExceeded,
+			wantPGSQLState: "57014",
+			wantLogMsg:     "savepoint replay interrupted by context cancellation or deadline",
+			wantSource:     "statement",
+			wantSubstrings: []string{"savepoint replay (1 statements, 0 mutations) interrupted after ", "(statement context ended):"},
+		},
+		{
+			name:           "mid_replay_statement_canceled",
+			scenario:       scenarioMidReplayOpCanceled,
+			wantErr:        context.Canceled,
+			wantCode:       codes.Canceled,
+			wantPGSQLState: "57014",
+			wantLogMsg:     "savepoint replay interrupted by context cancellation or deadline",
+			wantSource:     "statement",
+			wantSubstrings: []string{"savepoint replay (1 statements, 0 mutations) interrupted after ", "(statement context ended):"},
+		},
+		{
+			name:           "mid_replay_transaction_deadline",
+			scenario:       scenarioMidReplayTxDeadline,
+			wantErr:        context.DeadlineExceeded,
+			wantCode:       codes.DeadlineExceeded,
+			wantPGSQLState: "57014",
+			wantLogMsg:     "savepoint replay interrupted by context cancellation or deadline",
+			wantSource:     "transaction",
+			wantSubstrings: []string{"savepoint replay (1 statements, 0 mutations) interrupted after ", "(transaction context ended):"},
+		},
+		{
+			name:           "mid_replay_open_query_deadline",
+			scenario:       scenarioMidReplayOpenQueryDeadline,
+			wantErr:        context.DeadlineExceeded,
+			wantCode:       codes.DeadlineExceeded,
+			wantPGSQLState: "57014",
+			wantLogMsg:     "savepoint replay interrupted by context cancellation or deadline",
+			wantSource:     "open query",
+			wantSubstrings: []string{"savepoint replay (1 statements, 0 mutations) interrupted after ", "(open query context ended):"},
+		},
+		{
+			name:           "mid_replay_pg_enforce_in_error_state",
+			scenario:       scenarioMidReplayPGEnforceInErrorState,
+			wantErr:        context.DeadlineExceeded,
+			wantCode:       codes.DeadlineExceeded,
+			wantPGSQLState: "57014",
+			wantLogMsg:     "savepoint replay interrupted by context cancellation or deadline",
+			wantSource:     "statement",
+			wantSubstrings: []string{"[SQLSTATE 57014] savepoint replay (1 statements, 0 mutations) interrupted after ", "(statement context ended):"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler := &capturingSlogHandler{}
+			logger := slog.New(handler)
+
+			var gotErr error
+			var wantStmts, wantMuts int64
+
+			switch tc.scenario {
+			case scenarioPreflightTxDeadline, scenarioPreflightOpCanceled, scenarioPreflightOpenQueryDeadline:
+				bg := context.Background()
+				txCtx := bg
+				opCtx := bg
+				var stmts []retriableStatement
+				var muts []*spanner.Mutation
+
+				if tc.scenario == scenarioPreflightOpenQueryDeadline {
+					qCtx := unfiredDeadlineContext{Context: bg, deadline: time.Now().Add(-time.Millisecond)}
+					stmts = []retriableStatement{&checksumRowIterator{ctx: qCtx}}
+					wantStmts, wantMuts = 1, 0
+				} else {
+					stmts = []retriableStatement{&retriableUpdate{}}
+					muts = []*spanner.Mutation{spanner.Delete("Bar", spanner.Key{"k1"})}
+					wantStmts, wantMuts = 1, 1
+					if tc.scenario == scenarioPreflightTxDeadline {
+						txCtx = unfiredDeadlineContext{Context: bg, deadline: time.Now().Add(-time.Millisecond)}
+					} else {
+						var cancel context.CancelFunc
+						opCtx, cancel = context.WithCancel(bg)
+						cancel()
+					}
+				}
+				tx := &readWriteTransaction{
+					ctx:        txCtx,
+					state:      readWriteTxStateNeedsReplay,
+					conn:       &conn{},
+					logger:     logger,
+					statements: stmts,
+					mutations:  muts,
+				}
+				gotErr = tx.ensureReplayed(opCtx)
+
+			case scenarioMidReplayOpDeadline, scenarioMidReplayOpCanceled, scenarioMidReplayTxDeadline, scenarioMidReplayOpenQueryDeadline, scenarioMidReplayPGEnforceInErrorState:
+				dialect := databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL
+				if tc.scenario == scenarioMidReplayPGEnforceInErrorState {
+					dialect = databasepb.DatabaseDialect_POSTGRESQL
+				}
+				db, server, teardown := setupTestDBConnectionWithParamsAndDialect(t, "minSessions=1;maxSessions=1", dialect)
+				defer teardown()
+				db.SetMaxOpenConns(1)
+
+				bg := context.Background()
+				dbConn, err := db.Conn(bg)
+				if err != nil {
+					t.Fatalf("db.Conn failed: %v", err)
+				}
+				defer silentClose(dbConn)
+				if tc.scenario == scenarioMidReplayPGEnforceInErrorState {
+					setPGInErrorTxBehavior(t, dbConn, connectionstate.InErrorTxBehaviorEnforceInErrorState)
+				}
+
+				txCtx, failTx, cancelTx := newFailureContext(bg, true)
+				defer cancelTx()
+
+				dtx, err := dbConn.BeginTx(txCtx, &sql.TxOptions{})
+				if err != nil {
+					t.Fatalf("BeginTx failed: %v", err)
+				}
+				defer func() { _ = dtx.Rollback() }()
+
+				wantStmts, wantMuts = 1, 0
+				if tc.scenario == scenarioMidReplayOpenQueryDeadline {
+					qCtx, expireQ, cancelQ := newFailureContext(bg, true)
+					defer cancelQ()
+					rows, err := dtx.QueryContext(qCtx, testutil.SelectFooFromBar)
+					if err != nil {
+						t.Fatalf("QueryContext failed: %v", err)
+					}
+					defer func() { _ = rows.Close() }()
+					if !rows.Next() {
+						t.Fatalf("expected first row, err=%v", rows.Err())
+					}
+					if _, err := dtx.ExecContext(bg, "SAVEPOINT s1"); err != nil {
+						t.Fatalf("SAVEPOINT s1 failed: %v", err)
+					}
+					if _, err := dtx.ExecContext(bg, testutil.UpdateBarSetFoo); err != nil {
+						t.Fatalf("DML failed: %v", err)
+					}
+					if _, err := dtx.ExecContext(bg, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+						t.Fatalf("ROLLBACK TO SAVEPOINT s1 failed: %v", err)
+					}
+					if err := dbConn.Raw(func(driverConn any) error {
+						driverConn.(*conn).tx.contextTransaction.(*readWriteTransaction).logger = logger
+						return nil
+					}); err != nil {
+						t.Fatalf("dbConn.Raw failed: %v", err)
+					}
+					failRPCOnHook(server, testutil.MethodExecuteStreamingSql, expireQ)
+					_, gotErr = dtx.ExecContext(bg, testutil.UpdateSingersSetLastName)
+					server.TestSpanner.SetMethodHook(testutil.MethodExecuteStreamingSql, nil)
+				} else {
+					if _, err := dtx.ExecContext(bg, testutil.UpdateBarSetFoo); err != nil {
+						t.Fatalf("initial DML failed: %v", err)
+					}
+					if _, err := dtx.ExecContext(bg, "SAVEPOINT s1"); err != nil {
+						t.Fatalf("SAVEPOINT s1 failed: %v", err)
+					}
+					if _, err := dtx.ExecContext(bg, testutil.UpdateSingersSetLastName); err != nil {
+						t.Fatalf("DML2 failed: %v", err)
+					}
+					if _, err := dtx.ExecContext(bg, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+						t.Fatalf("ROLLBACK TO SAVEPOINT s1 failed: %v", err)
+					}
+					if err := dbConn.Raw(func(driverConn any) error {
+						driverConn.(*conn).tx.contextTransaction.(*readWriteTransaction).logger = logger
+						return nil
+					}); err != nil {
+						t.Fatalf("dbConn.Raw failed: %v", err)
+					}
+
+					if tc.scenario == scenarioMidReplayTxDeadline {
+						failRPCOnHook(server, testutil.MethodExecuteStreamingSql, failTx)
+						gotErr = dtx.Commit()
+					} else {
+						opCtx, failOp, cancelOp := newFailureContext(bg, tc.scenario != scenarioMidReplayOpCanceled)
+						defer cancelOp()
+						failRPCOnHook(server, testutil.MethodExecuteStreamingSql, failOp)
+						_, gotErr = dtx.ExecContext(opCtx, testutil.UpdateSingersSetLastName)
+					}
+					server.TestSpanner.SetMethodHook(testutil.MethodExecuteStreamingSql, nil)
+				}
+			}
+
+			assertContextError(t, gotErr, tc.wantErr, tc.wantCode)
+			if g, w := ToPGSQLState(gotErr), tc.wantPGSQLState; g != w {
+				t.Errorf("PG SQLSTATE mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			st, ok := status.FromError(gotErr)
+			if !ok {
+				t.Fatal("expected status.FromError to succeed")
+			}
+			if g, w := st.Code(), tc.wantCode; g != w {
+				t.Errorf("status.FromError code mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			for _, sub := range tc.wantSubstrings {
+				if !strings.Contains(gotErr.Error(), sub) {
+					t.Errorf("error message mismatch\nGot:  %q\nWant substring: %q", gotErr.Error(), sub)
+				}
+				if tc.scenario != scenarioMidReplayPGEnforceInErrorState && !strings.Contains(st.Message(), sub) {
+					t.Errorf("status message mismatch\nGot:  %q\nWant substring: %q", st.Message(), sub)
+				}
+			}
+
+			rec, found := handler.findByMessage(tc.wantLogMsg)
+			if !found {
+				t.Fatalf("expected log record with message %q, got records: %+v", tc.wantLogMsg, handler.records)
+			}
+			if g, w := rec.level, LevelNotice; g != w {
+				t.Errorf("log level mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := rec.attrs["source"], tc.wantSource; g != w {
+				t.Errorf("log source mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := rec.attrs["statements"], wantStmts; g != w {
+				t.Errorf("log statements mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := rec.attrs["mutations"], wantMuts; g != w {
+				t.Errorf("log mutations mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if tc.wantLogMsg == "savepoint replay interrupted by context cancellation or deadline" {
+				if _, ok := rec.attrs["elapsed"].(time.Duration); !ok {
+					t.Errorf("expected elapsed duration attribute on log record, got: %T (%v)", rec.attrs["elapsed"], rec.attrs["elapsed"])
+				}
 			}
 		})
 	}
