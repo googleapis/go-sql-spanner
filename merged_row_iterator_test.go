@@ -1046,6 +1046,63 @@ func TestMergedRowIterator_ParentContextCanceled(t *testing.T) {
 	}
 }
 
+// Verifies that a producer blocked sending into a full row buffer unblocks
+// immediately when the parent context is canceled and Next surfaces context.Canceled.
+func TestMergedRowIterator_BufferBlockedProducerUnblocksOnParentContextCancel(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bufferFull := make(chan struct{})
+	var once sync.Once
+
+	// Buffer capacity is 10; 11 rows ensures rows 0..9 fill m.buffer and row 10
+	// blocks in m.buffer <- row after onRow(10) closes bufferFull.
+	rows := make([]*spanner.Row, 11)
+	for i := range rows {
+		rows[i] = newRow(t, []string{"FOO"}, []any{int64(i)})
+	}
+
+	pq := newTestPartitionedQuery(1)
+	mi := createMergedIterator(discardLogger(), pq, 1)
+	mi.executePartition = func(childCtx context.Context, index int) (rowIterator, func() error, error) {
+		return &mockPartitionIterator{
+			ctx:      childCtx,
+			rows:     rows,
+			metadata: &sppb.ResultSetMetadata{RowType: &sppb.StructType{Fields: []*sppb.StructType_Field{{Name: "FOO"}}}},
+			onRow: func(rowIdx int) {
+				if rowIdx == 10 {
+					once.Do(func() { close(bufferFull) })
+				}
+			},
+		}, nil, nil
+	}
+
+	if err := mi.run(ctx); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	defer mi.Stop()
+
+	select {
+	case <-bufferFull:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for producer to fill buffer")
+	}
+
+	cancel()
+
+	select {
+	case <-mi.producersDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for buffer-blocked producer to exit on parent ctx cancellation")
+	}
+
+	_, err := mi.Next()
+	if g, w := err, context.Canceled; !errors.Is(g, w) {
+		t.Errorf("Next error mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
 // Verifies that calling Stop before metadata arrives unblocks run with
 // Canceled.
 func TestMergedRowIterator_StopBeforeMetadata(t *testing.T) {

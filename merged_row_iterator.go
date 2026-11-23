@@ -199,9 +199,8 @@ func (m *mergedRowIterator) produceRowsFromPartition(ctx context.Context, index 
 		}
 		select {
 		case m.buffer <- row:
-		case <-m.errReady:
-			return
-		case <-m.done:
+		case <-ctx.Done():
+			m.registerErr(ctx.Err())
 			return
 		}
 	}
