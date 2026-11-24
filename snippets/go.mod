@@ -7,7 +7,7 @@ toolchain go1.27.4
 replace github.com/googleapis/go-sql-spanner => ../
 
 require (
-	cloud.google.com/go/spanner v1.96.1
+	cloud.google.com/go/spanner v1.96.2
 	github.com/googleapis/go-sql-spanner v1.28.0
 	github.com/moby/moby/api v1.57.0
 	github.com/testcontainers/testcontainers-go v0.45.0
