@@ -39,7 +39,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-const selectDialect = "select option_value from information_schema.database_options where option_name='database_dialect'"
+const selectDialect = "select option_name, option_value from information_schema.database_options where option_name in ('database_dialect', 'default_transaction_isolation')"
 
 // SelectFooFromBar is a SELECT statement that is added to the mocked test
 // server and will return a one-col-two-rows result set containing the INT64
@@ -143,6 +143,11 @@ func (s *MockedSpannerInMemTestServer) setupMockedServerWithAddr(t testing.TB, a
 
 func (s *MockedSpannerInMemTestServer) SetupSelectDialectResult(dialect databasepb.DatabaseDialect) {
 	result := &StatementResult{Type: StatementResultResultSet, ResultSet: CreateSelectDialectResultSet(dialect)}
+	_ = s.TestSpanner.PutStatementResult(selectDialect, result)
+}
+
+func (s *MockedSpannerInMemTestServer) SetupSelectDialectAndIsolationResult(dialect databasepb.DatabaseDialect, defaultIsolationLevel string) {
+	result := &StatementResult{Type: StatementResultResultSet, ResultSet: CreateSelectDialectAndIsolationResultSet(dialect, defaultIsolationLevel)}
 	_ = s.TestSpanner.PutStatementResult(selectDialect, result)
 }
 
@@ -753,8 +758,43 @@ func protoEnumProto(e protoreflect.Enum) *structpb.Value {
 }
 
 func CreateSelectDialectResultSet(dialect databasepb.DatabaseDialect) *spannerpb.ResultSet {
+	return CreateSelectDialectAndIsolationResultSet(dialect, "")
+}
+
+func CreateSelectDialectAndIsolationResultSet(dialect databasepb.DatabaseDialect, defaultIsolationLevel string) *spannerpb.ResultSet {
 	name := databasepb.DatabaseDialect_name[int32(dialect)]
-	return CreateSingleColumnStringResultSet([]string{name}, "option_value")
+	fields := []*spannerpb.StructType_Field{
+		{
+			Name: "option_name",
+			Type: &spannerpb.Type{Code: spannerpb.TypeCode_STRING},
+		},
+		{
+			Name: "option_value",
+			Type: &spannerpb.Type{Code: spannerpb.TypeCode_STRING},
+		},
+	}
+	rows := []*structpb.ListValue{
+		{
+			Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: "database_dialect"}},
+				{Kind: &structpb.Value_StringValue{StringValue: name}},
+			},
+		},
+	}
+	if defaultIsolationLevel != "" {
+		rows = append(rows, &structpb.ListValue{
+			Values: []*structpb.Value{
+				{Kind: &structpb.Value_StringValue{StringValue: "default_transaction_isolation"}},
+				{Kind: &structpb.Value_StringValue{StringValue: defaultIsolationLevel}},
+			},
+		})
+	}
+	return &spannerpb.ResultSet{
+		Metadata: &spannerpb.ResultSetMetadata{
+			RowType: &spannerpb.StructType{Fields: fields},
+		},
+		Rows: rows,
+	}
 }
 
 func CreateSelect1ResultSet() *spannerpb.ResultSet {
