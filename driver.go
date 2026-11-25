@@ -663,11 +663,6 @@ type connector struct {
 	// to be passed to the underlying client.
 	options []option.ClientOption
 
-	// retryAbortsInternally determines whether Aborted errors will automatically be
-	// retried internally (when possible), or whether all aborted errors will be
-	// propagated to the caller. This option is enabled by default.
-	retryAbortsInternally bool
-
 	clientMu       sync.Mutex
 	client         *spanner.Client
 	clientErr      error
@@ -845,6 +840,7 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	if err != nil {
 		return nil, err
 	}
+	mergeConnectorConfigIntoInitialValues(connectorConfig, initialPropertyValues)
 	state := createConfiguredConnectionState(initialPropertyValues)
 
 	assignPropertyValueIfExists(state, propertyEndpoint, &connectorConfig.Host)
@@ -964,7 +960,7 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			"cannot change spanner instance type in Configurator: was %v, changed to %v; set 'type' in connection string or Params instead",
 			expectedType, config.Type))
 	}
-	if connectorConfig.AutoConfigEmulator {
+	if propertyAutoConfigEmulator.GetValueOrDefault(state) {
 		if connectorConfig.Host == "" {
 			connectorConfig.Host = "localhost:9010"
 		}
@@ -988,10 +984,7 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		logger:                logger,
 		spannerClientConfig:   config,
 		options:               opts,
-		// TODO: Remove retryAbortsInternally from this struct
-		retryAbortsInternally: propertyRetryAbortsInternally.GetValueOrDefault(state),
 	}
-	addStateFromConnectorConfig(c, c.initialPropertyValues)
 	return c, nil
 }
 
@@ -1056,19 +1049,13 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		c.connectorConfig.Project,
 		c.connectorConfig.Instance,
 		c.connectorConfig.Database)
-	c.clientMu.Lock()
-	value, ok := c.initialPropertyValues[propertyConnectTimeout.Key()]
-	c.clientMu.Unlock()
-	if ok {
-		if timeout, err := value.GetValue(); err == nil {
-			if duration, ok := timeout.(time.Duration); ok {
-				var cancel context.CancelFunc
-				// This will set the actual timeout of the context to the lower of the
-				// current context timeout (if any) and the value from the connection property.
-				ctx, cancel = context.WithTimeout(ctx, duration)
-				defer cancel()
-			}
-		}
+	state := c.configuredConnectionState()
+	if timeout := propertyConnectTimeout.GetValueOrDefault(state); timeout > 0 {
+		var cancel context.CancelFunc
+		// This will set the actual timeout of the context to the lower of the
+		// current context timeout (if any) and the value from the connection property.
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
 
 	if err := c.increaseConnCount(ctx, databaseName, opts); err != nil {
@@ -1077,7 +1064,7 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 
 	connId := uuid.New().String()
 	logger := c.logger.With("connId", connId)
-	connectionStateType := c.connectorConfig.ConnectionStateType
+	connectionStateType := propertyConnectionStateType.GetValueOrDefault(state)
 	if connectionStateType == connectionstate.TypeDefault {
 		if c.parser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
 			connectionStateType = connectionstate.TypeTransactional
@@ -1105,14 +1092,47 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 	return connection, nil
 }
 
-func addStateFromConnectorConfig(c *connector, values map[string]connectionstate.ConnectionPropertyValue) {
-	updateConnectionPropertyValueIfNotExists(propertyDecodeToNativeArrays, values, c.connectorConfig.DecodeToNativeArrays)
-	updateConnectionPropertyValueIfNotExists(propertyIsolationLevel, values, c.connectorConfig.IsolationLevel)
-	updateConnectionPropertyValueIfNotExists(propertyBeginTransactionOption, values, c.connectorConfig.BeginTransactionOption)
-	updateConnectionPropertyValueIfNotExists(propertyRetryAbortsInternally, values, c.retryAbortsInternally)
-	updateConnectionPropertyValueIfNotExists(propertyAutoBatchDml, values, c.connectorConfig.AutoBatchDml)
-	updateConnectionPropertyValueIfNotExists(propertyAutoBatchDmlUpdateCount, values, c.connectorConfig.AutoBatchDmlUpdateCount)
-	updateConnectionPropertyValueIfNotExists(propertyAutoBatchDmlUpdateCountVerification, values, !c.connectorConfig.DisableAutoBatchDmlUpdateCountVerification)
+func (c *connector) configuredConnectionState() *connectionstate.ConnectionState {
+	c.clientMu.Lock()
+	defer c.clientMu.Unlock()
+	return c.configuredConnectionStateLocked()
+}
+
+func (c *connector) configuredConnectionStateLocked() *connectionstate.ConnectionState {
+	return createConfiguredConnectionState(c.initialPropertyValues)
+}
+
+func mergeConnectorConfigIntoInitialValues(connectorConfig ConnectorConfig, values map[string]connectionstate.ConnectionPropertyValue) {
+	if connectorConfig.DecodeToNativeArrays {
+		updateConnectionPropertyValueIfNotExists(propertyDecodeToNativeArrays, values, true)
+	}
+	if connectorConfig.IsolationLevel != sql.LevelDefault {
+		updateConnectionPropertyValueIfNotExists(propertyIsolationLevel, values, connectorConfig.IsolationLevel)
+	}
+	if connectorConfig.BeginTransactionOption != spanner.DefaultBeginTransaction {
+		updateConnectionPropertyValueIfNotExists(propertyBeginTransactionOption, values, connectorConfig.BeginTransactionOption)
+	}
+	if connectorConfig.AutoBatchDml {
+		updateConnectionPropertyValueIfNotExists(propertyAutoBatchDml, values, true)
+	}
+	if connectorConfig.AutoBatchDmlUpdateCount != 0 {
+		updateConnectionPropertyValueIfNotExists(propertyAutoBatchDmlUpdateCount, values, connectorConfig.AutoBatchDmlUpdateCount)
+	}
+	if connectorConfig.DisableAutoBatchDmlUpdateCountVerification {
+		updateConnectionPropertyValueIfNotExists(propertyAutoBatchDmlUpdateCountVerification, values, false)
+	}
+	if connectorConfig.ConnectionStateType != connectionstate.TypeDefault {
+		updateConnectionPropertyValueIfNotExists(propertyConnectionStateType, values, connectorConfig.ConnectionStateType)
+	}
+	if connectorConfig.StatementCacheSize != 0 {
+		updateConnectionPropertyValueIfNotExists(propertyStatementCacheSize, values, connectorConfig.StatementCacheSize)
+	}
+	if connectorConfig.DisableStatementCache {
+		updateConnectionPropertyValueIfNotExists(propertyDisableStatementCache, values, true)
+	}
+	if connectorConfig.AutoConfigEmulator {
+		updateConnectionPropertyValueIfNotExists(propertyAutoConfigEmulator, values, true)
+	}
 }
 
 func updateConnectionPropertyValueIfNotExists[T comparable](property *connectionstate.TypedConnectionProperty[T], values map[string]connectionstate.ConnectionPropertyValue, value T) {
@@ -1148,11 +1168,12 @@ func (c *connector) increaseConnCount(ctx context.Context, databaseName string, 
 			closeClient()
 			return err
 		} else {
+			state := c.configuredConnectionStateLocked()
 			// Create a separate statement parser and cache per connector.
-			cacheSize := c.connectorConfig.StatementCacheSize
-			if c.connectorConfig.DisableStatementCache {
+			cacheSize := propertyStatementCacheSize.GetValueOrDefault(state)
+			if propertyDisableStatementCache.GetValueOrDefault(state) {
 				cacheSize = 0
-			} else if c.connectorConfig.StatementCacheSize == 0 {
+			} else if cacheSize == 0 {
 				cacheSize = defaultStatementCacheSize
 			}
 			c.parser, err = parser.NewStatementParser(dialect, cacheSize)
@@ -1509,6 +1530,15 @@ type ReadWriteTransactionOptions struct {
 	DisableInternalRetries bool
 }
 
+type txOptionsContextKey struct{}
+
+type txOptionsCarrier struct {
+	readWriteOptions     *ReadWriteTransactionOptions
+	readOnlyOptions      *ReadOnlyTransactionOptions
+	batchReadOnlyOptions *BatchReadOnlyTransactionOptions
+	applied              bool
+}
+
 // BeginReadWriteTransaction begins a read/write transaction on a Spanner database.
 // This function allows more options to be passed in that the generic sql.DB.BeginTx
 // function.
@@ -1517,36 +1547,8 @@ type ReadWriteTransactionOptions struct {
 // the transaction. Failure to do so will cause the connection that is used for
 // the transaction to be leaked.
 func BeginReadWriteTransaction(ctx context.Context, db *sql.DB, options ReadWriteTransactionOptions) (*sql.Tx, error) {
-	conn, err := db.Conn(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if err := withTransactionCloseFunc(conn, func() {
-		// Close the connection asynchronously, as the transaction will still
-		// be active when we hit this point.
-		go conn.Close()
-	}); err != nil {
-		return nil, err
-	}
-	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
-	if err := withTempReadWriteTransactionOptions(conn, &options); err != nil {
-		return nil, err
-	}
-	if err != nil {
-		return nil, err
-	}
-	return tx, nil
-}
-
-func withTempReadWriteTransactionOptions(conn *sql.Conn, options *ReadWriteTransactionOptions) error {
-	return conn.Raw(func(driverConn any) error {
-		spannerConn, ok := driverConn.(SpannerConn)
-		if !ok {
-			// It is not a Spanner connection.
-			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
-		}
-		spannerConn.setReadWriteTransactionOptions(options)
-		return nil
+	return beginTransactionWithOptions(ctx, db, &sql.TxOptions{}, &txOptionsCarrier{
+		readWriteOptions: &options,
 	})
 }
 
@@ -1565,55 +1567,21 @@ type ReadOnlyTransactionOptions struct {
 // the transaction. Failure to do so will cause the connection that is used for
 // the transaction to be leaked.
 func BeginReadOnlyTransaction(ctx context.Context, db *sql.DB, options ReadOnlyTransactionOptions) (*sql.Tx, error) {
-	conn, err := db.Conn(ctx)
+	return beginTransactionWithOptions(ctx, db, &sql.TxOptions{ReadOnly: true}, &txOptionsCarrier{
+		readOnlyOptions: &options,
+	})
+}
+
+func beginTransactionWithOptions(ctx context.Context, db *sql.DB, txOpts *sql.TxOptions, carrier *txOptionsCarrier) (*sql.Tx, error) {
+	tx, err := db.BeginTx(context.WithValue(ctx, txOptionsContextKey{}, carrier), txOpts)
 	if err != nil {
 		return nil, err
 	}
-	if err := withTransactionCloseFunc(conn, func() {
-		// Close the connection asynchronously, as the transaction will still
-		// be active when we hit this point.
-		go conn.Close()
-	}); err != nil {
-		return nil, err
-	}
-	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err := withTempReadOnlyTransactionOptions(conn, &options); err != nil {
-		return nil, err
-	}
-	if err != nil {
-		clearTempReadOnlyTransactionOptions(conn)
-		return nil, err
+	if !carrier.applied {
+		_ = tx.Rollback()
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
 	}
 	return tx, nil
-}
-
-func withTransactionCloseFunc(conn *sql.Conn, close func()) error {
-	return conn.Raw(func(driverConn any) error {
-		spannerConn, ok := driverConn.(SpannerConn)
-		if !ok {
-			// It is not a Spanner connection.
-			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
-		}
-		spannerConn.withTransactionCloseFunc(close)
-		return nil
-	})
-}
-
-func withTempReadOnlyTransactionOptions(conn *sql.Conn, options *ReadOnlyTransactionOptions) error {
-	return conn.Raw(func(driverConn any) error {
-		spannerConn, ok := driverConn.(SpannerConn)
-		if !ok {
-			// It is not a Spanner connection.
-			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
-		}
-		spannerConn.setReadOnlyTransactionOptions(options)
-		return nil
-	})
-}
-
-func clearTempReadOnlyTransactionOptions(conn *sql.Conn) {
-	_ = withTempReadOnlyTransactionOptions(conn, nil)
-	_ = conn.Close()
 }
 
 // DmlBatch is used to execute a batch of DML statements on Spanner in a single round-trip.

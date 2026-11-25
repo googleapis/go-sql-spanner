@@ -17,7 +17,6 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 
@@ -63,7 +62,7 @@ public class Server : IDisposable
         if (addressType == AddressType.UnixDomainSocket)
         {
             // Generate a random temp file name that will be used for the Unix domain socket communication.
-            arguments = Path.GetTempPath() + Guid.NewGuid();
+            arguments = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         }
         else if (addressType == AddressType.Tcp)
         {
@@ -74,7 +73,7 @@ public class Server : IDisposable
             arguments = "localhost:0 tcp";
         }
 
-        var binaryFileName = GetBinaryFileName().Replace('/', Path.DirectorySeparatorChar);
+        var binaryFileName = GetBinaryFileName();
         var info = new ProcessStartInfo
         {
             Arguments = arguments,
@@ -125,94 +124,41 @@ public class Server : IDisposable
         }
         throw new InvalidOperationException("Failed to read gRPC address");
     }
-    
-    private static string GetBinaryFileName()
+
+    internal static string GetBinaryFileName()
     {
+        var searchDirectories = GetDefaultSearchDirectories(typeof(Server).Assembly.Location, AppContext.BaseDirectory);
+        return GetBinaryFileName(searchDirectories, GetRuntimeIdentifier());
+    }
+
+    internal static string GetBinaryFileName(IEnumerable<string?> searchDirectories, string? runtimeIdentifier)
+    {
+        if (searchDirectories == null)
+        {
+            throw new ArgumentNullException(nameof(searchDirectories));
+        }
+        var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+        var directories = NormalizeSearchDirectories(searchDirectories, isWindows);
+        var executableName = isWindows ? $"{BaseFileName}.exe" : BaseFileName;
+
+        var candidateRelativePaths = new List<string>(3);
+        if (!string.IsNullOrWhiteSpace(runtimeIdentifier))
+        {
+            ValidateRuntimeIdentifier(runtimeIdentifier!);
+            candidateRelativePaths.Add(Path.Combine("runtimes", runtimeIdentifier, "native", executableName));
+        }
+        candidateRelativePaths.Add(Path.Combine("runtimes", "any", "native", executableName));
+        candidateRelativePaths.Add(executableName);
+
         var tried = new List<string>();
-        string? fileName = null;
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        foreach (var relativePath in candidateRelativePaths)
         {
-            switch (RuntimeInformation.OSArchitecture)
+            foreach (var directory in directories)
             {
-                case Architecture.X64:
-                    fileName = $"runtimes/win-x64/native/{BaseFileName}.exe";
-                    break;
-            }
-        }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-            switch (RuntimeInformation.OSArchitecture)
-            {
-                case Architecture.X64:
-                    fileName = $"runtimes/linux-x64/native/{BaseFileName}";
-                    break;
-                case Architecture.Arm64:
-                    fileName = $"runtimes/linux-arm64/native/{BaseFileName}";
-                    break;
-            }
-        }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            switch (RuntimeInformation.ProcessArchitecture)
-            {
-                case Architecture.Arm64:
-                    fileName = $"runtimes/osx-arm64/native/{BaseFileName}";
-                    break;
-            }
-        }
-        if (TryExists(fileName, tried))
-        {
-            return fileName!;
-        }
-
-        var executing = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? "";
-        var code = Path.GetDirectoryName(typeof(Server).Assembly.Location) ?? "";
-        var assemblyLocations = executing == code ? new [] {code} : [executing, code];
-        foreach (var assemblyLocation in assemblyLocations)
-        {
-            if (fileName != null)
-            {
-                var combined = Path.Combine(assemblyLocation, fileName);
-                if (TryExists(combined, tried))
+                var candidatePath = Path.Combine(directory, relativePath);
+                if (TryExists(candidatePath, tried))
                 {
-                    return combined;
-                }
-            }
-        }
-
-        const string anyArchFileNameWindows = $"runtimes/any/native/{BaseFileName}.exe";
-        const string anyArchFileName = $"runtimes/any/native/{BaseFileName}";
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            if (TryExists(anyArchFileNameWindows, tried))
-            {
-                return anyArchFileNameWindows;
-            }
-        }
-        else
-        {
-            if (TryExists(anyArchFileName, tried))
-            {
-                return anyArchFileName;
-            }
-        }
-
-        foreach (var assemblyLocation in assemblyLocations)
-        {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                var combinedWindows = Path.Combine(assemblyLocation, anyArchFileNameWindows);
-                if (TryExists(combinedWindows, tried))
-                {
-                    return combinedWindows;
-                }
-            }
-            else
-            {
-                var combinedAnyArch = Path.Combine(assemblyLocation, anyArchFileName);
-                if (TryExists(combinedAnyArch, tried))
-                {
-                    return combinedAnyArch;
+                    return candidatePath;
                 }
             }
         }
@@ -220,9 +166,100 @@ public class Server : IDisposable
         throw new PlatformNotSupportedException("Could not find gRPC server executable for SpannerLib. Tried: " + string.Join("\n", tried));
     }
 
-    private static bool TryExists(string? fileName, List<string> tried)
+    private static void ValidateRuntimeIdentifier(string runtimeIdentifier)
     {
-        if (fileName == null)
+        if (Path.IsPathRooted(runtimeIdentifier)
+            || runtimeIdentifier.IndexOf(Path.DirectorySeparatorChar) >= 0
+            || runtimeIdentifier.IndexOf(Path.AltDirectorySeparatorChar) >= 0
+            || runtimeIdentifier.Contains(".."))
+        {
+            throw new ArgumentException($"Invalid runtime identifier: {runtimeIdentifier}", nameof(runtimeIdentifier));
+        }
+    }
+
+    internal static IReadOnlyList<string> GetDefaultSearchDirectories(string? assemblyLocation, string? baseDirectory)
+    {
+        var directories = new List<string>(2);
+        if (!string.IsNullOrWhiteSpace(assemblyLocation))
+        {
+            var assemblyDirectory = Path.GetDirectoryName(assemblyLocation);
+            if (!string.IsNullOrWhiteSpace(assemblyDirectory))
+            {
+                directories.Add(assemblyDirectory);
+            }
+        }
+        if (!string.IsNullOrWhiteSpace(baseDirectory))
+        {
+            directories.Add(baseDirectory);
+        }
+        return directories;
+    }
+
+    internal static IReadOnlyList<string> NormalizeSearchDirectories(IEnumerable<string?> searchDirectories, bool isWindows)
+    {
+        var result = new List<string>();
+        var seen = new HashSet<string>(isWindows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        foreach (var directory in searchDirectories)
+        {
+            // Never allow empty or relative/drive-relative paths, which would resolve against CWD.
+            if (string.IsNullOrWhiteSpace(directory) || !Path.IsPathFullyQualified(directory))
+            {
+                continue;
+            }
+            var normalized = TrimEndingDirectorySeparators(Path.GetFullPath(directory));
+            if (seen.Add(normalized))
+            {
+                result.Add(normalized);
+            }
+        }
+        return result;
+    }
+
+    private static string TrimEndingDirectorySeparators(string path)
+    {
+        var rootLength = Path.GetPathRoot(path)?.Length ?? 0;
+        var end = path.Length;
+        while (end > rootLength && (path[end - 1] == Path.DirectorySeparatorChar || path[end - 1] == Path.AltDirectorySeparatorChar))
+        {
+            end--;
+        }
+        return end == path.Length ? path : path.Substring(0, end);
+    }
+
+    internal static string? GetRuntimeIdentifier()
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            switch (RuntimeInformation.OSArchitecture)
+            {
+                case Architecture.X64:
+                    return "win-x64";
+            }
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            switch (RuntimeInformation.OSArchitecture)
+            {
+                case Architecture.X64:
+                    return "linux-x64";
+                case Architecture.Arm64:
+                    return "linux-arm64";
+            }
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            switch (RuntimeInformation.ProcessArchitecture)
+            {
+                case Architecture.Arm64:
+                    return "osx-arm64";
+            }
+        }
+        return null;
+    }
+
+    private static bool TryExists(string fileName, List<string> tried)
+    {
+        if (!Path.IsPathFullyQualified(fileName))
         {
             return false;
         }

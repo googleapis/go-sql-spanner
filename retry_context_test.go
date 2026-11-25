@@ -21,7 +21,9 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"log/slog"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -29,8 +31,10 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	spannerpb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/gax-go/v2"
+	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
@@ -161,6 +165,32 @@ func failRPCOnHook(server *testutil.MockedSpannerInMemTestServer, method string,
 		<-srvCtx.Done()
 		return status.FromContextError(srvCtx.Err()).Err()
 	})
+}
+
+func createAndRollbackSavepoint(t *testing.T, ctx context.Context, tx *sql.Tx, dml string) {
+	t.Helper()
+	if _, err := tx.ExecContext(ctx, "SAVEPOINT s1"); err != nil {
+		t.Fatalf("SAVEPOINT s1 failed: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, dml); err != nil {
+		t.Fatalf("DML after savepoint failed: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+		t.Fatalf("ROLLBACK TO SAVEPOINT s1 failed: %v", err)
+	}
+}
+
+func createAndRollbackConnSavepoint(ctx context.Context, c *conn, dml string) error {
+	if _, err := c.ExecContext(ctx, "SAVEPOINT s1", nil); err != nil {
+		return fmt.Errorf("SAVEPOINT s1 failed: %w", err)
+	}
+	if _, err := c.ExecContext(ctx, dml, nil); err != nil {
+		return fmt.Errorf("DML after savepoint failed: %w", err)
+	}
+	if _, err := c.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1", nil); err != nil {
+		return fmt.Errorf("ROLLBACK TO SAVEPOINT s1 failed: %w", err)
+	}
+	return nil
 }
 
 func TestCombineContexts_TrivialCases(t *testing.T) {
@@ -924,6 +954,666 @@ func TestChecksumRowIterator_ReplaceIterator_ContextErrors(t *testing.T) {
 	}
 }
 
+func TestSavepoint_EnsureReplayed_UnfiredDeadlinePreFlight(t *testing.T) {
+	t.Parallel()
+
+	expiredUnfired := unfiredDeadlineContext{
+		Context:  context.Background(),
+		deadline: time.Now().Add(-time.Millisecond),
+	}
+
+	txWithExpiredTxCtx := &readWriteTransaction{
+		ctx:    expiredUnfired,
+		state:  readWriteTxStateNeedsReplay,
+		conn:   &conn{},
+		logger: noopLogger,
+	}
+	if g, w := txWithExpiredTxCtx.ensureReplayed(context.Background()), context.DeadlineExceeded; !errors.Is(g, w) {
+		t.Errorf("tx.ctx pre-flight error mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	txWithExpiredOpCtx := &readWriteTransaction{
+		ctx:    context.Background(),
+		state:  readWriteTxStateNeedsReplay,
+		conn:   &conn{},
+		logger: noopLogger,
+	}
+	if g, w := txWithExpiredOpCtx.ensureReplayed(expiredUnfired), context.DeadlineExceeded; !errors.Is(g, w) {
+		t.Errorf("opCtx pre-flight error mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestSavepoint_EnsureReplayed_OpContextTimeoutRecovers(t *testing.T) {
+	t.Parallel()
+
+	type replayKind string
+	const (
+		replayDML      replayKind = "DML"
+		replayBatchDML replayKind = "BatchDML"
+		replayQuery    replayKind = "Query"
+	)
+
+	tests := []struct {
+		name         string
+		kind         replayKind
+		cancel       bool
+		directCommit bool
+		queryTrigger bool
+		multiStmt    bool
+	}{
+		{name: "dml_op_timeout", kind: replayDML},
+		{name: "multi_stmt_dml_op_timeout", kind: replayDML, multiStmt: true},
+		{name: "batch_dml_op_timeout", kind: replayBatchDML},
+		{name: "query_op_timeout", kind: replayQuery},
+		{name: "dml_op_cancelled", kind: replayDML, cancel: true},
+		{name: "dml_op_timeout_then_commit", kind: replayDML, directCommit: true},
+		{name: "dml_op_timeout_on_query_trigger", kind: replayDML, queryTrigger: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			db, server, teardown := setupTestDBConnection(t)
+			defer teardown()
+			ctx := context.Background()
+
+			dbConn, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatalf("db.Conn failed: %v", err)
+			}
+			defer silentClose(dbConn)
+
+			tx, err := dbConn.BeginTx(ctx, &sql.TxOptions{})
+			if err != nil {
+				t.Fatalf("BeginTx failed: %v", err)
+			}
+			defer func() { _ = tx.Rollback() }()
+
+			switch tc.kind {
+			case replayDML:
+				if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+					t.Fatalf("initial DML failed: %v", err)
+				}
+				if tc.multiStmt {
+					if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+						t.Fatalf("second initial DML failed: %v", err)
+					}
+				}
+			case replayBatchDML:
+				if _, err := tx.ExecContext(ctx, "START BATCH DML"); err != nil {
+					t.Fatalf("START BATCH DML failed: %v", err)
+				}
+				if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+					t.Fatalf("batch DML statement failed: %v", err)
+				}
+				if _, err := tx.ExecContext(ctx, "RUN BATCH"); err != nil {
+					t.Fatalf("RUN BATCH failed: %v", err)
+				}
+			case replayQuery:
+				rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar)
+				if err != nil {
+					t.Fatalf("QueryContext failed: %v", err)
+				}
+				for rows.Next() {
+				}
+				if err := rows.Err(); err != nil {
+					t.Fatalf("rows.Err failed: %v", err)
+				}
+				if err := rows.Close(); err != nil {
+					t.Fatalf("rows.Close failed: %v", err)
+				}
+			}
+
+			createAndRollbackSavepoint(t, ctx, tx, testutil.UpdateSingersSetLastName)
+			_ = server.TestSpanner.DrainRequestsFromServer()
+
+			method := testutil.MethodExecuteStreamingSql
+			if tc.kind == replayBatchDML {
+				method = testutil.MethodExecuteBatchDml
+			}
+			opCtx, failOp, cleanupOp := newFailureContext(ctx, !tc.cancel)
+			defer cleanupOp()
+			if tc.multiStmt {
+				// Let statement 1 succeed (creating a backend tx ID via inline begin),
+				// then expire opCtx on statement 2 so recreateAndReplay rolls back the partial tx.
+				var calls atomic.Int32
+				server.TestSpanner.SetMethodHook(method, func(srvCtx context.Context, _ interface{}) error {
+					if calls.Add(1) == 1 {
+						return nil
+					}
+					failOp()
+					<-srvCtx.Done()
+					return status.FromContextError(srvCtx.Err()).Err()
+				})
+			} else {
+				failRPCOnHook(server, method, failOp)
+			}
+
+			if tc.queryTrigger {
+				var rows *sql.Rows
+				rows, err = tx.QueryContext(opCtx, testutil.SelectFooFromBar)
+				if rows != nil {
+					_ = rows.Close()
+				}
+			} else {
+				_, err = tx.ExecContext(opCtx, testutil.UpdateSingersSetLastName)
+			}
+			server.TestSpanner.SetMethodHook(method, nil)
+			if tc.cancel {
+				assertContextError(t, err, context.Canceled, codes.Canceled)
+			} else {
+				assertContextError(t, err, context.DeadlineExceeded, codes.DeadlineExceeded)
+			}
+
+			// Verify transaction remains in NeedsReplay state and did not get poisoned to ReplayFailed.
+			var gotState readWriteTxState
+			var gotRwTx *spanner.ReadWriteStmtBasedTransaction
+			if err := dbConn.Raw(func(driverConn any) error {
+				c := driverConn.(*conn)
+				rwTx := c.tx.contextTransaction.(*readWriteTransaction)
+				gotState = rwTx.state
+				gotRwTx = rwTx.rwTx
+				return nil
+			}); err != nil {
+				t.Fatalf("dbConn.Raw failed: %v", err)
+			}
+			if g, w := gotState, readWriteTxStateNeedsReplay; g != w {
+				t.Errorf("tx.state mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := gotRwTx, (*spanner.ReadWriteStmtBasedTransaction)(nil); g != w {
+				t.Errorf("rwTx after failed replay mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			failedReqs := server.TestSpanner.DrainRequestsFromServer()
+			if tc.multiStmt {
+				rollbackReqs := testutil.RequestsOfType(failedReqs, reflect.TypeOf(&spannerpb.RollbackRequest{}))
+				if g, w := len(rollbackReqs), 1; g != w {
+					t.Errorf("partial replay RollbackRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+			}
+
+			if !tc.directCommit {
+				if _, err := tx.ExecContext(ctx, testutil.UpdateSingersSetLastName); err != nil {
+					t.Fatalf("recovery statement failed: %v", err)
+				}
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatalf("Commit failed after recovery: %v", err)
+			}
+
+			reqs := server.TestSpanner.DrainRequestsFromServer()
+			execReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+			batchReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+			switch tc.kind {
+			case replayDML:
+				wantSQL := []string{testutil.UpdateBarSetFoo}
+				if tc.multiStmt {
+					wantSQL = append(wantSQL, testutil.UpdateBarSetFoo)
+				}
+				if !tc.directCommit {
+					wantSQL = append(wantSQL, testutil.UpdateSingersSetLastName)
+				}
+				if g, w := len(execReqs), len(wantSQL); g != w {
+					t.Fatalf("recovery ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				for i, sqlText := range wantSQL {
+					if g, w := execReqs[i].(*spannerpb.ExecuteSqlRequest).Sql, sqlText; g != w {
+						t.Errorf("recovery SQL[%d] mismatch\nGot:  %v\nWant: %v", i, g, w)
+					}
+				}
+			case replayBatchDML:
+				if g, w := len(batchReqs), 1; g != w {
+					t.Fatalf("recovery ExecuteBatchDmlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := len(execReqs), 1; g != w {
+					t.Fatalf("recovery ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := execReqs[0].(*spannerpb.ExecuteSqlRequest).Sql, testutil.UpdateSingersSetLastName; g != w {
+					t.Errorf("recovery SQL mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+			case replayQuery:
+				if g, w := len(execReqs), 2; g != w {
+					t.Fatalf("recovery ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := execReqs[0].(*spannerpb.ExecuteSqlRequest).Sql, testutil.SelectFooFromBar; g != w {
+					t.Errorf("recovery SQL[0] mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := execReqs[1].(*spannerpb.ExecuteSqlRequest).Sql, testutil.UpdateSingersSetLastName; g != w {
+					t.Errorf("recovery SQL[1] mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+			}
+		})
+	}
+}
+
+func TestSavepoint_EnsureReplayed_BeginTransactionTimeout(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnectionWithParams(t, "beginTransactionOption=ExplicitBeginTransaction")
+	defer teardown()
+	ctx := context.Background()
+
+	dbConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("db.Conn failed: %v", err)
+	}
+	defer silentClose(dbConn)
+
+	tx, err := dbConn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("initial DML failed: %v", err)
+	}
+	createAndRollbackSavepoint(t, ctx, tx, testutil.UpdateSingersSetLastName)
+
+	opCtx := newControllableDeadlineContext(true)
+	defer opCtx.cancel()
+	failRPCOnHook(server, testutil.MethodBeginTransaction, opCtx.expire)
+
+	_, err = tx.ExecContext(opCtx, testutil.UpdateSingersSetLastName)
+	server.TestSpanner.SetMethodHook(testutil.MethodBeginTransaction, nil)
+	assertContextError(t, err, context.DeadlineExceeded, codes.DeadlineExceeded)
+
+	if _, err := tx.ExecContext(ctx, testutil.UpdateSingersSetLastName); err != nil {
+		t.Fatalf("recovery statement failed: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed after recovery: %v", err)
+	}
+}
+
+func TestSavepoint_EnsureReplayed_TxContextCancelledMidReplay(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	dbConn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("db.Conn failed: %v", err)
+	}
+	defer silentClose(dbConn)
+
+	txCtx, cancelTx := context.WithCancel(context.Background())
+	defer cancelTx()
+
+	var firstErr, secondErr error
+	var gotState readWriteTxState
+	var gotRwTx *spanner.ReadWriteStmtBasedTransaction
+	var execReqsAfter int
+	if err := dbConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		dtx, err := c.BeginTx(txCtx, driver.TxOptions{})
+		if err != nil {
+			return err
+		}
+		defer func() { _ = dtx.Rollback() }()
+
+		if _, err := c.ExecContext(context.Background(), testutil.UpdateBarSetFoo, nil); err != nil {
+			return fmt.Errorf("initial DML failed: %w", err)
+		}
+		if err := createAndRollbackConnSavepoint(context.Background(), c, testutil.UpdateSingersSetLastName); err != nil {
+			return err
+		}
+		_ = server.TestSpanner.DrainRequestsFromServer()
+
+		// Cancel txCtx deterministically mid-replay while opCtx is context.Background().
+		failRPCOnHook(server, testutil.MethodExecuteStreamingSql, cancelTx)
+
+		_, firstErr = c.ExecContext(context.Background(), testutil.UpdateSingersSetLastName, nil)
+		server.TestSpanner.SetMethodHook(testutil.MethodExecuteStreamingSql, nil)
+
+		rwTx := c.tx.contextTransaction.(*readWriteTransaction)
+		gotState = rwTx.state
+		gotRwTx = rwTx.rwTx
+
+		_ = server.TestSpanner.DrainRequestsFromServer()
+
+		// Subsequent statement with an active opCtx must fail immediately via pre-flight check without RPCs
+		// and return context.Canceled (not 25P02).
+		_, secondErr = c.ExecContext(context.Background(), testutil.UpdateSingersSetLastName, nil)
+		requestsAfter := server.TestSpanner.DrainRequestsFromServer()
+		execReqsAfter = len(testutil.RequestsOfType(requestsAfter, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{})))
+		return nil
+	}); err != nil {
+		t.Fatalf("dbConn.Raw failed: %v", err)
+	}
+
+	assertContextError(t, firstErr, context.Canceled, codes.Canceled)
+	if g, w := gotState, readWriteTxStateNeedsReplay; g != w {
+		t.Errorf("tx.state mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := gotRwTx, (*spanner.ReadWriteStmtBasedTransaction)(nil); g != w {
+		t.Errorf("rwTx after failed replay mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	assertContextError(t, secondErr, context.Canceled, codes.Canceled)
+	if g, w := execReqsAfter, 0; g != w {
+		t.Errorf("execute requests count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestSavepoint_OpenRowIteratorSurvivesReplayAndExecContext(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		useTxTimeout       bool
+		useTxCancelContext bool
+	}{
+		{name: "tx_with_cancel", useTxCancelContext: true},
+		{name: "tx_with_transaction_timeout", useTxTimeout: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			db, server, teardown := setupTestDBConnection(t)
+			defer teardown()
+
+			const querySQL = "SELECT FOO FROM BAR_MULTI"
+			_ = server.TestSpanner.PutStatementResult(querySQL, &testutil.StatementResult{
+				Type:      testutil.StatementResultResultSet,
+				ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{10, 20, 30, 40}, "FOO"),
+			})
+
+			ctx := context.Background()
+			dbConn, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatalf("db.Conn failed: %v", err)
+			}
+			defer silentClose(dbConn)
+
+			if tc.useTxTimeout {
+				if _, err := dbConn.ExecContext(ctx, "SET transaction_timeout = '3600s'"); err != nil {
+					t.Fatalf("SET transaction_timeout failed: %v", err)
+				}
+			}
+
+			txCtx := ctx
+			var cancelTx context.CancelFunc
+			if tc.useTxCancelContext {
+				txCtx, cancelTx = context.WithCancel(ctx)
+				defer cancelTx()
+			}
+
+			tx, err := dbConn.BeginTx(txCtx, &sql.TxOptions{})
+			if err != nil {
+				t.Fatalf("BeginTx failed: %v", err)
+			}
+			defer func() { _ = tx.Rollback() }()
+
+			rows, err := tx.QueryContext(ctx, querySQL)
+			if err != nil {
+				t.Fatalf("QueryContext failed: %v", err)
+			}
+			defer func() { _ = rows.Close() }()
+
+			if !rows.Next() {
+				t.Fatalf("expected first row, err=%v", rows.Err())
+			}
+			var val int64
+			if err := rows.Scan(&val); err != nil {
+				t.Fatalf("Scan failed: %v", err)
+			}
+			if g, w := val, int64(10); g != w {
+				t.Fatalf("first row mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			createAndRollbackSavepoint(t, ctx, tx, testutil.UpdateBarSetFoo)
+
+			// Trigger ensureReplayed via ExecContext with a short-lived opCtx that gets cancelled when ExecContext returns.
+			opCtx := newControllableDeadlineContext(true)
+			defer opCtx.cancel()
+			if _, err := tx.ExecContext(opCtx, testutil.UpdateSingersSetLastName); err != nil {
+				t.Fatalf("ExecContext after rollback to savepoint failed: %v", err)
+			}
+			opCtx.cancel()
+
+			// Continue streaming the remaining rows from the open iterator.
+			var remaining []int64
+			for rows.Next() {
+				var v int64
+				if err := rows.Scan(&v); err != nil {
+					t.Fatalf("Scan remaining row failed: %v", err)
+				}
+				remaining = append(remaining, v)
+			}
+			if err := rows.Err(); err != nil {
+				t.Fatalf("rows.Err after replay failed: %v", err)
+			}
+			if g, w := remaining, []int64{20, 30, 40}; !reflect.DeepEqual(g, w) {
+				t.Fatalf("remaining rows mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if err := rows.Close(); err != nil {
+				t.Fatalf("rows.Close failed: %v", err)
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatalf("Commit failed: %v", err)
+			}
+		})
+	}
+}
+
+func TestSavepoint_OpenRowIterator_OpContextDeadlineExceededPreservesStream(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	const querySQL = "SELECT FOO FROM BAR_MULTI_TIMEOUT"
+	_ = server.TestSpanner.PutStatementResult(querySQL, &testutil.StatementResult{
+		Type:      testutil.StatementResultResultSet,
+		ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{10, 20, 30}, "FOO"),
+	})
+
+	ctx := context.Background()
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Keep the iterator open on a healthy context.Background() query context.
+	rows, err := tx.QueryContext(ctx, querySQL)
+	if err != nil {
+		t.Fatalf("QueryContext failed: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	if !rows.Next() {
+		t.Fatalf("expected first row, err=%v", rows.Err())
+	}
+
+	createAndRollbackSavepoint(t, ctx, tx, testutil.UpdateBarSetFoo)
+
+	// Expire opCtx deterministically during replay of the open query.
+	// checksumRowIterator.retry's stopWatch cancels iterCtx with Canceled, which retryContextError
+	// must translate back to DeadlineExceeded.
+	opCtx := newControllableDeadlineContext(true)
+	defer opCtx.cancel()
+	failRPCOnHook(server, testutil.MethodExecuteStreamingSql, opCtx.expire)
+
+	_, err = tx.ExecContext(opCtx, testutil.UpdateSingersSetLastName)
+	server.TestSpanner.SetMethodHook(testutil.MethodExecuteStreamingSql, nil)
+	assertContextError(t, err, context.DeadlineExceeded, codes.DeadlineExceeded)
+
+	// Subsequent statement with healthy context recovers and keeps the open stream alive.
+	if _, err := tx.ExecContext(ctx, testutil.UpdateSingersSetLastName); err != nil {
+		t.Fatalf("recovery ExecContext failed: %v", err)
+	}
+	var remaining []int64
+	for rows.Next() {
+		var v int64
+		if err := rows.Scan(&v); err != nil {
+			t.Fatalf("Scan failed: %v", err)
+		}
+		remaining = append(remaining, v)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows.Err failed: %v", err)
+	}
+	if g, w := remaining, []int64{20, 30}; !reflect.DeepEqual(g, w) {
+		t.Fatalf("remaining rows mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatalf("rows.Close failed: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+}
+
+func TestSavepoint_OpenRowIterator_QueryContextFailureFailsReplay(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		timeout   bool
+		midReplay bool
+		wantErr   error
+		wantCode  codes.Code
+	}{
+		{
+			name:     "query_ctx_cancelled_preflight",
+			wantErr:  context.Canceled,
+			wantCode: codes.Canceled,
+		},
+		{
+			name:     "query_ctx_deadline_exceeded_preflight",
+			timeout:  true,
+			wantErr:  context.DeadlineExceeded,
+			wantCode: codes.DeadlineExceeded,
+		},
+		{
+			name:      "query_ctx_cancelled_mid_replay",
+			midReplay: true,
+			wantErr:   context.Canceled,
+			wantCode:  codes.Canceled,
+		},
+		{
+			name:      "query_ctx_deadline_exceeded_mid_replay",
+			timeout:   true,
+			midReplay: true,
+			wantErr:   context.DeadlineExceeded,
+			wantCode:  codes.DeadlineExceeded,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			db, server, teardown := setupTestDBConnection(t)
+			defer teardown()
+
+			const querySQL = "SELECT FOO FROM BAR_QUERY_FAIL"
+			_ = server.TestSpanner.PutStatementResult(querySQL, &testutil.StatementResult{
+				Type:      testutil.StatementResultResultSet,
+				ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{10, 20}, "FOO"),
+			})
+
+			ctx := context.Background()
+			dbConn, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatalf("db.Conn failed: %v", err)
+			}
+			defer silentClose(dbConn)
+
+			queryCtx, failQueryCtx, cleanupQueryCtx := newFailureContext(ctx, tc.timeout)
+			defer cleanupQueryCtx()
+
+			var execErr, recoveryExecErr, recoveryCommitErr error
+			var gotState readWriteTxState
+			var gotRwTx *spanner.ReadWriteStmtBasedTransaction
+			var execReqsOnPreflight int
+			if err := dbConn.Raw(func(driverConn any) error {
+				c := driverConn.(*conn)
+				dtx, err := c.BeginTx(ctx, driver.TxOptions{})
+				if err != nil {
+					return err
+				}
+				defer func() { _ = dtx.Rollback() }()
+
+				rows, err := c.QueryContext(queryCtx, querySQL, nil)
+				if err != nil {
+					return fmt.Errorf("QueryContext failed: %w", err)
+				}
+				rowsClosed := false
+				defer func() {
+					if !rowsClosed {
+						_ = rows.Close()
+					}
+				}()
+
+				dest := make([]driver.Value, 1)
+				if err := rows.Next(dest); err != nil {
+					return fmt.Errorf("rows.Next failed: %w", err)
+				}
+				if err := createAndRollbackConnSavepoint(ctx, c, testutil.UpdateBarSetFoo); err != nil {
+					return err
+				}
+				_ = server.TestSpanner.DrainRequestsFromServer()
+
+				if tc.midReplay {
+					failRPCOnHook(server, testutil.MethodExecuteStreamingSql, failQueryCtx)
+				} else {
+					failQueryCtx()
+				}
+
+				_, execErr = c.ExecContext(ctx, testutil.UpdateSingersSetLastName, nil)
+				server.TestSpanner.SetMethodHook(testutil.MethodExecuteStreamingSql, nil)
+
+				if !tc.midReplay {
+					reqs := server.TestSpanner.DrainRequestsFromServer()
+					execReqsOnPreflight = len(testutil.RequestsOfType(reqs, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{})))
+				}
+
+				rwTx := c.tx.contextTransaction.(*readWriteTransaction)
+				gotState = rwTx.state
+				gotRwTx = rwTx.rwTx
+
+				// Closing the failed iterator unblocks replay so healthy statements can recover and commit.
+				if err := rows.Close(); err != nil {
+					return fmt.Errorf("rows.Close failed: %w", err)
+				}
+				rowsClosed = true
+				_, recoveryExecErr = c.ExecContext(ctx, testutil.UpdateSingersSetLastName, nil)
+				if recoveryExecErr == nil {
+					recoveryCommitErr = dtx.Commit()
+				}
+				return nil
+			}); err != nil {
+				t.Fatalf("dbConn.Raw failed: %v", err)
+			}
+
+			assertContextError(t, execErr, tc.wantErr, tc.wantCode)
+			if !tc.midReplay {
+				if g, w := execReqsOnPreflight, 0; g != w {
+					t.Errorf("preflight ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+			}
+			if g, w := gotState, readWriteTxStateNeedsReplay; g != w {
+				t.Errorf("tx.state mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := gotRwTx, (*spanner.ReadWriteStmtBasedTransaction)(nil); g != w {
+				t.Errorf("rwTx after failed replay mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if recoveryExecErr != nil {
+				t.Fatalf("recovery ExecContext after closing expired iterator failed: %v", recoveryExecErr)
+			}
+			if recoveryCommitErr != nil {
+				t.Fatalf("recovery Commit after closing expired iterator failed: %v", recoveryCommitErr)
+			}
+		})
+	}
+}
+
 func TestRetry_PropagatesContextErrorAndCleansUpBackendTx(t *testing.T) {
 	t.Parallel()
 
@@ -1035,6 +1725,204 @@ func TestRetry_PropagatesContextErrorAndCleansUpBackendTx(t *testing.T) {
 			// Verify the connection/session pool remains usable.
 			if _, err := db.ExecContext(context.Background(), testutil.UpdateSingersSetLastName); err != nil {
 				t.Fatalf("db unusable after failed retry commit: %v", err)
+			}
+		})
+	}
+}
+
+func TestSavepoint_OpenRowIterator_RetryAbortedThenRecovers(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	const querySQL = "SELECT FOO FROM BAR_RETRY_ABORT"
+	_ = server.TestSpanner.PutStatementResult(querySQL, &testutil.StatementResult{
+		Type:      testutil.StatementResultResultSet,
+		ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{10, 20, 30}, "FOO"),
+	})
+
+	ctx := context.Background()
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	rows, err := tx.QueryContext(ctx, querySQL)
+	if err != nil {
+		t.Fatalf("QueryContext failed: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	if !rows.Next() {
+		t.Fatalf("expected first row, err=%v", rows.Err())
+	}
+	createAndRollbackSavepoint(t, ctx, tx, testutil.UpdateBarSetFoo)
+
+	// First ExecuteStreamingSql during savepoint replay (replaying querySQL in checksumRowIterator.retry)
+	// returns Aborted (1ns RetryDelay); retryUntilSuccess retries cleanly and keeps the stream alive.
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
+		Errors: []error{abortedWithRetryDelay(time.Nanosecond)},
+	})
+
+	if _, err := tx.ExecContext(ctx, testutil.UpdateSingersSetLastName); err != nil {
+		t.Fatalf("ExecContext after aborted replay failed: %v", err)
+	}
+
+	var remaining []int64
+	for rows.Next() {
+		var v int64
+		if err := rows.Scan(&v); err != nil {
+			t.Fatalf("Scan failed: %v", err)
+		}
+		remaining = append(remaining, v)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows.Err failed: %v", err)
+	}
+	if g, w := remaining, []int64{20, 30}; !reflect.DeepEqual(g, w) {
+		t.Fatalf("remaining rows mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatalf("rows.Close failed: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+}
+
+func TestSavepoint_EnsureReplayed_RowNextAndRunBatchContextFailure(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		trigger  string
+		wantErr  error
+		wantCode codes.Code
+	}{
+		{
+			name:     "row_next_after_rollback_with_cancelled_query_ctx",
+			trigger:  "row_next",
+			wantErr:  context.Canceled,
+			wantCode: codes.Canceled,
+		},
+		{
+			name:     "run_batch_after_rollback_with_expired_op_ctx",
+			trigger:  "run_batch",
+			wantErr:  context.DeadlineExceeded,
+			wantCode: codes.DeadlineExceeded,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			db, server, teardown := setupTestDBConnection(t)
+			defer teardown()
+
+			const querySQL = "SELECT FOO FROM BAR_NEXT_BATCH"
+			_ = server.TestSpanner.PutStatementResult(querySQL, &testutil.StatementResult{
+				Type:      testutil.StatementResultResultSet,
+				ResultSet: testutil.CreateSingleColumnInt64ResultSet([]int64{10, 20}, "FOO"),
+			})
+
+			ctx := context.Background()
+			dbConn, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatalf("db.Conn failed: %v", err)
+			}
+			defer silentClose(dbConn)
+
+			opCtx := newControllableDeadlineContext(tc.wantErr == context.DeadlineExceeded)
+			defer opCtx.cancel()
+
+			var triggerErr, recoveryErr, commitErr error
+			var gotState readWriteTxState
+			if err := dbConn.Raw(func(driverConn any) error {
+				c := driverConn.(*conn)
+				dtx, err := c.BeginTx(ctx, driver.TxOptions{})
+				if err != nil {
+					return err
+				}
+				defer func() { _ = dtx.Rollback() }()
+
+				switch tc.trigger {
+				case "row_next":
+					rows, err := c.QueryContext(opCtx, querySQL, nil)
+					if err != nil {
+						return fmt.Errorf("QueryContext failed: %w", err)
+					}
+					rowsClosed := false
+					defer func() {
+						if !rowsClosed {
+							_ = rows.Close()
+						}
+					}()
+					dest := make([]driver.Value, 1)
+					if err := rows.Next(dest); err != nil {
+						return fmt.Errorf("initial rows.Next failed: %w", err)
+					}
+					if err := createAndRollbackConnSavepoint(ctx, c, testutil.UpdateBarSetFoo); err != nil {
+						return err
+					}
+					opCtx.cancel()
+					triggerErr = rows.Next(dest)
+					gotState = c.tx.contextTransaction.(*readWriteTransaction).state
+					if err := rows.Close(); err != nil {
+						return fmt.Errorf("rows.Close failed: %w", err)
+					}
+					rowsClosed = true
+					commitErr = dtx.Commit()
+				case "run_batch":
+					if _, err := c.ExecContext(ctx, testutil.UpdateBarSetFoo, nil); err != nil {
+						return fmt.Errorf("initial DML failed: %w", err)
+					}
+					if err := createAndRollbackConnSavepoint(ctx, c, testutil.UpdateSingersSetLastName); err != nil {
+						return err
+					}
+					if _, err := c.ExecContext(ctx, "START BATCH DML", nil); err != nil {
+						return fmt.Errorf("START BATCH DML failed: %w", err)
+					}
+					if _, err := c.ExecContext(ctx, testutil.UpdateSingersSetLastName, nil); err != nil {
+						return fmt.Errorf("batch DML failed: %w", err)
+					}
+					opCtx.expire()
+					_, triggerErr = c.ExecContext(opCtx, "RUN BATCH", nil)
+					gotState = c.tx.contextTransaction.(*readWriteTransaction).state
+					_ = server.TestSpanner.DrainRequestsFromServer()
+
+					_, recoveryErr = c.ExecContext(ctx, "RUN BATCH", nil)
+					if recoveryErr == nil {
+						commitErr = dtx.Commit()
+					}
+				}
+				return nil
+			}); err != nil {
+				t.Fatalf("dbConn.Raw failed: %v", err)
+			}
+
+			assertContextError(t, triggerErr, tc.wantErr, tc.wantCode)
+			if g, w := gotState, readWriteTxStateNeedsReplay; g != w {
+				t.Errorf("tx.state mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if recoveryErr != nil {
+				t.Fatalf("recovery RUN BATCH failed: %v", recoveryErr)
+			}
+			if commitErr != nil {
+				t.Fatalf("Commit failed after recovery: %v", commitErr)
+			}
+			if tc.trigger == "run_batch" {
+				reqs := server.TestSpanner.DrainRequestsFromServer()
+				execReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+				batchReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+				if g, w := len(execReqs), 1; g != w {
+					t.Errorf("recovery ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := len(batchReqs), 1; g != w {
+					t.Errorf("recovery ExecuteBatchDmlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
 			}
 		})
 	}
@@ -1919,4 +2807,642 @@ func TestRetryUntilSuccess_TxContextDeadlineExceededInSynctest(t *testing.T) {
 		err := tx.retryUntilSuccess(context.Background(), abortedWithRetryDelay(time.Second))
 		assertContextError(t, err, context.DeadlineExceeded, codes.DeadlineExceeded)
 	})
+}
+
+func TestSavepoint_EnsureReplayed_BufferWriteOpTimeoutRecovers(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	dbConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("db.Conn failed: %v", err)
+	}
+	defer silentClose(dbConn)
+
+	opCtx := newControllableDeadlineContext(true)
+	defer opCtx.cancel()
+
+	var timeoutErr, recoveryErr, commitErr error
+	var gotState readWriteTxState
+	if err := dbConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		dtx, err := c.BeginTx(ctx, driver.TxOptions{})
+		if err != nil {
+			return err
+		}
+		defer func() { _ = dtx.Rollback() }()
+
+		if _, err := c.ExecContext(ctx, testutil.UpdateBarSetFoo, nil); err != nil {
+			return fmt.Errorf("initial DML failed: %w", err)
+		}
+		if err := c.BufferWrite([]*spanner.Mutation{
+			spanner.Insert("T", []string{"K"}, []interface{}{"v1"}),
+		}); err != nil {
+			return fmt.Errorf("BufferWrite failed: %w", err)
+		}
+		if err := createAndRollbackConnSavepoint(ctx, c, testutil.UpdateSingersSetLastName); err != nil {
+			return err
+		}
+
+		failRPCOnHook(server, testutil.MethodExecuteStreamingSql, opCtx.expire)
+		_, timeoutErr = c.ExecContext(opCtx, testutil.UpdateSingersSetLastName, nil)
+		server.TestSpanner.SetMethodHook(testutil.MethodExecuteStreamingSql, nil)
+
+		gotState = c.tx.contextTransaction.(*readWriteTransaction).state
+		_ = server.TestSpanner.DrainRequestsFromServer()
+
+		_, recoveryErr = c.ExecContext(ctx, testutil.UpdateSingersSetLastName, nil)
+		if recoveryErr == nil {
+			commitErr = dtx.Commit()
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("dbConn.Raw failed: %v", err)
+	}
+
+	assertContextError(t, timeoutErr, context.DeadlineExceeded, codes.DeadlineExceeded)
+	if g, w := gotState, readWriteTxStateNeedsReplay; g != w {
+		t.Errorf("tx.state mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if recoveryErr != nil {
+		t.Fatalf("recovery ExecContext failed: %v", recoveryErr)
+	}
+	if commitErr != nil {
+		t.Fatalf("recovery Commit failed: %v", commitErr)
+	}
+
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	commitReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitReqs), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	mutations := commitReqs[0].(*spannerpb.CommitRequest).GetMutations()
+	if g, w := len(mutations), 1; g != w {
+		t.Fatalf("CommitRequest mutations count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := mutations[0].GetInsert().GetTable(), "T"; g != w {
+		t.Errorf("CommitRequest mutation table mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestSavepoint_EnforceInErrorState_EnsureReplayedContextErrorRecovers(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnectionWithParamsAndDialect(t, "", databasepb.DatabaseDialect_POSTGRESQL)
+	defer teardown()
+	ctx := context.Background()
+
+	const (
+		dml1 = "UPDATE Foo SET Val=1 WHERE Id=1"
+		dml2 = "UPDATE Foo SET Val=2 WHERE Id=2"
+		dml3 = "UPDATE Foo SET Val=3 WHERE Id=3"
+	)
+	_ = server.TestSpanner.PutStatementResult(dml1, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+	_ = server.TestSpanner.PutStatementResult(dml2, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+	_ = server.TestSpanner.PutStatementResult(dml3, &testutil.StatementResult{Type: testutil.StatementResultUpdateCount, UpdateCount: 1})
+
+	dbConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("db.Conn failed: %v", err)
+	}
+	defer silentClose(dbConn)
+	setPGInErrorTxBehavior(t, dbConn, connectionstate.InErrorTxBehaviorEnforceInErrorState)
+
+	tx, err := dbConn.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, dml1); err != nil {
+		t.Fatalf("dml1 failed: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, "SAVEPOINT s1"); err != nil {
+		t.Fatalf("SAVEPOINT s1 failed: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, dml2); err != nil {
+		t.Fatalf("dml2 failed: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+		t.Fatalf("ROLLBACK TO SAVEPOINT s1 failed: %v", err)
+	}
+	_ = server.TestSpanner.DrainRequestsFromServer()
+
+	opCtx := newControllableDeadlineContext(true)
+	defer opCtx.cancel()
+	failRPCOnHook(server, testutil.MethodExecuteStreamingSql, opCtx.expire)
+	_, timeoutErr := tx.ExecContext(opCtx, dml3)
+	server.TestSpanner.SetMethodHook(testutil.MethodExecuteStreamingSql, nil)
+
+	assertContextError(t, timeoutErr, context.DeadlineExceeded, codes.DeadlineExceeded)
+	if g, w := ToPGSQLState(timeoutErr), "57014"; g != w {
+		t.Errorf("PG SQLSTATE mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := getPGTransactionState(t, dbConn), connectionstate.TransactionStateFailed; g != w {
+		t.Fatalf("PG state after ensureReplayed timeout mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	var gotState readWriteTxState
+	if err := dbConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		gotState = c.tx.contextTransaction.(*readWriteTransaction).state
+		return nil
+	}); err != nil {
+		t.Fatalf("dbConn.Raw failed: %v", err)
+	}
+	if g, w := gotState, readWriteTxStateNeedsReplay; g != w {
+		t.Errorf("rwTx state in PG error state mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if _, err := tx.ExecContext(ctx, dml3); err == nil {
+		t.Fatal("expected 25P02 error while in PG error state, got nil")
+	} else if g, w := ToPGSQLState(err), "25P02"; g != w {
+		t.Errorf("PG SQLSTATE in state 'E' mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+		t.Fatalf("ROLLBACK TO SAVEPOINT s1 recovery failed: %v", err)
+	}
+	if g, w := getPGTransactionState(t, dbConn), connectionstate.TransactionStateTransaction; g != w {
+		t.Fatalf("PG state after savepoint rollback mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	_ = server.TestSpanner.DrainRequestsFromServer()
+
+	if _, err := tx.ExecContext(ctx, dml3); err != nil {
+		t.Fatalf("recovery dml3 failed: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed after recovery: %v", err)
+	}
+	if g, w := getPGTransactionState(t, dbConn), connectionstate.TransactionStateIdle; g != w {
+		t.Fatalf("PG state after commit mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	reqs := server.TestSpanner.DrainRequestsFromServer()
+	execReqs := testutil.RequestsOfType(reqs, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(execReqs), 2; g != w {
+		t.Fatalf("recovery ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execReqs[0].(*spannerpb.ExecuteSqlRequest).Sql, dml1; g != w {
+		t.Errorf("recovery SQL[0] mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execReqs[1].(*spannerpb.ExecuteSqlRequest).Sql, dml3; g != w {
+		t.Errorf("recovery SQL[1] mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestSavepoint_EnsureReplayed_AbortedThenOpTimeoutRecovers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		sleepTimeout bool
+	}{
+		{name: "sleep_timeout_during_aborted_retry", sleepTimeout: true},
+		{name: "replay_rpc_timeout_during_aborted_retry"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			db, server, teardown := setupTestDBConnectionWithParams(t, "beginTransactionOption=ExplicitBeginTransaction")
+			defer teardown()
+			ctx := context.Background()
+
+			dbConn, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatalf("db.Conn failed: %v", err)
+			}
+			defer silentClose(dbConn)
+
+			opCtx := newControllableDeadlineContext(true)
+			defer opCtx.cancel()
+
+			var timeoutErr, recoveryErr, commitErr error
+			var gotState readWriteTxState
+			var gotRwTx *spanner.ReadWriteStmtBasedTransaction
+			var rollbackCount, recoveryExecSQLCount int
+			if err := dbConn.Raw(func(driverConn any) error {
+				c := driverConn.(*conn)
+				dtx, err := c.BeginTx(ctx, driver.TxOptions{})
+				if err != nil {
+					return err
+				}
+				defer func() { _ = dtx.Rollback() }()
+
+				if _, err := c.ExecContext(ctx, testutil.UpdateBarSetFoo, nil); err != nil {
+					return fmt.Errorf("initial DML failed: %w", err)
+				}
+				if err := createAndRollbackConnSavepoint(ctx, c, testutil.UpdateSingersSetLastName); err != nil {
+					return err
+				}
+				_ = server.TestSpanner.DrainRequestsFromServer()
+
+				rwTx := c.tx.contextTransaction.(*readWriteTransaction)
+				if tc.sleepTimeout {
+					rwTx.sleep = func(sleepCtx context.Context, delay time.Duration) error {
+						opCtx.expire()
+						return gax.Sleep(sleepCtx, delay)
+					}
+					server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
+						Errors: []error{abortedWithRetryDelay(10 * time.Second)},
+					})
+				} else {
+					var execCalls atomic.Int32
+					server.TestSpanner.SetMethodHook(testutil.MethodExecuteStreamingSql, func(srvCtx context.Context, _ interface{}) error {
+						if execCalls.Add(1) == 1 {
+							return nil
+						}
+						opCtx.expire()
+						<-srvCtx.Done()
+						return status.FromContextError(srvCtx.Err()).Err()
+					})
+					server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
+						Errors: []error{abortedWithRetryDelay(time.Nanosecond)},
+					})
+				}
+
+				_, timeoutErr = c.ExecContext(opCtx, testutil.UpdateSingersSetLastName, nil)
+				rwTx.sleep = nil
+				server.TestSpanner.SetMethodHook(testutil.MethodExecuteStreamingSql, nil)
+				server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{})
+
+				gotState = rwTx.state
+				gotRwTx = rwTx.rwTx
+				failedReqs := server.TestSpanner.DrainRequestsFromServer()
+				rollbackCount = len(testutil.RequestsOfType(failedReqs, reflect.TypeOf(&spannerpb.RollbackRequest{})))
+
+				_, recoveryErr = c.ExecContext(ctx, testutil.UpdateSingersSetLastName, nil)
+				if recoveryErr == nil {
+					commitErr = dtx.Commit()
+				}
+				reqs := server.TestSpanner.DrainRequestsFromServer()
+				recoveryExecSQLCount = len(testutil.RequestsOfType(reqs, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{})))
+				return nil
+			}); err != nil {
+				t.Fatalf("dbConn.Raw failed: %v", err)
+			}
+
+			assertContextError(t, timeoutErr, context.DeadlineExceeded, codes.DeadlineExceeded)
+			if g, w := gotState, readWriteTxStateNeedsReplay; g != w {
+				t.Errorf("tx.state mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := gotRwTx, (*spanner.ReadWriteStmtBasedTransaction)(nil); g != w {
+				t.Errorf("rwTx after failed aborted replay mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := rollbackCount, 1; g != w {
+				t.Errorf("RollbackRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if recoveryErr != nil {
+				t.Fatalf("recovery ExecContext failed: %v", recoveryErr)
+			}
+			if commitErr != nil {
+				t.Fatalf("recovery Commit failed: %v", commitErr)
+			}
+			if g, w := recoveryExecSQLCount, 2; g != w {
+				t.Errorf("recovery ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
+type capturedLogRecord struct {
+	level   slog.Level
+	message string
+	attrs   map[string]any
+}
+
+type capturingSlogHandler struct {
+	mu      sync.Mutex
+	records []capturedLogRecord
+}
+
+func (h *capturingSlogHandler) Enabled(_ context.Context, _ slog.Level) bool {
+	return true
+}
+
+func (h *capturingSlogHandler) Handle(_ context.Context, r slog.Record) error {
+	attrs := make(map[string]any)
+	r.Attrs(func(a slog.Attr) bool {
+		attrs[a.Key] = a.Value.Any()
+		return true
+	})
+	h.mu.Lock()
+	h.records = append(h.records, capturedLogRecord{
+		level:   r.Level,
+		message: r.Message,
+		attrs:   attrs,
+	})
+	h.mu.Unlock()
+	return nil
+}
+
+func (h *capturingSlogHandler) WithAttrs(_ []slog.Attr) slog.Handler {
+	return h
+}
+
+func (h *capturingSlogHandler) WithGroup(_ string) slog.Handler {
+	return h
+}
+
+func (h *capturingSlogHandler) findByMessage(msg string) (capturedLogRecord, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, r := range h.records {
+		if r.message == msg {
+			return r, true
+		}
+	}
+	return capturedLogRecord{}, false
+}
+
+func TestSavepoint_EnsureReplayed_Observability(t *testing.T) {
+	t.Parallel()
+
+	type failureScenario int
+	const (
+		scenarioPreflightTxDeadline failureScenario = iota
+		scenarioPreflightOpCanceled
+		scenarioPreflightOpenQueryDeadline
+		scenarioMidReplayOpDeadline
+		scenarioMidReplayOpCanceled
+		scenarioMidReplayTxDeadline
+		scenarioMidReplayOpenQueryDeadline
+		scenarioMidReplayPGEnforceInErrorState
+	)
+
+	tests := []struct {
+		name           string
+		scenario       failureScenario
+		wantErr        error
+		wantCode       codes.Code
+		wantPGSQLState string
+		wantLogMsg     string
+		wantSource     string
+		wantSubstrings []string
+	}{
+		{
+			name:           "preflight_tx_deadline",
+			scenario:       scenarioPreflightTxDeadline,
+			wantErr:        context.DeadlineExceeded,
+			wantCode:       codes.DeadlineExceeded,
+			wantPGSQLState: "57014",
+			wantLogMsg:     "skipping savepoint replay because context is already cancelled or expired",
+			wantSource:     "transaction",
+			wantSubstrings: []string{"savepoint replay (1 statements, 1 mutations) skipped (transaction context ended):"},
+		},
+		{
+			name:           "preflight_statement_canceled",
+			scenario:       scenarioPreflightOpCanceled,
+			wantErr:        context.Canceled,
+			wantCode:       codes.Canceled,
+			wantPGSQLState: "57014",
+			wantLogMsg:     "skipping savepoint replay because context is already cancelled or expired",
+			wantSource:     "statement",
+			wantSubstrings: []string{"savepoint replay (1 statements, 1 mutations) skipped (statement context ended):"},
+		},
+		{
+			name:           "preflight_open_query_deadline",
+			scenario:       scenarioPreflightOpenQueryDeadline,
+			wantErr:        context.DeadlineExceeded,
+			wantCode:       codes.DeadlineExceeded,
+			wantPGSQLState: "57014",
+			wantLogMsg:     "skipping savepoint replay because context is already cancelled or expired",
+			wantSource:     "open query",
+			wantSubstrings: []string{"savepoint replay (1 statements, 0 mutations) skipped (open query context ended):"},
+		},
+		{
+			name:           "mid_replay_statement_deadline",
+			scenario:       scenarioMidReplayOpDeadline,
+			wantErr:        context.DeadlineExceeded,
+			wantCode:       codes.DeadlineExceeded,
+			wantPGSQLState: "57014",
+			wantLogMsg:     "savepoint replay interrupted by context cancellation or deadline",
+			wantSource:     "statement",
+			wantSubstrings: []string{"savepoint replay (1 statements, 0 mutations) interrupted after ", "(statement context ended):"},
+		},
+		{
+			name:           "mid_replay_statement_canceled",
+			scenario:       scenarioMidReplayOpCanceled,
+			wantErr:        context.Canceled,
+			wantCode:       codes.Canceled,
+			wantPGSQLState: "57014",
+			wantLogMsg:     "savepoint replay interrupted by context cancellation or deadline",
+			wantSource:     "statement",
+			wantSubstrings: []string{"savepoint replay (1 statements, 0 mutations) interrupted after ", "(statement context ended):"},
+		},
+		{
+			name:           "mid_replay_transaction_deadline",
+			scenario:       scenarioMidReplayTxDeadline,
+			wantErr:        context.DeadlineExceeded,
+			wantCode:       codes.DeadlineExceeded,
+			wantPGSQLState: "57014",
+			wantLogMsg:     "savepoint replay interrupted by context cancellation or deadline",
+			wantSource:     "transaction",
+			wantSubstrings: []string{"savepoint replay (1 statements, 0 mutations) interrupted after ", "(transaction context ended):"},
+		},
+		{
+			name:           "mid_replay_open_query_deadline",
+			scenario:       scenarioMidReplayOpenQueryDeadline,
+			wantErr:        context.DeadlineExceeded,
+			wantCode:       codes.DeadlineExceeded,
+			wantPGSQLState: "57014",
+			wantLogMsg:     "savepoint replay interrupted by context cancellation or deadline",
+			wantSource:     "open query",
+			wantSubstrings: []string{"savepoint replay (1 statements, 0 mutations) interrupted after ", "(open query context ended):"},
+		},
+		{
+			name:           "mid_replay_pg_enforce_in_error_state",
+			scenario:       scenarioMidReplayPGEnforceInErrorState,
+			wantErr:        context.DeadlineExceeded,
+			wantCode:       codes.DeadlineExceeded,
+			wantPGSQLState: "57014",
+			wantLogMsg:     "savepoint replay interrupted by context cancellation or deadline",
+			wantSource:     "statement",
+			wantSubstrings: []string{"[SQLSTATE 57014] savepoint replay (1 statements, 0 mutations) interrupted after ", "(statement context ended):"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler := &capturingSlogHandler{}
+			logger := slog.New(handler)
+
+			var gotErr error
+			var wantStmts, wantMuts int64
+
+			switch tc.scenario {
+			case scenarioPreflightTxDeadline, scenarioPreflightOpCanceled, scenarioPreflightOpenQueryDeadline:
+				bg := context.Background()
+				txCtx := bg
+				opCtx := bg
+				var stmts []retriableStatement
+				var muts []*spanner.Mutation
+
+				if tc.scenario == scenarioPreflightOpenQueryDeadline {
+					qCtx := unfiredDeadlineContext{Context: bg, deadline: time.Now().Add(-time.Millisecond)}
+					stmts = []retriableStatement{&checksumRowIterator{ctx: qCtx}}
+					wantStmts, wantMuts = 1, 0
+				} else {
+					stmts = []retriableStatement{&retriableUpdate{}}
+					muts = []*spanner.Mutation{spanner.Delete("Bar", spanner.Key{"k1"})}
+					wantStmts, wantMuts = 1, 1
+					if tc.scenario == scenarioPreflightTxDeadline {
+						txCtx = unfiredDeadlineContext{Context: bg, deadline: time.Now().Add(-time.Millisecond)}
+					} else {
+						var cancel context.CancelFunc
+						opCtx, cancel = context.WithCancel(bg)
+						cancel()
+					}
+				}
+				tx := &readWriteTransaction{
+					ctx:        txCtx,
+					state:      readWriteTxStateNeedsReplay,
+					conn:       &conn{},
+					logger:     logger,
+					statements: stmts,
+					mutations:  muts,
+				}
+				gotErr = tx.ensureReplayed(opCtx)
+
+			case scenarioMidReplayOpDeadline, scenarioMidReplayOpCanceled, scenarioMidReplayTxDeadline, scenarioMidReplayOpenQueryDeadline, scenarioMidReplayPGEnforceInErrorState:
+				dialect := databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL
+				if tc.scenario == scenarioMidReplayPGEnforceInErrorState {
+					dialect = databasepb.DatabaseDialect_POSTGRESQL
+				}
+				db, server, teardown := setupTestDBConnectionWithParamsAndDialect(t, "minSessions=1;maxSessions=1", dialect)
+				defer teardown()
+				db.SetMaxOpenConns(1)
+
+				bg := context.Background()
+				dbConn, err := db.Conn(bg)
+				if err != nil {
+					t.Fatalf("db.Conn failed: %v", err)
+				}
+				defer silentClose(dbConn)
+				if tc.scenario == scenarioMidReplayPGEnforceInErrorState {
+					setPGInErrorTxBehavior(t, dbConn, connectionstate.InErrorTxBehaviorEnforceInErrorState)
+				}
+
+				txCtx, failTx, cancelTx := newFailureContext(bg, true)
+				defer cancelTx()
+
+				dtx, err := dbConn.BeginTx(txCtx, &sql.TxOptions{})
+				if err != nil {
+					t.Fatalf("BeginTx failed: %v", err)
+				}
+				defer func() { _ = dtx.Rollback() }()
+
+				wantStmts, wantMuts = 1, 0
+				if tc.scenario == scenarioMidReplayOpenQueryDeadline {
+					qCtx, expireQ, cancelQ := newFailureContext(bg, true)
+					defer cancelQ()
+					rows, err := dtx.QueryContext(qCtx, testutil.SelectFooFromBar)
+					if err != nil {
+						t.Fatalf("QueryContext failed: %v", err)
+					}
+					defer func() { _ = rows.Close() }()
+					if !rows.Next() {
+						t.Fatalf("expected first row, err=%v", rows.Err())
+					}
+					if _, err := dtx.ExecContext(bg, "SAVEPOINT s1"); err != nil {
+						t.Fatalf("SAVEPOINT s1 failed: %v", err)
+					}
+					if _, err := dtx.ExecContext(bg, testutil.UpdateBarSetFoo); err != nil {
+						t.Fatalf("DML failed: %v", err)
+					}
+					if _, err := dtx.ExecContext(bg, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+						t.Fatalf("ROLLBACK TO SAVEPOINT s1 failed: %v", err)
+					}
+					if err := dbConn.Raw(func(driverConn any) error {
+						driverConn.(*conn).tx.contextTransaction.(*readWriteTransaction).logger = logger
+						return nil
+					}); err != nil {
+						t.Fatalf("dbConn.Raw failed: %v", err)
+					}
+					failRPCOnHook(server, testutil.MethodExecuteStreamingSql, expireQ)
+					_, gotErr = dtx.ExecContext(bg, testutil.UpdateSingersSetLastName)
+					server.TestSpanner.SetMethodHook(testutil.MethodExecuteStreamingSql, nil)
+				} else {
+					if _, err := dtx.ExecContext(bg, testutil.UpdateBarSetFoo); err != nil {
+						t.Fatalf("initial DML failed: %v", err)
+					}
+					if _, err := dtx.ExecContext(bg, "SAVEPOINT s1"); err != nil {
+						t.Fatalf("SAVEPOINT s1 failed: %v", err)
+					}
+					if _, err := dtx.ExecContext(bg, testutil.UpdateSingersSetLastName); err != nil {
+						t.Fatalf("DML2 failed: %v", err)
+					}
+					if _, err := dtx.ExecContext(bg, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+						t.Fatalf("ROLLBACK TO SAVEPOINT s1 failed: %v", err)
+					}
+					if err := dbConn.Raw(func(driverConn any) error {
+						driverConn.(*conn).tx.contextTransaction.(*readWriteTransaction).logger = logger
+						return nil
+					}); err != nil {
+						t.Fatalf("dbConn.Raw failed: %v", err)
+					}
+
+					if tc.scenario == scenarioMidReplayTxDeadline {
+						failRPCOnHook(server, testutil.MethodExecuteStreamingSql, failTx)
+						gotErr = dtx.Commit()
+					} else {
+						opCtx, failOp, cancelOp := newFailureContext(bg, tc.scenario != scenarioMidReplayOpCanceled)
+						defer cancelOp()
+						failRPCOnHook(server, testutil.MethodExecuteStreamingSql, failOp)
+						_, gotErr = dtx.ExecContext(opCtx, testutil.UpdateSingersSetLastName)
+					}
+					server.TestSpanner.SetMethodHook(testutil.MethodExecuteStreamingSql, nil)
+				}
+			}
+
+			assertContextError(t, gotErr, tc.wantErr, tc.wantCode)
+			if g, w := ToPGSQLState(gotErr), tc.wantPGSQLState; g != w {
+				t.Errorf("PG SQLSTATE mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			st, ok := status.FromError(gotErr)
+			if !ok {
+				t.Fatal("expected status.FromError to succeed")
+			}
+			if g, w := st.Code(), tc.wantCode; g != w {
+				t.Errorf("status.FromError code mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			for _, sub := range tc.wantSubstrings {
+				if !strings.Contains(gotErr.Error(), sub) {
+					t.Errorf("error message mismatch\nGot:  %q\nWant substring: %q", gotErr.Error(), sub)
+				}
+				if tc.scenario != scenarioMidReplayPGEnforceInErrorState && !strings.Contains(st.Message(), sub) {
+					t.Errorf("status message mismatch\nGot:  %q\nWant substring: %q", st.Message(), sub)
+				}
+			}
+
+			rec, found := handler.findByMessage(tc.wantLogMsg)
+			if !found {
+				t.Fatalf("expected log record with message %q, got records: %+v", tc.wantLogMsg, handler.records)
+			}
+			if g, w := rec.level, LevelNotice; g != w {
+				t.Errorf("log level mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := rec.attrs["source"], tc.wantSource; g != w {
+				t.Errorf("log source mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := rec.attrs["statements"], wantStmts; g != w {
+				t.Errorf("log statements mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := rec.attrs["mutations"], wantMuts; g != w {
+				t.Errorf("log mutations mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if tc.wantLogMsg == "savepoint replay interrupted by context cancellation or deadline" {
+				if _, ok := rec.attrs["elapsed"].(time.Duration); !ok {
+					t.Errorf("expected elapsed duration attribute on log record, got: %T (%v)", rec.attrs["elapsed"], rec.attrs["elapsed"])
+				}
+			}
+		})
+	}
 }

@@ -16,6 +16,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="spannerlib-dotnet-grpc-tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="binaries/any/*" Pack="true" PackagePath="runtimes/any/native/" />
     <None Include="binaries/linux-x64/*" Pack="true" PackagePath="runtimes/linux-x64/native/" />
     <None Include="binaries/linux-arm64/*" Pack="true" PackagePath="runtimes/linux-arm64/native/" />

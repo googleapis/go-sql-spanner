@@ -219,6 +219,9 @@ func (d *delegatingTransaction) rollbackBackendTransaction() {
 }
 
 func (d *delegatingTransaction) Commit() error {
+	if d == nil {
+		return noTransaction()
+	}
 	d.closed = true
 	if d.conn != nil && d.conn.state.TransactionState() == connectionstate.TransactionStateFailed &&
 		d.conn.state.InErrorTxBehavior() == connectionstate.InErrorTxBehaviorEnforceInErrorState {
@@ -239,6 +242,9 @@ func (d *delegatingTransaction) Commit() error {
 }
 
 func (d *delegatingTransaction) Rollback() error {
+	if d == nil {
+		return noTransaction()
+	}
 	d.closed = true
 	if d.conn != nil && d.conn.state.TransactionState() == connectionstate.TransactionStateFailed &&
 		d.conn.state.InErrorTxBehavior() == connectionstate.InErrorTxBehaviorEnforceInErrorState {
@@ -1327,6 +1333,28 @@ func (tx *readWriteTransaction) rollbackToSavepointCheckpoint(ctx context.Contex
 	return nil
 }
 
+type replayContextSource uint8
+
+const (
+	replayContextNone replayContextSource = iota
+	replayContextTransaction
+	replayContextStatement
+	replayContextOpenQuery
+)
+
+func (s replayContextSource) String() string {
+	switch s {
+	case replayContextTransaction:
+		return "transaction"
+	case replayContextStatement:
+		return "statement"
+	case replayContextOpenQuery:
+		return "open query"
+	default:
+		return "unknown"
+	}
+}
+
 func (tx *readWriteTransaction) ensureReplayed(ctx context.Context) error {
 	if tx.state == readWriteTxStateReplayFailed {
 		return tx.savepointReplayError()
@@ -1334,20 +1362,30 @@ func (tx *readWriteTransaction) ensureReplayed(ctx context.Context) error {
 	if tx.state != readWriteTxStateNeedsReplay {
 		return nil
 	}
-	if tx.ctx != nil && tx.ctx.Err() != nil {
-		return tx.ctx.Err()
+	if source, ctxErr := tx.findReplayContextError(ctx, nil); ctxErr != nil {
+		return tx.wrapReplayContextError(ctx, source, false, 0, ctxErr)
 	}
-	if ctx != nil && ctx.Err() != nil {
-		return ctx.Err()
-	}
-	if ctx == nil {
-		ctx = tx.ctx
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	err := tx.recreateAndReplay(ctx)
+	replayCtx, cleanup := combineContexts(ctx, tx.ctx)
+	defer cleanup()
+
+	start := time.Now()
+	err := tx.recreateAndReplay(replayCtx)
 	if err != nil {
+		elapsed := time.Since(start)
+		if source, ctxErr := tx.findReplayContextError(ctx, err); ctxErr != nil {
+			// A context expired or was cancelled mid-replay. Keep NeedsReplay so a later call with
+			// a healthy context (or after closing a cancelled query) can still recover; if the
+			// transaction or an open query is still cancelled, the checks above will fail immediately.
+			tx.state = readWriteTxStateNeedsReplay
+			tx.replayErr = nil
+			return tx.wrapReplayContextError(ctx, source, true, elapsed, ctxErr)
+		}
+		tx.log(ctx, LevelNotice, "savepoint replay failed",
+			"statements", len(tx.statements),
+			"mutations", len(tx.mutations),
+			"elapsed", elapsed,
+			"err", err,
+		)
 		tx.state = readWriteTxStateReplayFailed
 		tx.replayErr = err
 		return err
@@ -1355,6 +1393,73 @@ func (tx *readWriteTransaction) ensureReplayed(ctx context.Context) error {
 	tx.state = readWriteTxStateActive
 	tx.replayErr = nil
 	return nil
+}
+
+// findReplayContextError checks tx.ctx, ctx, and any open query iterator
+// contexts. When err is nil it checks for already-expired or cancelled
+// contexts before replay starts; when err is non-nil it checks whether err was
+// caused by one of those contexts ending.
+func (tx *readWriteTransaction) findReplayContextError(ctx context.Context, err error) (replayContextSource, error) {
+	check := func(targetCtx context.Context) error {
+		if err == nil {
+			if isContextExpiredOrCancelled(targetCtx) {
+				return retryContextError(targetCtx, nil, nil)
+			}
+			return nil
+		}
+		if isContextCancelledOrTimedOut(targetCtx, err) {
+			return retryContextError(targetCtx, nil, err)
+		}
+		return nil
+	}
+	if ctxErr := check(tx.ctx); ctxErr != nil {
+		return replayContextTransaction, ctxErr
+	}
+	if ctxErr := check(ctx); ctxErr != nil {
+		return replayContextStatement, ctxErr
+	}
+	for _, stmt := range tx.statements {
+		if it, ok := stmt.(*checksumRowIterator); ok && !it.stopped {
+			if ctxErr := check(it.ctx); ctxErr != nil {
+				return replayContextOpenQuery, ctxErr
+			}
+		}
+	}
+	return replayContextNone, nil
+}
+
+func (tx *readWriteTransaction) wrapReplayContextError(ctx context.Context, source replayContextSource, interrupted bool, elapsed time.Duration, ctxErr error) error {
+	stmtCount := len(tx.statements)
+	mutCount := len(tx.mutations)
+	if interrupted {
+		tx.log(ctx, LevelNotice, "savepoint replay interrupted by context cancellation or deadline",
+			"source", source.String(),
+			"statements", stmtCount,
+			"mutations", mutCount,
+			"elapsed", elapsed,
+			"err", ctxErr,
+		)
+		return fmt.Errorf("savepoint replay (%d statements, %d mutations) interrupted after %s (%s context ended): %w",
+			stmtCount, mutCount, elapsed, source, ctxErr)
+	}
+	tx.log(ctx, LevelNotice, "skipping savepoint replay because context is already cancelled or expired",
+		"source", source.String(),
+		"statements", stmtCount,
+		"mutations", mutCount,
+		"err", ctxErr,
+	)
+	return fmt.Errorf("savepoint replay (%d statements, %d mutations) skipped (%s context ended): %w",
+		stmtCount, mutCount, source, ctxErr)
+}
+
+func (tx *readWriteTransaction) log(ctx context.Context, level slog.Level, msg string, args ...any) {
+	if tx.logger == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	tx.logger.Log(ctx, level, msg, args...)
 }
 
 func isContextExpiredOrCancelled(ctx context.Context) bool {
