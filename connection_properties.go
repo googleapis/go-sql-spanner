@@ -548,7 +548,7 @@ var propertyAuthority = createConnectionProperty(
 	connectionstate.ContextStartup,
 	connectionstate.ConvertString,
 )
-var propertyCredentials = createConnectionProperty(
+var propertyCredentials = createSensitiveConnectionProperty(
 	"credentials",
 	"The location of the credentials file to use for this connection. If neither this property or encoded "+
 		"credentials are set, the connection will use the default Google Cloud credentials for the runtime environment. "+
@@ -560,7 +560,7 @@ var propertyCredentials = createConnectionProperty(
 	connectionstate.ContextStartup,
 	connectionstate.ConvertString,
 )
-var propertyCredentialsJson = createConnectionProperty(
+var propertyCredentialsJson = createSensitiveConnectionProperty(
 	"credentials_json",
 	"Service account or refresh token JSON credentials (in raw JSON or base64-encoded format). "+
 		"Only 'service_account' and 'authorized_user' credential types are supported via connection properties; "+
@@ -706,7 +706,7 @@ var propertyIsExperimentalHost = createConnectionProperty(
 	connectionstate.ContextStartup,
 	connectionstate.ConvertBool,
 )
-var propertyCaCertFile = createConnectionProperty(
+var propertyCaCertFile = createSensitiveConnectionProperty(
 	"ca_cert_file",
 	"The path to the CA certificate file to use for TLS connections to Spanner Omni.",
 	"",
@@ -715,7 +715,7 @@ var propertyCaCertFile = createConnectionProperty(
 	connectionstate.ContextStartup,
 	connectionstate.ConvertString,
 )
-var propertyClientCertFile = createConnectionProperty(
+var propertyClientCertFile = createSensitiveConnectionProperty(
 	"client_cert_file",
 	"The path to the client certificate file to use for mTLS connections to Spanner Omni.",
 	"",
@@ -724,7 +724,7 @@ var propertyClientCertFile = createConnectionProperty(
 	connectionstate.ContextStartup,
 	connectionstate.ConvertString,
 )
-var propertyClientCertKey = createConnectionProperty(
+var propertyClientCertKey = createSensitiveConnectionProperty(
 	"client_cert_key",
 	"The path to the client certificate key file to use for mTLS connections to Spanner Omni.",
 	"",
@@ -816,10 +816,17 @@ func createReadOnlyConnectionProperty[T comparable](name, description string, de
 	return createConnectionProperty(name, description, defaultValue, hasDefaultValue, validValues, context, converter)
 }
 
-func createConnectionProperty[T comparable](name, description string, defaultValue T, hasDefaultValue bool, validValues []T, context connectionstate.Context, converter func(value string) (T, error)) *connectionstate.TypedConnectionProperty[T] {
-	prop := connectionstate.CreateConnectionProperty(name, description, defaultValue, hasDefaultValue, validValues, context, converter)
+func registerConnectionProperty[T comparable](prop *connectionstate.TypedConnectionProperty[T]) *connectionstate.TypedConnectionProperty[T] {
 	connectionProperties[prop.Key()] = prop
 	return prop
+}
+
+func createConnectionProperty[T comparable](name, description string, defaultValue T, hasDefaultValue bool, validValues []T, context connectionstate.Context, converter func(value string) (T, error)) *connectionstate.TypedConnectionProperty[T] {
+	return registerConnectionProperty(connectionstate.CreateConnectionProperty(name, description, defaultValue, hasDefaultValue, validValues, context, converter))
+}
+
+func createSensitiveConnectionProperty[T comparable](name, description string, defaultValue T, hasDefaultValue bool, validValues []T, context connectionstate.Context, converter func(value string) (T, error)) *connectionstate.TypedConnectionProperty[T] {
+	return registerConnectionProperty(connectionstate.CreateSensitiveConnectionProperty(name, description, defaultValue, hasDefaultValue, validValues, context, converter))
 }
 
 // createConfiguredConnectionState creates an (incomplete) connection state with only the given initial values.

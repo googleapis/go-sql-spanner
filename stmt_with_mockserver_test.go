@@ -31,6 +31,7 @@ import (
 	"github.com/googleapis/go-sql-spanner/testdata/protos/concertspb"
 	"github.com/googleapis/go-sql-spanner/testutil"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -1078,5 +1079,457 @@ func TestQueryMismatchedParameterName(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "missing value for query parameter @my_id") {
 		t.Fatalf("expected missing value error, got: %v", err)
+	}
+}
+
+func TestPreparedStatement_ExecOptionsNotSticky(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to open connection: %v", err)
+	}
+	defer silentClose(conn)
+
+	if _, err := conn.ExecContext(ctx, "SET statement_tag = 'prepare_tag'"); err != nil {
+		t.Fatalf("SET statement_tag failed: %v", err)
+	}
+	queryStmt, err := conn.PrepareContext(ctx, testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatalf("PrepareContext(SELECT) failed: %v", err)
+	}
+	defer silentClose(queryStmt)
+
+	for _, callOpts := range []*ExecOptions{
+		nil,
+		{QueryOptions: spanner.QueryOptions{RequestTag: "override_tag"}},
+		nil,
+	} {
+		var rows *sql.Rows
+		if callOpts == nil {
+			rows, err = queryStmt.QueryContext(ctx)
+		} else {
+			rows, err = queryStmt.QueryContext(ctx, *callOpts)
+		}
+		if err != nil {
+			t.Fatalf("queryStmt.QueryContext failed: %v", err)
+		}
+		for rows.Next() {
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			t.Fatalf("rows iteration failed: %v", err)
+		}
+		_ = rows.Close()
+	}
+
+	dmlStmt, err := conn.PrepareContext(ctx, testutil.UpdateBarSetFoo)
+	if err != nil {
+		t.Fatalf("PrepareContext(UPDATE) failed: %v", err)
+	}
+	defer silentClose(dmlStmt)
+
+	if _, err := dmlStmt.ExecContext(ctx, &ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "dml_override_tag"}}); err != nil {
+		t.Fatalf("dmlStmt.ExecContext with ExecOptions failed: %v", err)
+	}
+	if _, err := dmlStmt.ExecContext(ctx); err != nil {
+		t.Fatalf("dmlStmt.ExecContext without ExecOptions failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 5; g != w {
+		t.Fatalf("number of execute requests mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	wantTags := []string{
+		"prepare_tag",
+		"override_tag",
+		"prepare_tag",
+		"dml_override_tag",
+		"",
+	}
+	for i, wantTag := range wantTags {
+		req := executeRequests[i].(*spannerpb.ExecuteSqlRequest)
+		if g, w := req.RequestOptions.GetRequestTag(), wantTag; g != w {
+			t.Errorf("request[%d] tag mismatch\nGot:  %q\nWant: %q", i, g, w)
+		}
+	}
+}
+
+func TestPreparedStatement_ExecOptions_ParameterizedPositions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		queryArgs func(opts ExecOptions) []any
+		dmlArgs   func(opts ExecOptions) []any
+	}{
+		{
+			name:      "ExecOptions before parameters",
+			queryArgs: func(opts ExecOptions) []any { return []any{opts, int64(10), "foo"} },
+			dmlArgs:   func(opts ExecOptions) []any { return []any{opts, "bar", int64(20)} },
+		},
+		{
+			name:      "ExecOptions between parameters",
+			queryArgs: func(opts ExecOptions) []any { return []any{int64(10), &opts, "foo"} },
+			dmlArgs:   func(opts ExecOptions) []any { return []any{"bar", &opts, int64(20)} },
+		},
+		{
+			name:      "ExecOptions after parameters",
+			queryArgs: func(opts ExecOptions) []any { return []any{int64(10), "foo", opts} },
+			dmlArgs:   func(opts ExecOptions) []any { return []any{"bar", int64(20), opts} },
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			db, server, teardown := setupTestDBConnection(t)
+			defer teardown()
+			ctx := context.Background()
+
+			if err := server.TestSpanner.PutStatementResult(
+				"SELECT value FROM test WHERE id=@p1 AND name=@p2",
+				&testutil.StatementResult{
+					Type:      testutil.StatementResultResultSet,
+					ResultSet: testutil.CreateSelect1ResultSet(),
+				},
+			); err != nil {
+				t.Fatalf("PutStatementResult(SELECT) failed: %v", err)
+			}
+			if err := server.TestSpanner.PutStatementResult(
+				"UPDATE test SET value=@p1 WHERE id=@p2",
+				&testutil.StatementResult{
+					Type:        testutil.StatementResultUpdateCount,
+					UpdateCount: 1,
+				},
+			); err != nil {
+				t.Fatalf("PutStatementResult(UPDATE) failed: %v", err)
+			}
+
+			conn, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatalf("failed to open connection: %v", err)
+			}
+			defer silentClose(conn)
+
+			if _, err := conn.ExecContext(ctx, "SET statement_tag = 'prepare_tag'"); err != nil {
+				t.Fatalf("SET statement_tag failed: %v", err)
+			}
+			queryStmt, err := conn.PrepareContext(ctx, "SELECT value FROM test WHERE id=? AND name=?")
+			if err != nil {
+				t.Fatalf("PrepareContext(SELECT) failed: %v", err)
+			}
+			defer silentClose(queryStmt)
+
+			runSelect := func(args ...any) {
+				rows, queryErr := queryStmt.QueryContext(ctx, args...)
+				if queryErr != nil {
+					t.Fatalf("queryStmt.QueryContext failed: %v", queryErr)
+				}
+				if !rows.Next() {
+					_ = rows.Close()
+					t.Fatalf("expected row from queryStmt, got none (err=%v)", rows.Err())
+				}
+				_ = rows.Close()
+			}
+
+			runSelect(int64(10), "foo")
+			runSelect(tc.queryArgs(ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "override_tag"}})...)
+			runSelect(int64(10), "foo")
+
+			dmlStmt, err := conn.PrepareContext(ctx, "UPDATE test SET value=? WHERE id=?")
+			if err != nil {
+				t.Fatalf("PrepareContext(UPDATE) failed: %v", err)
+			}
+			defer silentClose(dmlStmt)
+
+			if _, err := dmlStmt.ExecContext(ctx, tc.dmlArgs(ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "dml_override_tag"}})...); err != nil {
+				t.Fatalf("dmlStmt.ExecContext(with ExecOptions) failed: %v", err)
+			}
+			if _, err := dmlStmt.ExecContext(ctx, "bar", int64(20)); err != nil {
+				t.Fatalf("dmlStmt.ExecContext(without ExecOptions) failed: %v", err)
+			}
+
+			requests := server.TestSpanner.DrainRequestsFromServer()
+			executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+			if g, w := len(executeRequests), 5; g != w {
+				t.Fatalf("number of execute requests mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			wantTags := []string{
+				"prepare_tag",
+				"override_tag",
+				"prepare_tag",
+				"dml_override_tag",
+				"",
+			}
+			for i, wantTag := range wantTags {
+				req := executeRequests[i].(*spannerpb.ExecuteSqlRequest)
+				if g, w := req.RequestOptions.GetRequestTag(), wantTag; g != w {
+					t.Errorf("request[%d] tag mismatch\nGot:  %q\nWant: %q", i, g, w)
+				}
+			}
+
+			// Verify SQL parameters arrived intact on both override and follow-up calls.
+			overrideSelectReq := executeRequests[1].(*spannerpb.ExecuteSqlRequest)
+			if g, w := overrideSelectReq.Params.Fields["p1"].GetStringValue(), "10"; g != w {
+				t.Errorf("override select p1 mismatch\nGot:  %q\nWant: %q", g, w)
+			}
+			if g, w := overrideSelectReq.Params.Fields["p2"].GetStringValue(), "foo"; g != w {
+				t.Errorf("override select p2 mismatch\nGot:  %q\nWant: %q", g, w)
+			}
+			overrideDMLReq := executeRequests[3].(*spannerpb.ExecuteSqlRequest)
+			if g, w := overrideDMLReq.Params.Fields["p1"].GetStringValue(), "bar"; g != w {
+				t.Errorf("override DML p1 mismatch\nGot:  %q\nWant: %q", g, w)
+			}
+			if g, w := overrideDMLReq.Params.Fields["p2"].GetStringValue(), "20"; g != w {
+				t.Errorf("override DML p2 mismatch\nGot:  %q\nWant: %q", g, w)
+			}
+		})
+	}
+}
+
+func TestPreparedStatement_ExecOptions_ErrorAndFailedCheckNamedValueCleanup(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to open connection: %v", err)
+	}
+	defer silentClose(conn)
+
+	if _, err := conn.ExecContext(ctx, "SET statement_tag = 'prepare_tag'"); err != nil {
+		t.Fatalf("SET statement_tag failed: %v", err)
+	}
+	queryStmt, err := conn.PrepareContext(ctx, testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatalf("PrepareContext(SELECT) failed: %v", err)
+	}
+	defer silentClose(queryStmt)
+
+	// 1a. CheckNamedValue failure after ExecOptions must not leak tempExecOptions into the next call.
+	failedRows, err := queryStmt.QueryContext(ctx, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "leaked_check_tag"}}, make(chan int))
+	if failedRows != nil {
+		_ = failedRows.Close()
+	}
+	if err == nil {
+		t.Fatalf("expected CheckNamedValue error for unsupported argument, got nil")
+	}
+
+	// 1b. Excess argument mismatch after ExecOptions must not leak tempExecOptions into the next call.
+	excessRows, err := queryStmt.QueryContext(ctx, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "leaked_excess_tag"}}, int64(1))
+	if excessRows != nil {
+		_ = excessRows.Close()
+	}
+	if err == nil {
+		t.Fatalf("expected argument count error for excess argument, got nil")
+	}
+
+	// 1c. Excess argument before ExecOptions must not leak tempExecOptions into the next call.
+	excessBeforeRows, err := queryStmt.QueryContext(ctx, int64(1), ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "leaked_excess_before_tag"}})
+	if excessBeforeRows != nil {
+		_ = excessBeforeRows.Close()
+	}
+	if err == nil {
+		t.Fatalf("expected argument count error for excess argument before ExecOptions, got nil")
+	}
+
+	// 2. Typed-nil *ExecOptions (including after an ExecOptions argument) must clear prior ExecOptions without panicking.
+	var nilOpts *ExecOptions
+	rows, err := queryStmt.QueryContext(ctx, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "overwritten_by_nil_tag"}}, nilOpts)
+	if err != nil {
+		t.Fatalf("QueryContext with ExecOptions followed by typed-nil *ExecOptions failed: %v", err)
+	}
+	if !rows.Next() {
+		_ = rows.Close()
+		t.Fatalf("expected row after typed-nil *ExecOptions, got none (err=%v)", rows.Err())
+	}
+	_ = rows.Close()
+
+	// 3a. Server RPC error with DirectExecuteQuery=true and ExecOptions must not leak ExecOptions into the next call.
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
+		Errors: []error{status.Error(codes.InvalidArgument, "simulated query failure")},
+	})
+	errRows, err := queryStmt.QueryContext(ctx, ExecOptions{
+		DirectExecuteQuery: true,
+		QueryOptions:       spanner.QueryOptions{RequestTag: "rpc_error_query_tag"},
+	})
+	if errRows != nil {
+		_ = errRows.Close()
+	}
+	if g, w := status.Code(err), codes.InvalidArgument; g != w {
+		t.Fatalf("QueryContext simulated error code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	cleanRows, err := queryStmt.QueryContext(ctx)
+	if err != nil {
+		t.Fatalf("clean QueryContext after RPC error failed: %v", err)
+	}
+	if !cleanRows.Next() {
+		_ = cleanRows.Close()
+		t.Fatalf("expected row on clean QueryContext, got none (err=%v)", cleanRows.Err())
+	}
+	_ = cleanRows.Close()
+
+	// 3b. Lazy execution (DirectExecuteQuery=false) RPC failure on rows.Next() must not leak ExecOptions into the next call.
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
+		Errors: []error{status.Error(codes.InvalidArgument, "simulated lazy query failure")},
+	})
+	lazyErrRows, err := queryStmt.QueryContext(ctx, ExecOptions{
+		QueryOptions: spanner.QueryOptions{RequestTag: "lazy_rpc_error_query_tag"},
+	})
+	if err != nil {
+		t.Fatalf("lazy QueryContext returned unexpected immediate error: %v", err)
+	}
+	if lazyErrRows.Next() {
+		_ = lazyErrRows.Close()
+		t.Fatalf("expected lazy rows.Next() to fail")
+	}
+	if g, w := status.Code(lazyErrRows.Err()), codes.InvalidArgument; g != w {
+		_ = lazyErrRows.Close()
+		t.Fatalf("lazy rows.Err() code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	_ = lazyErrRows.Close()
+
+	cleanAfterLazyRows, err := queryStmt.QueryContext(ctx)
+	if err != nil {
+		t.Fatalf("clean QueryContext after lazy RPC error failed: %v", err)
+	}
+	if !cleanAfterLazyRows.Next() {
+		_ = cleanAfterLazyRows.Close()
+		t.Fatalf("expected row on clean QueryContext after lazy error, got none (err=%v)", cleanAfterLazyRows.Err())
+	}
+	_ = cleanAfterLazyRows.Close()
+
+	// 4. Server RPC error with ExecOptions on ExecContext must not leak into the next ExecContext call.
+	dmlStmt, err := conn.PrepareContext(ctx, testutil.UpdateBarSetFoo)
+	if err != nil {
+		t.Fatalf("PrepareContext(UPDATE) failed: %v", err)
+	}
+	defer silentClose(dmlStmt)
+
+	server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
+		Errors: []error{status.Error(codes.InvalidArgument, "simulated dml failure")},
+	})
+	_, err = dmlStmt.ExecContext(ctx, ExecOptions{QueryOptions: spanner.QueryOptions{RequestTag: "rpc_error_dml_tag"}})
+	if g, w := status.Code(err), codes.InvalidArgument; g != w {
+		t.Fatalf("ExecContext simulated error code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if _, err := dmlStmt.ExecContext(ctx); err != nil {
+		t.Fatalf("clean ExecContext after RPC error failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 7; g != w {
+		t.Fatalf("number of execute requests mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	wantTags := []string{
+		"prepare_tag",
+		"rpc_error_query_tag",
+		"prepare_tag",
+		"lazy_rpc_error_query_tag",
+		"prepare_tag",
+		"rpc_error_dml_tag",
+		"",
+	}
+	for i, wantTag := range wantTags {
+		req := executeRequests[i].(*spannerpb.ExecuteSqlRequest)
+		if g, w := req.RequestOptions.GetRequestTag(), wantTag; g != w {
+			t.Errorf("request[%d] tag mismatch\nGot:  %q\nWant: %q", i, g, w)
+		}
+	}
+}
+
+func TestPreparedStatement_ExecOptions_DirectedReadNotMutatedByRWTransaction(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+	ctx := context.Background()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to open connection: %v", err)
+	}
+	defer silentClose(conn)
+
+	directedRead := &spannerpb.DirectedReadOptions{
+		Replicas: &spannerpb.DirectedReadOptions_IncludeReplicas_{
+			IncludeReplicas: &spannerpb.DirectedReadOptions_IncludeReplicas{
+				ReplicaSelections: []*spannerpb.DirectedReadOptions_ReplicaSelection{
+					{Location: "us-east1", Type: spannerpb.DirectedReadOptions_ReplicaSelection_READ_ONLY},
+				},
+			},
+		},
+	}
+	if err := conn.Raw(func(driverConn any) error {
+		sc := driverConn.(SpannerConn)
+		return sc.SetDirectedReadOptions(directedRead)
+	}); err != nil {
+		t.Fatalf("SetDirectedReadOptions failed: %v", err)
+	}
+
+	stmt, err := conn.PrepareContext(ctx, testutil.SelectFooFromBar)
+	if err != nil {
+		t.Fatalf("PrepareContext failed: %v", err)
+	}
+	defer silentClose(stmt)
+
+	// Execute once inside a read-write transaction (which clears DirectedReadOptions on that call's options).
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	txStmt := tx.Stmt(stmt)
+	txRows, err := txStmt.QueryContext(ctx)
+	if err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("txStmt.QueryContext failed: %v", err)
+	}
+	if !txRows.Next() {
+		_ = txRows.Close()
+		_ = tx.Rollback()
+		t.Fatalf("expected row from txStmt, got none (err=%v)", txRows.Err())
+	}
+	_ = txRows.Close()
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("tx.Commit failed: %v", err)
+	}
+
+	// Subsequent single-use execution on the same prepared statement must still preserve prepare-time DirectedReadOptions.
+	rows, err := stmt.QueryContext(ctx)
+	if err != nil {
+		t.Fatalf("stmt.QueryContext failed: %v", err)
+	}
+	if !rows.Next() {
+		_ = rows.Close()
+		t.Fatalf("expected row from stmt, got none (err=%v)", rows.Err())
+	}
+	_ = rows.Close()
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	executeRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(executeRequests), 2; g != w {
+		t.Fatalf("number of execute requests mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	rwReq := executeRequests[0].(*spannerpb.ExecuteSqlRequest)
+	if rwReq.DirectedReadOptions != nil {
+		t.Errorf("expected nil DirectedReadOptions in RW transaction, got %v", rwReq.DirectedReadOptions)
+	}
+	roReq := executeRequests[1].(*spannerpb.ExecuteSqlRequest)
+	if diff := cmp.Diff(directedRead, roReq.DirectedReadOptions, cmpopts.IgnoreUnexported(spannerpb.DirectedReadOptions{}, spannerpb.DirectedReadOptions_IncludeReplicas{}, spannerpb.DirectedReadOptions_ReplicaSelection{})); diff != "" {
+		t.Errorf("DirectedReadOptions mismatch on follow-up execution (-want +got):\n%s", diff)
 	}
 }

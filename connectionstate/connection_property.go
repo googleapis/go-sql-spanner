@@ -92,12 +92,24 @@ type ConnectionProperty interface {
 	ResetStatementScopedValue(state *ConnectionState) error
 	// Convert converts a string to the corresponding value type of the connection property.
 	Convert(value string) (any, error)
+	// IsSensitive indicates whether the connection property contains sensitive information
+	// (e.g. credentials, private keys) that may not be displayed via SHOW statements or
+	// modified/reset after connection startup (e.g. via SET, RESET, ContextUser, or
+	// local/statement-scoped setters).
+	IsSensitive() bool
 }
 
 // CreateConnectionProperty is used to create a new ConnectionProperty with a specific type. This function is intended
 // for use by driver implementations at initialization time to define the properties that the driver supports.
 func CreateConnectionProperty[T comparable](name, description string, defaultValue T, hasDefaultValue bool, validValues []T, context Context, converter func(value string) (T, error)) *TypedConnectionProperty[T] {
 	return CreateConnectionPropertyWithExtension("", name, description, defaultValue, hasDefaultValue, validValues, context, converter)
+}
+
+// CreateSensitiveConnectionProperty is used to create a new sensitive ConnectionProperty with a specific type.
+// Sensitive properties cannot be displayed via SHOW statements and cannot be modified or reset after connection
+// startup (e.g. via SET, RESET, ContextUser, or local/statement-scoped setters).
+func CreateSensitiveConnectionProperty[T comparable](name, description string, defaultValue T, hasDefaultValue bool, validValues []T, context Context, converter func(value string) (T, error)) *TypedConnectionProperty[T] {
+	return CreateSensitiveConnectionPropertyWithExtension("", name, description, defaultValue, hasDefaultValue, validValues, context, converter)
 }
 
 // CreateConnectionPropertyWithExtension is used to create a new ConnectionProperty with a specific type and an
@@ -121,6 +133,15 @@ func CreateConnectionPropertyWithExtension[T comparable](extension, name, descri
 		context:         context,
 		converter:       converter,
 	}
+}
+
+// CreateSensitiveConnectionPropertyWithExtension is used to create a new sensitive ConnectionProperty with a specific type and an
+// extension. Sensitive properties cannot be displayed via SHOW statements and cannot be modified or reset after connection
+// startup (e.g. via SET, RESET, ContextUser, or local/statement-scoped setters).
+func CreateSensitiveConnectionPropertyWithExtension[T comparable](extension, name, description string, defaultValue T, hasDefaultValue bool, validValues []T, context Context, converter func(value string) (T, error)) *TypedConnectionProperty[T] {
+	prop := CreateConnectionPropertyWithExtension(extension, name, description, defaultValue, hasDefaultValue, validValues, context, converter)
+	prop.sensitive = true
+	return prop
 }
 
 // CreateInternalConnectionProperty creates a new internal-only ConnectionProperty with ContextUser.
@@ -169,12 +190,17 @@ type TypedConnectionProperty[T comparable] struct {
 	hasDefaultValue bool
 	validValues     []T
 	context         Context
+	sensitive       bool
 	converter       func(string) (T, error)
 	internal        bool
 }
 
 func (p *TypedConnectionProperty[T]) Internal() bool {
 	return p.internal
+}
+
+func (p *TypedConnectionProperty[T]) IsSensitive() bool {
+	return p.sensitive
 }
 
 func (p *TypedConnectionProperty[T]) String() string {
@@ -229,7 +255,7 @@ func (p *TypedConnectionProperty[T]) Convert(value string) (any, error) {
 	return p.converter(value)
 }
 
-// GetValue implements ConnectionPropertyValue.GetValue
+// GetValue implements ConnectionProperty.GetValue
 func (p *TypedConnectionProperty[T]) GetValue(state *ConnectionState) (any, bool, error) {
 	return p.GetValueOrError(state)
 }
@@ -287,6 +313,13 @@ func (p *TypedConnectionProperty[T]) GetValueOrError(state *ConnectionState) (T,
 	return p.zeroAndErr(status.Errorf(codes.InvalidArgument, "value has wrong type: %s", value))
 }
 
+func (p *TypedConnectionProperty[T]) checkMutableInContext(context Context) error {
+	if context >= ContextUser && p.sensitive {
+		return errCannotSetSensitiveProperty(p.key)
+	}
+	return nil
+}
+
 // ResetValue resets the value of the property in the given ConnectionState to its original value.
 //
 // The given Context should indicate the current context where the application tries to reset the value, e.g. it should
@@ -295,6 +328,9 @@ func (p *TypedConnectionProperty[T]) GetValueOrError(state *ConnectionState) (T,
 func (p *TypedConnectionProperty[T]) ResetValue(state *ConnectionState, context Context) error {
 	if state == nil {
 		return errNilConnectionState
+	}
+	if err := p.checkMutableInContext(context); err != nil {
+		return err
 	}
 	value, _ := state.value(p /*returnErrForUnknownProperty=*/, false)
 	if value == nil {
@@ -310,6 +346,9 @@ func (p *TypedConnectionProperty[T]) ResetValue(state *ConnectionState, context 
 
 // SetUntypedValue implements ConnectionProperty.SetUntypedValue.
 func (p *TypedConnectionProperty[T]) SetUntypedValue(state *ConnectionState, value any, context Context) error {
+	if err := p.checkMutableInContext(context); err != nil {
+		return err
+	}
 	valueT, ok := value.(T)
 	if !ok {
 		return status.Errorf(codes.InvalidArgument, "invalid type for value: %T", value)
@@ -331,9 +370,16 @@ func (p *TypedConnectionProperty[T]) SetValue(state *ConnectionState, value T, c
 	return p.setConnectionStateValue(state, value, setValueCommandSet, context)
 }
 
+func errCannotSetSensitiveProperty(key string) error {
+	return status.Errorf(codes.PermissionDenied, "cannot set sensitive connection property %q", key)
+}
+
 func (p *TypedConnectionProperty[T]) setConnectionStateValue(state *ConnectionState, value T, setValueCommand setValueCommand, context Context) error {
 	if state == nil {
 		return errNilConnectionState
+	}
+	if err := p.checkMutableInContext(context); err != nil {
+		return err
 	}
 	if p.context < context {
 		return status.Errorf(codes.FailedPrecondition, "property has context %s and cannot be set in context %s", p.context, context)
@@ -373,6 +419,9 @@ func (p *TypedConnectionProperty[T]) SetLocalUntypedValue(state *ConnectionState
 	if state == nil {
 		return errNilConnectionState
 	}
+	if err := p.checkMutableInContext(ContextUser); err != nil {
+		return err
+	}
 	valueT, ok := value.(T)
 	if !ok {
 		return status.Errorf(codes.InvalidArgument, "invalid type for value: %T", value)
@@ -384,6 +433,9 @@ func (p *TypedConnectionProperty[T]) SetLocalUntypedValue(state *ConnectionState
 func (p *TypedConnectionProperty[T]) SetStatementScopedUntypedValue(state *ConnectionState, value any) error {
 	if state == nil {
 		return errNilConnectionState
+	}
+	if err := p.checkMutableInContext(ContextUser); err != nil {
+		return err
 	}
 	valueT, ok := value.(T)
 	if !ok {
@@ -410,6 +462,9 @@ func (p *TypedConnectionProperty[T]) SetStatementScopedDefaultValue(state *Conne
 
 // ResetLocalValue resets the local value of the property in the given ConnectionState to its original value.
 func (p *TypedConnectionProperty[T]) ResetLocalValue(state *ConnectionState) error {
+	if err := p.checkMutableInContext(ContextUser); err != nil {
+		return err
+	}
 	typedResetValue, err := p.getResetValue(state)
 	if err != nil {
 		return err
@@ -419,6 +474,9 @@ func (p *TypedConnectionProperty[T]) ResetLocalValue(state *ConnectionState) err
 
 // ResetStatementScopedValue resets the statement value of the property in the given ConnectionState to its original value.
 func (p *TypedConnectionProperty[T]) ResetStatementScopedValue(state *ConnectionState) error {
+	if err := p.checkMutableInContext(ContextUser); err != nil {
+		return err
+	}
 	typedResetValue, err := p.getResetValue(state)
 	if err != nil {
 		return err
@@ -455,6 +513,9 @@ func (p *TypedConnectionProperty[T]) setLocalValue(state *ConnectionState, value
 	if state == nil {
 		return errNilConnectionState
 	}
+	if err := p.checkMutableInContext(ContextUser); err != nil {
+		return err
+	}
 	if p.context < ContextUser {
 		return status.Error(codes.FailedPrecondition, "SetLocalValue is only supported for properties with context USER or higher")
 	}
@@ -477,6 +538,9 @@ func (p *TypedConnectionProperty[T]) SetStatementScopedValue(state *ConnectionSt
 func (p *TypedConnectionProperty[T]) setStatementScopedValue(state *ConnectionState, value T, setValueCommand setValueCommand) error {
 	if state == nil {
 		return errNilConnectionState
+	}
+	if err := p.checkMutableInContext(ContextUser); err != nil {
+		return err
 	}
 	if p.context < ContextUser {
 		return status.Error(codes.FailedPrecondition, "SetStatementScopedValue is only supported for properties with context USER or higher")

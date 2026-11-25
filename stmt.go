@@ -28,6 +28,7 @@ import (
 	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -54,6 +55,38 @@ type stmt struct {
 	statementInfo   *parser.StatementInfo
 	parsedStatement parser.ParsedStatement
 	execOptions     *ExecOptions
+	tempExecOptions *ExecOptions
+}
+
+func cloneExecOptions(opts *ExecOptions) *ExecOptions {
+	if opts == nil {
+		return nil
+	}
+	cloned := *opts
+	if len(opts.PropertyValues) > 0 {
+		cloned.PropertyValues = append([]PropertyValue(nil), opts.PropertyValues...)
+	} else {
+		cloned.PropertyValues = nil
+	}
+	if opts.QueryOptions.Options != nil {
+		cloned.QueryOptions.Options = proto.CloneOf(opts.QueryOptions.Options)
+	}
+	if opts.QueryOptions.DirectedReadOptions != nil {
+		cloned.QueryOptions.DirectedReadOptions = proto.CloneOf(opts.QueryOptions.DirectedReadOptions)
+	}
+	return &cloned
+}
+
+func (s *stmt) effectiveExecOptions() *ExecOptions {
+	if s.tempExecOptions == nil {
+		return cloneExecOptions(s.execOptions)
+	}
+	if s.execOptions == nil {
+		return cloneExecOptions(s.tempExecOptions)
+	}
+	effectiveOptions := cloneExecOptions(s.execOptions)
+	effectiveOptions.merge(s.tempExecOptions)
+	return effectiveOptions
 }
 
 func (s *stmt) Close() error {
@@ -69,7 +102,14 @@ func (s *stmt) Exec(_ []driver.Value) (driver.Result, error) {
 }
 
 func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
-	res, err := s.conn.execParsed(ctx, s.query, s.parsedStatement, s.statementInfo, s.execOptions, args)
+	defer func() { s.tempExecOptions = nil }()
+	execOptions := s.effectiveExecOptions()
+	cleanup, err := s.conn.applyStatementScopedValues(execOptions)
+	if err != nil {
+		return nil, s.conn.handleTxError(err)
+	}
+	defer cleanup()
+	res, err := s.conn.execParsed(ctx, s.query, s.parsedStatement, s.statementInfo, execOptions, args)
 	return res, checkAndEnrichError(s.conn.isPostgreSQL(), err)
 }
 
@@ -78,7 +118,14 @@ func (s *stmt) Query(_ []driver.Value) (driver.Rows, error) {
 }
 
 func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
-	rows, err := s.conn.queryParsed(ctx, s.query, s.parsedStatement, s.statementInfo, s.execOptions, args)
+	defer func() { s.tempExecOptions = nil }()
+	execOptions := s.effectiveExecOptions()
+	cleanup, err := s.conn.applyStatementScopedValues(execOptions)
+	if err != nil {
+		return nil, s.conn.handleTxError(err)
+	}
+	defer cleanup()
+	rows, err := s.conn.queryParsed(ctx, s.query, s.parsedStatement, s.statementInfo, execOptions, args)
 	return rows, checkAndEnrichError(s.conn.isPostgreSQL(), err)
 }
 
@@ -88,14 +135,31 @@ func (s *stmt) CheckNamedValue(value *driver.NamedValue) error {
 	}
 
 	if execOptions, ok := value.Value.(ExecOptions); ok {
-		s.execOptions = &execOptions
+		if s.numArgs >= 0 && value.Ordinal > s.numArgs+1 {
+			s.tempExecOptions = nil
+		} else {
+			s.tempExecOptions = &execOptions
+		}
 		return driver.ErrRemoveArgument
 	}
 	if execOptions, ok := value.Value.(*ExecOptions); ok {
-		s.execOptions = execOptions
+		if s.numArgs >= 0 && value.Ordinal > s.numArgs+1 {
+			s.tempExecOptions = nil
+		} else {
+			s.tempExecOptions = execOptions
+		}
 		return driver.ErrRemoveArgument
 	}
-	return s.conn.CheckNamedValue(value)
+	if err := s.conn.CheckNamedValue(value); err != nil {
+		s.tempExecOptions = nil
+		return err
+	}
+	// If a regular argument exceeds NumInput(), database/sql will abort after
+	// CheckNamedValue without invoking ExecContext/QueryContext.
+	if s.numArgs >= 0 && value.Ordinal > s.numArgs {
+		s.tempExecOptions = nil
+	}
+	return nil
 }
 
 func prepareSpannerStmt(state *connectionstate.ConnectionState, parser *parser.StatementParser, q string, args []driver.NamedValue) (spanner.Statement, error) {
