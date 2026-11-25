@@ -2427,6 +2427,1189 @@ func TestPGTransactionState_ServerAndClientErrors(t *testing.T) {
 	})
 }
 
+func runBatchDMLWithOptions(t *testing.T, ctx context.Context, sqlConn *sql.Conn, tx *sql.Tx, options *ExecOptions, statements ...string) {
+	t.Helper()
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c, ok := driverConn.(*conn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection type %T", driverConn)
+		}
+		return c.StartBatchDMLWithOptions(options)
+	}); err != nil {
+		t.Fatalf("StartBatchDMLWithOptions failed: %v", err)
+	}
+	for _, query := range statements {
+		if tx != nil {
+			if _, err := tx.ExecContext(ctx, query); err != nil {
+				t.Fatalf("tx ExecContext failed: %v", err)
+			}
+		} else {
+			if _, err := sqlConn.ExecContext(ctx, query); err != nil {
+				t.Fatalf("ExecContext failed: %v", err)
+			}
+		}
+	}
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c, ok := driverConn.(*conn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection type %T", driverConn)
+		}
+		_, err := c.RunDmlBatch(ctx)
+		return err
+	}); err != nil {
+		t.Fatalf("RunDmlBatch failed: %v", err)
+	}
+}
+
+func assertSubsequentExecRequestOptions(t *testing.T, ctx context.Context, sqlConn *sql.Conn, server *testutil.MockedSpannerInMemTestServer, wantReqTag, wantTxTag string, wantPriority spannerpb.RequestOptions_Priority) {
+	t.Helper()
+	if _, err := sqlConn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("subsequent ExecContext failed: %v", err)
+	}
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests), 1; g != w {
+		t.Fatalf("subsequent ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	execRequest := execRequests[0].(*spannerpb.ExecuteSqlRequest)
+	if g, w := execRequest.RequestOptions.GetRequestTag(), wantReqTag; g != w {
+		t.Errorf("leaked request tag\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execRequest.RequestOptions.GetTransactionTag(), wantTxTag; g != w {
+		t.Errorf("leaked transaction tag\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execRequest.RequestOptions.GetPriority(), wantPriority; g != w {
+		t.Errorf("priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConn_StartBatchDMLWithOptions_OutsideTransaction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	runBatchDMLWithOptions(t, ctx, sqlConn, nil, &ExecOptions{
+		QueryOptions: spanner.QueryOptions{
+			RequestTag: "batch_req_tag';--",
+			Priority:   spannerpb.RequestOptions_PRIORITY_MEDIUM,
+		},
+		TransactionOptions: spanner.TransactionOptions{
+			TransactionTag: "batch_tx_tag';--",
+			CommitPriority: spannerpb.RequestOptions_PRIORITY_HIGH,
+		},
+	}, testutil.UpdateBarSetFoo)
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+	if g, w := len(batchRequests), 1; g != w {
+		t.Fatalf("ExecuteBatchDmlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	batchRequest := batchRequests[0].(*spannerpb.ExecuteBatchDmlRequest)
+	if g, w := batchRequest.RequestOptions.GetRequestTag(), "batch_req_tag';--"; g != w {
+		t.Errorf("request tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := batchRequest.RequestOptions.GetTransactionTag(), "batch_tx_tag';--"; g != w {
+		t.Errorf("transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := batchRequest.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_MEDIUM; g != w {
+		t.Errorf("priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitRequest := commitRequests[0].(*spannerpb.CommitRequest)
+	if g, w := commitRequest.RequestOptions.GetTransactionTag(), "batch_tx_tag';--"; g != w {
+		t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequest.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_HIGH; g != w {
+		t.Errorf("commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	assertSubsequentExecRequestOptions(t, ctx, sqlConn, server, "", "", spannerpb.RequestOptions_PRIORITY_UNSPECIFIED)
+}
+
+func TestConn_StartBatchDMLWithOptions_InTransaction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	tx, err := sqlConn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	runBatchDMLWithOptions(t, ctx, sqlConn, tx, &ExecOptions{
+		QueryOptions: spanner.QueryOptions{
+			RequestTag: "tx_batch_req_tag",
+			Priority:   spannerpb.RequestOptions_PRIORITY_LOW,
+		},
+		TransactionOptions: spanner.TransactionOptions{
+			TransactionTag: "tx_batch_tx_tag",
+			CommitPriority: spannerpb.RequestOptions_PRIORITY_MEDIUM,
+		},
+	}, testutil.UpdateBarSetFoo)
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+	if g, w := len(batchRequests), 1; g != w {
+		t.Fatalf("ExecuteBatchDmlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	batchRequest := batchRequests[0].(*spannerpb.ExecuteBatchDmlRequest)
+	if g, w := batchRequest.RequestOptions.GetRequestTag(), "tx_batch_req_tag"; g != w {
+		t.Errorf("request tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := batchRequest.RequestOptions.GetTransactionTag(), "tx_batch_tx_tag"; g != w {
+		t.Errorf("transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := batchRequest.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_LOW; g != w {
+		t.Errorf("priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitRequest := commitRequests[0].(*spannerpb.CommitRequest)
+	if g, w := commitRequest.RequestOptions.GetTransactionTag(), "tx_batch_tx_tag"; g != w {
+		t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequest.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_MEDIUM; g != w {
+		t.Errorf("commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	assertSubsequentExecRequestOptions(t, ctx, sqlConn, server, "", "", spannerpb.RequestOptions_PRIORITY_UNSPECIFIED)
+}
+
+func TestConn_StartBatchDMLWithOptions_InTransaction_ExplicitBegin(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	if _, err := sqlConn.ExecContext(ctx, "SET BEGIN_TRANSACTION_OPTION = 'ExplicitBeginTransaction'"); err != nil {
+		t.Fatalf("SET BEGIN_TRANSACTION_OPTION failed: %v", err)
+	}
+	tx, err := sqlConn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	runBatchDMLWithOptions(t, ctx, sqlConn, tx, &ExecOptions{
+		QueryOptions: spanner.QueryOptions{
+			RequestTag: "explicit_batch_req",
+		},
+		TransactionOptions: spanner.TransactionOptions{
+			TransactionTag: "explicit_batch_tx",
+		},
+	}, testutil.UpdateBarSetFoo)
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+	if g, w := len(beginRequests), 1; g != w {
+		t.Fatalf("BeginTransactionRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := beginRequests[0].(*spannerpb.BeginTransactionRequest).RequestOptions.GetTransactionTag(), "explicit_batch_tx"; g != w {
+		t.Errorf("begin transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+	if g, w := len(batchRequests), 1; g != w {
+		t.Fatalf("ExecuteBatchDmlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := batchRequests[0].(*spannerpb.ExecuteBatchDmlRequest).RequestOptions.GetRequestTag(), "explicit_batch_req"; g != w {
+		t.Errorf("batch request tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := batchRequests[0].(*spannerpb.ExecuteBatchDmlRequest).RequestOptions.GetTransactionTag(), "explicit_batch_tx"; g != w {
+		t.Errorf("batch transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequests[0].(*spannerpb.CommitRequest).RequestOptions.GetTransactionTag(), "explicit_batch_tx"; g != w {
+		t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConn_StartBatchDMLWithOptions_TagPrecedence(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		inTransaction      bool
+		setStatementTag    string
+		setTransactionTag  string
+		setRpcPriority     string
+		execOptions        *ExecOptions
+		wantReqTag         string
+		wantTxTag          string
+		wantPriority       spannerpb.RequestOptions_Priority
+		wantCommitPriority spannerpb.RequestOptions_Priority
+		wantNextPriority   spannerpb.RequestOptions_Priority
+	}{
+		{
+			name:              "outside transaction overrides SET tags and RPC_PRIORITY",
+			inTransaction:     false,
+			setStatementTag:   "set_stmt_tag",
+			setTransactionTag: "set_tx_tag",
+			setRpcPriority:    "PRIORITY_LOW",
+			execOptions: &ExecOptions{
+				QueryOptions: spanner.QueryOptions{
+					RequestTag: "batch_req_override",
+					Priority:   spannerpb.RequestOptions_PRIORITY_HIGH,
+				},
+				TransactionOptions: spanner.TransactionOptions{
+					TransactionTag: "batch_tx_override",
+					CommitPriority: spannerpb.RequestOptions_PRIORITY_MEDIUM,
+				},
+			},
+			wantReqTag:         "batch_req_override",
+			wantTxTag:          "batch_tx_override",
+			wantPriority:       spannerpb.RequestOptions_PRIORITY_HIGH,
+			wantCommitPriority: spannerpb.RequestOptions_PRIORITY_MEDIUM,
+			wantNextPriority:   spannerpb.RequestOptions_PRIORITY_LOW,
+		},
+		{
+			name:               "outside transaction preserves SET tags and RPC_PRIORITY when ExecOptions is nil",
+			inTransaction:      false,
+			setStatementTag:    "set_stmt_tag",
+			setTransactionTag:  "set_tx_tag",
+			setRpcPriority:     "PRIORITY_MEDIUM",
+			execOptions:        nil,
+			wantReqTag:         "set_stmt_tag",
+			wantTxTag:          "set_tx_tag",
+			wantPriority:       spannerpb.RequestOptions_PRIORITY_MEDIUM,
+			wantCommitPriority: spannerpb.RequestOptions_PRIORITY_UNSPECIFIED,
+			wantNextPriority:   spannerpb.RequestOptions_PRIORITY_MEDIUM,
+		},
+		{
+			name:              "inside transaction overrides SET tags and RPC_PRIORITY",
+			inTransaction:     true,
+			setStatementTag:   "set_stmt_tag",
+			setTransactionTag: "set_tx_tag",
+			setRpcPriority:    "PRIORITY_HIGH",
+			execOptions: &ExecOptions{
+				QueryOptions: spanner.QueryOptions{
+					RequestTag: "batch_req_override",
+					Priority:   spannerpb.RequestOptions_PRIORITY_LOW,
+				},
+				TransactionOptions: spanner.TransactionOptions{
+					TransactionTag: "batch_tx_override",
+					CommitPriority: spannerpb.RequestOptions_PRIORITY_HIGH,
+				},
+			},
+			wantReqTag:         "batch_req_override",
+			wantTxTag:          "batch_tx_override",
+			wantPriority:       spannerpb.RequestOptions_PRIORITY_LOW,
+			wantCommitPriority: spannerpb.RequestOptions_PRIORITY_HIGH,
+			wantNextPriority:   spannerpb.RequestOptions_PRIORITY_HIGH,
+		},
+		{
+			name:               "inside transaction preserves SET tags when ExecOptions is empty",
+			inTransaction:      true,
+			setStatementTag:    "set_stmt_tag",
+			setTransactionTag:  "set_tx_tag",
+			execOptions:        &ExecOptions{},
+			wantReqTag:         "set_stmt_tag",
+			wantTxTag:          "set_tx_tag",
+			wantPriority:       spannerpb.RequestOptions_PRIORITY_UNSPECIFIED,
+			wantCommitPriority: spannerpb.RequestOptions_PRIORITY_UNSPECIFIED,
+			wantNextPriority:   spannerpb.RequestOptions_PRIORITY_UNSPECIFIED,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			db, server, teardown := setupTestDBConnection(t)
+			defer teardown()
+
+			sqlConn, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatalf("failed to get connection: %v", err)
+			}
+			defer silentClose(sqlConn)
+
+			var tx *sql.Tx
+			if tc.inTransaction {
+				tx, err = sqlConn.BeginTx(ctx, &sql.TxOptions{})
+				if err != nil {
+					t.Fatalf("BeginTx failed: %v", err)
+				}
+			}
+			if _, err := sqlConn.ExecContext(ctx, fmt.Sprintf("SET STATEMENT_TAG = '%s'", tc.setStatementTag)); err != nil {
+				t.Fatalf("SET STATEMENT_TAG failed: %v", err)
+			}
+			if _, err := sqlConn.ExecContext(ctx, fmt.Sprintf("SET TRANSACTION_TAG = '%s'", tc.setTransactionTag)); err != nil {
+				t.Fatalf("SET TRANSACTION_TAG failed: %v", err)
+			}
+			if tc.setRpcPriority != "" {
+				if _, err := sqlConn.ExecContext(ctx, fmt.Sprintf("SET RPC_PRIORITY = '%s'", tc.setRpcPriority)); err != nil {
+					t.Fatalf("SET RPC_PRIORITY failed: %v", err)
+				}
+			}
+
+			runBatchDMLWithOptions(t, ctx, sqlConn, tx, tc.execOptions, testutil.UpdateBarSetFoo)
+			if tc.inTransaction {
+				if err := tx.Commit(); err != nil {
+					t.Fatalf("Commit failed: %v", err)
+				}
+			}
+
+			requests := server.TestSpanner.DrainRequestsFromServer()
+			batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+			if g, w := len(batchRequests), 1; g != w {
+				t.Fatalf("ExecuteBatchDmlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			batchReq := batchRequests[0].(*spannerpb.ExecuteBatchDmlRequest)
+			if g, w := batchReq.RequestOptions.GetRequestTag(), tc.wantReqTag; g != w {
+				t.Errorf("request tag mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := batchReq.RequestOptions.GetTransactionTag(), tc.wantTxTag; g != w {
+				t.Errorf("transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := batchReq.RequestOptions.GetPriority(), tc.wantPriority; g != w {
+				t.Errorf("priority mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+			if g, w := len(commitRequests), 1; g != w {
+				t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			commitReq := commitRequests[0].(*spannerpb.CommitRequest)
+			if g, w := commitReq.RequestOptions.GetTransactionTag(), tc.wantTxTag; g != w {
+				t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := commitReq.RequestOptions.GetPriority(), tc.wantCommitPriority; g != w {
+				t.Errorf("commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			assertSubsequentExecRequestOptions(t, ctx, sqlConn, server, "", "", tc.wantNextPriority)
+		})
+	}
+}
+
+func TestConn_StartBatchDMLWithOptions_FailedPreconditionsPreserveTags(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	cases := []struct {
+		name  string
+		setup func(t *testing.T, sqlConn *sql.Conn) (cleanup func())
+	}{
+		{
+			name: "active DML batch outside transaction",
+			setup: func(t *testing.T, sqlConn *sql.Conn) func() {
+				if err := sqlConn.Raw(func(driverConn any) error {
+					c, ok := driverConn.(*conn)
+					if !ok {
+						return fmt.Errorf("unexpected driver connection type %T", driverConn)
+					}
+					return c.StartBatchDML()
+				}); err != nil {
+					t.Fatalf("StartBatchDML failed: %v", err)
+				}
+				return func() {
+					_ = sqlConn.Raw(func(driverConn any) error {
+						if c, ok := driverConn.(*conn); ok {
+							return c.AbortBatch()
+						}
+						return nil
+					})
+				}
+			},
+		},
+		{
+			name: "active DDL batch outside transaction",
+			setup: func(t *testing.T, sqlConn *sql.Conn) func() {
+				if err := sqlConn.Raw(func(driverConn any) error {
+					c, ok := driverConn.(*conn)
+					if !ok {
+						return fmt.Errorf("unexpected driver connection type %T", driverConn)
+					}
+					return c.StartBatchDDL()
+				}); err != nil {
+					t.Fatalf("StartBatchDDL failed: %v", err)
+				}
+				return func() {
+					_ = sqlConn.Raw(func(driverConn any) error {
+						if c, ok := driverConn.(*conn); ok {
+							return c.AbortBatch()
+						}
+						return nil
+					})
+				}
+			},
+		},
+		{
+			name: "active DML batch inside transaction",
+			setup: func(t *testing.T, sqlConn *sql.Conn) func() {
+				tx, err := sqlConn.BeginTx(ctx, &sql.TxOptions{})
+				if err != nil {
+					t.Fatalf("BeginTx failed: %v", err)
+				}
+				if err := sqlConn.Raw(func(driverConn any) error {
+					c, ok := driverConn.(*conn)
+					if !ok {
+						return fmt.Errorf("unexpected driver connection type %T", driverConn)
+					}
+					return c.StartBatchDML()
+				}); err != nil {
+					t.Fatalf("StartBatchDML failed: %v", err)
+				}
+				return func() {
+					_ = tx.Rollback()
+				}
+			},
+		},
+		{
+			name: "read-only transaction",
+			setup: func(t *testing.T, sqlConn *sql.Conn) func() {
+				tx, err := sqlConn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+				if err != nil {
+					t.Fatalf("BeginTx failed: %v", err)
+				}
+				return func() {
+					_ = tx.Rollback()
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sqlConn, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatalf("failed to get connection: %v", err)
+			}
+			defer silentClose(sqlConn)
+
+			cleanup := tc.setup(t, sqlConn)
+			defer cleanup()
+
+			if _, err := sqlConn.ExecContext(ctx, "SET STATEMENT_TAG = 'preserved_stmt'"); err != nil {
+				t.Fatalf("SET STATEMENT_TAG failed: %v", err)
+			}
+			if _, err := sqlConn.ExecContext(ctx, "SET TRANSACTION_TAG = 'preserved_tx'"); err != nil {
+				t.Fatalf("SET TRANSACTION_TAG failed: %v", err)
+			}
+
+			if err := sqlConn.Raw(func(driverConn any) error {
+				c, ok := driverConn.(*conn)
+				if !ok {
+					return fmt.Errorf("unexpected driver connection type %T", driverConn)
+				}
+				return c.StartBatchDMLWithOptions(&ExecOptions{
+					QueryOptions:       spanner.QueryOptions{RequestTag: "ignored_req"},
+					TransactionOptions: spanner.TransactionOptions{TransactionTag: "ignored_tx"},
+				})
+			}); err == nil {
+				t.Fatal("expected StartBatchDMLWithOptions error, got nil")
+			}
+
+			var stmtTag string
+			if err := sqlConn.QueryRowContext(ctx, "SHOW VARIABLE STATEMENT_TAG").Scan(&stmtTag); err != nil {
+				t.Fatalf("SHOW STATEMENT_TAG failed: %v", err)
+			}
+			if g, w := stmtTag, "preserved_stmt"; g != w {
+				t.Errorf("statement_tag mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			var txTag string
+			if err := sqlConn.QueryRowContext(ctx, "SHOW VARIABLE TRANSACTION_TAG").Scan(&txTag); err != nil {
+				t.Fatalf("SHOW TRANSACTION_TAG failed: %v", err)
+			}
+			if g, w := txTag, "preserved_tx"; g != w {
+				t.Errorf("transaction_tag mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
+func TestConn_StartBatchDMLWithOptions_PostgresFailedTransactionStateE(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c, ok := driverConn.(*conn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection type %T", driverConn)
+		}
+		return c.SetInErrorTxBehavior(connectionstate.InErrorTxBehaviorEnforceInErrorState)
+	}); err != nil {
+		t.Fatalf("SetInErrorTxBehavior failed: %v", err)
+	}
+	tx, err := sqlConn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, "SELECT * FROM NonExistentTable"); err == nil {
+		t.Fatal("expected query error to put transaction in state E")
+	}
+	err = sqlConn.Raw(func(driverConn any) error {
+		c, ok := driverConn.(*conn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection type %T", driverConn)
+		}
+		return c.StartBatchDMLWithOptions(&ExecOptions{
+			QueryOptions:       spanner.QueryOptions{RequestTag: "ignored_req", Priority: spannerpb.RequestOptions_PRIORITY_HIGH},
+			TransactionOptions: spanner.TransactionOptions{TransactionTag: "ignored_tx"},
+		})
+	})
+	if err == nil {
+		t.Fatal("expected StartBatchDMLWithOptions error in state E, got nil")
+	}
+	if g, w := status.Code(err), codes.FailedPrecondition; g != w {
+		t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback failed: %v", err)
+	}
+	_ = server.TestSpanner.DrainRequestsFromServer()
+
+	assertSubsequentExecRequestOptions(t, ctx, sqlConn, server, "", "", spannerpb.RequestOptions_PRIORITY_UNSPECIFIED)
+}
+
+func TestConn_StartBatchDMLWithOptions_AbortBatchInTransaction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	tx, err := sqlConn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	if _, err := sqlConn.ExecContext(ctx, "SET TRANSACTION_TAG = 'kept_set_tx'"); err != nil {
+		t.Fatalf("SET TRANSACTION_TAG failed: %v", err)
+	}
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c, ok := driverConn.(*conn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection type %T", driverConn)
+		}
+		if err := c.StartBatchDMLWithOptions(&ExecOptions{
+			QueryOptions: spanner.QueryOptions{RequestTag: "aborted_req"},
+			TransactionOptions: spanner.TransactionOptions{
+				TransactionTag: "aborted_tx",
+				CommitPriority: spannerpb.RequestOptions_PRIORITY_LOW,
+			},
+		}); err != nil {
+			return err
+		}
+		return c.AbortBatch()
+	}); err != nil {
+		t.Fatalf("StartBatchDMLWithOptions/AbortBatch failed: %v", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("tx ExecContext failed: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests), 1; g != w {
+		t.Fatalf("ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execRequests[0].(*spannerpb.ExecuteSqlRequest).RequestOptions.GetTransactionTag(), "kept_set_tx"; g != w {
+		t.Errorf("transaction tag mismatch after AbortBatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequests[0].(*spannerpb.CommitRequest).RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_UNSPECIFIED; g != w {
+		t.Errorf("leaked commit priority after AbortBatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConn_StartBatchDMLWithOptions_AbortBatchOutsideTransaction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c, ok := driverConn.(*conn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection type %T", driverConn)
+		}
+		if err := c.StartBatchDMLWithOptions(&ExecOptions{
+			QueryOptions: spanner.QueryOptions{
+				RequestTag: "aborted_req",
+				Priority:   spannerpb.RequestOptions_PRIORITY_HIGH,
+			},
+			TransactionOptions: spanner.TransactionOptions{
+				TransactionTag: "aborted_tx",
+				CommitPriority: spannerpb.RequestOptions_PRIORITY_HIGH,
+			},
+		}); err != nil {
+			return err
+		}
+		return c.AbortBatch()
+	}); err != nil {
+		t.Fatalf("StartBatchDMLWithOptions/AbortBatch failed: %v", err)
+	}
+
+	assertSubsequentExecRequestOptions(t, ctx, sqlConn, server, "", "", spannerpb.RequestOptions_PRIORITY_UNSPECIFIED)
+}
+
+func TestConn_StartBatchDMLWithOptions_AlreadyActivatedTransaction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	tx, err := sqlConn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo, ExecOptions{
+		TransactionOptions: spanner.TransactionOptions{TransactionTag: "initial_tx"},
+	}); err != nil {
+		t.Fatalf("initial ExecContext failed: %v", err)
+	}
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c, ok := driverConn.(*conn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection type %T", driverConn)
+		}
+		return c.StartBatchDMLWithOptions(&ExecOptions{
+			TransactionOptions: spanner.TransactionOptions{TransactionTag: "ignored_batch_tx"},
+		})
+	}); err != nil {
+		t.Fatalf("StartBatchDMLWithOptions failed: %v", err)
+	}
+	var txTag string
+	if err := sqlConn.QueryRowContext(ctx, "SHOW VARIABLE TRANSACTION_TAG").Scan(&txTag); err != nil {
+		t.Fatalf("SHOW TRANSACTION_TAG failed: %v", err)
+	}
+	if g, w := txTag, ""; g != w {
+		t.Errorf("SHOW TRANSACTION_TAG mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("batch statement failed: %v", err)
+	}
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c, ok := driverConn.(*conn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection type %T", driverConn)
+		}
+		_, err := c.RunDmlBatch(ctx)
+		return err
+	}); err != nil {
+		t.Fatalf("RunDmlBatch failed: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+	if g, w := len(batchRequests), 1; g != w {
+		t.Fatalf("ExecuteBatchDmlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := batchRequests[0].(*spannerpb.ExecuteBatchDmlRequest).RequestOptions.GetTransactionTag(), "initial_tx"; g != w {
+		t.Errorf("batch transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConn_StartBatchDMLWithOptions_InvalidPropertyValues(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c, ok := driverConn.(*conn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection type %T", driverConn)
+		}
+		return c.StartBatchDMLWithOptions(&ExecOptions{
+			QueryOptions:   spanner.QueryOptions{RequestTag: "should_not_leak"},
+			PropertyValues: []PropertyValue{CreatePropertyValue("non_existent_property", "val")},
+		})
+	}); err == nil {
+		t.Fatal("expected error for invalid property value, got nil")
+	}
+
+	assertSubsequentExecRequestOptions(t, ctx, sqlConn, server, "", "", spannerpb.RequestOptions_PRIORITY_UNSPECIFIED)
+}
+
+func TestConn_StartBatchDMLWithOptions_EmptyBatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	runBatchDMLWithOptions(t, ctx, sqlConn, nil, &ExecOptions{
+		QueryOptions: spanner.QueryOptions{
+			RequestTag: "empty_req",
+			Priority:   spannerpb.RequestOptions_PRIORITY_HIGH,
+		},
+		TransactionOptions: spanner.TransactionOptions{
+			TransactionTag: "empty_tx",
+		},
+	})
+
+	assertSubsequentExecRequestOptions(t, ctx, sqlConn, server, "", "", spannerpb.RequestOptions_PRIORITY_UNSPECIFIED)
+}
+
+func TestConn_StartBatchDMLWithOptions_RetryAbortsDisabled(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	if _, err := sqlConn.ExecContext(ctx, "SET RETRY_ABORTS_INTERNALLY = FALSE"); err != nil {
+		t.Fatalf("SET RETRY_ABORTS_INTERNALLY failed: %v", err)
+	}
+	tx, err := sqlConn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	runBatchDMLWithOptions(t, ctx, sqlConn, tx, &ExecOptions{
+		QueryOptions: spanner.QueryOptions{
+			RequestTag: "no_retry_req",
+			Priority:   spannerpb.RequestOptions_PRIORITY_MEDIUM,
+		},
+		TransactionOptions: spanner.TransactionOptions{
+			TransactionTag: "no_retry_tx",
+			CommitPriority: spannerpb.RequestOptions_PRIORITY_LOW,
+		},
+	}, testutil.UpdateBarSetFoo)
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+	if g, w := len(batchRequests), 1; g != w {
+		t.Fatalf("ExecuteBatchDmlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	batchReq := batchRequests[0].(*spannerpb.ExecuteBatchDmlRequest)
+	if g, w := batchReq.RequestOptions.GetRequestTag(), "no_retry_req"; g != w {
+		t.Errorf("request tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := batchReq.RequestOptions.GetTransactionTag(), "no_retry_tx"; g != w {
+		t.Errorf("transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := batchReq.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_MEDIUM; g != w {
+		t.Errorf("priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitReq := commitRequests[0].(*spannerpb.CommitRequest)
+	if g, w := commitReq.RequestOptions.GetTransactionTag(), "no_retry_tx"; g != w {
+		t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitReq.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_LOW; g != w {
+		t.Errorf("commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	assertSubsequentExecRequestOptions(t, ctx, sqlConn, server, "", "", spannerpb.RequestOptions_PRIORITY_UNSPECIFIED)
+}
+
+func TestConn_StartBatchDMLWithOptions_StripsDirectedReadOptions(t *testing.T) {
+	t.Parallel()
+
+	for _, inTransaction := range []bool{false, true} {
+		name := "outside transaction"
+		if inTransaction {
+			name = "inside transaction"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			db, server, teardown := setupTestDBConnection(t)
+			defer teardown()
+
+			sqlConn, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatalf("failed to get connection: %v", err)
+			}
+			defer silentClose(sqlConn)
+
+			var tx *sql.Tx
+			if inTransaction {
+				tx, err = sqlConn.BeginTx(ctx, &sql.TxOptions{})
+				if err != nil {
+					t.Fatalf("BeginTx failed: %v", err)
+				}
+			}
+			directedRead := &spannerpb.DirectedReadOptions{
+				Replicas: &spannerpb.DirectedReadOptions_IncludeReplicas_{
+					IncludeReplicas: &spannerpb.DirectedReadOptions_IncludeReplicas{
+						ReplicaSelections: []*spannerpb.DirectedReadOptions_ReplicaSelection{
+							{Location: "us-east1"},
+						},
+					},
+				},
+			}
+			if err := sqlConn.Raw(func(driverConn any) error {
+				c, ok := driverConn.(*conn)
+				if !ok {
+					return fmt.Errorf("unexpected driver connection type %T", driverConn)
+				}
+				if err := c.StartBatchDMLWithOptions(&ExecOptions{
+					QueryOptions: spanner.QueryOptions{
+						RequestTag:          "directed_req",
+						DirectedReadOptions: directedRead,
+					},
+				}); err != nil {
+					return err
+				}
+				if inTransaction {
+					rwTx := c.tx.contextTransaction.(*readWriteTransaction)
+					if rwTx.batch.options.QueryOptions.DirectedReadOptions != nil {
+						return fmt.Errorf("expected DirectedReadOptions to be nil on tx batch")
+					}
+				}
+				return nil
+			}); err != nil {
+				t.Fatalf("StartBatchDMLWithOptions check failed: %v", err)
+			}
+			if inTransaction {
+				if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+					t.Fatalf("tx ExecContext failed: %v", err)
+				}
+			} else {
+				if _, err := sqlConn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+					t.Fatalf("ExecContext failed: %v", err)
+				}
+			}
+			if err := sqlConn.Raw(func(driverConn any) error {
+				c, ok := driverConn.(*conn)
+				if !ok {
+					return fmt.Errorf("unexpected driver connection type %T", driverConn)
+				}
+				_, err := c.RunDmlBatch(ctx)
+				return err
+			}); err != nil {
+				t.Fatalf("RunDmlBatch failed: %v", err)
+			}
+			if inTransaction {
+				if err := tx.Commit(); err != nil {
+					t.Fatalf("Commit failed: %v", err)
+				}
+			}
+			requests := server.TestSpanner.DrainRequestsFromServer()
+			batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+			if g, w := len(batchRequests), 1; g != w {
+				t.Fatalf("ExecuteBatchDmlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := batchRequests[0].(*spannerpb.ExecuteBatchDmlRequest).RequestOptions.GetRequestTag(), "directed_req"; g != w {
+				t.Errorf("request tag mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
+func TestConn_StartBatchDMLWithOptions_AfterSavepointRollback(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	tx, err := sqlConn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo, ExecOptions{
+		TransactionOptions: spanner.TransactionOptions{TransactionTag: "savepoint_tx_tag"},
+	}); err != nil {
+		t.Fatalf("initial ExecContext failed: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, "SAVEPOINT s1"); err != nil {
+		t.Fatalf("SAVEPOINT failed: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("second ExecContext failed: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s1"); err != nil {
+		t.Fatalf("ROLLBACK TO SAVEPOINT failed: %v", err)
+	}
+
+	_ = server.TestSpanner.DrainRequestsFromServer()
+	runBatchDMLWithOptions(t, ctx, sqlConn, tx, &ExecOptions{
+		QueryOptions: spanner.QueryOptions{
+			RequestTag: "after_sp_req",
+			Priority:   spannerpb.RequestOptions_PRIORITY_HIGH,
+		},
+	}, testutil.UpdateBarSetFoo)
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+	if g, w := len(batchRequests), 1; g != w {
+		t.Fatalf("ExecuteBatchDmlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	batchReq := batchRequests[0].(*spannerpb.ExecuteBatchDmlRequest)
+	if g, w := batchReq.RequestOptions.GetRequestTag(), "after_sp_req"; g != w {
+		t.Errorf("request tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := batchReq.RequestOptions.GetTransactionTag(), "savepoint_tx_tag"; g != w {
+		t.Errorf("transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := batchReq.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_HIGH; g != w {
+		t.Errorf("priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConn_StartBatchDMLWithOptions_ExecuteBatchDmlAbortedRetry(t *testing.T) {
+	t.Parallel()
+
+	for _, inTransaction := range []bool{false, true} {
+		name := "outside transaction"
+		if inTransaction {
+			name = "inside transaction"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			db, server, teardown := setupTestDBConnection(t)
+			defer teardown()
+
+			sqlConn, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatalf("failed to get connection: %v", err)
+			}
+			defer silentClose(sqlConn)
+
+			server.TestSpanner.PutExecutionTime(testutil.MethodExecuteBatchDml, testutil.SimulatedExecutionTime{
+				Errors: []error{status.Error(codes.Aborted, "Aborted")},
+			})
+
+			var tx *sql.Tx
+			if inTransaction {
+				tx, err = sqlConn.BeginTx(ctx, &sql.TxOptions{})
+				if err != nil {
+					t.Fatalf("BeginTx failed: %v", err)
+				}
+			}
+			runBatchDMLWithOptions(t, ctx, sqlConn, tx, &ExecOptions{
+				QueryOptions: spanner.QueryOptions{
+					RequestTag: "batch_abort_req",
+					Priority:   spannerpb.RequestOptions_PRIORITY_HIGH,
+				},
+				TransactionOptions: spanner.TransactionOptions{
+					TransactionTag: "batch_abort_tx",
+				},
+			}, testutil.UpdateBarSetFoo)
+			if inTransaction {
+				if err := tx.Commit(); err != nil {
+					t.Fatalf("Commit failed: %v", err)
+				}
+			}
+
+			requests := server.TestSpanner.DrainRequestsFromServer()
+			batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+			if g, w := len(batchRequests), 2; g != w {
+				t.Fatalf("ExecuteBatchDmlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			for i, req := range batchRequests {
+				batchReq := req.(*spannerpb.ExecuteBatchDmlRequest)
+				if g, w := batchReq.RequestOptions.GetRequestTag(), "batch_abort_req"; g != w {
+					t.Errorf("attempt %d request tag mismatch\nGot:  %v\nWant: %v", i, g, w)
+				}
+				if g, w := batchReq.RequestOptions.GetTransactionTag(), "batch_abort_tx"; g != w {
+					t.Errorf("attempt %d transaction tag mismatch\nGot:  %v\nWant: %v", i, g, w)
+				}
+				if g, w := batchReq.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_HIGH; g != w {
+					t.Errorf("attempt %d priority mismatch\nGot:  %v\nWant: %v", i, g, w)
+				}
+			}
+			commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+			if g, w := len(commitRequests), 1; g != w {
+				t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := commitRequests[0].(*spannerpb.CommitRequest).RequestOptions.GetTransactionTag(), "batch_abort_tx"; g != w {
+				t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			assertSubsequentExecRequestOptions(t, ctx, sqlConn, server, "", "", spannerpb.RequestOptions_PRIORITY_UNSPECIFIED)
+		})
+	}
+}
+
+func TestConn_StartBatchDMLWithOptions_InTransaction_AbortedRetry(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+		Errors: []error{status.Error(codes.Aborted, "Aborted")},
+	})
+
+	tx, err := sqlConn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c, ok := driverConn.(*conn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection type %T", driverConn)
+		}
+		return c.StartBatchDMLWithOptions(&ExecOptions{
+			QueryOptions: spanner.QueryOptions{
+				RequestTag: "retry_batch_req",
+				Priority:   spannerpb.RequestOptions_PRIORITY_HIGH,
+			},
+			TransactionOptions: spanner.TransactionOptions{
+				TransactionTag: "retry_batch_tx",
+			},
+		})
+	}); err != nil {
+		t.Fatalf("StartBatchDMLWithOptions failed: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("ExecContext failed: %v", err)
+	}
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c, ok := driverConn.(*conn)
+		if !ok {
+			return fmt.Errorf("unexpected driver connection type %T", driverConn)
+		}
+		_, err := c.RunDmlBatch(ctx)
+		return err
+	}); err != nil {
+		t.Fatalf("RunDmlBatch failed: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+	if g, w := len(batchRequests), 2; g != w {
+		t.Fatalf("ExecuteBatchDmlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	for i, req := range batchRequests {
+		batchReq := req.(*spannerpb.ExecuteBatchDmlRequest)
+		if g, w := batchReq.RequestOptions.GetRequestTag(), "retry_batch_req"; g != w {
+			t.Errorf("attempt %d request tag mismatch\nGot:  %v\nWant: %v", i, g, w)
+		}
+		if g, w := batchReq.RequestOptions.GetTransactionTag(), "retry_batch_tx"; g != w {
+			t.Errorf("attempt %d transaction tag mismatch\nGot:  %v\nWant: %v", i, g, w)
+		}
+		if g, w := batchReq.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_HIGH; g != w {
+			t.Errorf("attempt %d priority mismatch\nGot:  %v\nWant: %v", i, g, w)
+		}
+	}
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 2; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	finalCommit := commitRequests[1].(*spannerpb.CommitRequest)
+	if g, w := finalCommit.RequestOptions.GetTransactionTag(), "retry_batch_tx"; g != w {
+		t.Errorf("final commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
 func TestRegisterTransactionCloseFunc_LateRegistration(t *testing.T) {
 	t.Parallel()
 

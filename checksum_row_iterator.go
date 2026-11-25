@@ -45,6 +45,7 @@ type checksumRowIterator struct {
 	metadata *sppb.ResultSetMetadata
 
 	ctx      context.Context
+	cancel   context.CancelFunc
 	tx       *readWriteTransaction
 	stmt     spanner.Statement
 	stmtType parser.StatementType
@@ -78,6 +79,9 @@ func (it *checksumRowIterator) String() string {
 func (it *checksumRowIterator) Next() (row *spanner.Row, err error) {
 	if it.stopped {
 		return nil, errNextAfterSTop
+	}
+	if err := it.tx.ensureReplayed(it.ctx); err != nil {
+		return nil, err
 	}
 	err = it.tx.runWithRetry(it.ctx, func(ctx context.Context) error {
 		row, err = it.RowIterator.Next()
@@ -193,31 +197,44 @@ func (it *checksumRowIterator) createMetadataChecksum(metadata *sppb.ResultSetMe
 // initial iterator was also returned by the new iterator, and that the errors
 // were returned by the same row index.
 func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteStmtBasedTransaction) error {
-	retryIt := tx.QueryWithOptions(ctx, it.stmt, it.options)
-	// If the original iterator had been stopped, we should also always stop the
-	// new iterator.
-	if it.stopped {
-		defer retryIt.Stop()
+	if err := it.checkRetryContext(ctx); err != nil {
+		return err
 	}
-	// The underlying iterator will be replaced by the new one if the retry succeeds.
-	replaceIt := func(err error) error {
-		if it.RowIterator != nil {
-			it.RowIterator.Stop()
-			it.RowIterator = retryIt
+	queryCtx, stopWatch, iterCancel := it.retryQueryContext(ctx)
+	retryIt := tx.QueryWithOptions(queryCtx, it.stmt, it.options)
+	replaced := false
+	defer func() {
+		if !replaced {
+			stopWatch()
+			retryIt.Stop()
+			iterCancel()
 		}
-		it.metadata = retryIt.Metadata
+	}()
+
+	if err := it.replayAndVerifyRows(ctx, queryCtx, retryIt); err != nil {
 		return err
 	}
-	// If the retry fails, we will not replace the underlying iterator and we should
-	// stop the iterator that was used by the retry.
-	failRetry := func(err error) error {
-		retryIt.Stop()
+	if err := it.replaceIterator(ctx, queryCtx, retryIt, stopWatch, iterCancel); err != nil {
 		return err
 	}
-	// Iterate over the new result set as many times as we iterated over the initial
-	// result set. The checksums of the two should be equal. Also, the new result set
-	// should return any error on the same index as the original.
-	// var newChecksum *[32]byte
+	replaced = true
+	return nil
+}
+
+func (it *checksumRowIterator) checkRetryContext(ctx context.Context) error {
+	if isContextExpiredOrCancelled(ctx) {
+		return retryContextError(ctx, nil, nil)
+	}
+	if !it.stopped && isContextExpiredOrCancelled(it.ctx) {
+		return retryContextError(ctx, it.ctx, nil)
+	}
+	return nil
+}
+
+// replayAndVerifyRows iterates through retryIt as many times as the original
+// attempt and returns ErrAbortedDueToConcurrentModification if the checksum or
+// error disagrees.
+func (it *checksumRowIterator) replayAndVerifyRows(ctx, queryCtx context.Context, retryIt *spanner.RowIterator) error {
 	var checksumErr error
 	newHash := sha256.New()
 	for n := int64(0); n < it.nc; n++ {
@@ -225,27 +242,29 @@ func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteS
 		if n == 0 && (err == nil || err == iterator.Done) {
 			newHash, checksumErr = it.createMetadataChecksum(retryIt.Metadata)
 			if checksumErr != nil {
-				return failRetry(checksumErr)
+				return checksumErr
 			}
 		}
 		if err != nil {
 			if spanner.ErrCode(err) == codes.Aborted {
 				// This fails this retry, but it will trigger a new retry of the
 				// entire transaction.
-				return failRetry(err)
+				return err
+			}
+			if isContextCancelledOrTimedOut(queryCtx, err) || isContextCancelledOrTimedOut(ctx, err) {
+				return retryContextError(ctx, queryCtx, err)
 			}
 			if errorsEqualForRetry(err, it.err) && n == it.errIndex {
 				// Check that the checksums are also equal.
 				if !checksumsEqual(newHash, it.hash) {
-					return failRetry(ErrAbortedDueToConcurrentModification)
+					return ErrAbortedDueToConcurrentModification
 				}
-				return replaceIt(nil)
+				return nil
 			}
-			return failRetry(ErrAbortedDueToConcurrentModification)
+			return ErrAbortedDueToConcurrentModification
 		}
-		err = it.updateChecksum(newHash, row)
-		if err != nil {
-			return failRetry(err)
+		if err := it.updateChecksum(newHash, row); err != nil {
+			return err
 		}
 	}
 	// Check if the initial attempt ended with an error and the current attempt
@@ -253,14 +272,59 @@ func (it *checksumRowIterator) retry(ctx context.Context, tx *spanner.ReadWriteS
 	// results than the initial attempt, and that the initial attempt returned
 	// iterator.Done, but it could theoretically be any other error as well.
 	if it.err != nil {
-		return failRetry(ErrAbortedDueToConcurrentModification)
+		return ErrAbortedDueToConcurrentModification
 	}
 	if !checksumsEqual(newHash, it.hash) {
-		return failRetry(ErrAbortedDueToConcurrentModification)
+		return ErrAbortedDueToConcurrentModification
 	}
-	// Everything seems to be equal, replace the underlying iterator and return
-	// a nil error.
-	return replaceIt(nil)
+	return nil
+}
+
+func (it *checksumRowIterator) replaceIterator(ctx, queryCtx context.Context, retryIt *spanner.RowIterator, stopWatch func() bool, iterCancel context.CancelFunc) error {
+	itCtxExpired := !it.stopped && isContextExpiredOrCancelled(it.ctx)
+	if !stopWatch() || isContextExpiredOrCancelled(ctx) || isContextExpiredOrCancelled(queryCtx) || itCtxExpired {
+		fallbackCtx := queryCtx
+		if itCtxExpired {
+			fallbackCtx = it.ctx
+		}
+		return retryContextError(ctx, fallbackCtx, nil)
+	}
+	if it.RowIterator != nil && !it.stopped {
+		it.RowIterator.Stop()
+		it.RowIterator = retryIt
+		if it.cancel != nil {
+			it.cancel()
+		}
+		it.cancel = iterCancel
+		it.metadata = retryIt.Metadata
+	} else {
+		iterCancel()
+		retryIt.Stop()
+	}
+	return nil
+}
+
+// retryQueryContext returns the context to bind to the retried RowIterator.
+// Open iterators are rooted in it.ctx (rather than the ephemeral retryCtx) so
+// they survive after the triggering call returns, while watching retryCtx for
+// cancellation or expiration for the duration of retry().
+func (it *checksumRowIterator) retryQueryContext(retryCtx context.Context) (context.Context, func() bool, context.CancelFunc) {
+	noopStop := func() bool { return true }
+	if it.stopped {
+		if retryCtx == nil {
+			retryCtx = context.Background()
+		}
+		return retryCtx, noopStop, func() {}
+	}
+	baseCtx := it.ctx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	iterCtx, iterCancel := context.WithCancel(baseCtx)
+	if retryCtx == nil {
+		return iterCtx, noopStop, iterCancel
+	}
+	return iterCtx, context.AfterFunc(retryCtx, iterCancel), iterCancel
 }
 
 func checksumsEqual(h1, h2 hash.Hash) bool {
@@ -275,8 +339,14 @@ func checksumsEqual(h1, h2 hash.Hash) bool {
 func (it *checksumRowIterator) Stop() {
 	if !it.stopped {
 		it.stopped = true
-		it.RowIterator.Stop()
-		it.RowIterator = nil
+		if it.RowIterator != nil {
+			it.RowIterator.Stop()
+			it.RowIterator = nil
+		}
+		if it.cancel != nil {
+			it.cancel()
+			it.cancel = nil
+		}
 	}
 }
 

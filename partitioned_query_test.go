@@ -265,6 +265,7 @@ func TestAutoPartitionQuery(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			defer server.TestSpanner.DrainRequestsFromServer()
 			var tx queryExecutor
 			var err error
 			if test.withTx {
@@ -386,64 +387,66 @@ func TestAutoPartitionQuery_ExecuteError(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	db, server, teardown := setupTestDBConnection(t)
-	defer teardown()
-	db.SetMaxOpenConns(1)
-
 	for _, maxResultsPerPartition := range []int{0, 1, 5, 50, 200} {
-		tx, err := BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{})
-		if err != nil {
-			t.Fatal(err)
-		}
+		t.Run(fmt.Sprintf("maxResultsPerPartition_%d", maxResultsPerPartition), func(t *testing.T) {
+			db, server, teardown := setupTestDBConnection(t)
+			defer teardown()
+			db.SetMaxOpenConns(1)
 
-		// Add an error for ExecuteStreamingSql.
-		server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
-			Errors: []error{status.Error(codes.NotFound, "Partition not found")},
-		})
-		// Also setup results for the partitioned query.
-		maxPartitions, allResults, err := setupRandomPartitionResults(server, testutil.SelectFooFromBar, maxResultsPerPartition)
-		if err != nil {
-			t.Fatalf("failed to set up partition results: %v", err)
-		}
-
-		// Automatically partition and execute a query.
-		rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar,
-			ExecOptions{
-				PartitionedQueryOptions: PartitionedQueryOptions{
-					AutoPartitionQuery: true,
-					MaxParallelism:     rand.Intn(10) + 1,
-					PartitionOptions: spanner.PartitionOptions{
-						MaxPartitions: int64(maxPartitions),
-					},
-				},
-				QueryOptions: spanner.QueryOptions{DataBoostEnabled: true},
-			})
-		// We should get an error either already when the query is executed,
-		// or while iterating through the rows.
-		if err != nil {
-			if g, w := spanner.ErrCode(err), codes.NotFound; g != w {
-				t.Fatalf("error code mismatch\n Got: %v\nWant: %v", g, w)
-			}
-		} else {
-			// Iterate over the rows until we get an error or the end of the results.
-			var v int64
-			count := 0
-			for rows.Next() {
-				if err := rows.Scan(&v); err != nil {
-					t.Fatal(err)
-				}
-				count++
-			}
-			if g, w := spanner.ErrCode(rows.Err()), codes.NotFound; g != w {
-				t.Fatalf("error code mismatch\n Got: %v\nWant: %v\nRows: %v\n Tot: %v", g, w, count, len(allResults))
-			}
-			if err := rows.Close(); err != nil {
+			tx, err := BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{})
+			if err != nil {
 				t.Fatal(err)
 			}
-		}
-		if err := tx.Commit(); err != nil {
-			t.Fatal(err)
-		}
+
+			// Add an error for ExecuteStreamingSql.
+			server.TestSpanner.PutExecutionTime(testutil.MethodExecuteStreamingSql, testutil.SimulatedExecutionTime{
+				Errors: []error{status.Error(codes.NotFound, "Partition not found")},
+			})
+			// Also setup results for the partitioned query.
+			maxPartitions, allResults, err := setupRandomPartitionResults(server, testutil.SelectFooFromBar, maxResultsPerPartition)
+			if err != nil {
+				t.Fatalf("failed to set up partition results: %v", err)
+			}
+
+			// Automatically partition and execute a query.
+			rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar,
+				ExecOptions{
+					PartitionedQueryOptions: PartitionedQueryOptions{
+						AutoPartitionQuery: true,
+						MaxParallelism:     rand.Intn(10) + 1,
+						PartitionOptions: spanner.PartitionOptions{
+							MaxPartitions: int64(maxPartitions),
+						},
+					},
+					QueryOptions: spanner.QueryOptions{DataBoostEnabled: true},
+				})
+			// We should get an error either already when the query is executed,
+			// or while iterating through the rows.
+			if err != nil {
+				if g, w := spanner.ErrCode(err), codes.NotFound; g != w {
+					t.Fatalf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+			} else {
+				// Iterate over the rows until we get an error or the end of the results.
+				var v int64
+				count := 0
+				for rows.Next() {
+					if err := rows.Scan(&v); err != nil {
+						t.Fatal(err)
+					}
+					count++
+				}
+				if g, w := spanner.ErrCode(rows.Err()), codes.NotFound; g != w {
+					t.Fatalf("error code mismatch\nGot:  %v\nWant: %v\nRows: %v\nTot:  %v", g, w, count, len(allResults))
+				}
+				if err := rows.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
@@ -477,6 +480,7 @@ func TestRunPartitionedQuery(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			defer server.TestSpanner.DrainRequestsFromServer()
 			var tx queryExecutor
 			var err error
 			if test.withTx {

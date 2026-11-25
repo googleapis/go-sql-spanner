@@ -272,7 +272,7 @@ func (p *TypedConnectionProperty[T]) GetConnectionPropertyValue(state *Connectio
 // It returns an error if no value is found.
 func (p *TypedConnectionProperty[T]) GetValueOrError(state *ConnectionState) (T, bool, error) {
 	if state == nil {
-		return p.zeroAndErr(status.Error(codes.InvalidArgument, "connection state is nil"))
+		return p.zeroAndErr(errNilConnectionState)
 	}
 	value, err := state.value(p /*returnErrForUnknownProperty=*/, true)
 	if err != nil {
@@ -294,7 +294,7 @@ func (p *TypedConnectionProperty[T]) GetValueOrError(state *ConnectionState) (T,
 // the creation of a connection.
 func (p *TypedConnectionProperty[T]) ResetValue(state *ConnectionState, context Context) error {
 	if state == nil {
-		return status.Error(codes.InvalidArgument, "connection state is nil")
+		return errNilConnectionState
 	}
 	value, _ := state.value(p /*returnErrForUnknownProperty=*/, false)
 	if value == nil {
@@ -333,13 +333,16 @@ func (p *TypedConnectionProperty[T]) SetValue(state *ConnectionState, value T, c
 
 func (p *TypedConnectionProperty[T]) setConnectionStateValue(state *ConnectionState, value T, setValueCommand setValueCommand, context Context) error {
 	if state == nil {
-		return status.Error(codes.InvalidArgument, "connection state is nil")
+		return errNilConnectionState
 	}
 	if p.context < context {
 		return status.Errorf(codes.FailedPrecondition, "property has context %s and cannot be set in context %s", p.context, context)
 	}
 	if !state.inTransaction || state.connectionStateType == TypeNonTransactional || context < ContextUser {
 		// Set the value in non-transactional mode.
+		if state.properties == nil {
+			state.properties = make(map[string]ConnectionPropertyValue)
+		}
 		if err := p.setValue(state, state.properties, value, setValueCommand, context); err != nil {
 			return err
 		}
@@ -368,7 +371,7 @@ func (p *TypedConnectionProperty[T]) setConnectionStateValue(state *ConnectionSt
 // SetLocalUntypedValue implements ConnectionProperty.SetLocalUntypedValue.
 func (p *TypedConnectionProperty[T]) SetLocalUntypedValue(state *ConnectionState, value any) error {
 	if state == nil {
-		return status.Error(codes.InvalidArgument, "connection state is nil")
+		return errNilConnectionState
 	}
 	valueT, ok := value.(T)
 	if !ok {
@@ -380,7 +383,7 @@ func (p *TypedConnectionProperty[T]) SetLocalUntypedValue(state *ConnectionState
 // SetStatementScopedUntypedValue implements ConnectionProperty.SetStatementScopedUntypedValue.
 func (p *TypedConnectionProperty[T]) SetStatementScopedUntypedValue(state *ConnectionState, value any) error {
 	if state == nil {
-		return status.Error(codes.InvalidArgument, "connection state is nil")
+		return errNilConnectionState
 	}
 	valueT, ok := value.(T)
 	if !ok {
@@ -392,7 +395,7 @@ func (p *TypedConnectionProperty[T]) SetStatementScopedUntypedValue(state *Conne
 // SetLocalDefaultValue implements ConnectionProperty.SetLocalDefaultValue.
 func (p *TypedConnectionProperty[T]) SetLocalDefaultValue(state *ConnectionState) error {
 	if state == nil {
-		return status.Error(codes.InvalidArgument, "connection state is nil")
+		return errNilConnectionState
 	}
 	return p.setLocalValue(state, p.defaultValue, setValueCommandDefault)
 }
@@ -400,7 +403,7 @@ func (p *TypedConnectionProperty[T]) SetLocalDefaultValue(state *ConnectionState
 // SetStatementScopedDefaultValue implements ConnectionProperty.SetStatementScopedDefaultValue.
 func (p *TypedConnectionProperty[T]) SetStatementScopedDefaultValue(state *ConnectionState) error {
 	if state == nil {
-		return status.Error(codes.InvalidArgument, "connection state is nil")
+		return errNilConnectionState
 	}
 	return p.setStatementScopedValue(state, p.defaultValue, setValueCommandDefault)
 }
@@ -425,7 +428,7 @@ func (p *TypedConnectionProperty[T]) ResetStatementScopedValue(state *Connection
 
 func (p *TypedConnectionProperty[T]) getResetValue(state *ConnectionState) (T, error) {
 	if state == nil {
-		return p.defaultValue, status.Error(codes.InvalidArgument, "connection state is nil")
+		return p.defaultValue, errNilConnectionState
 	}
 	value, err := state.value(p /*returnErrForUnknownProperty=*/, true)
 	if err != nil {
@@ -450,7 +453,7 @@ func (p *TypedConnectionProperty[T]) SetLocalValue(state *ConnectionState, value
 
 func (p *TypedConnectionProperty[T]) setLocalValue(state *ConnectionState, value T, setValueCommand setValueCommand) error {
 	if state == nil {
-		return status.Error(codes.InvalidArgument, "connection state is nil")
+		return errNilConnectionState
 	}
 	if p.context < ContextUser {
 		return status.Error(codes.FailedPrecondition, "SetLocalValue is only supported for properties with context USER or higher")
@@ -473,7 +476,7 @@ func (p *TypedConnectionProperty[T]) SetStatementScopedValue(state *ConnectionSt
 
 func (p *TypedConnectionProperty[T]) setStatementScopedValue(state *ConnectionState, value T, setValueCommand setValueCommand) error {
 	if state == nil {
-		return status.Error(codes.InvalidArgument, "connection state is nil")
+		return errNilConnectionState
 	}
 	if p.context < ContextUser {
 		return status.Error(codes.FailedPrecondition, "SetStatementScopedValue is only supported for properties with context USER or higher")
