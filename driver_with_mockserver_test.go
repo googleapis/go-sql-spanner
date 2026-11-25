@@ -5592,6 +5592,826 @@ func TestBeginReadWriteTransaction(t *testing.T) {
 	}
 }
 
+type cancelOnBeginContext struct {
+	context.Context
+	doneChan chan struct{}
+	once     sync.Once
+}
+
+func newCancelOnBeginContext() *cancelOnBeginContext {
+	return &cancelOnBeginContext{
+		Context:  context.Background(),
+		doneChan: make(chan struct{}),
+	}
+}
+
+func (c *cancelOnBeginContext) Done() <-chan struct{} {
+	return c.doneChan
+}
+
+func (c *cancelOnBeginContext) Err() error {
+	c.once.Do(func() {
+		close(c.doneChan)
+	})
+	return context.Canceled
+}
+
+func TestBeginTransactions_CanceledContext_NoLeak(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		beginFunc    func(ctx context.Context, db *sql.DB) (*sql.Tx, error)
+		cancelMode   string
+		skipInitPing bool
+		wantErr      error
+	}{
+		{
+			name: "ReadWriteTransaction_CancelDuringBegin",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadWriteTransaction(ctx, db, ReadWriteTransactionOptions{})
+			},
+			cancelMode: "during",
+			wantErr:    context.Canceled,
+		},
+		{
+			name: "ReadWriteTransaction_PreCanceled",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadWriteTransaction(ctx, db, ReadWriteTransactionOptions{})
+			},
+			cancelMode: "before",
+			wantErr:    context.Canceled,
+		},
+		{
+			name: "ReadWriteTransaction_ColdPool_PreCanceled",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadWriteTransaction(ctx, db, ReadWriteTransactionOptions{})
+			},
+			cancelMode:   "before",
+			skipInitPing: true,
+			wantErr:      context.Canceled,
+		},
+		{
+			name: "ReadWriteTransaction_DeadlineExceeded",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadWriteTransaction(ctx, db, ReadWriteTransactionOptions{})
+			},
+			cancelMode: "deadline",
+			wantErr:    context.DeadlineExceeded,
+		},
+		{
+			name: "ReadOnlyTransaction_CancelDuringBegin",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadOnlyTransaction(ctx, db, ReadOnlyTransactionOptions{})
+			},
+			cancelMode: "during",
+			wantErr:    context.Canceled,
+		},
+		{
+			name: "ReadOnlyTransaction_PreCanceled",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadOnlyTransaction(ctx, db, ReadOnlyTransactionOptions{})
+			},
+			cancelMode: "before",
+			wantErr:    context.Canceled,
+		},
+		{
+			name: "ReadOnlyTransaction_ColdPool_PreCanceled",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadOnlyTransaction(ctx, db, ReadOnlyTransactionOptions{})
+			},
+			cancelMode:   "before",
+			skipInitPing: true,
+			wantErr:      context.Canceled,
+		},
+		{
+			name: "ReadOnlyTransaction_DeadlineExceeded",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadOnlyTransaction(ctx, db, ReadOnlyTransactionOptions{})
+			},
+			cancelMode: "deadline",
+			wantErr:    context.DeadlineExceeded,
+		},
+		{
+			name: "BatchReadOnlyTransaction_CancelDuringBegin",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{})
+			},
+			cancelMode: "during",
+			wantErr:    context.Canceled,
+		},
+		{
+			name: "BatchReadOnlyTransaction_PreCanceled",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{})
+			},
+			cancelMode: "before",
+			wantErr:    context.Canceled,
+		},
+		{
+			name: "BatchReadOnlyTransaction_ColdPool_PreCanceled",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{})
+			},
+			cancelMode:   "before",
+			skipInitPing: true,
+			wantErr:      context.Canceled,
+		},
+		{
+			name: "BatchReadOnlyTransaction_DeadlineExceeded",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{})
+			},
+			cancelMode: "deadline",
+			wantErr:    context.DeadlineExceeded,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			db, _, teardown := setupTestDBConnection(t)
+			defer teardown()
+			db.SetMaxOpenConns(1)
+
+			if !testCase.skipInitPing {
+				// Ensure the single pooled connection is initialized.
+				if err := db.PingContext(context.Background()); err != nil {
+					t.Fatalf("failed to initialize db connection: %v", err)
+				}
+			}
+
+			var ctx context.Context
+			switch testCase.cancelMode {
+			case "during":
+				ctx = newCancelOnBeginContext()
+			case "deadline":
+				expiredContext, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+				defer cancel()
+				ctx = expiredContext
+			default:
+				preCanceledContext, cancel := context.WithCancel(context.Background())
+				cancel()
+				ctx = preCanceledContext
+			}
+
+			transaction, err := testCase.beginFunc(ctx, db)
+			if err == nil {
+				if transaction != nil {
+					_ = transaction.Rollback()
+				}
+				t.Fatal("expected error with canceled context, got nil")
+			}
+			if g, w := errors.Is(err, testCase.wantErr), true; g != w {
+				t.Fatalf("errors.Is(err, %v) mismatch (err=%v)\nGot:  %v\nWant: %v", testCase.wantErr, err, g, w)
+			}
+			if g, w := db.Stats().InUse, 0; g != w {
+				t.Fatalf("pool InUse mismatch immediately after BeginTx failure\nGot:  %v\nWant: %v", g, w)
+			}
+
+			validContext, validCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer validCancel()
+			if err := db.PingContext(validContext); err != nil {
+				t.Fatalf("failed to ping db after BeginTx failure (connection leaked in pool): %v", err)
+			}
+		})
+	}
+}
+
+func TestBeginTransactions_LifecycleNoConnectionLeak(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		beginFunc func(ctx context.Context, db *sql.DB) (*sql.Tx, error)
+		action    func(ctx context.Context, transaction *sql.Tx) error
+	}{
+		{
+			name: "ReadWriteTransaction_Rollback",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadWriteTransaction(ctx, db, ReadWriteTransactionOptions{})
+			},
+			action: func(ctx context.Context, transaction *sql.Tx) error {
+				return transaction.Rollback()
+			},
+		},
+		{
+			name: "ReadWriteTransaction_Commit",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadWriteTransaction(ctx, db, ReadWriteTransactionOptions{})
+			},
+			action: func(ctx context.Context, transaction *sql.Tx) error {
+				return transaction.Commit()
+			},
+		},
+		{
+			name: "ReadWriteTransaction_QueryAndCommit",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadWriteTransaction(ctx, db, ReadWriteTransactionOptions{})
+			},
+			action: func(ctx context.Context, transaction *sql.Tx) error {
+				rows, err := transaction.QueryContext(ctx, testutil.SelectFooFromBar)
+				if err != nil {
+					return err
+				}
+				for rows.Next() {
+				}
+				if err := rows.Err(); err != nil {
+					_ = rows.Close()
+					return err
+				}
+				_ = rows.Close()
+				return transaction.Commit()
+			},
+		},
+		{
+			name: "ReadOnlyTransaction_Rollback",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadOnlyTransaction(ctx, db, ReadOnlyTransactionOptions{})
+			},
+			action: func(ctx context.Context, transaction *sql.Tx) error {
+				return transaction.Rollback()
+			},
+		},
+		{
+			name: "ReadOnlyTransaction_Commit",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadOnlyTransaction(ctx, db, ReadOnlyTransactionOptions{})
+			},
+			action: func(ctx context.Context, transaction *sql.Tx) error {
+				return transaction.Commit()
+			},
+		},
+		{
+			name: "ReadOnlyTransaction_QueryAndCommit",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadOnlyTransaction(ctx, db, ReadOnlyTransactionOptions{})
+			},
+			action: func(ctx context.Context, transaction *sql.Tx) error {
+				rows, err := transaction.QueryContext(ctx, testutil.SelectFooFromBar)
+				if err != nil {
+					return err
+				}
+				for rows.Next() {
+				}
+				if err := rows.Err(); err != nil {
+					_ = rows.Close()
+					return err
+				}
+				_ = rows.Close()
+				return transaction.Commit()
+			},
+		},
+		{
+			name: "BatchReadOnlyTransaction_Rollback",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{})
+			},
+			action: func(ctx context.Context, transaction *sql.Tx) error {
+				return transaction.Rollback()
+			},
+		},
+		{
+			name: "BatchReadOnlyTransaction_Commit",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{})
+			},
+			action: func(ctx context.Context, transaction *sql.Tx) error {
+				return transaction.Commit()
+			},
+		},
+		{
+			name: "BatchReadOnlyTransaction_QueryAndCommit",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{
+					TimestampBound: spanner.ExactStaleness(time.Second),
+				})
+			},
+			action: func(ctx context.Context, transaction *sql.Tx) error {
+				rows, err := transaction.QueryContext(ctx, testutil.SelectFooFromBar)
+				if err != nil {
+					return err
+				}
+				for rows.Next() {
+				}
+				if err := rows.Err(); err != nil {
+					_ = rows.Close()
+					return err
+				}
+				_ = rows.Close()
+				return transaction.Commit()
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			db, _, teardown := setupTestDBConnection(t)
+			defer teardown()
+			db.SetMaxOpenConns(1)
+
+			ctx := context.Background()
+			if err := db.PingContext(ctx); err != nil {
+				t.Fatalf("failed to initialize db connection: %v", err)
+			}
+
+			transaction, err := testCase.beginFunc(ctx, db)
+			if err != nil {
+				t.Fatalf("failed to begin transaction: %v", err)
+			}
+			if g, w := db.Stats().InUse, 1; g != w {
+				t.Fatalf("pool InUse mismatch while transaction is active\nGot:  %v\nWant: %v", g, w)
+			}
+			if err := testCase.action(ctx, transaction); err != nil {
+				t.Fatalf("action failed: %v", err)
+			}
+			if g, w := db.Stats().InUse, 0; g != w {
+				t.Fatalf("pool InUse mismatch immediately after transaction completion\nGot:  %v\nWant: %v", g, w)
+			}
+
+			validContext, validCancel := context.WithTimeout(ctx, 5*time.Second)
+			defer validCancel()
+			if err := db.PingContext(validContext); err != nil {
+				t.Fatalf("failed to ping db after action (connection leaked in pool): %v", err)
+			}
+		})
+	}
+}
+
+func TestBeginTransactions_OptionsScopedToSingleTransaction(t *testing.T) {
+	t.Parallel()
+
+	maxCommitDelay := 25 * time.Millisecond
+	fullRWOptions := ReadWriteTransactionOptions{
+		DisableInternalRetries: true,
+		TransactionOptions: spanner.TransactionOptions{
+			TransactionTag:              "scoped_rw_tag",
+			CommitPriority:              sppb.RequestOptions_PRIORITY_MEDIUM,
+			BeginTransactionOption:      spanner.ExplicitBeginTransaction,
+			ReadLockMode:                sppb.TransactionOptions_ReadWrite_OPTIMISTIC,
+			IsolationLevel:              sppb.TransactionOptions_REPEATABLE_READ,
+			ExcludeTxnFromChangeStreams: true,
+			CommitOptions: spanner.CommitOptions{
+				MaxCommitDelay:    &maxCommitDelay,
+				ReturnCommitStats: true,
+			},
+		},
+	}
+
+	testCases := []struct {
+		name           string
+		beginScoped    func(ctx context.Context, db *sql.DB) (*sql.Tx, error)
+		rollbackScoped bool
+		nextTxOpts     *sql.TxOptions
+		verifyRequests func(t *testing.T, requests []any)
+	}{
+		{
+			name: "ReadWriteTransaction_Commit",
+			beginScoped: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadWriteTransaction(ctx, db, fullRWOptions)
+			},
+			nextTxOpts: &sql.TxOptions{},
+			verifyRequests: func(t *testing.T, requests []any) {
+				beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+				if g, w := len(beginRequests), 1; g != w {
+					t.Fatalf("BeginTransactionRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				firstBegin := beginRequests[0].(*sppb.BeginTransactionRequest).GetOptions()
+				if firstBegin.GetReadWrite() == nil {
+					t.Fatal("expected first BeginTransactionRequest to be read/write")
+				}
+				if g, w := firstBegin.GetReadWrite().GetReadLockMode(), sppb.TransactionOptions_ReadWrite_OPTIMISTIC; g != w {
+					t.Errorf("first ReadLockMode mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := firstBegin.GetIsolationLevel(), sppb.TransactionOptions_REPEATABLE_READ; g != w {
+					t.Errorf("first IsolationLevel mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := firstBegin.GetExcludeTxnFromChangeStreams(), true; g != w {
+					t.Errorf("first ExcludeTxnFromChangeStreams mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+
+				sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+				if g, w := len(sqlRequests), 2; g != w {
+					t.Fatalf("ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if sqlRequests[0].(*sppb.ExecuteSqlRequest).GetTransaction().GetId() == nil {
+					t.Error("expected first ExecuteSqlRequest to use explicit transaction ID")
+				}
+				if g, w := sqlRequests[0].(*sppb.ExecuteSqlRequest).GetRequestOptions().GetTransactionTag(), "scoped_rw_tag"; g != w {
+					t.Errorf("first transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+
+				secondBegin := sqlRequests[1].(*sppb.ExecuteSqlRequest).GetTransaction().GetBegin()
+				if secondBegin == nil || secondBegin.GetReadWrite() == nil {
+					t.Fatal("expected second ExecuteSqlRequest to inline-begin read/write transaction")
+				}
+				if g, w := secondBegin.GetReadWrite().GetReadLockMode(), sppb.TransactionOptions_ReadWrite_READ_LOCK_MODE_UNSPECIFIED; g != w {
+					t.Errorf("second ReadLockMode mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := secondBegin.GetIsolationLevel(), sppb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED; g != w {
+					t.Errorf("second IsolationLevel mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := secondBegin.GetExcludeTxnFromChangeStreams(), false; g != w {
+					t.Errorf("second ExcludeTxnFromChangeStreams mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := sqlRequests[1].(*sppb.ExecuteSqlRequest).GetRequestOptions().GetTransactionTag(), ""; g != w {
+					t.Errorf("second transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+
+				commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+				if g, w := len(commitRequests), 2; g != w {
+					t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := commitRequests[0].(*sppb.CommitRequest).GetRequestOptions().GetPriority(), sppb.RequestOptions_PRIORITY_MEDIUM; g != w {
+					t.Errorf("first commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := commitRequests[0].(*sppb.CommitRequest).GetReturnCommitStats(), true; g != w {
+					t.Errorf("first ReturnCommitStats mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if commitRequests[0].(*sppb.CommitRequest).GetMaxCommitDelay().AsDuration() != maxCommitDelay {
+					t.Errorf("first MaxCommitDelay mismatch\nGot:  %v\nWant: %v", commitRequests[0].(*sppb.CommitRequest).GetMaxCommitDelay().AsDuration(), maxCommitDelay)
+				}
+				if g, w := commitRequests[1].(*sppb.CommitRequest).GetRequestOptions().GetPriority(), sppb.RequestOptions_PRIORITY_UNSPECIFIED; g != w {
+					t.Errorf("second commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := commitRequests[1].(*sppb.CommitRequest).GetReturnCommitStats(), false; g != w {
+					t.Errorf("second ReturnCommitStats mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if commitRequests[1].(*sppb.CommitRequest).GetMaxCommitDelay() != nil {
+					t.Errorf("expected nil MaxCommitDelay on second commit, got %v", commitRequests[1].(*sppb.CommitRequest).GetMaxCommitDelay())
+				}
+			},
+		},
+		{
+			name: "ReadWriteTransaction_Rollback",
+			beginScoped: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadWriteTransaction(ctx, db, fullRWOptions)
+			},
+			rollbackScoped: true,
+			nextTxOpts:     &sql.TxOptions{},
+			verifyRequests: func(t *testing.T, requests []any) {
+				beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+				if g, w := len(beginRequests), 1; g != w {
+					t.Fatalf("BeginTransactionRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+				if g, w := len(sqlRequests), 2; g != w {
+					t.Fatalf("ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				secondBegin := sqlRequests[1].(*sppb.ExecuteSqlRequest).GetTransaction().GetBegin()
+				if secondBegin == nil || secondBegin.GetReadWrite() == nil {
+					t.Fatal("expected second ExecuteSqlRequest to inline-begin read/write transaction")
+				}
+				if g, w := secondBegin.GetReadWrite().GetReadLockMode(), sppb.TransactionOptions_ReadWrite_READ_LOCK_MODE_UNSPECIFIED; g != w {
+					t.Errorf("second ReadLockMode mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := secondBegin.GetIsolationLevel(), sppb.TransactionOptions_ISOLATION_LEVEL_UNSPECIFIED; g != w {
+					t.Errorf("second IsolationLevel mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := secondBegin.GetExcludeTxnFromChangeStreams(), false; g != w {
+					t.Errorf("second ExcludeTxnFromChangeStreams mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := sqlRequests[1].(*sppb.ExecuteSqlRequest).GetRequestOptions().GetTransactionTag(), ""; g != w {
+					t.Errorf("second transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+			},
+		},
+		{
+			name: "ReadOnlyTransaction_Commit",
+			beginScoped: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadOnlyTransaction(ctx, db, ReadOnlyTransactionOptions{
+					TimestampBound:         spanner.ExactStaleness(10 * time.Second),
+					BeginTransactionOption: spanner.InlinedBeginTransaction,
+				})
+			},
+			nextTxOpts: &sql.TxOptions{ReadOnly: true},
+			verifyRequests: func(t *testing.T, requests []any) {
+				sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+				if g, w := len(sqlRequests), 2; g != w {
+					t.Fatalf("ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if sqlRequests[0].(*sppb.ExecuteSqlRequest).GetTransaction().GetBegin().GetReadOnly().GetExactStaleness() == nil {
+					t.Error("expected exact_staleness on first read-only transaction")
+				}
+				if !sqlRequests[1].(*sppb.ExecuteSqlRequest).GetTransaction().GetBegin().GetReadOnly().GetStrong() {
+					t.Error("expected strong timestamp bound on subsequent standard read-only transaction")
+				}
+			},
+		},
+		{
+			name: "ReadOnlyTransaction_Rollback",
+			beginScoped: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadOnlyTransaction(ctx, db, ReadOnlyTransactionOptions{
+					TimestampBound:         spanner.ExactStaleness(10 * time.Second),
+					BeginTransactionOption: spanner.ExplicitBeginTransaction,
+				})
+			},
+			rollbackScoped: true,
+			nextTxOpts:     &sql.TxOptions{ReadOnly: true},
+			verifyRequests: func(t *testing.T, requests []any) {
+				beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+				if g, w := len(beginRequests), 1; g != w {
+					t.Fatalf("BeginTransactionRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if beginRequests[0].(*sppb.BeginTransactionRequest).GetOptions().GetReadOnly().GetExactStaleness() == nil {
+					t.Error("expected exact_staleness on explicit read-only BeginTransactionRequest")
+				}
+				sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+				if g, w := len(sqlRequests), 2; g != w {
+					t.Fatalf("ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if !sqlRequests[1].(*sppb.ExecuteSqlRequest).GetTransaction().GetBegin().GetReadOnly().GetStrong() {
+					t.Error("expected strong timestamp bound on subsequent standard read-only transaction")
+				}
+			},
+		},
+		{
+			name: "BatchReadOnlyTransaction_Commit",
+			beginScoped: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{
+					TimestampBound: spanner.ExactStaleness(10 * time.Second),
+				})
+			},
+			nextTxOpts: &sql.TxOptions{ReadOnly: true},
+			verifyRequests: func(t *testing.T, requests []any) {
+				beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+				if g, w := len(beginRequests), 1; g != w {
+					t.Fatalf("BeginTransactionRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if beginRequests[0].(*sppb.BeginTransactionRequest).GetOptions().GetReadOnly().GetExactStaleness() == nil {
+					t.Error("expected exact_staleness on BatchReadOnlyTransaction")
+				}
+				sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+				if g, w := len(sqlRequests), 2; g != w {
+					t.Fatalf("ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if !sqlRequests[1].(*sppb.ExecuteSqlRequest).GetTransaction().GetBegin().GetReadOnly().GetStrong() {
+					t.Error("expected strong timestamp bound on subsequent standard read-only transaction")
+				}
+			},
+		},
+		{
+			name: "BatchReadOnlyTransaction_Rollback",
+			beginScoped: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{
+					TimestampBound: spanner.ExactStaleness(10 * time.Second),
+				})
+			},
+			rollbackScoped: true,
+			nextTxOpts:     &sql.TxOptions{ReadOnly: true},
+			verifyRequests: func(t *testing.T, requests []any) {
+				beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.BeginTransactionRequest{}))
+				if g, w := len(beginRequests), 1; g != w {
+					t.Fatalf("BeginTransactionRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if beginRequests[0].(*sppb.BeginTransactionRequest).GetOptions().GetReadOnly().GetExactStaleness() == nil {
+					t.Error("expected exact_staleness on BatchReadOnlyTransaction")
+				}
+				sqlRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+				if g, w := len(sqlRequests), 2; g != w {
+					t.Fatalf("ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if !sqlRequests[1].(*sppb.ExecuteSqlRequest).GetTransaction().GetBegin().GetReadOnly().GetStrong() {
+					t.Error("expected strong timestamp bound on subsequent standard read-only transaction")
+				}
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			db, server, teardown := setupTestDBConnection(t)
+			defer teardown()
+			db.SetMaxOpenConns(1)
+
+			ctx := context.Background()
+			tx, err := testCase.beginScoped(ctx, db)
+			if err != nil {
+				t.Fatalf("beginScoped failed: %v", err)
+			}
+			rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for rows.Next() {
+			}
+			if err := rows.Err(); err != nil {
+				_ = rows.Close()
+				t.Fatal(err)
+			}
+			_ = rows.Close()
+			if testCase.rollbackScoped {
+				if err := tx.Rollback(); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if err := tx.Commit(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if g, w := db.Stats().InUse, 0; g != w {
+				t.Fatalf("pool InUse mismatch after transaction completion\nGot:  %v\nWant: %v", g, w)
+			}
+
+			var retryAborts bool
+			if err := db.QueryRowContext(ctx, "SHOW VARIABLE retry_aborts_internally").Scan(&retryAborts); err != nil {
+				t.Fatalf("failed to query retry_aborts_internally: %v", err)
+			}
+			if g, w := retryAborts, true; g != w {
+				t.Errorf("retry_aborts_internally mismatch after scoped transaction\nGot:  %v\nWant: %v", g, w)
+			}
+
+			// Subsequent standard BeginTx on the same pooled connection must not inherit scoped options.
+			nextTx, err := db.BeginTx(ctx, testCase.nextTxOpts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			nextRows, err := nextTx.QueryContext(ctx, testutil.SelectFooFromBar)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for nextRows.Next() {
+			}
+			if err := nextRows.Err(); err != nil {
+				_ = nextRows.Close()
+				t.Fatal(err)
+			}
+			_ = nextRows.Close()
+			if err := nextTx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+
+			testCase.verifyRequests(t, server.TestSpanner.DrainRequestsFromServer())
+		})
+	}
+}
+
+func TestBeginTransactions_CancelAfterReturn_NoLeak(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		beginFunc func(ctx context.Context, db *sql.DB) (*sql.Tx, error)
+	}{
+		{
+			name: "ReadWriteTransaction",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadWriteTransaction(ctx, db, ReadWriteTransactionOptions{
+					DisableInternalRetries: true,
+					TransactionOptions: spanner.TransactionOptions{
+						TransactionTag: "canceled_after_begin",
+					},
+				})
+			},
+		},
+		{
+			name: "ReadOnlyTransaction",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadOnlyTransaction(ctx, db, ReadOnlyTransactionOptions{
+					TimestampBound: spanner.ExactStaleness(10 * time.Second),
+				})
+			},
+		},
+		{
+			name: "BatchReadOnlyTransaction",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{
+					TimestampBound: spanner.ExactStaleness(10 * time.Second),
+				})
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			db, _, teardown := setupTestDBConnection(t)
+			defer teardown()
+			db.SetMaxOpenConns(1)
+
+			txCtx, txCancel := context.WithCancel(context.Background())
+			tx, err := testCase.beginFunc(txCtx, db)
+			if err != nil {
+				txCancel()
+				t.Fatalf("failed to begin transaction: %v", err)
+			}
+
+			// Cancel after Begin*Transaction returns so database/sql's tx.awaitDone() rolls back the tx.
+			txCancel()
+			if commitErr := tx.Commit(); commitErr == nil {
+				t.Fatal("expected Commit error after context cancellation, got nil")
+			}
+
+			// PingContext blocks until tx.awaitDone() finishes releasing the single pooled connection.
+			validCtx, validCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer validCancel()
+			if err := db.PingContext(validCtx); err != nil {
+				t.Fatalf("failed to ping db after tx cancellation (connection leaked in pool): %v", err)
+			}
+			if g, w := db.Stats().InUse, 0; g != w {
+				t.Fatalf("pool InUse mismatch after PingContext\nGot:  %v\nWant: %v", g, w)
+			}
+
+			var retryAborts bool
+			if err := db.QueryRowContext(validCtx, "SHOW VARIABLE retry_aborts_internally").Scan(&retryAborts); err != nil {
+				t.Fatalf("failed to query retry_aborts_internally: %v", err)
+			}
+			if g, w := retryAborts, true; g != w {
+				t.Errorf("retry_aborts_internally leaked after canceled transaction\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
+func TestBeginTransactions_Concurrent(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		beginFunc func(ctx context.Context, db *sql.DB) (*sql.Tx, error)
+	}{
+		{
+			name: "ReadWriteTransaction",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadWriteTransaction(ctx, db, ReadWriteTransactionOptions{
+					TransactionOptions: spanner.TransactionOptions{
+						TransactionTag: "concurrent_rw",
+					},
+				})
+			},
+		},
+		{
+			name: "ReadOnlyTransaction",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadOnlyTransaction(ctx, db, ReadOnlyTransactionOptions{
+					TimestampBound: spanner.StrongRead(),
+				})
+			},
+		},
+		{
+			name: "BatchReadOnlyTransaction",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{
+					TimestampBound: spanner.StrongRead(),
+				})
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			db, _, teardown := setupTestDBConnection(t)
+			defer teardown()
+			db.SetMaxOpenConns(2)
+
+			const workers = 8
+			ctx := context.Background()
+			errs := make(chan error, workers)
+			var wg sync.WaitGroup
+			for i := 0; i < workers; i++ {
+				wg.Add(1)
+				go func(workerID int) {
+					defer wg.Done()
+					tx, err := testCase.beginFunc(ctx, db)
+					if err != nil {
+						errs <- fmt.Errorf("worker %d begin: %w", workerID, err)
+						return
+					}
+					rows, err := tx.QueryContext(ctx, testutil.SelectFooFromBar)
+					if err != nil {
+						_ = tx.Rollback()
+						errs <- fmt.Errorf("worker %d query: %w", workerID, err)
+						return
+					}
+					for rows.Next() {
+					}
+					if err := rows.Err(); err != nil {
+						_ = rows.Close()
+						_ = tx.Rollback()
+						errs <- fmt.Errorf("worker %d rows: %w", workerID, err)
+						return
+					}
+					_ = rows.Close()
+					if workerID%2 == 0 {
+						err = tx.Commit()
+					} else {
+						err = tx.Rollback()
+					}
+					if err != nil {
+						errs <- fmt.Errorf("worker %d end: %w", workerID, err)
+					}
+				}(i)
+			}
+			wg.Wait()
+			close(errs)
+			for err := range errs {
+				t.Errorf("concurrent worker failed: %v", err)
+			}
+			if g, w := db.Stats().InUse, 0; g != w {
+				t.Fatalf("pool InUse mismatch after concurrent transactions\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
 func TestCustomClientConfig(t *testing.T) {
 	t.Parallel()
 

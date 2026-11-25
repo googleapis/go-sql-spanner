@@ -177,43 +177,9 @@ func (p *partitionedQueryRows) Next(dest []driver.Value) error {
 // the transaction. Failure to do so will cause the connection that is used for
 // the transaction to be leaked.
 func BeginBatchReadOnlyTransaction(ctx context.Context, db *sql.DB, options BatchReadOnlyTransactionOptions) (*sql.Tx, error) {
-	conn, err := db.Conn(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if err := withTransactionCloseFunc(conn, func() {
-		// Close the connection asynchronously, as the transaction will still
-		// be active when we hit this point.
-		go conn.Close()
-	}); err != nil {
-		return nil, err
-	}
-	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: WithBatchReadOnly(sql.LevelDefault)})
-	if err := withTempBatchReadOnlyTransactionOptions(conn, &options); err != nil {
-		return nil, err
-	}
-	if err != nil {
-		clearTempBatchReadOnlyTransactionOptions(conn)
-		return nil, err
-	}
-	return tx, nil
-}
-
-func withTempBatchReadOnlyTransactionOptions(conn *sql.Conn, options *BatchReadOnlyTransactionOptions) error {
-	return conn.Raw(func(driverConn any) error {
-		spannerConn, ok := driverConn.(SpannerConn)
-		if !ok {
-			// It is not a Spanner connection.
-			return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "This function can only be used with a Spanner connection"))
-		}
-		spannerConn.setBatchReadOnlyTransactionOptions(options)
-		return nil
+	return beginTransactionWithOptions(ctx, db, &sql.TxOptions{ReadOnly: true, Isolation: WithBatchReadOnly(sql.LevelDefault)}, &txOptionsCarrier{
+		batchReadOnlyOptions: &options,
 	})
-}
-
-func clearTempBatchReadOnlyTransactionOptions(conn *sql.Conn) {
-	_ = withTempBatchReadOnlyTransactionOptions(conn, nil)
-	_ = conn.Close()
 }
 
 func (pq *PartitionedQuery) Execute(ctx context.Context, index int, db *sql.DB) (*sql.Rows, error) {

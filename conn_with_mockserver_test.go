@@ -17,6 +17,7 @@ package spannerdriver
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"reflect"
 	"testing"
@@ -3607,5 +3608,91 @@ func TestConn_StartBatchDMLWithOptions_InTransaction_AbortedRetry(t *testing.T) 
 	finalCommit := commitRequests[1].(*spannerpb.CommitRequest)
 	if g, w := finalCommit.RequestOptions.GetTransactionTag(), "retry_batch_tx"; g != w {
 		t.Errorf("final commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConn_BeginTransactions_CloseCallback_MockServer(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name       string
+		isReadOnly bool
+	}{
+		{
+			name:       "ReadWrite",
+			isReadOnly: false,
+		},
+		{
+			name:       "ReadOnly",
+			isReadOnly: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			db, _, teardown := setupTestDBConnection(t)
+			defer teardown()
+
+			ctx := context.Background()
+			connection, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer silentClose(connection)
+
+			closeCalls := 0
+			var driverTransaction driver.Tx
+			if err := connection.Raw(func(driverConn any) error {
+				rawConn, ok := driverConn.(*conn)
+				if !ok {
+					return fmt.Errorf("not a *conn")
+				}
+				var beginErr error
+				if testCase.isReadOnly {
+					driverTransaction, beginErr = rawConn.BeginReadOnlyTransaction(ctx, &ReadOnlyTransactionOptions{}, func() {
+						closeCalls++
+					})
+				} else {
+					driverTransaction, beginErr = rawConn.BeginReadWriteTransaction(ctx, &ReadWriteTransactionOptions{}, func() {
+						closeCalls++
+					})
+				}
+				return beginErr
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Execute a query to activate the transaction on the mock server, then commit it.
+			if err := connection.Raw(func(driverConn any) error {
+				queryer, ok := driverConn.(driver.QueryerContext)
+				if !ok {
+					return fmt.Errorf("driverConn does not implement QueryerContext")
+				}
+				rows, queryErr := queryer.QueryContext(ctx, testutil.SelectFooFromBar, nil)
+				if queryErr != nil {
+					return queryErr
+				}
+				_ = rows.Close()
+				return driverTransaction.Commit()
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			if g, w := closeCalls, 1; g != w {
+				t.Fatalf("close callback count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			// A subsequent standard BeginTx on the same connection must not re-invoke the callback.
+			nextTransaction, err := connection.BeginTx(ctx, &sql.TxOptions{ReadOnly: testCase.isReadOnly})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := nextTransaction.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			if g, w := closeCalls, 1; g != w {
+				t.Errorf("close callback count changed after subsequent BeginTx\nGot:  %v\nWant: %v", g, w)
+			}
+		})
 	}
 }
