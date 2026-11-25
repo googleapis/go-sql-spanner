@@ -219,6 +219,9 @@ func (d *delegatingTransaction) rollbackBackendTransaction() {
 }
 
 func (d *delegatingTransaction) Commit() error {
+	if d == nil {
+		return noTransaction()
+	}
 	d.closed = true
 	if d.conn != nil && d.conn.state.TransactionState() == connectionstate.TransactionStateFailed &&
 		d.conn.state.InErrorTxBehavior() == connectionstate.InErrorTxBehaviorEnforceInErrorState {
@@ -239,6 +242,9 @@ func (d *delegatingTransaction) Commit() error {
 }
 
 func (d *delegatingTransaction) Rollback() error {
+	if d == nil {
+		return noTransaction()
+	}
 	d.closed = true
 	if d.conn != nil && d.conn.state.TransactionState() == connectionstate.TransactionStateFailed &&
 		d.conn.state.InErrorTxBehavior() == connectionstate.InErrorTxBehaviorEnforceInErrorState {
