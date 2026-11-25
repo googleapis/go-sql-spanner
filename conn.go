@@ -228,6 +228,8 @@ type SpannerConn interface {
 	// was executed on the connection, or an error if the connection has not executed a read/write transaction
 	// that committed successfully.
 	CommitResponse() (commitResponse *spanner.CommitResponse, err error)
+	// LastDDLOperationID returns the operation ID of the last DDL operation that was executed on this connection.
+	LastDDLOperationID() string
 	// ReadOnlyTransactionTimestamp returns the read timestamp chosen by Cloud Spanner
 	// for the current read-only transaction, or an error if there is no active
 	// read-only transaction.
@@ -286,8 +288,6 @@ type conn struct {
 	// tempExecOptions can be set by passing it in as an argument to ExecContext or QueryContext
 	// and are applied only to that statement.
 	tempExecOptions *ExecOptions
-	// lastDDLOperationID is the ID of the last DDL operation that was executed on this connection.
-	lastDDLOperationID string
 }
 
 func (c *conn) isPostgreSQL() bool {
@@ -338,6 +338,19 @@ func (c *conn) setCommitResponse(commitResponse *spanner.CommitResponse) {
 	}
 	_ = propertyCommitResponse.SetValue(c.state, commitResponse, connectionstate.ContextUser)
 	_ = propertyCommitTimestamp.SetValue(c.state, &commitResponse.CommitTs, connectionstate.ContextUser)
+}
+
+func (c *conn) LastDDLOperationID() string {
+	if c.state == nil {
+		return ""
+	}
+	return propertyLastDDLOperationID.GetValueOrDefault(c.state)
+}
+
+func (c *conn) setLastDDLOperationID(opID string) {
+	if c.state != nil {
+		_ = propertyLastDDLOperationID.SetValue(c.state, opID, connectionstate.ContextUser)
+	}
 }
 
 func (c *conn) showConnectionVariable(identifier parser.Identifier) (any, bool, error) {
@@ -783,7 +796,7 @@ func (c *conn) execDDL(ctx context.Context, statements ...spanner.Statement) (dr
 			if err != nil {
 				return nil, err
 			}
-			c.lastDDLOperationID = op.Name()
+			c.setLastDDLOperationID(op.Name())
 
 			if err := c.waitForDDLOperation(ctx, op.Name(), func(ctx context.Context) error {
 				_, err := op.Wait(ctx)

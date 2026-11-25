@@ -60,14 +60,14 @@ func TestDDLExecutionModeAsync(t *testing.T) {
 		t.Fatalf("ExecContext took too long for ASYNC mode")
 	}
 
-	// Double check that the internal operation ID is also set (legacy check)
+	// Double check that the internal operation ID is also set
 	err = c.Raw(func(driverConn interface{}) error {
-		sc, ok := driverConn.(*conn)
+		sc, ok := driverConn.(SpannerConn)
 		if !ok {
-			return fmt.Errorf("expected *conn, got %T", driverConn)
+			return fmt.Errorf("expected SpannerConn, got %T", driverConn)
 		}
-		if sc.lastDDLOperationID != opName {
-			return fmt.Errorf("expected operation ID %q, got %q", opName, sc.lastDDLOperationID)
+		if g, w := sc.LastDDLOperationID(), opName; g != w {
+			return fmt.Errorf("expected operation ID %q, got %q", w, g)
 		}
 		return nil
 	})
@@ -76,6 +76,7 @@ func TestDDLExecutionModeAsync(t *testing.T) {
 	}
 
 	verifyConnectionPropertyValue(t, c, "ddl_execution_mode", "ASYNC")
+	verifyConnectionPropertyValue(t, c, "last_ddl_operation_id", opName)
 }
 
 func TestDDLExecutionModeAsyncWait_Success(t *testing.T) {
@@ -352,4 +353,81 @@ func executeDDLAndVerifyOpID(ctx context.Context, c *sql.Conn, opName string) er
 		}
 		return nil
 	})
+}
+
+func TestLastDDLOperationID_ShowVariableAndReset(t *testing.T) {
+	t.Parallel()
+
+	db, server, teardown := setupTestDBConnectionWithParams(t, "ddl_execution_mode=ASYNC")
+	defer teardown()
+	ctx := context.Background()
+
+	c, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(c)
+
+	// Verify initial value is empty string.
+	verifyConnectionPropertyValue(t, c, "last_ddl_operation_id", "")
+	err = c.Raw(func(driverConn interface{}) error {
+		sc, ok := driverConn.(SpannerConn)
+		if !ok {
+			return fmt.Errorf("expected SpannerConn, got %T", driverConn)
+		}
+		if g, w := sc.LastDDLOperationID(), ""; g != w {
+			return fmt.Errorf("initial operation ID mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Setting read-only property last_ddl_operation_id must fail.
+	verifySetFails(t, c, "last_ddl_operation_id", "'some-op-id'")
+
+	// Mock an operation that is NOT done.
+	opName := "projects/p/instances/i/databases/d/operations/op-last-ddl-test"
+	server.TestDatabaseAdmin.SetResps([]proto.Message{
+		&longrunningpb.Operation{
+			Name: opName,
+			Done: false,
+		},
+	})
+
+	if err := executeDDLAndVerifyOpID(ctx, c, opName); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify property is updated to the operation ID.
+	verifyConnectionPropertyValue(t, c, "last_ddl_operation_id", opName)
+	err = c.Raw(func(driverConn interface{}) error {
+		sc, ok := driverConn.(SpannerConn)
+		if !ok {
+			return fmt.Errorf("expected SpannerConn, got %T", driverConn)
+		}
+		if g, w := sc.LastDDLOperationID(), opName; g != w {
+			return fmt.Errorf("operation ID mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+
+		// Reset session manually and verify that last_ddl_operation_id is cleared.
+		resetter, ok := driverConn.(driver.SessionResetter)
+		if !ok {
+			return fmt.Errorf("expected driver.SessionResetter, got %T", driverConn)
+		}
+		if err := resetter.ResetSession(ctx); err != nil {
+			return err
+		}
+		if g, w := sc.LastDDLOperationID(), ""; g != w {
+			return fmt.Errorf("operation ID after ResetSession mismatch\nGot:  %v\nWant: %v", g, w)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify SHOW VARIABLE also reflects the reset value.
+	verifyConnectionPropertyValue(t, c, "last_ddl_operation_id", "")
 }
