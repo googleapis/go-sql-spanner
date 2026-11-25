@@ -15,9 +15,12 @@
 package spannerdriver
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -660,11 +663,6 @@ type connector struct {
 	// to be passed to the underlying client.
 	options []option.ClientOption
 
-	// retryAbortsInternally determines whether Aborted errors will automatically be
-	// retried internally (when possible), or whether all aborted errors will be
-	// propagated to the caller. This option is enabled by default.
-	retryAbortsInternally bool
-
 	clientMu       sync.Mutex
 	client         *spanner.Client
 	clientErr      error
@@ -702,12 +700,147 @@ func newOrCachedConnector(d *Driver, dsn string) (*connector, error) {
 	return c, nil
 }
 
+const maxCredentialFileSize = 10 * 1024 * 1024 // 10MB limit
+
+// credentialPayload represents the minimal JSON structure needed to validate credential types.
+type credentialPayload struct {
+	Type string `json:"type"`
+}
+
+func isJSONObject(data []byte) bool {
+	trimmed := bytes.TrimSpace(data)
+	return len(trimmed) >= 2 && trimmed[0] == '{' && trimmed[len(trimmed)-1] == '}' && json.Valid(trimmed)
+}
+
+func parseAndValidateCredentialType(data []byte) (option.CredentialsType, error) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return "", status.Errorf(codes.InvalidArgument, "credentials data is empty")
+	}
+	if !isJSONObject(trimmed) {
+		return "", status.Errorf(codes.InvalidArgument, "credentials data must be a valid JSON object")
+	}
+	var payload credentialPayload
+	if err := json.Unmarshal(trimmed, &payload); err != nil {
+		return "", status.Errorf(codes.InvalidArgument, "failed to parse credentials JSON: %v", err)
+	}
+	if payload.Type == "" {
+		return "", status.Errorf(codes.InvalidArgument, "credentials JSON does not contain a 'type' field")
+	}
+	switch payload.Type {
+	case string(option.ServiceAccount):
+		return option.ServiceAccount, nil
+	case string(option.AuthorizedUser):
+		return option.AuthorizedUser, nil
+	default:
+		return "", status.Errorf(codes.InvalidArgument,
+			"unsupported credential type %q; only 'service_account' and 'authorized_user' are supported via connection properties",
+			payload.Type)
+	}
+}
+
+func decodeCredentialJSON(raw string) ([]byte, error) {
+	if len(raw) > maxCredentialFileSize {
+		return nil, status.Errorf(codes.InvalidArgument, "credentials_json exceeds maximum allowed size of %d bytes", maxCredentialFileSize)
+	}
+	trimmed := strings.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "credentials data is empty")
+	}
+	data := []byte(trimmed)
+	if isJSONObject(data) {
+		return data, nil
+	}
+	encodings := []*base64.Encoding{
+		base64.StdEncoding,
+		base64.URLEncoding,
+		base64.RawStdEncoding,
+		base64.RawURLEncoding,
+	}
+	candidates := []string{trimmed}
+	if strings.Contains(trimmed, " ") {
+		candidates = append(candidates, strings.ReplaceAll(trimmed, " ", "+"))
+	}
+	for _, candidate := range candidates {
+		for _, encoding := range encodings {
+			if decoded, err := encoding.DecodeString(candidate); err == nil && isJSONObject(decoded) {
+				return decoded, nil
+			}
+		}
+	}
+	return nil, status.Errorf(codes.InvalidArgument, "credentials_json must be a valid JSON object or base64-encoded JSON object")
+}
+
+func readBoundedCredentialFile(filename string) ([]byte, error) {
+	fileInfo, err := os.Stat(filename)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "cannot read credentials file %q: %v", filename, err)
+	}
+	if !fileInfo.Mode().IsRegular() {
+		return nil, status.Errorf(codes.InvalidArgument, "credentials file %q is not a regular file", filename)
+	}
+	if fileInfo.Size() > maxCredentialFileSize {
+		return nil, status.Errorf(codes.InvalidArgument, "credentials file %q exceeds maximum allowed size of %d bytes", filename, maxCredentialFileSize)
+	}
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "cannot read credentials file %q: %v", filename, err)
+	}
+	defer file.Close()
+
+	if fi, err := file.Stat(); err != nil || !fi.Mode().IsRegular() {
+		return nil, status.Errorf(codes.InvalidArgument, "credentials file %q is not a regular file", filename)
+	}
+
+	data, err := io.ReadAll(io.LimitReader(file, maxCredentialFileSize+1))
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "cannot read credentials file %q: %v", filename, err)
+	}
+	if int64(len(data)) > maxCredentialFileSize {
+		return nil, status.Errorf(codes.InvalidArgument, "credentials file %q exceeds maximum allowed size of %d bytes", filename, maxCredentialFileSize)
+	}
+	if len(data) == 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "credentials data is empty")
+	}
+	return data, nil
+}
+
+func resolveAndValidateCredentials(credentialsFile, credentialsJSON string) ([]option.ClientOption, error) {
+	if credentialsFile != "" && credentialsJSON != "" {
+		return nil, spanner.ToSpannerError(status.Errorf(codes.InvalidArgument, "cannot specify both 'credentials' and 'credentials_json' in connection properties"))
+	}
+	if credentialsFile != "" {
+		data, err := readBoundedCredentialFile(credentialsFile)
+		if err != nil {
+			return nil, spanner.ToSpannerError(err)
+		}
+		credType, err := parseAndValidateCredentialType(data)
+		if err != nil {
+			return nil, spanner.ToSpannerError(err)
+		}
+		return []option.ClientOption{option.WithAuthCredentialsFile(credType, credentialsFile)}, nil
+	}
+	if credentialsJSON != "" {
+		data, err := decodeCredentialJSON(credentialsJSON)
+		if err != nil {
+			return nil, spanner.ToSpannerError(err)
+		}
+		credType, err := parseAndValidateCredentialType(data)
+		if err != nil {
+			return nil, spanner.ToSpannerError(err)
+		}
+		return []option.ClientOption{option.WithAuthCredentialsJSON(credType, data)}, nil
+	}
+	return nil, nil
+}
+
 func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, error) {
 	opts := make([]option.ClientOption, 0)
 	initialPropertyValues, err := connectionstate.ExtractValues(connectionProperties, connectorConfig.Params)
 	if err != nil {
 		return nil, err
 	}
+	mergeConnectorConfigIntoInitialValues(connectorConfig, initialPropertyValues)
 	state := createConfiguredConnectionState(initialPropertyValues)
 
 	assignPropertyValueIfExists(state, propertyEndpoint, &connectorConfig.Host)
@@ -718,16 +851,14 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 	if connectorConfig.Authority != "" {
 		opts = append(opts, option.WithGRPCDialOption(grpc.WithAuthority(connectorConfig.Authority)))
 	}
-	if val := propertyCredentials.GetValueOrDefault(state); val != "" {
-		// TODO: Replace with option.WithAuthCredentialsFile and a config option to fall back to this.
-		//lint:ignore SA1019 Needs a change that is backwards compatible
-		opts = append(opts, option.WithCredentialsFile(val))
+	credOpts, err := resolveAndValidateCredentials(
+		propertyCredentials.GetValueOrDefault(state),
+		propertyCredentialsJson.GetValueOrDefault(state),
+	)
+	if err != nil {
+		return nil, err
 	}
-	if val := propertyCredentialsJson.GetValueOrDefault(state); val != "" {
-		// TODO: Replace with option.WithAuthCredentialsJSON and a config option to fall back to this.
-		//lint:ignore SA1019 Needs a change that is backwards compatible
-		opts = append(opts, option.WithCredentialsJSON([]byte(val)))
-	}
+	opts = append(opts, credOpts...)
 	config := spanner.ClientConfig{
 		//lint:ignore SA1019 Needs a change that is backwards compatible
 		SessionPoolConfig: spanner.DefaultSessionPoolConfig,
@@ -829,7 +960,7 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 			"cannot change spanner instance type in Configurator: was %v, changed to %v; set 'type' in connection string or Params instead",
 			expectedType, config.Type))
 	}
-	if connectorConfig.AutoConfigEmulator {
+	if propertyAutoConfigEmulator.GetValueOrDefault(state) {
 		if connectorConfig.Host == "" {
 			connectorConfig.Host = "localhost:9010"
 		}
@@ -853,10 +984,7 @@ func createConnector(d *Driver, connectorConfig ConnectorConfig) (*connector, er
 		logger:                logger,
 		spannerClientConfig:   config,
 		options:               opts,
-		// TODO: Remove retryAbortsInternally from this struct
-		retryAbortsInternally: propertyRetryAbortsInternally.GetValueOrDefault(state),
 	}
-	addStateFromConnectorConfig(c, c.initialPropertyValues)
 	return c, nil
 }
 
@@ -921,19 +1049,13 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 		c.connectorConfig.Project,
 		c.connectorConfig.Instance,
 		c.connectorConfig.Database)
-	c.clientMu.Lock()
-	value, ok := c.initialPropertyValues[propertyConnectTimeout.Key()]
-	c.clientMu.Unlock()
-	if ok {
-		if timeout, err := value.GetValue(); err == nil {
-			if duration, ok := timeout.(time.Duration); ok {
-				var cancel context.CancelFunc
-				// This will set the actual timeout of the context to the lower of the
-				// current context timeout (if any) and the value from the connection property.
-				ctx, cancel = context.WithTimeout(ctx, duration)
-				defer cancel()
-			}
-		}
+	state := c.configuredConnectionState()
+	if timeout := propertyConnectTimeout.GetValueOrDefault(state); timeout > 0 {
+		var cancel context.CancelFunc
+		// This will set the actual timeout of the context to the lower of the
+		// current context timeout (if any) and the value from the connection property.
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
 
 	if err := c.increaseConnCount(ctx, databaseName, opts); err != nil {
@@ -942,7 +1064,7 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 
 	connId := uuid.New().String()
 	logger := c.logger.With("connId", connId)
-	connectionStateType := c.connectorConfig.ConnectionStateType
+	connectionStateType := propertyConnectionStateType.GetValueOrDefault(state)
 	if connectionStateType == connectionstate.TypeDefault {
 		if c.parser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
 			connectionStateType = connectionstate.TypeTransactional
@@ -970,14 +1092,47 @@ func openDriverConn(ctx context.Context, c *connector) (driver.Conn, error) {
 	return connection, nil
 }
 
-func addStateFromConnectorConfig(c *connector, values map[string]connectionstate.ConnectionPropertyValue) {
-	updateConnectionPropertyValueIfNotExists(propertyDecodeToNativeArrays, values, c.connectorConfig.DecodeToNativeArrays)
-	updateConnectionPropertyValueIfNotExists(propertyIsolationLevel, values, c.connectorConfig.IsolationLevel)
-	updateConnectionPropertyValueIfNotExists(propertyBeginTransactionOption, values, c.connectorConfig.BeginTransactionOption)
-	updateConnectionPropertyValueIfNotExists(propertyRetryAbortsInternally, values, c.retryAbortsInternally)
-	updateConnectionPropertyValueIfNotExists(propertyAutoBatchDml, values, c.connectorConfig.AutoBatchDml)
-	updateConnectionPropertyValueIfNotExists(propertyAutoBatchDmlUpdateCount, values, c.connectorConfig.AutoBatchDmlUpdateCount)
-	updateConnectionPropertyValueIfNotExists(propertyAutoBatchDmlUpdateCountVerification, values, !c.connectorConfig.DisableAutoBatchDmlUpdateCountVerification)
+func (c *connector) configuredConnectionState() *connectionstate.ConnectionState {
+	c.clientMu.Lock()
+	defer c.clientMu.Unlock()
+	return c.configuredConnectionStateLocked()
+}
+
+func (c *connector) configuredConnectionStateLocked() *connectionstate.ConnectionState {
+	return createConfiguredConnectionState(c.initialPropertyValues)
+}
+
+func mergeConnectorConfigIntoInitialValues(connectorConfig ConnectorConfig, values map[string]connectionstate.ConnectionPropertyValue) {
+	if connectorConfig.DecodeToNativeArrays {
+		updateConnectionPropertyValueIfNotExists(propertyDecodeToNativeArrays, values, true)
+	}
+	if connectorConfig.IsolationLevel != sql.LevelDefault {
+		updateConnectionPropertyValueIfNotExists(propertyIsolationLevel, values, connectorConfig.IsolationLevel)
+	}
+	if connectorConfig.BeginTransactionOption != spanner.DefaultBeginTransaction {
+		updateConnectionPropertyValueIfNotExists(propertyBeginTransactionOption, values, connectorConfig.BeginTransactionOption)
+	}
+	if connectorConfig.AutoBatchDml {
+		updateConnectionPropertyValueIfNotExists(propertyAutoBatchDml, values, true)
+	}
+	if connectorConfig.AutoBatchDmlUpdateCount != 0 {
+		updateConnectionPropertyValueIfNotExists(propertyAutoBatchDmlUpdateCount, values, connectorConfig.AutoBatchDmlUpdateCount)
+	}
+	if connectorConfig.DisableAutoBatchDmlUpdateCountVerification {
+		updateConnectionPropertyValueIfNotExists(propertyAutoBatchDmlUpdateCountVerification, values, false)
+	}
+	if connectorConfig.ConnectionStateType != connectionstate.TypeDefault {
+		updateConnectionPropertyValueIfNotExists(propertyConnectionStateType, values, connectorConfig.ConnectionStateType)
+	}
+	if connectorConfig.StatementCacheSize != 0 {
+		updateConnectionPropertyValueIfNotExists(propertyStatementCacheSize, values, connectorConfig.StatementCacheSize)
+	}
+	if connectorConfig.DisableStatementCache {
+		updateConnectionPropertyValueIfNotExists(propertyDisableStatementCache, values, true)
+	}
+	if connectorConfig.AutoConfigEmulator {
+		updateConnectionPropertyValueIfNotExists(propertyAutoConfigEmulator, values, true)
+	}
 }
 
 func updateConnectionPropertyValueIfNotExists[T comparable](property *connectionstate.TypedConnectionProperty[T], values map[string]connectionstate.ConnectionPropertyValue, value T) {
@@ -1013,11 +1168,12 @@ func (c *connector) increaseConnCount(ctx context.Context, databaseName string, 
 			closeClient()
 			return err
 		} else {
+			state := c.configuredConnectionStateLocked()
 			// Create a separate statement parser and cache per connector.
-			cacheSize := c.connectorConfig.StatementCacheSize
-			if c.connectorConfig.DisableStatementCache {
+			cacheSize := propertyStatementCacheSize.GetValueOrDefault(state)
+			if propertyDisableStatementCache.GetValueOrDefault(state) {
 				cacheSize = 0
-			} else if c.connectorConfig.StatementCacheSize == 0 {
+			} else if cacheSize == 0 {
 				cacheSize = defaultStatementCacheSize
 			}
 			c.parser, err = parser.NewStatementParser(dialect, cacheSize)

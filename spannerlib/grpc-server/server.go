@@ -78,6 +78,20 @@ type spannerLibServer struct {
 	pb.UnimplementedSpannerLibServer
 }
 
+func validateConnection(connection *pb.Connection) (int64, int64, error) {
+	if connection == nil || connection.Pool == nil {
+		return 0, 0, gstatus.Error(codes.InvalidArgument, "connection and pool must not be nil")
+	}
+	return connection.Pool.Id, connection.Id, nil
+}
+
+func validateRows(rows *pb.Rows) (int64, int64, int64, error) {
+	if rows == nil || rows.Connection == nil || rows.Connection.Pool == nil {
+		return 0, 0, 0, gstatus.Error(codes.InvalidArgument, "rows, connection, and pool must not be nil")
+	}
+	return rows.Connection.Pool.Id, rows.Connection.Id, rows.Id, nil
+}
+
 func (s *spannerLibServer) Info(_ context.Context, _ *pb.InfoRequest) (*pb.InfoResponse, error) {
 	return &pb.InfoResponse{}, nil
 }
@@ -99,6 +113,9 @@ func (s *spannerLibServer) ClosePool(ctx context.Context, pool *pb.Pool) (*empty
 }
 
 func (s *spannerLibServer) CreateConnection(ctx context.Context, request *pb.CreateConnectionRequest) (*pb.Connection, error) {
+	if request.Pool == nil {
+		return nil, gstatus.Error(codes.InvalidArgument, "pool must not be nil")
+	}
 	id, err := api.CreateConnection(ctx, request.Pool.Id)
 	if err != nil {
 		return nil, err
@@ -107,7 +124,11 @@ func (s *spannerLibServer) CreateConnection(ctx context.Context, request *pb.Cre
 }
 
 func (s *spannerLibServer) CloseConnection(ctx context.Context, connection *pb.Connection) (*emptypb.Empty, error) {
-	err := api.CloseConnection(ctx, connection.Pool.Id, connection.Id)
+	poolId, connId, err := validateConnection(connection)
+	if err != nil {
+		return nil, err
+	}
+	err = api.CloseConnection(ctx, poolId, connId)
 	if err != nil {
 		return nil, err
 	}
@@ -115,9 +136,16 @@ func (s *spannerLibServer) CloseConnection(ctx context.Context, connection *pb.C
 }
 
 func (s *spannerLibServer) Execute(ctx context.Context, request *pb.ExecuteRequest) (returnedRows *pb.Rows, returnedErr error) {
+	if request.ExecuteSqlRequest == nil {
+		return nil, gstatus.Error(codes.InvalidArgument, "execute_sql_request must not be nil")
+	}
+	poolId, connId, err := validateConnection(request.Connection)
+	if err != nil {
+		return nil, err
+	}
 	// Only use the context of the gRPC invocation for the DirectExecute option. That is: It is only used
 	// for fetching the first results, and can be cancelled after that.
-	id, err := api.ExecuteWithDirectExecuteContext(context.Background(), ctx, request.Connection.Pool.Id, request.Connection.Id, request.ExecuteSqlRequest)
+	id, err := api.ExecuteWithDirectExecuteContext(context.Background(), ctx, poolId, connId, request.ExecuteSqlRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -125,8 +153,15 @@ func (s *spannerLibServer) Execute(ctx context.Context, request *pb.ExecuteReque
 }
 
 func (s *spannerLibServer) ExecuteStreaming(request *pb.ExecuteRequest, stream grpc.ServerStreamingServer[pb.RowData]) error {
+	if request.ExecuteSqlRequest == nil {
+		return gstatus.Error(codes.InvalidArgument, "execute_sql_request must not be nil")
+	}
+	poolId, connId, err := validateConnection(request.Connection)
+	if err != nil {
+		return err
+	}
 	queryContext := stream.Context()
-	id, err := api.Execute(queryContext, request.Connection.Pool.Id, request.Connection.Id, request.ExecuteSqlRequest)
+	id, err := api.Execute(queryContext, poolId, connId, request.ExecuteSqlRequest)
 	if err != nil {
 		return err
 	}
@@ -140,15 +175,14 @@ func (s *spannerLibServer) ContinueStreaming(request *pb.ContinueStreamingReques
 }
 
 func (s *spannerLibServer) streamRows(queryContext context.Context, rows *pb.Rows, fetchOpts *pb.FetchOptions, stream grpc.ServerStreamingServer[pb.RowData]) error {
-	if rows == nil || rows.Connection == nil || rows.Connection.Pool == nil {
-		return gstatus.Error(codes.InvalidArgument, "rows, connection, and pool must not be nil")
+	poolId, connId, rowsId, err := validateRows(rows)
+	if err != nil {
+		return err
 	}
 	defer func() {
-		if rows != nil && rows.Connection != nil && rows.Connection.Pool != nil {
-			_ = api.CloseRows(context.Background(), rows.Connection.Pool.Id, rows.Connection.Id, rows.Id)
-		}
+		_ = api.CloseRows(context.Background(), poolId, connId, rowsId)
 	}()
-	metadata, err := api.Metadata(queryContext, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id)
+	metadata, err := api.Metadata(queryContext, poolId, connId, rowsId)
 	if err != nil {
 		return err
 	}
@@ -163,16 +197,16 @@ func (s *spannerLibServer) streamRows(queryContext context.Context, rows *pb.Row
 
 	first := true
 	for {
-		batch, err := api.Next(queryContext, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id, int32(batchSize))
+		batch, err := api.Next(queryContext, poolId, connId, rowsId, int32(batchSize))
 		if err != nil {
 			return err
 		}
 		if len(batch) == 0 {
-			stats, err := api.ResultSetStats(queryContext, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id)
+			stats, err := api.ResultSetStats(queryContext, poolId, connId, rowsId)
 			if err != nil {
 				return err
 			}
-			nextMetadata, nextResultSetErr := api.NextResultSet(queryContext, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id)
+			nextMetadata, nextResultSetErr := api.NextResultSet(queryContext, poolId, connId, rowsId)
 			res := &pb.RowData{Rows: rows, Stats: stats, HasMoreResults: nextMetadata != nil || nextResultSetErr != nil}
 			if first {
 				res.Metadata = metadata
@@ -235,8 +269,8 @@ func (s *spannerLibServer) ConnectionStream(stream grpc.BidiStreamingServer[pb.C
 		if err != nil {
 			response = &pb.ConnectionStreamResponse{Status: gstatus.Convert(err).Proto()}
 		}
-		if stream.Send(response) != nil {
-			return err
+		if sendErr := stream.Send(response); sendErr != nil {
+			return sendErr
 		}
 	}
 }
@@ -314,7 +348,14 @@ func (s *spannerLibServer) handleExecuteRequest(ctx context.Context, request *pb
 }
 
 func (s *spannerLibServer) ExecuteBatch(ctx context.Context, request *pb.ExecuteBatchRequest) (*spannerpb.ExecuteBatchDmlResponse, error) {
-	resp, err := api.ExecuteBatch(ctx, request.Connection.Pool.Id, request.Connection.Id, request.ExecuteBatchDmlRequest)
+	if request.ExecuteBatchDmlRequest == nil {
+		return nil, gstatus.Error(codes.InvalidArgument, "execute_batch_dml_request must not be nil")
+	}
+	poolId, connId, err := validateConnection(request.Connection)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := api.ExecuteBatch(ctx, poolId, connId, request.ExecuteBatchDmlRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +371,11 @@ func (s *spannerLibServer) handleExecuteBatchRequest(ctx context.Context, reques
 }
 
 func (s *spannerLibServer) Metadata(ctx context.Context, rows *pb.Rows) (*spannerpb.ResultSetMetadata, error) {
-	metadata, err := api.Metadata(ctx, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id)
+	poolId, connId, rowsId, err := validateRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	metadata, err := api.Metadata(ctx, poolId, connId, rowsId)
 	if err != nil {
 		return nil, err
 	}
@@ -338,8 +383,12 @@ func (s *spannerLibServer) Metadata(ctx context.Context, rows *pb.Rows) (*spanne
 }
 
 func (s *spannerLibServer) Next(ctx context.Context, request *pb.NextRequest) (*structpb.ListValue, error) {
+	poolId, connId, rowsId, err := validateRows(request.Rows)
+	if err != nil {
+		return nil, err
+	}
 	// TODO: Pass in numRows and encoding option.
-	values, err := api.NextBuffered(ctx, request.Rows.Connection.Pool.Id, request.Rows.Connection.Id, request.Rows.Id)
+	values, err := api.NextBuffered(ctx, poolId, connId, rowsId)
 	if err != nil {
 		return nil, err
 	}
@@ -347,7 +396,11 @@ func (s *spannerLibServer) Next(ctx context.Context, request *pb.NextRequest) (*
 }
 
 func (s *spannerLibServer) ResultSetStats(ctx context.Context, rows *pb.Rows) (*spannerpb.ResultSetStats, error) {
-	stats, err := api.ResultSetStats(ctx, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id)
+	poolId, connId, rowsId, err := validateRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	stats, err := api.ResultSetStats(ctx, poolId, connId, rowsId)
 	if err != nil {
 		return nil, err
 	}
@@ -355,7 +408,11 @@ func (s *spannerLibServer) ResultSetStats(ctx context.Context, rows *pb.Rows) (*
 }
 
 func (s *spannerLibServer) NextResultSet(ctx context.Context, rows *pb.Rows) (*spannerpb.ResultSetMetadata, error) {
-	metadata, err := api.NextResultSet(ctx, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id)
+	poolId, connId, rowsId, err := validateRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	metadata, err := api.NextResultSet(ctx, poolId, connId, rowsId)
 	if err != nil {
 		return nil, err
 	}
@@ -363,7 +420,11 @@ func (s *spannerLibServer) NextResultSet(ctx context.Context, rows *pb.Rows) (*s
 }
 
 func (s *spannerLibServer) CloseRows(ctx context.Context, rows *pb.Rows) (*emptypb.Empty, error) {
-	err := api.CloseRows(ctx, rows.Connection.Pool.Id, rows.Connection.Id, rows.Id)
+	poolId, connId, rowsId, err := validateRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	err = api.CloseRows(ctx, poolId, connId, rowsId)
 	if err != nil {
 		return nil, err
 	}
@@ -371,11 +432,15 @@ func (s *spannerLibServer) CloseRows(ctx context.Context, rows *pb.Rows) (*empty
 }
 
 func (s *spannerLibServer) BeginTransaction(ctx context.Context, request *pb.BeginTransactionRequest) (*emptypb.Empty, error) {
+	poolId, connId, err := validateConnection(request.Connection)
+	if err != nil {
+		return nil, err
+	}
 	// Create a new context that is used for the transaction. We need to do this, because the context that is passed in
 	// to this function will be cancelled once the RPC call finishes. That again would cause further calls on
 	// the underlying transaction to fail with a 'Context cancelled' error.
 	txContext := context.WithoutCancel(ctx)
-	err := api.BeginTransaction(txContext, request.Connection.Pool.Id, request.Connection.Id, request.TransactionOptions)
+	err = api.BeginTransaction(txContext, poolId, connId, request.TransactionOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +456,11 @@ func (s *spannerLibServer) handleBeginTransactionRequest(ctx context.Context, re
 }
 
 func (s *spannerLibServer) Commit(ctx context.Context, connection *pb.Connection) (*spannerpb.CommitResponse, error) {
-	resp, err := api.Commit(ctx, connection.Pool.Id, connection.Id)
+	poolId, connId, err := validateConnection(connection)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := api.Commit(ctx, poolId, connId)
 	if err != nil {
 		return nil, err
 	}
@@ -407,7 +476,11 @@ func (s *spannerLibServer) handleCommitRequest(ctx context.Context, connection *
 }
 
 func (s *spannerLibServer) Rollback(ctx context.Context, connection *pb.Connection) (*emptypb.Empty, error) {
-	err := api.Rollback(ctx, connection.Pool.Id, connection.Id)
+	poolId, connId, err := validateConnection(connection)
+	if err != nil {
+		return nil, err
+	}
+	err = api.Rollback(ctx, poolId, connId)
 	if err != nil {
 		return nil, err
 	}
@@ -423,7 +496,14 @@ func (s *spannerLibServer) handleRollbackRequest(ctx context.Context, connection
 }
 
 func (s *spannerLibServer) WriteMutations(ctx context.Context, request *pb.WriteMutationsRequest) (*spannerpb.CommitResponse, error) {
-	resp, err := api.WriteMutations(ctx, request.Connection.Pool.Id, request.Connection.Id, request.Mutations)
+	if request.Mutations == nil {
+		return nil, gstatus.Error(codes.InvalidArgument, "mutations must not be nil")
+	}
+	poolId, connId, err := validateConnection(request.Connection)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := api.WriteMutations(ctx, poolId, connId, request.Mutations)
 	if err != nil {
 		return nil, err
 	}

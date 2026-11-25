@@ -616,6 +616,15 @@ func (c *conn) StartBatchDML() error {
 	return checkAndEnrichError(c.isPostgreSQL(), err)
 }
 
+// StartBatchDMLWithOptions is not part of the public API of the database/sql driver.
+// It is exported for internal reasons, and may receive breaking changes without prior notice.
+//
+// StartBatchDMLWithOptions starts a DML batch on the connection with the given execution options.
+func (c *conn) StartBatchDMLWithOptions(options *ExecOptions) error {
+	_, err := c.startBatchDMLWithOptions( /* automatic = */ false, options)
+	return checkAndEnrichError(c.isPostgreSQL(), err)
+}
+
 func (c *conn) RunBatch(ctx context.Context) error {
 	_, err := c.runBatch(ctx)
 	return checkAndEnrichError(c.isPostgreSQL(), err)
@@ -674,21 +683,52 @@ func (c *conn) startBatchDDL() (driver.Result, error) {
 }
 
 func (c *conn) startBatchDML(automatic bool) (driver.Result, error) {
-	execOptions, err := c.options( /* reset = */ true)
-	if err != nil {
-		return nil, err
-	}
+	return c.startBatchDMLWithOptions(automatic, nil)
+}
 
+func (c *conn) withBatchExecOptions(options *ExecOptions, fn func()) {
+	prev := c.tempExecOptions
+	c.tempExecOptions = options
+	defer func() { c.tempExecOptions = prev }()
+	fn()
+}
+
+func (c *conn) startBatchDMLWithOptions(automatic bool, tempOptions *ExecOptions) (driver.Result, error) {
 	if c.inTransaction() {
-		return c.tx.StartBatchDML(execOptions.QueryOptions, automatic)
-	}
-
-	if c.batch != nil {
+		if err := c.checkInErrorTxState(nil); err != nil {
+			return nil, err
+		}
+		if c.tx.IsInBatch() {
+			return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This transaction already has an active batch."))
+		}
+		if propertyTransactionReadOnly.GetValueOrDefault(c.state) {
+			return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "read-only transactions cannot write"))
+		}
+	} else if c.batch != nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This connection already has an active batch."))
 	}
-	c.logger.Debug("starting dml batch outside transaction")
-	c.batch = &batch{tp: parser.BatchTypeDml, options: execOptions}
-	return driver.ResultNoRows, nil
+
+	runStart := func() (driver.Result, error) {
+		execOptions, err := c.options( /* reset = */ true)
+		if err != nil {
+			return nil, err
+		}
+		if c.inTransaction() {
+			return c.tx.StartBatchDML(execOptions, automatic)
+		}
+		c.logger.Debug("starting dml batch outside transaction")
+		c.batch = &batch{tp: parser.BatchTypeDml, options: execOptions}
+		return driver.ResultNoRows, nil
+	}
+	if tempOptions != nil {
+		var res driver.Result
+		var err error
+		c.withBatchExecOptions(tempOptions, func() {
+			res, err = runStart()
+		})
+		return res, err
+	}
+	return runStart()
 }
 
 func (c *conn) runBatch(ctx context.Context) (driver.Result, error) {
@@ -722,8 +762,12 @@ func (c *conn) runDMLBatch(ctx context.Context) (SpannerResult, error) {
 
 	statements := c.batch.statements
 	options := c.batch.options
+	if options == nil {
+		options = &ExecOptions{}
+	}
 	localOptions := *options
 	localOptions.QueryOptions.LastStatement = true
+	localOptions.QueryOptions.DirectedReadOptions = nil
 	c.batch = nil
 	return c.execBatchDML(ctx, statements, &localOptions)
 }
@@ -1497,7 +1541,7 @@ func (c *conn) resetTransactionForRetry(ctx context.Context, errDuringCommit boo
 		// If the aborted error happened during the Commit, then the transaction
 		// context has been cancelled, and we need to create a new one.
 		if rwTx, ok := c.tx.contextTransaction.(*readWriteTransaction); ok {
-			rwTx.closed = false
+			rwTx.state = readWriteTxStateActive
 			newCtx, cancel := c.addTransactionTimeout(c.tx.ctx)
 			rwTx.ctx = newCtx
 			// Make sure that we cancel the new context when the transaction is closed.
@@ -1746,15 +1790,11 @@ func (c *conn) activateTransaction() (contextTransaction, error) {
 			ro = c.client.ReadOnlyTransaction().WithBeginTransactionOption(beginTxOpt)
 		}
 		return &readOnlyTransaction{
-			conn:   c,
 			roTx:   ro,
 			boTx:   bo,
 			logger: logger,
 			close:  closeFunc,
-			timestampBoundCallback: func() spanner.TimestampBound {
-				return propertyReadOnlyStaleness.GetValueOrDefault(c.state)
-			},
-			state: c.state,
+			state:  c.state,
 		}, nil
 	}
 
