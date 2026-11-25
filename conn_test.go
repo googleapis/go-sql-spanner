@@ -15,9 +15,13 @@
 package spannerdriver
 
 import (
+	"context"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"testing"
 
+	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/parser"
@@ -236,6 +240,375 @@ func TestLastDDLOperationID(t *testing.T) {
 			tc.conn.setLastDDLOperationID(tc.setOpID)
 			if g, w := tc.conn.LastDDLOperationID(), tc.wantAfterSet; g != w {
 				t.Errorf("after set LastDDLOperationID mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
+func TestConn_BeginTransactions_Error(t *testing.T) {
+	t.Parallel()
+
+	canceledContext, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	testCases := []struct {
+		name         string
+		dialect      databasepb.DatabaseDialect
+		activeTx     bool
+		activeBatch  bool
+		resetRetry   bool
+		useCanceled  bool
+		beginFunc    func(connection *conn, ctx context.Context) (driver.Tx, error)
+		wantErr      error
+		wantErrCode  codes.Code
+		wantSQLState string
+	}{
+		{
+			name:        "ReadOnlyTransaction_GoogleSQL_Canceled",
+			dialect:     databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+			useCanceled: true,
+			beginFunc: func(connection *conn, ctx context.Context) (driver.Tx, error) {
+				return connection.BeginReadOnlyTransaction(ctx, &ReadOnlyTransactionOptions{}, nil)
+			},
+			wantErr:     context.Canceled,
+			wantErrCode: codes.Unknown,
+		},
+		{
+			name:        "ReadOnlyTransaction_PostgreSQL_Canceled",
+			dialect:     databasepb.DatabaseDialect_POSTGRESQL,
+			useCanceled: true,
+			beginFunc: func(connection *conn, ctx context.Context) (driver.Tx, error) {
+				return connection.BeginReadOnlyTransaction(ctx, &ReadOnlyTransactionOptions{}, nil)
+			},
+			wantErr:      context.Canceled,
+			wantErrCode:  codes.Unknown,
+			wantSQLState: "XX000",
+		},
+		{
+			name:        "ReadWriteTransaction_GoogleSQL_Canceled",
+			dialect:     databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+			useCanceled: true,
+			beginFunc: func(connection *conn, ctx context.Context) (driver.Tx, error) {
+				return connection.BeginReadWriteTransaction(ctx, &ReadWriteTransactionOptions{}, nil)
+			},
+			wantErr:     context.Canceled,
+			wantErrCode: codes.Unknown,
+		},
+		{
+			name:        "ReadWriteTransaction_PostgreSQL_Canceled",
+			dialect:     databasepb.DatabaseDialect_POSTGRESQL,
+			useCanceled: true,
+			beginFunc: func(connection *conn, ctx context.Context) (driver.Tx, error) {
+				return connection.BeginReadWriteTransaction(ctx, &ReadWriteTransactionOptions{}, nil)
+			},
+			wantErr:      context.Canceled,
+			wantErrCode:  codes.Unknown,
+			wantSQLState: "XX000",
+		},
+		{
+			name:     "ReadOnlyTransaction_GoogleSQL_AlreadyInTx",
+			dialect:  databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+			activeTx: true,
+			beginFunc: func(connection *conn, ctx context.Context) (driver.Tx, error) {
+				return connection.BeginReadOnlyTransaction(ctx, &ReadOnlyTransactionOptions{}, nil)
+			},
+			wantErrCode: codes.FailedPrecondition,
+		},
+		{
+			name:     "ReadOnlyTransaction_PostgreSQL_AlreadyInTx",
+			dialect:  databasepb.DatabaseDialect_POSTGRESQL,
+			activeTx: true,
+			beginFunc: func(connection *conn, ctx context.Context) (driver.Tx, error) {
+				return connection.BeginReadOnlyTransaction(ctx, &ReadOnlyTransactionOptions{}, nil)
+			},
+			wantErrCode:  codes.FailedPrecondition,
+			wantSQLState: "XX000",
+		},
+		{
+			name:     "ReadWriteTransaction_GoogleSQL_AlreadyInTx",
+			dialect:  databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+			activeTx: true,
+			beginFunc: func(connection *conn, ctx context.Context) (driver.Tx, error) {
+				return connection.BeginReadWriteTransaction(ctx, &ReadWriteTransactionOptions{}, nil)
+			},
+			wantErrCode: codes.FailedPrecondition,
+		},
+		{
+			name:     "ReadWriteTransaction_PostgreSQL_AlreadyInTx",
+			dialect:  databasepb.DatabaseDialect_POSTGRESQL,
+			activeTx: true,
+			beginFunc: func(connection *conn, ctx context.Context) (driver.Tx, error) {
+				return connection.BeginReadWriteTransaction(ctx, &ReadWriteTransactionOptions{}, nil)
+			},
+			wantErrCode:  codes.FailedPrecondition,
+			wantSQLState: "XX000",
+		},
+		{
+			name:        "ReadOnlyTransaction_GoogleSQL_InBatch",
+			dialect:     databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+			activeBatch: true,
+			beginFunc: func(connection *conn, ctx context.Context) (driver.Tx, error) {
+				return connection.BeginReadOnlyTransaction(ctx, &ReadOnlyTransactionOptions{}, nil)
+			},
+			wantErrCode: codes.FailedPrecondition,
+		},
+		{
+			name:        "ReadWriteTransaction_PostgreSQL_InBatch",
+			dialect:     databasepb.DatabaseDialect_POSTGRESQL,
+			activeBatch: true,
+			beginFunc: func(connection *conn, ctx context.Context) (driver.Tx, error) {
+				return connection.BeginReadWriteTransaction(ctx, &ReadWriteTransactionOptions{}, nil)
+			},
+			wantErrCode:  codes.FailedPrecondition,
+			wantSQLState: "XX000",
+		},
+		{
+			name:       "ReadOnlyTransaction_GoogleSQL_ResetRetryWithoutTx",
+			dialect:    databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+			resetRetry: true,
+			beginFunc: func(connection *conn, ctx context.Context) (driver.Tx, error) {
+				return connection.BeginReadOnlyTransaction(ctx, &ReadOnlyTransactionOptions{}, nil)
+			},
+			wantErrCode: codes.FailedPrecondition,
+		},
+		{
+			name:       "ReadOnlyTransaction_PostgreSQL_ResetRetryWithoutTx",
+			dialect:    databasepb.DatabaseDialect_POSTGRESQL,
+			resetRetry: true,
+			beginFunc: func(connection *conn, ctx context.Context) (driver.Tx, error) {
+				return connection.BeginReadOnlyTransaction(ctx, &ReadOnlyTransactionOptions{}, nil)
+			},
+			wantErrCode:  codes.FailedPrecondition,
+			wantSQLState: "XX000",
+		},
+		{
+			name:       "ReadWriteTransaction_GoogleSQL_ResetRetryWithoutTx",
+			dialect:    databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+			resetRetry: true,
+			beginFunc: func(connection *conn, ctx context.Context) (driver.Tx, error) {
+				return connection.BeginReadWriteTransaction(ctx, &ReadWriteTransactionOptions{}, nil)
+			},
+			wantErrCode: codes.FailedPrecondition,
+		},
+		{
+			name:       "ReadWriteTransaction_PostgreSQL_ResetRetryWithoutTx",
+			dialect:    databasepb.DatabaseDialect_POSTGRESQL,
+			resetRetry: true,
+			beginFunc: func(connection *conn, ctx context.Context) (driver.Tx, error) {
+				return connection.BeginReadWriteTransaction(ctx, &ReadWriteTransactionOptions{}, nil)
+			},
+			wantErrCode:  codes.FailedPrecondition,
+			wantSQLState: "XX000",
+		},
+		{
+			name:    "ReadOnlyTransaction_GoogleSQL_NilOptions",
+			dialect: databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+			beginFunc: func(connection *conn, ctx context.Context) (driver.Tx, error) {
+				return connection.BeginReadOnlyTransaction(ctx, nil, nil)
+			},
+		},
+		{
+			name:    "ReadOnlyTransaction_PostgreSQL_NilOptions",
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+			beginFunc: func(connection *conn, ctx context.Context) (driver.Tx, error) {
+				return connection.BeginReadOnlyTransaction(ctx, nil, nil)
+			},
+		},
+		{
+			name:    "ReadWriteTransaction_GoogleSQL_NilOptions",
+			dialect: databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+			beginFunc: func(connection *conn, ctx context.Context) (driver.Tx, error) {
+				return connection.BeginReadWriteTransaction(ctx, nil, nil)
+			},
+		},
+		{
+			name:    "ReadWriteTransaction_PostgreSQL_NilOptions",
+			dialect: databasepb.DatabaseDialect_POSTGRESQL,
+			beginFunc: func(connection *conn, ctx context.Context) (driver.Tx, error) {
+				return connection.BeginReadWriteTransaction(ctx, nil, nil)
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			statementParser, err := parser.NewStatementParser(testCase.dialect, 0)
+			if err != nil {
+				t.Fatalf("failed to create parser: %v", err)
+			}
+			connection := &conn{
+				parser:        statementParser,
+				state:         createInitialConnectionState(connectionstate.TypeTransactional, nil),
+				resetForRetry: testCase.resetRetry,
+			}
+			if testCase.activeTx {
+				connection.tx = &delegatingTransaction{}
+			}
+			if testCase.activeBatch {
+				connection.batch = &batch{}
+			}
+			ctx := context.Background()
+			if testCase.useCanceled {
+				ctx = canceledContext
+			}
+			transaction, err := testCase.beginFunc(connection, ctx)
+			if testCase.wantErr == nil && testCase.wantErrCode == codes.OK {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if transaction == nil {
+					t.Fatal("expected non-nil transaction")
+				}
+				if err := transaction.Rollback(); err != nil {
+					t.Fatalf("unexpected rollback error: %v", err)
+				}
+				return
+			}
+			if transaction != nil {
+				_ = transaction.Rollback()
+				t.Fatalf("expected nil transaction, got: %v", transaction)
+			}
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if testCase.wantErr != nil {
+				if g, w := errors.Is(err, testCase.wantErr), true; g != w {
+					t.Fatalf("errors.Is(err, %v) mismatch\nGot:  %v\nWant: %v", testCase.wantErr, g, w)
+				}
+			}
+			if g, w := spanner.ErrCode(err), testCase.wantErrCode; g != w {
+				t.Fatalf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			var pgErr *pgError
+			if testCase.wantSQLState != "" {
+				if !errors.As(err, &pgErr) {
+					t.Fatalf("expected *pgError, got %T (%v)", err, err)
+				}
+				if g, w := pgErr.code, testCase.wantSQLState; g != w {
+					t.Errorf("SQLSTATE mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+			} else if errors.As(err, &pgErr) {
+				t.Errorf("expected non-pgError for GoogleSQL, got %T (%v)", err, err)
+			}
+		})
+	}
+}
+
+func TestConn_ResetSession_ClearsResetForRetry(t *testing.T) {
+	t.Parallel()
+
+	connection := &conn{
+		state:         createInitialConnectionState(connectionstate.TypeTransactional, nil),
+		resetForRetry: true,
+	}
+	if err := connection.ResetSession(context.Background()); err != nil {
+		t.Fatalf("ResetSession failed: %v", err)
+	}
+	if g, w := connection.resetForRetry, false; g != w {
+		t.Errorf("resetForRetry mismatch after ResetSession\nGot:  %v\nWant: %v", g, w)
+	}
+	// Ensure nil options helpers remain safe to invoke.
+	connection.setReadWriteTransactionOptions(nil)
+	connection.setReadOnlyTransactionOptions(nil)
+	connection.setBatchReadOnlyTransactionOptions(nil)
+}
+
+func TestConn_BeginTransactions_CloseCallback(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name       string
+		readOnly   bool
+		commitTx   bool
+		nilClose   bool
+		wantCalled int
+	}{
+		{
+			name:       "ReadOnly_Commit",
+			readOnly:   true,
+			commitTx:   true,
+			wantCalled: 1,
+		},
+		{
+			name:       "ReadOnly_Rollback",
+			readOnly:   true,
+			commitTx:   false,
+			wantCalled: 1,
+		},
+		{
+			name:       "ReadWrite_Commit",
+			readOnly:   false,
+			commitTx:   true,
+			wantCalled: 1,
+		},
+		{
+			name:       "ReadWrite_Rollback",
+			readOnly:   false,
+			commitTx:   false,
+			wantCalled: 1,
+		},
+		{
+			name:       "ReadOnly_NilClose",
+			readOnly:   true,
+			commitTx:   true,
+			nilClose:   true,
+			wantCalled: 0,
+		},
+		{
+			name:       "ReadWrite_NilClose",
+			readOnly:   false,
+			commitTx:   false,
+			nilClose:   true,
+			wantCalled: 0,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			connection := &conn{
+				state: createInitialConnectionState(connectionstate.TypeTransactional, nil),
+			}
+			closeCalls := 0
+			var closeFn func()
+			if !testCase.nilClose {
+				closeFn = func() {
+					closeCalls++
+				}
+			}
+
+			var tx driver.Tx
+			var err error
+			if testCase.readOnly {
+				tx, err = connection.BeginReadOnlyTransaction(context.Background(), &ReadOnlyTransactionOptions{}, closeFn)
+			} else {
+				tx, err = connection.BeginReadWriteTransaction(context.Background(), &ReadWriteTransactionOptions{}, closeFn)
+			}
+			if err != nil {
+				t.Fatalf("failed to begin transaction: %v", err)
+			}
+			if testCase.commitTx {
+				if err := tx.Commit(); err != nil {
+					t.Fatalf("commit failed: %v", err)
+				}
+			} else {
+				if err := tx.Rollback(); err != nil {
+					t.Fatalf("rollback failed: %v", err)
+				}
+			}
+			if g, w := closeCalls, testCase.wantCalled; g != w {
+				t.Fatalf("close callback count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			// A subsequent BeginTx on the same connection must not reuse the previous close callback.
+			nextTx, err := connection.BeginTx(context.Background(), driver.TxOptions{ReadOnly: testCase.readOnly})
+			if err != nil {
+				t.Fatalf("subsequent BeginTx failed: %v", err)
+			}
+			if err := nextTx.Commit(); err != nil {
+				t.Fatalf("subsequent Commit failed: %v", err)
+			}
+			if g, w := closeCalls, testCase.wantCalled; g != w {
+				t.Fatalf("close callback count changed on subsequent BeginTx\nGot:  %v\nWant: %v", g, w)
 			}
 		})
 	}

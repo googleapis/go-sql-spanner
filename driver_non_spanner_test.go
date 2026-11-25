@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"google.golang.org/grpc/codes"
 )
 
 func init() {
@@ -36,6 +37,9 @@ type fakeDriverConn struct{}
 func (c *fakeDriverConn) Prepare(query string) (driver.Stmt, error) { return &fakeStmt{}, nil }
 func (c *fakeDriverConn) Close() error                              { return nil }
 func (c *fakeDriverConn) Begin() (driver.Tx, error)                 { return &fakeTx{}, nil }
+func (c *fakeDriverConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
+	return &fakeTx{}, nil
+}
 
 type fakeStmt struct{}
 
@@ -66,5 +70,128 @@ func TestRunTransaction_NonSpannerConnection(t *testing.T) {
 	}
 	if resp != nil {
 		t.Errorf("expected nil commit response, got: %v", resp)
+	}
+}
+
+func TestBeginTransactions_NonSpannerConnection(t *testing.T) {
+	t.Parallel()
+
+	database, err := sql.Open("fake", "any-dsn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	database.SetMaxOpenConns(1)
+
+	ctx := context.Background()
+	testCases := []struct {
+		name      string
+		beginFunc func(ctx context.Context, db *sql.DB) (*sql.Tx, error)
+	}{
+		{
+			name: "ReadWriteTransaction",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadWriteTransaction(ctx, db, ReadWriteTransactionOptions{})
+			},
+		},
+		{
+			name: "ReadOnlyTransaction",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadOnlyTransaction(ctx, db, ReadOnlyTransactionOptions{})
+			},
+		},
+		{
+			name: "BatchReadOnlyTransaction",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{})
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			transaction, err := testCase.beginFunc(ctx, database)
+			if transaction != nil {
+				_ = transaction.Rollback()
+				t.Fatalf("expected nil transaction for non-Spanner connection, got: %v", transaction)
+			}
+			if err == nil {
+				t.Fatal("expected error for non-Spanner connection, got nil")
+			}
+			if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+				t.Fatalf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := database.Stats().InUse, 0; g != w {
+				t.Fatalf("pool InUse mismatch after failed begin\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
+type fakeLegacyDriver struct{}
+
+func (d *fakeLegacyDriver) Open(name string) (driver.Conn, error) {
+	return &fakeLegacyDriverConn{}, nil
+}
+
+type fakeLegacyDriverConn struct{}
+
+func (c *fakeLegacyDriverConn) Prepare(query string) (driver.Stmt, error) { return &fakeStmt{}, nil }
+func (c *fakeLegacyDriverConn) Close() error                              { return nil }
+func (c *fakeLegacyDriverConn) Begin() (driver.Tx, error)                 { return &fakeTx{}, nil }
+
+func init() {
+	sql.Register("fake-legacy", &fakeLegacyDriver{})
+}
+
+func TestBeginTransactions_NonSpannerLegacyDriver(t *testing.T) {
+	t.Parallel()
+
+	database, err := sql.Open("fake-legacy", "any-dsn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	database.SetMaxOpenConns(1)
+
+	ctx := context.Background()
+	testCases := []struct {
+		name      string
+		beginFunc func(ctx context.Context, db *sql.DB) (*sql.Tx, error)
+	}{
+		{
+			name: "ReadWriteTransaction",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadWriteTransaction(ctx, db, ReadWriteTransactionOptions{})
+			},
+		},
+		{
+			name: "ReadOnlyTransaction",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginReadOnlyTransaction(ctx, db, ReadOnlyTransactionOptions{})
+			},
+		},
+		{
+			name: "BatchReadOnlyTransaction",
+			beginFunc: func(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+				return BeginBatchReadOnlyTransaction(ctx, db, BatchReadOnlyTransactionOptions{})
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			transaction, err := testCase.beginFunc(ctx, database)
+			if transaction != nil {
+				_ = transaction.Rollback()
+				t.Fatalf("expected nil transaction for non-Spanner connection, got: %v", transaction)
+			}
+			if err == nil {
+				t.Fatal("expected error for non-Spanner connection, got nil")
+			}
+			if g, w := database.Stats().InUse, 0; g != w {
+				t.Fatalf("pool InUse mismatch after failed begin\nGot:  %v\nWant: %v", g, w)
+			}
+		})
 	}
 }

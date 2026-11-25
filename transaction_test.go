@@ -775,6 +775,18 @@ func TestNilBackendTransactionSafety(t *testing.T) {
 	})
 }
 
+func TestDelegatingTransaction_NilReceiver(t *testing.T) {
+	t.Parallel()
+
+	var tx *delegatingTransaction
+	if g, w := spanner.ErrCode(tx.Commit()), codes.FailedPrecondition; g != w {
+		t.Errorf("Commit nil receiver error code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := spanner.ErrCode(tx.Rollback()), codes.FailedPrecondition; g != w {
+		t.Errorf("Rollback nil receiver error code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
 func TestFailedTransactionCommit_SessionStateRollback(t *testing.T) {
 	t.Parallel()
 

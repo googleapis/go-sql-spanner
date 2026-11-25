@@ -253,25 +253,10 @@ type SpannerConn interface {
 	// returned.
 	resetTransactionForRetry(ctx context.Context, errDuringCommit bool) error
 
-	// withTransactionCloseFunc sets the close function that should be registered
-	// on the next transaction on this connection. This method should only be called
-	// directly before starting a new transaction.
-	withTransactionCloseFunc(close func())
-
 	// setReadWriteTransactionOptions sets the ReadWriteTransactionOptions that should be
 	// used for the current read/write transaction. This method should be called right
 	// after starting a new read/write transaction.
 	setReadWriteTransactionOptions(options *ReadWriteTransactionOptions)
-
-	// setReadOnlyTransactionOptions sets the options that should be used
-	// for the current read-only transaction. This method should be called
-	// right after starting a new read-only transaction.
-	setReadOnlyTransactionOptions(options *ReadOnlyTransactionOptions)
-
-	// setBatchReadOnlyTransactionOptions sets the options that should be used
-	// for the current batch read-only transaction. This method should be called
-	// right after starting a new batch read-only transaction.
-	setBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransactionOptions)
 }
 
 var _ SpannerConn = &conn{}
@@ -303,9 +288,6 @@ type conn struct {
 	// tempExecOptions can be set by passing it in as an argument to ExecContext or QueryContext
 	// and are applied only to that statement.
 	tempExecOptions *ExecOptions
-	// tempTransactionCloseFunc is set right before a transaction is started, and is set as the
-	// close function for that transaction.
-	tempTransactionCloseFunc func()
 }
 
 func (c *conn) isPostgreSQL() bool {
@@ -976,6 +958,7 @@ func (c *conn) ResetSession(_ context.Context) error {
 		}
 	}
 	c.batch = nil
+	c.resetForRetry = false
 
 	_ = c.state.Reset(connectionstate.ContextUser)
 	c.tempExecOptions = nil
@@ -1561,10 +1544,6 @@ func (c *conn) resetTransactionForRetry(ctx context.Context, errDuringCommit boo
 	return c.tx.resetForRetry(ctx)
 }
 
-func (c *conn) withTransactionCloseFunc(close func()) {
-	c.tempTransactionCloseFunc = close
-}
-
 func (c *conn) setReadWriteTransactionOptions(options *ReadWriteTransactionOptions) {
 	if options == nil {
 		return
@@ -1644,11 +1623,12 @@ func (c *conn) setBatchReadOnlyTransactionOptions(options *BatchReadOnlyTransact
 //
 // BeginReadOnlyTransaction starts a new read-only transaction on this connection.
 func (c *conn) BeginReadOnlyTransaction(ctx context.Context, options *ReadOnlyTransactionOptions, close func()) (driver.Tx, error) {
-	tx, err := c.beginTx(ctx, driver.TxOptions{ReadOnly: true}, close, options.implicit)
-	c.setReadOnlyTransactionOptions(options)
+	implicit := options != nil && options.implicit
+	tx, err := c.beginTx(ctx, driver.TxOptions{ReadOnly: true}, close, implicit)
 	if err != nil {
-		return nil, err
+		return nil, checkAndEnrichError(c.isPostgreSQL(), err)
 	}
+	c.setReadOnlyTransactionOptions(options)
 	return tx, nil
 }
 
@@ -1657,11 +1637,12 @@ func (c *conn) BeginReadOnlyTransaction(ctx context.Context, options *ReadOnlyTr
 //
 // BeginReadWriteTransaction starts a new read/write transaction on this connection.
 func (c *conn) BeginReadWriteTransaction(ctx context.Context, options *ReadWriteTransactionOptions, close func()) (driver.Tx, error) {
-	tx, err := c.beginTx(ctx, driver.TxOptions{}, close, options.implicit)
-	c.setReadWriteTransactionOptions(options)
+	implicit := options != nil && options.implicit
+	tx, err := c.beginTx(ctx, driver.TxOptions{}, close, implicit)
 	if err != nil {
 		return nil, checkAndEnrichError(c.isPostgreSQL(), err)
 	}
+	c.setReadWriteTransactionOptions(options)
 	return tx, nil
 }
 
@@ -1670,16 +1651,19 @@ func (c *conn) Begin() (driver.Tx, error) {
 }
 
 func (c *conn) BeginTx(ctx context.Context, driverOpts driver.TxOptions) (driver.Tx, error) {
-	defer func() {
-		c.tempTransactionCloseFunc = nil
-	}()
-	tx, err := c.beginTx(ctx, driverOpts, c.tempTransactionCloseFunc, false)
+	tx, err := c.beginTx(ctx, driverOpts, nil, false)
 	return tx, checkAndEnrichError(c.isPostgreSQL(), err)
 }
 
 func (c *conn) beginTx(ctx context.Context, driverOpts driver.TxOptions, closeFunc func(), implicitBegin bool) (driver.Tx, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if c.resetForRetry {
 		c.resetForRetry = false
+		if c.tx == nil {
+			return nil, spanner.ToSpannerError(noTransaction())
+		}
 		return c.tx, nil
 	}
 	if c.inTransaction() {
@@ -1741,6 +1725,18 @@ func (c *conn) beginTx(ctx context.Context, driverOpts driver.TxOptions, closeFu
 	}
 	if disableRetryAborts {
 		_ = propertyRetryAbortsInternally.SetLocalValue(c.state, false)
+	}
+	if carrier, ok := ctx.Value(txOptionsContextKey{}).(*txOptionsCarrier); ok && carrier != nil {
+		if carrier.readWriteOptions != nil {
+			c.setReadWriteTransactionOptions(carrier.readWriteOptions)
+		}
+		if carrier.readOnlyOptions != nil {
+			c.setReadOnlyTransactionOptions(carrier.readOnlyOptions)
+		}
+		if carrier.batchReadOnlyOptions != nil {
+			c.setBatchReadOnlyTransactionOptions(carrier.batchReadOnlyOptions)
+		}
+		carrier.applied = true
 	}
 
 	c.tx = &delegatingTransaction{
