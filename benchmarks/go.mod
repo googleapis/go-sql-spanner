@@ -59,5 +59,5 @@ require (
 	golang.org/x/time v0.16.0 // indirect
 	google.golang.org/genproto v0.0.0-20261110000943-09e21b237f2c // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20261110000943-09e21b237f2c // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261118221215-c8830f628b3f // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261123191846-1e707ab9fbc2 // indirect
 )
