@@ -97,7 +97,7 @@ func (s *executableShowStatement) queryContext(ctx context.Context, c *conn, opt
 		it, err = createTimestampIterator(col, val)
 	case sql.IsolationLevel:
 		isolationStr := val.String()
-		if c.parser.Dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		if c.isPostgreSQL() {
 			isolationStr = strings.ToLower(isolationStr)
 		}
 		it, err = createStringIterator(col, isolationStr)
@@ -125,7 +125,7 @@ func (s *executableShowStatement) queryContext(ctx context.Context, c *conn, opt
 	if err != nil {
 		return nil, err
 	}
-	return createRows(c.isPostgreSQL(), c.state, it /*cancel=*/, nil, opts, c.handleTxError), nil
+	return createRows(c.state, it /*cancel=*/, nil, opts, c.handleTxError), nil
 }
 
 // SET [SESSION | LOCAL] [my_extension.]my_property {=|to} <value>
@@ -195,10 +195,16 @@ type executableCreateDatabaseStatement struct {
 
 func (s *executableCreateDatabaseStatement) execContext(ctx context.Context, c *conn, opts *ExecOptions, args []driver.NamedValue) (driver.Result, error) {
 	instance := fmt.Sprintf("projects/%s/instances/%s", c.connector.connectorConfig.Project, c.connector.connectorConfig.Instance)
+	dialect := c.DatabaseDialect()
+	if c.state != nil {
+		if d := propertyDialect.GetValueOrDefault(c.state); d != databasepb.DatabaseDialect_DATABASE_DIALECT_UNSPECIFIED {
+			dialect = d
+		}
+	}
 	request := &databasepb.CreateDatabaseRequest{
 		CreateStatement: s.stmt.Query(),
 		Parent:          instance,
-		DatabaseDialect: c.parser.Dialect,
+		DatabaseDialect: dialect,
 	}
 	op, err := c.adminClient.CreateDatabase(ctx, request)
 	if err != nil {
@@ -285,7 +291,7 @@ func (s *executableRunBatchStatement) queryContext(ctx context.Context, c *conn,
 			if err != nil {
 				return nil, err
 			}
-			return createRows(c.isPostgreSQL(), c.state, it, nil, opts, c.handleTxError), nil
+			return createRows(c.state, it, nil, opts, c.handleTxError), nil
 		}
 	}
 	return createEmptyRows(opts), nil
