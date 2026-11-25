@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand"
@@ -52,7 +53,7 @@ type contextTransaction interface {
 	partitionQuery(ctx context.Context, stmt spanner.Statement, execOptions *ExecOptions) (driver.Rows, error)
 	ExecContext(ctx context.Context, stmt spanner.Statement, statementInfo *parser.StatementInfo, options spanner.QueryOptions) (*result, error)
 
-	StartBatchDML(options spanner.QueryOptions, automatic bool) (driver.Result, error)
+	StartBatchDML(options *ExecOptions, automatic bool) (driver.Result, error)
 	RunBatch(ctx context.Context) (driver.Result, error)
 	RunDmlBatch(ctx context.Context) (SpannerResult, error)
 	AbortBatch() (driver.Result, error)
@@ -203,10 +204,7 @@ func (d *delegatingTransaction) rollbackBackendTransaction() {
 	if d.contextTransaction != nil {
 		switch tx := d.contextTransaction.(type) {
 		case *readWriteTransaction:
-			if tx.rwTx != nil {
-				tx.rwTx.Rollback(context.Background())
-				tx.rwTx = nil
-			}
+			tx.rollbackBackendTransaction()
 		case *readOnlyTransaction:
 			if tx.boTx != nil {
 				tx.boTx.Close()
@@ -226,6 +224,7 @@ func (d *delegatingTransaction) Commit() error {
 		d.conn.state.InErrorTxBehavior() == connectionstate.InErrorTxBehaviorEnforceInErrorState {
 		_ = d.conn.state.Rollback()
 		if rwTx, ok := d.contextTransaction.(*readWriteTransaction); ok && rwTx != nil {
+			rwTx.state = readWriteTxStateClosed
 			rwTx.close(txResultRollback, nil, nil)
 		} else {
 			d.close(txResultRollback)
@@ -245,6 +244,7 @@ func (d *delegatingTransaction) Rollback() error {
 		d.conn.state.InErrorTxBehavior() == connectionstate.InErrorTxBehaviorEnforceInErrorState {
 		_ = d.conn.state.Rollback()
 		if rwTx, ok := d.contextTransaction.(*readWriteTransaction); ok && rwTx != nil {
+			rwTx.state = readWriteTxStateClosed
 			rwTx.close(txResultRollback, nil, nil)
 		} else {
 			d.close(txResultRollback)
@@ -294,7 +294,7 @@ func (d *delegatingTransaction) ExecContext(ctx context.Context, stmt spanner.St
 	return d.contextTransaction.ExecContext(ctx, stmt, statementInfo, options)
 }
 
-func (d *delegatingTransaction) StartBatchDML(options spanner.QueryOptions, automatic bool) (driver.Result, error) {
+func (d *delegatingTransaction) StartBatchDML(options *ExecOptions, automatic bool) (driver.Result, error) {
 	if err := d.ensureActivated(); err != nil {
 		return nil, err
 	}
@@ -464,17 +464,15 @@ var _ contextTransaction = &readOnlyTransaction{}
 var _ savepointTransaction = &readOnlyTransaction{}
 
 type readOnlyTransaction struct {
-	conn   *conn
 	roTx   *spanner.ReadOnlyTransaction
 	boTx   *spanner.BatchReadOnlyTransaction
 	logger *slog.Logger
 	close  func(result txResult)
 	closed bool
 
-	timestampBoundMu       sync.Mutex
-	timestampBoundSet      bool
-	timestampBoundCallback func() spanner.TimestampBound
-	state                  *connectionstate.ConnectionState
+	timestampBoundMu  sync.Mutex
+	timestampBoundSet bool
+	state             *connectionstate.ConnectionState
 }
 
 func (tx *readOnlyTransaction) deadline() (time.Time, bool) {
@@ -544,14 +542,15 @@ func (tx *readOnlyTransaction) Query(ctx context.Context, stmt spanner.Statement
 		}
 		return mi, nil
 	}
-	if tx.timestampBoundCallback != nil {
-		tx.timestampBoundMu.Lock()
-		if !tx.timestampBoundSet {
-			tx.roTx.WithTimestampBound(tx.timestampBoundCallback())
-			tx.timestampBoundSet = true
-		}
-		tx.timestampBoundMu.Unlock()
+	if tx.roTx == nil {
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-only transaction is closed or aborted"))
 	}
+	tx.timestampBoundMu.Lock()
+	if !tx.timestampBoundSet {
+		tx.roTx.WithTimestampBound(propertyReadOnlyStaleness.GetValueOrDefault(tx.state))
+		tx.timestampBoundSet = true
+	}
+	tx.timestampBoundMu.Unlock()
 	return &readOnlyRowIterator{tx.roTx.QueryWithOptions(ctx, stmt, execOptions.QueryOptions), stmtType}, nil
 }
 
@@ -588,7 +587,7 @@ func (tx *readOnlyTransaction) ExecContext(_ context.Context, _ spanner.Statemen
 	return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
-func (tx *readOnlyTransaction) StartBatchDML(_ spanner.QueryOptions, _ bool) (driver.Result, error) {
+func (tx *readOnlyTransaction) StartBatchDML(_ *ExecOptions, _ bool) (driver.Result, error) {
 	return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "read-only transactions cannot write"))
 }
 
@@ -643,6 +642,24 @@ func (tx *readOnlyTransaction) rollbackToSavepointCheckpoint(_ context.Context, 
 // retry loop. This function will never return ErrAbortedDueToConcurrentModification.
 var ErrAbortedDueToConcurrentModification = status.Error(codes.Aborted, "Transaction was aborted due to a concurrent modification")
 
+// readWriteTxState represents the lifecycle state of a readWriteTransaction.
+type readWriteTxState int
+
+const (
+	// readWriteTxStateActive indicates a normal active read/write transaction.
+	readWriteTxStateActive readWriteTxState = iota
+	// readWriteTxStateNeedsReplay indicates the transaction was rolled back to a
+	// savepoint and must recreate the underlying Spanner transaction and replay
+	// recorded statements before executing any subsequent statement, commit, or batch.
+	readWriteTxStateNeedsReplay
+	// readWriteTxStateReplayFailed indicates that deferred replay failed (e.g. concurrent
+	// modification). Statements and mutations cannot be executed, and the transaction can
+	// only be rolled back, or recovered by rolling back to an active savepoint.
+	readWriteTxStateReplayFailed
+	// readWriteTxStateClosed indicates the transaction has been committed or rolled back.
+	readWriteTxStateClosed
+)
+
 var _ contextTransaction = &readWriteTransaction{}
 var _ savepointTransaction = &readWriteTransaction{}
 
@@ -662,9 +679,8 @@ type readWriteTransaction struct {
 	// rwTx is the underlying Spanner read/write transaction. This transaction
 	// will be replaced with a new one if the initial transaction is aborted.
 	rwTx *spanner.ReadWriteStmtBasedTransaction
-	// active indicates whether at least one statement has been executed on this transaction.
-	active bool
-	closed bool
+	// state is the current lifecycle state of this read/write transaction.
+	state readWriteTxState
 	// batch is any DML batch that is active for this transaction.
 	batch *batch
 	close func(result txResult, commitResponse *spanner.CommitResponse, commitErr error)
@@ -672,9 +688,8 @@ type readWriteTransaction struct {
 	// the transaction if it is aborted by Spanner. The default is true.
 	retryAborts func() bool
 
-	// replayErr records any fatal error that occurred during a savepoint rollback replay.
-	// While replayErr is non-nil, statements and mutations cannot be executed, and the
-	// transaction can only be rolled back, or recovered by rolling back to an active savepoint.
+	// replayErr records the fatal error that occurred during savepoint rollback replay
+	// when state is readWriteTxStateReplayFailed.
 	replayErr error
 
 	// statements contains the list of statements that has been executed on this
@@ -688,6 +703,7 @@ type readWriteTransaction struct {
 
 	txOptions         spanner.TransactionOptions
 	txOptionsCallback func() spanner.TransactionOptions
+	sleep             func(context.Context, time.Duration) error
 }
 
 // retriableStatement is the interface that is used to keep track of statements
@@ -722,13 +738,26 @@ func (ru *retriableUpdate) String() string {
 	return ru.stmt.SQL
 }
 
+func retryAbortOrContextError(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	if spanner.ErrCode(err) == codes.Aborted {
+		return err
+	}
+	if isContextCancelledOrTimedOut(ctx, err) {
+		return retryContextError(ctx, nil, err)
+	}
+	return nil
+}
+
 // retry retries an update statement on Spanner. It returns nil if the result
 // of the statement during the retry is equal to the result during the initial
 // attempt.
 func (ru *retriableUpdate) retry(ctx context.Context, tx *spanner.ReadWriteStmtBasedTransaction) error {
 	res, err := execTransactionalDML(ctx, tx, ru.stmt, ru.stmtInfo, ru.options)
-	if err != nil && spanner.ErrCode(err) == codes.Aborted {
-		return err
+	if retryErr := retryAbortOrContextError(ctx, err); retryErr != nil {
+		return retryErr
 	}
 	if err != nil && errorsEqualForRetry(err, ru.err) {
 		return nil
@@ -760,8 +789,8 @@ func (ru *retriableBatchUpdate) String() string {
 // attempt.
 func (ru *retriableBatchUpdate) retry(ctx context.Context, tx *spanner.ReadWriteStmtBasedTransaction) error {
 	c, err := tx.BatchUpdateWithOptions(ctx, ru.statements, ru.options)
-	if err != nil && spanner.ErrCode(err) == codes.Aborted {
-		return err
+	if retryErr := retryAbortOrContextError(ctx, err); retryErr != nil {
+		return retryErr
 	}
 	if !errorsEqualForRetry(err, ru.err) {
 		return ErrAbortedDueToConcurrentModification
@@ -805,21 +834,36 @@ func (tx *readWriteTransaction) runWithRetry(ctx context.Context, f func(ctx con
 func (tx *readWriteTransaction) retryUntilSuccess(ctx context.Context, initialErr error) error {
 	err := initialErr
 	for {
-		if err == ErrAbortedDueToConcurrentModification {
+		if errors.Is(err, ErrAbortedDueToConcurrentModification) {
 			tx.logger.Log(ctx, LevelNotice, "transaction retry failed due to a concurrent modification")
 			return err
 		}
 		if !tx.canRetryAborts() || spanner.ErrCode(err) != codes.Aborted {
 			return err
 		}
+		for _, checkCtx := range [2]context.Context{tx.ctx, ctx} {
+			if isContextExpiredOrCancelled(checkCtx) {
+				tx.rollbackBackendTransaction()
+				return retryContextError(checkCtx, nil, nil)
+			}
+		}
+		retryCtx, cleanup := combineContexts(ctx, tx.ctx)
 		delay, ok := spanner.ExtractRetryDelay(err)
 		if !ok {
 			delay = tx.randomRetryDelay()
 		}
-		if sleepErr := gax.Sleep(ctx, delay); sleepErr != nil {
+		sleep := tx.sleep
+		if sleep == nil {
+			sleep = gax.Sleep
+		}
+		if sleepErr := sleep(retryCtx, delay); sleepErr != nil {
+			sleepErr = retryContextError(tx.ctx, retryCtx, sleepErr)
+			cleanup()
+			tx.rollbackBackendTransaction()
 			return sleepErr
 		}
-		err = tx.retry(ctx)
+		err = tx.retry(retryCtx)
+		cleanup()
 		if err == nil {
 			return nil
 		}
@@ -834,12 +878,24 @@ func (tx *readWriteTransaction) randomRetryDelay() time.Duration {
 // It will return ErrAbortedDueToConcurrentModification if the retry fails.
 func (tx *readWriteTransaction) retry(ctx context.Context) (err error) {
 	tx.logger.Log(ctx, LevelNotice, "starting transaction retry")
+	if tx.rwTx == nil {
+		return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
+	}
 	tx.rwTx, err = tx.rwTx.ResetForRetry(ctx)
 	if err != nil {
 		tx.logger.Log(ctx, LevelNotice, "failed to reset transaction")
+		if isContextCancelledOrTimedOut(ctx, err) {
+			return retryContextError(ctx, nil, err)
+		}
 		return err
 	}
 	err = tx.replayStatementsAndMutations(ctx)
+	if err != nil && (errors.Is(err, ErrAbortedDueToConcurrentModification) || spanner.ErrCode(err) != codes.Aborted) {
+		// Rollback the newly created backend transaction if replay fails with a non-Aborted error
+		// (e.g., context timeout/cancellation or concurrent modification).
+		tx.rollbackBackendTransaction()
+		return err
+	}
 	if err == nil {
 		tx.logger.Log(ctx, LevelNotice, "finished transaction retry")
 	}
@@ -866,23 +922,22 @@ func (tx *readWriteTransaction) replayStatementsAndMutations(ctx context.Context
 // unless internal retries have been disabled.
 func (tx *readWriteTransaction) Commit() (err error) {
 	tx.logger.Debug("committing transaction")
-	if tx.closed {
+	if tx.state == readWriteTxStateClosed {
 		return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
 	}
-	if tx.replayErr != nil {
+	if err := tx.ensureReplayed(tx.ctx); err != nil {
 		_ = tx.rollback()
-		return tx.savepointReplayError()
+		return err
 	}
-	if tx.rwTx == nil {
+	if tx.state == readWriteTxStateClosed || tx.rwTx == nil {
 		_ = tx.rollback()
 		return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
 	}
-	tx.closed = true
-	tx.active = true
 	if err := tx.maybeRunAutoDmlBatch(tx.ctx); err != nil {
 		_ = tx.rollback()
 		return err
 	}
+	tx.state = readWriteTxStateClosed
 	var commitResponse spanner.CommitResponse
 	if tx.rwTx != nil {
 		if !tx.retryAborts() {
@@ -895,8 +950,8 @@ func (tx *readWriteTransaction) Commit() (err error) {
 			commitResponse, err = tx.rwTx.CommitWithReturnResp(ctx)
 			return err
 		})
-		if err == ErrAbortedDueToConcurrentModification {
-			tx.rwTx.Rollback(context.Background())
+		if err != nil {
+			tx.rollbackBackendTransaction()
 		}
 	}
 	tx.close(txResultCommit, &commitResponse, err)
@@ -913,13 +968,18 @@ func (tx *readWriteTransaction) Rollback() error {
 	return tx.rollback()
 }
 
-func (tx *readWriteTransaction) rollback() error {
-	tx.closed = true
+func (tx *readWriteTransaction) rollbackBackendTransaction() {
 	if tx.rwTx != nil {
 		// Always use context.Background() for rollback invocations to allow them
 		// to be executed, even if the transaction has timed out or been cancelled.
 		tx.rwTx.Rollback(context.Background())
+		tx.rwTx = nil
 	}
+}
+
+func (tx *readWriteTransaction) rollback() error {
+	tx.state = readWriteTxStateClosed
+	tx.rollbackBackendTransaction()
 	if tx.close != nil {
 		tx.close(txResultRollback, nil, nil)
 	}
@@ -927,9 +987,14 @@ func (tx *readWriteTransaction) rollback() error {
 }
 
 func (tx *readWriteTransaction) resetForRetry(ctx context.Context) error {
-	tx.closed = false
-	if tx.replayErr != nil {
+	if tx.state == readWriteTxStateReplayFailed {
 		return tx.savepointReplayError()
+	}
+	if tx.state == readWriteTxStateClosed {
+		return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
+	}
+	if tx.state == readWriteTxStateNeedsReplay {
+		return nil
 	}
 	if tx.rwTx == nil {
 		return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
@@ -947,14 +1012,13 @@ func (tx *readWriteTransaction) resetForRetry(ctx context.Context) error {
 // transaction is aborted during the query or while iterating the returned rows.
 func (tx *readWriteTransaction) Query(ctx context.Context, stmt spanner.Statement, stmtType parser.StatementType, execOptions *ExecOptions) (rowIterator, error) {
 	tx.logger.Debug("Query", "stmt", stmt.SQL)
-	if tx.replayErr != nil {
-		return nil, tx.savepointReplayError()
+	if err := tx.ensureReplayed(ctx); err != nil {
+		return nil, err
 	}
-	if tx.rwTx == nil {
+	if tx.state == readWriteTxStateClosed || tx.rwTx == nil {
 		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
 	}
 	execOptions.QueryOptions.DirectedReadOptions = nil
-	tx.active = true
 	if err := tx.maybeRunAutoDmlBatch(ctx); err != nil {
 		return nil, err
 	}
@@ -985,14 +1049,13 @@ func (tx *readWriteTransaction) partitionQuery(ctx context.Context, stmt spanner
 
 func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.Statement, statementInfo *parser.StatementInfo, options spanner.QueryOptions) (res *result, err error) {
 	tx.logger.Debug("ExecContext", "stmt", stmt.SQL)
-	if tx.replayErr != nil {
-		return nil, tx.savepointReplayError()
-	}
-	if tx.rwTx == nil {
+	if tx.state == readWriteTxStateClosed {
 		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
 	}
+	if tx.state == readWriteTxStateReplayFailed {
+		return nil, tx.savepointReplayError()
+	}
 	options.DirectedReadOptions = nil
-	tx.active = true
 	if tx.batch != nil {
 		tx.logger.Debug("adding statement to batch")
 		tx.batch.statements = append(tx.batch.statements, stmt)
@@ -1002,6 +1065,13 @@ func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.St
 		}
 		tx.batch.returnValues = append(tx.batch.returnValues, updateCount)
 		return &result{rowsAffected: updateCount}, nil
+	}
+
+	if err := tx.ensureReplayed(ctx); err != nil {
+		return nil, err
+	}
+	if tx.state == readWriteTxStateClosed || tx.rwTx == nil {
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
 	}
 
 	if !tx.retryAborts() {
@@ -1025,23 +1095,29 @@ func (tx *readWriteTransaction) ExecContext(ctx context.Context, stmt spanner.St
 	return res, err
 }
 
-func (tx *readWriteTransaction) StartBatchDML(options spanner.QueryOptions, automatic bool) (driver.Result, error) {
-	if tx.replayErr != nil {
+func (tx *readWriteTransaction) StartBatchDML(options *ExecOptions, automatic bool) (driver.Result, error) {
+	if tx.state == readWriteTxStateClosed {
+		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
+	}
+	if tx.state == readWriteTxStateReplayFailed {
 		return nil, tx.savepointReplayError()
 	}
 	if tx.batch != nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This transaction already has an active batch."))
 	}
 	tx.logger.Debug("starting dml batch in transaction", "automatic", automatic)
-	options.DirectedReadOptions = nil
-	tx.active = true
-	tx.batch = &batch{tp: parser.BatchTypeDml, options: &ExecOptions{QueryOptions: options}, automatic: automatic}
+	var batchOptions ExecOptions
+	if options != nil {
+		batchOptions = *options
+	}
+	batchOptions.QueryOptions.DirectedReadOptions = nil
+	tx.batch = &batch{tp: parser.BatchTypeDml, options: &batchOptions, automatic: automatic}
 	return driver.ResultNoRows, nil
 }
 
 func (tx *readWriteTransaction) RunBatch(ctx context.Context) (driver.Result, error) {
-	if tx.replayErr != nil {
-		return nil, tx.savepointReplayError()
+	if err := tx.ensureReplayed(ctx); err != nil {
+		return nil, err
 	}
 	if tx.batch == nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "This transaction does not have an active batch"))
@@ -1057,8 +1133,8 @@ func (tx *readWriteTransaction) RunBatch(ctx context.Context) (driver.Result, er
 }
 
 func (tx *readWriteTransaction) RunDmlBatch(ctx context.Context) (SpannerResult, error) {
-	if tx.replayErr != nil {
-		return nil, tx.savepointReplayError()
+	if err := tx.ensureReplayed(ctx); err != nil {
+		return nil, err
 	}
 	if tx.batch == nil {
 		return nil, spanner.ToSpannerError(status.Errorf(codes.FailedPrecondition, "this transaction does not have an active batch"))
@@ -1113,42 +1189,59 @@ func verifyAutoDmlBatch(batch *batch, batchUpdateCounts []int64) error {
 
 func (tx *readWriteTransaction) runDmlBatch(ctx context.Context) (*result, error) {
 	tx.logger.Debug("running dml batch")
-	if tx.rwTx == nil {
+	if err := tx.ensureReplayed(ctx); err != nil {
+		return nil, err
+	}
+	if tx.state == readWriteTxStateClosed || tx.rwTx == nil {
 		return nil, spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
 	}
 	statements := tx.batch.statements
 	options := tx.batch.options
+	if options == nil {
+		options = &ExecOptions{}
+	}
+	queryOptions := options.QueryOptions
+	queryOptions.DirectedReadOptions = nil
 	tx.batch = nil
 
-	if !tx.retryAborts() {
-		affected, err := tx.rwTx.BatchUpdateWithOptions(ctx, statements, options.QueryOptions)
-		res := &result{rowsAffected: sum(affected), batchUpdateCounts: affected}
-		ba := toBatchError(res, err)
-		return res, ba
+	retryAborts := tx.canRetryAborts()
+	runBatchUpdate := func() ([]int64, error) {
+		if !retryAborts {
+			return tx.rwTx.BatchUpdateWithOptions(ctx, statements, queryOptions)
+		}
+		var affected []int64
+		var err error
+		err = tx.runWithRetry(ctx, func(ctx context.Context) error {
+			affected, err = tx.rwTx.BatchUpdateWithOptions(ctx, statements, queryOptions)
+			return err
+		})
+		return affected, err
 	}
 
 	var affected []int64
 	var err error
-	err = tx.runWithRetry(ctx, func(ctx context.Context) error {
-		affected, err = tx.rwTx.BatchUpdateWithOptions(ctx, statements, options.QueryOptions)
-		return err
+	tx.conn.withBatchExecOptions(options, func() {
+		affected, err = runBatchUpdate()
 	})
-	tx.statements = append(tx.statements, &retriableBatchUpdate{
-		statements: statements,
-		options:    options.QueryOptions,
-		c:          affected,
-		err:        err,
-	})
+
+	if retryAborts {
+		tx.statements = append(tx.statements, &retriableBatchUpdate{
+			statements: statements,
+			options:    queryOptions,
+			c:          affected,
+			err:        err,
+		})
+	}
 	res := &result{rowsAffected: sum(affected), batchUpdateCounts: affected}
 	ba := toBatchError(res, err)
 	return res, ba
 }
 
 func (tx *readWriteTransaction) BufferWrite(ms []*spanner.Mutation) error {
-	if tx.replayErr != nil {
-		return tx.savepointReplayError()
+	if err := tx.ensureReplayed(tx.ctx); err != nil {
+		return err
 	}
-	if tx.rwTx == nil {
+	if tx.state == readWriteTxStateClosed || tx.rwTx == nil {
 		return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
 	}
 	tx.mutations = append(tx.mutations, ms...)
@@ -1176,13 +1269,13 @@ func (tx *readWriteTransaction) savepointReplayError() error {
 }
 
 func (tx *readWriteTransaction) canUseSavepoints(action savepointAction) error {
-	if tx.closed {
+	if tx.state == readWriteTxStateClosed {
 		return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
 	}
-	if action != savepointActionRollback && tx.replayErr != nil {
+	if action != savepointActionRollback && tx.state == readWriteTxStateReplayFailed {
 		return tx.savepointReplayError()
 	}
-	allowNilBackend := action == savepointActionRollback
+	allowNilBackend := action == savepointActionRollback || tx.state == readWriteTxStateNeedsReplay
 	if tx.rwTx == nil && (!allowNilBackend || tx.conn == nil || tx.conn.client == nil) {
 		return spanner.ToSpannerError(status.Error(codes.FailedPrecondition, "underlying read-write transaction is closed or aborted"))
 	}
@@ -1202,7 +1295,6 @@ func (tx *readWriteTransaction) savepointCheckpoint() (int, int, error) {
 	if err := tx.maybeRunAutoDmlBatch(tx.ctx); err != nil {
 		return 0, 0, err
 	}
-	tx.active = true
 	return len(tx.statements), len(tx.mutations), nil
 }
 
@@ -1228,22 +1320,244 @@ func (tx *readWriteTransaction) rollbackToSavepointCheckpoint(ctx context.Contex
 	}
 	tx.mutations = tx.mutations[:mutationCount]
 
-	if tx.rwTx != nil {
-		tx.rwTx.Rollback(context.Background())
-		tx.rwTx = nil
-	}
+	tx.rollbackBackendTransaction()
 
-	// TODO: Defer the actual transaction recreation and statement replay until the transaction
-	// is next used by a statement or commit, rather than replaying immediately here. This avoids
-	// starting a new Spanner transaction and replaying statements if the transaction is subsequently
-	// rolled back or if multiple savepoint rollbacks occur in succession.
-	err := tx.recreateAndReplay(ctx)
+	tx.state = readWriteTxStateNeedsReplay
+	tx.replayErr = nil
+	return nil
+}
+
+type replayContextSource uint8
+
+const (
+	replayContextNone replayContextSource = iota
+	replayContextTransaction
+	replayContextStatement
+	replayContextOpenQuery
+)
+
+func (s replayContextSource) String() string {
+	switch s {
+	case replayContextTransaction:
+		return "transaction"
+	case replayContextStatement:
+		return "statement"
+	case replayContextOpenQuery:
+		return "open query"
+	default:
+		return "unknown"
+	}
+}
+
+func (tx *readWriteTransaction) ensureReplayed(ctx context.Context) error {
+	if tx.state == readWriteTxStateReplayFailed {
+		return tx.savepointReplayError()
+	}
+	if tx.state != readWriteTxStateNeedsReplay {
+		return nil
+	}
+	if source, ctxErr := tx.findReplayContextError(ctx, nil); ctxErr != nil {
+		return tx.wrapReplayContextError(ctx, source, false, 0, ctxErr)
+	}
+	replayCtx, cleanup := combineContexts(ctx, tx.ctx)
+	defer cleanup()
+
+	start := time.Now()
+	err := tx.recreateAndReplay(replayCtx)
 	if err != nil {
+		elapsed := time.Since(start)
+		if source, ctxErr := tx.findReplayContextError(ctx, err); ctxErr != nil {
+			// A context expired or was cancelled mid-replay. Keep NeedsReplay so a later call with
+			// a healthy context (or after closing a cancelled query) can still recover; if the
+			// transaction or an open query is still cancelled, the checks above will fail immediately.
+			tx.state = readWriteTxStateNeedsReplay
+			tx.replayErr = nil
+			return tx.wrapReplayContextError(ctx, source, true, elapsed, ctxErr)
+		}
+		tx.log(ctx, LevelNotice, "savepoint replay failed",
+			"statements", len(tx.statements),
+			"mutations", len(tx.mutations),
+			"elapsed", elapsed,
+			"err", err,
+		)
+		tx.state = readWriteTxStateReplayFailed
 		tx.replayErr = err
 		return err
 	}
+	tx.state = readWriteTxStateActive
 	tx.replayErr = nil
 	return nil
+}
+
+// findReplayContextError checks tx.ctx, ctx, and any open query iterator
+// contexts. When err is nil it checks for already-expired or cancelled
+// contexts before replay starts; when err is non-nil it checks whether err was
+// caused by one of those contexts ending.
+func (tx *readWriteTransaction) findReplayContextError(ctx context.Context, err error) (replayContextSource, error) {
+	check := func(targetCtx context.Context) error {
+		if err == nil {
+			if isContextExpiredOrCancelled(targetCtx) {
+				return retryContextError(targetCtx, nil, nil)
+			}
+			return nil
+		}
+		if isContextCancelledOrTimedOut(targetCtx, err) {
+			return retryContextError(targetCtx, nil, err)
+		}
+		return nil
+	}
+	if ctxErr := check(tx.ctx); ctxErr != nil {
+		return replayContextTransaction, ctxErr
+	}
+	if ctxErr := check(ctx); ctxErr != nil {
+		return replayContextStatement, ctxErr
+	}
+	for _, stmt := range tx.statements {
+		if it, ok := stmt.(*checksumRowIterator); ok && !it.stopped {
+			if ctxErr := check(it.ctx); ctxErr != nil {
+				return replayContextOpenQuery, ctxErr
+			}
+		}
+	}
+	return replayContextNone, nil
+}
+
+func (tx *readWriteTransaction) wrapReplayContextError(ctx context.Context, source replayContextSource, interrupted bool, elapsed time.Duration, ctxErr error) error {
+	stmtCount := len(tx.statements)
+	mutCount := len(tx.mutations)
+	if interrupted {
+		tx.log(ctx, LevelNotice, "savepoint replay interrupted by context cancellation or deadline",
+			"source", source.String(),
+			"statements", stmtCount,
+			"mutations", mutCount,
+			"elapsed", elapsed,
+			"err", ctxErr,
+		)
+		return fmt.Errorf("savepoint replay (%d statements, %d mutations) interrupted after %s (%s context ended): %w",
+			stmtCount, mutCount, elapsed, source, ctxErr)
+	}
+	tx.log(ctx, LevelNotice, "skipping savepoint replay because context is already cancelled or expired",
+		"source", source.String(),
+		"statements", stmtCount,
+		"mutations", mutCount,
+		"err", ctxErr,
+	)
+	return fmt.Errorf("savepoint replay (%d statements, %d mutations) skipped (%s context ended): %w",
+		stmtCount, mutCount, source, ctxErr)
+}
+
+func (tx *readWriteTransaction) log(ctx context.Context, level slog.Level, msg string, args ...any) {
+	if tx.logger == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	tx.logger.Log(ctx, level, msg, args...)
+}
+
+func isContextExpiredOrCancelled(ctx context.Context) bool {
+	return expiredOrCancelledErr(ctx) != nil
+}
+
+func expiredOrCancelledErr(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
+// combineContexts returns a context based on primaryCtx that also cancels or
+// expires when secondaryCtx does.
+func combineContexts(primaryCtx, secondaryCtx context.Context) (context.Context, context.CancelFunc) {
+	if primaryCtx == nil {
+		if secondaryCtx == nil {
+			return context.Background(), func() {}
+		}
+		return secondaryCtx, func() {}
+	}
+	if secondaryCtx == nil || secondaryCtx == primaryCtx {
+		return primaryCtx, func() {}
+	}
+	deadline, hasSecondaryDeadline := secondaryCtx.Deadline()
+	if secondaryCtx.Done() == nil && !hasSecondaryDeadline {
+		return primaryCtx, func() {}
+	}
+
+	var combined context.Context
+	var cancel context.CancelFunc
+	if hasSecondaryDeadline {
+		// context.WithDeadline keeps primaryCtx's deadline if it is already earlier.
+		combined, cancel = context.WithDeadline(primaryCtx, deadline)
+	} else {
+		combined, cancel = context.WithCancel(primaryCtx)
+	}
+
+	// Cancel combined immediately if secondaryCtx is already done.
+	if err := secondaryCtx.Err(); err != nil {
+		if !errors.Is(err, context.DeadlineExceeded) || combined.Err() == nil {
+			cancel()
+		}
+		return combined, cancel
+	}
+	if secondaryCtx.Done() == nil {
+		return combined, cancel
+	}
+
+	// Skip cancel() on DeadlineExceeded only when combined has a deadline timer.
+	stop := context.AfterFunc(secondaryCtx, func() {
+		if !hasSecondaryDeadline || !errors.Is(secondaryCtx.Err(), context.DeadlineExceeded) {
+			cancel()
+		}
+	})
+	return combined, func() {
+		stop()
+		cancel()
+	}
+}
+
+func isContextCancelledOrTimedOut(ctx context.Context, err error) bool {
+	if !isContextExpiredOrCancelled(ctx) || err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	code := spanner.ErrCode(err)
+	return code == codes.Canceled || code == codes.DeadlineExceeded
+}
+
+// retryContextError returns an error matching the context failure on ctx (or
+// fallbackCtx if ctx is still active), preserving both errors.Is for the Go
+// context error and spanner.ErrCode for gRPC and PG SQLSTATE mapping.
+func retryContextError(ctx, fallbackCtx context.Context, err error) error {
+	ctxErr := expiredOrCancelledErr(ctx)
+	if ctxErr == nil {
+		ctxErr = expiredOrCancelledErr(fallbackCtx)
+	}
+	if ctxErr == nil {
+		if err != nil {
+			return err
+		}
+		return context.Canceled
+	}
+	wantCode := codes.Canceled
+	if errors.Is(ctxErr, context.DeadlineExceeded) {
+		wantCode = codes.DeadlineExceeded
+	}
+	if err != nil && spanner.ErrCode(err) == wantCode {
+		if errors.Is(err, ctxErr) {
+			return err
+		}
+		return errors.Join(err, ctxErr)
+	}
+	return errors.Join(spanner.ToSpannerError(status.FromContextError(ctxErr).Err()), ctxErr)
 }
 
 func (tx *readWriteTransaction) recreateAndReplay(ctx context.Context) (err error) {
@@ -1257,9 +1571,8 @@ func (tx *readWriteTransaction) recreateAndReplay(ctx context.Context) (err erro
 		return err
 	}
 	defer func() {
-		if err != nil && tx.rwTx != nil {
-			tx.rwTx.Rollback(context.Background())
-			tx.rwTx = nil
+		if err != nil {
+			tx.rollbackBackendTransaction()
 		}
 	}()
 

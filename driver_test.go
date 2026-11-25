@@ -18,11 +18,15 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,6 +46,11 @@ func silentClose(c io.Closer) {
 }
 
 func TestExtractDnsParts(t *testing.T) {
+	credsPath := filepath.Join(t.TempDir(), "test-creds.json")
+	if err := os.WriteFile(credsPath, []byte(`{"type":"service_account"}`), 0600); err != nil {
+		t.Fatalf("failed to write temp creds file: %v", err)
+	}
+
 	//goland:noinspection GoDeprecation
 	tests := []struct {
 		input               string
@@ -126,14 +135,14 @@ func TestExtractDnsParts(t *testing.T) {
 			},
 		},
 		{
-			input: "spanner.googleapis.com/projects/p/instances/i/databases/d;credentials=/path/to/credentials.json",
+			input: fmt.Sprintf("spanner.googleapis.com/projects/p/instances/i/databases/d;credentials=%s", credsPath),
 			wantConnectorConfig: ConnectorConfig{
 				Host:     "spanner.googleapis.com",
 				Project:  "p",
 				Instance: "i",
 				Database: "d",
 				Params: map[string]string{
-					"credentials": "/path/to/credentials.json",
+					"credentials": credsPath,
 				},
 			},
 			wantSpannerConfig: spanner.ClientConfig{
@@ -143,14 +152,14 @@ func TestExtractDnsParts(t *testing.T) {
 			},
 		},
 		{
-			input: "spanner.googleapis.com/projects/p/instances/i/databases/d?credentials=/path/to/credentials.json;readonly=true",
+			input: fmt.Sprintf("spanner.googleapis.com/projects/p/instances/i/databases/d?credentials=%s;readonly=true", credsPath),
 			wantConnectorConfig: ConnectorConfig{
 				Host:     "spanner.googleapis.com",
 				Project:  "p",
 				Instance: "i",
 				Database: "d",
 				Params: map[string]string{
-					"credentials": "/path/to/credentials.json",
+					"credentials": credsPath,
 					"readonly":    "true",
 				},
 			},
@@ -1662,5 +1671,771 @@ func TestIsMissingDefaultSequenceKindError(t *testing.T) {
 	errNoQuotes := fmt.Errorf("rpc error: code = InvalidArgument desc = The sequence kind of an identity column id is not specified. Please specify the sequence kind explicitly or set the database option default_sequence_kind.")
 	if !isMissingDefaultSequenceKindError(errNoQuotes) {
 		t.Errorf("isMissingDefaultSequenceKindError returned false for: %v", errNoQuotes)
+	}
+}
+
+func TestConnectorConfig_ParamsPrecedenceOverExplicitFields(t *testing.T) {
+	connectorConfig := ConnectorConfig{
+		Project:  "test-project",
+		Instance: "test-instance",
+		Database: "test-database",
+		Params: map[string]string{
+			"isolation_level":                          "SERIALIZABLE",
+			"decode_to_native_arrays":                  "false",
+			"auto_batch_dml":                           "false",
+			"auto_batch_dml_update_count":              "25",
+			"auto_batch_dml_update_count_verification": "true",
+			"connection_state_type":                    "NonTransactional",
+			"statement_cache_size":                     "250",
+			"disable_statement_cache":                  "false",
+			"begin_transaction_option":                 "InlinedBeginTransaction",
+			"auto_config_emulator":                     "false",
+		},
+		IsolationLevel:          sql.LevelRepeatableRead,
+		DecodeToNativeArrays:    true,
+		AutoBatchDml:            true,
+		AutoBatchDmlUpdateCount: 10,
+		DisableAutoBatchDmlUpdateCountVerification: true,
+		ConnectionStateType:                        connectionstate.TypeTransactional,
+		StatementCacheSize:                         500,
+		DisableStatementCache:                      true,
+		BeginTransactionOption:                     spanner.ExplicitBeginTransaction,
+		AutoConfigEmulator:                         true,
+	}
+	connector, err := createConnector(&Driver{}, connectorConfig)
+	if err != nil {
+		t.Fatalf("createConnector failed: %v", err)
+	}
+	state := connector.configuredConnectionState()
+
+	// Verify connectorConfig struct fields were updated to match Params.
+	if g, w := connector.connectorConfig.IsolationLevel, sql.LevelSerializable; g != w {
+		t.Errorf("IsolationLevel mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := connector.connectorConfig.DecodeToNativeArrays, false; g != w {
+		t.Errorf("DecodeToNativeArrays mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := connector.connectorConfig.AutoBatchDml, false; g != w {
+		t.Errorf("AutoBatchDml mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := connector.connectorConfig.AutoBatchDmlUpdateCount, int64(25); g != w {
+		t.Errorf("AutoBatchDmlUpdateCount mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := connector.connectorConfig.DisableAutoBatchDmlUpdateCountVerification, false; g != w {
+		t.Errorf("DisableAutoBatchDmlUpdateCountVerification mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := connector.connectorConfig.ConnectionStateType, connectionstate.TypeNonTransactional; g != w {
+		t.Errorf("ConnectionStateType mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := connector.connectorConfig.StatementCacheSize, 250; g != w {
+		t.Errorf("StatementCacheSize mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := connector.connectorConfig.DisableStatementCache, false; g != w {
+		t.Errorf("DisableStatementCache mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := connector.connectorConfig.BeginTransactionOption, spanner.InlinedBeginTransaction; g != w {
+		t.Errorf("BeginTransactionOption mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := connector.connectorConfig.AutoConfigEmulator, false; g != w {
+		t.Errorf("AutoConfigEmulator mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// Verify configured ConnectionState values match Params.
+	if g, w := propertyIsolationLevel.GetValueOrDefault(state), sql.LevelSerializable; g != w {
+		t.Errorf("propertyIsolationLevel mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyDecodeToNativeArrays.GetValueOrDefault(state), false; g != w {
+		t.Errorf("propertyDecodeToNativeArrays mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoBatchDml.GetValueOrDefault(state), false; g != w {
+		t.Errorf("propertyAutoBatchDml mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoBatchDmlUpdateCount.GetValueOrDefault(state), int64(25); g != w {
+		t.Errorf("propertyAutoBatchDmlUpdateCount mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoBatchDmlUpdateCountVerification.GetValueOrDefault(state), true; g != w {
+		t.Errorf("propertyAutoBatchDmlUpdateCountVerification mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyConnectionStateType.GetValueOrDefault(state), connectionstate.TypeNonTransactional; g != w {
+		t.Errorf("propertyConnectionStateType mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyStatementCacheSize.GetValueOrDefault(state), 250; g != w {
+		t.Errorf("propertyStatementCacheSize mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyDisableStatementCache.GetValueOrDefault(state), false; g != w {
+		t.Errorf("propertyDisableStatementCache mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyBeginTransactionOption.GetValueOrDefault(state), spanner.InlinedBeginTransaction; g != w {
+		t.Errorf("propertyBeginTransactionOption mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoConfigEmulator.GetValueOrDefault(state), false; g != w {
+		t.Errorf("propertyAutoConfigEmulator mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConnectorConfig_ExplicitFieldsPrecedenceOverDefaults(t *testing.T) {
+	connectorConfig := ConnectorConfig{
+		Project:                 "test-project",
+		Instance:                "test-instance",
+		Database:                "test-database",
+		IsolationLevel:          sql.LevelRepeatableRead,
+		DecodeToNativeArrays:    true,
+		AutoBatchDml:            true,
+		AutoBatchDmlUpdateCount: 10,
+		DisableAutoBatchDmlUpdateCountVerification: true,
+		ConnectionStateType:                        connectionstate.TypeTransactional,
+		StatementCacheSize:                         500,
+		DisableStatementCache:                      true,
+		BeginTransactionOption:                     spanner.ExplicitBeginTransaction,
+	}
+	connector, err := createConnector(&Driver{}, connectorConfig)
+	if err != nil {
+		t.Fatalf("createConnector failed: %v", err)
+	}
+	state := connector.configuredConnectionState()
+
+	if g, w := propertyIsolationLevel.GetValueOrDefault(state), sql.LevelRepeatableRead; g != w {
+		t.Errorf("propertyIsolationLevel mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyDecodeToNativeArrays.GetValueOrDefault(state), true; g != w {
+		t.Errorf("propertyDecodeToNativeArrays mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoBatchDml.GetValueOrDefault(state), true; g != w {
+		t.Errorf("propertyAutoBatchDml mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoBatchDmlUpdateCount.GetValueOrDefault(state), int64(10); g != w {
+		t.Errorf("propertyAutoBatchDmlUpdateCount mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoBatchDmlUpdateCountVerification.GetValueOrDefault(state), false; g != w {
+		t.Errorf("propertyAutoBatchDmlUpdateCountVerification mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyConnectionStateType.GetValueOrDefault(state), connectionstate.TypeTransactional; g != w {
+		t.Errorf("propertyConnectionStateType mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyStatementCacheSize.GetValueOrDefault(state), 500; g != w {
+		t.Errorf("propertyStatementCacheSize mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyDisableStatementCache.GetValueOrDefault(state), true; g != w {
+		t.Errorf("propertyDisableStatementCache mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyBeginTransactionOption.GetValueOrDefault(state), spanner.ExplicitBeginTransaction; g != w {
+		t.Errorf("propertyBeginTransactionOption mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// Verify that all explicitly configured fields have HasValue() == true in initialPropertyValues.
+	checkedPropertyKeys := []string{
+		propertyIsolationLevel.Key(),
+		propertyDecodeToNativeArrays.Key(),
+		propertyAutoBatchDml.Key(),
+		propertyAutoBatchDmlUpdateCount.Key(),
+		propertyAutoBatchDmlUpdateCountVerification.Key(),
+		propertyConnectionStateType.Key(),
+		propertyStatementCacheSize.Key(),
+		propertyDisableStatementCache.Key(),
+		propertyBeginTransactionOption.Key(),
+	}
+	for _, propertyKey := range checkedPropertyKeys {
+		propertyValue, ok := connector.initialPropertyValues[propertyKey]
+		if !ok {
+			t.Errorf("expected property %q to be present in initialPropertyValues", propertyKey)
+			continue
+		}
+		if g, w := propertyValue.HasValue(), true; g != w {
+			t.Errorf("HasValue for property %q mismatch\nGot:  %v\nWant: %v", propertyKey, g, w)
+		}
+	}
+
+	// Verify AutoConfigEmulator explicit field precedence separately via mergeConnectorConfigIntoInitialValues
+	// to avoid triggering autoConfigEmulator network calls to localhost:9010 during unit test execution.
+	emulatorInitialValues := make(map[string]connectionstate.ConnectionPropertyValue)
+	mergeConnectorConfigIntoInitialValues(ConnectorConfig{AutoConfigEmulator: true}, emulatorInitialValues)
+	propertyValue, ok := emulatorInitialValues[propertyAutoConfigEmulator.Key()]
+	if !ok {
+		t.Fatalf("expected property %q to be present in initialPropertyValues", propertyAutoConfigEmulator.Key())
+	}
+	if g, w := propertyValue.HasValue(), true; g != w {
+		t.Errorf("HasValue for property %q mismatch\nGot:  %v\nWant: %v", propertyAutoConfigEmulator.Key(), g, w)
+	}
+	emulatorState := createConfiguredConnectionState(emulatorInitialValues)
+	if g, w := propertyAutoConfigEmulator.GetValueOrDefault(emulatorState), true; g != w {
+		t.Errorf("propertyAutoConfigEmulator mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConnectorConfig_UnsetFieldsRetainHasValueFalse(t *testing.T) {
+	connectorConfig := ConnectorConfig{
+		Project:  "test-project",
+		Instance: "test-instance",
+		Database: "test-database",
+	}
+	connector, err := createConnector(&Driver{}, connectorConfig)
+	if err != nil {
+		t.Fatalf("createConnector failed: %v", err)
+	}
+
+	// Verify unset properties are NOT present in connector.initialPropertyValues.
+	checkedPropertyKeys := []string{
+		propertyDecodeToNativeArrays.Key(),
+		propertyIsolationLevel.Key(),
+		propertyBeginTransactionOption.Key(),
+		propertyAutoBatchDml.Key(),
+		propertyAutoBatchDmlUpdateCount.Key(),
+		propertyAutoBatchDmlUpdateCountVerification.Key(),
+		propertyConnectionStateType.Key(),
+		propertyStatementCacheSize.Key(),
+		propertyDisableStatementCache.Key(),
+		propertyAutoConfigEmulator.Key(),
+		propertyRetryAbortsInternally.Key(),
+	}
+	for _, propertyKey := range checkedPropertyKeys {
+		if _, ok := connector.initialPropertyValues[propertyKey]; ok {
+			t.Errorf("property %q unexpectedly present in initialPropertyValues for unset ConnectorConfig", propertyKey)
+		}
+	}
+
+	// Verify that when a full ConnectionState is created from initialPropertyValues,
+	// default values are preserved and HasValue() is false for all unset properties.
+	connectionState := createInitialConnectionState(connectionstate.TypeNonTransactional, connector.initialPropertyValues)
+
+	if g, w := propertyRetryAbortsInternally.GetValueOrDefault(connectionState), true; g != w {
+		t.Errorf("propertyRetryAbortsInternally default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyRetryAbortsInternally.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyRetryAbortsInternally HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyDecodeToNativeArrays.GetValueOrDefault(connectionState), false; g != w {
+		t.Errorf("propertyDecodeToNativeArrays default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyDecodeToNativeArrays.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyDecodeToNativeArrays HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyIsolationLevel.GetValueOrDefault(connectionState), sql.LevelDefault; g != w {
+		t.Errorf("propertyIsolationLevel default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyIsolationLevel.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyIsolationLevel HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyAutoBatchDml.GetValueOrDefault(connectionState), false; g != w {
+		t.Errorf("propertyAutoBatchDml default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoBatchDml.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyAutoBatchDml HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyAutoBatchDmlUpdateCount.GetValueOrDefault(connectionState), int64(1); g != w {
+		t.Errorf("propertyAutoBatchDmlUpdateCount default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoBatchDmlUpdateCount.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyAutoBatchDmlUpdateCount HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyAutoBatchDmlUpdateCountVerification.GetValueOrDefault(connectionState), true; g != w {
+		t.Errorf("propertyAutoBatchDmlUpdateCountVerification default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoBatchDmlUpdateCountVerification.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyAutoBatchDmlUpdateCountVerification HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyConnectionStateType.GetValueOrDefault(connectionState), connectionstate.TypeDefault; g != w {
+		t.Errorf("propertyConnectionStateType default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyConnectionStateType.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyConnectionStateType HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyStatementCacheSize.GetValueOrDefault(connectionState), 0; g != w {
+		t.Errorf("propertyStatementCacheSize default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyStatementCacheSize.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyStatementCacheSize HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyDisableStatementCache.GetValueOrDefault(connectionState), false; g != w {
+		t.Errorf("propertyDisableStatementCache default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyDisableStatementCache.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyDisableStatementCache HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyBeginTransactionOption.GetValueOrDefault(connectionState), spanner.InlinedBeginTransaction; g != w {
+		t.Errorf("propertyBeginTransactionOption default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyBeginTransactionOption.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyBeginTransactionOption HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if g, w := propertyAutoConfigEmulator.GetValueOrDefault(connectionState), false; g != w {
+		t.Errorf("propertyAutoConfigEmulator default mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyAutoConfigEmulator.GetConnectionPropertyValue(connectionState).HasValue(), false; g != w {
+		t.Errorf("propertyAutoConfigEmulator HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestRetryAbortsInternally(t *testing.T) {
+	tests := []struct {
+		name         string
+		params       map[string]string
+		wantInMap    bool
+		wantHasValue bool
+		wantValue    bool
+	}{
+		{
+			name: "ExplicitlySetFalseInParams",
+			params: map[string]string{
+				"retry_aborts_internally": "false",
+			},
+			wantInMap:    true,
+			wantHasValue: true,
+			wantValue:    false,
+		},
+		{
+			name: "ExplicitlySetTrueInParams",
+			params: map[string]string{
+				"retry_aborts_internally": "true",
+			},
+			wantInMap:    true,
+			wantHasValue: true,
+			wantValue:    true,
+		},
+		{
+			name:         "UnsetInParamsDefaultsToTrueWithHasValueFalse",
+			params:       nil,
+			wantInMap:    false,
+			wantHasValue: false,
+			wantValue:    true,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			connectorConfig := ConnectorConfig{
+				Project:  "test-project",
+				Instance: "test-instance",
+				Database: "test-database",
+				Params:   testCase.params,
+			}
+			connector, err := createConnector(&Driver{}, connectorConfig)
+			if err != nil {
+				t.Fatalf("createConnector failed: %v", err)
+			}
+			propertyValue, ok := connector.initialPropertyValues[propertyRetryAbortsInternally.Key()]
+			if g, w := ok, testCase.wantInMap; g != w {
+				t.Errorf("presence in initialPropertyValues mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if testCase.wantInMap {
+				if g, w := propertyValue.HasValue(), testCase.wantHasValue; g != w {
+					t.Errorf("HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+			}
+			connectionState := createInitialConnectionState(connectionstate.TypeNonTransactional, connector.initialPropertyValues)
+			if g, w := propertyRetryAbortsInternally.GetValueOrDefault(connectionState), testCase.wantValue; g != w {
+				t.Errorf("retry_aborts_internally value mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := propertyRetryAbortsInternally.GetConnectionPropertyValue(connectionState).HasValue(), testCase.wantHasValue; g != w {
+				t.Errorf("retry_aborts_internally HasValue mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
+// verifyCredentialOption inspects the connector's options slice to verify that the
+// expected google.golang.org/api option.WithAuthCredentialsFile or option.WithAuthCredentialsJSON
+// option was constructed with the correct credential type and payload.
+// Note: reflection is used here because google.golang.org/api unexports its concrete
+// ClientOption struct types and fields.
+func verifyCredentialOption(t *testing.T, options []option.ClientOption, wantType option.CredentialsType, wantFile string, wantJSON []byte) {
+	t.Helper()
+	for _, opt := range options {
+		val := reflect.ValueOf(opt)
+		if val.Kind() == reflect.Struct {
+			typeName := val.Type().Name()
+			if typeName == "withAuthCredentialsFile" {
+				if g, w := option.CredentialsType(val.FieldByName("credsType").String()), wantType; g != w {
+					t.Errorf("credsType mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := val.FieldByName("filename").String(), wantFile; g != w {
+					t.Errorf("filename mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				return
+			}
+			if typeName == "withAuthCredentialsJSON" {
+				if g, w := option.CredentialsType(val.FieldByName("credsType").String()), wantType; g != w {
+					t.Errorf("credsType mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := string(val.FieldByName("json").Bytes()), string(wantJSON); g != w {
+					t.Errorf("json payload mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				return
+			}
+		}
+	}
+	t.Fatalf("expected credential option not found in options: %v", options)
+}
+
+func TestCreateConnector_Credentials(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+
+	writeTempFile := func(t *testing.T, filename, content string) string {
+		path := filepath.Join(tempDir, filename)
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+			t.Fatalf("failed to write temp file: %v", err)
+		}
+		return path
+	}
+
+	validServiceAccount := `{"type": "service_account", "project_id": "test-proj", "private_key_id": "123"}`
+	validServiceAccountWithPlus := `{"type": "service_account", "x": ">>>"}`
+	validAuthorizedUser := `{"type": "authorized_user", "client_id": "client_id_val", "client_secret": "client_secret_val", "refresh_token": "refresh_token_val"}`
+	externalAccountPayload := `{"type": "external_account", "audience": "//iam.googleapis.com/...", "subject_token_type": "urn:ietf:params:oauth:token-type:jwt", "token_url": "https://attacker.com/token", "credential_source": {"file": "/etc/shadow"}}`
+	impersonatedPayload := `{"type": "impersonated_service_account", "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/sa@proj.iam.gserviceaccount.com:generateAccessToken"}`
+	nonJSONContent := `root:x:0:0:root:/root:/bin/bash`
+	missingTypePayload := `{"project_id": "test-proj", "private_key": "some-key"}`
+
+	serviceAccountFile := writeTempFile(t, "service_account.json", validServiceAccount)
+	authorizedUserFile := writeTempFile(t, "authorized_user.json", validAuthorizedUser)
+	externalAccountFile := writeTempFile(t, "external_account.json", externalAccountPayload)
+	impersonatedFile := writeTempFile(t, "impersonated_account.json", impersonatedPayload)
+	nonJSONFile := writeTempFile(t, "passwd.txt", nonJSONContent)
+	emptyFile := writeTempFile(t, "empty.json", "")
+	whitespaceFile := writeTempFile(t, "whitespace.json", "   ")
+	largeFile := writeTempFile(t, "large.json", strings.Repeat(" ", 10*1024*1024+1))
+
+	tests := []struct {
+		name           string
+		params         map[string]string
+		wantErr        bool
+		wantCode       codes.Code
+		wantErrMsg     string
+		wantOptionType option.CredentialsType
+		wantFile       string
+		wantJSON       []byte
+	}{
+		{
+			name: "valid service_account json",
+			params: map[string]string{
+				"credentials_json": validServiceAccount,
+			},
+			wantOptionType: option.ServiceAccount,
+			wantJSON:       []byte(validServiceAccount),
+		},
+		{
+			name: "valid service_account json standard base64",
+			params: map[string]string{
+				"credentials_json": base64.StdEncoding.EncodeToString([]byte(validServiceAccount)),
+			},
+			wantOptionType: option.ServiceAccount,
+			wantJSON:       []byte(validServiceAccount),
+		},
+		{
+			name: "valid service_account json url-safe base64",
+			params: map[string]string{
+				"credentials_json": base64.URLEncoding.EncodeToString([]byte(validServiceAccount)),
+			},
+			wantOptionType: option.ServiceAccount,
+			wantJSON:       []byte(validServiceAccount),
+		},
+		{
+			name: "valid service_account json raw url-safe base64 without padding",
+			params: map[string]string{
+				"credentials_json": base64.RawURLEncoding.EncodeToString([]byte(validServiceAccount)),
+			},
+			wantOptionType: option.ServiceAccount,
+			wantJSON:       []byte(validServiceAccount),
+		},
+		{
+			name: "valid service_account json base64 with spaces from url decoder",
+			params: map[string]string{
+				"credentials_json": strings.ReplaceAll(base64.StdEncoding.EncodeToString([]byte(validServiceAccountWithPlus)), "+", " "),
+			},
+			wantOptionType: option.ServiceAccount,
+			wantJSON:       []byte(validServiceAccountWithPlus),
+		},
+		{
+			name: "valid authorized_user json",
+			params: map[string]string{
+				"credentials_json": validAuthorizedUser,
+			},
+			wantOptionType: option.AuthorizedUser,
+			wantJSON:       []byte(validAuthorizedUser),
+		},
+		{
+			name: "valid authorized_user json standard base64",
+			params: map[string]string{
+				"credentials_json": base64.StdEncoding.EncodeToString([]byte(validAuthorizedUser)),
+			},
+			wantOptionType: option.AuthorizedUser,
+			wantJSON:       []byte(validAuthorizedUser),
+		},
+		{
+			name: "valid authorized_user json url-safe base64",
+			params: map[string]string{
+				"credentials_json": base64.URLEncoding.EncodeToString([]byte(validAuthorizedUser)),
+			},
+			wantOptionType: option.AuthorizedUser,
+			wantJSON:       []byte(validAuthorizedUser),
+		},
+		{
+			name: "valid service_account file",
+			params: map[string]string{
+				"credentials": serviceAccountFile,
+			},
+			wantOptionType: option.ServiceAccount,
+			wantFile:       serviceAccountFile,
+		},
+		{
+			name: "valid authorized_user file",
+			params: map[string]string{
+				"credentials": authorizedUserFile,
+			},
+			wantOptionType: option.AuthorizedUser,
+			wantFile:       authorizedUserFile,
+		},
+		{
+			name: "rejected external_account json",
+			params: map[string]string{
+				"credentials_json": externalAccountPayload,
+			},
+			wantErr:    true,
+			wantCode:   codes.InvalidArgument,
+			wantErrMsg: "unsupported credential type",
+		},
+		{
+			name: "rejected external_account file",
+			params: map[string]string{
+				"credentials": externalAccountFile,
+			},
+			wantErr:    true,
+			wantCode:   codes.InvalidArgument,
+			wantErrMsg: "unsupported credential type",
+		},
+		{
+			name: "rejected impersonated_service_account json",
+			params: map[string]string{
+				"credentials_json": impersonatedPayload,
+			},
+			wantErr:    true,
+			wantCode:   codes.InvalidArgument,
+			wantErrMsg: "unsupported credential type",
+		},
+		{
+			name: "rejected impersonated_service_account file",
+			params: map[string]string{
+				"credentials": impersonatedFile,
+			},
+			wantErr:    true,
+			wantCode:   codes.InvalidArgument,
+			wantErrMsg: "unsupported credential type",
+		},
+		{
+			name: "empty credentials falls back to default credentials",
+			params: map[string]string{
+				"credentials": "",
+			},
+			wantErr: false,
+		},
+		{
+			name: "empty credentials_json falls back to default credentials",
+			params: map[string]string{
+				"credentials_json": "",
+			},
+			wantErr: false,
+		},
+		{
+			name: "rejected whitespace-only credentials_json",
+			params: map[string]string{
+				"credentials_json": "   ",
+			},
+			wantErr:  true,
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "rejected malformed credentials_json",
+			params: map[string]string{
+				"credentials_json": "{not-valid-json}",
+			},
+			wantErr:  true,
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "rejected missing type credentials_json",
+			params: map[string]string{
+				"credentials_json": missingTypePayload,
+			},
+			wantErr:  true,
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "rejected primitive number in credentials_json",
+			params: map[string]string{
+				"credentials_json": "123",
+			},
+			wantErr:    true,
+			wantCode:   codes.InvalidArgument,
+			wantErrMsg: "must be a valid JSON object",
+		},
+		{
+			name: "rejected primitive string in credentials_json",
+			params: map[string]string{
+				"credentials_json": "\"hello\"",
+			},
+			wantErr:    true,
+			wantCode:   codes.InvalidArgument,
+			wantErrMsg: "must be a valid JSON object",
+		},
+		{
+			name: "rejected invalid base64 with spaces in credentials_json",
+			params: map[string]string{
+				"credentials_json": "not valid base64 with spaces",
+			},
+			wantErr:    true,
+			wantCode:   codes.InvalidArgument,
+			wantErrMsg: "must be a valid JSON object",
+		},
+		{
+			name: "rejected credentials_json exceeding maxCredentialFileSize",
+			params: map[string]string{
+				"credentials_json": strings.Repeat(" ", 10*1024*1024+1),
+			},
+			wantErr:    true,
+			wantCode:   codes.InvalidArgument,
+			wantErrMsg: "exceeds maximum allowed size",
+		},
+		{
+			name: "rejected non-existent file",
+			params: map[string]string{
+				"credentials": filepath.Join(tempDir, "non_existent.json"),
+			},
+			wantErr:  true,
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "rejected directory as credentials file",
+			params: map[string]string{
+				"credentials": t.TempDir(),
+			},
+			wantErr:    true,
+			wantCode:   codes.InvalidArgument,
+			wantErrMsg: "is not a regular file",
+		},
+		{
+			name: "rejected non-json file",
+			params: map[string]string{
+				"credentials": nonJSONFile,
+			},
+			wantErr:  true,
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "rejected invalid non-string type in credentials_json",
+			params: map[string]string{
+				"credentials_json": `{"type": 123}`,
+			},
+			wantErr:    true,
+			wantCode:   codes.InvalidArgument,
+			wantErrMsg: "failed to parse credentials JSON",
+		},
+		{
+			name: "rejected empty file",
+			params: map[string]string{
+				"credentials": emptyFile,
+			},
+			wantErr:    true,
+			wantCode:   codes.InvalidArgument,
+			wantErrMsg: "credentials data is empty",
+		},
+		{
+			name: "rejected whitespace-only file",
+			params: map[string]string{
+				"credentials": whitespaceFile,
+			},
+			wantErr:    true,
+			wantCode:   codes.InvalidArgument,
+			wantErrMsg: "credentials data is empty",
+		},
+		{
+			name: "rejected file exceeding maxCredentialFileSize",
+			params: map[string]string{
+				"credentials": largeFile,
+			},
+			wantErr:    true,
+			wantCode:   codes.InvalidArgument,
+			wantErrMsg: "exceeds maximum allowed size",
+		},
+		{
+			name: "rejected both credentials and credentials_json",
+			params: map[string]string{
+				"credentials":      serviceAccountFile,
+				"credentials_json": validServiceAccount,
+			},
+			wantErr:    true,
+			wantCode:   codes.InvalidArgument,
+			wantErrMsg: "cannot specify both 'credentials' and 'credentials_json'",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := ConnectorConfig{
+				Project:  "test-project",
+				Instance: "test-instance",
+				Database: "test-database",
+				Params:   tc.params,
+			}
+			c, err := createConnector(&Driver{}, cfg)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if g, w := spanner.ErrCode(err), tc.wantCode; g != w {
+					t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if tc.wantErrMsg != "" && !strings.Contains(err.Error(), tc.wantErrMsg) {
+					t.Errorf("error message mismatch\nGot:  %v\nWant substring: %v", err.Error(), tc.wantErrMsg)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if c == nil {
+					t.Fatalf("expected connector, got nil")
+				}
+				if tc.wantOptionType != "" {
+					verifyCredentialOption(t, c.options, tc.wantOptionType, tc.wantFile, tc.wantJSON)
+				}
+			}
+		})
+	}
+}
+
+func TestConnectorConfig_ConfiguredConnectionStateReadsFromInitialValues(t *testing.T) {
+	connectorConfig := ConnectorConfig{
+		Project:  "test-project",
+		Instance: "test-instance",
+		Database: "test-database",
+		Params: map[string]string{
+			"connect_timeout":         "250ms",
+			"statement_cache_size":    "123",
+			"disable_statement_cache": "true",
+		},
+	}
+	connector, err := createConnector(&Driver{}, connectorConfig)
+	if err != nil {
+		t.Fatalf("createConnector failed: %v", err)
+	}
+	state := connector.configuredConnectionState()
+	if g, w := propertyConnectTimeout.GetValueOrDefault(state), 250*time.Millisecond; g != w {
+		t.Errorf("propertyConnectTimeout mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyStatementCacheSize.GetValueOrDefault(state), 123; g != w {
+		t.Errorf("propertyStatementCacheSize mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propertyDisableStatementCache.GetValueOrDefault(state), true; g != w {
+		t.Errorf("propertyDisableStatementCache mismatch\nGot:  %v\nWant: %v", g, w)
 	}
 }

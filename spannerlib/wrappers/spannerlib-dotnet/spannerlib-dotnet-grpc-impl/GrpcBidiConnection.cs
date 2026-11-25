@@ -179,30 +179,26 @@ internal class GrpcBidiConnection(GrpcLibSpanner spanner, Pool pool, long id) : 
         };
     }
 
-    public override long[] ExecuteBatch(List<ExecuteBatchDmlRequest.Types.Statement> statements)
+    public override long[] ExecuteBatch(ExecuteBatchDmlRequest request)
     {
-        var response = ExecuteBidi(CreateExecuteBatchRequest(statements));
+        var response = ExecuteBidi(CreateExecuteBatchRequest(request));
         return ISpannerLib.ToUpdateCounts(response.ExecuteBatchResponse);
     }
 
-    public override async Task<long[]> ExecuteBatchAsync(List<ExecuteBatchDmlRequest.Types.Statement> statements, CancellationToken cancellationToken = default)
+    public override async Task<long[]> ExecuteBatchAsync(ExecuteBatchDmlRequest request, CancellationToken cancellationToken = default)
     {
-        var response = await ExecuteBidiAsync(CreateExecuteBatchRequest(statements), cancellationToken).ConfigureAwait(false);
+        var response = await ExecuteBidiAsync(CreateExecuteBatchRequest(request), cancellationToken).ConfigureAwait(false);
         return ISpannerLib.ToUpdateCounts(response.ExecuteBatchResponse);
     }
 
-    private ConnectionStreamRequest CreateExecuteBatchRequest(
-        IEnumerable<ExecuteBatchDmlRequest.Types.Statement> statements)
+    private ConnectionStreamRequest CreateExecuteBatchRequest(ExecuteBatchDmlRequest request)
     {
         return new ConnectionStreamRequest
         {
             ExecuteBatchRequest = new ExecuteBatchRequest
             {
                 Connection = GrpcLibSpanner.ToProto(this),
-                ExecuteBatchDmlRequest = new ExecuteBatchDmlRequest
-                {
-                    Statements = { statements },
-                },
+                ExecuteBatchDmlRequest = request,
             },
         };
     }
