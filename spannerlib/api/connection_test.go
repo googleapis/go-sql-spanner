@@ -620,3 +620,83 @@ func TestConnectionCloseCancelsContext(t *testing.T) {
 		t.Fatal("Blocked query didn't cancel!")
 	}
 }
+
+func TestApiNilArguments(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolId, err := CreatePool(ctx, "test", dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	defer func() { _ = ClosePool(ctx, poolId) }()
+
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		call     func() error
+		wantCode codes.Code
+	}{
+		{
+			name: "WriteMutations nil mutations",
+			call: func() error {
+				_, err := WriteMutations(ctx, poolId, connId, nil)
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "WriteMutations nil mutation element",
+			call: func() error {
+				_, err := WriteMutations(ctx, poolId, connId, &spannerpb.BatchWriteRequest_MutationGroup{
+					Mutations: []*spannerpb.Mutation{nil},
+				})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "Execute nil request",
+			call: func() error {
+				_, err := Execute(ctx, poolId, connId, nil)
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "ExecuteBatch nil request",
+			call: func() error {
+				_, err := ExecuteBatch(ctx, poolId, connId, nil)
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "ExecuteBatch nil statement element",
+			call: func() error {
+				_, err := ExecuteBatch(ctx, poolId, connId, &spannerpb.ExecuteBatchDmlRequest{
+					Statements: []*spannerpb.ExecuteBatchDmlRequest_Statement{nil},
+				})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.call()
+			if g, w := spanner.ErrCode(err), tc.wantCode; g != w {
+				t.Errorf("error code mismatch\nGot:  %v\nWant: %v (err: %v)", g, w, err)
+			}
+		})
+	}
+}

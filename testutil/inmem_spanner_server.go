@@ -327,6 +327,9 @@ type InMemSpannerServer interface {
 
 	// Puts a simulated execution time for one of the Spanner methods.
 	PutExecutionTime(method string, executionTime SimulatedExecutionTime)
+	// SetMethodHook registers a callback invoked during simulated execution for the
+	// given method, after the request is recorded on ReceivedRequests. Passing nil clears the hook.
+	SetMethodHook(method string, hook func(ctx context.Context, req interface{}) error)
 	// Freeze stalls all requests.
 	Freeze()
 	// Unfreeze restores processing requests.
@@ -377,6 +380,8 @@ type inMemSpannerServer struct {
 	partitionResults map[string]*StatementResult
 	// The simulated execution times per method.
 	executionTimes map[string]*SimulatedExecutionTime
+	// Optional per-method hooks invoked during simulateExecutionTime.
+	methodHooks map[string]func(ctx context.Context, req interface{}) error
 	// The simulated errors for partial result sets
 	partialResultSetErrors map[string][]*PartialResultSetExecutionTime
 
@@ -400,6 +405,7 @@ func NewInMemSpannerServer() InMemSpannerServer {
 	res.statementResults = make(map[string]*StatementResult)
 	res.partitionResults = make(map[string]*StatementResult)
 	res.executionTimes = make(map[string]*SimulatedExecutionTime)
+	res.methodHooks = make(map[string]func(ctx context.Context, req interface{}) error)
 	res.partialResultSetErrors = make(map[string][]*PartialResultSetExecutionTime)
 	res.receivedRequests = make(chan interface{}, 1000000)
 	// Produce a closed channel, so the default action of ready is to not block.
@@ -506,6 +512,19 @@ func (s *inMemSpannerServer) PutExecutionTime(method string, executionTime Simul
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.executionTimes[method] = &executionTime
+}
+
+func (s *inMemSpannerServer) SetMethodHook(method string, hook func(ctx context.Context, req interface{}) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.methodHooks == nil {
+		s.methodHooks = make(map[string]func(ctx context.Context, req interface{}) error)
+	}
+	if hook == nil {
+		delete(s.methodHooks, method)
+		return
+	}
+	s.methodHooks[method] = hook
 }
 
 func (s *inMemSpannerServer) AddPartialResultSetError(sql string, partialResultSetError PartialResultSetExecutionTime) {
@@ -733,7 +752,7 @@ func (s *inMemSpannerServer) getStatementResult(sql string) (*StatementResult, e
 	return result, nil
 }
 
-func (s *inMemSpannerServer) simulateExecutionTime(method string, req interface{}) error {
+func (s *inMemSpannerServer) simulateExecutionTime(ctx context.Context, method string, req interface{}) error {
 	s.mu.Lock()
 	if s.stopped {
 		s.mu.Unlock()
@@ -750,14 +769,28 @@ func (s *inMemSpannerServer) simulateExecutionTime(method string, req interface{
 		return err
 	}
 	executionTime, ok := s.executionTimes[method]
+	hook := s.methodHooks[method]
 	s.mu.Unlock()
+	if hook != nil {
+		if err := hook(ctx, req); err != nil {
+			return err
+		}
+	}
 	if ok {
 		var randTime time.Duration
 		if executionTime.RandomExecutionTime > 0 {
 			randTime = randDuration(executionTime.RandomExecutionTime)
 		}
 		totalExecutionTime := executionTime.MinimumExecutionTime + randTime
-		<-time.After(totalExecutionTime)
+		if totalExecutionTime > 0 {
+			timer := time.NewTimer(totalExecutionTime)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return gstatus.FromContextError(ctx.Err()).Err()
+			case <-timer.C:
+			}
+		}
 		s.mu.Lock()
 		if len(executionTime.Errors) > 0 {
 			err := executionTime.Errors[0]
@@ -773,7 +806,7 @@ func (s *inMemSpannerServer) simulateExecutionTime(method string, req interface{
 }
 
 func (s *inMemSpannerServer) CreateSession(ctx context.Context, req *spannerpb.CreateSessionRequest) (*spannerpb.Session, error) {
-	if err := s.simulateExecutionTime(MethodCreateSession, req); err != nil {
+	if err := s.simulateExecutionTime(ctx, MethodCreateSession, req); err != nil {
 		return nil, err
 	}
 	if req.Database == "" {
@@ -802,7 +835,7 @@ func (s *inMemSpannerServer) CreateSession(ctx context.Context, req *spannerpb.C
 }
 
 func (s *inMemSpannerServer) BatchCreateSessions(ctx context.Context, req *spannerpb.BatchCreateSessionsRequest) (*spannerpb.BatchCreateSessionsResponse, error) {
-	if err := s.simulateExecutionTime(MethodBatchCreateSession, req); err != nil {
+	if err := s.simulateExecutionTime(ctx, MethodBatchCreateSession, req); err != nil {
 		return nil, err
 	}
 	if req.Database == "" {
@@ -843,7 +876,7 @@ func (s *inMemSpannerServer) BatchCreateSessions(ctx context.Context, req *spann
 }
 
 func (s *inMemSpannerServer) GetSession(ctx context.Context, req *spannerpb.GetSessionRequest) (*spannerpb.Session, error) {
-	if err := s.simulateExecutionTime(MethodGetSession, req); err != nil {
+	if err := s.simulateExecutionTime(ctx, MethodGetSession, req); err != nil {
 		return nil, err
 	}
 	if req.Name == "" {
@@ -884,7 +917,7 @@ func (s *inMemSpannerServer) ListSessions(ctx context.Context, req *spannerpb.Li
 }
 
 func (s *inMemSpannerServer) DeleteSession(ctx context.Context, req *spannerpb.DeleteSessionRequest) (*emptypb.Empty, error) {
-	if err := s.simulateExecutionTime(MethodDeleteSession, req); err != nil {
+	if err := s.simulateExecutionTime(ctx, MethodDeleteSession, req); err != nil {
 		return nil, err
 	}
 	if req.Name == "" {
@@ -901,7 +934,7 @@ func (s *inMemSpannerServer) DeleteSession(ctx context.Context, req *spannerpb.D
 }
 
 func (s *inMemSpannerServer) ExecuteSql(ctx context.Context, req *spannerpb.ExecuteSqlRequest) (*spannerpb.ResultSet, error) {
-	if err := s.simulateExecutionTime(MethodExecuteSql, req); err != nil {
+	if err := s.simulateExecutionTime(ctx, MethodExecuteSql, req); err != nil {
 		return nil, err
 	}
 	if req.Sql == "SELECT 1" {
@@ -956,7 +989,7 @@ func (s *inMemSpannerServer) ExecuteStreamingSql(req *spannerpb.ExecuteSqlReques
 	// instead register a specific error result for the query, instead of a
 	// generic error for the method.
 	if req.Sql != selectDialect {
-		if err := s.simulateExecutionTime(MethodExecuteStreamingSql, req); err != nil {
+		if err := s.simulateExecutionTime(stream.Context(), MethodExecuteStreamingSql, req); err != nil {
 			return err
 		}
 	}
@@ -1038,7 +1071,7 @@ func (s *inMemSpannerServer) executeStreamingSQL(req *spannerpb.ExecuteSqlReques
 }
 
 func (s *inMemSpannerServer) ExecuteBatchDml(ctx context.Context, req *spannerpb.ExecuteBatchDmlRequest) (*spannerpb.ExecuteBatchDmlResponse, error) {
-	if err := s.simulateExecutionTime(MethodExecuteBatchDml, req); err != nil {
+	if err := s.simulateExecutionTime(ctx, MethodExecuteBatchDml, req); err != nil {
 		return nil, err
 	}
 	if req.Session == "" {
@@ -1100,7 +1133,7 @@ func (s *inMemSpannerServer) Read(ctx context.Context, req *spannerpb.ReadReques
 }
 
 func (s *inMemSpannerServer) StreamingRead(req *spannerpb.ReadRequest, stream spannerpb.Spanner_StreamingReadServer) error {
-	if err := s.simulateExecutionTime(MethodStreamingRead, req); err != nil {
+	if err := s.simulateExecutionTime(stream.Context(), MethodStreamingRead, req); err != nil {
 		return err
 	}
 	sqlReq := &spannerpb.ExecuteSqlRequest{
@@ -1119,7 +1152,7 @@ func (s *inMemSpannerServer) StreamingRead(req *spannerpb.ReadRequest, stream sp
 }
 
 func (s *inMemSpannerServer) BeginTransaction(ctx context.Context, req *spannerpb.BeginTransactionRequest) (*spannerpb.Transaction, error) {
-	if err := s.simulateExecutionTime(MethodBeginTransaction, req); err != nil {
+	if err := s.simulateExecutionTime(ctx, MethodBeginTransaction, req); err != nil {
 		return nil, err
 	}
 	if req.Session == "" {
@@ -1135,7 +1168,7 @@ func (s *inMemSpannerServer) BeginTransaction(ctx context.Context, req *spannerp
 }
 
 func (s *inMemSpannerServer) Commit(ctx context.Context, req *spannerpb.CommitRequest) (*spannerpb.CommitResponse, error) {
-	if err := s.simulateExecutionTime(MethodCommitTransaction, req); err != nil {
+	if err := s.simulateExecutionTime(ctx, MethodCommitTransaction, req); err != nil {
 		return nil, err
 	}
 	if req.Session == "" {

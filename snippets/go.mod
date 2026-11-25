@@ -7,7 +7,7 @@ toolchain go1.27.4
 replace github.com/googleapis/go-sql-spanner => ../
 
 require (
-	cloud.google.com/go/spanner v1.96.1
+	cloud.google.com/go/spanner v1.96.2
 	github.com/googleapis/go-sql-spanner v1.28.0
 	github.com/moby/moby/api v1.57.0
 	github.com/testcontainers/testcontainers-go v0.45.0
@@ -92,9 +92,9 @@ require (
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
-	google.golang.org/api v0.314.0 // indirect
+	google.golang.org/api v0.316.0 // indirect
 	google.golang.org/genproto v0.0.0-20261110000943-09e21b237f2c // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20261110000943-09e21b237f2c // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261110000943-09e21b237f2c // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261118221215-c8830f628b3f // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )

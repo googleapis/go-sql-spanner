@@ -17,6 +17,7 @@ package lib
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
@@ -432,4 +433,157 @@ func TestGoogleSQLTransactionState_AllowCommands(t *testing.T) {
 	_ = Rollback(ctx, poolMsg.ObjectId, connMsg.ObjectId)
 	_ = CloseConnection(ctx, poolMsg.ObjectId, connMsg.ObjectId)
 	_ = ClosePool(ctx, poolMsg.ObjectId)
+}
+
+func TestExecuteBatch_RequestOptions_InTransactionNoLeak(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolMsg := CreatePool(ctx, "test", dsn)
+	if g, w := poolMsg.Code, int32(0); g != w {
+		t.Fatalf("CreatePool code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	defer func() { _ = ClosePool(ctx, poolMsg.ObjectId) }()
+	connMsg := CreateConnection(ctx, poolMsg.ObjectId)
+	if g, w := connMsg.Code, int32(0); g != w {
+		t.Fatalf("CreateConnection code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	txOptsBytes, err := proto.Marshal(&spannerpb.TransactionOptions{})
+	if err != nil {
+		t.Fatalf("Marshal TransactionOptions failed: %v", err)
+	}
+	beginMsg := BeginTransaction(ctx, poolMsg.ObjectId, connMsg.ObjectId, txOptsBytes)
+	if g, w := beginMsg.Code, int32(0); g != w {
+		t.Fatalf("BeginTransaction code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	req := &spannerpb.ExecuteBatchDmlRequest{
+		Statements: []*spannerpb.ExecuteBatchDmlRequest_Statement{
+			{Sql: testutil.UpdateBarSetFoo},
+		},
+		RequestOptions: &spannerpb.RequestOptions{
+			RequestTag:     "lib_tx_batch_req",
+			TransactionTag: "lib_tx_batch_tx",
+			Priority:       spannerpb.RequestOptions_PRIORITY_HIGH,
+		},
+	}
+	reqBytes, err := proto.Marshal(req)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+	batchMsg := ExecuteBatch(ctx, poolMsg.ObjectId, connMsg.ObjectId, reqBytes)
+	if g, w := batchMsg.Code, int32(0); g != w {
+		t.Fatalf("ExecuteBatch code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitMsg := Commit(ctx, poolMsg.ObjectId, connMsg.ObjectId)
+	if g, w := commitMsg.Code, int32(0); g != w {
+		t.Fatalf("Commit code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+	if g, w := len(batchRequests), 1; g != w {
+		t.Fatalf("ExecuteBatchDmlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	batchReq := batchRequests[0].(*spannerpb.ExecuteBatchDmlRequest)
+	if g, w := batchReq.RequestOptions.GetRequestTag(), "lib_tx_batch_req"; g != w {
+		t.Errorf("request tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := batchReq.RequestOptions.GetTransactionTag(), "lib_tx_batch_tx"; g != w {
+		t.Errorf("transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := batchReq.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_HIGH; g != w {
+		t.Errorf("priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequests[0].(*spannerpb.CommitRequest).RequestOptions.GetTransactionTag(), "lib_tx_batch_tx"; g != w {
+		t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// Verify tags and priority did not leak onto subsequent requests.
+	nextExecBytes, err := proto.Marshal(&spannerpb.ExecuteSqlRequest{Sql: testutil.UpdateBarSetFoo})
+	if err != nil {
+		t.Fatalf("Marshal ExecuteSqlRequest failed: %v", err)
+	}
+	nextRowsMsg := Execute(ctx, poolMsg.ObjectId, connMsg.ObjectId, nextExecBytes)
+	if g, w := nextRowsMsg.Code, int32(0); g != w {
+		t.Fatalf("subsequent Execute code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	_ = CloseRows(ctx, poolMsg.ObjectId, connMsg.ObjectId, nextRowsMsg.ObjectId)
+	requests = server.TestSpanner.DrainRequestsFromServer()
+	execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests), 1; g != w {
+		t.Fatalf("subsequent ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execRequests[0].(*spannerpb.ExecuteSqlRequest).RequestOptions.GetRequestTag(), ""; g != w {
+		t.Errorf("leaked request tag\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execRequests[0].(*spannerpb.ExecuteSqlRequest).RequestOptions.GetTransactionTag(), ""; g != w {
+		t.Errorf("leaked transaction tag\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execRequests[0].(*spannerpb.ExecuteSqlRequest).RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_UNSPECIFIED; g != w {
+		t.Errorf("leaked priority\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestExecuteBatch_RequestOptions(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	poolMsg := CreatePool(ctx, "test", dsn)
+	if g, w := poolMsg.Code, int32(0); g != w {
+		t.Fatalf("CreatePool code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	defer func() { _ = ClosePool(ctx, poolMsg.ObjectId) }()
+	connMsg := CreateConnection(ctx, poolMsg.ObjectId)
+	if g, w := connMsg.Code, int32(0); g != w {
+		t.Fatalf("CreateConnection code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	req := &spannerpb.ExecuteBatchDmlRequest{
+		Statements: []*spannerpb.ExecuteBatchDmlRequest_Statement{
+			{Sql: testutil.UpdateBarSetFoo},
+		},
+		RequestOptions: &spannerpb.RequestOptions{
+			RequestTag:     "lib_batch_req",
+			TransactionTag: "lib_batch_tx",
+			Priority:       spannerpb.RequestOptions_PRIORITY_MEDIUM,
+		},
+	}
+	reqBytes, err := proto.Marshal(req)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+	batchMsg := ExecuteBatch(ctx, poolMsg.ObjectId, connMsg.ObjectId, reqBytes)
+	if g, w := batchMsg.Code, int32(0); g != w {
+		t.Fatalf("ExecuteBatch code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteBatchDmlRequest{}))
+	if g, w := len(batchRequests), 1; g != w {
+		t.Fatalf("ExecuteBatchDmlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	batchReq := batchRequests[0].(*spannerpb.ExecuteBatchDmlRequest)
+	if g, w := batchReq.RequestOptions.GetRequestTag(), "lib_batch_req"; g != w {
+		t.Errorf("request tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := batchReq.RequestOptions.GetTransactionTag(), "lib_batch_tx"; g != w {
+		t.Errorf("transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := batchReq.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_MEDIUM; g != w {
+		t.Errorf("priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
 }
