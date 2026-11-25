@@ -2275,3 +2275,227 @@ func TestExtractValues_SkipsInternalProperties(t *testing.T) {
 		t.Errorf("extracted value mismatch\nGot:  %v\nWant: %v", g, w)
 	}
 }
+
+func TestConnectionState_Snapshot_SetValueOnEmptyState(t *testing.T) {
+	tests := []struct {
+		name      string
+		stateType Type
+		inTx      bool
+	}{
+		{
+			name:      "NonTransactional",
+			stateType: TypeNonTransactional,
+			inTx:      false,
+		},
+		{
+			name:      "TransactionalOutsideTx",
+			stateType: TypeTransactional,
+			inTx:      false,
+		},
+		{
+			name:      "TransactionalInTxAndCommit",
+			stateType: TypeTransactional,
+			inTx:      true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			state, err := NewConnectionState(tc.stateType, nil, nil)
+			if err != nil {
+				t.Fatalf("failed to create connection state: %v", err)
+			}
+			snap := state.Snapshot()
+			if snap == nil {
+				t.Fatalf("expected non-nil snapshot, got nil")
+			}
+
+			if tc.inTx {
+				if err := snap.Begin(); err != nil {
+					t.Fatalf("Begin failed: %v", err)
+				}
+			}
+
+			if err := snap.SetValue("ext", "prop", "v", ContextUser); err != nil {
+				t.Fatalf("SetValue on snapshot failed: %v", err)
+			}
+
+			if tc.inTx {
+				if err := snap.Commit(); err != nil {
+					t.Fatalf("Commit on snapshot failed: %v", err)
+				}
+			}
+
+			val, ok, err := snap.GetValue("ext", "prop")
+			if err != nil {
+				t.Fatalf("GetValue on snapshot failed: %v", err)
+			}
+			if !ok {
+				t.Fatalf("expected property to be set on snapshot")
+			}
+			if g, w := val, "v"; g != w {
+				t.Errorf("snapshot value mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			if _, ok, _ := state.GetValue("ext", "prop"); ok {
+				t.Errorf("expected parent state not to have property set on snapshot")
+			}
+		})
+	}
+}
+
+func TestExtractValues_SkipsNilProperty(t *testing.T) {
+	prop := CreateConnectionProperty("valid_prop", "Valid property", "default_val", false, nil, ContextUser, noop)
+	properties := map[string]ConnectionProperty{
+		"nil_prop": nil,
+		prop.Key(): prop,
+	}
+	values := map[string]string{
+		"valid_prop": "custom_val",
+	}
+	extracted, err := ExtractValues(properties, values)
+	if err != nil {
+		t.Fatalf("ExtractValues failed: %v", err)
+	}
+	if g, w := len(extracted), 1; g != w {
+		t.Errorf("extracted length mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	propVal, ok := extracted[prop.Key()]
+	if !ok {
+		t.Fatalf("expected %q to be extracted", prop.Key())
+	}
+	val, err := propVal.GetValue()
+	if err != nil {
+		t.Fatalf("GetValue failed: %v", err)
+	}
+	if g, w := val, "custom_val"; g != w {
+		t.Errorf("extracted value mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestNewConnectionState_SkipsNilEntries(t *testing.T) {
+	propDefault := CreateConnectionProperty("default_prop", "Default property", "default_val", false, nil, ContextUser, noop)
+	propInitial := CreateConnectionProperty("initial_prop", "Initial property", "default_val", false, nil, ContextUser, noop)
+	properties := map[string]ConnectionProperty{
+		"nil_prop":        nil,
+		propDefault.Key(): propDefault,
+		propInitial.Key(): propInitial,
+	}
+	initialValues := map[string]ConnectionPropertyValue{
+		"nil_initial":     nil,
+		propInitial.Key(): propInitial.CreateTypedInitialValue("initial_val"),
+	}
+	state, err := NewConnectionState(TypeTransactional, properties, initialValues)
+	if err != nil {
+		t.Fatalf("NewConnectionState failed: %v", err)
+	}
+	if g, w := propDefault.GetValueOrDefault(state), "default_val"; g != w {
+		t.Errorf("default property value mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := propInitial.GetValueOrDefault(state), "initial_val"; g != w {
+		t.Errorf("initial property value mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	for _, unknown := range []string{"nil_prop", "nil_initial"} {
+		if _, _, err := state.GetValue("", unknown); status.Code(err) != codes.InvalidArgument {
+			t.Errorf("error code for %q mismatch\nGot:  %v\nWant: %v", unknown, status.Code(err), codes.InvalidArgument)
+		}
+	}
+}
+
+func TestConnectionState_NilReceiver_ReturnsError(t *testing.T) {
+	var state *ConnectionState
+	tests := []struct {
+		name string
+		fn   func() error
+	}{
+		{
+			name: "GetValue",
+			fn: func() error {
+				val, ok, err := state.GetValue("ext", "prop")
+				if g, w := val, any(nil); g != w {
+					t.Errorf("value mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				if g, w := ok, false; g != w {
+					t.Errorf("ok mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				return err
+			},
+		},
+		{
+			name: "FindProperty",
+			fn: func() error {
+				prop, err := state.FindProperty("ext", "prop")
+				if g, w := prop, ConnectionProperty(nil); g != w {
+					t.Errorf("property mismatch\nGot:  %v\nWant: %v", g, w)
+				}
+				return err
+			},
+		},
+		{
+			name: "SetValue",
+			fn:   func() error { return state.SetValue("ext", "prop", "v", ContextUser) },
+		},
+		{
+			name: "SetLocalValue",
+			fn:   func() error { return state.SetLocalValue("ext", "prop", "v", false) },
+		},
+		{
+			name: "SetStatementScopedValue",
+			fn:   func() error { return state.SetStatementScopedValue("ext", "prop", "v") },
+		},
+		{
+			name: "CheckInErrorTxState",
+			fn:   func() error { return state.CheckInErrorTxState(false) },
+		},
+		{
+			name: "Begin",
+			fn:   func() error { return state.Begin() },
+		},
+		{
+			name: "Commit",
+			fn:   func() error { return state.Commit() },
+		},
+		{
+			name: "Rollback",
+			fn:   func() error { return state.Rollback() },
+		},
+		{
+			name: "Reset",
+			fn:   func() error { return state.Reset(ContextUser) },
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.fn()
+			if err == nil {
+				t.Fatalf("expected error for nil ConnectionState, got nil")
+			}
+			if g, w := status.Code(err), codes.InvalidArgument; g != w {
+				t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
+func TestConnectionState_NilReceiver_AccessorsAndMutators(t *testing.T) {
+	var state *ConnectionState
+	state.AddAlias("alias", "target", false)
+	state.SetInErrorTxBehavior(InErrorTxBehaviorEnforceInErrorState)
+	state.SetTransactionFailed()
+	state.SetTransactionActive()
+	state.ClearStatementScopedValues()
+
+	if g, w := state.InTransaction(), false; g != w {
+		t.Errorf("InTransaction mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := state.TransactionState(), TransactionStateIdle; g != w {
+		t.Errorf("TransactionState mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := state.InErrorTxBehavior(), InErrorTxBehaviorDefault; g != w {
+		t.Errorf("InErrorTxBehavior mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := state.Snapshot(), (*ConnectionState)(nil); g != w {
+		t.Errorf("Snapshot mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}

@@ -28,6 +28,7 @@ import (
 	"github.com/googleapis/go-sql-spanner/parser"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -68,6 +69,9 @@ func CloseConnection(ctx context.Context, poolId, connId int64) error {
 //
 // The mutationsBytes must be an encoded BatchWriteRequest_MutationGroup protobuf object.
 func WriteMutations(ctx context.Context, poolId, connId int64, mutations *spannerpb.BatchWriteRequest_MutationGroup) (*spannerpb.CommitResponse, error) {
+	if mutations == nil {
+		return nil, status.Error(codes.InvalidArgument, "mutations must not be nil")
+	}
 	conn, err := findConnection(poolId, connId)
 	if err != nil {
 		return nil, err
@@ -113,6 +117,9 @@ func Execute(ctx context.Context, poolId, connId int64, executeSqlRequest *spann
 }
 
 func ExecuteWithDirectExecuteContext(ctx, directExecuteContext context.Context, poolId, connId int64, executeSqlRequest *spannerpb.ExecuteSqlRequest) (int64, error) {
+	if executeSqlRequest == nil {
+		return 0, status.Error(codes.InvalidArgument, "execute_sql_request must not be nil")
+	}
 	conn, err := findConnection(poolId, connId)
 	if err != nil {
 		return 0, err
@@ -121,11 +128,14 @@ func ExecuteWithDirectExecuteContext(ctx, directExecuteContext context.Context, 
 }
 
 func ExecuteBatch(ctx context.Context, poolId, connId int64, statements *spannerpb.ExecuteBatchDmlRequest) (*spannerpb.ExecuteBatchDmlResponse, error) {
+	if statements == nil {
+		return nil, status.Error(codes.InvalidArgument, "execute_batch_dml_request must not be nil")
+	}
 	conn, err := findConnection(poolId, connId)
 	if err != nil {
 		return nil, err
 	}
-	return conn.ExecuteBatch(ctx, statements.Statements)
+	return conn.ExecuteBatch(ctx, statements)
 }
 
 type Connection struct {
@@ -148,10 +158,12 @@ type Connection struct {
 // It is implemented by the spannerdriver.conn struct.
 type spannerConn interface {
 	WriteMutations(ctx context.Context, ms []*spanner.Mutation) (*spanner.CommitResponse, error)
+	StartBatchDMLWithOptions(options *spannerdriver.ExecOptions) error
 	BeginReadOnlyTransaction(ctx context.Context, options *spannerdriver.ReadOnlyTransactionOptions, close func()) (driver.Tx, error)
 	BeginReadWriteTransaction(ctx context.Context, options *spannerdriver.ReadWriteTransactionOptions, close func()) (driver.Tx, error)
 	Commit(ctx context.Context) (*spanner.CommitResponse, error)
 	Rollback(ctx context.Context) error
+	spannerdriver.SpannerConn
 }
 
 type queryExecutor interface {
@@ -177,6 +189,9 @@ func (conn *Connection) close(ctx context.Context) error {
 func (conn *Connection) writeMutations(ctx context.Context, mutation *spannerpb.BatchWriteRequest_MutationGroup) (*spannerpb.CommitResponse, error) {
 	mutations := make([]*spanner.Mutation, 0, len(mutation.Mutations))
 	for _, m := range mutation.Mutations {
+		if m == nil {
+			return nil, status.Error(codes.InvalidArgument, "mutation must not be nil")
+		}
 		spannerMutation, err := spanner.WrapMutation(m)
 		if err != nil {
 			return nil, err
@@ -335,10 +350,10 @@ func (conn *Connection) Execute(ctx, directExecuteContext context.Context, state
 	return execute(mergedCtx, directExecuteContext, conn, conn.backend, statement, cancel)
 }
 
-func (conn *Connection) ExecuteBatch(ctx context.Context, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
+func (conn *Connection) ExecuteBatch(ctx context.Context, batchRequest *spannerpb.ExecuteBatchDmlRequest) (*spannerpb.ExecuteBatchDmlResponse, error) {
 	mergedCtx, cancel := mergeContexts(ctx, conn.ctx)
 	defer cancel()
-	return executeBatch(mergedCtx, conn, conn.backend, statements)
+	return executeBatch(mergedCtx, conn, conn.backend, batchRequest)
 }
 
 func execute(ctx, directExecuteContext context.Context, conn *Connection, executor queryExecutor, statement *spannerpb.ExecuteSqlRequest, cancel context.CancelFunc) (int64, error) {
@@ -383,40 +398,60 @@ func hasFields(metadata *spannerpb.ResultSetMetadata) bool {
 	return metadata != nil && metadata.RowType != nil && metadata.RowType.Fields != nil && len(metadata.RowType.Fields) > 0
 }
 
-func executeBatch(ctx context.Context, conn *Connection, executor queryExecutor, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
+func executeBatch(ctx context.Context, conn *Connection, executor queryExecutor, batchRequest *spannerpb.ExecuteBatchDmlRequest) (*spannerpb.ExecuteBatchDmlResponse, error) {
+	if batchRequest == nil {
+		return nil, status.Error(codes.InvalidArgument, "batch request must not be nil")
+	}
 	// Determine the type of batch that should be executed based on the type of statements.
-	batchType, err := determineBatchType(conn, statements)
+	batchType, err := determineBatchType(conn, batchRequest.Statements)
 	if err != nil {
 		return nil, err
 	}
 	switch batchType {
 	case parser.BatchTypeDml:
-		return executeBatchDml(ctx, conn, executor, statements)
+		return executeBatchDml(ctx, conn, executor, batchRequest)
 	case parser.BatchTypeDdl:
-		return executeBatchDdl(ctx, conn, executor, statements)
+		return executeBatchDdl(ctx, conn, executor, batchRequest.Statements)
 	default:
 		return nil, status.Errorf(codes.InvalidArgument, "unsupported batch type: %v", batchType)
 	}
 }
 
+func withSpannerConn(conn *Connection, fn func(spannerConn) error) error {
+	return conn.backend.Raw(func(driverConn any) error {
+		sc, ok := driverConn.(spannerConn)
+		if !ok {
+			return status.Error(codes.Internal, "spanner driver connection does not implement spannerConn")
+		}
+		return fn(sc)
+	})
+}
+
+func abortBatchQuietly(conn *Connection) {
+	_ = withSpannerConn(conn, func(sc spannerConn) error {
+		_ = sc.AbortBatch()
+		return nil
+	})
+}
+
 func executeBatchDdl(ctx context.Context, conn *Connection, executor queryExecutor, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
-	if err := conn.backend.Raw(func(driverConn any) error {
-		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
-		return spannerConn.StartBatchDDL()
+	if err := withSpannerConn(conn, func(sc spannerConn) error {
+		return sc.StartBatchDDL()
 	}); err != nil {
 		return nil, err
 	}
 	for _, statement := range statements {
 		_, err := executor.ExecContext(ctx, statement.Sql)
 		if err != nil {
+			abortBatchQuietly(conn)
 			return nil, err
 		}
 	}
 	// TODO: Add support for getting the actual Batch DDL response.
-	if err := conn.backend.Raw(func(driverConn any) (err error) {
-		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
-		return spannerConn.RunBatch(ctx)
+	if err := withSpannerConn(conn, func(sc spannerConn) error {
+		return sc.RunBatch(ctx)
 	}); err != nil {
+		abortBatchQuietly(conn)
 		return nil, err
 	}
 
@@ -428,31 +463,38 @@ func executeBatchDdl(ctx context.Context, conn *Connection, executor queryExecut
 	return &response, nil
 }
 
-func executeBatchDml(ctx context.Context, conn *Connection, executor queryExecutor, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (*spannerpb.ExecuteBatchDmlResponse, error) {
-	if err := conn.backend.Raw(func(driverConn any) error {
-		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
-		return spannerConn.StartBatchDML()
+func executeBatchDml(ctx context.Context, conn *Connection, executor queryExecutor, batchRequest *spannerpb.ExecuteBatchDmlRequest) (*spannerpb.ExecuteBatchDmlResponse, error) {
+	var execOptions *spannerdriver.ExecOptions
+	if batchRequest.RequestOptions != nil {
+		execOptions = &spannerdriver.ExecOptions{
+			QueryOptions: spanner.QueryOptions{
+				RequestTag: batchRequest.RequestOptions.RequestTag,
+				Priority:   batchRequest.RequestOptions.Priority,
+			},
+			TransactionOptions: spanner.TransactionOptions{
+				TransactionTag: batchRequest.RequestOptions.TransactionTag,
+			},
+		}
+	}
+	if err := withSpannerConn(conn, func(sc spannerConn) error {
+		return sc.StartBatchDMLWithOptions(execOptions)
 	}); err != nil {
 		return nil, err
 	}
-	for _, statement := range statements {
-		request := &spannerpb.ExecuteSqlRequest{
-			Sql:        statement.Sql,
-			Params:     statement.Params,
-			ParamTypes: statement.ParamTypes,
-		}
-		params := extractParams(nil, request, nil)
+	for _, statement := range batchRequest.Statements {
+		params := appendStatementParams(make([]any, 0, len(statement.GetParams().GetFields())), statement.Params, statement.ParamTypes)
 		_, err := executor.ExecContext(ctx, statement.Sql, params...)
 		if err != nil {
+			abortBatchQuietly(conn)
 			return nil, err
 		}
 	}
 	var spannerResult spannerdriver.SpannerResult
-	if err := conn.backend.Raw(func(driverConn any) (err error) {
-		spannerConn, _ := driverConn.(spannerdriver.SpannerConn)
-		spannerResult, err = spannerConn.RunDmlBatch(ctx)
+	if err := withSpannerConn(conn, func(sc spannerConn) (err error) {
+		spannerResult, err = sc.RunDmlBatch(ctx)
 		return err
 	}); err != nil {
+		abortBatchQuietly(conn)
 		return nil, err
 	}
 	affected, err := spannerResult.BatchRowsAffected()
@@ -474,9 +516,11 @@ func extractParams(directExecuteContext context.Context, statement *spannerpb.Ex
 	}
 	requestTag := ""
 	transactionTag := ""
+	priority := spannerpb.RequestOptions_PRIORITY_UNSPECIFIED
 	if statement.RequestOptions != nil {
 		requestTag = statement.RequestOptions.RequestTag
 		transactionTag = statement.RequestOptions.TransactionTag
+		priority = statement.RequestOptions.Priority
 	}
 	params := make([]any, paramsLen)
 	execOptions := spannerdriver.ExecOptions{
@@ -490,28 +534,31 @@ func extractParams(directExecuteContext context.Context, statement *spannerpb.Ex
 		QueryOptions: spanner.QueryOptions{
 			Mode:       &statement.QueryMode,
 			RequestTag: requestTag,
+			Priority:   priority,
 		},
 	}
 	if transactionTag != "" {
 		execOptions.PropertyValues = []spannerdriver.PropertyValue{{Identifier: parser.Identifier{Parts: []string{"transaction_tag"}}, Value: transactionTag}}
 	}
 	params = append(params, execOptions)
-	if statement.Params != nil {
-		if statement.ParamTypes == nil {
-			statement.ParamTypes = make(map[string]*spannerpb.Type)
+	return appendStatementParams(params, statement.Params, statement.ParamTypes)
+}
+
+func appendStatementParams(params []any, rawParams *structpb.Struct, paramTypes map[string]*spannerpb.Type) []any {
+	if rawParams == nil {
+		return params
+	}
+	for param, value := range rawParams.Fields {
+		genericValue := spanner.GenericColumnValue{
+			Value: value,
+			Type:  paramTypes[param],
 		}
-		for param, value := range statement.Params.Fields {
-			genericValue := spanner.GenericColumnValue{
-				Value: value,
-				Type:  statement.ParamTypes[param],
-			}
-			if strings.HasPrefix(param, "_") {
-				// Prefix the parameter name with a 'p' to work around the fact that database/sql does not allow
-				// named arguments to start with anything else than a letter.
-				params = append(params, sql.Named("p"+param, spannerdriver.SpannerNamedArg{NameInQuery: param, Value: genericValue}))
-			} else {
-				params = append(params, sql.Named(param, genericValue))
-			}
+		if strings.HasPrefix(param, "_") {
+			// Prefix the parameter name with a 'p' to work around the fact that database/sql does not allow
+			// named arguments to start with anything else than a letter.
+			params = append(params, sql.Named("p"+param, spannerdriver.SpannerNamedArg{NameInQuery: param, Value: genericValue}))
+		} else {
+			params = append(params, sql.Named(param, genericValue))
 		}
 	}
 	return params
@@ -543,6 +590,11 @@ func extractTimestampBound(statement *spannerpb.ExecuteSqlRequest) *spanner.Time
 func determineBatchType(conn *Connection, statements []*spannerpb.ExecuteBatchDmlRequest_Statement) (parser.BatchType, error) {
 	if len(statements) == 0 {
 		return parser.BatchTypeDdl, status.Errorf(codes.InvalidArgument, "cannot determine type of an empty batch")
+	}
+	for i, statement := range statements {
+		if statement == nil {
+			return parser.BatchTypeDdl, status.Errorf(codes.InvalidArgument, "statement at position %d must not be nil", i+1)
+		}
 	}
 	var batchType parser.BatchType
 	if err := conn.backend.Raw(func(driverConn any) error {

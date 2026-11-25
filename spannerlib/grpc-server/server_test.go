@@ -1840,6 +1840,598 @@ func TestRunPartitionedQuery(t *testing.T) {
 	}
 }
 
+func TestUnaryAndStreamingInvalidNilRequests(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	client, cleanup := startTestSpannerLibServer(t)
+	defer cleanup()
+
+	validConnection := &pb.Connection{Pool: &pb.Pool{Id: -1}, Id: -1}
+	validRows := &pb.Rows{Connection: validConnection, Id: -1}
+
+	tests := []struct {
+		name     string
+		call     func() error
+		wantCode codes.Code
+	}{
+		{
+			name: "CreateConnection empty request",
+			call: func() error {
+				_, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "CloseConnection empty request",
+			call: func() error {
+				_, err := client.CloseConnection(ctx, &pb.Connection{})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "Execute empty request",
+			call: func() error {
+				_, err := client.Execute(ctx, &pb.ExecuteRequest{})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "Execute nil pool",
+			call: func() error {
+				_, err := client.Execute(ctx, &pb.ExecuteRequest{
+					Connection:        &pb.Connection{},
+					ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: "SELECT 1"},
+				})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "Execute nil ExecuteSqlRequest",
+			call: func() error {
+				_, err := client.Execute(ctx, &pb.ExecuteRequest{
+					Connection: validConnection,
+				})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "ExecuteStreaming empty request",
+			call: func() error {
+				stream, err := client.ExecuteStreaming(ctx, &pb.ExecuteRequest{})
+				if err != nil {
+					return err
+				}
+				_, err = stream.Recv()
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "ExecuteStreaming nil pool",
+			call: func() error {
+				stream, err := client.ExecuteStreaming(ctx, &pb.ExecuteRequest{
+					Connection:        &pb.Connection{},
+					ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: "SELECT 1"},
+				})
+				if err != nil {
+					return err
+				}
+				_, err = stream.Recv()
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "ExecuteStreaming nil ExecuteSqlRequest",
+			call: func() error {
+				stream, err := client.ExecuteStreaming(ctx, &pb.ExecuteRequest{
+					Connection: validConnection,
+				})
+				if err != nil {
+					return err
+				}
+				_, err = stream.Recv()
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "ContinueStreaming empty request",
+			call: func() error {
+				stream, err := client.ContinueStreaming(ctx, &pb.ContinueStreamingRequest{})
+				if err != nil {
+					return err
+				}
+				_, err = stream.Recv()
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "ContinueStreaming nil connection",
+			call: func() error {
+				stream, err := client.ContinueStreaming(ctx, &pb.ContinueStreamingRequest{
+					Rows: &pb.Rows{},
+				})
+				if err != nil {
+					return err
+				}
+				_, err = stream.Recv()
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "ContinueStreaming nil pool",
+			call: func() error {
+				stream, err := client.ContinueStreaming(ctx, &pb.ContinueStreamingRequest{
+					Rows: &pb.Rows{Connection: &pb.Connection{}},
+				})
+				if err != nil {
+					return err
+				}
+				_, err = stream.Recv()
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "ExecuteBatch empty request",
+			call: func() error {
+				_, err := client.ExecuteBatch(ctx, &pb.ExecuteBatchRequest{})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "ExecuteBatch nil pool",
+			call: func() error {
+				_, err := client.ExecuteBatch(ctx, &pb.ExecuteBatchRequest{
+					Connection:             &pb.Connection{},
+					ExecuteBatchDmlRequest: &sppb.ExecuteBatchDmlRequest{},
+				})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "ExecuteBatch nil ExecuteBatchDmlRequest",
+			call: func() error {
+				_, err := client.ExecuteBatch(ctx, &pb.ExecuteBatchRequest{
+					Connection: validConnection,
+				})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "Metadata empty request",
+			call: func() error {
+				_, err := client.Metadata(ctx, &pb.Rows{})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "Metadata nil pool",
+			call: func() error {
+				_, err := client.Metadata(ctx, &pb.Rows{Connection: &pb.Connection{}})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "Next empty request",
+			call: func() error {
+				_, err := client.Next(ctx, &pb.NextRequest{})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "Next nil connection",
+			call: func() error {
+				_, err := client.Next(ctx, &pb.NextRequest{Rows: &pb.Rows{}})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "Next nil pool",
+			call: func() error {
+				_, err := client.Next(ctx, &pb.NextRequest{Rows: &pb.Rows{Connection: &pb.Connection{}}})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "ResultSetStats empty request",
+			call: func() error {
+				_, err := client.ResultSetStats(ctx, &pb.Rows{})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "ResultSetStats nil pool",
+			call: func() error {
+				_, err := client.ResultSetStats(ctx, &pb.Rows{Connection: &pb.Connection{}})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "NextResultSet empty request",
+			call: func() error {
+				_, err := client.NextResultSet(ctx, &pb.Rows{})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "NextResultSet nil pool",
+			call: func() error {
+				_, err := client.NextResultSet(ctx, &pb.Rows{Connection: &pb.Connection{}})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "CloseRows empty request",
+			call: func() error {
+				_, err := client.CloseRows(ctx, &pb.Rows{})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "CloseRows nil pool",
+			call: func() error {
+				_, err := client.CloseRows(ctx, &pb.Rows{Connection: &pb.Connection{}})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "BeginTransaction empty request",
+			call: func() error {
+				_, err := client.BeginTransaction(ctx, &pb.BeginTransactionRequest{})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "BeginTransaction nil pool",
+			call: func() error {
+				_, err := client.BeginTransaction(ctx, &pb.BeginTransactionRequest{Connection: &pb.Connection{}})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "Commit empty request",
+			call: func() error {
+				_, err := client.Commit(ctx, &pb.Connection{})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "Rollback empty request",
+			call: func() error {
+				_, err := client.Rollback(ctx, &pb.Connection{})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "WriteMutations empty request",
+			call: func() error {
+				_, err := client.WriteMutations(ctx, &pb.WriteMutationsRequest{})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "WriteMutations nil pool",
+			call: func() error {
+				_, err := client.WriteMutations(ctx, &pb.WriteMutationsRequest{
+					Connection: &pb.Connection{},
+					Mutations:  &sppb.BatchWriteRequest_MutationGroup{},
+				})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "WriteMutations nil Mutations",
+			call: func() error {
+				_, err := client.WriteMutations(ctx, &pb.WriteMutationsRequest{
+					Connection: validConnection,
+				})
+				return err
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "Next with unknown pool returns error without panic",
+			call: func() error {
+				_, err := client.Next(ctx, &pb.NextRequest{Rows: validRows})
+				return err
+			},
+			wantCode: codes.NotFound,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.call()
+			if g, w := status.Code(err), tc.wantCode; g != w {
+				t.Errorf("error code mismatch\nGot:  %v\nWant: %v (err: %v)", g, w, err)
+			}
+		})
+	}
+
+	// Verify the server remained alive and responsive after all invalid requests.
+	if _, err := client.Info(ctx, &pb.InfoRequest{}); err != nil {
+		t.Fatalf("server became unresponsive after invalid requests: %v", err)
+	}
+}
+
+func TestConnectionStreamInvalidNilRequests(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	client, cleanup := startTestSpannerLibServer(t)
+	defer cleanup()
+
+	validConnection := &pb.Connection{Pool: &pb.Pool{Id: -1}, Id: -1}
+
+	tests := []struct {
+		name     string
+		req      *pb.ConnectionStreamRequest
+		wantCode codes.Code
+	}{
+		{
+			name: "ExecuteRequest empty",
+			req: &pb.ConnectionStreamRequest{
+				Request: &pb.ConnectionStreamRequest_ExecuteRequest{
+					ExecuteRequest: &pb.ExecuteRequest{},
+				},
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "ExecuteRequest nil ExecuteSqlRequest",
+			req: &pb.ConnectionStreamRequest{
+				Request: &pb.ConnectionStreamRequest_ExecuteRequest{
+					ExecuteRequest: &pb.ExecuteRequest{Connection: validConnection},
+				},
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "ExecuteBatchRequest empty",
+			req: &pb.ConnectionStreamRequest{
+				Request: &pb.ConnectionStreamRequest_ExecuteBatchRequest{
+					ExecuteBatchRequest: &pb.ExecuteBatchRequest{},
+				},
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "ExecuteBatchRequest nil ExecuteBatchDmlRequest",
+			req: &pb.ConnectionStreamRequest{
+				Request: &pb.ConnectionStreamRequest_ExecuteBatchRequest{
+					ExecuteBatchRequest: &pb.ExecuteBatchRequest{Connection: validConnection},
+				},
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "WriteMutationsRequest empty",
+			req: &pb.ConnectionStreamRequest{
+				Request: &pb.ConnectionStreamRequest_WriteMutationsRequest{
+					WriteMutationsRequest: &pb.WriteMutationsRequest{},
+				},
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "WriteMutationsRequest nil Mutations",
+			req: &pb.ConnectionStreamRequest{
+				Request: &pb.ConnectionStreamRequest_WriteMutationsRequest{
+					WriteMutationsRequest: &pb.WriteMutationsRequest{Connection: validConnection},
+				},
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "BeginTransactionRequest empty",
+			req: &pb.ConnectionStreamRequest{
+				Request: &pb.ConnectionStreamRequest_BeginTransactionRequest{
+					BeginTransactionRequest: &pb.BeginTransactionRequest{},
+				},
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "CommitRequest empty",
+			req: &pb.ConnectionStreamRequest{
+				Request: &pb.ConnectionStreamRequest_CommitRequest{
+					CommitRequest: &pb.Connection{},
+				},
+			},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "RollbackRequest empty",
+			req: &pb.ConnectionStreamRequest{
+				Request: &pb.ConnectionStreamRequest_RollbackRequest{
+					RollbackRequest: &pb.Connection{},
+				},
+			},
+			wantCode: codes.InvalidArgument,
+		},
+	}
+
+	stream, err := client.ConnectionStream(ctx)
+	if err != nil {
+		t.Fatalf("failed to open connection stream: %v", err)
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := stream.Send(tc.req); err != nil {
+				t.Fatalf("failed to send request: %v", err)
+			}
+			resp, err := stream.Recv()
+			if err != nil {
+				t.Fatalf("failed to receive response: %v", err)
+			}
+			if g, w := codes.Code(resp.GetStatus().GetCode()), tc.wantCode; g != w {
+				t.Errorf("response status code mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+
+	// Sending an empty ConnectionStreamRequest{} returns a stream-level Unimplemented error.
+	if err := stream.Send(&pb.ConnectionStreamRequest{}); err != nil {
+		t.Fatalf("failed to send empty request: %v", err)
+	}
+	_, err = stream.Recv()
+	if g, w := status.Code(err), codes.Unimplemented; g != w {
+		t.Errorf("empty ConnectionStreamRequest error code mismatch\nGot:  %v\nWant: %v (err: %v)", g, w, err)
+	}
+}
+
+func TestExecuteBatchWithRequestOptions(t *testing.T) {
+	t.Parallel()
+
+	for _, bidi := range []bool{false, true} {
+		mode := "unary"
+		if bidi {
+			mode = "bidi"
+		}
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+
+			server, teardown := setupMockSpannerServer(t)
+			defer teardown()
+			dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+			client, cleanup := startTestSpannerLibServer(t)
+			defer cleanup()
+
+			pool, err := client.CreatePool(ctx, &pb.CreatePoolRequest{ConnectionString: dsn})
+			if err != nil {
+				t.Fatalf("failed to create pool: %v", err)
+			}
+			defer func() { _, _ = client.ClosePool(ctx, pool) }()
+			connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
+			if err != nil {
+				t.Fatalf("failed to create connection: %v", err)
+			}
+
+			if _, err := client.BeginTransaction(ctx, &pb.BeginTransactionRequest{
+				Connection:         connection,
+				TransactionOptions: &sppb.TransactionOptions{},
+			}); err != nil {
+				t.Fatalf("BeginTransaction failed: %v", err)
+			}
+			batchReqProto := &pb.ExecuteBatchRequest{
+				Connection: connection,
+				ExecuteBatchDmlRequest: &sppb.ExecuteBatchDmlRequest{
+					Statements: []*sppb.ExecuteBatchDmlRequest_Statement{
+						{Sql: testutil.UpdateBarSetFoo},
+					},
+					RequestOptions: &sppb.RequestOptions{
+						RequestTag:     "grpc_batch_req",
+						TransactionTag: "grpc_batch_tx",
+						Priority:       sppb.RequestOptions_PRIORITY_MEDIUM,
+					},
+				},
+			}
+			if bidi {
+				stream, err := client.ConnectionStream(ctx)
+				if err != nil {
+					t.Fatalf("failed to open connection stream: %v", err)
+				}
+				if err := stream.Send(&pb.ConnectionStreamRequest{
+					Request: &pb.ConnectionStreamRequest_ExecuteBatchRequest{
+						ExecuteBatchRequest: batchReqProto,
+					},
+				}); err != nil {
+					t.Fatalf("stream Send ExecuteBatchRequest failed: %v", err)
+				}
+				if _, err := stream.Recv(); err != nil {
+					t.Fatalf("stream Recv failed: %v", err)
+				}
+			} else {
+				if _, err := client.ExecuteBatch(ctx, batchReqProto); err != nil {
+					t.Fatalf("ExecuteBatch failed: %v", err)
+				}
+			}
+			if _, err := client.Commit(ctx, connection); err != nil {
+				t.Fatalf("Commit failed: %v", err)
+			}
+
+			requests := server.TestSpanner.DrainRequestsFromServer()
+			batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+			if g, w := len(batchRequests), 1; g != w {
+				t.Fatalf("ExecuteBatchDmlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			batchReq := batchRequests[0].(*sppb.ExecuteBatchDmlRequest)
+			if g, w := batchReq.RequestOptions.GetRequestTag(), "grpc_batch_req"; g != w {
+				t.Errorf("request tag mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := batchReq.RequestOptions.GetTransactionTag(), "grpc_batch_tx"; g != w {
+				t.Errorf("transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := batchReq.RequestOptions.GetPriority(), sppb.RequestOptions_PRIORITY_MEDIUM; g != w {
+				t.Errorf("priority mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+			if g, w := len(commitRequests), 1; g != w {
+				t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := commitRequests[0].(*sppb.CommitRequest).RequestOptions.GetTransactionTag(), "grpc_batch_tx"; g != w {
+				t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+
+			rows, err := client.Execute(ctx, &pb.ExecuteRequest{
+				Connection:        connection,
+				ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: testutil.UpdateBarSetFoo},
+			})
+			if err != nil {
+				t.Fatalf("subsequent Execute failed: %v", err)
+			}
+			_, _ = client.CloseRows(ctx, rows)
+			requests = server.TestSpanner.DrainRequestsFromServer()
+			execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+			if g, w := len(execRequests), 1; g != w {
+				t.Fatalf("subsequent ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := execRequests[0].(*sppb.ExecuteSqlRequest).RequestOptions.GetRequestTag(), ""; g != w {
+				t.Errorf("leaked request tag\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := execRequests[0].(*sppb.ExecuteSqlRequest).RequestOptions.GetTransactionTag(), ""; g != w {
+				t.Errorf("leaked transaction tag\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := execRequests[0].(*sppb.ExecuteSqlRequest).RequestOptions.GetPriority(), sppb.RequestOptions_PRIORITY_UNSPECIFIED; g != w {
+				t.Errorf("leaked priority\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
 func createInt64Slice(n int) []int64 {
 	res := make([]int64, n)
 	for i := 0; i < n; i++ {

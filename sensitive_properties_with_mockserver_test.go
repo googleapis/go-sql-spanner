@@ -755,7 +755,7 @@ func TestSensitiveProperties_DSNRedactionAndLogger(t *testing.T) {
 			spannerConnector.logger.Info("testing text log output", "config_val", connectorConfig)
 
 			// Verify raw slog.Attr stored on logger does not hold *ConnectorConfig or Params map.
-			attrHandler := &capturingSlogHandler{}
+			attrHandler := &configAttrCapturingSlogHandler{}
 			capturedConfigLogger := slog.New(attrHandler).With("config", connectorConfig.String())
 			capturedConfigLogger.Info("checking config attr")
 			if attrHandler.configAttrKind != slog.KindString {
@@ -814,14 +814,14 @@ func TestSensitiveProperties_DSNRedactionAndLogger(t *testing.T) {
 	})
 }
 
-type capturingSlogHandler struct {
+type configAttrCapturingSlogHandler struct {
 	configAttrKind slog.Kind
 	configAttrStr  string
 }
 
-func (h *capturingSlogHandler) Enabled(_ context.Context, _ slog.Level) bool  { return true }
-func (h *capturingSlogHandler) Handle(_ context.Context, _ slog.Record) error { return nil }
-func (h *capturingSlogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+func (h *configAttrCapturingSlogHandler) Enabled(_ context.Context, _ slog.Level) bool  { return true }
+func (h *configAttrCapturingSlogHandler) Handle(_ context.Context, _ slog.Record) error { return nil }
+func (h *configAttrCapturingSlogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	for _, a := range attrs {
 		if a.Key == "config" {
 			h.configAttrKind = a.Value.Kind()
@@ -830,7 +830,7 @@ func (h *capturingSlogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	}
 	return h
 }
-func (h *capturingSlogHandler) WithGroup(_ string) slog.Handler { return h }
+func (h *configAttrCapturingSlogHandler) WithGroup(_ string) slog.Handler { return h }
 
 func TestSensitiveProperties_InvalidDSNErrorRedaction(t *testing.T) {
 	t.Parallel()
