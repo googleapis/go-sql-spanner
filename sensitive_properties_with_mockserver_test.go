@@ -1073,6 +1073,26 @@ func TestSensitiveProperties_ExecOptionsPropertyValuesRejected(t *testing.T) {
 	if g, w := status.Code(err), codes.PermissionDenied; g != w {
 		t.Errorf("Stmt.QueryContext *ExecOptions error code mismatch\nGot:  %v\nWant: %v", g, w)
 	}
+	followUpRows, err := stmt.QueryContext(ctx)
+	if err != nil {
+		t.Fatalf("parameterless follow-up Stmt.QueryContext failed: %v", err)
+	}
+	if !followUpRows.Next() {
+		_ = followUpRows.Close()
+		t.Fatalf("parameterless follow-up Stmt.QueryContext expected at least one row, got none (err=%v)", followUpRows.Err())
+	}
+	var val int64
+	if scanErr := followUpRows.Scan(&val); scanErr != nil {
+		_ = followUpRows.Close()
+		t.Fatalf("parameterless follow-up Stmt.QueryContext Scan failed: %v", scanErr)
+	}
+	if g, w := val, int64(1); g != w {
+		t.Errorf("parameterless follow-up Stmt.QueryContext value mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if rowsErr := followUpRows.Err(); rowsErr != nil {
+		t.Errorf("parameterless follow-up Stmt.QueryContext rows error: %v", rowsErr)
+	}
+	_ = followUpRows.Close()
 
 	// Prepared statement ExecContext with ExecOptions
 	execStmt, err := connection.PrepareContext(ctx, testutil.UpdateBarSetFoo)
@@ -1083,6 +1103,9 @@ func TestSensitiveProperties_ExecOptionsPropertyValuesRejected(t *testing.T) {
 	_, stmtExecErr := execStmt.ExecContext(ctx, options)
 	if g, w := status.Code(stmtExecErr), codes.PermissionDenied; g != w {
 		t.Errorf("Stmt.ExecContext ExecOptions error code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if _, followUpExecErr := execStmt.ExecContext(ctx); followUpExecErr != nil {
+		t.Errorf("parameterless follow-up Stmt.ExecContext failed: %v", followUpExecErr)
 	}
 
 	// Verify PostgreSQL dialect maps ExecOptions sensitivity rejection to SQLSTATE 42501.
@@ -1103,6 +1126,135 @@ func TestSensitiveProperties_ExecOptionsPropertyValuesRejected(t *testing.T) {
 	}
 	if g, w := ToPGSQLState(pgErr), "42501"; g != w {
 		t.Errorf("PG ExecOptions SQLSTATE mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	pgStmt, err := pgConn.PrepareContext(ctx, "SELECT 1")
+	if err != nil {
+		t.Fatalf("PG PrepareContext failed: %v", err)
+	}
+	defer silentClose(pgStmt)
+	pgStmtRows, pgStmtErr := pgStmt.QueryContext(ctx, options)
+	if pgStmtRows != nil {
+		_ = pgStmtRows.Close()
+	}
+	if g, w := status.Code(pgStmtErr), codes.PermissionDenied; g != w {
+		t.Errorf("PG Stmt.QueryContext ExecOptions error code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := ToPGSQLState(pgStmtErr), "42501"; g != w {
+		t.Errorf("PG Stmt.QueryContext ExecOptions SQLSTATE mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	pgFollowUpRows, err := pgStmt.QueryContext(ctx)
+	if err != nil {
+		t.Fatalf("PG follow-up Stmt.QueryContext failed: %v", err)
+	}
+	if !pgFollowUpRows.Next() {
+		_ = pgFollowUpRows.Close()
+		t.Fatalf("PG follow-up Stmt.QueryContext expected a row, got none (err=%v)", pgFollowUpRows.Err())
+	}
+	_ = pgFollowUpRows.Close()
+}
+
+func TestSensitiveProperties_PreparedStatement_ParameterizedExecOptionsRejected(t *testing.T) {
+	t.Parallel()
+
+	options := ExecOptions{
+		PropertyValues: []PropertyValue{
+			CreatePropertyValue("credentials_json", `{"private_key":"attacker-key"}`),
+		},
+	}
+
+	tests := []struct {
+		name      string
+		queryArgs func(opts ExecOptions) []any
+		dmlArgs   func(opts ExecOptions) []any
+	}{
+		{
+			name:      "before parameters",
+			queryArgs: func(opts ExecOptions) []any { return []any{opts, int64(1), true} },
+			dmlArgs:   func(opts ExecOptions) []any { return []any{opts, "val", int64(1)} },
+		},
+		{
+			name:      "between parameters",
+			queryArgs: func(opts ExecOptions) []any { return []any{int64(1), &opts, true} },
+			dmlArgs:   func(opts ExecOptions) []any { return []any{"val", &opts, int64(1)} },
+		},
+		{
+			name:      "after parameters",
+			queryArgs: func(opts ExecOptions) []any { return []any{int64(1), true, opts} },
+			dmlArgs:   func(opts ExecOptions) []any { return []any{"val", int64(1), opts} },
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			database, server, teardown := setupTestDBConnection(t)
+			defer teardown()
+			ctx := context.Background()
+
+			if err := server.TestSpanner.PutStatementResult(
+				"SELECT value FROM test WHERE id=@p1 AND active=@p2",
+				&testutil.StatementResult{
+					Type:      testutil.StatementResultResultSet,
+					ResultSet: testutil.CreateSelect1ResultSet(),
+				},
+			); err != nil {
+				t.Fatalf("PutStatementResult(paramQuery) failed: %v", err)
+			}
+			if err := server.TestSpanner.PutStatementResult(
+				"UPDATE test SET value=@p1 WHERE id=@p2",
+				&testutil.StatementResult{
+					Type:        testutil.StatementResultUpdateCount,
+					UpdateCount: 1,
+				},
+			); err != nil {
+				t.Fatalf("PutStatementResult(paramUpdate) failed: %v", err)
+			}
+
+			connection, err := database.Conn(ctx)
+			if err != nil {
+				t.Fatalf("failed to open database connection: %v", err)
+			}
+			defer silentClose(connection)
+
+			paramQueryStmt, err := connection.PrepareContext(ctx, "SELECT value FROM test WHERE id=? AND active=?")
+			if err != nil {
+				t.Fatalf("PrepareContext(paramQuery) failed: %v", err)
+			}
+			defer silentClose(paramQueryStmt)
+
+			qRows, qErr := paramQueryStmt.QueryContext(ctx, tc.queryArgs(options)...)
+			if qRows != nil {
+				_ = qRows.Close()
+			}
+			if g, w := status.Code(qErr), codes.PermissionDenied; g != w {
+				t.Errorf("paramQueryStmt.QueryContext error code mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			validParamRows, err := paramQueryStmt.QueryContext(ctx, int64(1), true)
+			if err != nil {
+				t.Fatalf("follow-up paramQueryStmt.QueryContext failed: %v", err)
+			}
+			if !validParamRows.Next() {
+				_ = validParamRows.Close()
+				t.Fatalf("follow-up paramQueryStmt.QueryContext expected a row, got none (err=%v)", validParamRows.Err())
+			}
+			_ = validParamRows.Close()
+
+			paramExecStmt, err := connection.PrepareContext(ctx, "UPDATE test SET value=? WHERE id=?")
+			if err != nil {
+				t.Fatalf("PrepareContext(paramUpdate) failed: %v", err)
+			}
+			defer silentClose(paramExecStmt)
+
+			_, eErr := paramExecStmt.ExecContext(ctx, tc.dmlArgs(options)...)
+			if g, w := status.Code(eErr), codes.PermissionDenied; g != w {
+				t.Errorf("paramExecStmt.ExecContext error code mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if _, err := paramExecStmt.ExecContext(ctx, "val", int64(1)); err != nil {
+				t.Errorf("follow-up paramExecStmt.ExecContext failed: %v", err)
+			}
+		})
 	}
 }
 
