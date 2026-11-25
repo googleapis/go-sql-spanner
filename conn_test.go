@@ -493,7 +493,7 @@ func TestConn_BeginTransactions_Error(t *testing.T) {
 			}
 			connection := &conn{
 				parser:        statementParser,
-				state:         createInitialConnectionState(connectionstate.TypeTransactional, nil),
+				state:         createInitialConnectionStateWithDialect(testCase.dialect, connectionstate.TypeTransactional, nil),
 				resetForRetry: testCase.resetRetry,
 			}
 			if testCase.activeTx {
