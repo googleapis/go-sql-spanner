@@ -1381,3 +1381,44 @@ func join(statements []string) string {
 	}
 	return result
 }
+
+func TestMultipleDdlStatementsWithEmptyFragments(t *testing.T) {
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	response, err := anypb.New(&emptypb.Empty{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.TestDatabaseAdmin.SetResps([]proto.Message{
+		&longrunningpb.Operation{
+			Done:   true,
+			Result: &longrunningpb.Operation_Response{Response: response},
+			Name:   "test-operation",
+		},
+	})
+	statements := []string{
+		"create table singers (id int64 primary key, name string(max))",
+		"create table albums (id int64 primary key, title string(max))",
+	}
+	rows, err := db.QueryContext(context.Background(), statements[0]+";;/* comment */;"+statements[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentClose(rows)
+	if err := consumeResults(t, rows, []expectedResults{{numRows: 0}, {numRows: 0}}); err != nil {
+		t.Fatal(err)
+	}
+	requests := server.TestDatabaseAdmin.Reqs()
+	if len(requests) != 1 {
+		t.Fatalf("DDL request count = %d, want 1", len(requests))
+	}
+	request, ok := requests[0].(*databasepb.UpdateDatabaseDdlRequest)
+	if !ok {
+		t.Fatalf("unexpected DDL request: %T", requests[0])
+	}
+	if !reflect.DeepEqual(request.GetStatements(), statements) {
+		t.Fatalf("DDL statements = %q, want %q", request.GetStatements(), statements)
+	}
+	t.Logf("backend DDL statements=%q", request.GetStatements())
+}
