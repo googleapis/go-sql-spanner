@@ -989,6 +989,14 @@ func (p *StatementParser) IsDropDatabaseStatement(sql string) bool {
 	return isDropDatabase(p, sql)
 }
 
+// HasNonCommentTokens reports whether sql contains tokens other than whitespace and
+// comments. It uses the parser's dialect-specific comment rules and does not
+// validate the SQL.
+func (p *StatementParser) HasNonCommentTokens(sql string) bool {
+	parser := &simpleParser{sql: []byte(sql), statementParser: p}
+	return parser.hasMoreTokens()
+}
+
 // Split splits a SQL string that potentially contains multiple statements separated by
 // semicolons into individual statements.
 //

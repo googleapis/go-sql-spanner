@@ -51,6 +51,7 @@ type statementKey struct {
 }
 
 // queryMultiple executes a multi-statement SQL string and returns a multiStatementRows.
+// Empty and comment-only fragments are skipped when the input contains other statements.
 // The function tries to execute all statements on Spanner. It stops execution at the first error (if any).
 // Results are returned for all successful statements. If any error occurs, then execution stops at that statement
 // and the error is returned as the result of that statement.
@@ -70,6 +71,18 @@ type statementKey struct {
 //     implicit transaction block is started after the DDL statement(s). This is different from how PostgreSQL
 //     behaves, as PostgreSQL supports DDL in transactions.
 func queryMultiple(ctx context.Context, conn *conn, statements []string, args []driver.NamedValue) (res *multiStatementRows, returnedErr error) {
+	// Ignore empty fragments before determining transactions and batches. Keep
+	// wholly empty input on its existing path; its behavior is not defined here.
+	nonEmpty := make([]string, 0, len(statements))
+	for _, statement := range statements {
+		if conn.parser.HasNonCommentTokens(statement) {
+			nonEmpty = append(nonEmpty, statement)
+		}
+	}
+	if len(nonEmpty) > 0 {
+		statements = nonEmpty
+	}
+
 	var currentTransaction *delegatingTransaction
 	defer func() {
 		if currentTransaction != nil && currentTransaction.implicit {

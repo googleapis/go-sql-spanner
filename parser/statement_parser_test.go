@@ -4012,3 +4012,39 @@ func init() {
 		fuzzQuerySamples = append(fuzzQuerySamples, statement+" foo")
 	}
 }
+
+func TestHasNonCommentTokens(t *testing.T) {
+	tests := []struct {
+		name     string
+		sql      string
+		google   bool
+		postgres bool
+	}{
+		{name: "empty", sql: ""},
+		{name: "whitespace", sql: " \t\r\n"},
+		{name: "line and block comments", sql: "-- comment ;\n /* comment ; */"},
+		{name: "GoogleSQL hash comment", sql: "# comment", postgres: true},
+		{name: "nested block comment", sql: "/* outer /* inner */ outer */", google: true},
+		{name: "invalid SQL still has tokens", sql: "NOT A STATEMENT", google: true, postgres: true},
+		{name: "comment followed by statement", sql: "/* comment */ SELECT 1", google: true, postgres: true},
+		{name: "semicolon is a token", sql: ";", google: true, postgres: true},
+		{name: "quoted comment characters", sql: "'/* not a comment */'", google: true, postgres: true},
+	}
+	for _, dialect := range []databasepb.DatabaseDialect{databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, databasepb.DatabaseDialect_POSTGRESQL} {
+		parser, err := NewStatementParser(dialect, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, tc := range tests {
+			t.Run(fmt.Sprintf("%s/%s", dialect, tc.name), func(t *testing.T) {
+				want := tc.google
+				if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+					want = tc.postgres
+				}
+				if got := parser.HasNonCommentTokens(tc.sql); got != want {
+					t.Fatalf("HasNonCommentTokens(%q) = %v, want %v", tc.sql, got, want)
+				}
+			})
+		}
+	}
+}
