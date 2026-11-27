@@ -109,6 +109,7 @@ message BeginTransactionRequest {
   google.spanner.v1.TransactionOptions transaction_options = 2 [
     (google.api.field_behavior) = REQUIRED
   ];
+  google.spanner.v1.RequestOptions request_options = 3;
 }
 
 message WriteMutationsRequest {
@@ -118,6 +119,7 @@ message WriteMutationsRequest {
   google.spanner.v1.BatchWriteRequest.MutationGroup mutations = 2 [
     (google.api.field_behavior) = REQUIRED
   ];
+  google.spanner.v1.RequestOptions request_options = 3;
 }
 
 message Pool {

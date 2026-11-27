@@ -2432,6 +2432,255 @@ func TestExecuteBatchWithRequestOptions(t *testing.T) {
 	}
 }
 
+func testInsertMutationGroup() *sppb.BatchWriteRequest_MutationGroup {
+	return &sppb.BatchWriteRequest_MutationGroup{
+		Mutations: []*sppb.Mutation{
+			{Operation: &sppb.Mutation_Update{
+				Update: &sppb.Mutation_Write{
+					Table:   "my_table",
+					Columns: []string{"id", "value"},
+					Values: []*structpb.ListValue{
+						{Values: []*structpb.Value{
+							structpb.NewStringValue("1"),
+							structpb.NewStringValue("One"),
+						}},
+					},
+				},
+			}},
+		},
+	}
+}
+
+func TestWriteMutationsWithRequestOptions(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	server, teardown := setupMockSpannerServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	client, cleanup := startTestSpannerLibServer(t)
+	defer cleanup()
+
+	for _, tp := range []string{"unary", "bidi"} {
+		t.Run(tp, func(t *testing.T) {
+			pool, err := client.CreatePool(ctx, &pb.CreatePoolRequest{ConnectionString: dsn})
+			if err != nil {
+				t.Fatalf("failed to create pool: %v", err)
+			}
+			defer func() { _, _ = client.ClosePool(ctx, pool) }()
+			connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
+			if err != nil {
+				t.Fatalf("failed to create connection: %v", err)
+			}
+
+			req := &pb.WriteMutationsRequest{
+				Connection: connection,
+				Mutations:  testInsertMutationGroup(),
+				RequestOptions: &sppb.RequestOptions{
+					TransactionTag: "grpc_mut_tx",
+					Priority:       sppb.RequestOptions_PRIORITY_LOW,
+				},
+			}
+			if tp == "unary" {
+				if _, err := client.WriteMutations(ctx, req); err != nil {
+					t.Fatalf("WriteMutations failed: %v", err)
+				}
+			} else {
+				stream, err := client.ConnectionStream(ctx)
+				if err != nil {
+					t.Fatalf("ConnectionStream failed: %v", err)
+				}
+				if err := stream.Send(&pb.ConnectionStreamRequest{
+					Request: &pb.ConnectionStreamRequest_WriteMutationsRequest{WriteMutationsRequest: req},
+				}); err != nil {
+					t.Fatalf("Send WriteMutations failed: %v", err)
+				}
+				if _, err := stream.Recv(); err != nil {
+					t.Fatalf("Recv WriteMutations failed: %v", err)
+				}
+				_ = stream.CloseSend()
+			}
+
+			// Verify options do not leak onto subsequent Execute.
+			if _, err := client.Execute(ctx, &pb.ExecuteRequest{
+				Connection:        connection,
+				ExecuteSqlRequest: &sppb.ExecuteSqlRequest{Sql: testutil.UpdateBarSetFoo},
+			}); err != nil {
+				t.Fatalf("subsequent Execute failed: %v", err)
+			}
+
+			requests := server.TestSpanner.DrainRequestsFromServer()
+			commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+			if g, w := len(commitRequests), 2; g != w {
+				t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			commitReq := commitRequests[0].(*sppb.CommitRequest)
+			if g, w := commitReq.RequestOptions.GetTransactionTag(), "grpc_mut_tx"; g != w {
+				t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := commitReq.RequestOptions.GetPriority(), sppb.RequestOptions_PRIORITY_LOW; g != w {
+				t.Errorf("commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			secondCommitReq := commitRequests[1].(*sppb.CommitRequest)
+			if g, w := secondCommitReq.RequestOptions.GetTransactionTag(), ""; g != w {
+				t.Errorf("second commit leaked transaction tag\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := secondCommitReq.RequestOptions.GetPriority(), sppb.RequestOptions_PRIORITY_UNSPECIFIED; g != w {
+				t.Errorf("second commit leaked priority\nGot:  %v\nWant: %v", g, w)
+			}
+			execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteSqlRequest{}))
+			if g, w := len(execRequests), 1; g != w {
+				t.Fatalf("ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := execRequests[0].(*sppb.ExecuteSqlRequest).RequestOptions.GetTransactionTag(), ""; g != w {
+				t.Errorf("leaked transaction tag\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := execRequests[0].(*sppb.ExecuteSqlRequest).RequestOptions.GetPriority(), sppb.RequestOptions_PRIORITY_UNSPECIFIED; g != w {
+				t.Errorf("leaked priority\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
+func TestBeginTransactionWithRequestOptions(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	server, teardown := setupMockSpannerServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	client, cleanup := startTestSpannerLibServer(t)
+	defer cleanup()
+
+	for _, tp := range []string{"unary", "bidi"} {
+		t.Run(tp, func(t *testing.T) {
+			pool, err := client.CreatePool(ctx, &pb.CreatePoolRequest{ConnectionString: dsn})
+			if err != nil {
+				t.Fatalf("failed to create pool: %v", err)
+			}
+			defer func() { _, _ = client.ClosePool(ctx, pool) }()
+			connection, err := client.CreateConnection(ctx, &pb.CreateConnectionRequest{Pool: pool})
+			if err != nil {
+				t.Fatalf("failed to create connection: %v", err)
+			}
+
+			beginReq := &pb.BeginTransactionRequest{
+				Connection:         connection,
+				TransactionOptions: &sppb.TransactionOptions{},
+				RequestOptions: &sppb.RequestOptions{
+					TransactionTag: "grpc_begin_tx",
+					Priority:       sppb.RequestOptions_PRIORITY_HIGH,
+				},
+			}
+			batchReq := &sppb.ExecuteBatchDmlRequest{
+				Statements: []*sppb.ExecuteBatchDmlRequest_Statement{
+					{Sql: testutil.UpdateBarSetFoo},
+				},
+				RequestOptions: &sppb.RequestOptions{
+					RequestTag: "grpc_batch_req",
+				},
+			}
+			mutReq := &pb.WriteMutationsRequest{
+				Connection: connection,
+				Mutations:  testInsertMutationGroup(),
+				RequestOptions: &sppb.RequestOptions{
+					TransactionTag: "grpc_begin_tx",
+					Priority:       sppb.RequestOptions_PRIORITY_HIGH,
+				},
+			}
+			if tp == "unary" {
+				if _, err := client.BeginTransaction(ctx, beginReq); err != nil {
+					t.Fatalf("BeginTransaction failed: %v", err)
+				}
+				if _, err := client.ExecuteBatch(ctx, &pb.ExecuteBatchRequest{
+					Connection:             connection,
+					ExecuteBatchDmlRequest: batchReq,
+				}); err != nil {
+					t.Fatalf("ExecuteBatch failed: %v", err)
+				}
+				if _, err := client.WriteMutations(ctx, mutReq); err != nil {
+					t.Fatalf("in-tx WriteMutations failed: %v", err)
+				}
+				if _, err := client.Commit(ctx, connection); err != nil {
+					t.Fatalf("Commit failed: %v", err)
+				}
+			} else {
+				stream, err := client.ConnectionStream(ctx)
+				if err != nil {
+					t.Fatalf("ConnectionStream failed: %v", err)
+				}
+				if err := stream.Send(&pb.ConnectionStreamRequest{
+					Request: &pb.ConnectionStreamRequest_BeginTransactionRequest{BeginTransactionRequest: beginReq},
+				}); err != nil {
+					t.Fatalf("Send BeginTransaction failed: %v", err)
+				}
+				if _, err := stream.Recv(); err != nil {
+					t.Fatalf("Recv BeginTransaction failed: %v", err)
+				}
+				if err := stream.Send(&pb.ConnectionStreamRequest{
+					Request: &pb.ConnectionStreamRequest_ExecuteBatchRequest{
+						ExecuteBatchRequest: &pb.ExecuteBatchRequest{
+							Connection:             connection,
+							ExecuteBatchDmlRequest: batchReq,
+						},
+					},
+				}); err != nil {
+					t.Fatalf("Send ExecuteBatch failed: %v", err)
+				}
+				if _, err := stream.Recv(); err != nil {
+					t.Fatalf("Recv ExecuteBatch failed: %v", err)
+				}
+				if err := stream.Send(&pb.ConnectionStreamRequest{
+					Request: &pb.ConnectionStreamRequest_WriteMutationsRequest{WriteMutationsRequest: mutReq},
+				}); err != nil {
+					t.Fatalf("Send in-tx WriteMutations failed: %v", err)
+				}
+				if _, err := stream.Recv(); err != nil {
+					t.Fatalf("Recv in-tx WriteMutations failed: %v", err)
+				}
+				if err := stream.Send(&pb.ConnectionStreamRequest{
+					Request: &pb.ConnectionStreamRequest_CommitRequest{CommitRequest: connection},
+				}); err != nil {
+					t.Fatalf("Send Commit failed: %v", err)
+				}
+				if _, err := stream.Recv(); err != nil {
+					t.Fatalf("Recv Commit failed: %v", err)
+				}
+				_ = stream.CloseSend()
+			}
+
+			requests := server.TestSpanner.DrainRequestsFromServer()
+			batchRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.ExecuteBatchDmlRequest{}))
+			if g, w := len(batchRequests), 1; g != w {
+				t.Fatalf("ExecuteBatchDmlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			gotBatch := batchRequests[0].(*sppb.ExecuteBatchDmlRequest)
+			if g, w := gotBatch.RequestOptions.GetRequestTag(), "grpc_batch_req"; g != w {
+				t.Errorf("batch request tag mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := gotBatch.RequestOptions.GetTransactionTag(), "grpc_begin_tx"; g != w {
+				t.Errorf("batch transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&sppb.CommitRequest{}))
+			if g, w := len(commitRequests), 1; g != w {
+				t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			commitReq := commitRequests[0].(*sppb.CommitRequest)
+			if g, w := commitReq.RequestOptions.GetTransactionTag(), "grpc_begin_tx"; g != w {
+				t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := commitReq.RequestOptions.GetPriority(), sppb.RequestOptions_PRIORITY_HIGH; g != w {
+				t.Errorf("commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+			if g, w := len(commitReq.Mutations), 1; g != w {
+				t.Errorf("commit mutation count mismatch\nGot:  %v\nWant: %v", g, w)
+			}
+		})
+	}
+}
+
 func createInt64Slice(n int) []int64 {
 	res := make([]int64, n)
 	for i := 0; i < n; i++ {

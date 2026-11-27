@@ -29,10 +29,12 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/connectionstate"
 	"github.com/googleapis/go-sql-spanner/testutil"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -3608,6 +3610,687 @@ func TestConn_StartBatchDMLWithOptions_InTransaction_AbortedRetry(t *testing.T) 
 	finalCommit := commitRequests[1].(*spannerpb.CommitRequest)
 	if g, w := finalCommit.RequestOptions.GetTransactionTag(), "retry_batch_tx"; g != w {
 		t.Errorf("final commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConn_WriteMutationsWithOptions_OutsideTransaction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	mutation := spanner.Insert("my_table", []string{"id", "value"}, []any{"1", "One"})
+	var commitResp *spanner.CommitResponse
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		var writeErr error
+		commitResp, writeErr = c.WriteMutationsWithOptions(ctx, []*spanner.Mutation{mutation}, &spannerpb.RequestOptions{
+			TransactionTag: "mut_tx_tag",
+			Priority:       spannerpb.RequestOptions_PRIORITY_LOW,
+		})
+		return writeErr
+	}); err != nil {
+		t.Fatalf("WriteMutationsWithOptions failed: %v", err)
+	}
+	if commitResp == nil || commitResp.CommitTs.IsZero() {
+		t.Fatalf("expected non-zero commit timestamp, got: %v", commitResp)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitRequest := commitRequests[0].(*spannerpb.CommitRequest)
+	if g, w := commitRequest.RequestOptions.GetTransactionTag(), "mut_tx_tag"; g != w {
+		t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequest.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_LOW; g != w {
+		t.Errorf("commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := len(commitRequest.Mutations), 1; g != w {
+		t.Errorf("mutation count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// Verify transaction_tag did not leak onto the connection.
+	if _, err := sqlConn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("subsequent ExecContext failed: %v", err)
+	}
+	requests = server.TestSpanner.DrainRequestsFromServer()
+	execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests), 1; g != w {
+		t.Fatalf("ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execRequests[0].(*spannerpb.ExecuteSqlRequest).RequestOptions.GetTransactionTag(), ""; g != w {
+		t.Errorf("leaked transaction tag\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execRequests[0].(*spannerpb.ExecuteSqlRequest).RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_UNSPECIFIED; g != w {
+		t.Errorf("leaked priority\nGot:  %v\nWant: %v", g, w)
+	}
+	for i, req := range testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{})) {
+		if g, w := req.(*spannerpb.CommitRequest).RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_UNSPECIFIED; g != w {
+			t.Errorf("commit %d leaked priority\nGot:  %v\nWant: %v", i, g, w)
+		}
+	}
+}
+
+func TestConn_WriteMutationsWithOptions_InTransaction_AbortedRetry(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	abortedSt, _ := status.New(codes.Aborted, "Aborted").WithDetails(&errdetails.RetryInfo{RetryDelay: durationpb.New(time.Nanosecond)})
+	server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+		Errors: []error{abortedSt.Err()},
+	})
+
+	tx, err := sqlConn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	mutation := spanner.Insert("my_table", []string{"id", "value"}, []any{"1", "One"})
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		_, writeErr := c.WriteMutationsWithOptions(ctx, []*spanner.Mutation{mutation}, &spannerpb.RequestOptions{
+			TransactionTag: "tx_mut_tag",
+			Priority:       spannerpb.RequestOptions_PRIORITY_MEDIUM,
+		})
+		return writeErr
+	}); err != nil {
+		t.Fatalf("WriteMutationsWithOptions failed: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 2; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	finalCommit := commitRequests[1].(*spannerpb.CommitRequest)
+	if g, w := finalCommit.RequestOptions.GetTransactionTag(), "tx_mut_tag"; g != w {
+		t.Errorf("final commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := finalCommit.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_MEDIUM; g != w {
+		t.Errorf("final commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := len(finalCommit.Mutations), 1; g != w {
+		t.Errorf("final commit mutation count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConn_WriteMutationsWithOptions_PrecedenceOutsideTransaction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	mutation := spanner.Insert("my_table", []string{"id", "value"}, []any{"1", "One"})
+
+	// SET COMMIT_PRIORITY + SET TRANSACTION_TAG are used when RequestOptions fields are unset.
+	if _, err := sqlConn.ExecContext(ctx, "SET COMMIT_PRIORITY = 'HIGH'"); err != nil {
+		t.Fatalf("SET COMMIT_PRIORITY failed: %v", err)
+	}
+	if _, err := sqlConn.ExecContext(ctx, "SET TRANSACTION_TAG = 'set_mut_tag'"); err != nil {
+		t.Fatalf("SET TRANSACTION_TAG failed: %v", err)
+	}
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		_, writeErr := c.WriteMutationsWithOptions(ctx, []*spanner.Mutation{mutation}, &spannerpb.RequestOptions{})
+		return writeErr
+	}); err != nil {
+		t.Fatalf("WriteMutationsWithOptions fallback failed: %v", err)
+	}
+
+	// Explicit RequestOptions override SET TRANSACTION_TAG and SET COMMIT_PRIORITY.
+	if _, err := sqlConn.ExecContext(ctx, "SET TRANSACTION_TAG = 'set_overridden'"); err != nil {
+		t.Fatalf("SET TRANSACTION_TAG failed: %v", err)
+	}
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		_, writeErr := c.WriteMutationsWithOptions(ctx, []*spanner.Mutation{mutation}, &spannerpb.RequestOptions{
+			TransactionTag: "explicit_mut_tag",
+			Priority:       spannerpb.RequestOptions_PRIORITY_LOW,
+		})
+		return writeErr
+	}); err != nil {
+		t.Fatalf("WriteMutationsWithOptions override failed: %v", err)
+	}
+
+	// Empty RequestOptions resets explicit override and keeps connection SET COMMIT_PRIORITY without leaking SET TRANSACTION_TAG.
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		_, writeErr := c.WriteMutationsWithOptions(ctx, []*spanner.Mutation{mutation}, nil)
+		return writeErr
+	}); err != nil {
+		t.Fatalf("WriteMutationsWithOptions nil options failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 3; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequests[0].(*spannerpb.CommitRequest).RequestOptions.GetTransactionTag(), "set_mut_tag"; g != w {
+		t.Errorf("first commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequests[0].(*spannerpb.CommitRequest).RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_HIGH; g != w {
+		t.Errorf("first commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequests[1].(*spannerpb.CommitRequest).RequestOptions.GetTransactionTag(), "explicit_mut_tag"; g != w {
+		t.Errorf("second commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequests[1].(*spannerpb.CommitRequest).RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_LOW; g != w {
+		t.Errorf("second commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequests[2].(*spannerpb.CommitRequest).RequestOptions.GetTransactionTag(), ""; g != w {
+		t.Errorf("third commit leaked transaction tag\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequests[2].(*spannerpb.CommitRequest).RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_HIGH; g != w {
+		t.Errorf("third commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConn_WriteMutationsWithOptions_ReadOnlyTransactionRejected(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	tx, err := sqlConn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatalf("BeginTx(ReadOnly) failed: %v", err)
+	}
+	mutation := spanner.Insert("my_table", []string{"id", "value"}, []any{"1", "One"})
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		_, writeErr := c.WriteMutationsWithOptions(ctx, []*spanner.Mutation{mutation}, &spannerpb.RequestOptions{
+			TransactionTag: "ro_mut_tag",
+			Priority:       spannerpb.RequestOptions_PRIORITY_HIGH,
+		})
+		return writeErr
+	}); err == nil {
+		t.Fatal("expected error calling WriteMutationsWithOptions in read-only transaction, got nil")
+	} else if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+	_ = server.TestSpanner.DrainRequestsFromServer()
+
+	// Next statement must not inherit ro_mut_tag or priority.
+	if _, err := sqlConn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("subsequent ExecContext failed: %v", err)
+	}
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests), 1; g != w {
+		t.Fatalf("ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execRequests[0].(*spannerpb.ExecuteSqlRequest).RequestOptions.GetTransactionTag(), ""; g != w {
+		t.Errorf("leaked transaction tag\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execRequests[0].(*spannerpb.ExecuteSqlRequest).RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_UNSPECIFIED; g != w {
+		t.Errorf("leaked priority\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConn_BeginReadWriteTransaction_FailedDoesNotMutateState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	// Start a read-write transaction with an initial tag and priority.
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		_, beginErr := c.BeginReadWriteTransaction(ctx, &ReadWriteTransactionOptions{
+			TransactionOptions: spanner.TransactionOptions{
+				TransactionTag: "orig_tx_tag",
+				CommitPriority: spannerpb.RequestOptions_PRIORITY_LOW,
+			},
+		}, func() {})
+		return beginErr
+	}); err != nil {
+		t.Fatalf("initial BeginReadWriteTransaction failed: %v", err)
+	}
+
+	// Attempting a nested BeginReadWriteTransaction must fail without overwriting the active transaction's options.
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		_, beginErr := c.BeginReadWriteTransaction(ctx, &ReadWriteTransactionOptions{
+			TransactionOptions: spanner.TransactionOptions{
+				TransactionTag: "overwrite_tx_tag",
+				CommitPriority: spannerpb.RequestOptions_PRIORITY_HIGH,
+			},
+		}, func() {})
+		return beginErr
+	}); err == nil {
+		t.Fatal("expected error on nested BeginReadWriteTransaction, got nil")
+	}
+
+	if _, err := sqlConn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("ExecContext failed: %v", err)
+	}
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		_, commitErr := c.Commit(ctx)
+		return commitErr
+	}); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitReq := commitRequests[0].(*spannerpb.CommitRequest)
+	if g, w := commitReq.RequestOptions.GetTransactionTag(), "orig_tx_tag"; g != w {
+		t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitReq.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_LOW; g != w {
+		t.Errorf("commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConn_WriteMutationsWithOptions_DoesNotClearStatementTag(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	if _, err := sqlConn.ExecContext(ctx, "SET STATEMENT_TAG = 'preserved_stmt_tag'"); err != nil {
+		t.Fatalf("SET STATEMENT_TAG failed: %v", err)
+	}
+	mutation := spanner.Insert("my_table", []string{"id", "value"}, []any{"1", "One"})
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		_, writeErr := c.WriteMutationsWithOptions(ctx, []*spanner.Mutation{mutation}, &spannerpb.RequestOptions{
+			TransactionTag: "mut_tx_tag",
+			Priority:       spannerpb.RequestOptions_PRIORITY_LOW,
+		})
+		return writeErr
+	}); err != nil {
+		t.Fatalf("WriteMutationsWithOptions failed: %v", err)
+	}
+	if _, err := sqlConn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("ExecContext failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests), 1; g != w {
+		t.Fatalf("ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execRequests[0].(*spannerpb.ExecuteSqlRequest).RequestOptions.GetRequestTag(), "preserved_stmt_tag"; g != w {
+		t.Errorf("statement tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execRequests[0].(*spannerpb.ExecuteSqlRequest).RequestOptions.GetTransactionTag(), ""; g != w {
+		t.Errorf("leaked transaction tag\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConn_WriteMutationsWithOptions_AlreadyActivatedTransaction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	if _, err := sqlConn.ExecContext(ctx, "SET TRANSACTION_TAG = 'initial_tx_tag'"); err != nil {
+		t.Fatalf("SET TRANSACTION_TAG failed: %v", err)
+	}
+	tx, err := sqlConn.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	// First statement activates the transaction on Spanner with 'initial_tx_tag'.
+	if _, err := tx.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("ExecContext failed: %v", err)
+	}
+	mutation := spanner.Insert("my_table", []string{"id", "value"}, []any{"1", "One"})
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		_, writeErr := c.WriteMutationsWithOptions(ctx, []*spanner.Mutation{mutation}, &spannerpb.RequestOptions{
+			TransactionTag: "later_mut_tag",
+			Priority:       spannerpb.RequestOptions_PRIORITY_HIGH,
+		})
+		return writeErr
+	}); err != nil {
+		t.Fatalf("WriteMutationsWithOptions failed: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequests[0].(*spannerpb.CommitRequest).RequestOptions.GetTransactionTag(), "initial_tx_tag"; g != w {
+		t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConn_WriteMutationsWithOptions_BufferWriteErrorRestoresState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		_, beginErr := c.BeginReadWriteTransaction(ctx, &ReadWriteTransactionOptions{
+			TransactionOptions: spanner.TransactionOptions{
+				TransactionTag: "orig_sp_tag",
+				CommitPriority: spannerpb.RequestOptions_PRIORITY_LOW,
+			},
+		}, func() {})
+		return beginErr
+	}); err != nil {
+		t.Fatalf("BeginReadWriteTransaction failed: %v", err)
+	}
+	if _, err := sqlConn.ExecContext(ctx, "SAVEPOINT sp1"); err != nil {
+		t.Fatalf("SAVEPOINT sp1 failed: %v", err)
+	}
+	// Put rwTx into ReplayFailed state so BufferWrite fails while a savepoint recovery is still possible.
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		rwTx := c.tx.contextTransaction.(*readWriteTransaction)
+		rwTx.state = readWriteTxStateReplayFailed
+		rwTx.rwTx = nil
+		_, writeErr := c.WriteMutationsWithOptions(ctx, []*spanner.Mutation{
+			spanner.Insert("my_table", []string{"id", "value"}, []any{"1", "One"}),
+		}, &spannerpb.RequestOptions{
+			TransactionTag: "failed_mut_tag",
+			Priority:       spannerpb.RequestOptions_PRIORITY_HIGH,
+		})
+		return writeErr
+	}); err == nil {
+		t.Fatal("expected BufferWrite error in ReplayFailed state, got nil")
+	}
+	if _, err := sqlConn.ExecContext(ctx, "ROLLBACK TO SAVEPOINT sp1"); err != nil {
+		t.Fatalf("ROLLBACK TO SAVEPOINT sp1 failed: %v", err)
+	}
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		_, commitErr := c.Commit(ctx)
+		return commitErr
+	}); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitReq := commitRequests[0].(*spannerpb.CommitRequest)
+	if g, w := commitReq.RequestOptions.GetTransactionTag(), "orig_sp_tag"; g != w {
+		t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitReq.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_LOW; g != w {
+		t.Errorf("commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConn_WriteMutationsWithOptions_PostgresFailedTxStateE(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnectionWithDialect(t, databasepb.DatabaseDialect_POSTGRESQL)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		c.state.SetInErrorTxBehavior(connectionstate.InErrorTxBehaviorEnforceInErrorState)
+		_, beginErr := c.BeginReadWriteTransaction(ctx, &ReadWriteTransactionOptions{}, func() {})
+		return beginErr
+	}); err != nil {
+		t.Fatalf("BeginReadWriteTransaction failed: %v", err)
+	}
+
+	server.TestSpanner.PutStatementResult("UPDATE invalid SET x = 1", &testutil.StatementResult{
+		Type: testutil.StatementResultError,
+		Err:  status.Error(codes.InvalidArgument, "syntax error"),
+	})
+	if _, err := sqlConn.ExecContext(ctx, "UPDATE invalid SET x = 1"); err == nil {
+		t.Fatal("expected error from invalid SQL, got nil")
+	}
+
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		_, writeErr := c.WriteMutationsWithOptions(ctx, []*spanner.Mutation{
+			spanner.Insert("my_table", []string{"id", "value"}, []any{"1", "One"}),
+		}, &spannerpb.RequestOptions{
+			TransactionTag: "pg_err_tag",
+			Priority:       spannerpb.RequestOptions_PRIORITY_HIGH,
+		})
+		return writeErr
+	}); err == nil {
+		t.Fatal("expected error calling WriteMutationsWithOptions in PG error state, got nil")
+	} else if g, w := spanner.ErrCode(err), codes.FailedPrecondition; g != w {
+		t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		return c.Rollback(ctx)
+	}); err != nil {
+		t.Fatalf("Rollback failed: %v", err)
+	}
+	_ = server.TestSpanner.DrainRequestsFromServer()
+
+	if _, err := sqlConn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("subsequent ExecContext failed: %v", err)
+	}
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests), 1; g != w {
+		t.Fatalf("ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execRequests[0].(*spannerpb.ExecuteSqlRequest).RequestOptions.GetTransactionTag(), ""; g != w {
+		t.Errorf("leaked transaction tag\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execRequests[0].(*spannerpb.ExecuteSqlRequest).RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_UNSPECIFIED; g != w {
+		t.Errorf("leaked priority\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestConn_BeginReadOnlyTransaction_NilAndFailedDoesNotMutateState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, _, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	// Calling BeginReadOnlyTransaction(nil) succeeds and commits cleanly.
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		if _, err := c.BeginReadOnlyTransaction(ctx, nil, func() {}); err != nil {
+			return err
+		}
+		_, err := c.Commit(ctx)
+		return err
+	}); err != nil {
+		t.Fatalf("BeginReadOnlyTransaction(nil) failed: %v", err)
+	}
+
+	// Failed nested BeginReadOnlyTransaction must not mutate BeginTransactionOption or staleness.
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		if _, err := c.BeginReadWriteTransaction(ctx, nil, func() {}); err != nil {
+			return err
+		}
+		_, roErr := c.BeginReadOnlyTransaction(ctx, &ReadOnlyTransactionOptions{
+			BeginTransactionOption: spanner.ExplicitBeginTransaction,
+		}, func() {})
+		if roErr == nil {
+			return fmt.Errorf("expected error for nested BeginReadOnlyTransaction")
+		}
+		if g, w := propertyBeginTransactionOption.GetValueOrDefault(c.state), spanner.InlinedBeginTransaction; g != w {
+			return fmt.Errorf("begin_transaction_option mutated on failed BeginReadOnlyTransaction\nGot:  %v\nWant: %v", g, w)
+		}
+		return c.Rollback(ctx)
+	}); err != nil {
+		t.Fatalf("nested BeginReadOnlyTransaction check failed: %v", err)
+	}
+}
+
+func TestConn_ExplicitBeginTransaction_WithMutationAndBeginOptions(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, server, teardown := setupTestDBConnection(t)
+	defer teardown()
+
+	sqlConn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection: %v", err)
+	}
+	defer silentClose(sqlConn)
+
+	if _, err := sqlConn.ExecContext(ctx, "SET BEGIN_TRANSACTION_OPTION = 'ExplicitBeginTransaction'"); err != nil {
+		t.Fatalf("SET BEGIN_TRANSACTION_OPTION failed: %v", err)
+	}
+
+	// Case 1: BeginReadWriteTransaction + Execute + Commit sends tag on BeginTransactionRequest and tag+priority on CommitRequest.
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		_, beginErr := c.BeginReadWriteTransaction(ctx, &ReadWriteTransactionOptions{
+			TransactionOptions: spanner.TransactionOptions{
+				TransactionTag: "explicit_begin_tx",
+				CommitPriority: spannerpb.RequestOptions_PRIORITY_HIGH,
+			},
+		}, func() {})
+		return beginErr
+	}); err != nil {
+		t.Fatalf("BeginReadWriteTransaction failed: %v", err)
+	}
+	if _, err := sqlConn.ExecContext(ctx, testutil.UpdateBarSetFoo); err != nil {
+		t.Fatalf("ExecContext failed: %v", err)
+	}
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		_, commitErr := c.Commit(ctx)
+		return commitErr
+	}); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	// Case 2: Unactivated tx + WriteMutationsWithOptions buffers mutation and sends tag on BeginTransactionRequest and CommitRequest.
+	if err := sqlConn.Raw(func(driverConn any) error {
+		c := driverConn.(*conn)
+		_, beginErr := c.BeginReadWriteTransaction(ctx, &ReadWriteTransactionOptions{}, func() {})
+		if beginErr != nil {
+			return beginErr
+		}
+		if _, writeErr := c.WriteMutationsWithOptions(ctx, []*spanner.Mutation{
+			spanner.Insert("my_table", []string{"id", "value"}, []any{"1", "One"}),
+		}, &spannerpb.RequestOptions{
+			TransactionTag: "explicit_mut_tx",
+			Priority:       spannerpb.RequestOptions_PRIORITY_MEDIUM,
+		}); writeErr != nil {
+			return writeErr
+		}
+		_, commitErr := c.Commit(ctx)
+		return commitErr
+	}); err != nil {
+		t.Fatalf("ExplicitBeginTransaction + WriteMutationsWithOptions failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	beginRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.BeginTransactionRequest{}))
+	if g, w := len(beginRequests), 2; g != w {
+		t.Fatalf("BeginTransactionRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := beginRequests[0].(*spannerpb.BeginTransactionRequest).RequestOptions.GetTransactionTag(), "explicit_begin_tx"; g != w {
+		t.Errorf("first BeginTransactionRequest tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := beginRequests[1].(*spannerpb.BeginTransactionRequest).RequestOptions.GetTransactionTag(), "explicit_mut_tx"; g != w {
+		t.Errorf("second BeginTransactionRequest tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 2; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequests[0].(*spannerpb.CommitRequest).RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_HIGH; g != w {
+		t.Errorf("first CommitRequest priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequests[1].(*spannerpb.CommitRequest).RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_MEDIUM; g != w {
+		t.Errorf("second CommitRequest priority mismatch\nGot:  %v\nWant: %v", g, w)
 	}
 }
 

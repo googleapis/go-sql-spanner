@@ -660,6 +660,208 @@ func TestWriteMutations(t *testing.T) {
 	}
 }
 
+func insertTestMutationGroupBytes(t *testing.T) []byte {
+	t.Helper()
+	mutations := &spannerpb.BatchWriteRequest_MutationGroup{Mutations: []*spannerpb.Mutation{
+		{Operation: &spannerpb.Mutation_Insert{Insert: &spannerpb.Mutation_Write{
+			Table:   "my_table",
+			Columns: []string{"id", "value"},
+			Values: []*structpb.ListValue{
+				{Values: []*structpb.Value{structpb.NewStringValue("1"), structpb.NewStringValue("One")}},
+			},
+		}}},
+	}}
+	mutationBytes, err := proto.Marshal(mutations)
+	if err != nil {
+		t.Fatalf("Marshal mutations failed: %v", err)
+	}
+	return mutationBytes
+}
+
+func TestWriteMutationsWithOptions(t *testing.T) {
+	t.Parallel()
+
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	_, code, poolId, _, _, _ := CreatePool("test", dsn)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CreatePool result mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	defer func() { _, _, _, _, _, _ = ClosePool(poolId) }()
+	_, code, connId, _, _, _ := CreateConnection(poolId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CreateConnection result mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	mutationBytes := insertTestMutationGroupBytes(t)
+	reqOptsBytes, err := proto.Marshal(&spannerpb.RequestOptions{
+		TransactionTag: "shared_mut_tx",
+		Priority:       spannerpb.RequestOptions_PRIORITY_LOW,
+	})
+	if err != nil {
+		t.Fatalf("Marshal RequestOptions failed: %v", err)
+	}
+	mem, code, id, length, data, _ := WriteMutationsWithOptions(poolId, connId, mutationBytes, reqOptsBytes)
+	verifyDataMessage(t, "WriteMutationsWithOptions", mem, code, id, length, data)
+	if g, w := Release(mem), int32(0); g != w {
+		t.Fatalf("Release() result mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequests[0].(*spannerpb.CommitRequest).RequestOptions.GetTransactionTag(), "shared_mut_tx"; g != w {
+		t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestBeginTransactionWithOptions(t *testing.T) {
+	t.Parallel()
+
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	_, code, poolId, _, _, _ := CreatePool("test", dsn)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CreatePool result mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	defer func() { _, _, _, _, _, _ = ClosePool(poolId) }()
+	_, code, connId, _, _, _ := CreateConnection(poolId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CreateConnection result mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	txOptsBytes, err := proto.Marshal(&spannerpb.TransactionOptions{})
+	if err != nil {
+		t.Fatalf("Marshal TransactionOptions failed: %v", err)
+	}
+	reqOptsBytes, err := proto.Marshal(&spannerpb.RequestOptions{
+		TransactionTag: "shared_begin_tx",
+		Priority:       spannerpb.RequestOptions_PRIORITY_HIGH,
+	})
+	if err != nil {
+		t.Fatalf("Marshal RequestOptions failed: %v", err)
+	}
+	mem, code, id, length, data, _ := BeginTransactionWithOptions(poolId, connId, txOptsBytes, reqOptsBytes)
+	verifyEmptyMessage(t, "BeginTransactionWithOptions", mem, code, id, length, data)
+	execBytes, err := proto.Marshal(&spannerpb.ExecuteSqlRequest{Sql: testutil.UpdateBarSetFoo})
+	if err != nil {
+		t.Fatalf("Marshal ExecuteSqlRequest failed: %v", err)
+	}
+	_, code, rowsId, _, _, _ := Execute(poolId, connId, execBytes)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("Execute result mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	mem, code, id, length, data, _ = CloseRows(poolId, connId, rowsId)
+	verifyEmptyMessage(t, "CloseRows", mem, code, id, length, data)
+	mutationBytes := insertTestMutationGroupBytes(t)
+	mutReqOptsBytes, err := proto.Marshal(&spannerpb.RequestOptions{
+		TransactionTag: "ignored_or_same",
+		Priority:       spannerpb.RequestOptions_PRIORITY_LOW,
+	})
+	if err != nil {
+		t.Fatalf("Marshal mutation RequestOptions failed: %v", err)
+	}
+	mem, code, id, length, data, _ = WriteMutationsWithOptions(poolId, connId, mutationBytes, mutReqOptsBytes)
+	verifyEmptyMessage(t, "WriteMutationsWithOptions(in tx)", mem, code, id, length, data)
+	mem, code, id, length, data, _ = Commit(poolId, connId)
+	verifyDataMessage(t, "Commit", mem, code, id, length, data)
+	if g, w := Release(mem), int32(0); g != w {
+		t.Fatalf("Release() result mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitReq := commitRequests[0].(*spannerpb.CommitRequest)
+	if g, w := commitReq.RequestOptions.GetTransactionTag(), "shared_begin_tx"; g != w {
+		t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitReq.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_HIGH; g != w {
+		t.Errorf("commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestWriteMutationsAndBeginTransactionWithOptions_Errors(t *testing.T) {
+	t.Parallel()
+
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+
+	_, code, poolId, _, _, _ := CreatePool("test", dsn)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CreatePool result mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	defer func() { _, _, _, _, _, _ = ClosePool(poolId) }()
+	_, code, connId, _, _, _ := CreateConnection(poolId)
+	if g, w := code, int32(0); g != w {
+		t.Fatalf("CreateConnection result mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	mutationBytes := insertTestMutationGroupBytes(t)
+	txOptsBytes, err := proto.Marshal(&spannerpb.TransactionOptions{})
+	if err != nil {
+		t.Fatalf("Marshal TransactionOptions failed: %v", err)
+	}
+	reqOptsBytes, err := proto.Marshal(&spannerpb.RequestOptions{TransactionTag: "invalid_pool"})
+	if err != nil {
+		t.Fatalf("Marshal RequestOptions failed: %v", err)
+	}
+	invalidBytes := []byte{0xff, 0xff, 0xff}
+
+	tests := []struct {
+		name string
+		call func() (int64, int32, int64, int32, unsafe.Pointer, int32)
+	}{
+		{
+			name: "WriteMutationsWithOptions_invalid_request_options",
+			call: func() (int64, int32, int64, int32, unsafe.Pointer, int32) {
+				return WriteMutationsWithOptions(poolId, connId, mutationBytes, invalidBytes)
+			},
+		},
+		{
+			name: "BeginTransactionWithOptions_invalid_request_options",
+			call: func() (int64, int32, int64, int32, unsafe.Pointer, int32) {
+				return BeginTransactionWithOptions(poolId, connId, txOptsBytes, invalidBytes)
+			},
+		},
+		{
+			name: "WriteMutationsWithOptions_invalid_pool",
+			call: func() (int64, int32, int64, int32, unsafe.Pointer, int32) {
+				return WriteMutationsWithOptions(-1, connId, mutationBytes, reqOptsBytes)
+			},
+		},
+		{
+			name: "BeginTransactionWithOptions_invalid_pool",
+			call: func() (int64, int32, int64, int32, unsafe.Pointer, int32) {
+				return BeginTransactionWithOptions(-1, connId, txOptsBytes, reqOptsBytes)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mem, code, _, _, _, _ := tc.call()
+			if code == 0 {
+				t.Fatalf("%s: expected non-zero error code", tc.name)
+			}
+			if mem != 0 {
+				if g, w := Release(mem), int32(0); g != w {
+					t.Fatalf("%s: Release() result mismatch\nGot:  %v\nWant: %v", tc.name, g, w)
+				}
+			}
+		})
+	}
+}
+
 func verifyEmptyMessage(t *testing.T, name string, mem int64, code int32, id int64, length int32, res unsafe.Pointer) {
 	if g, w := mem, int64(0); g != w {
 		t.Fatalf("%s: mem ID mismatch\n Got: %v\nWant: %v", name, g, w)

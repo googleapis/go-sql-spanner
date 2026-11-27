@@ -39,4 +39,19 @@ public interface WriteMutationsRequestOrBuilder extends
    * <code>.google.spanner.v1.BatchWriteRequest.MutationGroup mutations = 2 [(.google.api.field_behavior) = REQUIRED];</code>
    */
   com.google.spanner.v1.BatchWriteRequest.MutationGroupOrBuilder getMutationsOrBuilder();
+
+  /**
+   * <code>.google.spanner.v1.RequestOptions request_options = 3;</code>
+   * @return Whether the requestOptions field is set.
+   */
+  boolean hasRequestOptions();
+  /**
+   * <code>.google.spanner.v1.RequestOptions request_options = 3;</code>
+   * @return The requestOptions.
+   */
+  com.google.spanner.v1.RequestOptions getRequestOptions();
+  /**
+   * <code>.google.spanner.v1.RequestOptions request_options = 3;</code>
+   */
+  com.google.spanner.v1.RequestOptionsOrBuilder getRequestOptionsOrBuilder();
 }

@@ -69,6 +69,16 @@ func CloseConnection(ctx context.Context, poolId, connId int64) error {
 //
 // The mutationsBytes must be an encoded BatchWriteRequest_MutationGroup protobuf object.
 func WriteMutations(ctx context.Context, poolId, connId int64, mutations *spannerpb.BatchWriteRequest_MutationGroup) (*spannerpb.CommitResponse, error) {
+	return WriteMutationsWithOptions(ctx, poolId, connId, mutations, nil)
+}
+
+// WriteMutationsWithOptions writes an array of mutations to Spanner with the given request options.
+// The mutations are buffered in the current read/write transaction if the connection currently has
+// a read/write transaction. The mutations are applied to the database in a new read/write transaction
+// that is automatically committed if the connection currently does not have a transaction.
+//
+// The function returns an error if the connection is currently in a read-only transaction.
+func WriteMutationsWithOptions(ctx context.Context, poolId, connId int64, mutations *spannerpb.BatchWriteRequest_MutationGroup, requestOptions *spannerpb.RequestOptions) (*spannerpb.CommitResponse, error) {
 	if mutations == nil {
 		return nil, status.Error(codes.InvalidArgument, "mutations must not be nil")
 	}
@@ -76,7 +86,7 @@ func WriteMutations(ctx context.Context, poolId, connId int64, mutations *spanne
 	if err != nil {
 		return nil, err
 	}
-	return conn.writeMutations(ctx, mutations)
+	return conn.writeMutations(ctx, mutations, requestOptions)
 }
 
 // BeginTransaction starts a new transaction on the given connection.
@@ -87,11 +97,16 @@ func WriteMutations(ctx context.Context, poolId, connId int64, mutations *spanne
 // invalidated if the context is cancelled. The context that is passed in to this function should therefore not be a
 // context that is cancelled right after calling this function.
 func BeginTransaction(ctx context.Context, poolId, connId int64, txOpts *spannerpb.TransactionOptions) error {
+	return BeginTransactionWithOptions(ctx, poolId, connId, txOpts, nil)
+}
+
+// BeginTransactionWithOptions starts a new transaction on the given connection with the given request options.
+func BeginTransactionWithOptions(ctx context.Context, poolId, connId int64, txOpts *spannerpb.TransactionOptions, requestOpts *spannerpb.RequestOptions) error {
 	conn, err := findConnection(poolId, connId)
 	if err != nil {
 		return err
 	}
-	return conn.BeginTransaction(ctx, txOpts)
+	return conn.BeginTransactionWithOptions(ctx, txOpts, requestOpts)
 }
 
 // Commit commits the current transaction on the given connection.
@@ -158,6 +173,7 @@ type Connection struct {
 // It is implemented by the spannerdriver.conn struct.
 type spannerConn interface {
 	WriteMutations(ctx context.Context, ms []*spanner.Mutation) (*spanner.CommitResponse, error)
+	WriteMutationsWithOptions(ctx context.Context, ms []*spanner.Mutation, requestOptions *spannerpb.RequestOptions) (*spanner.CommitResponse, error)
 	StartBatchDMLWithOptions(options *spannerdriver.ExecOptions) error
 	BeginReadOnlyTransaction(ctx context.Context, options *spannerdriver.ReadOnlyTransactionOptions, close func()) (driver.Tx, error)
 	BeginReadWriteTransaction(ctx context.Context, options *spannerdriver.ReadWriteTransactionOptions, close func()) (driver.Tx, error)
@@ -186,7 +202,7 @@ func (conn *Connection) close(ctx context.Context) error {
 	return nil
 }
 
-func (conn *Connection) writeMutations(ctx context.Context, mutation *spannerpb.BatchWriteRequest_MutationGroup) (*spannerpb.CommitResponse, error) {
+func (conn *Connection) writeMutations(ctx context.Context, mutation *spannerpb.BatchWriteRequest_MutationGroup, requestOptions *spannerpb.RequestOptions) (*spannerpb.CommitResponse, error) {
 	mutations := make([]*spanner.Mutation, 0, len(mutation.Mutations))
 	for _, m := range mutation.Mutations {
 		if m == nil {
@@ -204,7 +220,7 @@ func (conn *Connection) writeMutations(ctx context.Context, mutation *spannerpb.
 		if !ok {
 			return status.Error(codes.Internal, "spanner driver connection does not implement spannerConn")
 		}
-		commitResponse, err = sc.WriteMutations(ctx, mutations)
+		commitResponse, err = sc.WriteMutationsWithOptions(ctx, mutations, requestOptions)
 		return err
 	}); err != nil {
 		return nil, err
@@ -220,14 +236,14 @@ func (conn *Connection) writeMutations(ctx context.Context, mutation *spannerpb.
 	return &response, nil
 }
 
-func (conn *Connection) BeginTransaction(ctx context.Context, txOpts *spannerpb.TransactionOptions) error {
+func (conn *Connection) BeginTransactionWithOptions(ctx context.Context, txOpts *spannerpb.TransactionOptions, requestOpts *spannerpb.RequestOptions) error {
 	var err error
 	if txOpts.GetReadOnly() != nil {
 		return conn.beginReadOnlyTransaction(ctx, convertToReadOnlyOpts(txOpts))
 	} else if txOpts.GetPartitionedDml() != nil {
 		err = spanner.ToSpannerError(status.Error(codes.InvalidArgument, "transaction type not supported"))
 	} else {
-		return conn.beginReadWriteTransaction(ctx, convertToReadWriteTransactionOptions(txOpts))
+		return conn.beginReadWriteTransaction(ctx, convertToReadWriteTransactionOptions(txOpts, requestOpts))
 	}
 	if err != nil {
 		return err
@@ -313,17 +329,22 @@ func convertTimestampBound(txOpts *spannerpb.TransactionOptions) spanner.Timesta
 	return spanner.TimestampBound{}
 }
 
-func convertToReadWriteTransactionOptions(txOpts *spannerpb.TransactionOptions) *spannerdriver.ReadWriteTransactionOptions {
+func convertToReadWriteTransactionOptions(txOpts *spannerpb.TransactionOptions, requestOpts *spannerpb.RequestOptions) *spannerdriver.ReadWriteTransactionOptions {
 	readLockMode := spannerpb.TransactionOptions_ReadWrite_READ_LOCK_MODE_UNSPECIFIED
 	if txOpts.GetReadWrite() != nil {
 		readLockMode = txOpts.GetReadWrite().GetReadLockMode()
 	}
-	return &spannerdriver.ReadWriteTransactionOptions{
+	opts := &spannerdriver.ReadWriteTransactionOptions{
 		TransactionOptions: spanner.TransactionOptions{
 			IsolationLevel: txOpts.GetIsolationLevel(),
 			ReadLockMode:   readLockMode,
 		},
 	}
+	if requestOpts != nil {
+		opts.TransactionOptions.TransactionTag = requestOpts.TransactionTag
+		opts.TransactionOptions.CommitPriority = requestOpts.Priority
+	}
+	return opts
 }
 
 func convertIsolationLevel(level spannerpb.TransactionOptions_IsolationLevel) sql.IsolationLevel {

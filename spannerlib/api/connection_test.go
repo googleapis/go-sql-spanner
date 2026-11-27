@@ -26,7 +26,9 @@ import (
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/googleapis/go-sql-spanner/testutil"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -698,5 +700,371 @@ func TestApiNilArguments(t *testing.T) {
 				t.Errorf("error code mismatch\nGot:  %v\nWant: %v (err: %v)", g, w, err)
 			}
 		})
+	}
+}
+
+func setupPoolAndConnection(t *testing.T, ctx context.Context, dsn string) (int64, int64) {
+	t.Helper()
+	poolId, err := CreatePool(ctx, "test", dsn)
+	if err != nil {
+		t.Fatalf("CreatePool returned unexpected error: %v", err)
+	}
+	t.Cleanup(func() { _ = ClosePool(ctx, poolId) })
+	connId, err := CreateConnection(ctx, poolId)
+	if err != nil {
+		t.Fatalf("CreateConnection returned unexpected error: %v", err)
+	}
+	return poolId, connId
+}
+
+func insertTestMutations() *spannerpb.BatchWriteRequest_MutationGroup {
+	return &spannerpb.BatchWriteRequest_MutationGroup{Mutations: []*spannerpb.Mutation{
+		{Operation: &spannerpb.Mutation_Insert{Insert: &spannerpb.Mutation_Write{
+			Table:   "my_table",
+			Columns: []string{"id", "value"},
+			Values: []*structpb.ListValue{
+				{Values: []*structpb.Value{structpb.NewStringValue("1"), structpb.NewStringValue("One")}},
+			},
+		}}},
+	}}
+}
+
+func TestWriteMutationsWithOptions(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+	poolId, connId := setupPoolAndConnection(t, ctx, dsn)
+
+	mutations := insertTestMutations()
+	reqOpts := &spannerpb.RequestOptions{
+		TransactionTag: "mut_tx_tag';--",
+		Priority:       spannerpb.RequestOptions_PRIORITY_LOW,
+	}
+	resp, err := WriteMutationsWithOptions(ctx, poolId, connId, mutations, reqOpts)
+	if err != nil {
+		t.Fatalf("WriteMutationsWithOptions returned unexpected error: %v", err)
+	}
+	if resp == nil || resp.CommitTimestamp == nil {
+		t.Fatalf("expected CommitTimestamp, got: %v", resp)
+	}
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitRequest := commitRequests[0].(*spannerpb.CommitRequest)
+	if g, w := commitRequest.RequestOptions.GetTransactionTag(), "mut_tx_tag';--"; g != w {
+		t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequest.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_LOW; g != w {
+		t.Errorf("commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// Write mutations inside a transaction with RequestOptions.
+	if err := BeginTransaction(ctx, poolId, connId, &spannerpb.TransactionOptions{}); err != nil {
+		t.Fatalf("BeginTransaction returned unexpected error: %v", err)
+	}
+	resp, err = WriteMutationsWithOptions(ctx, poolId, connId, mutations, &spannerpb.RequestOptions{
+		TransactionTag: "tx_mut_tag",
+		Priority:       spannerpb.RequestOptions_PRIORITY_MEDIUM,
+	})
+	if err != nil {
+		t.Fatalf("WriteMutationsWithOptions in tx returned unexpected error: %v", err)
+	}
+	if resp != nil {
+		t.Fatalf("expected nil response when buffering in tx, got: %v", resp)
+	}
+	if _, err := Commit(ctx, poolId, connId); err != nil {
+		t.Fatalf("Commit returned unexpected error: %v", err)
+	}
+	requests = server.TestSpanner.DrainRequestsFromServer()
+	commitRequests = testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitRequest = commitRequests[0].(*spannerpb.CommitRequest)
+	if g, w := commitRequest.RequestOptions.GetTransactionTag(), "tx_mut_tag"; g != w {
+		t.Errorf("tx commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequest.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_MEDIUM; g != w {
+		t.Errorf("tx commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestBeginTransactionWithOptions(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+	poolId, connId := setupPoolAndConnection(t, ctx, dsn)
+
+	if err := BeginTransactionWithOptions(ctx, poolId, connId, &spannerpb.TransactionOptions{}, &spannerpb.RequestOptions{
+		TransactionTag: "begin_tx_tag';--",
+		Priority:       spannerpb.RequestOptions_PRIORITY_HIGH,
+	}); err != nil {
+		t.Fatalf("BeginTransactionWithOptions returned unexpected error: %v", err)
+	}
+	rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{
+		Sql: testutil.UpdateBarSetFoo,
+	})
+	if err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
+	}
+	if err := CloseRows(ctx, poolId, connId, rowsId); err != nil {
+		t.Fatalf("CloseRows returned unexpected error: %v", err)
+	}
+	if _, err := Commit(ctx, poolId, connId); err != nil {
+		t.Fatalf("Commit returned unexpected error: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests), 1; g != w {
+		t.Fatalf("ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execRequests[0].(*spannerpb.ExecuteSqlRequest).RequestOptions.GetTransactionTag(), "begin_tx_tag';--"; g != w {
+		t.Errorf("execute transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitRequest := commitRequests[0].(*spannerpb.CommitRequest)
+	if g, w := commitRequest.RequestOptions.GetTransactionTag(), "begin_tx_tag';--"; g != w {
+		t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitRequest.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_HIGH; g != w {
+		t.Errorf("commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestWriteMutationsWithOptions_NilAndErrorNoLeak(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+	poolId, connId := setupPoolAndConnection(t, ctx, dsn)
+
+	if _, err := WriteMutationsWithOptions(ctx, poolId, connId, nil, &spannerpb.RequestOptions{
+		TransactionTag: "nil_mut_tag",
+		Priority:       spannerpb.RequestOptions_PRIORITY_HIGH,
+	}); err == nil {
+		t.Fatal("expected error for nil mutations, got nil")
+	} else if g, w := status.Code(err), codes.InvalidArgument; g != w {
+		t.Errorf("error code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	mutations := insertTestMutations()
+	server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+		Errors: []error{status.Error(codes.PermissionDenied, "permission denied")},
+	})
+	if _, err := WriteMutationsWithOptions(ctx, poolId, connId, mutations, &spannerpb.RequestOptions{
+		TransactionTag: "err_mut_tag",
+		Priority:       spannerpb.RequestOptions_PRIORITY_HIGH,
+	}); err == nil {
+		t.Fatal("expected error from Commit, got nil")
+	}
+	_ = server.TestSpanner.DrainRequestsFromServer()
+
+	rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: testutil.UpdateBarSetFoo})
+	if err != nil {
+		t.Fatalf("subsequent Execute failed: %v", err)
+	}
+	if err := CloseRows(ctx, poolId, connId, rowsId); err != nil {
+		t.Fatalf("CloseRows failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests), 1; g != w {
+		t.Fatalf("ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execRequests[0].(*spannerpb.ExecuteSqlRequest).RequestOptions.GetTransactionTag(), ""; g != w {
+		t.Errorf("leaked transaction tag\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execRequests[0].(*spannerpb.ExecuteSqlRequest).RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_UNSPECIFIED; g != w {
+		t.Errorf("leaked priority\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestBeginTransactionWithOptions_RollbackNoLeak(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+	poolId, connId := setupPoolAndConnection(t, ctx, dsn)
+
+	if err := BeginTransactionWithOptions(ctx, poolId, connId, &spannerpb.TransactionOptions{}, &spannerpb.RequestOptions{
+		TransactionTag: "rolled_back_tx_tag",
+		Priority:       spannerpb.RequestOptions_PRIORITY_HIGH,
+	}); err != nil {
+		t.Fatalf("BeginTransactionWithOptions failed: %v", err)
+	}
+	if err := Rollback(ctx, poolId, connId); err != nil {
+		t.Fatalf("Rollback failed: %v", err)
+	}
+
+	if err := BeginTransaction(ctx, poolId, connId, &spannerpb.TransactionOptions{}); err != nil {
+		t.Fatalf("subsequent BeginTransaction failed: %v", err)
+	}
+	rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: testutil.UpdateBarSetFoo})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if err := CloseRows(ctx, poolId, connId, rowsId); err != nil {
+		t.Fatalf("CloseRows failed: %v", err)
+	}
+	if _, err := Commit(ctx, poolId, connId); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	execRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.ExecuteSqlRequest{}))
+	if g, w := len(execRequests), 1; g != w {
+		t.Fatalf("ExecuteSqlRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := execRequests[0].(*spannerpb.ExecuteSqlRequest).RequestOptions.GetTransactionTag(), ""; g != w {
+		t.Errorf("leaked transaction tag to Execute\nGot:  %v\nWant: %v", g, w)
+	}
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitReq := commitRequests[0].(*spannerpb.CommitRequest)
+	if g, w := commitReq.RequestOptions.GetTransactionTag(), ""; g != w {
+		t.Errorf("leaked transaction tag to Commit\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitReq.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_UNSPECIFIED; g != w {
+		t.Errorf("leaked priority to Commit\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestBeginTransactionWithOptions_AlreadyInTxNoLeak(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+	poolId, connId := setupPoolAndConnection(t, ctx, dsn)
+
+	if err := BeginTransactionWithOptions(ctx, poolId, connId, &spannerpb.TransactionOptions{}, &spannerpb.RequestOptions{
+		TransactionTag: "orig_api_tx",
+		Priority:       spannerpb.RequestOptions_PRIORITY_LOW,
+	}); err != nil {
+		t.Fatalf("BeginTransactionWithOptions failed: %v", err)
+	}
+	if err := BeginTransactionWithOptions(ctx, poolId, connId, &spannerpb.TransactionOptions{}, &spannerpb.RequestOptions{
+		TransactionTag: "nested_api_tx",
+		Priority:       spannerpb.RequestOptions_PRIORITY_HIGH,
+	}); err == nil {
+		t.Fatal("expected error for nested BeginTransactionWithOptions, got nil")
+	}
+
+	rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: testutil.UpdateBarSetFoo})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if err := CloseRows(ctx, poolId, connId, rowsId); err != nil {
+		t.Fatalf("CloseRows failed: %v", err)
+	}
+	if _, err := Commit(ctx, poolId, connId); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 1; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	commitReq := commitRequests[0].(*spannerpb.CommitRequest)
+	if g, w := commitReq.RequestOptions.GetTransactionTag(), "orig_api_tx"; g != w {
+		t.Errorf("commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := commitReq.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_LOW; g != w {
+		t.Errorf("commit priority mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+}
+
+func TestBeginTransactionWithOptions_ReadOnlyPartitionedAndAbortedRetry(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	server, teardown := setupMockServer(t)
+	defer teardown()
+	dsn := fmt.Sprintf("%s/projects/p/instances/i/databases/d?useplaintext=true", server.Address)
+	poolId, connId := setupPoolAndConnection(t, ctx, dsn)
+
+	// Partitioned DML transactions are rejected without mutating connection state.
+	if err := BeginTransactionWithOptions(ctx, poolId, connId, &spannerpb.TransactionOptions{
+		Mode: &spannerpb.TransactionOptions_PartitionedDml_{
+			PartitionedDml: &spannerpb.TransactionOptions_PartitionedDml{},
+		},
+	}, &spannerpb.RequestOptions{
+		TransactionTag: "pdml_ignored_tag",
+		Priority:       spannerpb.RequestOptions_PRIORITY_HIGH,
+	}); err == nil {
+		t.Fatal("expected error for PartitionedDml transaction, got nil")
+	} else if g, w := status.Code(err), codes.InvalidArgument; g != w {
+		t.Errorf("PartitionedDml error code mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+
+	// Read-only transaction ignores RequestOptions and does not leak them.
+	if err := BeginTransactionWithOptions(ctx, poolId, connId, &spannerpb.TransactionOptions{
+		Mode: &spannerpb.TransactionOptions_ReadOnly_{
+			ReadOnly: &spannerpb.TransactionOptions_ReadOnly{},
+		},
+	}, &spannerpb.RequestOptions{
+		TransactionTag: "ro_ignored_tag",
+		Priority:       spannerpb.RequestOptions_PRIORITY_HIGH,
+	}); err != nil {
+		t.Fatalf("read-only BeginTransactionWithOptions failed: %v", err)
+	}
+	if _, err := Commit(ctx, poolId, connId); err != nil {
+		t.Fatalf("read-only Commit failed: %v", err)
+	}
+
+	// Read-write transaction with Aborted retry on Commit preserves BeginTransactionWithOptions tags/priority.
+	abortedSt, _ := status.New(codes.Aborted, "Aborted").WithDetails(&errdetails.RetryInfo{RetryDelay: durationpb.New(time.Nanosecond)})
+	server.TestSpanner.PutExecutionTime(testutil.MethodCommitTransaction, testutil.SimulatedExecutionTime{
+		Errors: []error{abortedSt.Err()},
+	})
+	if err := BeginTransactionWithOptions(ctx, poolId, connId, &spannerpb.TransactionOptions{}, &spannerpb.RequestOptions{
+		TransactionTag: "retry_begin_tx",
+		Priority:       spannerpb.RequestOptions_PRIORITY_MEDIUM,
+	}); err != nil {
+		t.Fatalf("read-write BeginTransactionWithOptions failed: %v", err)
+	}
+	rowsId, err := Execute(ctx, poolId, connId, &spannerpb.ExecuteSqlRequest{Sql: testutil.UpdateBarSetFoo})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if err := CloseRows(ctx, poolId, connId, rowsId); err != nil {
+		t.Fatalf("CloseRows failed: %v", err)
+	}
+	if _, err := Commit(ctx, poolId, connId); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	requests := server.TestSpanner.DrainRequestsFromServer()
+	commitRequests := testutil.RequestsOfType(requests, reflect.TypeOf(&spannerpb.CommitRequest{}))
+	if g, w := len(commitRequests), 2; g != w {
+		t.Fatalf("CommitRequest count mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	finalCommit := commitRequests[1].(*spannerpb.CommitRequest)
+	if g, w := finalCommit.RequestOptions.GetTransactionTag(), "retry_begin_tx"; g != w {
+		t.Errorf("final commit transaction tag mismatch\nGot:  %v\nWant: %v", g, w)
+	}
+	if g, w := finalCommit.RequestOptions.GetPriority(), spannerpb.RequestOptions_PRIORITY_MEDIUM; g != w {
+		t.Errorf("final commit priority mismatch\nGot:  %v\nWant: %v", g, w)
 	}
 }
